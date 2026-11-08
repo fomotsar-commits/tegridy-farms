@@ -1,15 +1,18 @@
-// Changes through the 48-hour role lock (src/lock.ts), written UNSIGNED to <out>/lock-<what>-<n>.tx.json
-// for the co-signing page (scripts/cosign.ts), which reads each one in plain words and gets
-// every signature from the owners' own wallets. This script signs and submits nothing. Each
-// transaction is judged by the node (Ogmios evaluateTransaction) and read back with the page's
-// own reading before it is written.
+// Changes through the 48-hour role lock (src/lock.ts), and the withdrawal of a pool's venue fee
+// share to the treasury, written UNSIGNED to <out>/lock-<what>-<n>.tx.json for the co-signing
+// page (scripts/cosign.ts), which reads each one in plain words and gets every signature from
+// the owners' own wallets. This script signs and submits nothing. Each transaction is judged by
+// the node (Ogmios evaluateTransaction) and read back with the page's own reading before it is
+// written.
 //   node scripts/lock.ts show <inputs.json> <out>
 //   node scripts/lock.ts announce <inputs.json> <out> --pool <A>,<B> [--fee-share <n>|off] [--base-fee <a>/<b>] [--dynamic-fee on|off] [--stake key:<hash>|script:<hash>|none]
 //   node scripts/lock.ts announce <inputs.json> <out> --setting [--opening-fee <lovelace>] [--batchers <hash>,<hash>]
 //   node scripts/lock.ts execute <inputs.json> <out> --index <n> [the change's flags, checked against the announced one] [--simulate]
 //   node scripts/lock.ts cancel <inputs.json> <out> --index <n>
+//   node scripts/lock.ts withdraw <inputs.json> <out> --pool <A>,<B>
 // Assets: "ada", or "<policy hex>.<name hex>". --valid-for <minutes> (default 120, at most 720):
-// how long the owners have to sign and send it. An Announce is ready 48 hours after that.
+// how long the owners have to sign and send it. An Announce is ready 48 hours after that. A
+// withdrawal waits for nothing: it takes the pool's whole earned share to the inputs' treasury.
 // --simulate (execute only): the Execute dated just after ready_at, judged offline by Aiken
 // (AIKEN=<aiken 1.0.24>) with the network's slot times, written as a .draft (never signable).
 // <out> is deploy.ts's: scripts.json and state.json (the reference scripts) name the lock, the pool
@@ -38,9 +41,11 @@ import {
   readLockTx,
   settingChange,
   settingNow,
+  shareOf,
   summary,
   timeOf,
   utc,
+  withdrawSpec,
   type Change,
   type LockDeployment,
   type LockPlan,
@@ -57,7 +62,7 @@ import type { Asset, Credential } from '../src/types.ts';
 import { lpAssetName } from '../src/verify.ts';
 
 const [cmd, inputsPath, outArg] = process.argv.slice(2);
-if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/lock.ts <show|announce|execute|cancel> <inputs.json> <out> [flags]');
+if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/lock.ts <show|announce|execute|cancel|withdraw> <inputs.json> <out> [flags]');
 const out: string = outArg;
 const has = (f: string) => process.argv.includes(f);
 const flag = (f: string) => {
@@ -225,6 +230,17 @@ if (cmd === 'announce') {
   } else validity = executeWindow(t.slot, network, a.readyAt, validFor);
   spec = executeSpec(d, refs, lock, i, target, setting, pp);
   if (target.ref !== setting.ref) extra.push(target);
+} else if (cmd === 'withdraw') {
+  const p = (flag('--pool') ?? '').split(',');
+  if (p.length !== 2) throw new LockRefused('--pool <A>,<B>: the pool to take the venue share from');
+  if (asksPool || asksSetting || has('--simulate')) throw new LockRefused('a withdrawal changes nothing and waits for nothing: it takes only --pool and --valid-for');
+  const pool = await poolOf(asset(p[0]!), asset(p[1]!));
+  const s = shareOf(pool.outputHex);
+  console.log(`the venue's share in ${pool.ref}: ${s.a} of ${s.assetA.policyId ? `${s.assetA.policyId}.${s.assetA.assetName}` : 'lovelace'}, ${s.b} of ${s.assetB.policyId}.${s.assetB.assetName}`);
+  const w = announceWindow(t.slot, network, validFor);
+  validity = { start: w.start, ttl: w.ttl };
+  spec = withdrawSpec(d, refs, lock, pool, setting, pp);
+  extra.push(pool);
 } else throw new Error(`unknown command ${cmd}`);
 
 // ---- built, judged, read back, written ----
@@ -267,10 +283,11 @@ const b = lockTx(spec, plan(budgets));
 await judge(b.txHex); // judged again at its final budgets and fee
 const r = readLockTx(b.txHex, output, d, current);
 if (!r) throw new LockRefused('the transaction built spends no lock: nothing written');
-writeFileSync(join(out, `${name}.tx.json`), `${JSON.stringify({ type: 'Tx ConwayEra', description: `memetics.finance lock: ${r.action} #${r.index}`, cborHex: b.txHex }, null, 1)}\n`);
+writeFileSync(join(out, `${name}.tx.json`), `${JSON.stringify({ type: 'Tx ConwayEra', description: `memetics.finance lock: ${r.action}${r.index === undefined ? '' : ` #${r.index}`}`, cborHex: b.txHex }, null, 1)}\n`);
 console.log(`${name}: ${b.txId}, fee ${b.fee} lovelace, judged by the node (${[...budgets].map(([k, v]) => `${k} ${v.mem} memory, ${v.steps} steps`).join('; ')}), written to ${join(out, `${name}.tx.json`)}`);
 for (const w of r.words) console.log(`  ${w}`);
 console.log(`  ${r.when}`);
 console.log(`  valid from ${utc(slotToPosixMs(validity.start, timeOf(network)))} until ${utc(slotToPosixMs(validity.ttl, timeOf(network)))}: both owners and the deployer sign on the page before then`);
+if (r.withdrawal) console.log(`  the network fee, ${b.fee} lovelace, is the deployer's; so is any min-ADA the treasury's output holds above the share`);
 console.log(`next: KOIOS_URL=... node scripts/cosign.ts serve "${inputsPath}" "${out}", open ${name}, sign in each wallet; then cosign.ts submit ... ${name}`);
 }

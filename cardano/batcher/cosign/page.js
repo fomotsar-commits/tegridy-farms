@@ -62,7 +62,16 @@ function render(s) {
   const part = (title, node) => b.append(el('h3', {}, title), node);
   if (r.lock) {
     const l = r.lock;
-    part(`Through the 48-hour lock: ${l.action}`, el('div', { class: 'lock' },
+    const w = l.withdrawal;
+    const coinRows = (list) => list.map((c) => [c.ticker, c.policy ? el('code', {}, c.policy) : 'none (ADA)', c.name ? el('code', {}, c.name) : '', c.policy ? BigInt(c.quantity).toLocaleString('en-US') : ada(c.quantity)]);
+    part(w ? "Through the lock: the venue's fee share to the treasury" : `Through the 48-hour lock: ${l.action}`, el('div', { class: 'lock' },
+      ...(w ? [
+        el('p', {}, el('strong', {}, 'Leaves the pool '), w.pool),
+        table(['Coin', 'Policy id', 'Name (hex)', 'Amount'], coinRows(w.leaves)),
+        el('p', {}, el('strong', {}, 'To the treasury, and nowhere else: '), addr(w.treasury)),
+        table(['Coin', 'Policy id', 'Name (hex)', 'The treasury receives'], coinRows(w.receives)),
+        el('p', {}, el('strong', {}, 'The pool after: '), `reserves ${BigInt(w.after.reserveA).toLocaleString('en-US')} / ${BigInt(w.after.reserveB).toLocaleString('en-US')}, total liquidity ${BigInt(w.after.totalLiquidity).toLocaleString('en-US')}, LP balance ${BigInt(w.after.lp).toLocaleString('en-US')}: all unchanged`),
+      ] : []),
       el('ul', {}, ...l.words.map((w) => el('li', {}, w))),
       el('p', {}, el('strong', {}, 'When: '), l.when),
       el('p', { class: 'small' }, `The lock after it: ${l.announced.length ? '' : 'nothing announced.'}`),

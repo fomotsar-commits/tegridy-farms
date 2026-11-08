@@ -132,6 +132,49 @@ KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts cancel inputs.json out --index
   the trade fee; base fee 30/30 (0.30% each way), unchanged; stake: kept") and when it can run,
   in UTC, before any wallet is asked.
 
+### Withdraw the venue's share from a pool (`lock.ts withdraw`)
+
+**How the money moves.** Each trade in a pool pays 0.30%. Once the pool's venue share is on
+(1333/10000 of that fee), about 0.04% of every trade stays in the pool above what its LPs own:
+the pool's value holds it, its datum's reserves do not. Only the lock's `WithdrawFeeSharing` can
+take it out, and the lock pays it only to the treasury in the deploy inputs (two keys). The share
+is in whatever the traders paid in: ADA when they buy the coin, the coin when they sell it, so the
+treasury receives coins too. LPs lose nothing: their reserves and LP tokens do not move.
+
+The withdrawal waits for nothing (no 48 hours) but both owners sign it. Its network fee, about
+0.5 ADA, is the deployer's. When the share in ADA is less than an output must hold (about 1 ADA,
+1.2 with a coin), the deployer adds the rest, and that lands in the treasury too. So withdraw a
+pool when its share is well above 0.5 ADA: about 1,250 ADA of trading leaves 0.5 ADA of share.
+
+You need `inputs.json` and `out` from the deploy, your Ogmios, and the deployer wallet holding
+one plain-ADA UTxO of at least 10 ADA (5 ADA is pledged as collateral and comes back).
+
+1. **Build it:**
+   `KOIOS_URL=https://api.koios.rest/api/v1 OGMIOS_URL=<your Ogmios> node scripts/lock.ts withdraw inputs.json out --pool ada,<coin policy>.<coin name hex>`
+   - The first line is the share now. If it is not worth the fee, delete
+     `out/lock-withdraw-<n>.tx.json` and stop.
+   - Read the rest: each coin that `leaves the pool` (its ticker and whole policy id), `to the
+     treasury addr1…, and nowhere else` (check it is the treasury's whole address in your
+     inputs), the pool after with its reserves and LP balance `all unchanged`, and `the lock:
+     unchanged`.
+   - It is judged by your node before it is written, valid for 2 hours (`--valid-for`).
+2. **Sign:** `KOIOS_URL=... node scripts/cosign.ts serve inputs.json out`, open
+   `http://127.0.0.1:8737`, open `lock-withdraw-<n>`. The top box, **Through the lock: the
+   venue's fee share to the treasury**, lists each coin with its policy id and amount, and the
+   treasury's whole address. Sign in mem2 (owner A), mem (owner B) and the deployer wallet.
+3. **Send:** `KOIOS_URL=... OGMIOS_URL=... node scripts/cosign.ts submit inputs.json out lock-withdraw-<n>`
+4. **Read it back:** `KOIOS_URL=... node scripts/read-tx.ts <tx id> --pay <the treasury's addr1…>`.
+   The treasury's line is marked `<- the payee`; the pool's line shows its reserves as before
+   and `fee share 1333`.
+
+**Refused, by the script and again by the page:** any of the share paid anywhere but the
+treasury's whole address (in any coin, the treasury must receive at least what leaves the pool);
+taking more or less than the share; any change to the pool's address, datum, reserves or LP
+balance; a pool spent other than by Minswap's own `WithdrawFeeSharing`; a GlobalSetting that
+lets anyone but the lock take the share; a change to the lock's list; nothing accrued (the chain
+would take that, for a fee and nothing for the venue); anything on another network than the
+inputs.
+
 ## The owner's rulings (2026-10-25)
 
 - **Runs on Railway**, in a new project of its own (not the indexer's), with no public port.

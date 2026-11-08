@@ -1,7 +1,8 @@
 // Changes through the 48-hour role lock (cardano/role-timelock: types.ak, lock.ak): Announce,
-// Execute and Cancel of a SetPool or SetGlobalSetting, built unsigned, and read back from their
-// own bytes. readLockTx is the one reading: scripts/lock.ts runs it on every transaction it
-// builds before writing it, and the co-signing page (cosign/review.ts) shows it to the owner.
+// Execute and Cancel of a SetPool or SetGlobalSetting, and WithdrawFeeSharing (a pool's earned
+// venue share to the treasury), built unsigned, and read back from their own bytes. readLockTx
+// is the one reading: scripts/lock.ts runs it on every transaction it builds before writing it,
+// and the co-signing page (cosign/review.ts) shows it to the owner.
 // Pure: chain reads, evaluation and the envelope are scripts/lock.ts's. Refused, by name:
 //   - an Execute whose lower bound is before ready_at, or whose upper bound is past the window;
 //   - an Execute whose pool or GlobalSetting output is not exactly the announced change;
@@ -9,16 +10,21 @@
 //     share could be taken by anyone but the lock (which pays only the treasury);
 //   - a pool's stake credential moved unasked (poolChange keeps the pool's own);
 //   - a GlobalSetting moving a role off the lock, or the opening fee off the treasury;
+//   - a withdrawal paying the treasury less than the share in any asset, taking more or less
+//     than the share, changing the pool's address, datum, reserves or LP balance, or taking
+//     nothing (nothing accrued);
 //   - any lock, pool or setting on another network than the run's.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { builderConfig, referenceScriptOf, type ExUnits, type ProtocolParams } from './build.ts';
-import { ledgerOrder, MAINNET_TIME, plutusSerialise, PREPROD_TIME, refKey, slotToPosixMs, type NetworkTime } from './chain.ts';
+import { ledgerOrder, MAINNET_TIME, plutusSerialise, PREPROD_TIME, refKey, slotToPosixMs, valueFromCsl, type NetworkTime } from './chain.ts';
 import { NAMES, plutusAddress } from './deploy.ts';
+import { MIN_POOL_ADA } from './engine.ts';
 import { ledgerMinFee } from './fee.ts';
 import { bool, bytes, constr, DecodeError, fieldsOf, int, list, mkBytes, mkConstr, mkInt, mkList, option, type PlutusData } from './plutus.ts';
 import type { Utxo } from './plan.ts';
+import { add, equals, quantityOf, type Value } from './value.ts';
 import { lpAssetName } from './verify.ts';
-import { decodeAddress, decodeAsset, decodePoolDatum, type Address, type Asset, type AuthorizationMethod, type Credential } from './types.ts';
+import { ADA, decodeAddress, decodeAsset, decodePoolDatum, isAda, type Address, type Asset, type AuthorizationMethod, type Credential } from './types.ts';
 
 export class LockRefused extends Error {}
 
@@ -290,6 +296,35 @@ function checkShareTaker(s: Setting, d: LockDeployment): void {
   if (!isLock(s.feeSharingTaker, d)) throw new LockRefused(`the fee share would be taken by ${s.feeSharingTaker.kind} ${s.feeSharingTaker.hash}, not the lock: only the lock's WithdrawFeeSharing pays the treasury`);
 }
 
+/** The venue's fee share a pool holds: its value above its datum's reserves, asset A less the 4.5 ADA every pool keeps (pool_validation.ak validate_withdraw_fee_sharing). */
+export interface Share {
+  assetA: Asset;
+  assetB: Asset;
+  a: bigint;
+  b: bigint;
+}
+export function shareOf(poolOutputHex: string): Share {
+  const o = CSL.TransactionOutput.from_hex(poolOutputHex);
+  const datum = o.plutus_data();
+  if (!datum) throw new LockRefused('the pool holds no inline datum');
+  const p = decodePoolDatum(datum);
+  const v = valueFromCsl(o.amount());
+  const a = quantityOf(v, p.assetA) - (isAda(p.assetA) ? MIN_POOL_ADA : 0n) - p.reserveA;
+  const b = quantityOf(v, p.assetB) - p.reserveB;
+  return { assetA: p.assetA, assetB: p.assetB, a, b };
+}
+/** The share, asset by asset, only what has accrued. */
+const taken = (s: Share): [Asset, bigint][] => ([[s.assetA, s.a], [s.assetB, s.b]] as [Asset, bigint][]).filter(([, q]) => q > 0n);
+function cslValue(entries: [Asset, bigint][]): CSL.Value {
+  let coin = 0n;
+  const ma = CSL.MultiAsset.new();
+  for (const [a, q] of entries) {
+    if (isAda(a)) coin += q;
+    else ma.set_asset(CSL.ScriptHash.from_hex(a.policyId), CSL.AssetName.new(Buffer.from(a.assetName, 'hex')), big(q));
+  }
+  return ma.len() ? CSL.Value.new_with_assets(big(coin), ma) : CSL.Value.new(big(coin));
+}
+
 /** The Execute must make exactly the announced change. */
 export function matchesAnnounced(announced: Change, wanted: Change): void {
   if (!same(encodeChange(announced), encodeChange(wanted))) throw new LockRefused(`the change asked for differs from the announced one: announced ${summary(announced)}; asked ${summary(wanted)}`);
@@ -443,6 +478,34 @@ export function executeSpec(d: LockDeployment, refs: LockRefs, lock: Utxo, index
   return { spends: [lockSpend, gsSpend], reads: [], outputs: [topped(next, BigInt(gs.amount().coin().to_str()), pp), lockOut], signers: [d.ownerA, d.ownerB] };
 }
 
+/**
+ * WithdrawFeeSharing: the pool's whole earned share to the treasury, through Minswap's own path
+ * (the pool spent with its WithdrawFeeSharing, the GlobalSetting read, the lock as the fee-share
+ * taker). The pool keeps its address, its datum and so its reserves and fees, and its LP balance;
+ * the lock keeps its list. The treasury's output carries the share and, when the share is less
+ * than an output must hold, the rest of its min-ADA from the transaction's own funds.
+ */
+export function withdrawSpec(d: LockDeployment, refs: LockRefs, lock: Utxo, pool: Utxo, setting: Utxo, pp: ProtocolParams): LockSpec {
+  const { o, announced } = lockInput(d, lock);
+  if (!refs.poolScript) throw new LockRefused("the pool script's reference UTxO is needed");
+  const gs = out(setting);
+  if (scriptOf(gs) !== d.authen || !holds(gs, d.authen, NAMES.globalSetting)) throw new LockRefused(`${setting.ref} is not our GlobalSetting`);
+  checkShareTaker(settingNow(setting.outputHex), d);
+  const p = out(pool);
+  onNetwork(p.address(), d.network, `the pool ${pool.ref} is at`);
+  if (scriptOf(p) !== d.pool || !holds(p, d.authen, NAMES.pool)) throw new LockRefused(`${pool.ref} is not one of our pools`);
+  const share = taken(shareOf(pool.outputHex));
+  if (!share.length) throw new LockRefused(`nothing has accrued in ${pool.ref}: its value holds exactly its reserves and the 4.5 ADA every pool keeps`);
+  const poolOut = CSL.TransactionOutput.new(p.address(), p.amount().checked_sub(cslValue(share)));
+  poolOut.set_plutus_data(p.plutus_data()!);
+  const treasury = CSL.Address.from_bech32(d.treasury);
+  onNetwork(treasury, d.network, 'the treasury');
+  const paid = topped(CSL.TransactionOutput.new(treasury, cslValue(share)), share.find(([a]) => isAda(a))?.[1] ?? 0n, pp);
+  const lockSpend = { utxo: lock, script: refs.lockScript, redeemer: lockRedeemer({ kind: 'WithdrawFeeSharing' }) };
+  const poolSpend = { utxo: pool, script: refs.poolScript, redeemer: mkConstr(2, []) };
+  return { spends: [lockSpend, poolSpend], reads: [setting], outputs: [lockOutput(d, o, announced, pp), poolOut, paid], signers: [d.ownerA, d.ownerB] };
+}
+
 const parseRef = (r: string) => {
   const [id, ix] = r.split('#') as [string, string];
   return CSL.TransactionInput.new(CSL.TransactionHash.from_hex(id), Number(ix));
@@ -553,19 +616,35 @@ export function changeWords(c: Change, before: PoolChange | Setting | null, d: L
 
 const lpOf = (c: Change) => (c.kind === 'SetPool' ? { lp: lpAssetName(c.assetA, c.assetB) } : {});
 
+/** One coin of a withdrawal: its ticker (the name as text, or "ADA"), whole policy id and name. */
+export interface Coin {
+  ticker: string;
+  policy: string;
+  name: string;
+  quantity: string;
+}
 export interface LockReading {
-  action: 'Announce' | 'Cancel' | 'Execute';
-  index: number;
-  /** The change added, removed or made, in plain words. */
+  action: 'Announce' | 'Cancel' | 'Execute' | 'WithdrawFeeSharing';
+  /** The announcement added, removed or made; a withdrawal names none. */
+  index?: number;
+  /** The change added, removed or made, or the share withdrawn, in plain words. */
   words: string[];
   /** When the change can run, in UTC. */
   when: string;
-  readyAt: string;
-  closesAt: string;
+  readyAt?: string;
+  closesAt?: string;
   /** The lock's list after this transaction. */
   announced: { summary: string; readyAt: string }[];
-  /** A SetPool's pool, by its LP token's name (the page reads the pool now by it); a SetGlobalSetting's none. */
+  /** A SetPool's or a withdrawal's pool, by its LP token's name (the page reads the pool now by it); a SetGlobalSetting's none. */
   lp?: string;
+  /** A withdrawal: what leaves which pool and what the treasury receives, each coin read from the bytes. */
+  withdrawal?: {
+    pool: string;
+    leaves: Coin[];
+    treasury: string;
+    receives: Coin[];
+    after: { reserveA: string; reserveB: string; totalLiquidity: string; lp: string };
+  };
 }
 
 /**
@@ -603,7 +682,6 @@ export function readLockTx(txHex: string, output: (ref: string) => string | unde
     throw new LockRefused(`no spend redeemer for input #${ix}`);
   };
   const action = decodeLockRedeemer(redeemerOf(lockIn.ix));
-  if (action.kind === 'WithdrawFeeSharing') throw new LockRefused('a fee-share withdrawal: this tool reads Announce, Execute and Cancel only');
 
   const signers = Array.from({ length: body.required_signers()?.len() ?? 0 }, (_, i) => body.required_signers()!.get(i).to_hex());
   if (!signers.includes(d.ownerA) || !signers.includes(d.ownerB)) throw new LockRefused('the lock needs both owners as required signers: the transaction names fewer');
@@ -646,6 +724,59 @@ export function readLockTx(txHex: string, output: (ref: string) => string | unde
       if (b) poolAction(b as PoolChange, c);
     } else checkSetting(c.setting, d);
   };
+
+  if (action.kind === 'WithdrawFeeSharing') {
+    if (!sameList(after, before)) throw new LockRefused("a fee-share withdrawal leaves the lock's list as it was; this one changes it");
+    if (moved.length !== 1) throw new LockRefused(`a fee-share withdrawal moves exactly one pool; this one moves ${moved.length}`);
+    const m = moved[0]!;
+    // Nothing is minted (above), so the one pool token moved is in one output: the pool after.
+    const po = outs.find((o) => holds(o, d.authen, NAMES.pool));
+    if (!po || po.address().to_bech32(undefined) !== m.o.address().to_bech32(undefined)) throw new LockRefused("the pool's address changes: a withdrawal leaves the pool where it is");
+    const pd = po.plutus_data();
+    if (!pd || !same(pd, m.o.plutus_data()!)) throw new LockRefused("the pool's datum changes: a withdrawal leaves its reserves, liquidity and fees exactly as they were");
+    const share = shareOf(m.o.to_hex());
+    const leaves = taken(share);
+    if (!leaves.length) throw new LockRefused('nothing has accrued in the pool: the withdrawal would take nothing');
+    let rest: Value = valueFromCsl(m.o.amount());
+    for (const [a, q] of leaves) rest = add(rest, a, -q);
+    if (!equals(valueFromCsl(po.amount()), rest)) throw new LockRefused("the pool after is not the pool less its fee share: its reserves or its LP balance would change");
+    const pr = constr(redeemerOf(m.ix), 'the pool redeemer');
+    if (pr.alt !== 2 || pr.fields.length !== 0) throw new LockRefused('the pool is spent other than by WithdrawFeeSharing');
+    const reads = ledgerOrder(body.reference_inputs()).map(outOf).filter((o) => holds(o, d.authen, NAMES.globalSetting));
+    if (reads.length !== 1 || scriptOf(reads[0]!) !== d.authen) throw new LockRefused('the withdrawal reads no GlobalSetting of ours');
+    checkShareTaker(settingNow(reads[0]!.to_hex()), d);
+    const treasury = CSL.Address.from_bech32(d.treasury).to_bech32(undefined);
+    const paid = new Map<string, bigint>();
+    for (const o of outs) if (o.address().to_bech32(undefined) === treasury) for (const [u, q] of valueFromCsl(o.amount())) paid.set(u, (paid.get(u) ?? 0n) + q);
+    for (const [a, q] of leaves) if (quantityOf(paid, a) < q) throw new LockRefused(`the treasury receives ${quantityOf(paid, a)} of the ${q} ${isAda(a) ? 'lovelace' : assetWords(a)} that leave the pool: the venue's fee share goes to the treasury, and nowhere else`);
+    const p = decodePoolDatum(pd);
+    const lp = lpAssetName(share.assetA, share.assetB);
+    const lpHeld = quantityOf(valueFromCsl(po.amount()), { policyId: d.authen, assetName: lp });
+    const coin = (a: Asset, q: bigint): Coin => ({ ticker: isAda(a) ? 'ADA' : (hexText(a.assetName) ?? 'token'), policy: a.policyId, name: a.assetName, quantity: q.toString() });
+    const amount = (a: Asset, q: bigint) => (isAda(a) ? `${q} lovelace (${adaWords(q)})` : `${q} ${assetWords(a)}`);
+    const received: [Asset, bigint][] = [...paid].map(([u, q]) => [u === '' ? ADA : { policyId: u.slice(0, 56), assetName: u.slice(57) }, q]);
+    const topUp = quantityOf(paid, ADA) - (leaves.find(([a]) => isAda(a))?.[1] ?? 0n);
+    return {
+      action: 'WithdrawFeeSharing',
+      lp,
+      words: [
+        `takes the venue's fee share out of pool ${assetWords(share.assetA)} / ${assetWords(share.assetB)}, UTxO ${refKey(m.i)}:`,
+        ...leaves.map(([a, q]) => `leaves the pool: ${amount(a, q)}`),
+        `to the treasury ${treasury}, and nowhere else: it receives ${received.map(([a, q]) => amount(a, q)).join(', ')}${topUp > 0n ? ` (${amount(ADA, topUp)} of it from the transaction's own funds: the min-ADA an output must hold)` : ''}`,
+        `the pool after: reserves ${p.reserveA} / ${p.reserveB}, total liquidity ${p.totalLiquidity}, LP balance ${lpHeld}, all unchanged; its datum unchanged, so its fees and venue share too; nothing left above its reserves`,
+        `the lock: unchanged, ${before.length} announced`,
+      ],
+      when: `any time: a withdrawal waits for nothing${lower !== undefined ? `; valid from ${utc(lower)}` : ''}${upper !== undefined ? ` until ${utc(upper)}` : ''}`,
+      announced: listAfter,
+      withdrawal: {
+        pool: refKey(m.i),
+        leaves: leaves.map(([a, q]) => coin(a, q)),
+        treasury,
+        receives: received.map(([a, q]) => coin(a, q)),
+        after: { reserveA: p.reserveA.toString(), reserveB: p.reserveB.toString(), totalLiquidity: p.totalLiquidity.toString(), lp: lpHeld.toString() },
+      },
+    };
+  }
 
   if (action.kind === 'Announce') {
     const ann = action.announcement;

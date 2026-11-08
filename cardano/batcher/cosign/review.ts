@@ -14,7 +14,8 @@
 //   - a change through the 48-hour lock that src/lock.ts's reading refuses (an Execute before
 //     ready_at or unlike its announcement, a pool's value or fee share leaving for anywhere but
 //     the treasury, a role off the lock, the wrong network). What the change does is shown in
-//     plain words, with when it can run.
+//     plain words, with when it can run; a fee-share withdrawal, with each coin that leaves the
+//     pool and the treasury's whole address.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME, PREPROD_TIME, refKey, slotToPosixMs } from '../src/chain.ts';
 import { LockRefused, readLockTx, type LockDeployment, type LockReading } from '../src/lock.ts';
