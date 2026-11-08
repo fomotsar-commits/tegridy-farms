@@ -19,7 +19,10 @@
 //     says the read failed, never "not found";
 //   - the market buttons go where the collection trades, per item where an
 //     item page was verified, never for a token held by the burn address;
-//   - the view's own copy carries no prose em dash and no protocol voice.
+//   - the view's own copy carries no prose em dash and no protocol voice;
+//   - Bojungles and Seeds (venueBuy, Base ERC-721s) read their OpenSea
+//     listings, without the order book, and offer each listed item for sale
+//     in its panel through fulfillSeaportOrder. No other one does.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within, waitFor, cleanup } from "@testing-library/react";
@@ -36,8 +39,17 @@ import memesNfts from "../../e2e/fixtures/jungle-bay-family/opensea-nfts.the-mem
 import towStats from "../../e2e/fixtures/jungle-bay-family/opensea-stats.rare-towelie-cards.json";
 import towNfts from "../../e2e/fixtures/jungle-bay-family/opensea-nfts.rare-towelie-cards.json";
 
+const walletMock = vi.hoisted(() => ({ address: null }));
+// The two Base ERC-721s whose OpenSea listings are bought here.
+const BUY_HERE = new Set(["bojungles", "memeticseeds"]);
+
 vi.mock("./contexts/WalletContext", () => {
-  const state = { address: null, isConnected: false, walletName: null, isWrongNetwork: false };
+  const state = {
+    get address() { return walletMock.address; },
+    get isConnected() { return !!walletMock.address; },
+    walletName: null,
+    isWrongNetwork: false,
+  };
   const actions = { connectWallet: () => {}, disconnect: () => {}, switchChain: () => {} };
   const ui = { isPending: false, connectError: null, availableConnectors: [], isSwitching: false };
   return {
@@ -64,6 +76,7 @@ vi.mock("./api", async (importOriginal) => ({
   fetchTokensByIds: vi.fn(async () => []),
   fetchCollectionStats: vi.fn(async () => ({ floor: null, volume: null, owners: null, supply: null })),
   fetchListings: vi.fn(async () => ({ listings: [], source: null })),
+  fulfillSeaportOrder: vi.fn(async () => ({ success: true, hash: "0x" + "b".repeat(64) })),
   fetchActivity: vi.fn(async () => ({ activities: [], empty: true })),
   fetchWalletNfts: vi.fn(async () => ({ tokens: [], totalCount: 0 })),
   fetchTopHolders: vi.fn(async () => ({ holders: [], fallback: true })),
@@ -123,6 +136,7 @@ beforeEach(() => {
   window.scrollTo = () => {};
   sessionStorage.setItem("tm-splash-seen", "1");
   localStorage.setItem("tradermigos_onboarded", "1");
+  walletMock.address = null;
 });
 
 afterEach(() => {
@@ -196,8 +210,9 @@ describe("a view-only collection opens its own view", () => {
         it("says where it lives and where it trades, in one plain line", async () => {
           await renderAt(`/nakamigos/${slug}`);
           const chain = { ethereum: "Ethereum", base: "Base", solana: "Solana" }[EXPECTED_FAMILY[slug].chain];
-          await findInBody(new RegExp(escapeRe(
-            `${EXPECTED_FAMILY[slug].name} lives on ${chain}. Browse it here; it trades on OpenSea.`,
+          await findInBody(new RegExp(escapeRe(BUY_HERE.has(slug)
+            ? `${EXPECTED_FAMILY[slug].name} lives on ${chain}. Buy its OpenSea listings here, with no venue fee.`
+            : `${EXPECTED_FAMILY[slug].name} lives on ${chain}. Browse it here; it trades on OpenSea.`,
           )));
         });
       } else {
@@ -251,8 +266,16 @@ describe("a view-only collection opens its own view", () => {
         await waitForView(slug);
         await new Promise((r) => setTimeout(r, 50));
         const api = await import("./api");
-        for (const fn of ["fetchTokens", "fetchCollectionStats", "fetchListings", "fetchActivity", "fetchWalletNfts", "fetchTopHolders", "fetchTokensByIds"]) {
+        for (const fn of ["fetchTokens", "fetchCollectionStats", "fetchActivity", "fetchWalletNfts", "fetchTopHolders", "fetchTokensByIds"]) {
           expect(api[fn], fn).not.toHaveBeenCalled();
+        }
+        if (BUY_HERE.has(slug)) {
+          // Its OpenSea listings, by OpenSea slug, and never the order book:
+          // no contract is passed, so fetchListings reads OpenSea only.
+          expect(api.fetchListings).toHaveBeenCalledTimes(1);
+          expect(api.fetchListings).toHaveBeenCalledWith(slug, { openseaSlug: EXPECTED_FAMILY[slug].openseaSlug });
+        } else {
+          expect(api.fetchListings, "fetchListings").not.toHaveBeenCalled();
         }
         const stream = (await import("./hooks/useOpenSeaStream")).default;
         const ws = (await import("./hooks/useActivityWebSocket")).default;
@@ -492,6 +515,109 @@ describe("the gallery says what it shows", () => {
     await renderAt("/nakamigos/bojungles");
     await findInBody(/at least 50/);
     notInBody(/Showing 50 items read from OpenSea/);
+  });
+});
+
+// A captured-shape OpenSea best listing, as fetchListings normalizes it.
+function osListing(contract, tokenId, price, { currency = "ETH", offer } = {}) {
+  return {
+    tokenId: String(tokenId),
+    price,
+    priceWei: String(BigInt(Math.round(price * 1e6)) * 10n ** 12n),
+    currency,
+    marketplace: "OpenSea",
+    orderHash: "0x" + "c".repeat(64),
+    protocolAddress: "0x0000000000000068f116a894984e2db1123eb395",
+    orderData: { parameters: { offer: offer || [{ itemType: 2, token: contract, identifierOrCriteria: String(tokenId) }] } },
+  };
+}
+
+async function listSeeds(...rows) {
+  const api = await import("./api");
+  api.fetchListings.mockResolvedValue({ listings: rows, source: "opensea" });
+  return api;
+}
+
+describe("Bojungles and Seeds are bought here, one OpenSea listing at a time", () => {
+  const SEEDS = COLLECTIONS.memeticseeds.contract;
+
+  it("a listed Seeds item shows its price on its card, and Buy for that price in its panel", async () => {
+    await listSeeds(osListing(SEEDS, 86, 0.11));
+    await renderAt("/nakamigos/memeticseeds");
+    await findInBody(/0\.11 ETH/);
+    await renderAt("/nakamigos/memeticseeds/nft/86");
+    const panel = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /Connect Wallet to Buy/ })).toBeInTheDocument());
+    expect(panel.textContent).toMatch(/No venue fee: you pay the seller's OpenSea price plus Base gas/);
+    // The OpenSea link stays beside it.
+    expect(within(panel).getByRole("link", { name: /^Trade on OpenSea/ })).toBeInTheDocument();
+  });
+
+  it("shows the exact price from wei, never the four-decimal figure that reads below what the buyer pays", async () => {
+    // Bojungle #181 as OpenSea listed it on 2026-11-07: 18990000000000000 wei.
+    // fetchListings' `price` cuts that to 0.0189, which is less than the buy costs.
+    walletMock.address = "0x" + "a".repeat(40);
+    await listSeeds({ ...osListing(SEEDS, 86, 0.0189), priceWei: "18990000000000000" });
+    await renderAt("/nakamigos/memeticseeds/nft/86");
+    const panel = await screen.findByRole("dialog");
+    await within(panel).findByRole("button", { name: /Buy for 0\.01899 ETH/ });
+    await findInBody(/#86\s*0\.01899 ETH/);
+    notInBody(/0\.0189 ETH/);
+  });
+
+  it("with a wallet, Buy hands that exact listing to fulfillSeaportOrder, and says Bought", async () => {
+    walletMock.address = "0x" + "a".repeat(40);
+    const listing = osListing(SEEDS, 86, 0.11);
+    const api = await listSeeds(listing);
+    await renderAt("/nakamigos/memeticseeds/nft/86");
+    const panel = await screen.findByRole("dialog");
+    const btn = await within(panel).findByRole("button", { name: /Buy for 0\.11 ETH/ });
+    btn.click();
+    await waitFor(() => expect(api.fulfillSeaportOrder).toHaveBeenCalledTimes(1));
+    expect(api.fulfillSeaportOrder.mock.calls[0][0]).toBe(listing);
+    expect(api.fulfillSeaportOrder.mock.calls[0][1]).toEqual({ buyerAddress: walletMock.address });
+    const done = await within(panel).findByRole("link", { name: /Bought/ });
+    expect(done.getAttribute("href")).toBe("https://basescan.org/tx/0x" + "b".repeat(64));
+  });
+
+  it.each([
+    ["priced in another currency", (c) => osListing(c, 86, 0.11, { currency: "USDC" })],
+    ["whose order offers another contract", (c) => osListing(c, 86, 0.11, { offer: [{ itemType: 2, token: COLLECTIONS.bojungles.contract, identifierOrCriteria: "86" }] })],
+    ["whose order offers a second NFT beside it", (c) => osListing(c, 86, 0.11, { offer: [{ itemType: 2, token: c, identifierOrCriteria: "86" }, { itemType: 2, token: c, identifierOrCriteria: "87" }] })],
+    ["whose order offers another token id", (c) => osListing(c, 86, 0.11, { offer: [{ itemType: 2, token: c, identifierOrCriteria: "87" }] })],
+  ])("a listing %s is not offered for sale", async (_label, build) => {
+    walletMock.address = "0x" + "a".repeat(40);
+    await listSeeds(build(SEEDS));
+    await renderAt("/nakamigos/memeticseeds/nft/86");
+    const panel = await screen.findByRole("dialog");
+    await within(panel).findByText(/Not listed for sale right now/);
+    expect(within(panel).queryByRole("button", { name: /Buy/ })).toBeNull();
+  });
+
+  it("Seeds #88, held by the burn address, is never offered for sale even if a listing names it", async () => {
+    walletMock.address = "0x" + "a".repeat(40);
+    await listSeeds(osListing(SEEDS, 88, 0.01));
+    await renderAt("/nakamigos/memeticseeds/nft/88");
+    await findInBody(/held by the burn address/i);
+    expect(screen.queryByRole("button", { name: /Buy/ })).toBeNull();
+  });
+
+  it("listings that could not be read say so, and offer no Buy", async () => {
+    const api = await import("./api");
+    api.fetchListings.mockResolvedValue({ listings: [], source: null, error: "Listing data temporarily unavailable." });
+    await renderAt("/nakamigos/memeticseeds/nft/86");
+    const panel = await screen.findByRole("dialog");
+    await within(panel).findByText(/Listings could not be read from OpenSea right now/);
+    expect(within(panel).queryByRole("button", { name: /Buy/ })).toBeNull();
+  });
+
+  it("control: the memes, a view-only ERC-1155, read no listings and offer no Buy", async () => {
+    walletMock.address = "0x" + "a".repeat(40);
+    const api = await listSeeds(osListing(COLLECTIONS.junglebaymemes.contract, 1, 0.01));
+    await renderAt("/nakamigos/junglebaymemes");
+    await waitForMarketButton("junglebaymemes");
+    expect(api.fetchListings).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Buy/ })).toBeNull();
   });
 });
 
