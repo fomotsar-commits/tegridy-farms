@@ -106,7 +106,7 @@ describe('IslandBasketEvm', () => {
     await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(6));
     // One Uniswap batch, and no V2 transaction for the coin left out.
     expect(h.send).toHaveBeenCalledTimes(1);
-    expect(h.send.mock.calls[0]![0].to).toBe(uniswapOn(8453)!.swapRouter02);
+    expect(h.send.mock.calls[0]![0].to).toBe(universalRouterOn(8453));
   });
 
   it('sends nothing when prices moved past slippage since they were shown', async () => {
