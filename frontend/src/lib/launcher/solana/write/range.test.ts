@@ -34,7 +34,7 @@ import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
-import { FakeChain, cfgLocal, openAccount, rent, setTransferFee, type SimHandler } from './testkit.fixture';
+import { FakeChain, cfgLocal, legacyTx, openAccount, rent, setTransferFee, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -473,7 +473,7 @@ describe('taking out, collecting and closing', () => {
 });
 
 /** The built transaction's own instructions, as the checker reads them. */
-const body = (p: PreparedTx) => p.tx.instructions;
+const body = (p: PreparedTx) => legacyTx(p).instructions;
 const intentOf = (p: PreparedTx) => p.check.intent as RangeIntent;
 const swapIx = (list: TransactionInstruction[], i: number, ix: TransactionInstruction) => list.map((x, j) => (j === i ? ix : x));
 const rangeIndex = (p: PreparedTx) => body(p).findIndex((ix) => ix.programId.equals(PROG));

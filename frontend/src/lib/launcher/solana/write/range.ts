@@ -55,6 +55,7 @@ import type {
   TxSummary,
   WatchList,
   WriteRpc,
+  TxVersion,
 } from './types';
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
@@ -285,6 +286,8 @@ export function freezeLines(pair: Pick<Pair, 'tokenMint' | 'quote'>, tokenMint: 
 
 export interface RangeOpenArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tickLower: number;
   tickUpper: number;
@@ -499,6 +502,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   };
   return buildAndSimulate(rpc, {
     kind: 'range-open',
+    version: a.txVersion,
     body,
     extraSigners: [nft],
     intent,
@@ -549,6 +553,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
 
 export interface RangeRemoveArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   /** The position's record (PersonalPositionState) address. */
   position: PublicKey;
   /** 0 to 100: the share of its liquidity taken out. 0 collects its fees only. */
@@ -736,6 +742,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const intent: RangeIntent = { kind, signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins, position: positionPins, nftMint: null };
   return buildAndSimulate(rpc, {
     kind,
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent,

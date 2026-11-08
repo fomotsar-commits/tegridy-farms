@@ -360,6 +360,12 @@ export function IslandBasketSolana(p: {
       return null;
     }
     const s = built.prepared.summary;
+    // Built legacy on purpose (no `txVersion`): one approval for every coin goes through the
+    // adapter's signAllTransactions, which takes web3.js objects, never version 1 bytes.
+    if (built.prepared.wire.version !== 'legacy') {
+      setLeg(i, { kind: 'not-sent', why: 'Our pool’s swap for it was built in a format this order cannot sign, so nothing was sent for it.' });
+      return null;
+    }
     return { i, leg, via: 'own', prepared: built.prepared, words: s.kind === 'venue-swap' ? words(s.quoted.outAmount) : leg.coin.symbol };
   }
 
@@ -478,7 +484,11 @@ export function IslandBasketSolana(p: {
    */
   async function signAndSendAll(batch: Built[], signAll: NonNullable<typeof signAllTransactions>, owner: PublicKey, own: OwnSwap | null, scope: string): Promise<number> {
     const user = owner.toBase58();
-    const txOf = (b: Built): Transaction | VersionedTransaction => (b.via === 'jupiter' ? b.tx : b.prepared.tx);
+    const legacyOf = (p: PreparedTx): Transaction => {
+      if (p.wire.version !== 'legacy') throw new Error('an own leg is built legacy (buildLeg)');
+      return p.wire.tx;
+    };
+    const txOf = (b: Built): Transaction | VersionedTransaction => (b.via === 'jupiter' ? b.tx : legacyOf(b.prepared));
     const fresh = await connection.getLatestBlockhash('confirmed').catch(() => null);
     if (fresh) {
       stampBlockhash(batch.map(txOf), fresh.blockhash);

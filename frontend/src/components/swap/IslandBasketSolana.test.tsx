@@ -80,7 +80,7 @@ const SOY = SOL_BASKET.find((c) => c.symbol === 'SOY')!;
 /** Our pool takes SOY: prepareSolLeg's answer, and the swap our pool's builder makes for it. */
 const ownSoy = { kind: 'own', pool: SOY.pool.address, aggregator: { kind: 'quoted', out: 5_000_000n, when: 'now' } };
 const ownTx = { recentBlockhash: 'OldHash', feePayer: buyer };
-const ownPrepared = { kind: 'venue-swap', tx: ownTx, blockhash: 'OldHash', lastValidBlockHeight: 120, summary: { kind: 'venue-swap', quoted: { outAmount: 6_000_000n } } };
+const ownPrepared = { kind: 'venue-swap', payer: buyer, wire: { version: 'legacy', tx: ownTx }, blockhash: 'OldHash', lastValidBlockHeight: 120, summary: { kind: 'venue-swap', quoted: { outAmount: 6_000_000n } } };
 const pending = () => ({ hold: vi.fn(), release: vi.fn(), holdsNow: vi.fn(() => false), sent: vi.fn(), record: vi.fn() });
 const mount = (o: { pending?: ReturnType<typeof pending>; own?: boolean } = {}) => {
   const p = o.pending ?? pending();

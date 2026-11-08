@@ -29,6 +29,7 @@ The site's Changelog tab shows both files.
 
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
+- Solana: a wallet that signs the newer version 1 transaction format (Phantom does) now gets every write this site builds in that format: add or remove liquidity, open a pool, buy, sell, graduate, range positions and a swap in our pools. The compute limit, the account-data limit and the priority fee are written into the message itself, which is what Phantom's simulation asks for. The review reads as before; the priority fee shown is the exact amount the message carries. A wallet without version 1 keeps the legacy format, unchanged. The island basket's multi-coin buy stays legacy for now (its one-approval batch goes through the wallet's older signing call).
 
 ### 2026-11-06
 
