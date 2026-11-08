@@ -1,10 +1,10 @@
 import {
   isDeployed,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
+import { GONDI_LOAN_ADDRESS } from './gondi/loanOffer.js';
 import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
@@ -38,7 +38,7 @@ export interface NavItem {
 
 /** The NFT-finance entry lists on the strength of its own addresses. */
 export const NFT_FINANCE_LIVE = [
-  TEGRIDY_NFT_LENDING_ADDRESS,
+  GONDI_LOAN_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);

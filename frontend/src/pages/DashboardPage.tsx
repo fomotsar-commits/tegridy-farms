@@ -864,7 +864,7 @@ function ToweliDashboard() {
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">No outstanding loans</p>
                   <p className="text-white/70 text-[12px] mb-4 max-w-sm mx-auto">
-                    Borrow ETH against NFTs, or lend to earn interest.
+                    Borrow WETH against NFTs, or lend to earn interest.
                   </p>
                   <div className="flex items-center justify-center gap-3 flex-wrap">
                     <Link to="/nft-finance?section=nftlending" className="btn-primary px-5 py-2.5 text-[13px]">NFT Lending &#8594;</Link>
