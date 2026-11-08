@@ -66,11 +66,12 @@ Steps 1 to 7 can all run at once. Steps 2, 3 and 6 only you can start, and step 
 
 ---
 
-## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
+## 🔴 2026-11-05: NFT lending on Gondi's loan contract (DEPLOYED 2026-11-07; one database file and three merges from you)
 
 Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
 Everything that can be done without you is done and waiting as drafts: the contracts (#1038), the site (#1039), and
-the loan shield with due-date alerts (#1127, built on #1039). Nothing is deployed yet. The first lending contract,
+the loan shield with due-date alerts (#1127, built on #1039). **The contracts are deployed on Ethereum (2026-11-07,
+step 2); the site goes live when #1039 merges.** The first lending contract,
 `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`, never held an offer or a loan (read 2026-11-05: 0 offers, 0 loans,
 0 ETH), so nobody is left behind; the site now lists it as retired.
 
@@ -86,12 +87,14 @@ second step two days after the deploy (step 6); until then your deployer wallet 
 
 | Step | When (UTC) | What | Who |
 |---|---|---|---|
-| ⬜ 1 | now | Send about 0.01 ETH to the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`. It held 0.0013117 ETH on 2026-11-05. The deploy needs about 0.006 ETH (13,479,232 gas in the 2026-11-05 rehearsal, at forge's padded price); the rest covers a gas spike. | you |
-| ⬜ 2 | after step 1 | Deploy: the commands below, test first, then send. | you |
-| ⬜ 3 | after step 2 | A session checks the contracts on chain (same bytes as Gondi's, 500 basis points to the treasury, the Safe set as next owner), verifies them on Etherscan, puts the loan contract's address into the site, reruns the browser tests and pushes. | a session |
-| ⬜ 4 | any time | Run `frontend/supabase/migrations/030_nft_loan_offers.sql` in Supabase's SQL editor. It makes the table the offer book keeps offers in. Sessions can't run SQL on production. | you |
+| ✅ 1 | done 2026-11-07 | Funded the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`: it held 0.0450 ETH before the deploy. | you |
+| ✅ 2 | done 2026-11-07, ~21:43 UTC | Deployed: 14 transactions, all succeeded, 0.000468 ETH paid (10,343,112 gas at 0.043 gwei). Loan contract (MultiSourceLoan) `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` (tx `0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f`); liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6`; liquidation distributor `0x5a3B60b2a53245462dF2F6791a6A3aA0B6B1f2Df`; currency list `0x5d917E12C1Ac3dBc0c75a6554807ABde0b8FAFC4`; collection list `0x9F9c3F7c4f2a65Bab54BF78a64bb32468F1E4Eb3`; registry `0xc9464734068449EF5284D6BaCbe0371b87070F32`. Record: `contracts/broadcast/DeployGondiLending.s.sol/1/` on #1039. **Do not run the deploy commands below again: a second run deploys a second set.** | you |
+| ✅ 3 | done 2026-11-07 | Checked on chain: all six contracts' code equals Gondi's build byte for byte (deploy-time settings masked); the fee is 500 basis points to the treasury Safe; WETH is the only currency; Jungle Bay, Nakamigos and GNSS are the only collections; the registry, both lists and the distributor are owned by the Safe; the Safe is the pending owner of the loan contract and the liquidator. All six show their source on Etherscan. The address is in the site (#1039 `f4dc31d90`), and the borrow-then-repay browser test passed against the real contract on a copy of mainnet. | a session |
+| ✅ 4 | done 2026-11-07 | `frontend/supabase/migrations/030_nft_loan_offers.sql` ran in Supabase's SQL editor ("Success. No rows returned"). Checked after: the ledger has its row, both tables have row security on with no policies, the public and signed-in roles have no access, and both shape checks and all three indexes exist. The server role holds every table right (the schema's default grants from 008), not only the three the file grants. Do not run it again (it is safe to, but there is no need). | a session, on your word |
 | ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
-| ⬜ 6 | two days after step 2 | The treasury Safe calls `transferOwnership()` on the loan contract and on the liquidator (the deploy prints both addresses). A session prepares both transactions for the Safe; both signers sign. | you |
+| ⬜ 6 | from 2026-11-09 21:44 UTC | The treasury Safe calls `transferOwnership()` on the loan contract `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` and on the liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6` (the chain allows it 2 days after the request: 21:43:47 and 21:43:35 UTC). A session prepares both transactions for the Safe; both signers sign. Until then the deployer wallet owns those two. | you |
+
+**✅ Step 2 is done (2026-11-07). The commands below are kept as a record. Do not run them again.**
 
 **Before step 2: your keystore must be the deployer.**
 
