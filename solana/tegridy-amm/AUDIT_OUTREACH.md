@@ -50,6 +50,11 @@ source. cp-swap has since been upgraded to a build of this source: the live prog
 one added instruction, `create_lp_metadata`, and the launch-tier refusal, and both went in
 unaudited. (It was upgraded on 2026-10-23, rolled back on 2026-10-24, upgraded again on
 2026-11-03, rolled back by mistake on 2026-11-04, and upgraded a third time on 2026-11-06.)
+The launcher is paused and has never opened a launch.
+
+**We'd like Scope A first, on its own.** We want our pools routed by Jupiter, which asks for
+an audit report with the listing. The pools are cp-swap's, so a Scope A report we can publish
+is what unblocks it.
 
 Happy to grant repo read access. What would you quote, and what's your earliest start?
 
