@@ -209,6 +209,8 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // What each tag means, and the threshold, are one press away.
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
+    // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 
@@ -239,7 +241,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
       expect(row).not.toHaveTextContent(/to LPs/);
     }
     expect(screen.getByTestId('lp-all-pools')).not.toHaveTextContent('Under such a row, Arbitrage');
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card above');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card below');
   });
 
   it('each row links Swap to the swap page on that pair, paying with the pool’s coin, beside Add and View', async () => {
@@ -327,12 +329,13 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
   // comes back: $0.42 made. The 1% fee on $19.99: 84% to the LPs ($0.17), 16% to the venue ($0.03).
   const cornDear = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 };
 
-  it('sits under the finder and above All pools, with art, and says the basis of every figure once, stamped', async () => {
+  it('sits under All pools, with art, and says the basis of every figure once, stamped', async () => {
     mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
     const board = screen.getByTestId('lp-arb');
     expect(board).toHaveAccessibleName('Arbitrage');
+    // A trader's card, never the first thing under a door: it sits under All pools (answer twenty-seven, cut 4).
     expect(screen.getByTestId('lp-finder').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(board.compareDocumentPosition(screen.getByTestId('lp-all-pools')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('lp-all-pools').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(board).getByRole('heading', { level: 2 })).toHaveTextContent('Arbitrage');
     expect(board.querySelector('[data-card-art]')).not.toBeNull();
     expect(await within(board).findByTestId('lp-arb-stamp')).toHaveTextContent('Against Jupiter’s listed prices, read just now.');
@@ -773,5 +776,29 @@ describe('Arbitrage: only round trips that pay at Jupiter’s live quote are lis
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Island answer twenty-four, §4: a row's coins are presses that copy their whole addresses.
+describe('All pools: every coin in a row copies its whole address', () => {
+  const writeText = vi.fn(async () => {});
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+
+  it('names the token and its pairing coin as presses, and keeps the heading and a stranger’s whole address', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { safety: [calls(C, 'CRYING')] })) }));
+    const [bayla, crying] = await screen.findAllByTestId('lp-all-pools-row');
+    const names = (row: HTMLElement) => within(row).getAllByTestId('coin-name').map((n) => n.getAttribute('aria-label'));
+    expect(names(bayla!)).toEqual([`BAYLA: copy its address ${BAYLA_MINT}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(names(crying!)).toEqual([`CRYING: copy its address ${C}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(within(bayla!).getByText('BAYLA / SOL · 1% tier')).toBeInTheDocument();
+    expect(within(crying!).getByText(C)).toBeInTheDocument();
+    for (const n of within(crying!).getAllByTestId('coin-name')) expect(n.className).toContain('min-h-[44px]');
+    await act(async () => {
+      fireEvent.click(within(crying!).getAllByTestId('coin-name')[0]!);
+    });
+    expect(writeText).toHaveBeenCalledWith(C);
+    expect(within(crying!).getByText('Copied')).toBeInTheDocument();
   });
 });

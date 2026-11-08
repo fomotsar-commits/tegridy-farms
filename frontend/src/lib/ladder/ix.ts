@@ -125,6 +125,29 @@ export function claimIx(args: Common & { positionNonce: number }): TransactionIn
 }
 
 /**
+ * Lengthen a still-locked position's lock, counted from now. Moves no tokens, so it
+ * names no mint, vault or token program — just the owner, the pool and the position.
+ * Check it with `quoteExtend()` first; the program refuses anything that would not end
+ * later, would leave the 7d..4y ladder, or would lower the weight.
+ */
+export function extendLockIx(
+  args: Omit<Common, 'poolAccounts'> & { positionNonce: number; lockSecs: number },
+): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: args.programId,
+    keys: [
+      meta(args.owner, true, false),          // signs, but is NOT writable here
+      meta(args.pool, false, true),
+      meta(positionPda(args.programId, args.pool, args.owner, args.positionNonce), false, true),
+    ],
+    data: Buffer.concat([
+      Buffer.from(IX_DISCRIMINATOR.extendLock),
+      i64le(BigInt(Math.trunc(args.lockSecs))),
+    ]),
+  });
+}
+
+/**
  * Close a position through one of the two normal doors.
  *
  * They share an account list and differ ONLY in the discriminator. They also

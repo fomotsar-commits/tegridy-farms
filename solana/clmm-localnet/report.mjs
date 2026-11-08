@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WORK } from './lib/config.mjs';
 import { spec } from './lib/clmm.mjs';
+import { MUTANTS } from './mutants.mjs';
 
 const j = (f) => JSON.parse(readFileSync(join(WORK, f), 'utf-8'));
 const clean = j('results-clean.json');
@@ -11,8 +12,9 @@ const man = j('manifest.json');
 // Every sweep in the work folder, oldest first: a later run of the same broken input wins, and
 // the restore that counts is the last sweep's.
 const sweeps = readdirSync(WORK).filter((f) => /^mutants-.*\.json$/.test(f)).sort().map(j);
+// A broken input since removed from mutants.mjs no longer counts.
 const sweep = sweeps.length
-  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants.map((m) => ({ ...m, programSha: x.programSha }))).map((m) => [m.id, m]))), runs: sweeps.length }
+  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants.map((m) => ({ ...m, programSha: x.programSha }))).map((m) => [m.id, m]))).filter((m) => MUTANTS[m.id]), runs: sweeps.length }
   : null;
 const perByte = man.mainnetRent.perByte;
 const offCount = readFileSync(join(WORK, 'deactivate-features.txt'), 'utf-8').split('\n').filter(Boolean).length;
@@ -53,6 +55,8 @@ const cuRows = clean.txs.filter((t) => t.ok && !/^(fund|wrap|vault: |USD for|REW
   .map((t) => `| ${esc(t.label)} | ${t.cu.toLocaleString('en-US')} | ${t.bytes} |`);
 
 const failed = clean.checks.filter((c) => !c.pass);
+// before-fix-*.json: a clean run's results against the code before a fix, with `what` and `programSha` added.
+const beforeFix = readdirSync(WORK).filter((f) => /^before-fix-.*\.json$/.test(f)).sort().map(j);
 const out = `# Range pools on a local chain: results
 
 > Step 1 of "What is left, in order" in [docs/RANGE_POOLS_PLAN.md](../../docs/RANGE_POOLS_PLAN.md). The one to-do list is [docs/TODO_OPERATOR.md](../../docs/TODO_OPERATOR.md). This file is written by \`report.mjs\`; rerun the harness rather than editing it.
@@ -64,14 +68,18 @@ ${sweep ? `${sweep.mutants.filter((m) => m.red).length} of ${sweep.mutants.lengt
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
 sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
 the venue's 10.4% was collectable only by the vault, and the island's 5.6% only by its Workshop's role: the vault
-is refused (check V9), though one proposal can **re-point the island's share** (check V6). No tier may charge
-more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5),
-and a dynamic fee is held to 4% too (K6). A reward's unpaid rest goes back only to whoever started it, whoever owns
-the pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to
-the venue's share.) Opening a pool paid exactly 0.5 SOL to the vault, by each of the three instructions that open
-one (P4, X18, X19); a wrong receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL
-were refused (P5 to P7). What the vault can still do, the pause of any part of a pool included, is in
-docs/RANGE_POOLS_PLAN.md.
+is refused (check V9), and since 2026-11-03 a tier's island share, once handed over, cannot be pointed anywhere
+else, not even at the vault (check V6). No tier may charge
+more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5), or
+have a tick spacing of 0 (T10). Only the vault or an operator it names can start a reward, a pool's opener cannot
+(R4), and a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11, R13, R14). (A fee
+earned where no LP's range is in use, when a swap fills a limit order there, goes to the venue's share.) Opening a
+pool paid exactly 0.5 SOL to the vault through \`create_pool\`, now the one instruction that opens one (P4); a wrong
+receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL were refused (P5 to P7).
+Seven instructions are gone since 2026-11-03: custom and permissioned pools, the permission accounts, both
+dynamic-fee settings and the rent sweep. Each is answered as unknown (D1 to D7), so nothing left can give a pool a
+dynamic fee. A new pool takes no limit order until the vault turns them on (O0). What the vault can still do, the
+pause of any part of a pool included, is in docs/RANGE_POOLS_PLAN.md.
 
 Run ${clean.started} to ${clean.finished}. Nothing was deployed anywhere, no program key exists, and nothing was
 signed or sent on mainnet: mainnet was only read.
@@ -115,6 +123,17 @@ ${rows.join('\n')}
 |---|---|
 ${coverage.join('\n')}
 
+Deleted on 2026-11-03, each answered as an unknown instruction: ${clean.checks.filter((c) => /^D\d+$/.test(c.id)).map((c) => `\`${esc(c.instruction)}\` (${c.id})`).join(', ')}.
+${beforeFix.length ? `
+## Red first against the code before the fix
+
+A fix's checks must fail on the code it fixes. The same suite ran from nothing against each build below; every
+check it lists came out FAIL there, and passes on this build.
+
+| Build | sha256 | Run | Checks that failed there |
+|---|---|---|---|
+${beforeFix.map((b) => `| ${esc(b.what)} | \`${b.programSha}\` | ${b.started.slice(0, 16)}Z | ${b.checks.filter((c) => !c.pass).map((c) => `${c.id} (${esc(c.counts)})`).join('; ')}${b.note ? `. ${esc(b.note)}` : ''} |`).join('\n')}
+` : ''}
 ## Rent and sizes, measured
 
 Measured on the local chain. Mainnet cost is (bytes + 128) x ${perByte.toLocaleString('en-US')} lamports, mainnet's rate read
@@ -132,12 +151,12 @@ ${cuRows.join('\n')}
 
 ## What surprised us
 
-1. **The vault keeps power over the island's 5.6%.** As admin it can collect the fund share itself, into any
-   account, and re-point a tier's fund owner at any time (V6, V9). The same is true of our cp-swap. Each takes a
-   vault proposal, so two signatures and the 48-hour lock, which the island can watch for.
-2. **The vault cannot pay for rewards today.** Every reward stream, even one a pool's opener pays for, needs the
-   operation account first (3,529 bytes, 0.0186 SOL at mainnet's rate), made and paid by the vault. The vault held
-   0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
+1. **The island's 5.6% is the island's once handed over.** The vault hands each tier's share over once, as the tier
+   is made (T6, T7), and since 2026-11-03 cannot point it anywhere else, not even at itself (V6), nor collect it
+   (V9): only a program upgrade could. The vault keeps the rate setting, within the ceilings (K1 to K5).
+2. **The vault cannot pay for rewards today.** Every reward stream needs the operation account first (3,529 bytes,
+   0.0186 SOL at mainnet's rate), made and paid by the vault, and since 2026-11-03 only the vault or an operator it
+   names can start one (R4). The vault held 0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
 3. **Raydium's key list also holds the SPL Memo program.** \`solana/guards/upstream/deny-keys.txt\` is every key
    Raydium's code writes, less three system keys, so it carries Memo, which every v2 swap and withdrawal must name.
    G1 went red on it in the first run; it now treats Memo as named-only and fails on any other key.
@@ -145,18 +164,20 @@ ${cuRows.join('\n')}
    plain \`solana program deploy\` would use it. It was deleted; nothing here used it.
 5. **A BAYLA pool's BAYLA vault is 170 bytes, not 165** (Token-2022 adds 5), so a pool is 8,194 bytes. The cost is
    still 0.0449 SOL.
-6. **The spare-SOL sweep does not reach LPs' wrapped SOL.** Mainnet's own Token program let the vault sweep exactly
-   the 0.1 SOL gift sitting above a wrapped-SOL vault's rent and balance; the LPs' 32.5 SOL stayed (E2).
+6. **\`update_pool_status\` writes the whole status byte.** Limit orders now start off (bit 5), so a pool born on this
+   build reads 32 at rest. Lifting a pause with 0, as Raydium's own tools do, would turn limit orders on as well: on
+   such a pool, pause swaps with 48 and lift the pause with 32. Here pool A had them turned on first (O0, A1, A2).
 7. **A reward not yet open can be given any window by the vault** (here 90 s): the 7-day minimum binds only when a
    reward is made, or extended by someone who is not the admin. That is how the whole life of a stream, including
    taking back what it did not pay (604,800 BAYLA), ran in minutes on the release build (R5 to R9).
 8. **The old position path still works for anyone** (\`open_position_v2\` with a Metaplex name record). The stranger
    who uses it leaves 0.01 SOL of their own with Metaplex (X17); the vault pays nothing. The site never offers it.
-9. **Once the vault makes any dynamic fee setting, any visitor can open a pool with it, on either tier, with its fee
-   taken in one coin only** (X11). The vault should make one only on purpose.
+9. **A vault pass no longer lets an unusual coin in** (X7). Since 2026-11-03 the program checks every coin's
+   Token-2022 features, pass or not, so issuing a support-mint pass changes nothing; the instruction stays so the
+   program's interface stays Raydium's.
 10. **Two things the local chain could not do.** It cannot wait out the real 172,800 s lock: the same Squads check
-    refused an early execute at 10 s (T4) and accepted one after (T5). And it cannot sign as the island's Workshop:
-    a local key stood in for it in the fund-owner role (V7), then the tier was pointed back at the Workshop (V8).
+    refused an early execute at 10 s (T4) and accepted one after (T5). And it cannot sign as the island's Workshop,
+    so tier 0's one hand-over went to a local stand-in (T6, V7); tier 1's went to the Workshop's own address (T7).
 11. **WSL here has no network, and stops its machine about a minute after the last \`wsl.exe\` client exits**,
     detached validators and all. The harness reads mainnet from Windows and holds a client open for each run.
 

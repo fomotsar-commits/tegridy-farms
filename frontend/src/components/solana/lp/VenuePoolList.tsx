@@ -2,13 +2,14 @@ import type { Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
+import { CoinName } from '../../ui/CoinName';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
 import { useLivePoolList } from './usePoolList';
@@ -54,7 +55,7 @@ export function VenuePoolList({
   if (!readers.listPools) return null;
   return (
     <>
-      <ArbitrageBoard live={live} prices={market} legQuote={readers.legQuote} />
+      {/* The list is the first card under the finder; the Arbitrage board, a trader's card, sits under it (answer twenty-seven, cut 4). */}
       <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
         <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
           {read === null ? (
@@ -73,7 +74,7 @@ export function VenuePoolList({
             <p>
               Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. Past what the
               list can hold it shows the deepest, and a search finds the rest. The dollars beside a pair are what the pool holds at
-              Jupiter’s listed prices, the read the Arbitrage card above is stamped with; a coin Jupiter does not price gets none.
+              Jupiter’s listed prices, the read the Arbitrage card below is stamped with; a coin Jupiter does not price gets none.
             </p>
             <p>
               The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
@@ -92,14 +93,16 @@ export function VenuePoolList({
               below Jupiter: the pool’s price is that far from Jupiter’s market price, read once for the whole list. Adding at that price
               loses part of the deposit to the first trade that closes the gap. The pool’s card checks again with live quotes and gives
               the exact gap, which can differ by a few points on a thinly traded coin; what that trade makes, and for whom, is on the
-              Arbitrage card above. Trading not open yet: its trading starts later,
-              maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
+              Arbitrage card below. Trading not open yet: its trading starts later,
+              maybe years from now. Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no
+              deposit here. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
               trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
               not a pool that passed: its full price check is on its card, when you View it.
             </p>
           </FinePrint>
         </Card>
       </section>
+      <ArbitrageBoard live={live} prices={market} legQuote={readers.legQuote} />
     </>
   );
 }
@@ -181,6 +184,7 @@ function PoolRow({
   const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
   // What the pool holds in dollars, at Jupiter's listed prices: only when both coins have one, never $0.
   const worth = usd ? poolWorthUsd(view, usd) : null;
+  const refused = refusesDeposits(view, chainNow, safety);
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -196,6 +200,11 @@ function PoolRow({
               {usdText(worth)}
             </span>
           )}
+        </div>
+        {/* Each coin's name copies its whole address (island answer twenty-four). */}
+        <div className="flex flex-wrap gap-x-4">
+          <CoinName name={symbol ?? 'Token'} address={view.tokenMint} />
+          <CoinName name={view.quote.symbol} address={view.quote.mint} />
         </div>
         {/* Any other coin's ticker is its own claim, and a short address can be ground to collide: the whole address is said too. */}
         {!siteNamed(view.tokenMint) && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}
@@ -224,7 +233,14 @@ function PoolRow({
       {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
       <div className="relative flex gap-2">
         {onAdd && (
-          <button type="button" className="btn-primary min-h-[44px] px-4 text-[13px]" aria-label={`Add to ${label}`} onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}>
+          // A pool that refuses deposits: switched off to the eye and to a screen reader, and still a press to its card, which says why.
+          <button
+            type="button"
+            className={`${refused ? 'btn-secondary' : 'btn-primary'} min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60`}
+            aria-disabled={refused || undefined}
+            aria-label={`Add to ${label}`}
+            onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}
+          >
             Add
           </button>
         )}
