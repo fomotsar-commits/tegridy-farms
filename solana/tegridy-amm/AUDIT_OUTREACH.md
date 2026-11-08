@@ -49,7 +49,12 @@ pools. Neither has been audited. So the audit target is a live program as well a
 source. cp-swap has been upgraded once since, to a build of this source: the live program
 has the one added instruction, `create_lp_metadata`, and the launch-tier refusal, and both
 went in unaudited. It was rolled back on 2026-10-24, so the live program is the 2026-09-29
-build again, without either; a re-upgrade is planned.
+build again, without either. The re-upgrade to this source is approved and can run from
+2026-11-02. The launcher is paused and has never opened a launch.
+
+**We'd like Scope A first, on its own.** We want our pools routed by Jupiter, which asks for
+an audit report with the listing. The pools are cp-swap's, so a Scope A report we can publish
+is what unblocks it.
 
 Happy to grant repo read access. What would you quote, and what's your earliest start?
 

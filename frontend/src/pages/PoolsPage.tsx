@@ -137,7 +137,7 @@ export default function PoolsPage() {
               <li>
                 Impermanent loss is real: a constant-product pool rebalances against you when
                 the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it cannot read.
+                quote you an APY it did not read.
               </li>
             </ul>
           </FinePrint>

@@ -53,7 +53,7 @@ export function formatAsOf(asOf: number | null): string | null {
 }
 
 const METHOD_NOTE =
-  'Measured from live pool + on-chain reads (GeckoTerminal price/liquidity, Etherscan holder + creator-activity) at the time shown. Descriptive disclosures of market-risk outcomes — not a safety rating, endorsement, or accusation.';
+  'Measured from live pool + on-chain reads (GeckoTerminal price/liquidity, Etherscan holder + creator-activity) at the time shown. Descriptive disclosures of market-risk outcomes, not a safety rating, endorsement, or accusation.';
 
 export function LaunchAfterlife({ outcomes }: LaunchAfterlifeProps) {
   const summary = useMemo<AfterlifeLedgerSummary>(() => summarizeAfterlife(outcomes), [outcomes]);
@@ -77,8 +77,8 @@ export function LaunchAfterlife({ outcomes }: LaunchAfterlifeProps) {
           <p className="text-white/80 text-sm font-medium">No launches have graduated through this rail yet</p>
           <FinePrint className="mt-1 max-w-md">
             <p>
-              When they do, every one is recorded here permanently — price and liquidity versus
-              graduation, holder count, and whether the team stayed active — including the launches
+              When they do, every one is recorded here permanently: price and liquidity versus
+              graduation, holder count, and whether the team stayed active, including the launches
               that don&rsquo;t work out. Nothing is seeded and no number is invented.
             </p>
           </FinePrint>

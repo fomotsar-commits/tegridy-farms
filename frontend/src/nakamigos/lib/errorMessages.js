@@ -44,7 +44,7 @@ const ERROR_MAP = [
 
   // Network errors
   { pattern: /network error|failed to fetch|timeout/i, message: "Network error — check your connection" },
-  { pattern: /could not detect network/i, message: "Cannot connect to Ethereum — check MetaMask" },
+  { pattern: /could not detect network/i, message: "Ethereum is not answering. Check MetaMask, then try again." },
 
   // Fulfillment data
   { pattern: /fulfillment data/i, message: "Could not prepare the purchase — listing may be unavailable" },
