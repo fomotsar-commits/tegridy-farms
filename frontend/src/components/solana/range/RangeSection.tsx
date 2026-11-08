@@ -20,7 +20,7 @@ import { freezeWarning, readTokenSafety, type TokenSafety } from '../../../lib/s
 import { siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
-import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
+import { RANGE_OPENING_FEE_TEXT, rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -392,6 +392,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
           Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
+      <p className="text-white/85">{RANGE_OPENING_FEE_TEXT}</p>
       {/* Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10). */}
       {venue?.elsewhere && (
         <div data-testid="range-venue-elsewhere" className="space-y-1">
