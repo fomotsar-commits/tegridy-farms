@@ -14,24 +14,25 @@ import { tick } from '../lib/tick';
  * canvas lives on the body: a fixed canvas inside the card would ride the card's rise.
  */
 export type FlameState =
-  /** The card rising, or a sale: the ember in the ring. A sale draws its light on the shore, cooling. */
+  /** A sale: never struck. The ember stays in the ring and the wallet's light on the shore cools. */
   | 'ember'
-  /** A buy or an add, the card up: the moment plays, once. */
+  /** A buy or an add: the moment plays once, struck the moment the card is up. */
   | 'catching'
   /** Played already for this signature (Bayla's Receipt raising the same card): at rest at once. */
   | 'lit';
 
 export function FlameCatch({
   state,
-  waiting = false,
+  up,
   wallet,
   holders,
   onLanded,
   onBeat,
 }: {
   state: FlameState;
-  /** The card is still rising: nothing is drawn or struck until it is up. */
-  waiting?: boolean;
+  /** The card has finished rising. The strike waits for it, and so does the fire's canvas: it is not
+   *  in the card, so it does not fade in with it. */
+  up: boolean;
   wallet: string;
   holders: number | null;
   onLanded?: () => void;
@@ -43,6 +44,8 @@ export function FlameCatch({
   // The card re-renders on every beat: the engine keeps running, and calls the card's latest.
   const landed = useEffectEvent(() => onLanded?.());
   const beat = useEffectEvent((n: number) => onBeat?.(n));
+  // A card at rest and a sale draw at once, fading in with the card; a buy's strike waits for it to be up.
+  const waiting = state === 'catching' && !up;
   useEffect(() => {
     if (waiting || !shore.current || !fx.current || !ring.current) return;
     return startShoreMoment({
@@ -68,7 +71,7 @@ export function FlameCatch({
           <span className="flame-css" />
         </div>
       </div>
-      {createPortal(<canvas ref={fx} aria-hidden="true" className="receipt-fx" />, document.body)}
+      {createPortal(<canvas ref={fx} aria-hidden="true" className="receipt-fx" style={up ? undefined : { visibility: 'hidden' }} />, document.body)}
     </>
   );
 }

@@ -42,7 +42,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const [caughtBefore] = useState(() => caughtFor === receipt.signature);
   const sold = receipt.action === 'sold';
   // A sale never strikes: the ember sits in the ring and the light on the shore cools.
-  const flame: FlameState = sold ? 'ember' : caughtBefore ? 'lit' : risen ? 'catching' : 'ember';
+  const flame: FlameState = sold ? 'ember' : caughtBefore ? 'lit' : 'catching';
   // The line under the title: from the landing; at once for a card at rest and for a sale.
   const [landed, setLanded] = useState(() => caughtBefore || sold);
   const [beat, setBeat] = useState(false);
@@ -107,7 +107,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
         {/* The coin's shore across the card's head, the ring on its bottom edge: the moment waits for the card to be up. */}
         <FlameCatch
           state={flame}
-          waiting={!sold && !caughtBefore && !up}
+          up={up}
           wallet={receipt.wallet}
           holders={receipt.holders}
           onLanded={onLanded}
@@ -121,11 +121,15 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
             {receipt.under}
           </p>
         )}
-        {landed && (
-          <p className="mt-1 text-center text-[14px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-shore-line">
-            {sold ? RECEIPT_WORDS.shoreCooling : <ShoreWords coin={receipt.coin.symbol} />}
-          </p>
-        )}
+        {/* The line under the title. Its two lines are kept from the start, as the island drew it, so
+            nothing below moves when the light lands. */}
+        <div className="mt-1 min-h-[40px]" data-testid="receipt-shore-slot">
+          {landed && (
+            <p className="text-center text-[14px] leading-[20px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-shore-line">
+              {sold ? RECEIPT_WORDS.shoreCooling : <ShoreWords coin={receipt.coin.symbol} />}
+            </p>
+          )}
+        </div>
 
         <div className="mt-5 pt-2 pb-2" style={{ borderTop: '1px solid rgba(139,92,246,0.25)', borderBottom: '1px solid rgba(139,92,246,0.25)' }} data-testid="receipt-rows">
           <FeeRows receipt={receipt} />

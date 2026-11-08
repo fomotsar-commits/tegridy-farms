@@ -89,12 +89,15 @@ afterEach(() => {
 describe('the shore answers', () => {
   it('a buy: the shore waits while the card rises; the moment the card is up the engine strikes, once, with the wallet and the coin’s holders', () => {
     act(() => raiseReceipt(receipt()));
-    expect(card()).toHaveAttribute('data-flame', 'ember');
-    rise();
     expect(card()).toHaveAttribute('data-flame', 'catching');
+    // The fire's canvas is not in the card, so it does not fade in with it: hidden until the card is up.
+    expect(fxOnBody()[0]).toHaveStyle({ visibility: 'hidden' });
+    rise();
     pass(299);
     expect(start).not.toHaveBeenCalled();
+    expect(fxOnBody()[0]).toHaveStyle({ visibility: 'hidden' });
     pass(1);
+    expect(fxOnBody()[0]).not.toHaveStyle({ visibility: 'hidden' });
     expect(start).toHaveBeenCalledTimes(1);
     const o = last();
     expect(o.state).toBe('catching');
@@ -140,6 +143,8 @@ describe('the shore answers', () => {
     rise();
     up();
     expect(shoreLine()).toBeNull();
+    // Its two lines are kept from the start, so nothing below moves when the light lands.
+    expect(screen.getByTestId('receipt-shore-slot')).toHaveClass('min-h-[40px]');
     act(() => last().onLanded?.());
     expect(shoreLine()).toHaveTextContent(SHORE);
     // The coin's shore is marked, as the island drew it.
@@ -149,12 +154,14 @@ describe('the shore answers', () => {
     act(() => closeReceipt());
     expect(engine.stop).toHaveBeenCalledTimes(1);
     act(() => reopenReceipt());
-    // At rest at once: no rise to wait for, no second strike.
+    // At rest at once: no rise to wait for, no second strike. The resting fire's canvas waits for the card.
     expect(states()).toEqual(['catching', 'lit']);
     expect(card()).toHaveAttribute('data-flame', 'lit');
     expect(shoreLine()).toHaveTextContent(SHORE);
+    expect(fxOnBody()[0]).toHaveStyle({ visibility: 'hidden' });
     rise();
     up();
+    expect(fxOnBody()[0]).not.toHaveStyle({ visibility: 'hidden' });
     pass(5000);
     expect(states()).toEqual(['catching', 'lit']);
   });
@@ -245,12 +252,12 @@ describe('the shore answers', () => {
 describe('the head', () => {
   it('the shore is a canvas across the card’s head; the ring on its bottom edge holds the ember and the island’s flame', () => {
     cleanup();
-    const { container } = render(<FlameCatch state="ember" waiting wallet={WALLET} holders={null} />);
+    const { container } = render(<FlameCatch state="catching" up={false} wallet={WALLET} holders={null} />);
     const head = container.querySelector('.receipt-head');
     expect(head).toHaveAttribute('aria-hidden', 'true');
     expect(head?.querySelector(':scope > canvas.receipt-shore')).not.toBeNull();
     const r = head?.querySelector(':scope > .flame-ring');
-    expect(r).toHaveAttribute('data-flame', 'ember');
+    expect(r).toHaveAttribute('data-flame', 'catching');
     expect(r?.querySelector('.flame-ember')).not.toBeNull();
     expect(r?.querySelector('.flame-css')).not.toBeNull();
     // Twenty-nine's svg flame is gone; the CSS flame is the island's.
@@ -274,7 +281,9 @@ describe('the CSS', () => {
     for (const k of ['ember-out', 'flame-catch', 'ring-breathe', 'edge-warm']) expect(css).not.toMatch(new RegExp(`@keyframes ${k}\\b`));
     expect(css).not.toMatch(/\.flame-fire/);
     expect(css).toMatch(/@keyframes clock-light\s*\{\s*to\s*\{\s*opacity:\s*1;\s*transform:\s*none/);
-    expect(rule('.receipt-card[data-flame="catching"] .receipt-clock')).toMatch(/opacity:\s*0;\s*animation:\s*clock-light 200ms ease-out 500ms forwards/);
+    // At twenty-nine's moment: 750 ms from the raise (the veil's 250, then 500).
+    expect(rule('.receipt-card[data-flame="catching"] .receipt-clock')).toMatch(/opacity:\s*0;\s*animation:\s*clock-light 200ms ease-out 750ms forwards/);
+    expect(rule('.receipt-card[data-flame="catching"] .receipt-clock-dot')).toMatch(/transform:\s*scale\(0\.5\);\s*animation:\s*clock-light 200ms ease-out 750ms forwards/);
   });
 
   it('the head meets the card’s edges inside its 20 px corners, 176 px tall; the fire’s canvas covers the screen above the receipt layer', () => {

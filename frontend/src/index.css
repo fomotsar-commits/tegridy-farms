@@ -561,7 +561,9 @@ body {
    that leaves the card is drawn on a fixed canvas on the body, above the receipt layer
    (z-index 85). Each of the shore's three beats warms the card's edge for 240 ms
    (ReceiptCard.tsx); the card's border and shadow are inline, so the beat must win over
-   them. The clock line still lights last on a buy's or an add's card. */
+   them. The clock line still lights last on a buy's or an add's card, at the moment
+   twenty-nine lit it: a buy's card is "catching" from the moment it is raised, so its
+   delay counts the veil's 250 ms and the 500 ms after. */
 .receipt-head {
   position: relative;
   height: 176px;
@@ -631,8 +633,8 @@ body {
   border-color: rgba(170,255,160,0.9) !important;
   box-shadow: 0 24px 64px rgba(0,0,0,0.65), 0 0 70px rgba(130,255,120,0.34) !important;
 }
-.receipt-card[data-flame="catching"] .receipt-clock { opacity: 0; animation: clock-light 200ms ease-out 500ms forwards; }
-.receipt-card[data-flame="catching"] .receipt-clock-dot { transform: scale(0.5); animation: clock-light 200ms ease-out 500ms forwards; }
+.receipt-card[data-flame="catching"] .receipt-clock { opacity: 0; animation: clock-light 200ms ease-out 750ms forwards; }
+.receipt-card[data-flame="catching"] .receipt-clock-dot { transform: scale(0.5); animation: clock-light 200ms ease-out 750ms forwards; }
 @keyframes clock-light {
   to { opacity: 1; transform: none; }
 }
