@@ -78,10 +78,10 @@ function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
 
 export function baylaLine(i: BaylaInputs): BaylaLine {
   const line = lineFor(i);
-  // Under the sheet and on the launch door every line is quiet: the screen's own green button is
-  // her move (answer twenty-five, §2; twenty-six, §2.7).
-  const move = i.screenMove ?? null;
-  return { ...line, sameMove: move === 'sheet' || move === 'door' || move === line.button.move };
+  // One green button per screen (answer twenty-five, §2), and the rule is the screen's (answer
+  // twenty-eight, §2.2): wherever the screen draws its own green button (the countdown's Start the
+  // clock, the sheet, the receipt, the launch door) her button is quiet, whatever move it makes.
+  return { ...line, sameMove: (i.screenMove ?? null) !== null };
 }
 
 /** The intel line under Bayla's: one fact read, in the past tense; null when it could not be read (never 0). */

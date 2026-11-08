@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import {
+  __resetTapeTurns,
   MIN_TAPE_REFRESH_SECONDS,
   TAPE_CAP,
   classifySide,
@@ -334,6 +335,30 @@ describe('readIslandTape', () => {
     { ...ethPool, bungalowId: 'b', pool: '0xbbb' },
     { ...ethPool, bungalowId: 'c', pool: '0xccc' },
   ];
+  beforeEach(() => __resetTapeTurns());
+
+  const askedOrder = (calls: { mock: { calls: unknown[][] } }) =>
+    calls.mock.calls.map((c) => ['0xaaa', '0xbbb', '0xccc'].find((p) => String(c[0]).includes(p)));
+
+  it('asks first, next walk, the pools a 429 left unasked, and keeps the reads in pool order', async () => {
+    const okOnce = { data: [{ attributes: { block_timestamp: '2026-09-01T12:00:00Z', kind: 'buy', tx_hash: EVM_HASH } }] };
+    const first = jsonFetch((url) =>
+      url.includes('0xbbb') ? { status: 429, body: { status: { error_code: 429 } } } : { status: 200, body: okOnce },
+    );
+    await readIslandTape(pools, { fetchImpl: first.impl, sleep: async () => {}, now: () => 1_000 });
+    const second = jsonFetch(() => ({ status: 200, body: okOnce }));
+    const tape = await readIslandTape(pools, { fetchImpl: second.impl, sleep: async () => {}, now: () => 2_000 });
+    // 0xccc was never asked in the first walk, so it goes first; the walk of 2026-11-05
+    // read the same 4 of 12 every time because the order never moved.
+    expect(askedOrder(second.calls)).toEqual(['0xccc', '0xaaa', '0xbbb']);
+    expect(tape.reads.map((r) => r.pool.pool)).toEqual(['0xaaa', '0xbbb', '0xccc']);
+  });
+
+  it('a fresh tab starts at a place that moves each minute', async () => {
+    const f = jsonFetch(() => ({ status: 200, body: { data: [] } }));
+    await readIslandTape(pools, { fetchImpl: f.impl, sleep: async () => {}, now: () => 60_000 });
+    expect(askedOrder(f.calls)).toEqual(['0xbbb', '0xccc', '0xaaa']);
+  });
 
   function jsonFetch(bodyFor: (url: string) => { status: number; body: unknown }) {
     let inFlight = 0;

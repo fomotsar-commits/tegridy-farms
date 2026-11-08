@@ -1,0 +1,62 @@
+{
+  "contract": "src/lib/loans/LoanManagerRegistry.sol:LoanManagerRegistry",
+  "compiler": "0.8.21+commit.d9974bed",
+  "language": "Solidity",
+  "sourceTree": "sources",
+  "files": [
+    "lib/solmate/src/auth/Owned.sol",
+    "src/lib/loans/LoanManagerRegistry.sol",
+    "src/interfaces/loans/ILoanManagerRegistry.sol"
+  ],
+  "settings": {
+    "viaIR": true,
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    },
+    "libraries": {},
+    "optimizer": {
+      "runs": 20,
+      "enabled": true
+    },
+    "evmVersion": "paris",
+    "remappings": [
+      ":@chainlink/=lib/chainlink/contracts/src/v0.8/",
+      ":@const/=src/const/default/",
+      ":@delegate/=lib/delegate-registry/src/",
+      ":@forge-std/=lib/forge-std/src/",
+      ":@manifoldxyz/=lib/v3/node_modules/@manifoldxyz/",
+      ":@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+      ":@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+      ":@rari-capital/=lib/v3/node_modules/@rari-capital/",
+      ":@rari-capital/solmate/=lib/seaport/lib/solmate/",
+      ":@seaport/=lib/seaport/lib/",
+      ":@solady/=lib/solady/src/",
+      ":@solmate/=lib/solmate/src/",
+      ":@zora/=lib/v3/contracts/",
+      ":chainlink/=lib/chainlink/contracts/",
+      ":delegate-registry/=lib/delegate-registry/",
+      ":ds-test/=lib/seaport/lib/ds-test/src/",
+      ":erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/",
+      ":forge-std/=lib/forge-std/src/",
+      ":murky/=lib/delegate-registry/lib/murky/",
+      ":openzeppelin-contracts/=lib/openzeppelin-contracts/",
+      ":openzeppelin/=lib/delegate-registry/lib/openzeppelin-contracts/contracts/",
+      ":seaport-core/=lib/seaport/lib/seaport-core/",
+      ":seaport-sol/=lib/seaport/lib/seaport-sol/",
+      ":seaport-types/=lib/seaport/lib/seaport-types/",
+      ":seaport/=lib/seaport/",
+      ":solady/=lib/solady/src/",
+      ":solarray/=lib/seaport/lib/solarray/src/",
+      ":solmate/=lib/solmate/src/",
+      ":test/=test/",
+      ":v3/=lib/v3/contracts/"
+    ]
+  },
+  "gondiMainnet": [
+    {
+      "address": "0x1e09403bE51029fE676e684743b6Aad2dAb7c9f5",
+      "deployTx": "0x87ae48e5142f48fcc38d22e11723c918e48f5d9e33fd400b98650d5273843883",
+      "block": 20663551
+    }
+  ]
+}
