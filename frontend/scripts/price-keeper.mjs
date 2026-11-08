@@ -24,7 +24,9 @@
  *   • Its OWN Jupiter key (JUPITER_API_KEY), never the site's: the site's one request a
  *     second is shared by every visitor. Without one, Jupiter's keyless host, while it lasts.
  *   • SOL is held WRAPPED, in the keeper's own account (`wrap`), so a round trip neither
- *     wraps nor unwraps.
+ *     wraps nor unwraps. Fees, Jito tips and new accounts are paid in plain SOL, so when that
+ *     runs low `run` moves a little of the wrapped SOL back to plain (KEEPER_TOPUP_*), from the
+ *     keeper to itself: no other coin, no other address.
  *
  * ─── SETTINGS (environment) ─────────────────────────────────────────────────────
  *   KEEPER_KEYPAIR          path to the keeper's key file (needed to send)
@@ -41,6 +43,10 @@
  *   KEEPER_DUST_EVERY_MIN   minutes between leftover sales (default 60)
  *   KEEPER_MAX_DAILY_SOL    most SOL the keeper may spend on fees and new accounts in a UTC
  *                           day; past it, it only test-runs until the next day (default 0.05)
+ *   KEEPER_TOPUP_BELOW_SOL  plain SOL (fees, tips, new accounts) under this starts a top-up from
+ *                           the wrapped SOL, read at most once a minute (default 0.02; off = never)
+ *   KEEPER_TOPUP_SOL        wrapped SOL each top-up moves back to plain (default 0.03); all top-ups
+ *                           in a UTC day move at most KEEPER_MAX_DAILY_SOL, and their fees count in it
  *   KEEPER_LOG_DIR          where the earnings log and the stop file live (default: the key
  *                           file's folder)
  *   KEEPER_STOP_FILE        while this file (or the same name with .txt) exists, nothing is
@@ -153,6 +159,7 @@ const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
 const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
 const { jitoSender } = await lib('solana/keeper/jito.ts');
+const { topUp, TOP_UP_EVERY_MS } = await lib('solana/keeper/topUp.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
@@ -840,11 +847,15 @@ async function main() {
     const trips = readTrips();
     if (!trips.length) log(`No trips logged yet (${TRADES})`);
     for (const day of [...new Set(trips.map((t) => t.day))].sort()) {
-      const of = trips.filter((t) => t.day === day);
+      const all = trips.filter((t) => t.day === day);
+      // A top-up moves the keeper's own SOL from wrapped to plain: no trip, no gain; its fee is spent.
+      const of = all.filter((t) => t.kind !== 'top-up');
+      const ups = all.filter((t) => t.kind === 'top-up' && t.outcome !== 'reverted');
       const done = of.filter((t) => t.outcome === 'confirmed');
       const gained = (coin) => done.filter((t) => t.coin === coin).reduce((sum, t) => sum + (t.gained ?? 0), 0);
-      const spent = of.reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
-      log(`${day}: ${done.length} of ${of.length} sent trips confirmed · gained ${gained('SOL').toFixed(6)} SOL and ${gained('USDC').toFixed(6)} USDC · spent ${spent.toFixed(6)} SOL on fees and new accounts`);
+      const spent = all.reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
+      const moved = ups.length ? ` · ${ups.reduce((sum, t) => sum + (t.coinIn ?? 0), 0).toFixed(6)} wrapped SOL moved to plain in ${ups.length} top-up${ups.length > 1 ? 's' : ''}` : '';
+      log(`${day}: ${done.length} of ${of.length} sent trips confirmed · gained ${gained('SOL').toFixed(6)} SOL and ${gained('USDC').toFixed(6)} USDC · spent ${spent.toFixed(6)} SOL on fees and new accounts${moved}`);
     }
     let gaps = '';
     try {
@@ -888,15 +899,31 @@ async function main() {
     // read (open in a spreadsheet, a missing folder) never switches the cap off. Seeded from the
     // log when it can be read.
     const spent = { day: today(), sol: 0 };
+    // Wrapped SOL moved back to plain today (keeper/topUp.ts), kept and seeded the same way.
+    const moved = { day: today(), lamports: 0n };
     try {
       fs.mkdirSync(LOG_DIR, { recursive: true });
-      spent.sol = readTrips().filter((t) => t.day === spent.day).reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
+      const rows = readTrips().filter((t) => t.day === spent.day);
+      spent.sol = rows.reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
+      moved.lamports = rows.filter((t) => t.kind === 'top-up' && t.outcome !== 'reverted').reduce((sum, t) => sum + BigInt(Math.round((t.coinIn ?? 0) * 1e9)), 0n);
     } catch (e) {
       log(`Earnings log not read (${e instanceof Error ? e.message : String(e)}): today's spending starts at 0`);
     }
     const spentToday = () => {
       if (spent.day !== today()) Object.assign(spent, { day: today(), sol: 0 });
       return spent.sol;
+    };
+    const movedToday = () => {
+      if (moved.day !== today()) Object.assign(moved, { day: today(), lamports: 0n });
+      return moved.lamports;
+    };
+    const lamportsOf = (sol) => BigInt(Math.round(sol * 1e9));
+    const topUpOff = ['0', 'off', 'no'].includes(env.KEEPER_TOPUP_BELOW_SOL?.trim().toLowerCase() ?? '');
+    const topUpSettings = {
+      belowLamports: topUpOff ? 0n : lamportsOf(num('KEEPER_TOPUP_BELOW_SOL', 0.02)),
+      amountLamports: lamportsOf(num('KEEPER_TOPUP_SOL', 0.03)),
+      dayLamports: lamportsOf(maxDailySol),
+      microLamports: settings.microLamports,
     };
     /** Why nothing may be sent right now, or null. */
     const holdReason = () => (stopped() ? `paused: ${STOP_FILE} exists` : spentToday() >= maxDailySol ? `paused until tomorrow (UTC): ${maxDailySol} SOL spent today` : null);
@@ -1008,6 +1035,11 @@ async function main() {
     log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
+    log(
+      topUpSettings.belowLamports > 0n
+        ? `  plain SOL (fees, tips, new accounts) under ${fmt(topUpSettings.belowLamports, 9)} SOL: ${fmt(topUpSettings.amountLamports, 9)} SOL of the wrapped SOL moved back to plain, at most ${maxDailySol} SOL a day, read every ${TOP_UP_EVERY_MS / 1000} s`
+        : '  plain SOL never topped up from the wrapped SOL (KEEPER_TOPUP_BELOW_SOL=off)',
+    );
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
     log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
@@ -1020,6 +1052,24 @@ async function main() {
     let lastPass = 0;
     let lastDust = 0;
     let held = null;
+    // Plain SOL is read before a full pass, at most every TOP_UP_EVERY_MS; why a top-up was not made is said once until it changes.
+    let topUpAt = -Infinity;
+    let topUpSaid = null;
+    const plainSolTopUp = async () => {
+      let why = null;
+      try {
+        const r = await topUp(io, topUpSettings, movedToday());
+        if (r.kind === 'sent') {
+          movedToday();
+          moved.lamports += r.moved;
+        } else if (r.kind === 'skipped' || r.kind === 'refused') why = `Plain SOL top-up not made: ${r.why}`;
+        else if (r.kind === 'tested') why = `Plain SOL top-up test run passed: it would move ${fmt(r.move, 9)} of the wrapped SOL to plain (dry run: nothing sent)`;
+      } catch (e) {
+        why = `Plain SOL top-up stopped: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      if (why !== null && why !== topUpSaid) log(why);
+      topUpSaid = why;
+    };
     // What the dashboard shows of a live robot: a file it rewrites every round. One that cannot
     // be written only leaves the dashboard saying the robot has not been seen.
     let passSeen = null;
@@ -1050,6 +1100,11 @@ async function main() {
         }
       }
       if (!watch || Date.now() - lastPass >= intervalMs || (now !== null && now !== seen)) {
+        // Before the pass, so a trip that opens an account finds the plain SOL for its rent.
+        if (topUpSettings.belowLamports > 0n && !hold && Date.now() - topUpAt >= TOP_UP_EVERY_MS) {
+          topUpAt = Date.now();
+          await plainSolTopUp();
+        }
         seen = now;
         const callsBefore = jupiterCalls;
         try {

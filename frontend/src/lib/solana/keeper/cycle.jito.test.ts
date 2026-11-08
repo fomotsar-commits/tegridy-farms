@@ -136,6 +136,19 @@ describe('sendChecked with KEEPER_JITO', () => {
     expect(floorOfCheck(r.instructionsOf(r.sent[0]!).at(-1)!)!.min).toBe(HELD + GAIN - 15_000n);
   });
 
+  it('sends a SOL trip the usual way, with no tip, when the plain SOL it leaves cannot pay one', async () => {
+    // 2026-11-08: 796,203 lamports plain, under the 0.001 SOL the wallet keeps: a tip would empty it.
+    const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: 796_203n - 5_000n }, 796_203n);
+    r.io.sendJito = vi.fn();
+    r.io.send = vi.fn(async (tx: VersionedTransaction) => {
+      r.sent.push(tx);
+      return { signature: 'sig', outcome: 'confirmed' as const };
+    });
+    expect(await sendChecked(r.io, settings(true), r.trip)).toBe('sent');
+    expect(r.io.sendJito).not.toHaveBeenCalled();
+    expect(r.instructionsOf(r.sent[0]!).some((ix) => ix.programId.toBase58() === SYSTEM)).toBe(false);
+  });
+
   it.each(['lost', 'unknown'] as const)('after a bundle %s, sends the next trip through the pool the usual way for a while, then through Jito again', async (outcome) => {
     const first = rig(SOL_QUOTE, { coin: HELD, lamports: LAMPORTS });
     first.io.send = vi.fn();

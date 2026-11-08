@@ -143,10 +143,13 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   directLookupTables: DIRECT_LOOKUP_TABLES,
 };
 
-/** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
+/**
+ * One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not
+ * confirm. 'top-up' (keeper/topUp.ts) moves wrapped SOL to plain: `coinIn` is the amount, never a gain.
+ */
 export interface TripRecord {
   at: string;
-  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust' | 'direct';
+  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust' | 'direct' | 'top-up';
   pool: string;
   name: string;
   coin: QuoteCoin;
