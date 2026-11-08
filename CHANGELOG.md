@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-08
 
+- Receipt card (Solana): after an add, any coin, the card's head is the pool. Both coins pour in, a bubble flashes, and your brick of light lands on the floor of the pool's LPs, in the coin's own color. A buy or a sale keeps its flame.
 - Solana pools: the pool program is upgraded again, so pool share tokens can get a name in wallets and the launch fee tier is kept for launches: opening a pool the public way no longer accepts it. Its on-chain security contact is an email and links on memetics.finance again. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. "The program" card no longer says the program was built before them.
 - Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
 
