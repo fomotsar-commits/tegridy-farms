@@ -4,7 +4,7 @@
 // Why plain JS with a sibling .d.ts: a Vercel lambda cannot import a .ts module,
 // and a second copy of these rules on the server is how the two sides drift until
 // the form accepts something the server refuses, or the server accepts something
-// the form never would. src/lib/merkle/core.js is the precedent for this layout.
+// the form never would. src/lib/fetchWholeBody.js uses the same layout.
 //
 // What these rules protect against. The name, symbol and picture are written into
 // a Metaplex metadata account that the launch LOCKS (is_mutable = false), and the

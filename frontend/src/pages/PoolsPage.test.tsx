@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { BUNGALOWS } from '../lib/bungalows';
 
 /**
  * `/pools` answers "can this venue host liquidity pools?" from a LIVE CHAIN PROBE, never
@@ -15,9 +16,15 @@ vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({})
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp), its Rates and Swap routes cards
 // included; here only WHEN and WHERE it mounts matters.
-vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: () => <div data-testid="lp-section" />,
-}));
+vi.mock('../components/solana/lp/SolanaLpSection', async () => {
+  const { useLayoutEffect } = await import('react');
+  // The real section claims the door's place when it mounts and draws its own door there.
+  function Section({ door }: { door?: { claim(): void } }) {
+    useLayoutEffect(() => door?.claim(), [door]);
+    return <div data-testid="lp-section" />;
+  }
+  return { default: Section };
+});
 // LP's own switch, steerable per test (spec addendum D24): the page's words about what this
 // site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
 // whatever is committed; the committed value is pinned in lpWriteFlag.test.ts.
@@ -189,6 +196,21 @@ describe('when the venue is live', () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(document.body.textContent).not.toContain('—');
   });
+
+  // Owner, 2026-10-13: as few words as possible. The hero's eyebrow and its Details drop-down said what the
+  // tab strip, the Rates card and the status card say; "Nothing to claim." is the section's own first line.
+  it('says each thing once: no eyebrow, no hero Details, and the share card leaves "Nothing to claim" to the earn line', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const hero = screen.getByRole('heading', { level: 1 }).parentElement!;
+    expect(hero).not.toHaveTextContent('Venue AMM · Solana');
+    expect(hero.querySelector('details')).toBeNull();
+    expect(within(hero).queryByText('Details')).toBeNull();
+    const share = screen.getByRole('heading', { level: 2, name: 'Deposit a pair, hold your share' }).parentElement!;
+    expect(share).toHaveTextContent("No lock, but the team's vault can pause removing.");
+    expect(within(share).queryByText(/^Nothing to claim\./)).toBeNull();
+    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares. Nothing to claim.").
+  });
 });
 
 // Tier 0 exactly as mainnet returned it (scripts/record-pools-venue-fixture.mjs): 0.25% trade
@@ -333,9 +355,9 @@ describe('always', () => {
     expect(screen.getByText(/can switch removing off on a pool/i)).toBeInTheDocument();
   });
 
-  it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
+  it('says a browser has no way to list pools itself, and how the server index fills that gap', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/A browser cannot list pools itself/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/A browser has no way to list pools itself/i)).toBeInTheDocument());
     expect(screen.getByText(/returns addresses only/i)).toBeInTheDocument();
   });
 
@@ -369,9 +391,9 @@ describe('always', () => {
     expect(program).toHaveTextContent(/one added instruction/i);
     // Calling the added instruction is not free (the record's rent and Metaplex's fee), so the
     // card says who pays, and never that it takes nothing or moves no funds.
-    expect(program).toHaveTextContent(/It cannot move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
+    expect(program).toHaveTextContent(/It has no way to move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
     expect(program).not.toHaveTextContent(/takes nothing from its caller|moves no funds/i);
-    expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
+    expect(program).toHaveTextContent(/A browser has no way to list pools itself/i);
     const status = screen.getByRole('region', { name: 'Venue status' });
     expect(status.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -399,7 +421,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
   it("'off': reads only, and says adding and removing are not switched on", async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
+    // The status card's line is the one place this page says it (the hero's Details went on 2026-10-30).
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
   });
 
@@ -409,9 +431,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy. Whether the public tier
     // exists is said only by the create card's live read, never by this fixed copy (B review parity-3).
-    expect(
-      screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier \(the pools section says whether that can be done right now\)\./i),
-    ).toBeInTheDocument();
     expect(
       screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section above says whether it can right now\)\./),
     ).toBeInTheDocument();
@@ -426,7 +445,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     lp.mode = 'withdraw-only';
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
     expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });
@@ -476,5 +494,47 @@ describe('Refresh on a live venue', () => {
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
     expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+});
+
+// Island, answer twenty-two ("where the door lands"): a room's Add SOL + coin opens its form at
+// the top of the page. Its place is held from the first frame, before the venue read and the
+// LP section's chunk, so nothing the page draws later lands above it.
+describe('the LP door', () => {
+  const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+  const DOOR = `/pools?mint=${bayla.address}&task=add&pool=${bayla.venueSolPool}`;
+  beforeEach(() => { lp.mode = 'on'; });
+  afterEach(() => { lp.mode = 'off'; });
+
+  it('holds the top of the page from the first frame, named for the room, while the venue is read', async () => {
+    readVenue.mockReturnValue(new Promise(() => {}));
+    await mount(DOOR);
+    const door = screen.getByTestId('lp-door');
+    expect(within(door).getByRole('heading', { name: bayla.name })).toBeInTheDocument();
+    expect(within(door).getByRole('status')).toHaveTextContent('Reading this pool from the chain…');
+    expect(door.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hands its place to the LP section once that mounts', async () => {
+    readVenue.mockResolvedValue(LIVE);
+    await mount(DOOR);
+    await screen.findByTestId('lp-section');
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+  });
+
+  it('a venue that does not read live takes it away', async () => {
+    readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' });
+    await mount(DOOR);
+    await settled();
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+  });
+
+  it('is not drawn without task=add, or with adding switched off', async () => {
+    readVenue.mockReturnValue(new Promise(() => {}));
+    await mount(`/pools?mint=${bayla.address}`);
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+    lp.mode = 'off';
+    await mount(DOOR);
+    expect(screen.queryByTestId('lp-door')).toBeNull();
   });
 });

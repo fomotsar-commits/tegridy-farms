@@ -1,6 +1,7 @@
 // The fee-tier proposal: one vault proposal that makes both tiers with the island split and points
-// each tier's fund share at the island's Workshop. Used by the page (bundled for the browser), by
-// the scripts and by the rehearsal, so all three build and check the very same bytes.
+// each tier's fund share at the island's Workshop; or, in a fee-change folder (cfg.change), one that
+// sets an existing tier's fee (tierFee.mjs decides that one). Used by the page (bundled for the
+// browser), by the scripts and by the rehearsal, so all three build and check the very same bytes.
 //
 // It never trusts a proposal it did not build: approve and execute are offered only for a
 // proposal whose stored message is, byte for byte, the one this module compiles from config.json.
@@ -50,6 +51,18 @@ export function makeCore({ web3, cfg }) {
     return out;
   }
 
+  // ---- a fee-change folder (cfg.change): one update_amm_config on one tier that already exists ----
+  // param 0 sets the tier's trade fee rate; the vault, the program's admin, signs. Owner, 2026-10-27:
+  // "build the vault proposal that raises Range tier 1 from 0.25% to 1%".
+  function feeIxs() {
+    const c = cfg.change;
+    return [new TransactionInstruction({
+      programId: PROGRAM,
+      keys: [{ pubkey: VAULT, isSigner: true, isWritable: false }, { pubkey: ammConfig(c.index), isSigner: false, isWritable: true }],
+      data: Buffer.concat([hex(D.update_amm_config), u8(0), u32(c.to)]),
+    })];
+  }
+
   /** Squads' TransactionMessage: one-byte counts and lengths (the data length is two bytes). */
   function compile(ixs) {
     const metas = new Map();
@@ -75,7 +88,7 @@ export function makeCore({ web3, cfg }) {
     ]);
     return { bytes, message, accounts: all };
   }
-  const EXPECTED = compile(tierIxs());
+  const EXPECTED = compile(cfg.change ? feeIxs() : tierIxs());
 
   // ---- decoding Squads' accounts ------------------------------------------------------------
   function reader(data) {
@@ -236,7 +249,7 @@ export function makeCore({ web3, cfg }) {
   }
 
   return {
-    EXPECTED, PROGRAM_DATA, ammConfig, txPda, proposalPda, tierIxs, compile, decodeVaultTransaction, decodeProposal, decodeTier, isOurs, tierExact,
+    EXPECTED, PROGRAM_DATA, ammConfig, txPda, proposalPda, tierIxs, feeIxs, compile, decodeVaultTransaction, decodeProposal, decodeTier, isOurs, tierExact,
     proposeIxs, approveIx, executeIx, txFor, simulate, readMultisig, scan, tiers, clock, programState, readState,
   };
 }

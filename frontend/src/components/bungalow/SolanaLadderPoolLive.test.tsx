@@ -15,7 +15,7 @@
 // The READ SEAM is mocked one module below the card and the math above it stays real,
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 
@@ -26,6 +26,11 @@ const MINT = '8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL';
 const OWNER = 'Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj';
 
 /* ─────────────────────────── the rig ─────────────────────────── */
+
+// The room's torches read the island; here only where they stand is under test.
+vi.mock('../RoomTorches', () => ({
+  RoomTorches: ({ roomId }: { roomId: string }) => <div data-testid="room-torches-stub">{roomId}</div>,
+}));
 
 // Counts mounts: the bare card must mount none, so SolanaPoolStack can share one.
 const providerMounts = vi.hoisted(() => ({ n: 0 }));
@@ -97,6 +102,7 @@ const writes = vi.hoisted(() => ({
   exit: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   hatch: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   carried: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
+  extend: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
 }));
 vi.mock('../../lib/ladder/write', () => ({
   ladderStake: writes.stake,
@@ -104,9 +110,11 @@ vi.mock('../../lib/ladder/write', () => ({
   ladderExit: writes.exit,
   ladderHatch: writes.hatch,
   ladderClaimCarried: writes.carried,
+  ladderExtendLock: writes.extend,
 }));
 
 const { SolanaLadderPoolLive, SolanaLadderPoolCard } = await import('./SolanaLadderPoolLive');
+const { weightForStake } = await import('../../lib/ladder/program');
 
 /* ─────────────────────────── fixtures ─────────────────────────── */
 
@@ -245,6 +253,53 @@ describe('the emergency hatch is priced, never assumed', () => {
   });
 });
 
+/* ────────── extending a lock (2026-10-29) ────────── */
+
+describe('extend lock', () => {
+  // A one-year position, 28 days in: the holders who asked for this.
+  const oneYear = () => position({
+    lockEnd: BigInt(NOW + 337 * DAY),
+    weight: weightForStake(500_000_000n, 365 * DAY),
+  });
+
+  it('offers ONLY the rungs that raise the boost: 2y and 4y for a one-year position', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    const offered = within(box).getAllByRole('button').map((b) => b.textContent);
+    expect(offered).toEqual(['2y · 2.19×', '4y · 4.00×']);
+  });
+
+  it('shows the new end, the new boost and the 75% early-exit cost BEFORE it sends', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    fireEvent.click(within(box).getByText('4y · 4.00×'));
+    expect(writes.extend).not.toHaveBeenCalled();     // armed, not fired
+    const note = await within(box).findByRole('note');
+    expect(note.textContent).toMatch(/at 4\.00× \(now 1\.29×\)/);
+    expect(note.textContent).toMatch(/would cost 75% of\s+this BAYLA/);
+    fireEvent.click(within(box).getByText('Confirm'));
+    await waitFor(() => expect(writes.extend).toHaveBeenCalledTimes(1));
+    expect(writes.extend).toHaveBeenCalledWith(expect.anything(), { positionNonce: 0, lockSecs: 4 * 365 * DAY });
+  });
+
+  it('is not offered where the program would refuse it or it gains nothing', async () => {
+    for (const [what, pool, pos] of [
+      ['a four-year position (already at the top)', poolView(), position()],
+      ['a matured position', poolView(), position({ lockEnd: BigInt(NOW - 1), weight: weightForStake(500_000_000n, 365 * DAY) })],
+      ['a degraded pool', poolView({ degraded: true }), oneYear()],
+    ] as const) {
+      reads.pool = { ok: true, value: pool };
+      reads.wallet = { ok: true, value: walletView({ open: [pos] }) };
+      const { unmount } = draw();
+      await screen.findByText(/Emergency withdraw/);
+      expect(screen.queryByTestId('ladder-extend'), what).toBeNull();
+      unmount();
+    }
+  });
+});
+
 /* ────────── 2. rewards are computed, not read ────────── */
 
 describe('what a position has earned', () => {
@@ -261,6 +316,44 @@ describe('what a position has earned', () => {
   it('a pool emitting nothing shows a real, labelled zero', async () => {
     draw();
     expect(await screen.findByText(/0 BAYLA earned/)).toBeTruthy();
+  });
+
+  // Owner, 2026-11-02: the four rooms' ladder pools open with no rewards yet. Whoever is about to
+  // lock must read that beside the Lock button, wallet or not, never only in a chip or the details.
+  it('a pool never funded says, beside the lock, that it pays nothing yet: with a wallet and without', async () => {
+    const NO_REWARDS = 'No rewards yet: a lock here earns nothing until the vault funds this pool.';
+    draw();
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
+    cleanup();
+    walletState.publicKey = null;
+    draw();
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
+    expect(screen.getByRole('button', { name: /Connect to lock/ })).toBeTruthy();
+  });
+
+  // 2026-11-04: this line said a lock "counts your held time" on the four rooms' pools, which the
+  // island does not read, one line below "Not counted as held time yet". Held time is the held-time
+  // line's to say, from the island's read list, so this one never names it.
+  it('the no-rewards line leaves held time to the held-time line', async () => {
+    for (const wallet of [true, false]) {
+      walletState.publicKey = wallet ? { toBase58: () => OWNER } : null;
+      draw();
+      expect((await screen.findByTestId('ladder-no-rewards')).textContent).not.toMatch(/held time/i);
+      expect(document.querySelector('[data-held-time="unread"]')).not.toBeNull();
+      cleanup();
+    }
+  });
+
+  it('a funded pool, or an ended one, carries no such line', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    await screen.findByText(/BAYLA/);
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
+    cleanup();
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    await screen.findByTestId('ladder-window-ended');
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
   });
 });
 
@@ -584,9 +677,10 @@ describe('pool-level reward figures', () => {
     };
     draw();
     const grid = await statGrid();
-    // Never annualised, never a per-token percentage.
+    // The POOL's figures are never annualised, never a per-token percentage. (Your own
+    // positions are: see "what you earn per day" below.)
     expect(grid.textContent).not.toMatch(/%/);
-    expect(document.body.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
+    expect(grid.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
     const perDay = stat('Rewards per day');
     expect(perDay.getByText(fmtRaw(86_400_000_000n, 6))).toBeTruthy();
@@ -916,11 +1010,91 @@ describe('your share of pool weight — a fact, never a yield', () => {
     expect(document.body.textContent).not.toMatch(/\b(0|100)%/);
   });
 
-  it('is never multiplied into a daily or annual figure', async () => {
-    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_825_000_000n }) };
+});
+
+/* ────────── 12b. what you earn per day: your weight, at today's rate ────────── */
+
+// Owner, 2026-10-29: "how much bayla a day each wallet earns … and a % as well …
+// based on their position", "position and time locked ofc". So the figure is per
+// WEIGHT (stake × lock boost), per position and summed for the wallet, and always
+// printed beside its basis, because it is a projection.
+describe('what you earn per day — your weight, at today’s rate', () => {
+  // 0.001 BAYLA a second = 86.4 a day to the whole pool, split over 4,400 weight.
+  // Two 500-BAYLA positions: one locked four years (4.00×, weight 2,000), one seven
+  // days (0.40×, weight 200). Same stake, ten times the weight.
+  const LONG = position({ nonce: 0, weight: 2_000_000_000n });
+  const SHORT = position({ address: 'POS1', nonce: 1, weight: 200_000_000n, lockEnd: BigInt(NOW + 7 * DAY) });
+  const twoLocks = (o: Record<string, unknown> = {}) => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000n, totalWeighted: 4_400_000_000n }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        open: [LONG, SHORT],
+        stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+        ...o,
+      }),
+    };
+  };
+  const rowOf = (boost: string) => screen.getAllByRole('listitem')
+    .find((li) => li.textContent?.includes('Claim rewards') && li.textContent.includes(`${boost} weight`))!;
+  const yours = () => screen.getByText('You earn per day').parentElement!;
+
+  it('each position shows its OWN day and APR, from its weight — a longer lock earns more', async () => {
+    twoLocks();
+    draw();
+    await screen.findByText('You earn per day');
+    // 86.4 × 2,000/4,400 = 39.2727… → 39.27; × 365 / 500 = 2,866.9% → 2,866%.
+    expect(rowOf('4.00×').textContent).toContain(`${fmtRaw(39_272_727n, 6)} BAYLA/day · ${(2_866).toLocaleString()}% APR`);
+    // 86.4 × 200/4,400 = 3.9272… → 3.92; × 365 / 500 = 286.69% → 286%.
+    expect(rowOf('0.40×').textContent).toContain(`${fmtRaw(3_927_272n, 6)} BAYLA/day · 286% APR`);
+  });
+
+  it('the wallet figure is the rows summed, its APR that sum over the whole stake, with its basis', async () => {
+    twoLocks();
+    draw();
+    await screen.findByText('You earn per day');
+    // 39,272,727 + 3,927,272 = 43,199,999 raw → 43.19 a day; × 365 / 1,000 = 1,576.7% → 1,576%.
+    expect(yours().textContent).toContain(fmtRaw(43_199_999n, 6));
+    expect(yours().textContent).toContain(
+      `${(1_576).toLocaleString()}% APR · at today's rate, funded to ${dateOf(NOW + 30 * DAY)}`,
+    );
+  });
+
+  it('divides by the LARGER of the two pool totals, so it never reads high', async () => {
+    // The one-slot basis says 8,800 weight; the separate pool read says 4,400. Someone
+    // staked in between: the larger total wins and the day halves.
+    twoLocks({ shareBasis: { mineWeight: 2_200_000_000n, totalWeighted: 8_800_000_000n, slot: null } });
+    draw();
+    await screen.findByText('You earn per day');
+    expect(rowOf('4.00×').textContent).toContain(`${fmtRaw(19_636_363n, 6)} BAYLA/day`);
+  });
+
+  it('⚠️ a PARTIAL position list prints no day and no APR at all', async () => {
+    twoLocks({ truncated: true });
     draw();
     await screen.findByText('Your share of pool weight');
-    expect(document.body.textContent).not.toMatch(/your daily|per year|annual|\bAPR\b|\bAPY\b/i);
+    expect(screen.queryByText('You earn per day')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\/day|\bAPR\b/);
+  });
+
+  it.each([
+    ['an ENDED window', { rewardRate: 1_000n, periodFinish: BigInt(NOW - 2 * DAY) }],
+    ['a window NEVER scheduled', {}],
+  ])('%s projects nothing: no day, no APR', async (_, o) => {
+    twoLocks();
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 4_400_000_000n, ...o }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(screen.queryByText('You earn per day')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\/day|\bAPR\b/);
+  });
+
+  it('with no wallet, nothing on the card is a percentage yield', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000n, totalWeighted: 4_400_000_000n }) };
+    draw();
+    await statGrid();
+    expect(document.body.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
   });
 });
 
@@ -1380,12 +1554,30 @@ describe('an ended reward window offers no new lock', () => {
     expect(screen.getByRole('button', { name: /Emergency withdraw/ })).toBeTruthy();
   });
 
+  it("the room's torches stand above the ended notice, and the notice stays (owner, 2026-10-15)", async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    const ended = await screen.findByTestId('ladder-window-ended');
+    const torches = within(ended).getByTestId('room-torches-stub');
+    expect(torches).toHaveTextContent('bayla');
+    const notice = within(ended).getByText(/Rewards ended/);
+    expect(torches.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the home's compact card does not repeat the torches its room's door carries", async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    render(<MemoryRouter><SolanaLadderPoolCard bungalow={BUNGALOW} compact /></MemoryRouter>);
+    await screen.findByTestId('ladder-window-ended');
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
+  });
+
   it('a live window keeps the form (negative control)', async () => {
     reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
     draw();
     expect(await screen.findByLabelText('Amount')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Lock BAYLA/ })).toBeTruthy();
     expect(screen.queryByTestId('ladder-window-ended')).toBeNull();
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
   });
 });
 

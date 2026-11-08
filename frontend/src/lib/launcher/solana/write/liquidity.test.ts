@@ -51,10 +51,14 @@ import {
   openAccount,
   rent,
   setClock,
+  setTransferFee,
   skewTestRun,
+  tokenFeeOnChain,
+  tokenFeeTaken,
   type PoolFixture,
   type SimHandler,
 } from './testkit.fixture';
+import { poolInverseFee } from '../../../solana/lp/transferFee';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
@@ -74,7 +78,11 @@ const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async ()
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
 /** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+// A transfer fee needs its real 108 bytes to decode (zeroes: 0%, nobody can change it).
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 /** A Token-2022 mint's extra beyond its name and picture. */
 const withExtra = (type: number): Array<[number, number]> => [extensionOf(type), ...METADATA_ONLY];
 
@@ -140,22 +148,33 @@ const lpSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   const tokBefore = amountAt(chain, userTok) ?? 0n;
   const lpBefore = amountAt(chain, userLp) ?? 0n;
 
+  // The token's transfer fee, as its mint on this chain sets it: a deposit sends it on top
+  // of what the pool takes (deposit.rs), a withdrawal pays out less it (withdraw.rs).
+  const tokMint = new PublicKey(solIs0 ? state.token1Mint : state.token0Mint);
   let solMoved: bigint;
   let tokMoved: bigint;
   if (isDeposit) {
     const c = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'ceiling');
     if (!c || c.token0Amount === 0n || c.token1Amount === 0n) return fail(6006);
-    if (c.token0Amount > b0 || c.token1Amount > b1) return fail(6005);
-    if (tokBefore < (solIs0 ? c.token1Amount : c.token0Amount)) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
+    const tokCost = solIs0 ? c.token1Amount : c.token0Amount;
+    const inv = poolInverseFee(tokenFeeOnChain(chain, tokMint), tokCost);
+    if (inv === null) return fail(6010);
+    const sent = tokCost + inv;
+    const [s0, s1] = solIs0 ? [c.token0Amount, sent] : [sent, c.token1Amount];
+    if (s0 > b0 || s1 > b1) return fail(6005);
+    if (tokBefore < sent) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
     solMoved = -(solIs0 ? c.token0Amount : c.token1Amount);
-    tokMoved = -(solIs0 ? c.token1Amount : c.token0Amount);
+    tokMoved = -sent;
   } else if (isWithdraw) {
     const o = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'floor');
     if (!o || o.token0Amount === 0n || o.token1Amount === 0n) return fail(6006);
-    if (o.token0Amount < b0 || o.token1Amount < b1) return fail(6005);
+    const tokOut = solIs0 ? o.token1Amount : o.token0Amount;
+    const got = tokOut - tokenFeeTaken(chain, tokMint, tokOut);
+    const [g0, g1] = solIs0 ? [o.token0Amount, got] : [got, o.token1Amount];
+    if (g0 < b0 || g1 < b1) return fail(6005);
     if (lpBefore < lp) return { err: { InstructionError: [3, { Custom: 2506 }] }, logs: [], unitsConsumed: 1 };
     solMoved = solIs0 ? o.token0Amount : o.token1Amount;
-    tokMoved = solIs0 ? o.token1Amount : o.token0Amount;
+    tokMoved = got;
   } else {
     return { err: 'not a liquidity instruction', logs: [], unitsConsumed: 1 };
   }
@@ -377,6 +396,25 @@ describe('poolPins', () => {
 
 // ── deposit ──────────────────────────────────────────────────────────────────
 
+// Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+// The pool here is the live one everyone had left that day: the locked 100 shares over 5
+// lamports and 2,138 token units.
+describe('a pool too empty to hold its price', () => {
+  const live = (o: Parameters<typeof world>[0] = {}) => world({ sol: 5n, tokens: 2_138n, lpSupply: 100n, ...o });
+
+  it('builds no deposit on the fresh read, even one that fits the wallet at the price the pool agrees with', async () => {
+    expect(refused(await deposit(live(), { maxIn: 1_000n }, priced(5 / 1e9 / (2_138 / 1e6))))).toBe(
+      'We did not build this deposit: This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
+    );
+  });
+
+  it('still builds the withdrawal of whoever holds its last shares', async () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units; the wallet holds the other 1,000.
+    const p = ok(await withdraw(world({ sol: 3_480n, tokens: 348n, lpSupply: 1_100n, heldLp: 1_000n })));
+    expect(p.kind).toBe('lp-withdraw');
+  });
+});
+
 describe('prepareLpDeposit', () => {
   it('a clean pool: one deposit, bounded on both sides, every number from the transaction', async () => {
     const w = world();
@@ -485,11 +523,15 @@ describe('prepareLpDeposit', () => {
     expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
-    const w = world();
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
+  // Answer twenty-seven withdrew twenty-four's hold: the pool's own price is the truth of a
+  // deposit, and an outside price not read is one row, never a gate and never a warning.
+  it('builds when the outside price cannot be read at prepare, or the read throws: one row, never a gate, never a warning', async () => {
+    const s = ok(await deposit(world(), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
-    expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
+    expect((ok(await deposit(world(), {}, throwing)).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
@@ -502,19 +544,46 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap).toBeNull();
   });
 
-  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, a 0-bps transfer fee, an extension the pool program rejects', async () => {
+  // Owner, 2026-10-29: a token with a transfer fee is added to. deposit.rs sends the pool's
+  // cost PLUS the fee on top, and refuses it above the maximum; this chain's pool program
+  // does the same, so a maximum set without the fee is refused at the test run.
+  it('a token with a transfer fee is added to: its fee rides on top of what the pool takes, inside the maximum, and the review says it', async () => {
+    for (const driving of ['quote', 'token'] as const) {
+      const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+      setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+      const p = ok(await deposit(w, { driving, maxIn: driving === 'quote' ? 100_000_000n : 1_000_000n }));
+      const s = p.summary as LpDepositSummary;
+      expect(s.transferFee?.rate, driving).toBe('5%');
+      const kept = s.transferFee!.kept;
+      // What leaves is the pool's cost and the fee on top: the pool gets exactly its cost.
+      const poolCost = s.quoted.token - kept;
+      expect(kept, driving).toBe(poolInverseFee({ epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 500 }, poolCost));
+      expect(s.quoted.token, driving).toBeLessThanOrEqual(s.max.token);
+      const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
+      expect(tok.delta, driving).toBe(-s.quoted.token);
+      expect(s.tokenWarnings.map((x) => x.code), driving).toContain('transfer-fee');
+    }
+  });
+
+  it('a fee change pending and the clock unread: nothing is built, a deposit or a withdrawal', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY], heldLp: LP_SUPPLY / 10n });
+    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 9n, basisPoints: 400 } });
+    setClock(w.chain, null);
+    expect(refused(await deposit(w))).toBe(LP_COPY.noEpoch);
+    expect(refused(await withdraw(w))).toBe(LP_COPY.noEpoch);
+    // With the clock, the epoch picks: before 9 the older 1%, from 9 the newer 4%.
+    setClock(w.chain, NOW, 8n);
+    expect((ok(await deposit(w)).summary as LpDepositSummary).transferFee?.rate).toBe('1%');
+    setClock(w.chain, NOW, 9n);
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).transferFee?.rate).toBe('4%');
+  });
+
+  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, an extension the pool program rejects', async () => {
     // The pool says classic; the mint is Token-2022.
     const w = world();
     w.chain.mint2022(w.mint, METADATA_ONLY, { decimals: 6 });
     expect(refused(await deposit(w))).toBe(LP_COPY.poolChanged("the token's program"));
     expect(refused(await deposit(world({ mintDecimals: 9 })))).toBe(LP_COPY.poolChanged("the token's decimals"));
-    // A transfer fee: the leave rule. The words say it is this site's limit.
-    const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await deposit(fee))).toBe(
-      LP_COPY.tokenBlocked(
-        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-      ),
-    );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     expect(refused(await deposit(hook))).toBe(
       LP_COPY.tokenBlocked('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
@@ -687,13 +756,14 @@ describe('prepareLpDeposit', () => {
     expect((plain.summary as LpDepositSummary).enableCreatorFee).toBe(false);
   });
 
-  it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {
+  it('a never-traded launch pool prepares when Jupiter answers no route, and when Jupiter is down (answer twenty-seven)', async () => {
     const w = world({ launch: true });
     const p = ok(await deposit(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
     expect((p.summary as LpDepositSummary).origin).toBe('launch-pool');
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
-    // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // At prepare Jupiter is down: the outside price is one row, never a gate.
+    const down = ok(await deposit(world({ launch: true }), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })));
+    expect((down.summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // A launch pool with no route keeps its own-average check. Off that average it builds
@@ -830,10 +900,10 @@ describe('prepareLpDeposit', () => {
       expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
       expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
 
-      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      // Jupiter is down: one row (answer twenty-seven), and the launch pool does not stand in.
       const down = besideLaunch();
       const downReads = reads(down.w);
-      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect((await summaryOf(down.w, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).price).toMatchObject({ state: 'unread', outside: true });
       expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
 
       // A deposit into the launch pool itself reads it once, as the pool it writes to.
@@ -889,9 +959,10 @@ describe('prepareLpDeposit', () => {
       expect((ok(await deposit(tradedFor(1_440n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
     });
 
-    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
-    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
-      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // UNREAD IS STILL REFUSED for the pool's own reads: the same brand-new pool builds nothing
+    // when its clock or its price record was not read. Jupiter not answering is one row (answer twenty-seven).
+    it('nothing is built when the clock was not read, or when its price record is missing; Jupiter failing to answer is no gate', async () => {
+      expect((ok(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
       const noClock = tradedFor(120n);
       setClock(noClock.chain, null);
       expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);
@@ -1149,11 +1220,26 @@ describe('prepareLpWithdraw: what may refuse it', () => {
 
   // The row still offers Remove in this state, so the "Leaving without this site" block
   // is not on screen: the refusal must stand on its own and point at nothing.
-  it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
-    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+  it('a token this site cannot build for: says the program still allows it, and points at no section that is not shown', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     const msg = refused(await withdraw(w));
-    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer-fee setting[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer hook[^)]*\)\. The pool program still lets you withdraw/);
     expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
+  });
+
+  // Owner, 2026-10-29: a token with a transfer fee can be taken back out. withdraw.rs pays
+  // the floor share less the fee and holds the minimum to what is left; this chain's pool
+  // program does the same, so a minimum set before the fee is refused at the test run.
+  it('a token with a transfer fee is withdrawn: what reaches the wallet is the payout less the fee, and the minimum is held to that', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    const p = ok(await withdraw(w));
+    const s = p.summary as LpWithdrawSummary;
+    const tokOut = s.quoted.token + s.transferFee!.kept;
+    expect(s.transferFee).toEqual({ rate: '5%', kept: (tokOut * 500n + 9_999n) / 10_000n });
+    expect(s.min.token).toBeLessThanOrEqual(s.quoted.token);
+    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(s.tokenAccount))!;
+    expect(tok.delta).toBe(s.quoted.token);
   });
 
   it('a payout account a stranger owns is refused, naming the owner; required memos are refused; so is a spender who could take the payout', async () => {

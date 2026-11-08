@@ -1,6 +1,6 @@
 // Types for validate.js, the launch-metadata rules shared by the browser form and
 // api/launch-upload.js. The runtime is plain JS so the Vercel lambda can import it
-// (see validate.js's header and src/lib/merkle/core.d.ts for the same layout).
+// (see validate.js's header, and src/lib/fetchWholeBody.d.ts for the same layout).
 
 export declare const LIMITS: Readonly<{
   nameBytes: 32;

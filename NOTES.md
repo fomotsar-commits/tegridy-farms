@@ -15,6 +15,374 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
+
+**Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
+the signing page labels it "execute ONLY IF TOLD TO" and someone reads the proposal number back before
+each press.
+
+**Measured:** it was executed by mistake twice. Multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`:
+#16 on 2026-10-24 17:03:00 UTC (member B on our page, meant the step next to it) and #24 on 2026-11-04
+02:52:41 UTC (member A in the Squads web app, with no page running and no read-back). Both put the
+pool program back on `88b98aa9` and reopened the free launch-tier opening. The Squads app lists both
+as "Program Upgrade" with the same program and shows no proposal number on the card. Before the second
+press, a `vault_transaction_execute` simulated with `sigVerify: false` showed both proposals would
+succeed: the first failure the owner saw was the wallet pop-up being closed, not a chain refusal.
+
+**Do instead:** never leave anything approved that must not run. One proposal per change; if a build
+breaks, upload the old build then and propose the undo (it waits the 48 h lock like the rest). End
+every signing sitting by listing the vault's approved, unexecuted proposals and cancelling anything
+not meant to run before proposing anything new. Also: a config proposal (the Squads app's rent
+collector setting) makes every proposal not yet approved by both members stale when it executes, so
+get both approvals on new proposals first.
+
+---
+
+## 2026-11-03: a rebuild printed the old program's hash for different source: a copied `target/` trusts file times, and `git archive` dates every file to its commit
+
+**Believed:** building a second checkout of a program inside a copy of another build's `target/`
+reuses only the dependencies; the program's own crate is compiled again from the source in front
+of it, so a different source gives a different hash.
+
+**Measured** (2026-11-03, the range-pool audit round, WSL, `cargo build-sbf -- --locked` with
+Solana 3.1.11 tools): two checkouts of `solana/tegridy-clmm`, each unpacked from `git archive`
+(PR #1113's head, then `origin/mvp-launch`), each built in a copy of an earlier build's `target/`.
+The second one compiled nothing of `raydium-clmm` and printed the first one's sha256, `c0432972`,
+for source that differs in `util/token.rs`. After `find programs vendor Cargo.toml Cargo.lock
+-type f -exec touch {} +` it printed "Compiling raydium-clmm" and `1e896e1e`, the hash the local
+suite had tested on 2026-10-25 for that source. Cargo calls a crate up to date when no source file
+is newer than its last build, and `git archive` stamps every file with its commit's time, which is
+older than the copied build. Touch the sources, or build in a fresh `target/`, and check that two
+sources that differ give two hashes before trusting either.
+
+**Also measured, the same round:**
+
+- Git Bash rewrites a Linux path in an environment variable handed to a Windows program:
+  `CLMM_LEDGER=/root/clmm-r2/ledger-main node validator.mjs` reached WSL as
+  `C:/Program Files/Git/root/...` ("bash: line 1: C:/Program: No such file or directory").
+  PowerShell's `$env:CLMM_LEDGER = '/root/...'` passes it as written. This is the environment
+  half of the 2026-10-30 `mklink /J` trap.
+- Anchor 1.0.2's `anchor_lang::solana_program` re-exports no `hash` module (solana-program 3.0
+  has one), so a host test cannot compute an instruction's 8-byte name with it. A live
+  instruction's name is `instruction::<Name>::DISCRIMINATOR`; a deleted one's bytes come from
+  outside, and the red run on the code that still has it is what proves them.
+- The program's generated `entry()` runs in a plain `cargo test`. With no accounts, an unknown
+  8-byte name answers `Custom(101)` (InstructionFallbackNotFound) before any account is read; the
+  same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
+  when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
+  difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
+
+---
+
+## 2026-11-03: the guards rewrite only what they are told to, a program edit can fail a site test, and red-first needs no red commit in CI
+
+**Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
+reviewed patch from our source, so after editing cp-swap one regenerate and one re-pin are enough.
+
+**Measured** (2026-11-03, the swap-pool audit round): it regenerates only the files named in that
+copy's `patched` list. After editing four new cp-swap files, the first regenerate wrote a
+`cp-swap.diff` with none of them and printed the usual "re-pin only after reading the delta". The
+check then fails with "differs from upstream and is not a patched file". Add every edited file to
+`COPIES[<copy>].patched` first, then regenerate, then re-pin `deltaSha256`, and regenerate again
+after any later edit to a patched file, tests included: an in-file `#[cfg(test)]` module is part
+of the delta.
+
+**Also measured, the same round:**
+
+- A program's own tests passing does not mean CI will pass. #1113 changed one file of the range
+  program, `util/token.rs`, and its unit tests passed. Its first CI run still failed in "Lint,
+  Type Check & Test". `frontend/src/lib/solana/clmm/quote.test.ts` hashes every `.rs` file under
+  `tegridy-clmm/programs/amm/src`, plus `vendor/`, both `Cargo.toml` files and `Cargo.lock`, and
+  holds that hash to the stamp in its vectors fixture. The fix was to re-run
+  `frontend/scripts/clmm-vectors/run.sh` (fixed seed, about 15 seconds in WSL once the crates are
+  built) and compare the output with the committed fixture. Everything but the stamp came out
+  byte-identical, all 1,246,560 bytes, which also shows the edit left the quote maths alone.
+  Before pushing a program edit, grep `frontend/src` for the program's folder: 22 site test files
+  named one on 2026-11-03.
+- `key-guard.mjs` refuses `Pubkey::from_str(key)` with a variable anywhere in a copy, unit tests
+  included ("is given something other than one plain key"). Write each key as `pubkey!("…")`.
+- A Rust `assert!` that refuses an Anchor instruction reaches a TypeScript test as the text
+  `assertion failed: <the condition as written>` inside the `SendTransactionError` message
+  (web3.js puts the last 10 log lines there), with solana-test-validator 2.3.0 and
+  @coral-xyz/anchor 0.32.1. Matching that text pins WHICH check refused, not just that something
+  did.
+- Red-first on a local validator, without pushing a red commit: build the fixed and the unfixed
+  program under two program ids (WSL, Solana 2.3.0 and anchor 0.32.1, `CARGO_NET_OFFLINE=true`:
+  both workspaces' crates, dev-dependencies included, are already in WSL's registry), deploy both
+  to one `solana-test-validator` on a port of your own, and run the test from Windows node against
+  `http://127.0.0.1:<port>` (WSL forwards localhost), swapping `target/idl/<program>.json` between
+  the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
+  into one `it` per row first: in one `it`, the first failing row hides whether the rest would
+  have failed too.
+- The file-time trap in the range-pool entry above also hits `cargo test`, and there it fakes a
+  red run. For #1113's hand-over rule, a fixed and an unfixed copy shared one `CARGO_TARGET_DIR`
+  and were both made before the first build: the unfixed copy's `cargo test` reused the fixed
+  copy's test binary and passed 26 of 26, though it had lost the check. After touching its
+  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed.
+  Look for that line in every red run.
+- With Node 24, `ts-mocha` loads a `.ts` test as an ES module, because Node now strips types
+  itself. Then `import { BN } from "@coral-xyz/anchor"` fails with "Named export 'BN' not found".
+  `NODE_OPTIONS=--no-experimental-strip-types` hands the file back to ts-node.
+
+---
+
+## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
+
+**Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
+names the wallet the site pays into: its header says it uses "the SAME libraries + derivation the
+app uses", and it had created the two accounts that existed.
+
+**Measured** (2026-11-02, #1105): the tool hardcoded `FEE_OWNER =
+DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`, and `frontend/scripts/addresses.json` (row
+`swap-fee-account`) records that the live bundle's fee owner has been the Squads vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` since before 2026-10-10: the old owner's two
+accounts hold 0 with one transaction each (their creation), and the vault's accounts have taken
+every fee. Adding USDT to the tool as it stood and running it would have made a USDT account for a
+wallet nothing pays into; after the merge every USDT-paid swap would still have failed at Jupiter
+(the fee account does not exist), and the tool's own output would have read success. The corrected
+tool's `--dry-run` derived the vault's wSOL and USDC accounts to the registry's two rows exactly.
+
+**Do:** before running a tool that hardcodes an owner, recipient or authority, check that address
+against the registry and the deployed setting, never against the tool's own comment. Its dry run
+prints the owner, so the operator compares it with `VITE_SOLANA_FEE_ACCOUNT` before signing.
+
+**Believed:** a top-level-await Node script may `process.exit(0)` once it has printed its result.
+**Measured:** with a `@solana/web3.js` `Connection` that had just answered
+`getMultipleAccountsInfo`, `process.exit(0)` on Windows (Node 24.13.0) printed `Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76` after the correct output and
+exited 127. Returning from `main()` into `process.exitCode` exited 0 with the same output.
+**Do:** in a script that opened an RPC connection, set `process.exitCode` and return; call
+`process.exit` only before the connection exists.
+
+## 2026-11-01: a claim test that makes its own rewards tests the reward rate, not the claim
+
+**Believed:** opening a fresh position on a fork and moving the clock is the honest way to get
+something to claim, because the contract's own math makes the rewards.
+
+**Measured** (TegridyStaking v1, anvil 1.5.1 fork of mainnet block ~26,321,738, `rewardRate()` 0
+since the wind-down): the fresh 40,000 TOWELI position earned 0 in 120 s, Claim stayed disabled,
+and the leg blamed an exhausted reserve that had just been refilled with exactly what was owed.
+The 22 existing positions were owed 3,579,490.94 TOWELI; claiming four of them through the page
+paid each exactly `earned`, to the wei, and an expectation one wei off failed.
+
+**Do:** when a protocol can stop accruing on purpose, drive the claim as a holder who is already
+owed. Find them on the fork every run (owner of the id, the id the site shows them, owed above
+the CTA's floor), impersonate them, and assert the payout to the wei. Never hardcode the holder:
+real holders claim on mainnet, and a retry must pass over the one an earlier attempt paid.
+
+---
+
+## 2026-11-01: the strongest setting is not for the hardest code
+
+**Believed:** the strongest model setting belongs on the hardest code, and a strong builder at
+the helm ships a strong venue.
+
+**Measured** (the island's walk of trunk `0d1761b` at 390 px, 2026-11-01, and this repo's own
+counts): every piece on the trunk was built well and tested, and the sum was 67 routes
+(`App.tsx`), 37 menu entries (`lib/navConfig.ts`), a 12,766 px pools page under the Add door,
+a Swap that opened on Ethereum for Solana traffic (three `'ethereum'` fallbacks in
+`useSectionChain.ts`, "like uniswap" read literally in `sectionChains.ts`), a cold wallet told
+"Cannot launch a token yet" (`HeatCard.tsx`), and an Add door that said "Adding is off" on
+every pool whenever strangers arrived (the free Jupiter key's one call a second, spent by the
+venue's own pages: 12 quotes from one /pools tab in its first minute, 6 of 12 probes refused
+at 0.7 s spacing). None of those is a bug a test catches. They are what a builder model
+produces when it also decides: it adds and never removes, it reads an owner's words literally,
+and it builds the next three things nobody asked for.
+
+**Do:** law 25 (`docs/WORKSHOP_SETTINGS.md`). The strongest setting decides what is on a
+stranger's first screen, the words, anything with money's shape, the order of shipping, and
+reads the result at 390 before it merges; a builder setting builds a specified thing to a
+line that says done; a lower setting counts, lints and moves docs. Every pull request names
+its setting in the first line of its body. The proof does not change with the setting: a
+screenshot at 390 from a production build.
+
+---
+
+## 2026-11-01: a burst from many browsers is not fixed by caching each browser's read
+
+**Believed:** marking a quote as shareable at the edge (`s-maxage=30`) was enough to keep a
+one-request-a-second key under its limit, because every visitor would then share one read.
+
+**Measured** (2026-11-01, `src/lib/solana/lp/outsidePrice.ts` before build 1): the price
+check's sale leg quoted exactly what the buy returned, so its amount changed with every read
+and its edge key never repeated; and even a shared buy leg burst in parallel, seven pools at
+once, from the first visitor of every window. The island's probe: 6 of 12 calls refused at
+0.7 s spacing, 1 of 10 at 3 s. A per-visitor read cannot pace across visitors.
+
+**Do:** read once for everyone, server-side, paced to the key's plan (`api/outside-prices.js`,
+`JUPITER_RATE_PER_SEC`), with a fixed probe amount (the buy's return rounded to two figures)
+so even the loop's own reads share keys; keep the answer at the edge with a long
+`stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
+last good answer. The browser's rule then becomes an age: a price under ten minutes old
+passes, older holds, in one row.
+
+---
+
+## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
+
+**Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
+GitHub still computing; and `gh api repos/.../pulls/N` reading
+`mergeable: true, mergeable_state: clean` confirms the pull request can be merged.
+
+**Measured** (#1059, 2026-10-31): the pull request was merged at 18:34:46Z. From 18:34Z to 18:48Z,
+ten GraphQL reads returned `UNKNOWN` for both fields and three REST reads returned `true` and
+`clean`. Neither said merged. The report at 18:46Z called the pull request open and waiting for the
+owner's word; the owner's "merge it" then found nothing to merge. The tell was in a read I had:
+`updatedAt` had jumped to 18:34:49Z.
+
+**Do:** read `state` and `mergedAt` in the same call as `mergeable`, and read them first. An
+`UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
+`mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
+`gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
+## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
+
+**Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.
+**Measured:** three runs of the spec on ONE production build of `/pools` counted 252, 292 and 252
+visible words (desktop and phone alike). The 40 words are the Rates card: on the 292 run its
+two-tier table had landed from the chain before the 600 ms quiet window; on the other two the
+card still said "Reading the rates from the chain…" (6 words). A ceiling set from a 252 run
+(280) failed the very next run. **Do:** when lowering a ceiling, run the spec until the
+`[word-budget]` line shows the fuller figure (the 2026-10-16 entry's longest-blocks print shows
+which cards drew), and set the ceiling from that run: `/pools` got 325 from 292, not 280 from 252.
+
+**Believed:** `cmd /c mklink /J <link> <target>` from Git Bash makes the junction.
+**Measured:** it printed cmd's banner and nothing else, and `ls` of the link found nothing: Git
+Bash had path-converted the `/J` flag. `MSYS_NO_PATHCONV=1 cmd /c mklink /J ...` printed
+"Junction created" at once. **Do:** prefix a `cmd /c` whose flags start with `/` with
+`MSYS_NO_PATHCONV=1` (the general path-conversion rule is further down; this is the flag case).
+
+## 2026-10-30: a web3.js signature fails inside a jsdom test, and a stand-in wallet counted transactions, not prompts
+
+**Believed:** a vitest file can build and sign a real `VersionedTransaction` with a `Keypair`.
+**Measured:** under the default jsdom environment, `tx.sign([keypair])` and the code after it threw
+`Blob.encode[data] requires (length 1) Uint8Array as src` (8 of 32 tests in
+`lib/harvest/solana.test.ts`): jsdom's `Uint8Array` is another realm's, and the layout encoder
+checks `instanceof`. With `// @vitest-environment node` as the file's first line, all 32 passed.
+`islandBasketSol.test.ts` already starts that way. **Do:** any test that signs or serializes a
+real Solana transaction runs in the node environment.
+
+**Believed:** "1 signing request" from a stand-in wallet that refuses proves one prompt.
+**Measured:** a wallet-standard wallet's `signAllTransactions` reaches the wallet as ONE call of
+the `solana:signTransaction` feature, every transaction a separate input. Harvest's walk wallet
+(`harvest-walk.mjs`) recorded per input and threw on the first, so it read 1 for a batch of 3, and
+also 1 for the old one-claim-per-prompt run, whose first refusal stops it: the count could not
+tell the two apart. Recording each call with all its inputs showed `prompts: 1`, carrying 3
+transactions on one blockhash. **Do:** record per call and keep every input, then count both.
+
+## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
+
+**Believed:** tagging a PR's head on origin is free bookkeeping.
+**Measured:** pushing `wip/todo-batch-numbers-1` started a full `solana-ci` run with event `push`
+on that tag (run 40821977089, created 05:11 UTC; at 05:31 two of its jobs were still queued). It
+attaches to the PR's head commit, so the PR showed four pending checks after its own
+`pull_request` run of the same workflow had passed. A "merge once its checks finish" word then
+waited on a run nobody needed. **Do:** keep rescue tags local (`git tag`), or push them only for
+commits that are not a PR's head.
+
+**Believed:** a vault proposal whose execute failed is closed.
+**Measured:** Squads proposal #18 (multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) failed
+its execute on 2026-10-27 because its buffer was gone, and on 2026-10-29 its account still reads
+`Approved`. A failed execute changes nothing in the proposal, so every signing page keeps offering
+it as ready, and pressing it again only burns a fee. **Do:** in any list of proposals to press,
+name the dead ones by number.
+
+**Believed:** a registry row that says a wallet is gone is a record of the past.
+**Measured:** `bayla-ladder-deployer` (`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`) has
+`expect: { type: "absent" }`, which `verify-addresses.mjs --onchain` enforces unconditionally. The
+ladder upgrade plan funds that wallet with 2.70 SOL, and its PR does not touch the registry. With
+the row flipped to `{ type: "wallet", funded: true }` and the wallet still empty, the live read
+fails on exactly that row (`registry expects this account to exist and it DOES NOT`), so the
+original row would fail the morning after the send. **Do:** a plan that funds or empties a
+registered wallet carries the registry change, merged the same day.
+
+## 2026-10-28: WebKit can report art it mounted 1.6 s earlier as just visible, so a clock paused from that moment stops the splash after it has left
+
+**Believed:** `e2e/splash-reduced-motion.spec.ts` stops the Tradermigos splash well inside its
+1.8 s loading beat: it waits for the first art piece to be visible, reads the page's `Date.now()`
+and pauses the page clock 200 ms on. So "share of /splash/frogking.jpg in sight: 0" on
+`ipad-safari` (PR #1043, three attempts) meant the splash buried that picture.
+
+**Measured** (PR #1043 run 40742549494, `ipad-safari`, the first retry's trace): the splash
+mounted, by its first `/splash/` image request, 797 ms after `goto`; WebKit's `waitFor` reported
+the piece visible 1620 ms after that; the pause landed 1840 ms after the mount, 40 ms after the
+loading bar had run out, and the error context read WELCOME, the bar's end word. The passing
+retries of spreads 1 and 17 saw the piece 85 ms after the mount and paused at 314 ms. The
+600 ms the spec then steps carry the exit through glitch (450) and flash (100) into cover: 120
+dark blocks at `z-index: 100` without `pointer-events: none`, so the hit test finds no picture at
+any point and all ten pieces read 0. The one named is the first in the DOM: frogking on spread 2,
+the watercolour on 1 and 17. Trunk's green runs 40707167299 and 40723022656 flaked the same way;
+Chromium sees the piece within a frame and never did. On the WSL rig (Ubuntu 24.04,
+Playwright 1.62.1, the CI build of ee44d33d6, one worker, no retries, both WebKit projects) the
+spec failed 24 of 132 reduced-motion runs while vitest ran on the Windows host, and 0 of 108 with
+the host quiet or six WSL cores spun: the lateness needs the host busy, not the rig. Every one of
+the 15 retained failures read WELCOME, had every piece at 0 and had paused 1.8 to 8.3 s after the
+mount; the art was seen 0.08 to 6.7 s after it, and in three of them a single `page.evaluate`
+round trip took 3 s, so any real-time gap before the pause lets the bar run out, not only
+`waitFor`. Stopped before `goto` and stepped 50 ms at a time, the spec passed 132 of 132 in the
+same windows, and its 44 motion runs.
+
+**Do:** to catch a page before one of its timers fires, stop its clock before `goto` and step it
+with `runFor` until the element exists (`locator.count()` between steps): a `waitFor` on WebKit
+can answer seconds after the DOM did, while the page's timers run on time. A hit test that reads 0
+for every piece is something over all of them: say what `elementFromPoint` returns before blaming
+the layout. PR #996 held this fix from 2026-10-24 and sat unmerged while the flake cost two trunk
+retries and a red PR.
+
+## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
+
+**Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
+deployed, and deleting it is its source plus its tests and deploy scripts.
+
+**Measured** (the dead-EVM-contract removal: 21 contracts, 92 files): five of the zeroed ones are on
+mainnet, verified 2026-07-16 and gated off: GaugeController
+`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`, VoteIncentives
+`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` and its admin
+`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`, CommunityGrants
+`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` and MemeBountyBoard
+`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`. `eth_getBalance` and TOWELI `balanceOf` read 0 on
+all five. The zero constant means "the site does not show it"; `addresses.json`'s `status` field
+and `docs/CONTRACTS.md` are where "deployed" lives.
+
+Deleting a contract pulled on, in order found: `scripts/check-interface-selectors.mjs` (every
+`*_ABI` export in `contracts.ts` must resolve to an artifact, so a retired ABI needs its own named
+list), `.github/contracts-test-slices.json` (a brace alternative matching zero files fails the slice
+guard), `NOTICE.md`'s SPDX count and GPL list, `frontend/src/lib/whetstonePetitionTruth.test.ts` (a
+Doc-guards test that reads three `contracts/src/v4` files at import, which is why the four V4
+graduation-stack contracts stayed), and two airdrop tests that opened campaigns through the factory.
+`forge build` finds none of these.
+
+**Do:** before deleting a contract, grep its name across `scripts/`, `.github/`, `NOTICE.md` and
+`frontend/src/**/*.test.ts`, and read the registry row's `status`, never the constant.
+
+## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
+
+**Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
+page once, when the Add panel mounts and scrolls its heading into view, about 1,650px.
+
+**Measured** (e2e/door-lands.spec.ts on a trunk `1ca85025` production build, 390x844, Bayla room
+to Add SOL + BAYLA, `scrollY` read every animation frame): 0, then 796 (the finder scrolls to its
+answer when the lookup starts), back to 0, then 1,654 (the panel). With no wallet connected it
+went on to 5,642 and settled at 5,245; I did not trace those two.
+
+**Do:** a check of one `scrollIntoView` call misses the others. Read `scrollY` on every frame
+from the landing on a production build, and assert the whole list. A form opened by code goes
+where the visitor already is (the door draws it at the top through a portal) instead of
+scrolling the page to it.
+
 ## 2026-10-24: a pool on fee tier 0 read as a cheaper public pool, but only a graduation may open one there
 
 **Believed:** the pool finder, the swap route and the builders may treat every pool of ours
@@ -32,6 +400,64 @@ tests failed on trunk; 16 of 16 mutants of the guards were killed.
 the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
 poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
 derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
+## 2026-10-24: a Tailwind `min-[720px]:` lost to `sm:` on a wider screen, because v4 sorts breakpoints by unit before width
+
+**Believed:** the wider breakpoint wins, so `min-[720px]:aspect-[3/4]` overrides
+`sm:aspect-[5/2]` (640px) from 720px up, as `md:` would.
+
+**Measured** (tailwindcss 4.3.3, the repo's version, 2026-10-24: `compile('@import
+"tailwindcss"')` from `dist/lib.js`, `build()` on px, rem and named breakpoint classes, then
+the order of the `@media` rules read): `640px`, `720px`, `40rem`, `45rem`, `48rem`, `64rem`.
+The sort compares
+units first, as text, and widths only within a unit. The named breakpoints are rem (`sm` is
+40rem), so every px arbitrary rule comes out before every named one, and at equal specificity
+the later rule wins. In PR #1009's branch build the upright iPad's frame took `sm:`'s 5/2 and
+came out 163px tall instead of 372 (the PR's Playwright walk). `min-[45rem]:` sorted between
+`sm` and `md`, where its width puts it.
+
+**Do:** never mix px arbitrary breakpoints with named ones on one property unless every named
+one there is wider than every px one; write an arbitrary breakpoint in rem to sort it among the
+named ones. Check by reading rule order in the built `dist/assets/index-*.css`, not the class
+list. The selector escapes `[ ] / :`, so `min-[720px]:aspect-[3/4]` is
+`.min-\[720px\]\:aspect-\[3\/4\]`.
+
+## 2026-10-24: a sticky grid item pinned past the end of its row, because a grid area does not hold a sticky box
+
+**Believed:** a `position: sticky` frame in grid area `fig` of `'board fig' 'pools pools'`
+pins while row 1 scrolls by and stops where row 1 ends.
+
+**Measured** (PR #1009's branch build, Playwright Chromium and WebKit at an upright iPad's
+820px, 2026-10-24): it pinned on past row 1 and over the full-width pool list in row 2, hiding
+the rows' arrows. In both engines the sticky box was held by the grid container's box, not its
+grid area. With the area moved to a wrapper slot and `sticky` on the slot's child, it stopped
+at the end of row 1: a grid item stretches to its row's height, so the slot is a box exactly
+as tall as the row. `e2e/dashboard-frame.spec.ts` checks that no pool row is under the frame at
+points through the list, and fails on the old structure.
+
+**Do:** never put `sticky` on the grid item itself when it must stop at its row: give the area
+to a slot and pin the slot's child. Where the same markup is block layout (a phone), make the
+slot `display: contents`, so the child pins against the card as before.
+
+### Incidental
+
+- The desktop frame's `lg:sticky` had never stuck: the card was `overflow: hidden`, which makes
+  it a scroll box of its own, so the frame pinned to a box that never scrolls. `overflow: clip`
+  clips the same and is not a scroll box: `overflow-hidden supports-[overflow:clip]:overflow-clip`
+  keeps `hidden` for a browser without `clip`. body's `overflow-x: hidden` did not stop it:
+  with `html` left `visible`, body's overflow goes to the viewport.
+
+## 2026-10-24: a `mouseenter` is not a pointer that moved: WebKit fires one on a row that scrolls under a resting pointer
+
+**Believed:** an enter on a row means a mouse or finger moved onto it, so on a screen where the
+frame follows the scroll, an enter can safely mean "the pointer takes over".
+
+**Measured** (PR #1009's branch build, Playwright WebKit with `hasTouch`, 2026-10-24): with the
+pointer resting where it last was, scrolling fired `mouseenter` on each row that slid under it,
+and each took the frame from the row the scroll had reached.
+
+**Do:** treat an enter that arrives within about 300ms of the last `scroll` event as the
+scroll's, and ignore it. Test the guard in WebKit with `hasTouch`, where this was seen.
 
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
@@ -386,9 +812,9 @@ on seeds 4 to 40, on both devices.
 **Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
 pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
 `requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
-frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
-`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
-catch "Cannot fast-forward to the past" and aim again.
+frames whatever WebKit's starved compositor draws. Stop the clock before `goto` and step it until
+the art is up: a pause aimed at the page's `Date.now()` once the art shows can land after the
+splash has left (the 2026-10-28 entry above).
 
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
@@ -1121,6 +1547,21 @@ that build).
 
 **Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
 its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: a Solana address is not always 44 characters; a random one is 43 about 1 time in 17
+
+**Believed:** a Solana address is 44 base58 characters, so a test may pin `toHaveLength(44)` on
+a key from `Keypair.generate()`.
+
+**Measured:** 32 bytes spell 44 characters only when their number is at least 58^43, about
+14.9 × 2^248: a first byte of 15 or more always gives 44, 13 or less never does. A random key
+falls short 5.8% of the time; 25 of 500 drawn in a test were 43. The pool card test pinned 44
+on two random keys and failed 19 of 200 runs on trunk `6c3119e0` (and real checks on #821 and
+#800). The testkit's `keyStartingWith(6)`, a token that sorts before wrapped SOL, is never 44.
+
+**Do:** pin a length only on a fixed address. The LP testkit's `key()` hands out seeded
+keypairs, skipping any under 44, so its keys are the same on every run. Where a key must be
+random, assert 32 to 44 characters.
 
 ## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
 
@@ -4265,6 +4706,29 @@ empty (`recursivelyFlushAsyncActWork`), so a state update from a microtask chain
 queued and committed before act resolves. Where a click acts synchronously, assert right
 after it: a `waitFor` around a call that never happens only turns a wrong state into a
 one-second timeout.
+
+---
+
+## 2026-09-30 — the Vite dev server does not 404 an `/api/x` it has no proxy for: it serves `api/x.js` as a browser module
+
+**Believed:** a same-origin `/api/aggregator?...` read under `npx vite` goes through some dev
+middleware that runs the function, and an import error naming `api/aggregator.js?resource=...`
+means that middleware loaded the module with the query attached.
+
+**Measured** (Vite 8.3.0, trunk `a9efbf05`, curl and Playwright Chromium against
+`npx vite --host 127.0.0.1`): no such middleware existed. Vite's transform middleware takes any
+extensionless URL for a module request and resolves `/api/aggregator` to `api/aggregator.js`
+under the root. With `?resource=heat` it answered 200 `text/javascript`: the server source,
+where the page wanted JSON. With `?resource=gecko-read&path=/simple/...` the query stays in the
+module id, the importer's directory is cut inside that query, `./_lib/*.js` fails to resolve,
+and the request gets a 500 plus the error overlay (stack ends in `viteTransformMiddleware`).
+Plugin middleware added in `configureServer` runs after Vite's host check and CORS, before
+`server.proxy` and the transform middleware.
+
+**Do:** read the overlay's stack before blaming config: `viteTransformMiddleware` means Vite
+served the URL as a module. `/api/<route>` in dev is now `devApiPlugin` in `vite.config.ts`.
+`src/` imports `api/_lib/*.js`, so the browser fetches `/api/_lib/*.js` as modules: a dev
+route for `/api/*` must leave URLs with an extension to Vite.
 
 ---
 

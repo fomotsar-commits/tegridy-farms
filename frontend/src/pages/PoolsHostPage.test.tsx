@@ -25,7 +25,8 @@ describe('PoolsHostPage', () => {
     const tabs = POOLS_SECTION.items.map((i) => i.to);
     expect(tabs).not.toContain('/solana-lp');
     for (const to of tabs) {
-      const route = new RegExp(`<Route path="${to.slice(1)}" element=\\{<Suspense fallback=\\{<\\w+ />\\}><PoolsHostPage />`);
+      // /pools may wear the sheet's deep-link guard (island answer twenty-five): the page is still this host.
+      const route = new RegExp(`<Route path="${to.slice(1)}" element=\\{(?:<DeepLinkSheet>)?<Suspense fallback=\\{<\\w+ />\\}><PoolsHostPage />`);
       expect(APP, `${to} does not render PoolsHostPage`).toMatch(route);
     }
   });

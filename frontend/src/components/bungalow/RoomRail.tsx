@@ -79,7 +79,7 @@ export function RoomRail({ stops }: { stops: readonly RoomStop[] }) {
       // its empty lower part lies over the chain pills, so only the line takes a tap
       // (e2e/arrival.spec.ts, zero unasked overlays).
       className="pointer-events-none sticky top-[var(--rail-top)] z-30 h-[72px] -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:h-auto min-[1440px]:m-0"
-      style={{ '--rail-top': 'calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem)' } as CSSProperties}>
+      style={{ '--rail-top': 'calc(var(--app-header-h, calc(3.5rem + env(safe-area-inset-top, 0px))) + 0.5rem)' } as CSSProperties}>
       {/* The same dark glass at both sizes: the docked rail sits on full-bleed art, where bare
           cream type at 60% was not legible over a pale painting. On the strip the end padding is
           the fade's width, so the last stop, scrolled fully along, sits clear of the fade. */}

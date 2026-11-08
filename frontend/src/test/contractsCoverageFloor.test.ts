@@ -15,10 +15,9 @@
 //   * a floor may never exceed the last measurement;
 //   * while nothing has been measured, the floor must be 0.
 //
-// It is 0 today. `forge coverage --ir-minimum` could not be run at arming
-// time (see the file's own _readme), so no honest number exists yet. The
-// workflow emits a ::warning:: and says so in its run summary whenever the
-// floor is 0, rather than presenting an unarmed green check as coverage.
+// The floor is armed at the owner's 75. The workflow still emits a ::warning::
+// and says so in its run summary whenever the floor is 0, rather than
+// presenting an unarmed green check as coverage.
 
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -55,6 +54,12 @@ describe('.github/coverage-floor.json', () => {
       'the committed floor is higher than the coverage anyone has actually measured. That is a ' +
         'permanently red cron, and a permanently red cron gets deleted.',
     ).toBeLessThanOrEqual(f.measured);
+  });
+
+  it('stays armed at the 75 the owner chose', () => {
+    // Without this, resetting `lines` to 0 passes every other test here and the cron
+    // goes back to enforcing nothing. Lower it only by editing this line, on purpose.
+    expect(floor().lines).toBeGreaterThanOrEqual(75);
   });
 
   it('stays at 0 while nothing has been measured', () => {

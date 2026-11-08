@@ -107,6 +107,7 @@ import {
 import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JUPITER_WINDOW_BLOCKS } from '../lib/solana/swap/jupiterNote';
 import { notSignedCopy } from '../lib/solana/walletThrow';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -121,6 +122,7 @@ const HEIGHT = 1_000;
 const mine = () => swapPendingScope(OWNER.toBase58());
 
 beforeEach(() => {
+  clearReceipt();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   localStorage.clear();
   sessionStorage.clear();
@@ -194,7 +196,7 @@ describe('a swap through Jupiter, sent and not confirmed', () => {
   it('landed: the note goes as soon as the chain says so, and Buy is free', async () => {
     connection.getSignatureStatuses.mockResolvedValue({ context: { slot: 9 }, value: [{ slot: 9, confirmations: 1, err: null, confirmationStatus: 'confirmed' }] });
     fireEvent.click(await readyToBuy());
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(readPendingTrades(mine())).toEqual([]);
     expect(screen.queryByTestId('venue-swap-pending')).toBeNull();
   });
@@ -323,10 +325,12 @@ describe('a press that ends before a signature says what happened', () => {
     expect(amountBox().value).toBe('0.5');
   });
 
-  it('"Swap submitted" carries no em dash', async () => {
+  // Island answer twenty-five, build 6: the toast is for errors only; a sent swap says nothing until its card.
+  it('a sent swap raises no success toast, and no toast carries an em dash', async () => {
     fireEvent.click(await readyToBuy());
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Swap submitted', { description: expect.stringMatching(/\. Confirming…$/) }));
-    for (const [, o] of toast.success.mock.calls) expect(JSON.stringify(o)).not.toContain('—');
+    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalled());
+    expect(toast.success).not.toHaveBeenCalled();
+    for (const fn of Object.values(toast)) for (const [, o] of fn.mock.calls) expect(JSON.stringify(o ?? '')).not.toContain('—');
   });
 });
 

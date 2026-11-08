@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
+import { MemoryRouter } from 'react-router-dom';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
 import type { LpReaders } from './readers';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
@@ -61,10 +62,13 @@ function mount(v: PoolView, o: { chainNow?: bigint | null; poolPast?: LpReaders[
   const chainNow = o.chainNow === undefined ? NOW : o.chainNow;
   const safety = token(v.tokenMint);
   const health = assessPool({ view: v, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.0047, source: 'Jupiter' }, safety });
+  // A router: the card links Swap to the swap page.
   render(
-    <ul>
-      <PoolCard view={v} health={health} tokenDecimals={6} safety={safety} chainNow={chainNow} readers={o.poolPast === null ? null : o.poolPast ? { poolPast: o.poolPast } : {}} />
-    </ul>,
+    <MemoryRouter>
+      <ul>
+        <PoolCard view={v} health={health} tokenDecimals={6} safety={safety} chainNow={chainNow} readers={o.poolPast === null ? null : o.poolPast ? { poolPast: o.poolPast } : {}} />
+      </ul>
+    </MemoryRouter>,
   );
   return screen.getByTestId('lp-pool');
 }

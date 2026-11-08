@@ -192,7 +192,6 @@ export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
   "bayla|venue-amm:0": { artId: "D831DAAB-7D03-4B97-A195-251FE7C403A9", objectPosition: "50% 0%" },
   "bayla|venue-amm:1": { artId: "E04E72BC-2852-4F68-9DC9-918496BE05CD", objectPosition: "50% 54%" },
   "bayla|venue-amm:4": { artId: "605B3949-6B80-408B-853A-B49C513B5199", objectPosition: "50% 79%" },
-  "bayla|vesting:0": { artId: "bayla-19", objectPosition: "50% 12%" },
   "bayla|wallet-exposure:0": { artId: "bayla-24", objectPosition: "50% 100%" },
   "bayla|wrong-chain:0": { artId: "8F21312B-FC20-4E0D-8481-687AD97A24AB", objectPosition: "50% 47%" },
   "bayla|yield:0": { artId: "bayla-09", objectPosition: "42% 21%" },

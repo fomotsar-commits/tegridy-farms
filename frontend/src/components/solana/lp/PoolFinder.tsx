@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
@@ -19,6 +20,9 @@ import { CreatePoolCard } from './CreatePoolCard';
 import { depositOffer, lpHeld, priceWarned } from './offers';
 import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
+import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
+import { LpDoorContext } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -48,6 +52,12 @@ export interface LpWish {
    * lines say "this pool", never "your position's pool", to someone who may hold none.
    */
   door?: true;
+  /**
+   * Asked by the door's link (?task=add): its form, or why it did not open, is drawn in the door
+   * at the top of the page (LpDoorFrame), and nothing scrolls (island, answer twenty-two). A list
+   * row's Add asks the same form, on the card where the visitor pressed.
+   */
+  top?: true;
 }
 
 /** How the LP door asks for an Add form (`openAdd`). */
@@ -55,6 +65,8 @@ export interface AddAsk {
   pool?: string;
   quote?: string;
   form?: 'one';
+  /** The door's link: the form is drawn at the top (`LpWish.top`). */
+  top?: boolean;
 }
 
 /** What the section can ask of the finder from outside it. */
@@ -100,11 +112,11 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
   if (door) {
     return pools.kind !== 'ok'
       ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
-      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place.`;
+      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place.`;
   }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
-    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
+    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
 }
 
 /**
@@ -168,7 +180,7 @@ type Done = Extract<SearchState, { status: 'done' }>;
  *
  * `also`: a pool address to read whatever the index says (a position's own pool).
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null): SearchState {
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null, freshRead = false): SearchState {
   const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}#${also ?? ''}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
@@ -191,9 +203,9 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
       const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
       const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
-      // A visitor's own Read again (`nonce`) asks Jupiter itself; the first look may take
-      // the copy the edge shares for 30 seconds (outsidePrice.ts).
-      const price = (m: string, d: number) => (nonce > 0 ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
+      // A visitor's own Read again (`freshRead`) asks Jupiter itself; every other look, a link's
+      // wish and a retry included, takes the shared list (outsidePrice.ts; answer twenty-four).
+      const price = (m: string, d: number) => (freshRead ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
       const [outside, ...coinPrices] = await Promise.all([ask ? price(mint, decimals) : null, ...wanted.map((q) => price(q.mint, q.decimals))]);
       const coins: Record<string, OutsidePrice> = {};
       wanted.forEach((q, i) => {
@@ -207,7 +219,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
     return () => {
       live = false;
     };
-  }, [readers, mint, key, nonce, wantOutside, also]);
+  }, [readers, mint, key, nonce, wantOutside, also, freshRead]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
@@ -227,6 +239,8 @@ export function PoolFinder({
   feeTiers,
   onRemove,
   only,
+  doorAt,
+  doorAsked = false,
   ref,
 }: {
   /** For the section: a position's "Add more liquidity" starts its lookup here. */
@@ -256,33 +270,43 @@ export function PoolFinder({
    * check that found anything still shows, and so does every line about a read that failed.
    */
   only?: string;
+  /** Where the door is drawn (PoolsPage: above its hero). Without it, at the top of the finder. */
+  doorAt?: HTMLElement | null;
+  /** The address asks for the door, and the form is not asked for yet: the door holds its place. */
+  doorAsked?: boolean;
 }) {
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
+  // True while the last re-read was the visitor's own "Read again": that one asks Jupiter itself.
+  const [freshRead, setFreshRead] = useState(false);
+  const again = useCallback((fresh: boolean) => {
+    setFreshRead(fresh);
+    setNonce((n) => n + 1);
+  }, []);
   // A position's own pool, read with every lookup of its token from the press on (the
   // lookup otherwise reads only what the index and the worked-out addresses name). It is
   // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
   // on, and it is only ever read with its own token's lookups.
   const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
   // The home card's pool is read with every lookup, as a position's pool is from its press on.
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null);
-  const reread = useCallback(() => setNonce((n) => n + 1), []);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null, freshRead);
+  const reread = useCallback(() => again(true), [again]);
   // The home card reads again by itself when a read failed, a few times and spaced out: a busy
   // RPC answers a later ask more often than not, and the card has no field to press Find in.
   // Each try is a fresh lookup. After the last, Read again and the Venue AMM tab stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
-    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!) || state.outside?.kind === 'unread');
+    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!));
   useEffect(() => {
     if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
     const t = setTimeout(() => {
       autoTries.current += 1;
-      setNonce((n) => n + 1);
+      again(false);
     }, ONLY_RETRY_MS[autoTries.current]);
     return () => clearTimeout(t);
-  }, [onlyFailed, state]);
+  }, [onlyFailed, state, again]);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -295,7 +319,7 @@ export function PoolFinder({
   // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
   // token: the next thing the visitor asks for, or the page moving to another token,
   // takes it away.
-  const [unfound, setUnfound] = useState<{ mint: string; pool: string; door?: true } | null>(null);
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string; door?: true; top?: true } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
@@ -314,7 +338,7 @@ export function PoolFinder({
   // A later answer that does list the pool takes the line away again.
   if (state.status === 'done' && !state.refreshing) {
     if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
-      setUnfound({ mint: wish.mint, pool: wish.pool, ...(wish.door ? { door: true as const } : {}) });
+      setUnfound({ mint: wish.mint, pool: wish.pool, ...(wish.door ? { door: true as const } : {}), ...(wish.top ? { top: true as const } : {}) });
       setWish(null);
     } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
   }
@@ -349,19 +373,20 @@ export function PoolFinder({
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
     (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
-      asked.current = true;
+      // The door's link draws its answer at the top, where the visitor already is.
+      asked.current = !ask.top;
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
       setWish(
         want
-          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}), ...(ask.door ? { door: true as const } : {}) }
+          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}), ...(ask.door ? { door: true as const } : {}), ...(ask.top ? { top: true as const } : {}) }
           : null,
       );
-      if (next === mint) setNonce((n) => n + 1);
+      if (next === mint) again(false);
       else onMint(next);
     },
-    [mint, onMint],
+    [mint, onMint, again],
   );
   // "Add more liquidity" on a position (the section passes it on). The token goes into
   // the box and is looked up like a picked one, so the holder sees which token and which
@@ -385,7 +410,7 @@ export function PoolFinder({
         setInput(next);
         setError(null);
         setTask('add');
-        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote, door: true });
+        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote, door: true, top: ask.top });
       },
     }),
     [lookUp],
@@ -447,8 +472,25 @@ export function PoolFinder({
   // Create and Add need adding switched on; Remove needs only the write code.
   const tasks: LpTask[] = !writes ? [] : canAdd ? ['create', 'add', 'remove'] : ['remove'];
 
-  return (
-    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
+  // The door (LpDoorFrame): drawn while its form is still to come and while anything is drawn in
+  // it (`DoorPortal` holds it). A write layer that did not load leaves nothing to come.
+  const [doorSlot, setDoorSlot] = useState<HTMLDivElement | null>(null);
+  const [doorHeld, setDoorHeld] = useState(0);
+  const holdDoor = useCallback(() => {
+    setDoorHeld((n) => n + 1);
+    return () => setDoorHeld((n) => n - 1);
+  }, []);
+  const doorPlace = useMemo(() => ({ slot: doorSlot, hold: holdDoor }), [doorSlot, holdDoor]);
+  const doorMint = wish?.top ? wish.mint : mint;
+  const doorWaits = (doorAsked || wish?.top === true) && writes !== null && writes.status !== 'load-failed';
+  const doorFrame = (doorWaits || doorHeld > 0) && doorMint ? <LpDoorFrame mint={doorMint} waiting={doorHeld === 0} slotRef={setDoorSlot} /> : null;
+
+  // In the sheet (island answer twenty-five, build 3) the door is the form, or why it did not
+  // open; under it only what the read says while it reads or when it fails. The pool's card
+  // the form rides on is not drawn (SearchResults).
+  const sheet = useSheet() !== null;
+  const rest = (
+    <>
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
@@ -534,7 +576,7 @@ export function PoolFinder({
               Find pools
             </button>
             {state.status === 'done' && (
-              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setNonce((n) => n + 1)}>
+              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => again(true)}>
                 Read again
               </button>
             )}
@@ -557,11 +599,14 @@ export function PoolFinder({
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
       {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
-      {/* Right under where the lookup scrolled to, so it is the first thing read. */}
+      {/* Right under where the lookup scrolled to, so it is the first thing read; the door's link's, in the door. */}
       {unfoundLine && (
-        <div data-testid="lp-wish-unfound" className="text-[13px] leading-relaxed [overflow-wrap:anywhere]">
-          <Notice tone="warn">{unfoundLine === LAUNCH_TIER_POOL ? <strong>{unfoundLine}</strong> : unfoundLine}</Notice>
-        </div>
+        <DoorPortal when={unfound?.top === true}>
+          <div data-testid="lp-wish-unfound" className="text-[13px] leading-relaxed [overflow-wrap:anywhere]">
+            <Notice tone="warn">{unfoundLine === LAUNCH_TIER_POOL ? <strong>{unfoundLine}</strong> : unfoundLine}</Notice>
+          </div>
+        </DoorPortal>
+
       )}
       {state.status === 'done' && (
         <SearchResults
@@ -575,8 +620,16 @@ export function PoolFinder({
           onRetry={reread}
         />
       )}
+    </>
+  );
+  const finder = (
+    // In the sheet the door is all that is drawn: no gap is kept for the finder under it.
+    <section data-testid="lp-finder" aria-label="Find pools for a token" className={sheet ? undefined : 'space-y-4'}>
+      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+      {rest}
     </section>
   );
+  return <LpDoorContext.Provider value={doorPlace}>{finder}</LpDoorContext.Provider>;
 }
 
 const count = (n: number, one: string, many: string) => (n === 1 ? `One ${one}` : `${n} ${many}`);
@@ -635,6 +688,7 @@ function SearchResults({
 }) {
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
+  const sheet = useSheet() !== null;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
@@ -745,6 +799,8 @@ function SearchResults({
               )}
             </Card>
           ) : (
+            // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
+            <div hidden={sheet || undefined}>
             <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
@@ -760,6 +816,7 @@ function SearchResults({
                     openForm={wish && addTo === p.view.address ? wish.form : undefined}
                     showNow={named === p.view.address ? showNamed : 0}
                     fromDoor={named === p.view.address && wish?.door === true}
+                    atTop={wish?.top === true && (addTo === p.view.address || named === p.view.address)}
                     onActed={onActed}
                   />
                 ) : (
@@ -767,10 +824,8 @@ function SearchResults({
                 ),
               )}
             </ul>
+            </div>
           )}
-          {/* The home card: an outside price that could not be read leaves deposits unchecked
-              and adding off. The pool's card says why; this is the way on from it. */}
-          {only && listed.length > 0 && outside?.kind === 'unread' && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}

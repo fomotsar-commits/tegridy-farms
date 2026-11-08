@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useVenueStatus } from '../hooks/useVenueStatus';
@@ -10,7 +11,9 @@ import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
-import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
+import { LpDoorFrame } from '../components/solana/lp/LpDoorFrame';
+import type { LpDoorAnchor } from '../components/solana/lp/lpDoor';
+import { lpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
 // The actions, positions, rates and routes. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -43,11 +46,20 @@ export default function PoolsPage() {
   // licence to assert either, so the conditional copy is the default and the
   // present-tense copy is what the probe has to earn.
   const venueIsOpen = liveConfig !== null;
-  // "Anyone can open a pool" is a claim about the tier the probe read: cp-swap refuses
-  // every new pool on a tier whose `disable_create_pool` is set.
-  const tierTakesPools = liveConfig !== null && !liveConfig.disableCreatePool;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
+
+  // The LP door (a room's Add SOL + coin, island answer twenty-two) is drawn above the hero. Its
+  // place is held from the first frame, read from the address once (the section drops the door's
+  // words as it opens the form), until the section claims it or the venue does not read live.
+  const [params] = useSearchParams();
+  const [doorMint] = useState(() => (lpMode !== 'off' && params.get('task') === 'add' ? params.get('mint') : null));
+  const [doorAt, setDoorAt] = useState<HTMLDivElement | null>(null);
+  const [doorClaimed, setDoorClaimed] = useState(false);
+  const claimDoor = useCallback(() => setDoorClaimed(true), []);
+  const door = useMemo<LpDoorAnchor>(() => ({ at: doorAt, claim: claimDoor }), [doorAt, claimDoor]);
+  // The token whose door the page holds a place for, while it does.
+  const doorWaiting = !doorClaimed && (status === null || venueIsOpen) ? doorMint : null;
 
   // A Refresh that stops reading live unmounts the LP section above the status card, so the
   // card jumps up the page. It is brought back into view: the answer to the press stays on
@@ -67,9 +79,12 @@ export default function PoolsPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
+        {doorWaiting !== null && <LpDoorFrame mint={doorWaiting} waiting />}
+        <div ref={setDoorAt} />
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          {/* Not on a phone: the tab above already says Venue AMM, and its line pushed the token buttons under the bottom bar. */}
-          <p className="hidden sm:block text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
+          {/* No eyebrow and no Details here: the tab strip says Venue AMM and the network, the Rates card
+              says the split, and the status card says whether a pool can be opened (owner, 2026-10-13: as
+              few words as possible). */}
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>
@@ -82,31 +97,12 @@ export default function PoolsPage() {
                 ? 'Our own Solana AMM. No pool can be opened here yet.'
                 : null}
           </p>
-          <FinePrint summary="Details" className="max-w-xl">
-            <p>
-              {liveConfig ? (
-                <>
-                  Our own constant-product AMM on Solana. LPs and the venue split each trade fee.{' '}
-                  {tierTakesPools
-                    ? 'Anyone can open a pool or provide liquidity on chain'
-                    : `Anyone can provide liquidity on chain (opening new pools on fee tier ${liveConfig.index} is switched off right now)`}
-                  , and the trade fee is split between the LPs who funded it and the venue.{' '}
-                  {HERO_LP_LINE[lpMode]}
-                </>
-              ) : (
-                <>
-                  This page shows a fee only after reading it from the chain, and the card below says
-                  what the latest read found.
-                </>
-              )}
-            </p>
-          </FinePrint>
         </m.div>
 
         {venueIsOpen && (
           <div className="mt-2">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection />
+              <SolanaLpSection door={door} />
             </Suspense>
           </div>
         )}
@@ -118,8 +114,9 @@ export default function PoolsPage() {
           <h2 className="heading-luxury text-lg text-white mb-3">
             {venueIsOpen ? 'Deposit a pair, hold your share' : 'How it works: deposit a pair, hold your share'}
           </h2>
+          {/* "Nothing to claim" is the section's own first line, above; here only what the vault can do. */}
           <p className="text-white/80 text-[13px] leading-relaxed">
-            Nothing to claim. No lock, but the team&apos;s vault can pause removing.
+            No lock, but the team&apos;s vault can pause removing.
           </p>
           <FinePrint summary="How it works" className="mt-2">
             <p>Fees grow your share as the pool trades. Nothing to claim.</p>
@@ -140,7 +137,7 @@ export default function PoolsPage() {
               <li>
                 Impermanent loss is real: a constant-product pool rebalances against you when
                 the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it cannot read.
+                quote you an APY it did not read.
               </li>
             </ul>
           </FinePrint>
@@ -166,13 +163,3 @@ export default function PoolsPage() {
 }
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
-
-// What this site itself can do with the pools follows LP's own switch
-// (lib/launcher/solana/lpWriteFlag.ts), so flipping that one line changes these too.
-// Whether the public fee tier exists, or takes new pools, is never said here: only the
-// create card's live read of the tier says that.
-const HERO_LP_LINE: Record<LpWriteMode, string> = {
-  off: 'This site reads pools and shares; adding and removing liquidity from here is not switched on yet.',
-  on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
-  'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
-};

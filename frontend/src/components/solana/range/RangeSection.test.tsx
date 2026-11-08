@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within, fireEvent } from '@testing-li
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
-import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { BAYLA_MINT, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
 import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
@@ -97,7 +97,12 @@ function fakeApi(): RangeWriteApi {
 /** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
 const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze> } = {}): RangeReaders {
+/** A token check that read `symbol` as the coin's own ticker. */
+function claims(mint: string, symbol: string): TokenSafety {
+  return { kind: 'read', mint, verdict: 'ok', blocks: [], warnings: [], facts: null, name: symbol, symbol, metadataSource: 'metaplex' };
+}
+
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze>; checks?: TokenSafety[] } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
@@ -106,6 +111,8 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
     outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
     freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: { kind: 'mint' as const, freezeAuthority: null } }),
+    // A mint with no check given reads as unread: the page then names it by its address alone.
+    tokenSafety: vi.fn(async (mints: string[]) => new Map(mints.map((m): [string, TokenSafety] => [m, o.checks?.find((c) => c.mint === m) ?? { kind: 'unread', mint: m, detail: 'not given in this test' }]))),
   };
 }
 
@@ -203,6 +210,64 @@ describe('picking a pool', () => {
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(card.textContent).toContain('1% fee per swap'));
     expect(card.textContent).toContain('Pool price now 0.0003 SOL per BAYLA');
+  });
+});
+
+describe('naming the token (owner, 2026-10-22: every coin shows its ticker; a copy reads "fake SOY")', () => {
+  const COPY = key(70).toBase58();
+  const CRYING = key(71).toBase58();
+
+  /** A pool of `tokenMint` with SOL, in the program's own mint order. */
+  function poolFor(tokenMint: string, config: AmmConfigView): RangePool {
+    const { token0, token1 } = sortMints(new PublicKey(tokenMint), new PublicKey(WSOL_MINT));
+    const tokenIs0 = token0.toBase58() === tokenMint;
+    const data = encodePool({
+      ammConfig: CONFIG, mint0: token0, mint1: token1, vault0: key(5), vault1: key(6), observation: key(7),
+      decimals0: tokenIs0 ? 6 : 9, decimals1: tokenIs0 ? 9 : 6, tickSpacing: 120, liquidity: 10n ** 12n, sqrtPriceX64: SQRT, tickCurrent: TICK,
+    });
+    return { pool: decodePoolState(POOL.toBase58(), data)!, config };
+  }
+
+  it('a copy of SOY’s ticker, picked by link, reads "fake SOY" everywhere, with its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(COPY, 'SOY')] }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for fake SOY with SOL yet.'));
+    expect(within(card).getByText('fake SOY')).toBeInTheDocument();
+    expect(within(card).getByText(COPY)).toBeInTheDocument();
+  });
+
+  it('any other coin shows the ticker it gives itself, with its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(CRYING, 'CRYING')] }), fakeApi(), 'on', `/range-pools?mint=${CRYING}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for CRYING with SOL yet.'));
+    expect(within(card).getByText(CRYING)).toBeInTheDocument();
+  });
+
+  it('a ticker that did not read is never guessed: the coin is its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for this token with SOL yet.'));
+    expect(within(card).getAllByText(COPY)).toHaveLength(1);
+    expect(card.textContent).not.toContain('Token address');
+  });
+
+  it('our own coin keeps the site’s name, whatever its check says, and needs no address row', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(BAYLA_MINT, 'NOT BAYLA')] }));
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for BAYLA with SOL yet.'));
+    expect(card.textContent).not.toContain('Token address');
+  });
+
+  it('a position in a copy’s pool says "fake SOY" in its pool, holdings and fees, with the whole address', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolFor(COPY, tier());
+    const position = positionOf({ n: 1, lower: TICK - 1200 - (TICK % 120), upper: TICK + 1200 - (TICK % 120), status: 'in-range', fees: { fee0: 5_000_000n, fee1: 7_000_000n } }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [position], unread: [] } }, checks: [claims(COPY, 'SOY')] }));
+    const row = await screen.findByTestId('range-position');
+    await waitFor(() => expect(row.textContent).toContain('fake SOY with SOL, 1% fee per swap'));
+    expect(row.textContent).toMatch(/Holds now.* fake SOY and .* SOL/);
+    expect(within(row).getByText(COPY)).toBeInTheDocument();
   });
 });
 

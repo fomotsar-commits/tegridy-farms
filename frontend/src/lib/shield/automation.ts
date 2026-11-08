@@ -28,7 +28,7 @@ export const F4_REQUIREMENTS: readonly string[] = [
   'A pre-authorised execution credential scoped to {lending contract, loan id, max repayment, expiry}, revocable on-chain, so the executor can repay without ever holding or being able to redirect user funds.',
   'A funding source for the repayment itself. Monitoring is free; a repay is not. Either the user pre-funds an escrow they can withdraw from, or the executor flash-borrows and the position deleverages — the venue may not front capital it has not earned.',
   'Per-attempt receipts including failures, readable back into this UI, so a save that did not happen is visible as not having happened rather than as silence.',
-  'Idempotency per (loan, attempt), so a retry cannot repay twice or repay a loan the user already closed.',
+  'Idempotency per (loan, attempt), so a retry never repays twice or repays a loan the user already closed.',
   'Revocation that provably stops execution — the credential dead on-chain, not a row deleted from a table.',
 ];
 
@@ -67,7 +67,7 @@ export const ALERT_IS_NOT_AN_ACTION =
  * the deadline runs out.
  */
 export const ONLY_FULL_REPAYMENT =
-  'Full repayment is the only move these loans have. The lending contract takes no partial repayment, no collateral top-up and no deleverage — the collateral is one NFT and cannot be partly sold — so nothing smaller than the whole amount clears the deadline.';
+  'Full repayment is the only move these loans have. The lending contract takes no partial repayment, no collateral top-up and no deleverage — the collateral is one NFT, sold whole or not at all — so nothing smaller than the whole amount clears the deadline.';
 
 export interface ShieldAutomationState {
   /** True only when a named executor actually submits transactions for the user. */

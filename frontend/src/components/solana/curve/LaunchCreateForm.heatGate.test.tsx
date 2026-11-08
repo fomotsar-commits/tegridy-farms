@@ -225,7 +225,7 @@ describe('the Solana create path reads the heat door at submit', () => {
     const { fetch } = stubHeat({ status: 200, body: COLD });
     const api = renderForm(createApi());
     await fillAndReview();
-    await expectRefused(api, /This wallet reads 12\.00° \(Observer\)\. The door opens at 80°/);
+    await expectRefused(api, /This wallet reads 12\.00° \(Observer\)\. Residents launch here\. Nobody can buy last year\./);
     // The maker is the wallet that signs the create.
     expect(String(fetch.mock.calls[0]![0])).toContain(`address=${CREATOR.toBase58()}`);
     // A refusal is logged too, against the signing wallet.
@@ -250,7 +250,7 @@ describe('the Solana create path reads the heat door at submit', () => {
     stubHeat({ status: 200, body: reading(300, 'Builder', nowSec() - 30 * 86_400) });
     const api = renderForm(createApi());
     await fillAndReview();
-    await expectRefused(api, /cannot pass or fail anyone/);
+    await expectRefused(api, /passes and fails no one/);
   });
 
   it('paste mode, a cold maker: the details link is not even loaded', async () => {
@@ -262,7 +262,7 @@ describe('the Solana create path reads the heat door at submit', () => {
     fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'fresh' } });
     fireEvent.change(await screen.findByLabelText('Details link'), { target: { value: IPFS } });
     await review();
-    await expectRefused(api, /The door opens at 80°/);
+    await expectRefused(api, /Residents launch here\. Nobody can buy last year\./);
   });
 
   it('a warm maker proceeds, and the door is read before the upload request', async () => {
