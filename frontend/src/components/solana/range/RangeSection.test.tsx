@@ -372,6 +372,9 @@ describe('naming the token (owner, 2026-10-22: every coin shows its ticker; a co
     const card = await screen.findByTestId('range-create');
     await waitFor(() => expect(card.textContent).toContain(`fake SOY · ${COPY}`));
     await waitFor(() => expect(within(card).getByLabelText(/Opening price \(SOL per fake SOY\)/)).toBeInTheDocument());
+    // The range presets and the amount say it too.
+    fireEvent.click(await within(card).findByRole('button', { name: 'fake SOY only, above the opening price' }));
+    expect(within(card).getByLabelText(/How much fake SOY to put in/)).toBeInTheDocument();
     expect(card.textContent).not.toContain('Unknown token');
   });
 
