@@ -35,7 +35,7 @@ import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
 import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
-import { clockFor, raiseReceipt } from '../lib/receipt';
+import { clockFor, holdersFor, raiseReceipt } from '../lib/receipt';
 import { lastReading } from '../lib/heat/heatStore';
 import { amountText, settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
 import {
@@ -300,6 +300,7 @@ function raiseSwapReceipt(
     under: null,
     fee: { kind: 'reading' },
     clock: clockFor(action, coin.mint, a.wallet, lastReading(), island),
+    holders: holdersFor(coin.mint, a.wallet, lastReading()),
   });
   void settleSwapReceipt(rpc, signature, { wallet: a.wallet, action, paid: a.pay, got: { ...a.buy, native: a.buy.mint === SOL_MINT }, sent: a.sent, route: a.route, coin: coin.symbol });
 }

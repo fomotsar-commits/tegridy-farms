@@ -2,7 +2,7 @@ import type { Connection } from '@solana/web3.js';
 import { RECEIPT_WORDS } from '../../../lib/arrival';
 import { bungalowByAddress } from '../../../lib/bungalows';
 import { lastReading } from '../../../lib/heat/heatStore';
-import { clockFor, raiseReceipt } from '../../../lib/receipt';
+import { clockFor, holdersFor, raiseReceipt } from '../../../lib/receipt';
 import { SOLANA_FEE_ACCOUNT } from '../../../lib/solana';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { settleAddReceipt, type FeeRoute } from '../../../lib/solana/receiptRead';
@@ -29,6 +29,7 @@ export function raiseAddReceipt(
     under: RECEIPT_WORDS.addedTo(a.ticker),
     fee: { kind: 'reading' },
     clock: clockFor('added', view.tokenMint, a.wallet, lastReading(), island),
+    holders: holdersFor(view.tokenMint, a.wallet, lastReading()),
   });
   const quote = { mint: view.quote.mint, symbol: view.quote.symbol, decimals: view.quote.decimals };
   const token = { mint: view.tokenMint, symbol: a.ticker, decimals: a.decimals };

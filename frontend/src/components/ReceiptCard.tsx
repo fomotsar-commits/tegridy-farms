@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RECEIPT_WORDS } from '../lib/arrival';
 import { clockText, closeReceipt, useReceipt, type Receipt } from '../lib/receipt';
@@ -10,18 +10,21 @@ import { FlameCatch, type FlameState } from './FlameCatch';
 
 /** The veil first, then the card rises (its 300 ms transition). */
 const RISE_AFTER_MS = 250;
-/** The catch begins the moment the card is up: the rise's own 300 ms (index.css counts the same). */
+/** The strike comes the moment the card is up: the rise's own 300 ms (index.css counts the same). */
 const CATCH_AFTER_MS = 300;
+/** Each of the shore's three beats warms the card's edge this long (island answer thirty, §2). */
+const BEAT_MS = 240;
 
-/** The catch is once a landing: the signature it last caught for. Bayla's Receipt raises the card again lit, still. */
+/** The moment is once a landing: the signature whose light last landed. Bayla's Receipt raises the card again at rest. */
 let caughtFor: string | null = null;
 
 /**
  * The receipt card (island answer twenty-five, screen 3, build 6): one card over the page the
  * action landed on. What was done, the fee and where it went (read from the signature:
  * lib/solana/receiptRead.ts), what it did to the wallet's clock, one green button that hands
- * over the island's card, and Back to the room. The toast is for errors only. In the ring, the
- * island's flame catches the moment the card is up (answer twenty-nine: FlameCatch.tsx).
+ * over the island's card, and Back to the room. The toast is for errors only. Its head is the
+ * coin's shore, and the moment the card is up the shore answers the buy (answer thirty:
+ * FlameCatch.tsx and the island's engine, lib/shoreMoment.ts).
  */
 export function ReceiptCard() {
   const { receipt, open } = useReceipt();
@@ -34,25 +37,36 @@ export function ReceiptCard() {
 function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const titleId = useId();
   const [risen, setRisen] = useState(false);
-  // Caught already when this card was raised (Bayla's Receipt): lit at once, nothing moves.
+  const [up, setUp] = useState(false);
+  // Played already when this card was raised (Bayla's Receipt): at rest at once.
   const [caughtBefore] = useState(() => caughtFor === receipt.signature);
-  // A sale never lights: the ember sits in the ring, steady.
-  const flame: FlameState = receipt.action === 'sold' ? 'ember' : caughtBefore ? 'lit' : risen ? 'catching' : 'ember';
+  const sold = receipt.action === 'sold';
+  // A sale never strikes: the ember sits in the ring and the light on the shore cools.
+  const flame: FlameState = sold ? 'ember' : caughtBefore ? 'lit' : risen ? 'catching' : 'ember';
+  // The line under the title: from the landing; at once for a card at rest and for a sale.
+  const [landed, setLanded] = useState(() => caughtBefore || sold);
+  const [beat, setBeat] = useState(false);
+  const beatTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     const t = window.setTimeout(() => setRisen(true), RISE_AFTER_MS);
     return () => window.clearTimeout(t);
   }, [receipt.signature]);
-  // The catch: one tick as the flame grows out of the ember, once per signature. A card closed
-  // before it has not caught, and catches when raised again.
   useEffect(() => {
-    if (flame !== 'catching') return;
-    const t = window.setTimeout(() => {
-      if (caughtFor === receipt.signature) return;
-      caughtFor = receipt.signature;
-      tick();
-    }, CATCH_AFTER_MS);
+    if (!risen) return;
+    const t = window.setTimeout(() => setUp(true), CATCH_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [flame, receipt.signature]);
+  }, [risen]);
+  useEffect(() => () => window.clearTimeout(beatTimer.current), []);
+  // Once per signature, marked when the light lands: a card closed before the landing plays again when raised.
+  const onLanded = () => {
+    caughtFor = receipt.signature;
+    setLanded(true);
+  };
+  const onBeat = () => {
+    window.clearTimeout(beatTimer.current);
+    setBeat(true);
+    beatTimer.current = window.setTimeout(() => setBeat(false), BEAT_MS);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeReceipt();
@@ -78,9 +92,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
         tabIndex={-1}
         data-testid="receipt-card"
         data-flame={flame}
-        className="receipt-card relative w-full max-w-[358px] my-4 outline-none motion-safe:transition-[opacity,transform] motion-safe:duration-300"
+        className={`receipt-card${beat ? ' receipt-beat' : ''} relative w-full max-w-[358px] my-4 outline-none motion-safe:transition-[opacity,transform] motion-safe:duration-300`}
         style={{
-          marginTop: 'clamp(16px, calc((100dvh - 520px) / 2), 172px)',
+          marginTop: 'clamp(16px, calc((100dvh - 670px) / 2), 172px)',
           background: 'var(--color-bg-surface)',
           borderRadius: 20,
           border: '1px solid rgba(139,92,246,0.45)',
@@ -90,14 +104,26 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
           transform: risen ? 'none' : 'translateY(16px)',
         }}
       >
-        {/* The 56 px ring in the venue's green: the ember, and the flame that catches in it. */}
-        <FlameCatch state={flame} />
-        <h2 id={titleId} className="mt-4 text-center text-white text-[24px] leading-[30px]" style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800 }} data-testid="receipt-title">
+        {/* The coin's shore across the card's head, the ring on its bottom edge: the moment waits for the card to be up. */}
+        <FlameCatch
+          state={flame}
+          waiting={!sold && !caughtBefore && !up}
+          wallet={receipt.wallet}
+          holders={receipt.holders}
+          onLanded={onLanded}
+          onBeat={onBeat}
+        />
+        <h2 id={titleId} className="mt-10 text-center text-white text-[24px] leading-[30px]" style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800 }} data-testid="receipt-title">
           {title}
         </h2>
         {receipt.under && (
           <p className="mt-1 text-center text-[14px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-under">
             {receipt.under}
+          </p>
+        )}
+        {landed && (
+          <p className="mt-1 text-center text-[14px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-shore-line">
+            {sold ? RECEIPT_WORDS.shoreCooling : <ShoreWords coin={receipt.coin.symbol} />}
           </p>
         )}
 
@@ -139,6 +165,21 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** "You're on $BAYLA's shore. Every light here holds it.", the coin's shore marked as the island drew it. */
+function ShoreWords({ coin }: { coin: string }) {
+  const line = RECEIPT_WORDS.shore(coin);
+  const mark = RECEIPT_WORDS.shoreMark(coin);
+  const at = line.indexOf(mark);
+  if (at < 0) return line;
+  return (
+    <>
+      {line.slice(0, at)}
+      <strong style={{ color: '#a0f8d0', fontWeight: 700 }}>{mark}</strong>
+      {line.slice(at + mark.length)}
+    </>
   );
 }
 
