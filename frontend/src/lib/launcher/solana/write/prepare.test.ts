@@ -33,6 +33,7 @@ import {
   cfgLocal,
   freshCurve,
   globalValue,
+  legacyTx,
   plantMoved,
   rent,
   setClock,
@@ -95,7 +96,7 @@ describe('curve buy', () => {
     });
     const p = ok(await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn, slippageBps: 100n }));
 
-    expect(p.tx.instructions).toHaveLength(4);
+    expect(legacyTx(p).instructions).toHaveLength(4);
     expect(p.steps.map((s) => s.kind)).toEqual(['compute-limit', 'compute-price', 'create-token-account', 'curve-buy']);
     expect(p.steps[0]).toEqual({ kind: 'compute-limit', units: 69_000 }); // ceil(60,000 × 1.15)
     expect(p.steps[1]).toEqual({ kind: 'compute-price', microLamports: 10_000n }); // p75 of [0,0,10k,20k]
@@ -109,7 +110,7 @@ describe('curve buy', () => {
     expect(p.summary.minTokensOut).toBeGreaterThan(0n);
     expect(p.summary.feeSplit).toEqual({ total: q.value.feeLamports, creator: q.value.feeLamports / 2n, platform: q.value.feeLamports - q.value.feeLamports / 2n });
     expect(p.simulated.signerLamportsDelta).toBe(-(lamportsIn + BigInt(TOKEN_RENT)));
-    expect(p.tx.feePayer?.equals(ME)).toBe(true);
+    expect(legacyTx(p).feePayer?.equals(ME)).toBe(true);
     // Two simulations: one to size it, one of the final bytes.
     expect(chain.simulateCalls).toHaveLength(2);
   });
@@ -414,7 +415,7 @@ describe('create', () => {
     expect(p.summary.openingBuy?.minTokensOut).toBe(q.value.tokensOut);
     expect(p.summary.name).toBe(worst.name);
     // 11 accounts (the reserve-at-create program), then the launch index.
-    const launchIx = p.tx.instructions.find((i) => i.programId.equals(LAUNCH) && i.keys.length === 12);
+    const launchIx = legacyTx(p).instructions.find((i) => i.programId.equals(LAUNCH) && i.keys.length === 12);
     expect(launchIx?.keys[8]?.pubkey.equals(VAULT)).toBe(true);
     expect(launchIx?.keys[9]?.pubkey.equals(associatedTokenAddress(mintKp.publicKey, VAULT))).toBe(true);
     expect(launchIx?.keys[10]?.pubkey.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).toBe(true);
@@ -537,7 +538,7 @@ describe('create', () => {
       const mintKp = Keypair.generate();
       simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey), ...plantMoved(ME) });
       const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
-      expect(p.tx.instructions.slice(-2).map((i) => i.programId.toBase58())).toEqual([T22, T22]);
+      expect(legacyTx(p).instructions.slice(-2).map((i) => i.programId.toBase58())).toEqual([T22, T22]);
       if (p.summary.kind !== 'create') throw new Error('kind');
       expect(p.summary.plant).toEqual({
         total: 100_000_000_000n,
@@ -907,7 +908,7 @@ describe('pool swap', () => {
       [associatedTokenAddress(WSOL_MINT, ME).toBase58()]: { closed: true },
     });
     const p = ok(await preparePoolSwap(W(chain), moved, { owner: ME, mint: MINT, pool: lp, side: 'buy', amountIn: 100_000_000n, slippageBps: 100n }));
-    const swap = p.tx.instructions.find((ix) => ix.programId.equals(CPSWAP))!;
+    const swap = legacyTx(p).instructions.find((ix) => ix.programId.equals(CPSWAP))!;
     expect(swap.keys[2]!.pubkey.equals(AMM_CONFIG)).toBe(true);
   });
 });
@@ -1091,5 +1092,102 @@ describe('the balance read: SOL sent to a watched address before its account exi
     const r = await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn: 300_000_000n, slippageBps: 100n });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.outcome).toMatchObject({ stage: 'build', message: expect.stringMatching(/is not a token account/) });
+  });
+});
+
+// ── version 1 (SIMD-0385) ───────────────────────────────────────────────────────
+// A wallet that advertises version 1 gets a version 1 message: the budget lives in its
+// config (compute units, loaded-data bytes, the priority fee in lamports) and no
+// ComputeBudget instruction rides in the body. Decoded here with kit alone, so a wrong
+// byte from our side is caught by someone else's reader.
+import { decompileTransactionMessage, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
+
+const decodeV1 = (bytes: Uint8Array) => {
+  const tx = getTransactionDecoder().decode(bytes);
+  const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
+  if (compiled.version !== 1) throw new Error(`not a version 1 message: ${String(compiled.version)}`);
+  return { compiled, message: decompileTransactionMessage(compiled) };
+};
+const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
+const MIB64 = 64 * 1024 * 1024;
+
+describe('version 1 (SIMD-0385)', () => {
+  async function buyV1(o: { loaded?: number | undefined; fees?: number[] } = {}) {
+    const { chain, gate, curve } = await setup();
+    const lamportsIn = 300_000_000n;
+    const q = quoteBuyOnCurve(curve.curve, lamportsIn);
+    if (!q.ok) throw new Error('quote');
+    if (o.fees) chain.fees = o.fees;
+    chain.simulate = (_vtx, config) => ({
+      err: null,
+      logs: ['Program log: ok'],
+      unitsConsumed: 60_000,
+      ...('loaded' in o ? (o.loaded === undefined ? {} : { loadedAccountsDataSize: o.loaded }) : { loadedAccountsDataSize: 100_000 }),
+      ...(config?.accounts
+        ? {
+            accounts: chain.post(config.accounts.addresses, {
+              [ME.toBase58()]: { lamportsDelta: -(Number(lamportsIn) + TOKEN_RENT) },
+              [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+            }),
+          }
+        : {}),
+    });
+    const p = ok(await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn, slippageBps: 100n, txVersion: 1 }));
+    return { chain, p };
+  }
+
+  it('a wallet that signs version 1 gets a version 1 message: the budget in its config, none in the body', async () => {
+    const { chain, p } = await buyV1();
+    expect(p.wire.version).toBe(1);
+    if (p.wire.version !== 1) return;
+    expect(p.wire.bytes[0]).toBe(129);
+    expect(p.payer.equals(ME)).toBe(true);
+    expect(p.sizeBytes).toBe(p.wire.bytes.length);
+    const { message } = decodeV1(p.wire.bytes);
+    expect(message.feePayer.address).toBe(ME.toBase58());
+    expect((message.lifetimeConstraint as { blockhash: string }).blockhash).toBe(p.blockhash);
+    // ceil(60,000 x 1.15) units; 100,000 bytes loaded x 1.25, rounded up to a 32 KiB page; 10,000 u-lamports x 69,000 units.
+    expect(message.config).toEqual({ computeUnitLimit: 69_000, loadedAccountsDataSizeLimit: 131_072, priorityFeeLamports: 690n });
+    expect(p.wire.config).toEqual(message.config);
+    expect(p.fees.priorityLamports).toBe(690n);
+    expect(p.fees.baseLamports).toBe(5_000n);
+    expect(message.instructions.map((i) => i.programAddress)).not.toContain(COMPUTE_BUDGET);
+    expect(message.instructions).toHaveLength(2);
+    expect(p.steps.map((s) => s.kind)).toEqual(['create-token-account', 'curve-buy']);
+    // Two runs, both of version 1 bytes: the first at the ceiling with legacy's default
+    // for loaded data and no priority fee, the second of the final bytes.
+    expect(chain.simulateCalls).toHaveLength(2);
+    const first = decodeV1(chain.simulateCalls[0]!.vtx.serialize());
+    expect(first.message.config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: MIB64, priorityFeeLamports: 0n });
+    expect(Buffer.from(chain.simulateCalls[1]!.vtx.serialize())).toEqual(Buffer.from(p.wire.bytes));
+  });
+
+  it('a node that does not say how many bytes it loaded gets the legacy default, never 0', async () => {
+    const { p } = await buyV1({ loaded: undefined });
+    if (p.wire.version !== 1) throw new Error('legacy');
+    expect(p.wire.config.loadedAccountsDataSizeLimit).toBe(MIB64);
+  });
+
+  it('the priority fee in the config is the capped lamports the review shows', async () => {
+    const { p } = await buyV1({ fees: [20_000_000, 20_000_000, 20_000_000, 20_000_000] });
+    if (p.wire.version !== 1) throw new Error('legacy');
+    expect(p.wire.config.priorityFeeLamports).toBe(MAX_OWN_PRIORITY_LAMPORTS);
+    expect(p.fees.priorityLamports).toBe(MAX_OWN_PRIORITY_LAMPORTS);
+  });
+
+  it('without a version the legacy transaction is built as before', async () => {
+    const { chain, gate, curve } = await setup();
+    const lamportsIn = 300_000_000n;
+    const q = quoteBuyOnCurve(curve.curve, lamportsIn);
+    if (!q.ok) throw new Error('quote');
+    simulating(chain, {
+      [ME.toBase58()]: { lamportsDelta: -(Number(lamportsIn) + TOKEN_RENT) },
+      [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+    });
+    const p = ok(await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn, slippageBps: 100n }));
+    expect(p.wire.version).toBe('legacy');
+    if (p.wire.version !== 'legacy') return;
+    expect(p.wire.tx.instructions.slice(0, 2).map((i) => i.programId.toBase58())).toEqual([COMPUTE_BUDGET, COMPUTE_BUDGET]);
+    expect(p.steps.map((s) => s.kind)).toEqual(['compute-limit', 'compute-price', 'create-token-account', 'curve-buy']);
   });
 });

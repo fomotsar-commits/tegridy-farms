@@ -4,6 +4,11 @@
 // against the shapes this site builds (intent.ts), then a second simulation of the final bytes
 // whose effect on the signer's balances must sit inside the review's bounds. The review is
 // built from the decoded steps. A read that could not run is `notRead`, never a verdict.
+//
+// Two formats, one path. A wallet that advertises SIMD-0385 version 1 gets a version 1
+// message (v1.ts): the budget is the message's config (units, loaded-data bytes, the whole
+// fee in lamports) and the body carries no ComputeBudget instruction. Every other wallet
+// gets the legacy transaction with the two ComputeBudget instructions, as before.
 
 import {
   PublicKey,
@@ -31,14 +36,18 @@ import type {
   Prepared,
   PreparedCheck,
   PreparedTx,
+  PreparedWire,
   PreState,
   PreToken,
   SimulatedEffect,
+  TxConfig,
   TxKind,
   TxSummary,
+  TxVersion,
   WatchList,
   WriteRpc,
 } from './types';
+import { MAX_LOADED_ACCOUNTS_DATA_SIZE, V1_TX_SIZE_LIMIT, assembleV1, loadedDataLimitFromSimulation } from './v1';
 import { opened } from './wsol';
 
 /** Account reads at 'confirmed', the level the write path confirms at. */
@@ -49,8 +58,13 @@ export function confirmedReads(rpc: WriteRpc): CurveRpc {
   };
 }
 
-/** Solana's packet limit for a serialized transaction. */
+/** Solana's packet limit for a serialized legacy transaction. A version 1 one may be 4,096 (v1.ts). */
 export const TX_SIZE_LIMIT = 1_232;
+
+/** The size limit for a transaction of `version`. */
+export function txSizeLimit(version: TxVersion): number {
+  return version === 1 ? V1_TX_SIZE_LIMIT : TX_SIZE_LIMIT;
+}
 
 /** An SPL token account's size, for its rent. */
 export const TOKEN_ACCOUNT_SIZE = 165;
@@ -63,6 +77,8 @@ export interface Rents {
 
 export interface BuildSpec {
   kind: TxKind;
+  /** The format the connected wallet signs (txVersion.ts). Legacy when unset. */
+  version?: TxVersion;
   body: TransactionInstruction[];
   extraSigners: Keypair[];
   intent: IntentContext;
@@ -135,12 +151,26 @@ interface SimOutcome {
   err: unknown;
   logs: string[];
   unitsConsumed: number | undefined;
+  /** How many bytes of account data the run loaded; a version 1 message's limit is sized from it. */
+  loadedAccountsDataSize: number | undefined;
   accounts: Array<{ lamports: number; data: string[] } | null> | null;
 }
 
-/** Simulate with signature checks off and the blockhash as given. Returns post-state for `watch`. */
-export async function simulate(rpc: WriteRpc, tx: Transaction, watch: WatchList | null): Promise<SimOutcome> {
-  const vtx = new VersionedTransaction(tx.compileMessage());
+/**
+ * Version 1 bytes in the shape web3.js's `simulateTransaction` takes: off anything with a
+ * `message` it reads only `serialize()` and sends those bytes base64, as it does ours.
+ * web3.js 1.98 cannot parse a version 1 message itself, so it is never asked to.
+ */
+function asWire(bytes: Uint8Array): VersionedTransaction {
+  return { message: null, serialize: () => bytes } as unknown as VersionedTransaction;
+}
+
+/**
+ * Simulate with signature checks off and the blockhash as given. Returns post-state for
+ * `watch`. Takes the legacy transaction, or a version 1 message's wire bytes.
+ */
+export async function simulate(rpc: WriteRpc, tx: Transaction | Uint8Array, watch: WatchList | null): Promise<SimOutcome> {
+  const vtx = tx instanceof Uint8Array ? asWire(tx) : new VersionedTransaction(tx.compileMessage());
   const addresses = watch ? [watch.signer, ...watch.tokenAccounts.map((t) => t.account)].map((k) => k.toBase58()) : [];
   const r = await rpc.simulateTransaction(vtx, {
     sigVerify: false,
@@ -151,11 +181,13 @@ export async function simulate(rpc: WriteRpc, tx: Transaction, watch: WatchList 
   const v = r?.value;
   if (!v || typeof v !== 'object') throw new Error('the simulation returned nothing');
   const logs = Array.isArray(v.logs) ? v.logs : [];
+  const loaded = (v as { loadedAccountsDataSize?: unknown }).loadedAccountsDataSize;
   return {
     ok: v.err === null || v.err === undefined,
     err: v.err ?? null,
     logs,
     unitsConsumed: typeof v.unitsConsumed === 'number' ? v.unitsConsumed : undefined,
+    loadedAccountsDataSize: typeof loaded === 'number' ? loaded : undefined,
     accounts: Array.isArray(v.accounts) ? (v.accounts as SimOutcome['accounts']) : null,
   };
 }
@@ -213,11 +245,10 @@ export function checkEffect(effect: SimulatedEffect, expect: Expectation, networ
   return null;
 }
 
-/** Base fee: 5,000 lamports for each required signature. */
-export function baseFeeLamports(tx: Transaction): bigint {
-  const signers = new Set<string>();
-  if (tx.feePayer) signers.add(tx.feePayer.toBase58());
-  for (const ix of tx.instructions) for (const k of ix.keys) if (k.isSigner) signers.add(k.pubkey.toBase58());
+/** Base fee: 5,000 lamports for each required signature (the payer and every signer the instructions name). */
+export function baseFeeOf(payer: PublicKey, ixs: readonly TransactionInstruction[]): bigint {
+  const signers = new Set<string>([payer.toBase58()]);
+  for (const ix of ixs) for (const k of ix.keys) if (k.isSigner) signers.add(k.pubkey.toBase58());
   return BigInt(signers.size) * LAMPORTS_PER_SIGNATURE;
 }
 
@@ -227,7 +258,7 @@ function writableKeys(ixs: TransactionInstruction[]): PublicKey[] {
   return [...seen.values()];
 }
 
-export function serializeBody(body: TransactionInstruction[]): PreparedCheck['body'] {
+export function serializeBody(body: readonly TransactionInstruction[]): PreparedCheck['body'] {
   return body.map((ix) => ({
     programId: ix.programId.toBase58(),
     keys: ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable] as [string, boolean, boolean]),
@@ -241,9 +272,13 @@ function assemble(signer: PublicKey, blockhash: string, lastValidBlockHeight: nu
   return tx;
 }
 
+/** The sizing run's budget: the compute ceiling, legacy's default for loaded data, no priority fee. */
+const CEILING: TxConfig = { computeUnitLimit: MAX_COMPUTE_UNITS, loadedAccountsDataSizeLimit: MAX_LOADED_ACCOUNTS_DATA_SIZE, priorityFeeLamports: 0n };
+
 export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<Prepared> {
   const signer = spec.intent.signer;
   if (!spec.watch.signer.equals(signer)) return notSent('build', 'Internal check failed: the watched wallet is not the signer.');
+  const version: TxVersion = spec.version ?? 'legacy';
 
   let blockhash: string;
   let lastValidBlockHeight: number;
@@ -263,10 +298,14 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     return notRead('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
   }
 
-  // Pass 1: find the units, at the ceiling and no priority fee.
+  // Pass 1: find the units (and, for version 1, the bytes loaded), at the ceiling and no priority fee.
   let first: SimOutcome;
   try {
-    first = await simulate(rpc, assemble(signer, blockhash, lastValidBlockHeight, MAX_COMPUTE_UNITS, 0n, spec.body), null);
+    const sizing =
+      version === 1
+        ? assembleV1(signer, blockhash, lastValidBlockHeight, CEILING, spec.body)
+        : assemble(signer, blockhash, lastValidBlockHeight, MAX_COMPUTE_UNITS, 0n, spec.body);
+    first = await simulate(rpc, sizing, null);
   } catch (e) {
     return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
@@ -277,25 +316,46 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
 
   const limit = computeLimitFromSimulation(first.unitsConsumed, spec.computeFloor ?? 0);
   const priority = await choosePriorityPrice(rpc, writableKeys(spec.body), limit, spec.intent.maxPriorityLamports);
-  const tx = assemble(signer, blockhash, lastValidBlockHeight, limit, priority.microLamports, spec.body);
+  const priorityFee = priorityLamports(priority.microLamports, limit);
 
-  const decoded = decodeIntent(tx.instructions, spec.intent);
-  if (!decoded.ok) return notSent('build', decoded.reason);
-
+  // The final message. Version 1 carries the budget as config and the body as given;
+  // legacy carries it as the two ComputeBudget instructions in front of the body.
+  let wire: PreparedWire;
+  let instructions: TransactionInstruction[];
   let sizeBytes: number;
   try {
-    sizeBytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).length;
+    if (version === 1) {
+      const config: TxConfig = {
+        computeUnitLimit: limit,
+        loadedAccountsDataSizeLimit: loadedDataLimitFromSimulation(first.loadedAccountsDataSize),
+        priorityFeeLamports: priorityFee,
+      };
+      const bytes = assembleV1(signer, blockhash, lastValidBlockHeight, config, spec.body);
+      wire = { version: 1, bytes, config };
+      instructions = spec.body;
+      sizeBytes = bytes.length;
+    } else {
+      const tx = assemble(signer, blockhash, lastValidBlockHeight, limit, priority.microLamports, spec.body);
+      wire = { version: 'legacy', tx };
+      instructions = tx.instructions;
+      sizeBytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).length;
+    }
   } catch (e) {
     return notSent('build', `This transaction could not be put together: ${clipDetail(e)}`);
   }
-  if (sizeBytes > TX_SIZE_LIMIT) {
-    return notSent('build', `This transaction is too large for Solana (${sizeBytes} of ${TX_SIZE_LIMIT} bytes). Try a shorter name or link.`);
+
+  const decoded = decodeIntent(instructions, spec.intent, wire.version === 1 ? { config: wire.config } : {});
+  if (!decoded.ok) return notSent('build', decoded.reason);
+
+  const sizeLimit = txSizeLimit(version);
+  if (sizeBytes > sizeLimit) {
+    return notSent('build', `This transaction is too large for Solana (${sizeBytes} of ${sizeLimit} bytes). Try a shorter name or link.`);
   }
 
   // Pass 2: the FINAL bytes, with the balance read-back.
   let second: SimOutcome;
   try {
-    second = await simulate(rpc, tx, spec.watch);
+    second = await simulate(rpc, wire.version === 1 ? wire.bytes : wire.tx, spec.watch);
   } catch (e) {
     return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
@@ -308,8 +368,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   // The node left out what it was asked for: no verdict on the transaction.
   if (typeof effect === 'string') return notRead('simulate', `The safety check could not confirm this: ${effect}.`);
 
-  const baseLamports = baseFeeLamports(tx);
-  const priorityFee = priorityLamports(priority.microLamports, limit);
+  const baseLamports = baseFeeOf(signer, spec.body);
   const expect = spec.expect(pre, rents);
   const mismatch = checkEffect(effect, expect, baseLamports + priorityFee);
   if (mismatch) return notSent('simulate', `Blocked: ${mismatch}.`, second.logs);
@@ -319,7 +378,8 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
 
   const prepared: PreparedTx = {
     kind: spec.kind,
-    tx,
+    payer: signer,
+    wire,
     extraSigners: spec.extraSigners,
     blockhash,
     lastValidBlockHeight,
@@ -339,7 +399,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   return { ok: true, prepared };
 }
 
-/** Steps without the two compute-budget ones, which every transaction carries. */
+/** Steps without the two compute-budget ones a legacy transaction carries (a version 1 one has none). */
 export function bodySteps(steps: IntentStep[]): IntentStep[] {
   return steps.filter((s) => s.kind !== 'compute-limit' && s.kind !== 'compute-price');
 }

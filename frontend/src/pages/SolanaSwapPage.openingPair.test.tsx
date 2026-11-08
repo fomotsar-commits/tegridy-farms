@@ -129,14 +129,13 @@ describe('/solana in a room', () => {
     expect(paying()).toBe('SOL');
   });
 
-  it('keeps the tick box, unticked, for a room’s coin that is not the venue’s own', async () => {
+  // The owner, 2026-11-01: the island's coins are verified here ("these are the tokens we want
+  // to be always showcasing for swaps"), so a room's coin asks for no tick box either.
+  it('asks for no tick box for a room’s coin: the venue vouches for every island coin', async () => {
     h.resolveMint.mockResolvedValue(BOBO);
     open('/solana', 'bobo');
     await waitFor(() => expect(buying()).toBe('BOBO'));
-    const box = tickBox();
-    expect(box, 'the risk tick box is on the form').not.toBeNull();
-    expect(box!.checked).toBe(false);
-    expect(box!.closest('label')?.textContent).toContain('an unverified token');
+    expect(tickBox(), 'no risk tick box on the form').toBeNull();
   });
 
   it('stays on $BAYLA when the room’s coin could not be looked up', async () => {

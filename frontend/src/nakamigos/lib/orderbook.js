@@ -9,9 +9,10 @@
  * calling Seaport.fulfillOrder() directly — no marketplace dependency.
  */
 
-import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget } from "../constants";
+import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget, SEAPORT_ADDRESSES_BY_CHAIN, SEAPORT_DOMAINS, PLATFORM_FEE_RECIPIENTS } from "../constants";
 import { getProvider } from "../api";
-import { venueRefusal, venueRefusalForAll } from "./venue";
+import { venueRefusalForAll, buyChainFor, walletChainLabel, cancelChainFor } from "./venue";
+import { cancelSeaportOrder } from "./seaportCancel";
 import { waitForTxOutcome, txOutcomeResult } from "./txOutcome";
 
 const ORDERBOOK_API = "/api/orderbook";
@@ -161,9 +162,11 @@ function nativeOrderAsksBeyondEth(order) {
     || String(i?.token || ZERO_ADDRESS).toLowerCase() !== ZERO_ADDRESS);
 }
 
+// Filled on the chain its NFTs live on (registry): Ethereum, or Base for a Base
+// buy collection. Never the chain a row or a wallet names.
 export async function fulfillNativeOrder(order) {
-  const refusal = venueRefusalForAll(nativeOrderNftTokens(order));
-  if (refusal) return refusal;
+  const book = buyChainFor(nativeOrderNftTokens(order));
+  if (book.error) return book;
   if (nativeOrderAsksBeyondEth(order)) {
     return { error: "not-eth-priced", message: "This order asks for something other than ETH. This venue fills only orders paid in ETH." };
   }
@@ -174,8 +177,8 @@ export async function fulfillNativeOrder(order) {
     const { ethers } = await import("ethers");
     const provider = new ethers.BrowserProvider(ethProvider);
     const network = await provider.getNetwork();
-    if (Number(network.chainId) !== 1) {
-      return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to buy NFTs" };
+    if (Number(network.chainId) !== book.chainId) {
+      return { error: "wrong-chain", chainId: book.chainId, message: `Please switch to ${walletChainLabel(book.chain)} to buy NFTs` };
     }
     const signer = await provider.getSigner();
     // Address itself is unused (Seaport fulfilment authorises via msg.sender),
@@ -206,7 +209,7 @@ export async function fulfillNativeOrder(order) {
     // unexpected target; this closes the same hole on the native path. Fail
     // CLOSED — never fall back to the default, because a row naming a foreign
     // target is exactly the case we must refuse, not silently rewrite.
-    const seaportTarget = resolveSeaportTarget(order.protocol_address);
+    const seaportTarget = resolveSeaportTarget(order.protocol_address, book.chainId);
     if (!seaportTarget) {
       return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
     }
@@ -313,7 +316,7 @@ export async function fulfillNativeOrder(order) {
     // break-on-rejected then dropped a bought item). Move the sign inside the
     // best-effort try so a rejected/failed notify never overturns the fill.
     const _fillTs = Math.floor(Date.now() / 1000);
-    const _fillChainId = 1;
+    const _fillChainId = book.chainId;
 
     // Retry the notification (same signature — it stays valid for the
     // server's 5-minute window, and re-signing would re-prompt the wallet).
@@ -363,14 +366,72 @@ export async function fulfillNativeOrder(order) {
   }
 }
 
+// ═══ CANCEL A NATIVE LISTING ═══
+// On the order's own chain (lib/venue.js cancelChainFor): the Seaport cancel
+// first, then the book's row, signed for that chain. The same two steps
+// MyListings takes for an Ethereum listing; the row step is best-effort, since
+// the order is already dead on chain.
+export async function cancelNativeListing(order) {
+  const params = order?.parameters;
+  const where = cancelChainFor(params);
+  if (where.error) return where;
+  if (!params || !order?.order_hash) return { error: "invalid-order", message: "Order missing parameters" };
+  const ethProvider = getProvider();
+  if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
+  try {
+    const { ethers } = await import("ethers");
+    const provider = new ethers.BrowserProvider(ethProvider);
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== where.chainId) {
+      return { error: "wrong-chain", chainId: where.chainId, message: `Please switch to ${walletChainLabel(where.chain)} to cancel this listing` };
+    }
+    const signer = await provider.getSigner();
+    const me = (await signer.getAddress()).toLowerCase();
+    if (String(params.offerer || "").toLowerCase() !== me) {
+      return { error: "not-maker", message: "Only the wallet that listed this NFT can cancel the listing." };
+    }
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: order.protocol_address || null });
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "The cancel reverted on-chain. The listing is still live." },
+        ifLanded: "the listing is already cancelled and a second cancel only costs gas.",
+      });
+    }
+    try {
+      const ts = Math.floor(Date.now() / 1000);
+      const cancelSignature = await signer.signMessage(`Cancel order ${order.order_hash} | Chain: ${where.chainId} | Time: ${ts}`);
+      await fetch(ORDERBOOK_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", orderHash: order.order_hash, signature: cancelSignature, chainId: where.chainId, timestamp: ts }),
+      });
+    } catch {
+      console.warn("Backend cancel notify failed (on-chain cancel succeeded)");
+    }
+    return { success: true, hash: done.hash };
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      return { error: "rejected", message: "Cancel declined in your wallet" };
+    }
+    if (err.code === "wrong-chain" || err.code === "not-venue-tradeable") return { error: err.code, message: err.message };
+    return { error: "failed", message: err.shortMessage || err.message || "Failed to cancel listing" };
+  }
+}
+
 // ═══ CREATE NATIVE LISTING ═══
 // List an NFT on our orderbook at a flat 0.5% fee routed to the Tegridy treasury
 // (half of OpenSea's 1%). See header.
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
-  // Refused before setApprovalForAll: the venue lists only what it can settle.
-  const refusal = venueRefusal(contract);
-  if (refusal) return refusal;
+  // Refused before setApprovalForAll: the venue lists only what it can settle,
+  // on the chain the registry puts the contract on. That chain picks the
+  // Seaport, its signed domain and the fee Safe.
+  const book = buyChainFor([contract]);
+  if (book.error) return book;
+  const seaportAddress = SEAPORT_ADDRESSES_BY_CHAIN[book.chainId];
+  const seaportDomain = SEAPORT_DOMAINS[book.chainId];
+  const feeRecipient = PLATFORM_FEE_RECIPIENTS[book.chainId];
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
@@ -378,8 +439,8 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const { ethers } = await import("ethers");
     const provider = new ethers.BrowserProvider(ethProvider);
     const network = await provider.getNetwork();
-    if (Number(network.chainId) !== 1) {
-      return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to list NFTs" };
+    if (Number(network.chainId) !== book.chainId) {
+      return { error: "wrong-chain", chainId: book.chainId, message: `Please switch to ${walletChainLabel(book.chain)} to list NFTs` };
     }
     const signer = await provider.getSigner();
     const sellerAddress = await signer.getAddress();
@@ -389,6 +450,15 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
       "function isApprovedForAll(address,address) view returns (bool)",
       "function setApprovalForAll(address,bool)",
     ], signer);
+
+    // On Base the token is read first: an approval from a wallet that does not
+    // own it costs gas for a listing the book would refuse.
+    if (book.chainId !== 1) {
+      const owner = await new ethers.Contract(contract, ["function ownerOf(uint256) view returns (address)"], provider).ownerOf(String(tokenId));
+      if (String(owner).toLowerCase() !== sellerAddress.toLowerCase()) {
+        return { error: "not-owner", message: `This wallet does not own #${tokenId}, so it cannot list it.` };
+      }
+    }
 
     const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
@@ -435,7 +505,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
           identifierOrCriteria: "0",
           startAmount: platformFee.toString(),
           endAmount: platformFee.toString(),
-          recipient: PLATFORM_FEE_RECIPIENT,
+          recipient: feeRecipient,
         },
       ],
       // AUDIT FIX (2026-06-10): was 2 with a "FULL_OPEN_VIA_CONDUIT" comment —
@@ -455,14 +525,14 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     };
 
     // Get counter from Seaport
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, [
+    const seaport = new ethers.Contract(seaportAddress, [
       "function getCounter(address) view returns (uint256)",
     ], provider);
     const counter = await seaport.getCounter(sellerAddress);
 
     // Sign EIP-712 (Seaport order signature for on-chain fulfillment)
     const signData = { ...orderParameters, counter: counter.toString() };
-    const seaportSignature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
+    const seaportSignature = await signer.signTypedData(seaportDomain, SEAPORT_ORDER_TYPES, signData);
 
     // AUDIT F10: derive Seaport's canonical orderHash (the value emitted in
     // OrderFulfilled events on-chain) so the orderbook can verify fills.
@@ -510,7 +580,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
               parameters: orderParameters,
               signature: authSignature,
               seaportSignature,
-              protocol_address: SEAPORT_ADDRESS,
+              protocol_address: seaportAddress,
               // AUDIT F10: canonical Seaport orderHash + counter for fill
               // verification. Server re-derives from these and rejects on
               // mismatch — the client claim is just a fast path.

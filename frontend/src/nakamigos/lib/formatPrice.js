@@ -26,6 +26,42 @@ export function formatPrice(value, { fallback = "\u2014", decimals = 4 } = {}) {
 }
 
 /**
+ * The exact ETH amount of a wei string, every digit kept: "18990000000000000"
+ * is "0.01899". null for anything that is not a plain wei string.
+ */
+export function exactEth(priceWei) {
+  if (typeof priceWei !== "string" || !/^\d{1,40}$/.test(priceWei)) return null;
+  const wei = BigInt(priceWei);
+  const unit = 10n ** 18n;
+  const frac = (wei % unit).toString().padStart(18, "0").replace(/0+$/, "");
+  return frac ? `${wei / unit}.${frac}` : `${wei / unit}`;
+}
+
+/**
+ * A listing's price as the buyer will pay it. A price someone is asked to pay
+ * is never shown as a rounded figure that can read below what the wallet asks
+ * for (formatPrice rounds to 4 decimals: 0.018949 reads 0.0189), so it is shown
+ * from its wei, exactly, whenever the listing carries one. Both OpenSea's
+ * `price.current.value` and the order book's `price_wei` are the buyer's total.
+ */
+export function formatListingPrice(listing, opts) {
+  return exactEth(listing?.priceWei) ?? formatPrice(listing?.price, opts);
+}
+
+/**
+ * The exact total of several listings, from their wei, or null when any one
+ * of them has no wei (the caller then shows its own figure).
+ */
+export function listingsTotalWei(listings) {
+  let total = 0n;
+  for (const l of Array.isArray(listings) ? listings : []) {
+    if (exactEth(l?.priceWei) == null) return null;
+    total += BigInt(l.priceWei);
+  }
+  return total;
+}
+
+/**
  * Convert an ETH amount to a "≈ $X" USD string, given a live ETH/USD rate.
  *
  * Honesty rules — this NEVER fabricates a rate. It only formats; the rate must

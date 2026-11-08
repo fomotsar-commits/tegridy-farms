@@ -8,6 +8,7 @@ import { CHAIN_ID } from '../../lib/constants';
 import { pageArt } from '../../lib/artConfig';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
+import { BUNGALOWS } from '../../lib/bungalows';
 
 /**
  * THE FRONT ROW. Chain-neutral majors only.
@@ -94,6 +95,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   const modalRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [recentAddresses, setRecentAddresses] = useState<string[]>(getRecentTokens);
+  // The island's coins on this chain that this list carries, first in the picker (owner,
+  // 2026-11-01: "these are the tokens we want to be always showcasing for swaps"). By address:
+  // a symbol can be copied.
+  const islandTokens = useMemo(() => {
+    const chain = readChainId === 1 ? 'ethereum' : readChainId === 8453 ? 'base' : null;
+    const ours = new Set(BUNGALOWS.filter((b) => b.live && b.chain === chain && b.address).map((b) => b.address!.toLowerCase()));
+    return tokens.filter((t) => ours.has(t.address.toLowerCase()));
+  }, [tokens, readChainId]);
 
   useEffect(() => {
     if (open) {
@@ -336,15 +345,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             />
           </div>
 
-          {/* Popular quick-select chips */}
-          <div className="px-4 pb-2 flex flex-wrap gap-1.5">
-            {POPULAR_TOKEN_SYMBOLS.map(sym => {
-              const token = tokens.find(t => t.symbol === sym);
-              if (!token) return null;
+          {/* The island's coins, then the popular quick-select chips */}
+          <div className="px-4 pb-2 flex flex-wrap gap-1.5" data-testid="token-chips">
+            {[...islandTokens, ...POPULAR_TOKEN_SYMBOLS.map(sym => tokens.find(t => t.symbol === sym)).filter((t): t is TokenInfo => Boolean(t) && !islandTokens.includes(t!))].map(token => {
+              const sym = token.symbol;
               const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
               return (
                 <button
-                  key={sym}
+                  key={token.address}
                   onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"

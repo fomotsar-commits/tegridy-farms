@@ -80,7 +80,10 @@ export function ChainPicker({ label, active, options, onPick, stretch = false, a
 
   const onListKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      // Escape closes this list and nothing under it: inside the Buy sheet, the sheet's own
+      // Escape (a window listener) would otherwise close the sheet too.
       e.preventDefault();
+      e.stopPropagation();
       close();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();

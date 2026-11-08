@@ -2,7 +2,7 @@
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
-import { VENUE_SLUGS, VENUE_CONTRACTS, READ_ONLY_OPENSEA_SLUGS as READ_ONLY_SLUGS } from "./_lib/venue-registry.js";
+import { VENUE_SLUGS, VENUE_CONTRACTS, READ_ONLY_OPENSEA_SLUGS as READ_ONLY_SLUGS, BASE_BUY_SLUGS, BASE_BUY_CONTRACTS } from "./_lib/venue-registry.js";
 
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
 if (!process.env.OPENSEA_API_KEY) {
@@ -114,28 +114,49 @@ export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 export const READ_ONLY_OPENSEA_SLUGS = READ_ONLY_SLUGS;
 const READ_ONLY_STATS_PATHS = new Set([...READ_ONLY_SLUGS].map((s) => `collections/${s}/stats`));
 const READ_ONLY_ITEMS_PATHS = new Set([...READ_ONLY_SLUGS].map((s) => `collection/${s}/nfts`));
+// The Base buy collections' best listings: a GET with the item list's query
+// (limit, next) and nothing else. They are bought one at a time, on Base.
+const BASE_BUY_LISTINGS_PATHS = new Set([...BASE_BUY_SLUGS].map((s) => `listings/collection/${s}/best`));
+// Their offers, read two ways: one token's best offer (no query), and one
+// maker's offers (maker, limit, next) so a bidder can see and cancel their own.
+const BASE_BUY_BEST_OFFER_RE = new RegExp(`^offers/collection/(${[...BASE_BUY_SLUGS].join("|")})/nfts/\\d{1,10}/best$`);
+const BASE_BUY_ALL_OFFERS_PATHS = new Set([...BASE_BUY_SLUGS].map((s) => `offers/collection/${s}/all`));
 const NEXT_CURSOR_RE = /^[A-Za-z0-9+/=_-]{1,1024}$/;
 
 function isReadOnlyPath(path) {
-  return READ_ONLY_STATS_PATHS.has(path) || READ_ONLY_ITEMS_PATHS.has(path);
+  return READ_ONLY_STATS_PATHS.has(path) || READ_ONLY_ITEMS_PATHS.has(path) || BASE_BUY_LISTINGS_PATHS.has(path)
+    || BASE_BUY_BEST_OFFER_RE.test(String(path)) || BASE_BUY_ALL_OFFERS_PATHS.has(path);
 }
 
 /** A 400 message when a read-only path carries anything but its own query, else null. */
 function readOnlyQueryProblem(path, params) {
-  const allowed = READ_ONLY_ITEMS_PATHS.has(path) ? new Set(["limit", "next"]) : new Set();
+  const paged = READ_ONLY_ITEMS_PATHS.has(path) || BASE_BUY_LISTINGS_PATHS.has(path);
+  const byMaker = BASE_BUY_ALL_OFFERS_PATHS.has(path);
+  const allowed = byMaker ? new Set(["maker", "limit", "next"]) : paged ? new Set(["limit", "next"]) : new Set();
   for (const key of Object.keys(params)) {
     if (!allowed.has(key)) return `Query parameter not allowed: ${key}`;
   }
+  if (byMaker && !isValidAddress(params.maker)) return "Invalid maker address";
   if (params.next != null && !NEXT_CURSOR_RE.test(String(params.next))) return "Invalid next cursor";
   return null;
 }
 
 // A fill is built from an order hash, so what it moves is known only from the
 // answer. Every NFT item (itemType 2 to 5) in its orders, offer and consideration
-// alike, must be a venue contract, and equal `named` when the request named one.
+// alike, must be in `allowed` (the fill chain's contracts), and equal `named`
+// when the request named one.
 const FULFILLMENT_PATHS = new Set(["listings/fulfillment_data", "offers/fulfillment_data"]);
+// The chains a fill (a buy or an accept) is built for, and the NFTs each may
+// move: venue NFTs on Ethereum, the Base buy collections on Base.
+const FILL_CONTRACTS = new Map([["ethereum", ALLOWED_CONTRACTS], ["base", BASE_BUY_CONTRACTS]]);
+// The chain an order POST names in its path, and the NFTs its body may carry.
+const ORDER_POST_CONTRACTS = new Map([
+  ["orders/ethereum/seaport/offers", ALLOWED_CONTRACTS],
+  ["orders/ethereum/seaport/listings", ALLOWED_CONTRACTS],
+  ["orders/base/seaport/offers", BASE_BUY_CONTRACTS],
+]);
 const listOf = (value) => (Array.isArray(value) ? value : []);
-function fillMovesOnlyVenueNfts(data, named) {
+function fillMovesOnlyVenueNfts(data, named, allowed = ALLOWED_CONTRACTS) {
   const want = typeof named === "string" ? named.toLowerCase() : null;
   for (const order of listOf(data?.fulfillment_data?.orders)) {
     const p = order?.parameters;
@@ -143,7 +164,7 @@ function fillMovesOnlyVenueNfts(data, named) {
       const itemType = Number(item?.itemType);
       if (!(itemType >= 2 && itemType <= 5)) continue;
       const token = typeof item?.token === "string" ? item.token.toLowerCase() : "";
-      if (!ALLOWED_CONTRACTS.has(token) || (want && token !== want)) return false;
+      if (!allowed.has(token) || (want && token !== want)) return false;
     }
   }
   return true;
@@ -197,7 +218,7 @@ function isAllowedPath(path) {
   // The family collections' two read-only routes (method and query checked in the handler).
   if (isReadOnlyPath(path)) return true;
   // Allow order endpoints (create listings, fetch offers/bids)
-  if (path === "orders/ethereum/seaport/offers" || path === "orders/ethereum/seaport/listings") return true;
+  if (ORDER_POST_CONTRACTS.has(path)) return true;
   // Allow offer building
   if (path === "offers/build") return true;
   // Check collection-specific paths
@@ -310,21 +331,26 @@ export default async function handler(req, res) {
     }
   }
 
-  // The two fill builders serve only Ethereum orders, and an accept must name
-  // the NFT the seller hands over, which must be a venue contract.
-  if (path === "listings/fulfillment_data" && req.body?.listing?.chain !== "ethereum") {
-    return res.status(400).json({ error: "Only Ethereum listings are filled here" });
+  // A fill is built for Ethereum (venue NFTs) or Base (the Base buy
+  // collections). An accept must also name the NFT the seller hands over, and
+  // that NFT must live on the chain the accept names.
+  if (path === "listings/fulfillment_data" && !FILL_CONTRACTS.has(req.body?.listing?.chain)) {
+    return res.status(400).json({ error: "Only Ethereum and Base listings are filled here" });
   }
   if (path === "offers/fulfillment_data") {
-    if (req.body?.offer?.chain !== "ethereum") {
-      return res.status(400).json({ error: "Only Ethereum offers are filled here" });
+    const chainNfts = FILL_CONTRACTS.get(req.body?.offer?.chain);
+    if (!chainNfts) {
+      return res.status(400).json({ error: "Only Ethereum and Base offers are filled here" });
     }
     const nft = req.body?.consideration?.asset_contract_address;
     if (!isValidAddress(nft)) return res.status(400).json({ error: "Invalid contract address format" });
-    if (!ALLOWED_CONTRACTS.has(nft.toLowerCase())) return res.status(403).json({ error: "Contract not supported" });
+    if (!chainNfts.has(nft.toLowerCase())) return res.status(403).json({ error: "Contract not supported" });
   }
 
-  // Validate contract addresses in POST bodies to prevent open-proxy abuse
+  // Validate contract addresses in POST bodies to prevent open-proxy abuse. A
+  // Base order POST may carry only the Base buy collections; every other POST
+  // only venue contracts.
+  const postNfts = ORDER_POST_CONTRACTS.get(path) || ALLOWED_CONTRACTS;
   if (req.method === "POST" && req.body && typeof req.body === "object") {
     const seaportParams = req.body.parameters || req.body.protocol_data?.parameters;
     if (seaportParams) {
@@ -339,7 +365,7 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: "Invalid contract address format" });
           }
           const addr = item.token.toLowerCase();
-          if (!ALLOWED_CONTRACTS.has(addr)) {
+          if (!postNfts.has(addr)) {
             return res.status(403).json({ error: "Contract not supported" });
           }
         }
@@ -465,7 +491,12 @@ export default async function handler(req, res) {
 
     if (FULFILLMENT_PATHS.has(path)) {
       const named = path === "offers/fulfillment_data" ? req.body?.consideration?.asset_contract_address : null;
-      if (!fillMovesOnlyVenueNfts(data, named)) return res.status(403).json({ error: "Contract not supported" });
+      const allowedNfts = path === "listings/fulfillment_data"
+        ? FILL_CONTRACTS.get(req.body?.listing?.chain)
+        : FILL_CONTRACTS.get(req.body?.offer?.chain);
+      if (!allowedNfts || !fillMovesOnlyVenueNfts(data, named, allowedNfts)) {
+        return res.status(403).json({ error: "Contract not supported" });
+      }
     }
 
     // AUDIT R053: cache-control varies by endpoint and per-user binding.
