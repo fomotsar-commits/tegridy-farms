@@ -58,11 +58,13 @@ describe('the $BAYLA the page opens on', () => {
     expect(needsRiskAck(BAYLA)).toBe(false);
   });
 
-  it('makes the opening pair one that asks for no tick box, while a Solana room’s coin still asks', () => {
+  it('makes the opening pair one that asks for no tick box, and a Solana room’s coin too', () => {
     const opensOn = findSolToken(openingBuyMint('', null));
     expect(opensOn).toBe(BAYLA);
     expect([SOL, opensOn!].filter(needsRiskAck)).toEqual([]);
-    // The control: another room's coin is not the venue's own, so its tick box stays.
-    expect(needsRiskAck({ mint: openingBuyMint('', room('bobo')), symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
+    // The owner, 2026-11-01: the island's coins are verified here, so a room's coin asks for none.
+    expect(needsRiskAck({ mint: openingBuyMint('', room('bobo')), symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(false);
+    // The control: a coin the venue does not vouch for keeps its tick box.
+    expect(needsRiskAck({ mint: 'Other11111111111111111111111111111111111111', symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
   });
 });

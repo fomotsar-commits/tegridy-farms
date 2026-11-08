@@ -4,17 +4,7 @@ import { chainTxUrl, walletChainLabel } from "../../lib/venue";
 import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
 import { exactEth } from "../../hooks/useBuyHereListings";
-
-// Asks the connected wallet to switch chains. Loaded on click, the way
-// api.js reaches wagmi, so the panel needs no wagmi provider to render.
-async function askWalletToSwitch(chainId) {
-  try {
-    const [{ switchChain }, { config }] = await Promise.all([import("wagmi/actions"), import("../../../lib/wagmi")]);
-    await switchChain(config, { chainId });
-  } catch {
-    // Declined or not supported: the toast already said what to do.
-  }
-}
+import { askWalletToSwitch } from "../../lib/walletSwitch";
 
 /**
  * Buying one OpenSea listing of a Base buy collection here. The buy goes

@@ -127,7 +127,7 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
             </svg>
             {isRoomDoor(location.pathname) ? SHEET_WORDS.back : SHEET_WORDS.backOff}
           </button>
-          {/* Buy names its coin in the form's own bungalow row, which follows a pick from Any coin (SheetBuyRow). */}
+          {/* Buy names its coin in the form's own bungalow row, which follows a pick from the You get press (SheetBuyRow). */}
           {kind === 'add' && (room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />)}
           <div ref={setSlot} data-testid="sheet-body" className={drawn ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />
           {drawn && pageOutlet === null && (

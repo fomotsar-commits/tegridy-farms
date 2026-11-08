@@ -1,8 +1,8 @@
 import { BUNGALOWS } from './bungalows';
 
 /**
- * "Buy all bungalows": a dollar amount split evenly across every island room's coin on
- * one chain, bought in one order. This file is the list: which coins, on which chain,
+ * "Buy all bungalows": a dollar amount split across every island room's coin on one chain,
+ * evenly or in the trader's own percents (`Split`), bought in one order. This file is the list: which coins, on which chain,
  * through which pools. The swap pages read it; nothing here signs or sends.
  *
  * EVERY POOL BELOW WAS READ ON CHAIN 2026-10-18, not taken from an index:
@@ -153,6 +153,93 @@ export function splitEvenly(total: bigint, n: number): bigint[] | null {
   const extra = Number(total % count);
   if (base === 0n) return null;
   return Array.from({ length: n }, (_, i) => base + (i < extra ? 1n : 0n));
+}
+
+/**
+ * The trader's own split (owner, 2026-11-01: "a slider ... that lets me decide what percent of
+ * the buy goes into which bungalow token"): each coin's share in whole percents, adding up to
+ * exactly 100. A coin at 0 is left out of the order. Null everywhere below means the even split.
+ */
+export type Split = readonly number[] | null;
+
+/** Whole percents that add up to 100, as even as whole numbers can be: 7 coins are 15, 15, 14, … */
+export function evenPcts(n: number): number[] {
+  if (!Number.isInteger(n) || n <= 0) return [];
+  const base = Math.floor(100 / n);
+  const extra = 100 - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+/** A split that can size an order: whole percents, none below 0, adding up to exactly 100. */
+export function isSplit(pcts: readonly number[], n: number): boolean {
+  return pcts.length === n && pcts.every((p) => Number.isInteger(p) && p >= 0 && p <= 100) && pcts.reduce((s, p) => s + p, 0) === 100;
+}
+
+/**
+ * The split with coin `i` moved to `pct`, and the others moved so the whole stays 100. The others
+ * keep their sizes against each other; when they are all at 0 they share what is left evenly.
+ * Whole percents throughout: what rounding leaves goes to the largest remainders, first coin first.
+ */
+export function reweigh(pcts: readonly number[], i: number, pct: number): number[] {
+  const n = pcts.length;
+  if (!Number.isInteger(i) || i < 0 || i >= n) return [...pcts];
+  if (n === 1) return [100];
+  const v = Math.max(0, Math.min(100, Math.round(Number.isFinite(pct) ? pct : 0)));
+  const rest = 100 - v;
+  const others = pcts.map((p, j) => (j === i ? 0 : Math.max(0, p)));
+  const sum = others.reduce((s, p) => s + p, 0);
+  const raw = others.map((p, j) => (j === i ? 0 : sum > 0 ? (p * rest) / sum : rest / (n - 1)));
+  const out = raw.map((r) => Math.floor(r));
+  let left = rest - out.reduce((s, p) => s + p, 0);
+  const byRemainder = raw
+    .map((r, j) => ({ j, frac: r - Math.floor(r) }))
+    .filter((x) => x.j !== i)
+    .sort((a, b) => b.frac - a.frac || a.j - b.j);
+  for (const { j } of byRemainder) {
+    if (left <= 0) break;
+    out[j]! += 1;
+    left -= 1;
+  }
+  out[i] = v;
+  return out;
+}
+
+/**
+ * `total` base units split by whole percents: each share rounded down, and the units rounding
+ * left over go to the largest share, so the shares add up to exactly `total`. A coin at 0% gets
+ * 0. Null for a split that is not one (isSplit), or when a coin given a share would get nothing.
+ */
+export function splitByPcts(total: bigint, pcts: readonly number[]): bigint[] | null {
+  if (total <= 0n || !isSplit(pcts, pcts.length)) return null;
+  const shares = pcts.map((p) => (total * BigInt(p)) / 100n);
+  const top = pcts.indexOf(Math.max(...pcts));
+  shares[top]! += total - shares.reduce((s, x) => s + x, 0n);
+  if (shares.some((s, j) => pcts[j]! > 0 && s <= 0n)) return null;
+  return shares;
+}
+
+/** The order's shares: the even split, or the trader's own. */
+export function splitOrder(total: bigint, n: number, split: Split): bigint[] | null {
+  return split ? (split.length === n ? splitByPcts(total, split) : null) : splitEvenly(total, n);
+}
+
+/** How many coins the order buys: every coin, or those the split gives a share. */
+export function coinsInOrder(n: number, split: Split): number {
+  return split ? split.filter((p) => p > 0).length : n;
+}
+
+/** Each coin's dollars of the order, in the split's own proportions. */
+export function dollarsEach(dollars: number, n: number, split: Split): number[] {
+  if (!Number.isFinite(dollars) || dollars <= 0 || n <= 0) return Array.from({ length: Math.max(0, n) }, () => 0);
+  return split ? split.map((p) => (dollars * p) / 100) : Array.from({ length: n }, () => dollars / n);
+}
+
+/** The least the order can be: every coin it buys gets at least MIN_USD_PER_COIN. */
+export function minOrderUsd(n: number, split: Split): number {
+  if (!split) return MIN_USD_PER_COIN * n;
+  const least = Math.min(...split.filter((p) => p > 0));
+  // Rounded up to the cent, so the amount it names is always enough.
+  return Number.isFinite(least) && least > 0 ? Math.ceil((MIN_USD_PER_COIN * 100 * 100) / least) / 100 : MIN_USD_PER_COIN * n;
 }
 
 /**
