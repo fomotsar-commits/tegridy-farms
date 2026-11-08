@@ -127,6 +127,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # start-validator.sh's last check, `solana program show`, wants a default keypair even to
+      # read, and a fresh runner has none: "No default signer found". A throwaway, never funded.
+      - name: A local keypair for the CLI's reads
+        run: solana-keygen new --no-bip39-passphrase --silent --force -o "$HOME/.config/solana/id.json"
+
       - name: The program files mainnet runs, checked against the pins
         run: node scripts/solana-localnet/stage-from-mainnet.mjs --out "$RELEASE"
 
