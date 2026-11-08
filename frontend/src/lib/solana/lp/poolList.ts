@@ -6,9 +6,9 @@ import { chargedCreatorFeeRate } from '../cpswap/venue';
 import { quoteText } from './format';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
-import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
+import { PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
-import { poolFeesOf } from './liquidityMath';
+import { poolFeesOf, tooFewShares } from './liquidityMath';
 import { lastTrade } from './poolPast';
 import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
@@ -69,10 +69,10 @@ export async function listPools(rpc: SolanaRpc, opts: ReadPoolsOptions & { fetch
 
 /**
  * A short tag on a row of the list, from what the list already read: the pool's own
- * switches, its vaults, its coin side, its open time and its trade record, and its price
- * against Jupiter's market price (`marketGap`). Warnings only: a fact that was not read
- * gives no tag, and no tag ever says a pool is fine. The pool's full price check is on its
- * card, one View away.
+ * switches, its vaults, its shares, its coin side, its open time and its trade record,
+ * and its price against Jupiter's market price (`marketGap`). Warnings only: a fact that
+ * was not read gives no tag, and no tag ever says a pool is fine. The pool's full price
+ * check is on its card, one View away.
  */
 export interface PoolTag {
   text: string;
@@ -107,14 +107,26 @@ export function poolTags(view: PoolView, chainNow: bigint | null, priceGap: numb
   if (!depositEnabled(pool)) tags.push({ text: 'Adding off', tone: 'bad' });
   if (!withdrawEnabled(pool)) tags.push({ text: 'Removing off', tone: 'bad' });
   if (view.vaultsFrozen) tags.push({ text: 'Frozen', tone: 'bad' });
+  // Takes no deposit (poolHealth.ts NEARLY_EMPTY), and says more than "Little money in pool".
+  const nearlyEmpty = tooFewShares(pool.lpSupply);
+  if (nearlyEmpty) tags.push({ text: 'Almost empty', tone: 'bad' });
   if (priceGap !== null) tags.push({ text: `Price over ${PRICE_TOLERANCE * 100}% ${priceGap >= 0 ? 'above' : 'below'} Jupiter`, tone: 'bad' });
   if (swapEnabled(pool) && chainNow !== null && chainNow < pool.openTime) tags.push({ text: 'Trading not open yet', tone: 'warn' });
   const little = LITTLE_MONEY.find((l) => l.quote.mint === view.quote.mint);
-  if (little && view.quoteReserve < little.under) tags.push({ text: 'Little money in pool', tone: 'warn' });
+  if (!nearlyEmpty && little && view.quoteReserve < little.under) tags.push({ text: 'Little money in pool', tone: 'warn' });
   const last = lastTrade(view);
   if (last.kind === 'none') tags.push({ text: 'No trades yet', tone: 'warn' });
   else if (last.kind === 'at' && chainNow !== null && chainNow - last.time >= QUIET_SECS) tags.push({ text: 'No trades in 7 days', tone: 'warn' });
   return tags;
+}
+
+/**
+ * Does the pool's card refuse a deposit? Its own verdict (poolHealth.ts `assessPool`), from
+ * what the list read; no refusal rests on an outside price, so none is asked. A row's Add
+ * then looks off and still opens the card, which says why.
+ */
+export function refusesDeposits(view: PoolView, chainNow: bigint | null, safety: TokenSafety | null): boolean {
+  return assessPool({ view, tokenDecimals: tokenDecimalsOf(view), chainNow, outside: null, safety }).deposits.verdict === 'refused';
 }
 
 /**
@@ -195,6 +207,35 @@ export function poolWorthUsd(view: PoolView, usd: ReadonlyMap<string, number>): 
   const token = usd.get(view.tokenMint);
   if (coin === undefined || token === undefined) return null;
   return (Number(view.quoteReserve) * coin) / 10 ** view.quote.decimals + (Number(view.tokenReserve) * token) / 10 ** tokenDecimalsOf(view);
+}
+
+/**
+ * What All pools ranks a pool by, in dollars: what it holds (`poolWorthUsd`), but never more
+ * than its pairing coin's side backs at a fair price. Anyone can print more of their own coin:
+ * a pinch of SOL beside a billion printed tokens Jupiter prices at all would otherwise head the
+ * list. Within PRICE_TOLERANCE of Jupiter the token side is at most 1/(1 − tolerance) of the
+ * coin side, so a row with no price tag ranks by exactly the dollars it shows. A token Jupiter
+ * does not price counts at the pool's own price: the coin side twice. Null when the pairing
+ * coin has no price.
+ */
+export function poolRankUsd(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+  const coin = usd.get(view.quote.mint);
+  if (coin === undefined) return null;
+  const coinSide = (Number(view.quoteReserve) * coin) / 10 ** view.quote.decimals;
+  const worth = poolWorthUsd(view, usd);
+  return worth === null ? 2 * coinSide : Math.min(worth, coinSide * (1 + 1 / (1 - PRICE_TOLERANCE)));
+}
+
+/**
+ * The pools, most money in first (owner, 2026-11-01: "descending order from highest tvl to
+ * lowest"), by `poolRankUsd`. A pool whose pairing coin has no price goes last; those, and
+ * ties, keep the order they came in.
+ */
+export function byWorth(pools: readonly PoolView[], usd: ReadonlyMap<string, number>): PoolView[] {
+  return pools
+    .map((view, i) => ({ view, i, rank: poolRankUsd(view, usd) ?? -1 }))
+    .sort((a, b) => b.rank - a.rank || a.i - b.i)
+    .map((r) => r.view);
 }
 
 /**

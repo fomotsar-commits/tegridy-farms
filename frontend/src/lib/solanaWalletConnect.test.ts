@@ -894,3 +894,87 @@ describe('source rules', () => {
     expect(strings).not.toContain('localStorage');
   });
 });
+
+/**
+ * Tangem: the adapter above under Tangem's name, with its row where the QR row
+ * is not. On a computer or an iPad it hands its click to the QR row and opens
+ * nothing itself; on a phone it pairs by opening the Tangem app.
+ */
+describe('TangemWalletAdapter', () => {
+  const IPHONE =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const ANDROID =
+    'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36';
+  const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+  const URI = 'wc:pairtopic123@2?relay-protocol=irn&symKey=00';
+  const tangem = () => new mod.TangemWalletAdapter({ projectId: 'test-project' });
+  /** What the page was sent to, if anything: the stubbed window has no href of its own. */
+  const sentTo = () => (window as unknown as { location: { href?: string } }).location.href;
+
+  it.each([
+    ['iPhone Safari', IPHONE, 0, WalletReadyState.Loadable],
+    ['Android Chrome', ANDROID, 5, WalletReadyState.Loadable],
+    ['iPad (desktop-class UA)', IPAD, 5, WalletReadyState.NotDetected],
+    ['desktop Chrome', DESKTOP, 0, WalletReadyState.NotDetected],
+  ] as const)('%s: its row is %s', (_label, ua, touch, expected) => {
+    setUserAgent(ua, touch);
+    expect(tangem().readyState).toBe(expected);
+  });
+
+  it('is inert without a project id, on a phone too', () => {
+    setUserAgent(IPHONE);
+    expect(new mod.TangemWalletAdapter({ projectId: '' }).readyState).toBe(WalletReadyState.Unsupported);
+  });
+
+  it('is its own row: its name, not the QR row’s, so a phone saves "Tangem"', () => {
+    expect(tangem().name).toBe('Tangem');
+    expect(tangem().url).toBe('https://tangem.com');
+  });
+
+  it('on a phone, the pairing link opens the Tangem app, carrying the URI the QR would have drawn', async () => {
+    setUserAgent(IPHONE);
+    const adapter = tangem();
+    const done = adapter.connect().catch((e: unknown) => e);
+    await vi.waitFor(() => expect(adapter.getPairing().phase).toBe('scan'));
+    expect(sentTo()).toBe(`tangem://wc?uri=${encodeURIComponent(URI)}`);
+    expect(adapter.appLink(URI)).toBe(sentTo());
+    adapter.cancelPairing();
+    await done;
+  });
+
+  it('on a phone, the approval in the app connects this page', async () => {
+    setUserAgent(IPHONE);
+    client.approval = async () => client.approveWith(solanaSession());
+    const adapter = tangem();
+    await adapter.connect();
+    expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
+    expect(client.sessions.get('sess-sol')!.sessionConfig?.disableDeepLink).toBe(true);
+  });
+
+  it('on a phone, a signature request opens the app, and the signature is still checked', async () => {
+    setUserAgent(IPHONE);
+    client.sessions.set('sess-sol', solanaSession());
+    client.respond = async (p) => ({ signature: base58.encode(walletSignatureOver(p.transaction as string)) });
+    const adapter = tangem();
+    await adapter.autoConnect();
+    expect(sentTo()).toBeUndefined();
+    const tx = v0Tx();
+    await adapter.signTransaction(tx);
+    expect(sentTo()).toBe('tangem://wc');
+    expect(client.requests).toHaveLength(1);
+    expect(ed25519.verify(tx.signatures[0]!, tx.message.serialize(), wallet.publicKey.toBytes())).toBe(true);
+  });
+
+  it('on a computer it opens nothing: it has no link, and the QR row it hands off to never navigates', async () => {
+    setUserAgent(DESKTOP);
+    expect(tangem().appLink(URI)).toBeNull();
+    expect(tangem().appLink()).toBeNull();
+    const qr = make();
+    expect(qr.appLink(URI)).toBeNull();
+    const done = qr.connect().catch((e: unknown) => e);
+    await vi.waitFor(() => expect(qr.getPairing().phase).toBe('scan'));
+    expect(sentTo()).toBeUndefined();
+    qr.cancelPairing();
+    await done;
+  });
+});

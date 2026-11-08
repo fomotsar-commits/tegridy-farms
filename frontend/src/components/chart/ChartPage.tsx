@@ -5,6 +5,7 @@ import { useGeckoCandles } from '../../hooks/useGeckoCandles';
 import { isIndexerConfigured } from '../../lib/indexer/client';
 import { chartPoolUrl } from '../../lib/chart/market';
 import { resolveChartParams } from '../../lib/chart/chartParams';
+import { getActiveBungalow } from '../../lib/bungalows';
 import {
   NETWORK_LABELS,
   chartableMarkets,
@@ -84,11 +85,14 @@ export default function ChartPage() {
   // would re-raise a refusal the reader has already read past, and writing the
   // corrected values back into the URL inside a render is a loop.
   const [initial] = useState(() =>
-    resolveChartParams({
-      network: params.get('network'),
-      pool: params.get('pool'),
-      tf: params.get('tf'),
-    }),
+    resolveChartParams(
+      {
+        network: params.get('network'),
+        pool: params.get('pool'),
+        tf: params.get('tf'),
+      },
+      getActiveBungalow()?.market ?? null,
+    ),
   );
 
   const markets = useMemo(() => chartableMarkets(), []);

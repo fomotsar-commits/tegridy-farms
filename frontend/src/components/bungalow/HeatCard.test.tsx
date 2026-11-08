@@ -58,3 +58,24 @@ describe('the bungalow heat card', () => {
     expect(container.textContent).not.toContain('—');
   });
 });
+
+describe('the word Drifter is never printed (island answer twenty-six)', () => {
+  it('a reading under Observer says where the clock starts in place of its standing', async () => {
+    h.fetchHeat.mockResolvedValue(
+      parseHeatReading({
+        address: ADDR,
+        degrees: 12,
+        tier: 'Drifter',
+        is_cold: false,
+        held_since_unix: 1_700_000_000,
+        as_of_unix: 1_762_000_000,
+        token_count: 1,
+        breakdown: [],
+      }),
+    );
+    const { container } = render(<HeatCard defaultAddress={ADDR} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Check heat' }));
+    expect(await screen.findByText('Your clock starts at your first hold.')).toBeTruthy();
+    expect(container.textContent).not.toContain('Drifter');
+  });
+});

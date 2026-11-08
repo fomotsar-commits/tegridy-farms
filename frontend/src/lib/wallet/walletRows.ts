@@ -23,6 +23,8 @@ export interface HoldingRow {
   usd: number | null;
   /** The island room this coin belongs to; null for SOL and ETH. */
   roomId: string | null;
+  /** A coin with no room: its address, for its picture (offIslandCoins.ts). */
+  mint?: string;
   /** Where the row opens; null for a row that opens nothing. */
   to: string | null;
 }
@@ -31,6 +33,8 @@ export interface HoldingRow {
 export interface PositionRow {
   key: string;
   roomId: string | null;
+  /** A pool share whose coin has no room: that coin's address, for its picture (offIslandCoins.ts). */
+  mint?: string;
   chain: WalletChain;
   /** "BAYLA lock", "BAYLA / SOL pool", … */
   title: string;

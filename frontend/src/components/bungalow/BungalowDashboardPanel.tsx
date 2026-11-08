@@ -632,13 +632,14 @@ function RoomPositions({ bungalow, wallet, readGen }: { bungalow: Bungalow; wall
   // Kept with the wallet it was read for: a Refresh keeps the rows on screen until the new ones land.
   const [read, setRead] = useState<{ wallet: string; legs: Leg<PositionRow>[] } | null>(null);
   const [retries, setRetries] = useState(0);
-  const hasLadder = Boolean(bungalow.ladderPool);
+  const ladderPool = bungalow.ladderPool;
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([hasLadder ? readSolanaLadder(wallet) : Promise.resolve(NO_ROWS), readSolanaPoolShares(wallet)])
+    // This room's own ladder: BAYLA's is not the only one (owner, 2026-10-31).
+    void Promise.all([ladderPool ? readSolanaLadder(wallet, { ...bungalow, ladderPool }) : Promise.resolve(NO_ROWS), readSolanaPoolShares(wallet)])
       .then((legs) => { if (!cancelled) setRead({ wallet, legs }); });
     return () => { cancelled = true; };
-  }, [hasLadder, wallet, readGen, retries]);
+  }, [bungalow, ladderPool, wallet, readGen, retries]);
 
   if (!read || read.wallet !== wallet) {
     return <p className="mt-4 text-white/70 text-[13px]">Reading your locks and pool shares…</p>;

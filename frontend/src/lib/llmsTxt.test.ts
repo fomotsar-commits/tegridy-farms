@@ -309,11 +309,11 @@ describe('every generated number equals its source', () => {
 
     const neither = await build({ VITE_BAYLA_LADDER_PROGRAM: '', VITE_BAYLA_LADDER_POOL: '' });
     expect(neither.f.baylaLadderStaking).toBeNull();
-    expect(neither.out).not.toContain('BAYLA ladder');
+    expect(neither.out).not.toContain('Lock ladder on Solana');
 
     const programOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: PROGRAM, VITE_BAYLA_LADDER_POOL: '' });
     expect(programOnly.f.baylaLadderStaking, 'published a ladder the app does not mount').toBeNull();
-    expect(programOnly.out).not.toContain('BAYLA ladder');
+    expect(programOnly.out).not.toContain('Lock ladder on Solana');
 
     const both = await build({ VITE_BAYLA_LADDER_PROGRAM: PROGRAM, VITE_BAYLA_LADDER_POOL: POOL });
     expect(both.f.baylaLadderStaking).not.toBeNull();
@@ -321,9 +321,9 @@ describe('every generated number equals its source', () => {
     // NOT A FLAT RATE (trunk #592, 2026-09-17): veYFI's schedule, the time left on the
     // lock over four years, capped at 75%. A flat "costs 75%" would overstate every exit
     // with under three years left, so the line names the schedule, read from the program.
-    const line = both.out.split('\n').find((l) => l.startsWith('- BAYLA ladder on Solana: '));
+    const line = both.out.split('\n').find((l) => l.startsWith('- Lock ladder on Solana ('));
     expect(line).toBe(
-      `- BAYLA ladder on Solana: locks from ${duration(bayla.MIN_LOCK_SECS)} to ${duration(bayla.MAX_LOCK_SECS)}; ` +
+      `- Lock ladder on Solana (BAYLA): locks from ${duration(bayla.MIN_LOCK_SECS)} to ${duration(bayla.MAX_LOCK_SECS)}; ` +
         `boost from ${multiplier(bayla.MIN_BOOST_BPS)} to ${multiplier(bayla.MAX_BOOST_BPS)}; ` +
         `leaving a lock early costs the time left on it over ${duration(bayla.MAX_LOCK_SECS)} as a share of the amount staked, ` +
         `capped at ${percent(bayla.MAX_EARLY_EXIT_PENALTY_BPS)}.`,
@@ -335,6 +335,16 @@ describe('every generated number equals its source', () => {
     expect(bayla.penaltyFor(principal, now + fourYears / 4n, now), 'one year left of four').toBe(250_000n);
     expect(bayla.penaltyFor(principal, now + fourYears, now), 'four years left: the cap').toBe(750_000n);
     expect(bayla.penaltyFor(principal, now, now), 'matured').toBe(0n);
+  }, 30_000);
+
+  it('names every room on the mainnet ladder program, BAYLA first (owner, 2026-10-31)', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_BAYLA_LADDER_PROGRAM', 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ');
+    vi.stubEnv('VITE_BAYLA_LADDER_POOL', 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV');
+    const mod = await import('./llmsTxt');
+    const f = mod.collectFacts(ledger);
+    expect(f.solanaLadderRooms).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    expect(mod.renderLlmsTxt(f, { date: '2026-10-31' })).toContain('- Lock ladder on Solana (BAYLA, BOBO, SOY, BRAINLET, RIZZ): locks from ');
   }, 30_000);
 });
 

@@ -12,6 +12,7 @@ import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { LegQuote } from '../../../lib/solana/lp/outsidePrice';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import { BUNGALOWS, BUNGALOW_STORAGE_KEY } from '../../../lib/bungalows';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => ({ connection: { rpcEndpoint: 'fake' } }) }));
@@ -208,6 +209,8 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // What each tag means, and the threshold, are one press away.
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
+    // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 
@@ -238,7 +241,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
       expect(row).not.toHaveTextContent(/to LPs/);
     }
     expect(screen.getByTestId('lp-all-pools')).not.toHaveTextContent('Under such a row, Arbitrage');
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card above');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card below');
   });
 
   it('each row links Swap to the swap page on that pair, paying with the pool’s coin, beside Add and View', async () => {
@@ -274,6 +277,39 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(screen.queryAllByTestId('lp-all-pools-worth')).toHaveLength(0);
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('The dollars beside a pair are what the pool holds at Jupiter’s listed prices');
   });
+
+  it('the pools with the most money in come first, whatever coin they are priced in; until Jupiter’s prices are read, the order read', async () => {
+    // As read: SOL's pools, deepest first, then USDC's. In dollars: BAYLA $3,000 + $3,000, CORN $1,000 + $950, and
+    // CORN's USDC pool $10,000 + $9,500.
+    const pools = [view(BAYLA, 30n * 10n ** 9n), view(CORN), usdcPool(view(CORN))];
+    const listPools = vi.fn(async () => ok(pools, { safety: [calls(C, 'CORN')] }));
+    const { unmount } = mount(readers({ marketPrices: vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [USDC_MINT]: 1, [C]: 0.95 })), listPools }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(3));
+    let rows = screen.getAllByTestId('lp-all-pools-row');
+    expect(rows.map((r) => within(r).getByTestId('lp-all-pools-worth').textContent)).toEqual(['$19,500', '$6,000', '$1,950']);
+    expect(rows[0]).toHaveTextContent('CORN / USDC · 1% tier');
+    expect(screen.getByRole('list', { name: 'All pools: the most money in first' })).toBeInTheDocument();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('The pools with the most money in come first.');
+    unmount();
+    mount(readers({ marketPrices: vi.fn(async () => { throw new Error('Price fetch failed (502)'); }), listPools }));
+    await screen.findByTestId('lp-all-pools-prices-unread');
+    rows = screen.getAllByTestId('lp-all-pools-row');
+    expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual(['BAYLA / SOL · 1% tier', 'CORN / SOL · 1% tier', 'CORN / USDC · 1% tier']);
+    expect(screen.getByRole('list', { name: 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first' })).toBeInTheDocument();
+  });
+
+  it('a visitor in a room sees the same order: the room’s own coin is not pinned on top (owner, 2026-11-01: "Pure TVL order")', async () => {
+    const room = BUNGALOWS.find((b) => b.chain === 'solana' && b.address === BAYLA_MINT)!;
+    window.localStorage.setItem(BUNGALOW_STORAGE_KEY, room.id);
+    try {
+      const pools = [view(BAYLA, 30n * 10n ** 9n), view(CORN), usdcPool(view(CORN))];
+      mount(readers({ marketPrices: vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [USDC_MINT]: 1, [C]: 0.95 })), listPools: vi.fn(async () => ok(pools, { safety: [calls(C, 'CORN')] })) }));
+      await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(3));
+      expect(screen.getAllByTestId('lp-all-pools-worth').map((w) => w.textContent)).toEqual(['$19,500', '$6,000', '$1,950']);
+    } finally {
+      window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
+    }
+  });
 });
 
 /** The same pool with its token side under Token-2022, as BAYLA's mint is on mainnet. */
@@ -293,12 +329,13 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
   // comes back: $0.42 made. The 1% fee on $19.99: 84% to the LPs ($0.17), 16% to the venue ($0.03).
   const cornDear = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 };
 
-  it('sits under the finder and above All pools, with art, and says the basis of every figure once, stamped', async () => {
+  it('sits under All pools, with art, and says the basis of every figure once, stamped', async () => {
     mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
     const board = screen.getByTestId('lp-arb');
     expect(board).toHaveAccessibleName('Arbitrage');
+    // A trader's card, never the first thing under a door: it sits under All pools (answer twenty-seven, cut 4).
     expect(screen.getByTestId('lp-finder').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(board.compareDocumentPosition(screen.getByTestId('lp-all-pools')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('lp-all-pools').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(board).getByRole('heading', { level: 2 })).toHaveTextContent('Arbitrage');
     expect(board.querySelector('[data-card-art]')).not.toBeNull();
     expect(await within(board).findByTestId('lp-arb-stamp')).toHaveTextContent('Against Jupiter’s listed prices, read just now.');
@@ -382,8 +419,8 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(arbRows[2]).toHaveTextContent('BAYLA / SOL · 1% tier');
     expect(within(arbRows[2]!).getByTestId('lp-arb-gap')).toHaveTextContent('2.0% dearer here');
     expect(within(arbRows[2]!).getByRole('link', { name: /^Swap: sell .* BAYLA for SOL$/ })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${BAYLA_MINT}&out=${WSOL_MINT}&amt=`)));
-    const rows = screen.getAllByTestId('lp-all-pools-row');
-    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    const baylaRow = screen.getAllByTestId('lp-all-pools-row').find((r) => r.textContent?.includes('BAYLA / SOL'))!;
+    expect(within(baylaRow).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
     expect(within(board).getByRole('list', { name: 'Arbitrage: ranked by profit, most first' })).toBeInTheDocument();
   });
 
@@ -739,5 +776,29 @@ describe('Arbitrage: only round trips that pay at Jupiter’s live quote are lis
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Island answer twenty-four, §4: a row's coins are presses that copy their whole addresses.
+describe('All pools: every coin in a row copies its whole address', () => {
+  const writeText = vi.fn(async () => {});
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+
+  it('names the token and its pairing coin as presses, and keeps the heading and a stranger’s whole address', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { safety: [calls(C, 'CRYING')] })) }));
+    const [bayla, crying] = await screen.findAllByTestId('lp-all-pools-row');
+    const names = (row: HTMLElement) => within(row).getAllByTestId('coin-name').map((n) => n.getAttribute('aria-label'));
+    expect(names(bayla!)).toEqual([`BAYLA: copy its address ${BAYLA_MINT}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(names(crying!)).toEqual([`CRYING: copy its address ${C}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(within(bayla!).getByText('BAYLA / SOL · 1% tier')).toBeInTheDocument();
+    expect(within(crying!).getByText(C)).toBeInTheDocument();
+    for (const n of within(crying!).getAllByTestId('coin-name')) expect(n.className).toContain('min-h-[44px]');
+    await act(async () => {
+      fireEvent.click(within(crying!).getAllByTestId('coin-name')[0]!);
+    });
+    expect(writeText).toHaveBeenCalledWith(C);
+    expect(within(crying!).getByText('Copied')).toBeInTheDocument();
   });
 });
