@@ -14,6 +14,14 @@
 >
 > Quoting only Scope A would leave the dangerous program unreviewed.
 
+> **Scope A first, for Jupiter.** Jupiter's router asks for a security audit before it will
+> route trades to a program, and wants the report with the submission
+> ([DEX integration](https://developers.jup.ag/docs/routing/dex-integration)). The pools it
+> would route are cp-swap's, and the code it needs from us is built and tested
+> (`jupiter-sdk/`). So a Scope A report on its own unblocks the listing. Please quote Scope A
+> so that it can start, finish and be published on its own. Scope B can follow: the launcher
+> is paused on chain and has never opened a launch.
+
 **Scope A one-liner:** review a **fork** of Raydium's audited CPMM
 (`raydium-cp-swap`) whose *entire* delta from upstream is **four hardcoded
 authority/identity constants**, **one added instruction, `create_lp_metadata`**, **one
@@ -169,6 +177,10 @@ the live program no longer differ in any of them. It was the program's first upg
 re-upgrade is planned. The day and
 the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 
+**The re-upgrade is approved:** vault proposal #23 puts `1e55bcdc…` back, a build of this
+source, and was approved 2 of 2 on 2026-10-31. It can run from 2026-11-02 19:50:49 UTC. Quote
+against this source: once #23 runs, it is the live program.
+
 ---
 
 ## Self-verification we've already done (please confirm)
@@ -192,6 +204,13 @@ the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 1. The `diff-rq`/diff-guard claim holds: nothing beyond the four constants, the one added
    instruction and the program's own name and contact text changed vs the audited upstream
    commit; the underlying upstream is at a safe, audited revision.
+1a. Two things we know about the pin, so you can weigh them rather than find them. It is three
+   commits behind upstream's head as read on 2026-10-10 (`b3187ae5`): creator-fee collection,
+   a move to Anchor 1.0 and a protocol share of the creator fee. None is marked as a security
+   fix, and they would bring five more keys that Raydium holds. And upstream's `MINT_WHITELIST`
+   is still in: four Token-2022 coins whose issuers hold a permanent delegate. No pool holds
+   them and the site refuses to open or add with them; we plan to remove the list. Tell us if
+   either should come first.
 2. The four constants are wired correctly (each authority is used where intended; no
    authority path was missed or left pointing at a foreign key).
 2a. `create_lp_metadata` can only create the Metaplex name record of a real pool's lp mint:
@@ -229,6 +248,15 @@ the program's first upgrade (`MAINNET_RUNBOOK.md`, section 4b), and it went in u
 - Read access to `solana/tegridy-amm/` (this repo) + `TEGRIDY_FORK.md`
 - The pinned upstream commit for the reference diff
 - CI (`solana-ci.yml`) showing the enforced invariant + a reproducible build
+
+## What we need back
+- A report we may publish, and hand to Jupiter with our listing.
+
+## Not in this request: the range program
+`solana/tegridy-clmm/` (program `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`) is Raydium's
+concentrated-liquidity program copied as it is, with only its identity changed (its
+`README.md`). It holds no pools, and the Jupiter code in `jupiter-sdk/` does not cover it. We
+will ask for it separately if range pools open.
 
 ## Recommended firms (Solana)
 OtterSec · Neodyme · Sec3 · Zellic. Please quote a **fork/diff review** (not a full AMM
