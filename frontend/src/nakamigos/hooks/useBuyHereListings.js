@@ -1,20 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchListings } from "../api";
 import { canBuyOnVenue, canTradeOnVenue } from "../lib/venue";
-
-/**
- * The exact ETH amount of a wei string, every digit kept: "18990000000000000"
- * is "0.01899". A listing's `price` is cut to four decimals for sorting, which
- * can read BELOW what the buyer pays (0.0189 for 0.01899), so a price a buyer
- * is asked to pay is always shown from its wei. null for anything not a wei string.
- */
-export function exactEth(priceWei) {
-  if (typeof priceWei !== "string" || !/^\d{1,40}$/.test(priceWei)) return null;
-  const wei = BigInt(priceWei);
-  const unit = 10n ** 18n;
-  const frac = (wei % unit).toString().padStart(18, "0").replace(/0+$/, "");
-  return frac ? `${wei / unit}.${frac}` : `${wei / unit}`;
-}
+import { exactEth } from "../lib/formatPrice";
 
 /**
  * True for an OpenSea listing this venue offers to buy for a Base buy

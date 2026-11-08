@@ -14,17 +14,19 @@
 // and reaches its next step (with no wallet connected, that step is the
 // no-wallet answer).
 //
-// One exception, for buying only: Bojungles and Seeds (venueBuy, Base
-// ERC-721s) have their OpenSea listings bought one at a time through
-// fulfillSeaportOrder, on Base and only on Base, and only when the call OpenSea
-// built moves that same Base NFT. The cart, the order book and every offer
-// path still refuse them.
+// One exception: Bojungles and Seeds (venueBuy, Base ERC-721s) trade here on
+// Base and only on Base. Their OpenSea listings are bought one at a time
+// (fulfillSeaportOrder), they are listed on the venue's order book and bought
+// from it (lib/orderbook.js), bid on item by item and those bids accepted
+// (api-offers.js), each with Base's Seaport 1.6, Base WETH and the Base
+// treasury Safe. The cart, bundles, P2P trades and collection or trait bids
+// still refuse them.
 //
-// Cancels are refused only for an order whose NFT sits on another chain (a
-// Base collection in the registry): the cancel goes to Seaport on Ethereum,
-// cannot touch that order, and would report success while it stays live.
-// Every other cancel stays open, Ethereum non-venue contracts included, so a
-// signed Ethereum order is never stranded if a contract leaves the venue list.
+// A cancel is sent on the order's own chain: a Base order on Base, refused
+// while the wallet is elsewhere. Every other cancel stays open on Ethereum,
+// Ethereum non-venue contracts included, so a signed Ethereum order is never
+// stranded if a contract leaves the venue list. A P2P trade cancel stays
+// Ethereum only and refuses a Base NFT.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
@@ -39,6 +41,15 @@ const NON_VENUE = {
   "the memes (Ethereum ERC-1155)": ADDR.junglebaymemes,
   "Rare Towelie Cards (Ethereum ERC-1155)": ADDR.raretowelie,
 };
+// The ones the order book and item bids still refuse: no chain here settles them.
+const NOT_ON_BOOK = {
+  "the memes (Ethereum ERC-1155)": ADDR.junglebaymemes,
+  "Rare Towelie Cards (Ethereum ERC-1155)": ADDR.raretowelie,
+};
+const BASE_SAFE = "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0";
+const ETH_SAFE = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
+const BASE_WETH = "0x4200000000000000000000000000000000000006";
+const SEAPORT_15 = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 const VENUE = ADDR.gnssart;
 const GOLD = ADDR.junglebaygoldcards;
 const WALLET = "0x" + "a".repeat(40);
@@ -76,9 +87,11 @@ vi.mock("ethers", async (importOriginal) => {
     async getNetwork() { return { chainId: h.chainId }; }
     async getSigner() {
       return {
+        provider: this,
         getAddress: async () => WALLET,
         sendTransaction: (...a) => h.sendTransaction(...a),
         signTypedData: (...a) => h.signTypedData(...a),
+        signMessage: async () => "0xauth",
       };
     }
     async getBalance() { return 10n ** 20n; }
@@ -407,7 +420,7 @@ describe("lib/orderbook.js", () => {
     },
   });
 
-  for (const [label, contract] of Object.entries(NON_VENUE)) {
+  for (const [label, contract] of Object.entries(NOT_ON_BOOK)) {
     it(`fulfillNativeOrder refuses ${label}`, async () => {
       const ob = await import("./lib/orderbook");
       expectRefused(await ob.fulfillNativeOrder(nativeOrder(contract)));
@@ -491,7 +504,7 @@ describe("lib/orderbook.js", () => {
 
 // ═══ api-offers.js: bids and accepting bids ═══
 describe("api-offers.js", () => {
-  for (const [label, contract] of Object.entries(NON_VENUE)) {
+  for (const [label, contract] of Object.entries(NOT_ON_BOOK)) {
     it(`createItemOffer refuses ${label} before the WETH wrap and approve`, async () => {
       const offers = await import("./api-offers");
       expectRefused(await offers.createItemOffer({ tokenId: "1", priceEth: 0.01, contract }));
@@ -777,29 +790,38 @@ describe("cancels", () => {
     });
   }
 
-  for (const [label, [contract, name]] of Object.entries(ON_BASE)) {
-    it(`api-offers cancelOrder refuses a listing of ${label}: an Ethereum cancel cannot reach it`, async () => {
+  for (const [label, [contract]] of Object.entries(ON_BASE)) {
+    it(`api-offers cancelOrder cancels a listing of ${label} on Seaport 1.6, with the wallet on Base`, async () => {
+      h.chainId = 8453n;
       const offers = await import("./api-offers");
       const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(contract) } });
-      expectRefused(res);
-      expect(res.message).toContain(name);
-      expect(res.message).toMatch(/\bBase\b/);
-      expect(res.message).toMatch(/cancel it on OpenSea/i);
-      expectNothingHappened();
+      expect(res.success).toBe(true);
+      expect(h.contractCalls.map((c) => [c.method, c.target.toLowerCase()])).toEqual([["getCounter", SEAPORT_16.toLowerCase()], ["cancel", SEAPORT_16.toLowerCase()]]);
     });
 
-    it(`api-offers cancelOrder refuses a bid on ${label} (the NFT in the consideration)`, async () => {
+    it(`api-offers cancelOrder of a bid on ${label} asks for Base while the wallet is on Ethereum, and sends nothing`, async () => {
       const offers = await import("./api-offers");
       const res = await offers.cancelOrder({ rawOrder: { protocol_address: SEAPORT_16, protocol_data: { parameters: bidParams(contract) } } });
-      expectRefused(res);
-      expectNothingHappened();
+      expect(res.error).toBe("wrong-chain");
+      expect(res.chainId).toBe(8453);
+      expect(h.contractCalls).toEqual([]);
     });
 
-    it(`cancelSeaportOrder refuses an order that carries ${label}, before reading a counter`, async () => {
+    it(`cancelSeaportOrder refuses a ${label} order while the signer is on Ethereum, before reading a counter`, async () => {
       const { cancelSeaportOrder } = await import("./lib/seaportCancel");
       const { ethers } = await import("ethers");
-      await expect(cancelSeaportOrder({ ethers, signer: {}, params: listingParams(contract), seaportAddress: SEAPORT_16 }))
-        .rejects.toMatchObject({ code: "not-venue-tradeable" });
+      const signer = { provider: { getNetwork: async () => ({ chainId: 1n }) } };
+      await expect(cancelSeaportOrder({ ethers, signer, params: listingParams(contract), seaportAddress: SEAPORT_16 }))
+        .rejects.toMatchObject({ code: "wrong-chain" });
+      expect(h.contractCalls).toEqual([]);
+    });
+
+    it(`cancelSeaportOrder refuses a ${label} order named on Seaport 1.5: it was signed for 1.6`, async () => {
+      const { cancelSeaportOrder } = await import("./lib/seaportCancel");
+      const { ethers } = await import("ethers");
+      const signer = { provider: { getNetwork: async () => ({ chainId: 8453n }) } };
+      await expect(cancelSeaportOrder({ ethers, signer, params: listingParams(contract), seaportAddress: SEAPORT_15 }))
+        .rejects.toThrow(/Unexpected transaction target/);
       expect(h.contractCalls).toEqual([]);
     });
   }
@@ -809,6 +831,191 @@ describe("cancels", () => {
     const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(GOLD) } });
     expect(res.success).toBe(true);
     expect(h.contractCalls.map((c) => c.method)).toEqual(["getCounter", "cancel"]);
+  });
+});
+
+// ═══ Bojungles and Seeds on the book and in bids, on Base ═══
+describe("Bojungles and Seeds are listed, bought from the book and bid on, on Base only", () => {
+  const BASE = 8453n;
+  const nativeOrder = (token, protocol = SEAPORT_16) => ({
+    order_hash: "0x" + "d".repeat(64),
+    contract_address: token.toLowerCase(),
+    protocol_address: protocol,
+    signature: "0xsig",
+    parameters: {
+      offerer: "0x" + "c".repeat(40),
+      offer: [{ itemType: 2, token, identifierOrCriteria: "7", startAmount: "1", endAmount: "1" }],
+      consideration: [
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "995", endAmount: "995", recipient: "0x" + "c".repeat(40) },
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "5", endAmount: "5", recipient: BASE_SAFE },
+      ],
+      endTime: String(Math.floor(Date.now() / 1000) + 3600),
+    },
+  });
+  const posted = () => fetchSpy.mock.calls.filter(([url]) => url === "/api/orderbook").map(([, init]) => JSON.parse(init.body));
+
+  for (const [label, contract] of [["Bojungles", ADDR.bojungles], ["Seeds", ADDR.memeticseeds]]) {
+    describe(label, () => {
+      it("a listing with the wallet on Ethereum asks for Base, and nothing is approved or signed", async () => {
+        const ob = await import("./lib/orderbook");
+        const res = await ob.createNativeListing({ contract, tokenId: "7", priceEth: 0.02 });
+        expect(res.error).toBe("wrong-chain");
+        expect(res.chainId).toBe(8453);
+        expect(h.contractCalls).toEqual([]);
+        expect(h.signTypedData).not.toHaveBeenCalled();
+        expect(posted()).toEqual([]);
+      });
+
+      it("a listing on Base is signed for Seaport 1.6 on Base and pays 0.5% to the Base treasury Safe", async () => {
+        h.chainId = BASE;
+        const base = h.contractImpl;
+        h.contractImpl = (method, target, args) => (method === "isApprovedForAll" ? Promise.resolve(true) : base(method, target, args));
+        const ob = await import("./lib/orderbook");
+        const res = await ob.createNativeListing({ contract, tokenId: "7", priceEth: 0.02 });
+        expect(res.success).toBe(true);
+        const [domain, , signed] = h.signTypedData.mock.calls[0];
+        expect(domain).toEqual({ name: "Seaport", version: "1.6", chainId: 8453, verifyingContract: SEAPORT_16 });
+        expect(signed.consideration.map((c) => [c.recipient, c.startAmount])).toEqual([
+          [WALLET, "19900000000000000"],
+          [BASE_SAFE, "100000000000000"],
+        ]);
+        expect(signed.consideration.map((c) => c.recipient)).not.toContain(ETH_SAFE);
+        expect(h.contractCalls.find((c) => c.method === "getCounter").target).toBe(SEAPORT_16);
+        expect(h.contractCalls.find((c) => c.method === "isApprovedForAll").target).toBe(contract);
+        const [body] = posted();
+        expect(body.action).toBe("create");
+        expect(body.order.protocol_address).toBe(SEAPORT_16);
+      });
+
+      it("a listing on Base from a wallet that does not own the token is refused before any approval", async () => {
+        h.chainId = BASE;
+        const base = h.contractImpl;
+        h.contractImpl = (method, target, args) => (method === "ownerOf" ? Promise.resolve("0x" + "c".repeat(40)) : base(method, target, args));
+        const ob = await import("./lib/orderbook");
+        const res = await ob.createNativeListing({ contract, tokenId: "7", priceEth: 0.02 });
+        expect(res.error).toBe("not-owner");
+        expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+        expect(h.signTypedData).not.toHaveBeenCalled();
+      });
+
+      it("its native listing is bought on Base, on Seaport 1.6, and the fill is reported as Base's", async () => {
+        h.chainId = BASE;
+        const base = h.contractImpl;
+        h.contractImpl = (method, target, args) => (method === "fulfillOrder"
+          ? Promise.resolve({ hash: "0xfilled", wait: async () => ({ status: 1 }) })
+          : base(method, target, args));
+        const ob = await import("./lib/orderbook");
+        const res = await ob.fulfillNativeOrder(nativeOrder(contract));
+        expect(res.success).toBe(true);
+        const fill = h.contractCalls.find((c) => c.method === "fulfillOrder");
+        expect(fill.target).toBe(SEAPORT_16);
+        expect(fill.args[2]).toEqual({ value: 1000n });
+        expect(posted().map((b) => [b.action, b.chainId])).toEqual([["fill", 8453]]);
+      });
+
+      it("its native listing is refused with the wallet on Ethereum, and when the row names Seaport 1.5", async () => {
+        const ob = await import("./lib/orderbook");
+        const wrong = await ob.fulfillNativeOrder(nativeOrder(contract));
+        expect(wrong.error).toBe("wrong-chain");
+        h.chainId = BASE;
+        const foreign = await ob.fulfillNativeOrder(nativeOrder(contract, SEAPORT_15));
+        expect(foreign.message).toMatch(/Unexpected transaction target/);
+        expect(h.sendTransaction).not.toHaveBeenCalled();
+        expect(h.contractCalls.map((c) => c.method)).not.toContain("fulfillOrder");
+      });
+
+      it("its native listing is cancelled on Base, then the row with chain 8453", async () => {
+        h.chainId = BASE;
+        const ob = await import("./lib/orderbook");
+        const order = nativeOrder(contract);
+        order.parameters.offerer = WALLET;
+        const res = await ob.cancelNativeListing(order);
+        expect(res.success).toBe(true);
+        expect(h.contractCalls.map((c) => [c.method, c.target])).toEqual([["getCounter", SEAPORT_16], ["cancel", SEAPORT_16]]);
+        expect(posted().map((b) => [b.action, b.chainId])).toEqual([["cancel", 8453]]);
+      });
+
+      it("an item bid on Base is funded in Base WETH, signed for Seaport 1.6 on Base, pays the Base treasury and is posted to Base", async () => {
+        h.chainId = BASE;
+        h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
+        const offers = await import("./api-offers");
+        const res = await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract });
+        expect(res.success).toBe(true);
+        expect(h.wrapEth.mock.calls[0][1]).toBe(8453);
+        expect(h.approveWeth.mock.calls[0][1]).toBe(8453);
+        const [domain, , signed] = h.signTypedData.mock.calls[0];
+        expect(domain).toEqual({ name: "Seaport", version: "1.6", chainId: 8453, verifyingContract: SEAPORT_16 });
+        expect(signed.offer[0].token).toBe(BASE_WETH);
+        expect(signed.consideration.map((c) => [c.token, c.recipient, c.startAmount])).toEqual([
+          [contract, WALLET, "1"],
+          [BASE_WETH, "0x0000a26b00c1F0DF003000390027140000fAa719", "100000000000000"],
+          [BASE_WETH, BASE_SAFE, "50000000000000"],
+        ]);
+        expect(h.openseaPost.mock.calls[0][0]).toBe("orders/base/seaport/offers");
+        expect(h.openseaPost.mock.calls[0][1].protocol_address).toBe(SEAPORT_16);
+        // The token is read on Base, through the wallet, not Ethereum's read provider.
+        expect(h.contractCalls.find((c) => c.method === "ownerOf").target).toBe(contract);
+      });
+
+      it("an item bid with the wallet on Ethereum asks for Base, and nothing is wrapped or signed", async () => {
+        const offers = await import("./api-offers");
+        const res = await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract });
+        expect(res.error).toBe("wrong-chain");
+        expect(res.chainId).toBe(8453);
+        expect(h.wrapEth).not.toHaveBeenCalled();
+        expect(h.approveWeth).not.toHaveBeenCalled();
+        expect(h.signTypedData).not.toHaveBeenCalled();
+      });
+
+      it("accepting a bid on Base asks OpenSea for a Base fill and sends it when the calldata hands over this token", async () => {
+        h.chainId = BASE;
+        h.openseaPost = vi.fn(async () => acceptFulfillment(contract));
+        const offers = await import("./api-offers");
+        const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: contract, tokenId: "7" });
+        expect(res.success).toBe(true);
+        expect(h.openseaPost.mock.calls[0][1].offer.chain).toBe("base");
+      });
+
+      it("accepting a bid on Base refuses calldata that hands over an Ethereum venue NFT, before the approval", async () => {
+        h.chainId = BASE;
+        h.openseaPost = vi.fn(async () => acceptFulfillment(GOLD));
+        const offers = await import("./api-offers");
+        const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: contract, tokenId: "7" });
+        expect(res.success).toBeUndefined();
+        expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+        expect(h.sendTransaction).not.toHaveBeenCalled();
+      });
+    });
+  }
+
+  it("an Ethereum listing is unchanged: Seaport 1.5 on chain 1, fee to the Ethereum fee Safe", async () => {
+    const base = h.contractImpl;
+    h.contractImpl = (method, target, args) => (method === "isApprovedForAll" ? Promise.resolve(true) : base(method, target, args));
+    const ob = await import("./lib/orderbook");
+    const res = await ob.createNativeListing({ contract: GOLD, tokenId: "7", priceEth: 0.02 });
+    expect(res.success).toBe(true);
+    const [domain, , signed] = h.signTypedData.mock.calls[0];
+    expect(domain).toEqual({ name: "Seaport", version: "1.5", chainId: 1, verifyingContract: SEAPORT_15 });
+    expect(signed.consideration[1].recipient).toBe(ETH_SAFE);
+    expect(posted()[0].order.protocol_address).toBe(SEAPORT_15);
+  });
+
+  it("an Ethereum item bid is unchanged: Ethereum WETH, the Ethereum fee Safe, posted to Ethereum", async () => {
+    h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
+    const offers = await import("./api-offers");
+    const res = await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract: GOLD });
+    expect(res.success).toBe(true);
+    const [, , signed] = h.signTypedData.mock.calls[0];
+    expect(signed.consideration[2].recipient).toBe(ETH_SAFE);
+    expect(signed.offer[0].token).toBe("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+    expect(h.openseaPost.mock.calls[0][0]).toBe("orders/ethereum/seaport/offers");
+    expect(h.wrapEth.mock.calls[0][1]).toBe(1);
+  });
+
+  it("a Bojungles bundle is still refused: bundles stay Ethereum only", async () => {
+    h.chainId = BASE;
+    const ob = await import("./lib/orderbook");
+    expectRefused(await ob.createNativeBundleListing({ items: [{ contract: ADDR.bojungles, tokenId: "1" }, { contract: ADDR.bojungles, tokenId: "2" }], priceEth: 0.2 }));
   });
 });
 

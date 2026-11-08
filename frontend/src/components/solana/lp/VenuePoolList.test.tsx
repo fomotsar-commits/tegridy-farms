@@ -190,11 +190,14 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(await screen.findByTestId('lp-all-pools-truncated')).toHaveTextContent('There are more pools than this list holds. Search a token above to find the rest.');
   });
 
-  it('sits under the finder and above the positions (both tabs draw the section in one order)', async () => {
+  // Owner, 2026-11-08: "move the positions the user has above the liquidity pools".
+  it('sits under the finder and under the positions: what you hold comes before every pool', async () => {
     mount(readers());
     const list = screen.getByTestId('lp-all-pools');
-    expect(screen.getByTestId('lp-finder').compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(list.compareDocumentPosition(screen.getByTestId('lp-positions')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const positions = screen.getByTestId('lp-positions');
+    expect(screen.getByTestId('lp-finder').compareDocumentPosition(positions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(positions.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(positions.nextElementSibling).toBe(list);
   });
 
   it('each row shows its warning tags from what the list read, and a row with nothing to warn about shows none', async () => {

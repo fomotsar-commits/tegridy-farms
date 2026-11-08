@@ -51,6 +51,7 @@ import {
   skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
+  legacyTx,
 } from './testkit.fixture';
 import type { IntentStep, LpCreateSummary, LpOpenGate, PoolIntent, PoolPins, PreparedTx, TierTerms, WriteRpc } from './types';
 
@@ -255,7 +256,7 @@ function refused(r: Result): string {
 const outcome = (r: Result) => (r.ok ? 'prepared' : r.outcome);
 const summaryOf = (p: PreparedTx) => p.summary as LpCreateSummary;
 const pinsOf = (p: PreparedTx) => (p.check.intent.kind === 'lp-create' && 'pins' in p.check.intent ? p.check.intent.pins : null);
-const initIx = (p: PreparedTx) => p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+const initIx = (p: PreparedTx) => legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
 const row = (p: PreparedTx, k: PublicKey) => {
   const r = p.check.expect.tokens.find((t) => t.account.equals(k))!;
   return [r.minDelta, r.maxDelta];
@@ -356,13 +357,13 @@ describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, toke
     expect(p.kind).toBe('lp-create');
     expect(p.extraSigners).toEqual([]);
     expect(p.steps.map((s) => s.kind)).toEqual(['compute-limit', 'compute-price', 'pool-create']);
-    expect(p.tx.instructions.map((i) => i.programId.toBase58())).toEqual([
+    expect(legacyTx(p).instructions.map((i) => i.programId.toBase58())).toEqual([
       ComputeBudgetProgram.programId.toBase58(),
       ComputeBudgetProgram.programId.toBase58(),
       CPSWAP.toBase58(),
     ]);
     expect(p.check.body).toHaveLength(1);
-    expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(1);
+    expect(legacyTx(p).compileMessage().header.numRequiredSignatures).toBe(1);
 
     // The instruction itself: tier 1, the fee account, open now, and each side spent from
     // the signer's own associated account under that side's own program.
@@ -527,7 +528,7 @@ describe('where a pool paired with USDC or BAYLA goes', () => {
     expect(pinsOf(p)!.origin).toBe('other');
     const ix = initIx(p);
     expect(ix.keys[3]!.pubkey.equals(s.pool) && ix.keys[3]!.isSigner).toBe(true);
-    expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(2);
+    expect(legacyTx(p).compileMessage().header.numRequiredSignatures).toBe(2);
     // Still the pool instruction alone, and the shares go to the account derived from the NEW address.
     expect(bodySteps(p.steps).map((x) => x.kind)).toEqual(['pool-create']);
     expect(ix.keys[9]!.pubkey.equals(associatedTokenAddress(deriveLpMint(CPSWAP, s.pool), ME))).toBe(true);
@@ -1372,7 +1373,7 @@ describe('size', () => {
     const p = ok(await create(w, { shown: { terms: TERMS, standard: 'taken' } }));
     process.stdout.write(`[size] worst-case opening without SOL: ${p.sizeBytes} of ${TX_SIZE_LIMIT} bytes\n`);
     expect(summaryOf(p).origin).toBe('other');
-    expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(2);
+    expect(legacyTx(p).compileMessage().header.numRequiredSignatures).toBe(2);
     expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT - 150);
   });
 });

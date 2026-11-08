@@ -30,6 +30,30 @@ import type { RangePriceCheck } from '../../../solana/clmm/priceCheck';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
 
+/** A cluster as the Wallet Standard names it: what a wallet is told it signs a version 1 message on. */
+export type SolanaChain = `solana:${SolanaCluster}`;
+
+/** The transaction format a wallet signs: SIMD-0385 version 1, or the legacy message. */
+export type TxVersion = 'legacy' | 1;
+
+/**
+ * A version 1 message's config (SIMD-0385): what the two ComputeBudget instructions say
+ * in a legacy transaction, plus the loaded-data limit it must carry (unset means 0).
+ * `priorityFeeLamports` is the whole fee in lamports, never a price per unit.
+ */
+export interface TxConfig {
+  computeUnitLimit: number;
+  loadedAccountsDataSizeLimit: number;
+  priorityFeeLamports: bigint;
+}
+
+/** What the wallet signs, in the format it advertised (lib/solana/v1Signer.ts). */
+export type PreparedWire =
+  /** Fee payer = the wallet, blockhash and compute budget set; the adapter signs it as an object. */
+  | { version: 'legacy'; tx: Transaction }
+  /** The exact bytes the wallet signs and the config they carry. No ComputeBudget instruction. */
+  | { version: 1; bytes: Uint8Array; config: TxConfig };
+
 /** Which programs the write path talks to, and on which cluster. */
 export interface CurveWriteConfig {
   programId: PublicKey;
@@ -664,8 +688,9 @@ export interface SimulatedEffect {
 
 export interface PreparedTx {
   kind: TxKind;
-  /** Legacy transaction: fee payer = the wallet, blockhash and compute budget set. */
-  tx: Transaction;
+  /** Who signs and pays: the connected wallet. */
+  payer: PublicKey;
+  wire: PreparedWire;
   /**
    * `create`: the fresh mint keypair. `lp-create` on a one-off address: the new pool's
    * keypair. Memory only. Everything else: none.
@@ -673,7 +698,7 @@ export interface PreparedTx {
   extraSigners: Keypair[];
   blockhash: string;
   lastValidBlockHeight: number;
-  /** Serialized size in bytes (Solana's limit is 1,232). */
+  /** Serialized size in bytes (Solana's limit: 1,232 legacy, 4,096 version 1). */
   sizeBytes: number;
   simulation: { unitsConsumed: number; logs: string[] };
   fees: {
@@ -916,10 +941,17 @@ export type Prepared = { ok: true; prepared: PreparedTx } | { ok: false; outcome
 export interface TxSigner {
   publicKey: PublicKey;
   signTransaction<T extends Transaction>(tx: T): Promise<T>;
+  /**
+   * Sign a SIMD-0385 version 1 message as raw bytes through the Wallet Standard
+   * `solana:signTransaction` feature, returning the signed wire. Only a wallet that
+   * advertises version 1 has one (lib/solana/v1Signer.ts); the rest get legacy.
+   */
+  signV1?: (bytes: Uint8Array, chain: SolanaChain) => Promise<Uint8Array>;
 }
 
 export type WriteRpc = Pick<
   Connection,
+  | 'rpcEndpoint'
   | 'getLatestBlockhash'
   | 'simulateTransaction'
   | 'sendRawTransaction'

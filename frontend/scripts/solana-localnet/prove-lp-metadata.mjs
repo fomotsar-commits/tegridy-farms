@@ -4,13 +4,14 @@
 //
 //   LPM_RPC=http://127.0.0.1:18899 node scripts/solana-localnet/prove-lp-metadata.mjs
 //
-// THE VALIDATOR IT NEEDS is not the e2e one. start-validator.sh pins the binary deployed on
-// mainnet, which does not have this instruction yet. This proof needs (a) the NEW pool program
-// binary at the pool program's id, (b) Metaplex and the feature set cloned from mainnet, (c) the
-// harness's genesis accounts, and (d) the two real mainnet pools with their lp mints, vaults, fee
-// config and observation accounts, byte for byte, so it runs against the state an upgrade meets.
-// Until the upgrade ships, the start script for that validator is kept with the upgrade's build
-// artefacts, outside the repo, so the committed start script keeps refusing any other binary.
+// THE VALIDATOR IT NEEDS is not the e2e one. start-validator.sh loads the binary mainnet runs,
+// which has had this instruction since the pool program's upgrade, but it does not load the
+// two real pools. This proof needs (a) the pool program binary with the instruction at the pool
+// program's id, (b) Metaplex and the feature set cloned from mainnet, (c) the harness's genesis
+// accounts, and (d) the two real mainnet pools with their lp mints, vaults, fee config and
+// observation accounts, byte for byte, so it runs against the state the upgrade met. The start
+// script for that validator is kept with the upgrade's build artefacts, outside the repo: it
+// takes any binary (so the control below can run), and the committed one refuses all but one.
 //
 // What it proves, on a freshly opened pool AND on both real pools:
 //   a  the call lands and the record reads back: name, symbol, the exact link, editor = the admin

@@ -32,7 +32,7 @@ import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
  * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
- * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
+ * (the finder), the wallet's positions, every pool, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
@@ -238,15 +238,16 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
     );
   }
 
-  // Actions first, under the one line on earning; then every pool;
-  // then what you hold, and everyone's positions; then the rates and the routes; the long notice last.
+  // Actions first, under the one line on earning; then what you hold (owner, 2026-11-08: "move the
+  // positions the user has above the liquidity pools"); then every pool, and everyone's positions;
+  // then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpEarnLine />
       {writesTop}
       {finder}
-      {allPools}
       {positions}
+      {allPools}
       <EveryPosition readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
       <Rates read={tierRead} />
       <Routes />
@@ -334,11 +335,12 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
         <FinePrint summary="Risks">
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
           <p>{RISK_SHORT}</p>
-          {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
-              It goes false the day that program is upgraded: reword it in the same release as the upgrade
-              (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
+          {/* True of the pool program RUNNING on mainnet since its upgrade to the build that has
+              create_lp_metadata and refuses a public opening on fee tier 0. Before the upgrade this named
+              the admin keys as the only change. src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
           <p>
-            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
+            Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
+            share tokens and one added check that keeps the launch fee tier for launches (see “The program”{' '}
             {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>

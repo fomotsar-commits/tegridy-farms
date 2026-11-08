@@ -195,7 +195,7 @@ contract RedTeamAMM is Test {
         }
 
         // Create pair A/B with initial liquidity
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pairAB = TegridyPair(pairAddr);
 
         // Fund the pair: 100 ether each side
@@ -279,7 +279,7 @@ contract RedTeamAMM is Test {
         MockToken normalToken = new MockToken("Normal", "NRM", 18);
 
         // Create pair
-        address fotPairAddr = factory.createPair(address(fotToken), address(normalToken));
+        address fotPairAddr = factory.createPair{value: 0.006 ether}(address(fotToken), address(normalToken));
         TegridyPair fotPair = TegridyPair(fotPairAddr);
 
         // Add initial liquidity directly (bypassing router to set up the pool)
@@ -347,7 +347,7 @@ contract RedTeamAMM is Test {
         FeeOnTransferToken fotToken = new FeeOnTransferToken("FoT", "FOT", 5);
 
         // Create pair with WETH for router testing
-        address fotPairAddr = factory.createPair(address(fotToken), address(tokenA));
+        address fotPairAddr = factory.createPair{value: 0.006 ether}(address(fotToken), address(tokenA));
         TegridyPair fotPair = TegridyPair(fotPairAddr);
 
         // Seed liquidity
@@ -398,7 +398,7 @@ contract RedTeamAMM is Test {
         MockToken tX = new MockToken("X", "X", 18);
         MockToken tY = new MockToken("Y", "Y", 18);
         if (address(tX) > address(tY)) (tX, tY) = (tY, tX);
-        address freshPair = factory.createPair(address(tX), address(tY));
+        address freshPair = factory.createPair{value: 0.006 ether}(address(tX), address(tY));
         TegridyPair fp = TegridyPair(freshPair);
 
         tX.transfer(attacker, 10_000 ether);
@@ -718,7 +718,7 @@ contract RedTeamAMM is Test {
         // But there's a minimum fee of 1 wei check
 
         // Create WETH pair for the underlying router
-        address wethPair = factory.createPair(address(tokenA), address(weth));
+        address wethPair = factory.createPair{value: 0.006 ether}(address(tokenA), address(weth));
         tokenA.transfer(wethPair, 100 ether);
         weth.deposit{value: 100 ether}();
         weth.transfer(wethPair, 100 ether);
@@ -758,12 +758,12 @@ contract RedTeamAMM is Test {
         if (address(tokenB) > address(tokenC)) {
             // Need B < C for pair creation
         }
-        address pairBC = factory.createPair(address(tokenB), address(tokenC));
+        address pairBC = factory.createPair{value: 0.006 ether}(address(tokenB), address(tokenC));
         tokenB.transfer(pairBC, 100 ether);
         tokenC.transfer(pairBC, 100 ether);
         TegridyPair(pairBC).mint(deployer);
 
-        address pairAC = factory.createPair(address(tokenA), address(tokenC));
+        address pairAC = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
         tokenA.transfer(pairAC, 100 ether);
         tokenC.transfer(pairAC, 100 ether);
         TegridyPair(pairAC).mint(deployer);
@@ -895,7 +895,7 @@ contract RedTeamAMM is Test {
 
     function test_ATTACK10_wethWrappingExploit() public {
         // Create WETH/tokenA pair
-        address wethPairAddr = factory.createPair(address(weth), address(tokenA));
+        address wethPairAddr = factory.createPair{value: 0.006 ether}(address(weth), address(tokenA));
         TegridyPair wethPair = TegridyPair(wethPairAddr);
 
         tokenA.transfer(wethPairAddr, 100 ether);
@@ -947,7 +947,7 @@ contract RedTeamAMM is Test {
         ETHRejecter rejecter = new ETHRejecter();
 
         // Create WETH pair
-        address wethPairAddr = factory.createPair(address(weth), address(tokenA));
+        address wethPairAddr = factory.createPair{value: 0.006 ether}(address(weth), address(tokenA));
         tokenA.transfer(wethPairAddr, 100 ether);
         weth.deposit{value: 100 ether}();
         weth.transfer(wethPairAddr, 100 ether);
@@ -1059,7 +1059,7 @@ contract RedTeamAMM is Test {
 
         // Attempt to create the same pair again Ã¢â‚¬â€ should revert
         bool reverted = false;
-        try factory.createPair(address(tokenA), address(tokenB)) {
+        try factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB)) {
             // Should not succeed Ã¢â‚¬â€ pair already exists
         } catch Error(string memory reason) {
             reverted = true;
@@ -1070,7 +1070,7 @@ contract RedTeamAMM is Test {
 
         // Can we create with reversed order? The factory sorts them
         reverted = false;
-        try factory.createPair(address(tokenB), address(tokenA)) {
+        try factory.createPair{value: 0.006 ether}(address(tokenB), address(tokenA)) {
             // Should also revert Ã¢â‚¬â€ same pair
         } catch Error(string memory reason) {
             reverted = true;
@@ -1189,7 +1189,7 @@ contract RedTeamAMM is Test {
         , address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
 
         // Create WETH pair for the router
-        address wethPairAddr = factory.createPair(address(weth), address(tokenA));
+        address wethPairAddr = factory.createPair{value: 0.006 ether}(address(weth), address(tokenA));
         tokenA.transfer(wethPairAddr, 100 ether);
         weth.deposit{value: 100 ether}();
         weth.transfer(wethPairAddr, 100 ether);

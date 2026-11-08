@@ -1,18 +1,13 @@
 // @vitest-environment jsdom
 /**
- * The top bar's own Solana connection, end to end with the REAL pieces: the
- * wallet sheet, TopBarSolana's import(), SolanaProviders and the Solana wallet
- * list. Only RainbowKit, wagmi and the animation library are stand-ins.
- *
- * ⚠️ THE FIRST TEST IS A BUG THAT SHIPPED TO REVIEW (2026-10-03). On a first
- * Solana connect from a page with no Solana section, the list could open while
- * the wallet sheet still held the page's scroll lock; the list took that lock
- * for the page's own state and put it back when it closed. The page then no
- * longer scrolled until a reload, and keyboard focus was left on <body>. To
- * see it fail, make WalletSheet's waiting effect call `openSolanaList()`
+ * The top bar's own Solana connection, end to end with the real wallet sheet, TopBarSolana's
+ * import(), SolanaProviders and wallet list; only RainbowKit, wagmi and the animation library
+ * are stand-ins. In the first test the list must not open while the sheet still holds the
+ * page's scroll lock, or the list keeps it as the page's own: the page stops scrolling and focus
+ * is left on <body>. To see it fail, make WalletSheet's waiting effect call `openSolanaList()`
  * itself instead of leaving it in `afterClose`.
  */
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { useEffect, type ReactNode } from 'react';
@@ -139,17 +134,6 @@ async function until(done: () => boolean, what: string) {
   }
   if (!done()) throw new Error(`never happened: ${what}`);
 }
-
-// SolanaProviders builds the wallet adapters, and each polls for its extension on a real
-// one-second interval (wallet-adapter-base scopePollingDetectionStrategy; this file fakes
-// setTimeout only) until it finds it. Nothing disposes that poll, and a tick after this
-// file's window is gone is an unhandled ReferenceError that fails the whole run (CI,
-// 2026-11-02). Let the adapter find "its" extension once, so it disposes, before teardown.
-afterAll(async () => {
-  vi.useRealTimers();
-  (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
-  await new Promise((r) => setTimeout(r, 1_200));
-});
 
 afterEach(() => {
   cleanup();

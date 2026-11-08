@@ -49,11 +49,13 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
  * show), Jupiter's price, and the public fee tier and the fee account (`createFacts`).
  * Unread is never "no": each unread input has its own line, and most have a **Refresh**.
  *
- * A pool that already exists never takes the button away. The card names the pool to add
- * to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
- * public tier) and says a new pool is separate; the choice is the opener's. Its button
- * for that pool is **Go to that pool**: it opens that pool card's own Add form, so there
- * is one Add, on the pool's card.
+ * ONE POOL PER PAIR AND FEE TIER (owner ruling 2026-11-01, `pairTaken`). A pool on the
+ * public tier that takes deposits takes its pair: the card names it, says a second one is
+ * not opened here, and the form refuses that coin. The **Open a pool** button stays while
+ * any coin the token pairs with is free, and goes when none is. The card names the pool to
+ * add to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
+ * public tier). Its button for that pool is **Go to that pool**: it opens that pool card's
+ * own Add form, so there is one Add, on the pool's card.
  *
  * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token that copies a well-known
  * name, one its creator can freeze, and one with no market price are offered like any
@@ -176,8 +178,8 @@ function CreateCard({
   // create a pool for a token that has one, a phone ended on a card with nothing to press
   // for it (phone walk of the build, 2026-10-03, the day the first BAYLA pool was
   // opened). Offered when that pool takes deposits right now, by the same rule its own
-  // Add button follows. It sits beside Open a pool, which stays: a token may have as
-  // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
+  // Add button follows. It sits beside Open a pool while any coin is still free
+  // (`everyPairTaken`). One button per pool pointed to,
   // and with more than one each says its coin, so "that pool" is never a guess.
   // It says Go to, not Add: it opens that pool card's own Add form (the same panel key as
   // the card's Add button), which comes to the top of the screen there.
@@ -195,6 +197,9 @@ function CreateCard({
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   const tier: TierState | null = facts?.tier ?? null;
+  // Every coin the token pairs with already has its pool on the public tier (offers.ts
+  // `pairTaken`): there is nothing left to open, so no Open a pool button.
+  const everyPairTaken = pairs.length > 0 && pairs.every((x) => x.taken !== null);
 
   return (
     <section
@@ -262,7 +267,7 @@ function CreateCard({
             ))}
           </div>
         )}
-        {offer === 'offer' && (
+        {offer === 'offer' && !everyPairTaken && (
           <>
             {/* The whole cost, on the screen, right above the press that pays it. */}
             {tier?.kind === 'ready' && (
@@ -509,6 +514,8 @@ function OfferLines({
       const several = pointers.length > 1;
       const unpointed = pairs.filter((x) => x.advice.kind === 'none');
       const failing = unpointed.filter((x) => x.hasPool).map((x) => x.coin.symbol);
+      const taken = pairs.filter((x) => x.taken !== null).map((x) => x.coin.symbol);
+      const free = pairs.filter((x) => x.taken === null).map((x) => x.coin.symbol);
       const empty = cut ? [] : unpointed.filter((x) => !x.hasPool).map((x) => x.coin.symbol);
       const noneYetLine = empty.length > 0 && <p data-testid="lp-create-none-yet">This token has no {orList(empty)} pool yet. Open a pool lets you choose what to pair it with.</p>;
       if (pointers.length === 0) {
@@ -557,10 +564,13 @@ function OfferLines({
             </p>
           )}
           {noneYetLine}
+          {/* One pool per pair and fee tier (offers.ts `pairTaken`, owner ruling 2026-11-01). */}
           <p data-testid="lp-create-still">
-            {allMine
-              ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
-              : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
+            {taken.length > 0
+              ? `One pool per pair and fee tier: a second ${orList(taken)} pool is not opened here, so add to ${several ? 'one of these' : 'that one'} instead.${free.length > 0 ? ` You can still open one paired with ${orList(free)} on the public fee tier, at ${terms}.` : ''}`
+              : allMine
+                ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
+                : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
           </p>
           {!allMine && otherTierLine}
           {cutLine}

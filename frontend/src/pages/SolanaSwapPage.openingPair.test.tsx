@@ -9,9 +9,9 @@ import type { SolToken } from '../lib/solanaTokenList';
  *
  * /solana used to open SOL to USDC. It opens SOL to $BAYLA now, and in a Solana room,
  * SOL to that room's coin. A link's own ?out= still wins. $BAYLA asks for no tick box
- * (the owner, 2026-10-08: none for the venue's own coins), and since 2026-11-07 every
- * Solana room's coin is one of those (the coins our pools pair with), so none of them
- * gets one; a copy of a room's ticker at another mint still does.
+ * (the owner, 2026-10-08: none for the venue's own coins), and an island room's coin is
+ * vouched for too (the owner, 2026-11-01), so none of them gets one; a copy of a room's
+ * ticker at another mint still does.
  * lib/solanaOpeningPair.test.ts pins the choice; this file pins that the page makes it.
  */
 
@@ -130,11 +130,13 @@ describe('/solana in a room', () => {
     expect(paying()).toBe('SOL');
   });
 
-  it('asks for no tick box on a room’s coin either: every island coin is one of the venue’s own', async () => {
+  // The owner, 2026-11-01: the island's coins are verified here ("these are the tokens we want
+  // to be always showcasing for swaps"), so a room's coin asks for no tick box either.
+  it('asks for no tick box for a room’s coin: the venue vouches for every island coin', async () => {
     h.resolveMint.mockResolvedValue(BOBO);
     open('/solana', 'bobo');
     await waitFor(() => expect(buying()).toBe('BOBO'));
-    expect(tickBox(), 'the venue’s own coins ask for no tick').toBeNull();
+    expect(tickBox(), 'no risk tick box on the form').toBeNull();
     expect(document.body.textContent).not.toContain('an unverified token');
   });
 

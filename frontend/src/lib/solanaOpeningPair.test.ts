@@ -58,16 +58,15 @@ describe('the $BAYLA the page opens on', () => {
     expect(needsRiskAck(BAYLA)).toBe(false);
   });
 
-  it('makes the opening pair one that asks for no tick box; so is a Solana room’s coin, while a copy of its ticker still asks', () => {
+  it('makes the opening pair one that asks for no tick box, and a Solana room’s coin too', () => {
     const opensOn = findSolToken(openingBuyMint('', null));
     expect(opensOn).toBe(BAYLA);
     expect([SOL, opensOn!].filter(needsRiskAck)).toEqual([]);
-    // Every island coin is one of the venue's own (2026-11-07: the five Solana rooms' coins are
-    // the coins our pools pair with), so a room's coin asks for no tick box either...
+    // The owner, 2026-11-01: the island's coins are verified here, so a room's coin asks for none.
     const bobo = openingBuyMint('', room('bobo'));
-    expect(isVenueCoin(bobo)).toBe(true);
     expect(needsRiskAck({ mint: bobo, symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(false);
-    // ...and the control: the same ticker at another mint is not, so its tick box stays.
+    // The control: a coin the venue does not vouch for keeps its tick box, the same ticker at another mint included.
+    expect(needsRiskAck({ mint: 'Other11111111111111111111111111111111111111', symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
     expect(needsRiskAck({ mint: `${bobo.slice(0, 20)}k${bobo.slice(21)}`, symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
   });
 });
