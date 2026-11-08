@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { itemName } from "./externalCopy";
-import { exactEth } from "../../lib/formatPrice";
+import { exactEth } from "../../hooks/useBuyHereListings";
 
 const ItemCard = memo(function ItemCard({ collection, item, onPick, price }) {
   const [broken, setBroken] = useState(false);

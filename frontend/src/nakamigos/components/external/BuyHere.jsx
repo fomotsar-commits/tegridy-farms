@@ -3,7 +3,7 @@ import { fulfillSeaportOrder } from "../../api";
 import { chainTxUrl, walletChainLabel } from "../../lib/venue";
 import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
-import { exactEth } from "../../lib/formatPrice";
+import { exactEth } from "../../hooks/useBuyHereListings";
 
 // Asks the connected wallet to switch chains. Loaded on click, the way
 // api.js reaches wagmi, so the panel needs no wagmi provider to render.
