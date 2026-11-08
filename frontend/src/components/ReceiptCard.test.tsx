@@ -171,8 +171,67 @@ describe('the receipt card', () => {
   });
 });
 
+// Island answer thirty-one: after an add, any token, the green button is Share on X with the post
+// written. Its link unfurls the island's card (middleware.js) and sends a person to the Add.
+describe('an add shares on X', () => {
+  const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
+  const POST = (coin: string) => `Just added liquidity to $${coin} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+  const added = (coin = { symbol: 'BAYLA', mint: BAYLA }) =>
+    receipt({ action: 'added', coin, clock: 'double', under: `to the SOL + ${coin.symbol} pool`, fee: { kind: 'add', network: '0.000005 SOL' } });
+  const posted = (href: string | null) => {
+    const u = new URL(href ?? '');
+    expect(`${u.origin}${u.pathname}`).toBe('https://x.com/intent/post');
+    return u.searchParams.get('text');
+  };
+
+  it('an add in a room: Share on X, the post written, its link the room', () => {
+    act(() => raiseReceipt(added()));
+    const card = screen.getByTestId('receipt-card');
+    const share = within(card).getByRole('link', { name: 'Share on X' });
+    expect(posted(share.getAttribute('href'))).toBe(`${POST('BAYLA')} https://memetics.finance/lp/bayla`);
+    expect(share).toHaveAttribute('target', '_blank');
+    expect(share).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(card).queryByRole('link', { name: 'Share your card' })).toBeNull();
+    expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
+  });
+
+  it('an add of a coin with no room: its link carries the mint', () => {
+    act(() => raiseReceipt(added({ symbol: 'WIF', mint: WIF })));
+    const share = screen.getByRole('link', { name: 'Share on X' });
+    expect(posted(share.getAttribute('href'))).toBe(`${POST('WIF')} https://memetics.finance/lp/${WIF}`);
+  });
+
+  it('a ticker that carries its own $ is posted with one', () => {
+    act(() => raiseReceipt(added({ symbol: '$WIF', mint: WIF })));
+    const text = posted(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href'));
+    expect(text).toBe(`${POST('WIF')} https://memetics.finance/lp/${WIF}`);
+  });
+
+  it('the post fits X with its link, for the longest ticker the venue prints', () => {
+    // X counts any link as 23 characters; the venue prints a ticker of at most 12 (identity.ts),
+    // a copy as "fake " and the ticker.
+    const longest = `fake ${'W'.repeat(12)}`;
+    act(() => raiseReceipt(added({ symbol: longest, mint: WIF })));
+    const text = posted(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href')) ?? '';
+    const link = `https://memetics.finance/lp/${WIF}`;
+    expect(text.endsWith(` ${link}`)).toBe(true);
+    expect(text.length - link.length + 23).toBeLessThanOrEqual(280);
+    expect(text).not.toMatch(/—/);
+  });
+
+  it.each([
+    ['a buy', 'bought'],
+    ['a sale', 'sold'],
+  ] as const)('%s keeps Share your card', (_name, action) => {
+    act(() => raiseReceipt(receipt({ action })));
+    const share = screen.getByRole('link', { name: 'Share your card' });
+    expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
+    expect(screen.queryByRole('link', { name: 'Share on X' })).toBeNull();
+  });
+});
+
 describe('the clock line', () => {
-  const reading = (rows: string[], address = WALLET): HeatReading => ({
+  const reading =(rows: string[], address = WALLET): HeatReading => ({
     address,
     degrees: 12,
     tier: 'Observer',

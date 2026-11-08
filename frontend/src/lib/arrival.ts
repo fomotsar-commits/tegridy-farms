@@ -1,4 +1,5 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+import { SITE_URL } from './constants';
 import { roomSpeaksOn } from './routeVoice';
 // Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
 import type { HeatTier } from './heat/heatOracle';
@@ -195,6 +196,12 @@ export const HEAT_WORDS = {
   ladderCold: 'Cold',
 } as const;
 
+/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. A ticker
+ *  that carries its own "$" (WIF's reads "$WIF") is posted with one. */
+const LP_POST = (coin: string) => `Just added liquidity to $${coin.replace(/^\$/, '')} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+/** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
+const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
+
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
@@ -213,6 +220,11 @@ export const RECEIPT_WORDS = {
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
+  shareX: 'Share on X',
+  lpPost: LP_POST,
+  lpLink: LP_LINK,
+  /** X's composer with the post written: nothing is published until the person posts it. */
+  lpIntent: (coin: string, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
 } as const;
 
 export const TRENCHER_WORDS = {
