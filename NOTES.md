@@ -15,6 +15,27 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
+
+**Wrong belief:** a PumpSwap pool is plain x·y = k on its base and quote vaults, charging LP +
+protocol from its GlobalConfig (20 + 5 bps) and the coin creator's 5 bps.
+
+**Measured (2026-11-06, Jupiter quotes held to the same pool, `onlyDirectRoutes`):**
+- Newer pools (300 or 301 bytes) hold a signed 128-bit quote adjustment at byte 245 and price as
+  quote vault + it. SOY's `H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi` held +17,584,291,633 lamports:
+  a 20 SOL buy got 27,244,965,195,998 tokens from Jupiter; vault + adjustment at a 1.2% fee gives
+  27,241,666,087,201 (0.01% off), the vault alone 18% off at small sizes. Eight pools held +14.8 to
+  +17.6 SOL. Four others (TROLL `4w2cys…`, Fartcoin `AmmpSnW5…`, AgenC `BUMh6Y…`, ANSEM `FnzKY6…`)
+  held −9,401 to −17,661,070 lamports, high word all ones: read as u64 they price 10^9 times too high.
+- The fee is the pump fee program's FeeConfig (`pfeeUxB6…`, PDA `["fee_config", PumpSwap]` =
+  `5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx`): 25 tiers by market cap in lamports, 1.25% under
+  420 SOL down to 0.30% from 98,240 SOL; flat 0.30% for a pool with no coin creator. SOY (~605 SOL)
+  paid 1.2% both ways, as its tier says.
+
+**Do instead:** price PumpSwap from vault + the i128 at 245 (when the account is at least 261 bytes)
+and the FeeConfig tier at that price × the token's supply (`scripts/lib/arb-chain.mjs`). Or ask
+Jupiter, which already does.
+
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
 **Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
