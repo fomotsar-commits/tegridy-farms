@@ -1,13 +1,14 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../solanaPolyfill';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 // The dashboard's Solana reads. Loaded only once a Solana wallet is connected (useWalletBoard's
 // dynamic import), so a visitor who never connects Solana never downloads any of it.
 //
 // Every read here is an existing reader, wired the way its own page wires it:
 // holdings through the LP pages' transport (getTokenAccountsByOwner, both token programs), the
 // lock ladder through readLadderPool/readLadderWallet + earnedNow (SolanaLadderPoolLive), the
-// Streamflow stakes through readEntries/readPool (LighthousePoolLive), and the pool shares
+// Streamflow stakes through readEntries/readPool (LighthousePoolLive), both shared with Harvest
+// (poolReads.ts), and the pool shares
 // through the LP section's own readers.positions (YourPositions). Each says when it could not
 // read, and that is passed on as an unread leg, never as an empty one.
 import { browserRpc, type SolanaRpc } from '../launcher/solana/curve/rpc';
@@ -19,11 +20,10 @@ import { getMultipleAccounts, getTokenAccountsByOwner } from '../solana/lp/accou
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT, decodeMintAccount, readTokenSafety, type TokenSafety } from '../solana/lp/tokenSafety';
 import { siteNamed, tokenSymbol } from '../solana/lp/identity';
 import { getUsdPrices } from '../jupiter';
-import { solanaRpcEndpoint } from '../solana';
-import { readLadderPool, readLadderWallet } from '../ladder/read';
-import { earnedNow, isLadderConfigured, ladderProgramId } from '../ladder/program';
+import { earnedNow, isLadderConfigured } from '../ladder/program';
 import { boostLabel } from '../ladder/format';
-import { readEntries, readPool, unlockTs } from '../bungalowStaking';
+import { unlockTs } from '../bungalowStaking';
+import { sharedEntries, sharedLadderPool, sharedLadderWallet, sharedPool } from './poolReads';
 import { bungalowByAddress, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, islandCoinsOn, unlockWords, usdOf, type HoldingRow, type Leg, type PositionRow, type StakeTarget } from './walletRows';
 import { offIslandCoinsOn, type OffIslandCoin } from './offIslandCoins';
@@ -144,13 +144,7 @@ export async function readSolanaHoldings(
 export async function readSolanaLadder(owner: string, room: Bungalow & { ladderPool: string }, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
   if (!isLadderConfigured()) return { status: 'ok', rows: [] };
   try {
-    const conn = new Connection(solanaRpcEndpoint(), 'confirmed');
-    const programId = ladderProgramId();
-    const pool = new PublicKey(room.ladderPool);
-    const [p, w] = await Promise.all([
-      readLadderPool(conn, programId, pool),
-      readLadderWallet(conn, programId, pool, new PublicKey(owner)),
-    ]);
+    const [p, w] = await Promise.all([sharedLadderPool(room.ladderPool), sharedLadderWallet(room.ladderPool, owner)]);
     if (!w.ok) return { status: 'unread', detail: w.reason };
     if (!w.value.stats) return { status: 'ok', rows: [] };
     if (w.value.truncated || w.value.slots.some((s) => s.state === 'unreadable')) {
@@ -181,12 +175,12 @@ export async function readSolanaLadder(owner: string, room: Bungalow & { ladderP
 /** The wallet's open stakes in one Streamflow pool: amount, unlock and worth. Rewards are on its page. */
 export async function readSolanaStakes(owner: string, target: StakeTarget, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
   try {
-    const entries = await readEntries(target.pool, owner);
+    const entries = await sharedEntries(target.pool, owner);
     if (!entries.ok) return { status: 'unread', detail: entries.reason };
     const open = entries.entries.filter((e) => e.closedTs === 0);
     if (!open.length) return { status: 'ok', rows: [] };
     // Decimals as the pool reads them on chain, only for a pool the wallet is in.
-    const pool = await readPool(target.pool);
+    const pool = await sharedPool(target.pool);
     if (!pool.ok) return { status: 'unread', detail: pool.reason };
     const prices = await pricesOrNone(opts.prices ?? boardPrices, [target.room.address!]);
     const now = nowSecs();

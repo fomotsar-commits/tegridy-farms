@@ -814,25 +814,28 @@ export async function readEntries(
       payer: owner as any,
     });
 
-    // Reward pools are needed to price the accrual; a failed read just leaves
-    // every pending number unknown.
-    let rewardAccounts: any[] = [];
-    // False when a reward-pool search half failed: the pools found are real, but a
-    // pending figure summed over them is PARTIAL, so every open entry is marked unread.
-    let rewardSearchComplete = false;
-    try {
-      // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
-      // and omitting it would silently under-report every pending figure.
-      const found = await searchAllRewardPoolsChecked(client, stakePool);
-      rewardAccounts = found.pools.map((r) => r.acc);
-      rewardSearchComplete = found.complete;
-    } catch { /* every open entry is marked unread below */ }
-
     const raw = accounts.map((acc) => ({ acc, e: acc?.account ?? acc }));
     // Only OPEN entries accrue, and only a handful ever exist per wallet; the
     // cap keeps a pathological wallet from firing 256 x N account scans.
     // ⚠️ AN OPEN ENTRY PAST THE CAP IS UNPRICED, NOT ZERO: it is marked `pendingUnread`.
     const accruing = raw.filter(({ e }) => bnToNumber(e?.closedTs) === 0).slice(0, 8);
+
+    // Reward pools price an open entry's accrual and nothing else, so a wallet with
+    // none open here is not searched for them. A failed read leaves every pending
+    // number unknown.
+    let rewardAccounts: any[] = [];
+    // False when a reward-pool search half failed: the pools found are real, but a
+    // pending figure summed over them is PARTIAL, so every open entry is marked unread.
+    let rewardSearchComplete = false;
+    if (accruing.length) {
+      try {
+        // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
+        // and omitting it would silently under-report every pending figure.
+        const found = await searchAllRewardPoolsChecked(client, stakePool);
+        rewardAccounts = found.pools.map((r) => r.acc);
+        rewardSearchComplete = found.complete;
+      } catch { /* every open entry is marked unread below */ }
+    }
     const priced = new Set(accruing.map(({ acc }) => String(acc?.publicKey ?? '')));
     const pendingByEntry = new Map<string, Record<number, bigint | null>>();
     const accountedByEntry = new Map<string, Record<number, bigint | null>>();

@@ -55,6 +55,10 @@ import { BUNGALOWS } from '../bungalows';
 import { getUsdPrices } from '../jupiter';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '../solana/lp/tokenSafety';
 import { OFF_ISLAND_COINS } from './offIslandCoins';
+import { forgetHeldReads } from './heldReads';
+
+// Each case reads the same pool for the same wallet: a read held from the last case is not this one's.
+beforeEach(() => forgetHeldReads());
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const OWNER = key(9).toBase58();
