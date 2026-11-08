@@ -53,3 +53,9 @@ ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
 # constant called `AUTH`: the same `generic-api-key` rule. No credential. The constant is
 # renamed `FREEZER` in the commit that adds these lines.
 f0e23d57fad9d1faa8cf2b10b1ab76682ab75d33:frontend/src/lib/solana/keeper/rule.test.ts:generic-api-key:125
+#
+# 2026-11-08, PR #1104. The wallet-coins test's stand-in Alchemy key is the placeholder
+# "test-alchemy-key-" plus the hex digits 0 to f in order, in a constant called `KEY`: the
+# `generic-api-key` rule. It is no key, and no real one matches it. The constant is renamed
+# `STUB` in the commit that adds these lines.
+8fba682e726006f780a34257507c517037fb2c3a:frontend/api/__tests__/walletCoins.test.js:generic-api-key:17

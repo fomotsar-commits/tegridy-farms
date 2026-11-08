@@ -14,7 +14,7 @@ vi.mock("../_lib/ratelimit.js", () => ({
 const { handleWalletCoins, readWalletCoins, __resetWalletCoins, MAX_PAGES } = await import("../_lib/walletCoins.js");
 
 const NOW = Date.parse("2026-11-01T12:00:00Z");
-const KEY = "test-alchemy-key-0123456789abcdef";
+const STUB = "test-alchemy-key-0123456789abcdef";
 const WALLET = "0x00000000000000000000000000000000000000AA";
 const wallet = WALLET.toLowerCase();
 // A coin address, checksummed-looking (mixed case) as Blockscout and Alchemy write it.
@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("readWalletCoins, from Alchemy", () => {
   it("reads every page by pageKey with the key in a Bearer header, and asks Blockscout nothing", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     const [a, b, unpriced, zero, broken] = [coin(1), coin(2), coin(3), coin(4), coin(5)];
     w.alchemy.base = [
@@ -114,7 +114,7 @@ describe("readWalletCoins, from Alchemy", () => {
     ]);
     for (const c of w.alchemyCalls) {
       expect(c.url).toBe("https://base-mainnet.g.alchemy.com/v2");
-      expect(c.headers.Authorization).toBe(`Bearer ${KEY}`);
+      expect(c.headers.Authorization).toBe(`Bearer ${STUB}`);
     }
     expect(w.hits("base.blockscout.com")).toBe(0);
     // The zero balance and the unreadable entry are never priced.
@@ -124,7 +124,7 @@ describe("readWalletCoins, from Alchemy", () => {
   });
 
   it("says truncated after four pages, and reads no fifth", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     w.alchemy.ethereum = Array.from({ length: MAX_PAGES + 2 }, (_, i) => [bal(coin(i + 1), BigInt(i + 1) * E18)]);
     for (let i = 1; i <= MAX_PAGES + 2; i++) w.llama[`ethereum:${low(i)}`] = { price: 1, decimals: 18, confidence: 0.99 };
@@ -136,7 +136,7 @@ describe("readWalletCoins, from Alchemy", () => {
 
   it("falls back to Blockscout when Alchemy answers an error, a JSON-RPC error, a bad shape, or nothing", async () => {
     for (const fails of ["status", "rpc-error", "bad-shape", "throw"]) {
-      vi.stubEnv("ALCHEMY_API_KEY", KEY);
+      vi.stubEnv("ALCHEMY_API_KEY", STUB);
       const w = world();
       w.alchemyFails = fails;
       w.pages.base = [[item(coin(1), { whole: 2n, rate: 3 })]];
@@ -159,7 +159,7 @@ describe("readWalletCoins, from Alchemy", () => {
   });
 
   it("throws, never answers empty, when Alchemy and Blockscout both fail", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     w.alchemyFails = "status";
     w.down.add("base.blockscout.com");
@@ -169,7 +169,7 @@ describe("readWalletCoins, from Alchemy", () => {
 
 describe("readWalletCoins, DefiLlama's decimals and confidence", () => {
   it("makes the $1 cut with DefiLlama's decimals, and drops an Alchemy coin it gives none for", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     w.alchemy.base = [[bal(coin(1), 5_000_000n), bal(coin(2), 5_000_000n), bal(coin(3), 5_000_000n)]];
     w.llama[`base:${low(1)}`] = { price: 1, decimals: 6 }; // $5: kept
@@ -194,7 +194,7 @@ describe("readWalletCoins, DefiLlama's decimals and confidence", () => {
   });
 
   it("drops a coin DefiLlama prices with confidence under 0.9, on either path, and keeps one with none given", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     w.alchemy.ethereum = [[bal(coin(1), 1_000_000n * E18), bal(coin(2), E18), bal(coin(3), E18)]];
     w.llama[`ethereum:${low(1)}`] = { price: 10, decimals: 18, confidence: 0.5 }; // "$10,000,000" of spam
@@ -377,7 +377,7 @@ describe("handleWalletCoins", () => {
   });
 
   it("is a 502 with no list when Alchemy and Blockscout are both down, and caches nothing", async () => {
-    vi.stubEnv("ALCHEMY_API_KEY", KEY);
+    vi.stubEnv("ALCHEMY_API_KEY", STUB);
     const w = world();
     w.pages.base = [[item(coin(1), { rate: 3 })]];
     w.alchemyFails = "status";
