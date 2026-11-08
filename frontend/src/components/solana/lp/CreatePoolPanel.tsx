@@ -8,7 +8,7 @@ import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type C
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
 import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
-import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, lowerCoins, orList, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { afterFee, feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -629,8 +629,8 @@ function CreateInner({
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
   // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
   const own = quoteCoin(mint);
-  const lower = lowerCoins(mint).map((q) => q.symbol);
-  const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
+  const lower = orList(lowerCoins(mint).map((q) => q.symbol));
+  const otherSide = own && lower ? `. A pool of ${own.symbol} and ${lower} is opened from the other side: look up ${lower} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
@@ -683,8 +683,8 @@ function CreateInner({
                 Pair with
               </span>
               {/* Real radio buttons: one Tab stop, and the arrow keys move the choice. The
-                  whole label is the 44px target. `relative` keeps the input inside it. Three
-                  choices fit one row from 360 wide; narrower, the row wraps instead of spilling. */}
+                  whole label is the 44px target. `relative` keeps the input inside it. The seven
+                  choices wrap over two or three rows on a phone, each chip whole; none spills. */}
               <div className="flex flex-wrap gap-2">
                 {pairs.map(({ coin: q }) => (
                   <label

@@ -7,7 +7,7 @@ import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth'
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
@@ -801,7 +801,7 @@ function SearchResults({
           ) : (
             // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
             <div hidden={sheet || undefined}>
-            <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+            <ul className="space-y-3" aria-label={only ? 'The pool' : `Pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard

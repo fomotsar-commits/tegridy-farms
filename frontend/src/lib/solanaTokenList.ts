@@ -95,8 +95,16 @@ export const BUY_TOKENS: SolToken[] = [
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
 ];
 
-/** The coins this venue's own pools pair a token with: SOL, USDC and the venue's BAYLA. */
-export const VENUE_COINS: readonly SolToken[] = [SOL, USDC, BAYLA];
+// The island's other four Solana coins (lib/bungalows.ts; a test pins each to its bungalow
+// and to the pool screens' pairing list). pump.fun mints, 6 decimals each. Like BAYLA, none
+// carries Jupiter's `verified` tag: the venue knows them by mint.
+export const BOBO: SolToken = { mint: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', symbol: 'BOBO', name: 'BOBO', decimals: 6 };
+export const SOY: SolToken = { mint: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', symbol: 'SOY', name: 'SOY', decimals: 6 };
+export const BRAINLET: SolToken = { mint: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', symbol: 'BRAINLET', name: 'Brainlet', decimals: 6 };
+export const RIZZ: SolToken = { mint: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', symbol: 'RIZZ', name: 'RIZZ', decimals: 6 };
+
+/** The coins this venue's own pools pair a token with: SOL, USDC and the island's five coins (lib/solana/lp/quotes.ts). */
+export const VENUE_COINS: readonly SolToken[] = [SOL, USDC, BAYLA, BOBO, SOY, BRAINLET, RIZZ];
 const VENUE_COIN_MINTS: ReadonlySet<string> = new Set(VENUE_COINS.map((t) => t.mint));
 
 /** Is this one of the venue's own coins? By mint address only: a name or a symbol can be copied. */

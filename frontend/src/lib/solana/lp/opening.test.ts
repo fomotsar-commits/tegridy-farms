@@ -12,7 +12,7 @@ import type { OutsidePrice } from './outsidePrice';
 import { gapCostFraction } from './poolHealth';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 
 const NO_MARKET =
   'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
@@ -189,7 +189,7 @@ describe('assessOpening: the token', () => {
     expect(TOKEN_2022_NATIVE_MINT).toBe(NATIVE_MINT_2022.toBase58());
     const c = at({ tokenMint: TOKEN_2022_NATIVE_MINT, safety: { ...OK, mint: TOKEN_2022_NATIVE_MINT } });
     expect(c.verdict).toBe('refused');
-    expect(c.reasons).toContain('This is SOL under the newer token program. Pools here pair a token with SOL, USDC or BAYLA.');
+    expect(c.reasons).toContain(`This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`);
   });
 });
 

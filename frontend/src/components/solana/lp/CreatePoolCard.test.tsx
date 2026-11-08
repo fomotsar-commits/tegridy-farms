@@ -9,7 +9,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -813,7 +813,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     const native: TokenSafety = { ...okToken, mint: TOKEN_2022_NATIVE_MINT } as TokenSafety;
     mount(readers({ safety: vi.fn(async () => new Map([[TOKEN_2022_NATIVE_MINT, native]])) }), { mint: TOKEN_2022_NATIVE_MINT });
     expect(await settled('token-refused')).toHaveTextContent(
-      'This site does not open pools for this token: This is SOL under the newer token program. Pools here pair a token with SOL, USDC or BAYLA.',
+      `This site does not open pools for this token: This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`,
     );
   });
 
