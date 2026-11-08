@@ -171,6 +171,13 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     );
   });
 
+  it('COLD says “1 day” at one, in the singular (answer twenty-eight, §2.1)', () => {
+    const one = parseHeatReading({ ...WARM, degrees: 79.33, tier: 'Observer', as_of_unix: asOf, days_to_plant: 1 });
+    expect(gateDecision(ADDR, one, asOf).detail).toBe(
+      'This wallet reads 79.33° (Observer): 1 day to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
+    );
+  });
+
   it('says every verdict without the word cannot: unreadable, stale, cold and warm', () => {
     const unreadable = gateDecision(ADDR, null, asOf);
     const stale = gateDecision(ADDR, at(195.54, 'Builder'), asOf + 30 * DAY);

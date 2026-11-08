@@ -59,8 +59,8 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
   const atZero = reading !== null && (reading.isCold || !(reading.degrees > 0));
   // Degrees over the floor of the width, from the reading alone: it never moves on its own.
   const at = reading ? Math.min(1, Math.max(0, reading.degrees / floor)) : 0;
-  // Left out unread, at 0 ("never 0"), and at 1, which the island's words have no singular for.
-  const roster = warming !== null && warming >= 2 ? COUNTDOWN_WORDS.roster(warming) : null;
+  // Left out unread and at 0 ("never 0"); at 1 it reads in the singular (answer twenty-eight, §2.1).
+  const roster = warming !== null && warming >= 1 ? COUNTDOWN_WORDS.roster(warming) : null;
   const degrees = reading ? COUNTDOWN_WORDS.standing(reading.degrees.toFixed(2)) : null;
   // Under the floor the clock starts with a buy; at it, the move is an add, in the room or picked.
   const button = warm
@@ -110,7 +110,7 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
               <span style={{ fontFamily: ARCHIVO, fontWeight: 900, fontSize: 96, lineHeight: 0.8, letterSpacing: '-0.04em' }}>
                 {timer.days.toLocaleString('en-US')}
               </span>{' '}
-              <span style={{ fontFamily: ARCHIVO, fontWeight: 700, fontSize: 28, lineHeight: 1 }}>{COUNTDOWN_WORDS.days}</span>
+              <span style={{ fontFamily: ARCHIVO, fontWeight: 700, fontSize: 28, lineHeight: 1 }}>{COUNTDOWN_WORDS.days(timer.days)}</span>
             </p>
           ) : (
             // 40 px as drawn on the launch screen; in a heat card's narrower column it shrinks to stay one line at 390.

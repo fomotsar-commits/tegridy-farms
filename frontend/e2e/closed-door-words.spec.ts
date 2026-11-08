@@ -34,9 +34,9 @@ const DEBT: Record<string, Partial<Record<Word, number>>> = {
   // VENUE.heroCopy in lib/arrival.ts, "It cannot be bought and it cannot be faked.": the island's
   // own sentence (cannot-zero.spec.ts holds the same two), raised with the island in answer 25.
   '/start': { Cannot: 2 },
-  // The Risks page's heading "Anyone can launch a token, and a launch is permanent": the owner's
-  // legal copy, which reads as if launching were open. Raised with the owner and the island.
-  '/risks': { 'Launch a token': 1 },
+  // /risks carried "Launch a token" 1 (the launcher risk's heading, the owner's legal copy) until
+  // RisksPage.tsx LAUNCH_RISK: while the door is closed the heading says launching is not switched
+  // on yet, and the owner's heading returns as written once it opens.
 };
 
 interface Hit {
