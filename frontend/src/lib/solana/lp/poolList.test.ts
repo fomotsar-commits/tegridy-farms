@@ -157,10 +157,11 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     obs: decodeObservationState(observationBytes({ pool, initialized: last !== null, lastUpdate: last ?? 0n }))!,
   });
   /** A pool with plenty in it, every switch on, open, and traded a day ago, unless told otherwise. */
-  function row(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
+  function row(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; tok?: bigint; lpSupply?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
     const reserve = o.reserve ?? 50n * 10n ** 9n;
-    const b = buildPool({ mint: o.mint ?? key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
-    return viewOf(b, { sol: reserve, tok: 10n ** 9n, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
+    const tok = o.tok ?? 10n ** 9n;
+    const b = buildPool({ mint: o.mint ?? key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: tok, lpSupply: o.lpSupply, status: o.status, openTime: o.openTime });
+    return viewOf(b, { sol: reserve, tok, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
   }
   const texts = (v: PoolView, now: bigint | null = NOW) => poolTags(v, now).map((t) => t.text);
 
@@ -217,6 +218,23 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     // A record not read, or not usable, gives no tag, never "traded" and never "quiet".
     expect(texts(row({ history: { kind: 'unread', detail: 'its price record account is missing' } }))).toEqual([]);
     expect(texts(row({ history: { kind: 'not-read' } }))).toEqual([]);
+  });
+
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  it('a pool too empty to hold its price is Almost empty: red, after the switches, and in place of Little money', () => {
+    // The live pool everyone had left on 2026-11-03: the locked 100 shares over 5 lamports and 2,138 units.
+    expect(poolTags(row({ reserve: 5n, tok: 2_138n, lpSupply: 100n }), NOW)).toEqual([{ text: 'Almost empty', tone: 'bad' }]);
+    // The floor is an opening's own (liquidityMath.ts): `s` of each side opens `s` shares.
+    expect(texts(row({ reserve: 99_999n, tok: 99_999n, lpSupply: 99_999n }))).toEqual(['Almost empty']);
+    expect(texts(row({ reserve: 100_000n, tok: 100_000n, lpSupply: 100_000n }))).toEqual(['Little money in pool']);
+    // A pool priced in BAYLA, never measured by money, is measured by its shares.
+    expect(texts(row({ quote: BAYLA_QUOTE, reserve: 100n, tok: 100n, lpSupply: 100n }))).toEqual(['Almost empty']);
+    expect(poolTags(row({ status: 4, reserve: 5n, tok: 2_138n, lpSupply: 100n, last: null }), NOW, 0.05)).toEqual([
+      { text: 'Trading off', tone: 'bad' },
+      { text: 'Almost empty', tone: 'bad' },
+      { text: 'Price over 3% above Jupiter', tone: 'bad' },
+      { text: 'No trades yet', tone: 'warn' },
+    ]);
   });
 
   it('a price gap is a red tag after the switches and before the quieter warnings, naming no figure', () => {

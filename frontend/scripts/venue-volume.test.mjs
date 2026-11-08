@@ -173,7 +173,14 @@ function fakeSolana(sigs, txs) {
       const cut = until ? newestFirst.findIndex((s) => s.signature === until) : -1;
       return cut >= 0 ? newestFirst.slice(0, cut) : newestFirst;
     }
-    if (method === "getTransaction") return txs[params[0]] ?? null;
+    if (method === "getTransaction") {
+      const tx = txs[params[0]] ?? null;
+      // Like a node: a transaction newer than the version asked for is refused, not returned.
+      if (tx && typeof tx.version === "number" && !(tx.version <= params[1].maxSupportedTransactionVersion)) {
+        throw new Error(`getTransaction: {"code":-32015,"message":"Transaction version (${tx.version}) is not supported by the requesting client."}`);
+      }
+      return tx;
+    }
     throw new Error(method);
   };
   return { call, calls };
@@ -196,6 +203,13 @@ describe("the Solana cursor: each run reads only what is new", () => {
     expect(second.swaps).toHaveLength(0);
     const lastList = f.calls.filter(([m]) => m === "getSignaturesForAddress").at(-1);
     expect(lastList[1][1].until).toBe("c");
+  });
+
+  it("reads a version 1 transaction (on mainnet in our pools since 2026-11-05) and counts its swap", async () => {
+    const f = fakeSolana(sigs, { a: FX.poolDeposit, b: { ...FX.poolSolIn, version: 1 } });
+    const got = await readSolanaPools(f.call, {});
+    expect(got.swaps).toHaveLength(1);
+    expect(got.cursor[SOL_BAYLA.address]).toBe("c");
   });
 
   it("throws when a transaction does not come back, so the cursor is not moved past it", async () => {
