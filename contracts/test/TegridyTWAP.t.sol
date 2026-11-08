@@ -46,7 +46,7 @@ contract TegridyTWAPTest is Test {
         }
 
         // Create pair
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Add initial liquidity: 100 TKA : 200 TKB (price ratio 1:2)
@@ -143,7 +143,7 @@ contract TegridyTWAPTest is Test {
         if (address(tokenC) > address(tokenD)) {
             (tokenC, tokenD) = (tokenD, tokenC);
         }
-        address emptyPair = factory.createPair(address(tokenC), address(tokenD));
+        address emptyPair = factory.createPair{value: 0.006 ether}(address(tokenC), address(tokenD));
 
         vm.expectRevert(TegridyTWAP.NoReserves.selector);
         twap.update(emptyPair);

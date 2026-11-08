@@ -5,10 +5,10 @@ import { CardArt } from '../components/ui/CardArt';
 import {
   SWAP_FEE_BPS,
   isDeployed,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   SOURCE_URL,
 } from '../lib/constants';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 // Island answer twenty-six: no token launch is live on the venue until the island says so, on any
@@ -153,10 +153,12 @@ const PROTOCOL_LIMITS: Array<{
   },
   {
     feature: 'NFT Lending',
-    status: deployStatus(TEGRIDY_NFT_LENDING_ADDRESS),
+    status: deployStatus(GONDI_LOAN_ADDRESS),
     items: [
-      { label: 'Loan duration', value: '1 – 365 days', why: 'Sane loan-term bounds' },
-      { label: 'Minimum offer', value: '~0.001 ETH', why: 'Blocks dust offers' },
+      { label: 'Contract', value: "Gondi's v3.2, unchanged", why: "Byte for byte the code of Gondi's own loan contract on mainnet" },
+      { label: 'Venue fee', value: '5% of the interest', why: "Taken from the lender's interest, to the venue's treasury. The borrower pays only the agreed interest" },
+      { label: 'Interest', value: 'For the days used', why: 'Repay early and the interest stops that day' },
+      { label: 'Missed due date', value: 'No grace period', why: 'The moment a loan is due and unpaid, one lender can take the NFT; with several lenders it goes to a 3-day auction' },
     ],
   },
   {

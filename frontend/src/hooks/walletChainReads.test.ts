@@ -11,7 +11,9 @@
  *   - useNFTDropV2 (logged out too): a live sale read as "0/0" minted, "Closed";
  *   - useUserPosition: the never-staked form for a real staker, beside an LP
  *     section (#514) already showing the same wallet its mainnet LP stake;
- *   - useMyLoans: an empty loan list with neither failure flag set;
+ *   - useMyLoans: an empty loan list with neither failure flag set (it now reads Gondi's
+ *     loans from the offer book, its one chain read pinned to mainnet with no wallet-chain
+ *     gate at all: pinned in useMyLoans.test.ts);
  *   - usePoints: a score from the swap count alone, SAVED to localStorage;
  *   - useNFTBoost: a JBAC holder reported as "unknown";
  *   - useZapPlan (logged out too): the venue fee unread -- not visible today,
@@ -33,7 +35,7 @@
  * that hook's cases here fail.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { parseEther } from 'viem';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
@@ -53,12 +55,11 @@ vi.mock('./useSwapQuote', () => ({
 
 import { useNFTDropV2 } from './useNFTDropV2';
 import { useZapPlan } from './useZapPlan';
-import { useMyLoans } from './useMyLoans';
 import { useUserPosition } from './useUserPosition';
 import { useNFTBoost } from './useNFTBoost';
 import {
   CHAIN_ID, REFERRAL_SPLITTER_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
-  TEGRIDY_LP_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_STAKING_ADDRESS,
+  TEGRIDY_LP_ADDRESS, TEGRIDY_STAKING_ADDRESS,
   TOWELI_ADDRESS,
 } from '../lib/constants';
 
@@ -73,20 +74,6 @@ const DROP = '0x2222222222222222222222222222222222222222';
 const JBAC = '0xd37264c71e9af940e49795f0d3a8336afaafdda9';
 const GOLD = '0x6aa03f42c5366e2664c887eb2e90844ca00b92f3';
 const OFF_MAINNET = [['Base', 8453], ['Robinhood Chain', 4663]] as const;
-
-/** TegridyNFTLending's getLoan tuple for loan 0: USER borrowed 1 ETH, due in 30 days. */
-const LOAN = [
-  USER, OTHER, 3n, 42n, '0x4444444444444444444444444444444444444444',
-  E18, 1_000n, NOW_SEC - DAY, NOW_SEC + 30n * DAY, false, false,
-] as const;
-
-/** The mainnet public client useMyLoans scans through. ONE object: wagmi memoises it. */
-const mainnetClient = {
-  readContract: async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
-    if (functionName === 'getLoan' && args?.[0] === 0n) return LOAN;
-    throw new Error(`unstubbed read: ${functionName}`);
-  },
-};
 
 /** One live mainnet deployment of everything these hooks read, stubbed per contract so shared function names cannot collide. */
 function stubMainnet() {
@@ -127,8 +114,6 @@ function stubMainnet() {
   drop('creator', OTHER);
   // useZapPlan
   at(SWAP_FEE_ROUTER_ADDRESS)('feeBps', 25n);
-  // useMyLoans
-  at(TEGRIDY_NFT_LENDING_ADDRESS)('loanCount', 1n);
 }
 
 /** What `useHook` reports to a wallet whose chain is `chainId`. */
@@ -137,16 +122,6 @@ function reportOn<T>(useHook: () => T, chainId: number): T {
   // usePoints persists what it computes; each render starts from nothing.
   localStorage.clear();
   const { result, unmount } = renderHook(useHook);
-  const report = result.current;
-  unmount();
-  return report;
-}
-
-/** The same for a hook whose reads resolve after mount: waits until `landed` stops throwing. */
-async function settledReportOn<T>(useHook: () => T, chainId: number, landed: (report: T) => void): Promise<T> {
-  wagmiMock.setChainId(chainId);
-  const { result, unmount } = renderHook(useHook);
-  await waitFor(() => landed(result.current));
   const report = result.current;
   unmount();
   return report;
@@ -207,15 +182,6 @@ describe('mainnet reads do not depend on the wallet chain', () => {
       const off = reportOn(useNFTBoost, chainId);
       expect(off.holdsJBAC).toBe(true);
       expect(figures(off)).toEqual(figures(reportOn(useNFTBoost, CHAIN_ID)));
-    });
-
-    it('useMyLoans finds the mainnet loan rather than an empty list', async () => {
-      wagmiMock.setPublicClient(mainnetClient);
-      const found = (report: ReturnType<typeof useMyLoans>) =>
-        expect(report.loans.map((l) => [l.id, l.role])).toEqual([[0, 'borrower']]);
-      const off = await settledReportOn(useMyLoans, chainId, found);
-      expect(off.loansUnread).toBe(false);
-      expect(figures(off)).toEqual(figures(await settledReportOn(useMyLoans, CHAIN_ID, found)));
     });
   });
 });

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useBalance, useChainId, useWalletClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
-import { formatUnits, parseUnits } from 'viem';
+import { formatEther, formatUnits, parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
 import { useUniswapV2MarketPrice, matchAtMarket, gapFromMarketBps, formatMarketPrice } from '../../hooks/useUniswapV2MarketPrice';
@@ -218,6 +218,16 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
   const balanceAUnread = tokenA.isNative ? nativeBalanceAError : liq.tokenABalanceUnread;
   const balanceBUnread = !tokenB ? false : tokenB.isNative ? nativeBalanceBError : liq.tokenBBalanceUnread;
 
+  // Opening a pool costs ETH on top of the deposit (owner ruling 2026-10-25). On an ETH pair
+  // it rides on the ETH side; on a token/token pair the wallet still pays it in ETH, so that
+  // balance is read here too. 0 whenever this add does not open a pool.
+  const openingFee = liq.openingFeeWei ?? 0n;
+  const openingFeeEth = parseFloat(formatEther(openingFee));
+  const feeNeedsOwnBalance = liq.opensPoolWithFee && !tokenA.isNative && !tokenB?.isNative;
+  const { data: nativeBalanceFee } = useBalance({
+    address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && feeNeedsOwnBalance },
+  });
+
   // Auto-pair inputs
   const handleAmountAChange = (v: string) => {
     setAmountA(v);
@@ -315,9 +325,15 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
 
   const poolShare = amountA ? liq.getPoolShare(amountA) : 0;
 
-  const insufficientA = balanceAKnown && !!amountA && parseFloat(amountA) > balanceADisplay;
-  const insufficientB = balanceBKnown && !!amountB && parseFloat(amountB) > balanceBDisplay;
-  const balanceUnknown = (!!amountA && !balanceAKnown) || (!!amountB && !balanceBKnown);
+  const insufficientA = balanceAKnown && !!amountA
+    && parseFloat(amountA) + (tokenA.isNative ? openingFeeEth : 0) > balanceADisplay;
+  const insufficientB = balanceBKnown && !!amountB
+    && parseFloat(amountB) + (tokenB?.isNative ? openingFeeEth : 0) > balanceBDisplay;
+  const insufficientFee = feeNeedsOwnBalance && !!nativeBalanceFee && nativeBalanceFee.value < openingFee;
+  const balanceUnknown = (!!amountA && !balanceAKnown) || (!!amountB && !balanceBKnown)
+    || (feeNeedsOwnBalance && !nativeBalanceFee);
+  // The fee is read from the factory; an add that opens a pool waits for it.
+  const openingFeePending = liq.opensPoolWithFee && liq.openingFeeWei === undefined;
 
   const handleTokenPick = (tok: TokenInfo) => {
     if (showPicker === 'A') {
@@ -562,6 +578,25 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
               </div>
             )}
 
+            {/* Owner ruling 2026-10-25: opening a pool costs 0.006 ETH. Shown before any
+                amount is typed, so the cost is known before the wallet asks for it. */}
+            {liq.opensPoolWithFee && (
+              <div data-testid="liquidity-opening-fee" className="mb-3 px-3 py-2 rounded-lg text-[11px] text-white/85" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.15)' }}>
+                {liq.openingFeeWei !== undefined
+                  ? <>Opening this pool costs {formatEther(liq.openingFeeWei)} ETH, paid to the Tegridy treasury on top of your deposit.</>
+                  : liq.openingFeeUnread
+                    ? <>The pool-opening fee could not be read. Reload before opening this pool.</>
+                    : <>Reading the pool-opening fee…</>}
+                <FinePrint summary="About this fee">
+                  <p>
+                    Only the deposit that opens a pool pays it. Adding to a pool that is already
+                    open costs nothing extra. The fee is not part of your liquidity, and it does not
+                    come back when you remove liquidity.
+                  </p>
+                </FinePrint>
+              </div>
+            )}
+
             {/* Slippage */}
             <div className="mb-4">
               <span className="text-white/70 text-[11px] mb-1.5 block">Crop windstorm tolerance</span>
@@ -629,7 +664,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
               </button>
             ) : (
               <button data-testid="liquidity-submit" onClick={() => liq.addLiquidity(amountA, amountB, slippageBps)}
-                disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || balanceUnknown || insufficientA || insufficientB}
+                disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || balanceUnknown || insufficientA || insufficientB || insufficientFee || openingFeePending}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                 {liq.isPending ? 'Confirm in wallet…'
                   : liq.isConfirming ? 'Adding…'
@@ -637,8 +672,12 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
                   : !amountA || !amountB ? 'Enter amounts'
                   : !balanceAKnown ? (balanceAUnread ? `${tokenA.symbol} balance unavailable — reload` : `Reading ${tokenA.symbol} balance…`)
                   : !balanceBKnown ? (balanceBUnread ? `${symB} balance unavailable — reload` : `Reading ${symB} balance…`)
-                  : insufficientA ? `Not enough ${tokenA.symbol}`
-                  : insufficientB ? `Not enough ${symB}`
+                  : feeNeedsOwnBalance && !nativeBalanceFee ? 'Reading ETH balance…'
+                  : openingFeePending ? (liq.openingFeeUnread ? 'Opening fee unavailable. Reload' : 'Reading the opening fee…')
+                  : insufficientA ? (tokenA.isNative && openingFee > 0n ? `Not enough ETH (incl. ${formatEther(openingFee)} ETH to open)` : `Not enough ${tokenA.symbol}`)
+                  : insufficientB ? (tokenB?.isNative && openingFee > 0n ? `Not enough ETH (incl. ${formatEther(openingFee)} ETH to open)` : `Not enough ${symB}`)
+                  : insufficientFee ? `Not enough ETH for the ${formatEther(openingFee)} ETH opening fee`
+                  : liq.opensPoolWithFee ? `Open pool (+${formatEther(openingFee)} ETH)`
                   : 'Add liquidity'}
               </button>
             )}

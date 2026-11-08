@@ -45,7 +45,7 @@
  */
 
 export const config = {
-  matcher: ["/nakamigos/:path*", "/scan", "/deployer", "/read/:path*"],
+  matcher: ["/nakamigos/:path*", "/scan", "/deployer", "/read/:path*", "/lp/:path*"],
 };
 
 /**
@@ -172,12 +172,19 @@ async function fetchJson(url, init, timeoutMs = 4000) {
   }
 }
 
-function ogHtml({ title, description, image, url, siteName = "Tradermigos" }) {
+function ogHtml({ title, description, image, url, siteName = "Tradermigos", imageWidth, imageHeight, imageAlt }) {
   const t = esc(title);
   const d = esc(description);
   const i = esc(image);
   const u = esc(url);
   const s = esc(siteName);
+  // The picture's size and words, printed only for a card that gives them: every other card's
+  // HTML stays byte for byte what it was.
+  const size = imageWidth && imageHeight
+    ? `\n<meta property="og:image:width" content="${esc(imageWidth)}">\n<meta property="og:image:height" content="${esc(imageHeight)}">`
+    : "";
+  const ogAlt = imageAlt ? `\n<meta property="og:image:alt" content="${esc(imageAlt)}">` : "";
+  const twAlt = imageAlt ? `\n<meta name="twitter:image:alt" content="${esc(imageAlt)}">` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -188,12 +195,12 @@ function ogHtml({ title, description, image, url, siteName = "Tradermigos" }) {
 <meta property="og:site_name" content="${s}">
 <meta property="og:title" content="${t}">
 <meta property="og:description" content="${d}">
-<meta property="og:image" content="${i}">
+<meta property="og:image" content="${i}">${size}${ogAlt}
 <meta property="og:url" content="${u}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${t}">
 <meta name="twitter:description" content="${d}">
-<meta name="twitter:image" content="${i}">
+<meta name="twitter:image" content="${i}">${twAlt}
 </head>
 <body><a href="${u}">${t}</a></body>
 </html>`;
@@ -361,7 +368,64 @@ async function readCard(url) {
   }));
 }
 
+// ── The add's share link (/lp/<room>, /lp/<mint>), island answer thirty-one ──
+//
+// After an add, the receipt card's green button posts this link to X. Two readers reach it,
+// so it answers before the bot gate: X's crawler (and the rest of UNFURL_BOTS) gets the
+// island's card, the painting titled for the coin; a person is sent to the Add itself. The
+// card states no figure of the venue's own. "Every trade pays you" is what an LP is: the
+// pool's trade fee, less the venue's cut, goes to its LPs (src/lib/solana/receiptRead.ts).
+
+// The sheet rooms by id, with the coin each one's card is titled for. KEEP IN SYNC with
+// sheetRooms() in src/lib/sheet.ts (middleware.test.js pins ids and symbols).
+export const LP_ROOMS = { bayla: "BAYLA", bobo: "BOBO", soy: "SOY", brainlet: "BRAINLET", rizz: "RIZZ" };
+const LP_CARD = `${CANONICAL_ORIGIN}/share/lp-card.jpg`;
+const LP_CARD_ALT = "Bayla lays a glowing infinity brick on the island's plinth, under memetics.finance";
+const LP_TITLE = (symbol) =>
+  symbol ? `Hold $${symbol}'s floor. Every trade pays you.` : "Hold the floor. Every trade pays you.";
+const LP_DESCRIPTION = (symbol) =>
+  symbol
+    ? `Add SOL + ${symbol} to its pool on memetics.finance. Every trade in the pool pays you.`
+    : "Add liquidity to any pool on memetics.finance. Every trade in the pool pays you.";
+// A symbol read from outside reaches a card title only as a plain ticker: letters and digits, at most
+// 12. One "$" of its own is dropped first (GeckoTerminal reads WIF as "$WIF"): the title prints its own.
+const cardSymbol = (symbol) => {
+  const s = typeof symbol === "string" ? symbol.replace(/^\$/, "") : "";
+  return /^[A-Za-z0-9]{1,12}$/.test(s) ? s : null;
+};
+
+async function lpLink(req) {
+  const url = new URL(req.url);
+  if (url.pathname !== "/lp" && !url.pathname.startsWith("/lp/")) return undefined;
+  const key = (url.pathname.split("/")[2] || "").trim();
+  const room = Object.hasOwn(LP_ROOMS, key) ? key : null;
+  const mint = !room && SOLANA_MINT_RE.test(key) ? key : null;
+
+  // A person lands on the Add: the room's sheet, or the LP door on /pools. The redirect stays on
+  // the deployment that served it, so a preview stays a preview.
+  if (!UNFURL_BOTS.test(req.headers.get("user-agent") || "")) {
+    const to = room ? `/${room}?sheet=add` : mint ? `/pools?mint=${mint}&task=add` : "/pools";
+    return Response.redirect(new URL(to, url.origin).toString(), 307);
+  }
+
+  // A room's card is named from the room, with nothing read; any other token's from one identity read.
+  const symbol = room ? LP_ROOMS[room] : mint ? cardSymbol((await tokenIdentity(mint))?.symbol) : null;
+  return respond(ogHtml({
+    title: LP_TITLE(symbol),
+    description: LP_DESCRIPTION(symbol),
+    image: LP_CARD,
+    imageWidth: 2048,
+    imageHeight: 1024,
+    imageAlt: LP_CARD_ALT,
+    url: room || mint ? `${CANONICAL_ORIGIN}/lp/${key}` : `${CANONICAL_ORIGIN}/pools`,
+    siteName: "memetics.finance",
+  }));
+}
+
 export default async function middleware(req) {
+  const lp = await lpLink(req); // before the bot gate: a person is answered here too
+  if (lp) return lp;
+
   const ua = req.headers.get("user-agent") || "";
   if (!UNFURL_BOTS.test(ua)) return; // humans + JS crawlers → SPA
 
