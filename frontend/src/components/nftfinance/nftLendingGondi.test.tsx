@@ -262,8 +262,8 @@ describe('my loans: only a loan the chain confirms gets a button', () => {
     lenderRefinanceDisabled: false,
   };
 
-  async function openMyLoans(chainHash: string | 'failure') {
-    book.loans = [{ loanId: '3', loan: loanJson, status: 'open', emitTx: `0x${'1'.repeat(64)}`, closeTx: null }];
+  async function openMyLoans(chainHash: string | 'failure', loan: LoanJson = loanJson) {
+    book.loans = [{ loanId: '3', loan, status: 'open', emitTx: `0x${'1'.repeat(64)}`, closeTx: null }];
     weth(parseEther('5'), parseEther('5'));
     if (chainHash === 'failure') wagmiMock.setReadResult({ functionName: 'getLoanHash', address: LOAN, result: undefined, status: 'failure' });
     else wagmiMock.setReadResult({ functionName: 'getLoanHash', address: LOAN, result: chainHash });
@@ -280,6 +280,18 @@ describe('my loans: only a loan the chain confirms gets a button', () => {
     const arg = (call.args as [RepayArg])[0];
     expect(arg.data).toEqual({ loanId: 3n, callbackData: '0x', shouldDelegate: false });
     expect(arg.loan).toEqual(loanFromJson(loanJson));
+  });
+
+  // Gondi's repayLoan reverts with LoanExpiredError from startTime + duration on
+  // (MultiSourceLoan._baseLoanChecks): there is no grace period. A Repay button on an
+  // overdue loan would only spend the borrower's gas, and tell them the NFT is still saveable.
+  it('an overdue loan offers the borrower no repay step, and says repayment is closed', async () => {
+    const overdue: LoanJson = { ...loanJson, startTime: String(NOW - 31 * 86400), duration: String(30 * 86400) };
+    const card = (await openMyLoans(loanHash(loanFromJson(overdue)), overdue)).closest('div.relative') as HTMLElement;
+    expect(within(card).getByText('Overdue')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: /Repay Loan|Wrap .* ETH to WETH|Approve WETH to repay|Reading your WETH/ })).toBeNull();
+    expect(within(card).getByText(/no longer accepts repayment/)).toBeTruthy();
+    expect(writes()).toEqual([]);
   });
 
   it.each([

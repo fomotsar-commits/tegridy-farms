@@ -24,7 +24,7 @@ export const SHIELD_AUTOMATION_AVAILABLE = false;
  */
 export const F4_REQUIREMENTS: readonly string[] = [
   'A position watcher that reads each subscribed loan’s deadline, default status and repayment quote on its own tick, off the user’s browser, with its own staleness bound — the monitor loop in this app runs only while the tab is open.',
-  'A watcher that takes the closing time from `isDefaulted`, never from `effectiveDeadline + GRACE_PERIOD`. The contract extends grace by its own pause time, so the constant expires while repayment is still being accepted; a keeper scheduled on the constant would give up on a loan it could still have saved, and one that trusted the constant the other way would fire into a window that had already closed.',
+  'A watcher that lands the repayment BEFORE the deadline, with room for a slow block. Gondi has no grace period: from the deadline second its loan contract refuses repayment, so a save scheduled for the deadline is already too late.',
   'A pre-authorised execution credential scoped to {lending contract, loan id, max repayment, expiry}, revocable on-chain, so the executor can repay without ever holding or being able to redirect user funds.',
   'A funding source for the repayment itself. Monitoring is free; a repay is not. Either the user pre-funds an escrow they can withdraw from, or the executor flash-borrows and the position deleverages — the venue may not front capital it has not earned.',
   'Per-attempt receipts including failures, readable back into this UI, so a save that did not happen is visible as not having happened rather than as silence.',
@@ -60,9 +60,8 @@ export const ALERT_IS_NOT_AN_ACTION =
  *
  * A borrower arriving from a money market looks for the two moves that work
  * there — add collateral, or deleverage by repaying part of the debt. Neither
- * exists on `TegridyNFTLending`: `repayLoan` is the only debt-side function, it
- * reverts on anything under the full amount (`InsufficientRepayment`), and the
- * collateral is a single NFT that cannot be partly sold. Leaving that unsaid
+ * exists on Gondi's loan contract: a borrower's `repayLoan` repays every tranche
+ * whole, and the collateral is a single NFT that cannot be partly sold. Leaving that unsaid
  * would send a user hunting for a smaller, cheaper move that is not there while
  * the deadline runs out.
  */
@@ -106,7 +105,12 @@ export const SHIELD_COPY = {
     'The venue runs no keeper. Until one exists, every item below is missing, and this surface prepares transactions rather than sending them.',
   noPositions:
     'This wallet has no open borrow on the venue’s NFT lending. Nothing is at risk here, so nothing is being watched.',
-  signButton: 'Review and sign repayment',
+  /** One per step of a WETH repayment (lib/gondi/repay.ts). */
+  signButton: {
+    wrap: 'Review and sign: wrap ETH to WETH',
+    approve: 'Review and sign: approve WETH',
+    repay: 'Review and sign repayment',
+  },
   /**
    * Rendered when the wallet has NO deadline rule. The absence of an alerts
    * section would otherwise read as alerts being handled, which is the same

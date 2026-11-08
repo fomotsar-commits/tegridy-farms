@@ -7,29 +7,32 @@
 // the engine telling a borrower with four hours left that nothing needs their
 // attention.
 //
-// So every non-ready snapshot, and every position whose deadline read failed,
-// must come back `unavailable`. The tests below run the real `evaluateRule` on
-// the reader's output rather than asserting on the reading alone, because the
-// verdict is the thing a user sees.
+// So every non-ready snapshot must come back `unavailable`. A ready snapshot holds
+// only loans whose hash `getLoanHash` confirmed (a record that did not check out
+// makes the whole snapshot unreadable upstream, in useShieldPositions), so each
+// one carries Gondi's own deadline: `startTime + duration`. The tests below run
+// the real `evaluateRule` on the reader's output, because the verdict is the thing
+// a user sees.
 
 import { describe, it, expect } from 'vitest';
+import type { Address } from 'viem';
 import { snapshotLoanReader } from './alertReader';
 import { evaluateRule, type RuleFacts, type SourceReading } from '../alerts/evaluate';
 import type { AlertRule } from '../alerts/rules';
-import { assessDeadlineHealth } from './health';
+import type { Loan } from '../gondi/loanMath';
 import {
   buildSnapshot,
   idleSnapshot,
   loadingSnapshot,
   unreadableSnapshot,
   type RawLoanRead,
-  type ShieldPosition,
   type ShieldPositionsSnapshot,
 } from './positions';
 
 const NOW = 1_700_000_000;
 const LENDING = '0x2222222222222222222222222222222222222222' as const;
 const OTHER_CONTRACT = '0x3333333333333333333333333333333333333333' as const;
+const ONE = 1_000_000_000_000_000_000n;
 
 const RULE: AlertRule = {
   id: 'r1',
@@ -40,22 +43,32 @@ const RULE: AlertRule = {
   createdAt: NOW - 1000,
 };
 
-function rawLoan(over: Partial<RawLoanRead> = {}): RawLoanRead {
+/** A Gondi loan, started a day before NOW, due at `deadline`. */
+function gondiLoan(deadline: number): Loan {
+  const startTime = BigInt(NOW - 86_400);
   return {
-    loanId: 1,
+    borrower: '0x1111111111111111111111111111111111111111' as Address,
+    nftCollateralTokenId: 9n,
+    nftCollateralAddress: '0x4444444444444444444444444444444444444444' as Address,
+    principalAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address,
+    principalAmount: ONE,
+    startTime,
+    duration: BigInt(deadline) - startTime,
+    tranche: [{
+      loanId: 1n, floor: 0n, principalAmount: ONE, lender: '0x5555555555555555555555555555555555555555' as Address,
+      accruedInterest: 0n, startTime, aprBps: 1000n,
+    }],
+    protocolFee: 500n,
+    lenderRefinanceDisabled: false,
+  };
+}
+
+function rawLoan(over: { loanId?: number; deadline?: number; lendingContract?: Address } = {}): RawLoanRead {
+  return {
+    loanId: over.loanId ?? 1,
     venue: 'tegridy-nft-lending',
-    lendingContract: LENDING,
-    collateralContract: '0x4444444444444444444444444444444444444444',
-    tokenId: 9n,
-    principal: 1_000_000_000_000_000_000n,
-    borrower: '0x1111111111111111111111111111111111111111',
-    repaid: false,
-    defaultClaimed: false,
-    effectiveDeadlineUnix: NOW + 100 * 3600,
-    minGraceSeconds: 3600,
-    defaultedOnChain: false,
-    quotedRepayWei: 1_010_000_000_000_000_000n,
-    ...over,
+    lendingContract: over.lendingContract ?? LENDING,
+    loan: gondiLoan(over.deadline ?? NOW + 100 * 3600),
   };
 }
 
@@ -90,46 +103,39 @@ describe('a snapshot that is not ready is never an empty loan list', () => {
   });
 });
 
-describe('one unreadable loan makes the answer unknown, not smaller', () => {
-  it('refuses the whole reading rather than dropping the loan it could not read', async () => {
-    const snapshot = buildSnapshot(
-      [rawLoan({ loanId: 1 }), rawLoan({ loanId: 2, effectiveDeadlineUnix: null })],
-      NOW,
-    );
-    const reading = await readWith(snapshot);
-    expect(reading.status).toBe('unavailable');
-    expect(reading.status === 'unavailable' && reading.detail).toMatch(/Loan #2 could not be read/);
-  });
-
-  it('that refusal becomes cannot-evaluate, so the good loan does not certify the bad one', async () => {
-    const snapshot = buildSnapshot(
-      [rawLoan({ loanId: 1 }), rawLoan({ loanId: 2, effectiveDeadlineUnix: null })],
-      NOW,
-    );
-    expect(verdictOf(await readWith(snapshot)).verdict).toBe('cannot-evaluate');
-  });
-
-  it('a loan on ANOTHER contract being unreadable does not poison this rule', async () => {
-    const snapshot: ShieldPositionsSnapshot = buildSnapshot([rawLoan({ loanId: 1 })], NOW);
-    const stranger: ShieldPosition = {
-      ...snapshot.positions[0]!,
-      loanId: 55,
-      lendingContract: OTHER_CONTRACT,
-      health: assessDeadlineHealth({
-        effectiveDeadlineUnix: null,
-        minGraceSeconds: null,
-        defaultedOnChain: null,
-        nowUnix: NOW,
-      }),
-    };
-    const reading = await readWith({ ...snapshot, positions: [...snapshot.positions, stranger] });
+describe('a ready snapshot becomes Gondi deadline facts', () => {
+  it('each loan’s deadlineAt is startTime + duration, with no grace field', async () => {
+    const raw = rawLoan({ loanId: 4, deadline: NOW + 4 * 3600 });
+    const reading = await readWith(buildSnapshot([raw], NOW));
     expect(reading.status).toBe('ok');
+    if (reading.status !== 'ok' || reading.value.kind !== 'loan-deadline') throw new Error('expected loan facts');
+    expect(reading.value.loans).toHaveLength(1);
+    const fact = reading.value.loans[0]!;
+    expect(fact.deadlineAt).toBe(Number(raw.loan.startTime + raw.loan.duration));
+    expect(fact.deadlineAt).toBe(NOW + 4 * 3600);
+    expect(fact.loanId).toBe(4);
+    expect(fact.contract).toBe(LENDING.toLowerCase());
+    expect(fact.band).toBe('urgent');
+    expect(fact).not.toHaveProperty('graceEndsAt');
+  });
+
+  it('only this rule’s contract is judged', async () => {
+    const reading = await readWith(
+      buildSnapshot([rawLoan({ loanId: 1 }), rawLoan({ loanId: 2, lendingContract: OTHER_CONTRACT })], NOW),
+    );
+    if (reading.status !== 'ok' || reading.value.kind !== 'loan-deadline') throw new Error('expected loan facts');
+    expect(reading.value.loans.map((l) => l.loanId)).toEqual([1]);
+  });
+
+  it('stamps the reading with the snapshot’s own second', async () => {
+    const reading = await readWith(buildSnapshot([rawLoan()], NOW));
+    expect(reading.status === 'ok' && reading.observedAt).toBe(NOW);
   });
 });
 
 describe('a ready snapshot answers the rule it was asked', () => {
   it('fires for a loan inside the lead time', async () => {
-    const snapshot = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW + 4 * 3600 })], NOW);
+    const snapshot = buildSnapshot([rawLoan({ deadline: NOW + 4 * 3600 })], NOW);
     const verdict = verdictOf(await readWith(snapshot));
     expect(verdict.verdict).toBe('fired');
     expect(verdict.events).toHaveLength(1);
@@ -137,7 +143,7 @@ describe('a ready snapshot answers the rule it was asked', () => {
   });
 
   it('is quiet — a real negative — for a loan comfortably clear of the deadline', async () => {
-    const snapshot = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW + 100 * 3600 })], NOW);
+    const snapshot = buildSnapshot([rawLoan({ deadline: NOW + 100 * 3600 })], NOW);
     const verdict = verdictOf(await readWith(snapshot));
     expect(verdict.verdict).toBe('quiet');
     expect(verdict.detail).toMatch(/none within 24h/i);
@@ -150,15 +156,17 @@ describe('a ready snapshot answers the rule it was asked', () => {
   });
 
   it('ignores loans on a different lending contract', async () => {
-    const snapshot = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW + 3600 })], NOW);
+    const snapshot = buildSnapshot([rawLoan({ deadline: NOW + 3600 })], NOW);
     const otherRule: AlertRule = { ...RULE, subject: OTHER_CONTRACT };
     const verdict = verdictOf(await readWith(snapshot, otherRule), otherRule);
     expect(verdict.verdict).toBe('quiet');
   });
 
-  it('fires for a loan already past its deadline', async () => {
-    const snapshot = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW - 600 })], NOW);
-    expect(verdictOf(await readWith(snapshot)).verdict).toBe('fired');
+  it('fires for a loan already past its deadline, saying repayment is no longer accepted', async () => {
+    const snapshot = buildSnapshot([rawLoan({ deadline: NOW - 600 })], NOW);
+    const verdict = verdictOf(await readWith(snapshot));
+    expect(verdict.verdict).toBe('fired');
+    expect(verdict.events[0]!.body).toMatch(/no longer accepts repayment/i);
   });
 });
 
@@ -171,13 +179,13 @@ describe('escalation is a new fact, so the wire is not silent', () => {
     const wide: AlertRule = { ...RULE, threshold: 200 };
     const deadline = NOW + 100 * 3600;
 
-    const early = verdictOf(await readWith(buildSnapshot([rawLoan({ effectiveDeadlineUnix: deadline })], NOW), wide), wide);
+    const early = verdictOf(await readWith(buildSnapshot([rawLoan({ deadline })], NOW), wide), wide);
     expect(early.verdict).toBe('fired');
 
     const lateAt = NOW + 90 * 3600; // 10h left — urgent, not safe
     const late = evaluateRule(
       wide,
-      await readWith(buildSnapshot([rawLoan({ effectiveDeadlineUnix: deadline })], lateAt), wide),
+      await readWith(buildSnapshot([rawLoan({ deadline })], lateAt), wide),
       null,
       lateAt,
     ).evaluation;
@@ -186,9 +194,9 @@ describe('escalation is a new fact, so the wire is not silent', () => {
   });
 
   it('does not re-fire for the same loan in the same band across passes', async () => {
-    const snapshot = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW + 4 * 3600 })], NOW);
+    const snapshot = buildSnapshot([rawLoan({ deadline: NOW + 4 * 3600 })], NOW);
     const a = verdictOf(await readWith(snapshot)).events[0]!.idempotencyKey;
-    const later = buildSnapshot([rawLoan({ effectiveDeadlineUnix: NOW + 4 * 3600 })], NOW + 60);
+    const later = buildSnapshot([rawLoan({ deadline: NOW + 4 * 3600 })], NOW + 60);
     const b = evaluateRule(RULE, await readWith(later), null, NOW + 60).evaluation.events[0]!.idempotencyKey;
     expect(a).toBe(b);
   });

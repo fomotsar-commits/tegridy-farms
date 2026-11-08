@@ -5,11 +5,16 @@
 // share a rendering would put the calmest possible screen in front of the user
 // during an RPC outage, which is the same bug as an unhosted indexer rendering an
 // empty result set.
+//
+// A ready snapshot is built from loans whose hash `getLoanHash` confirmed, so the
+// deadline is the loan's own `startTime + duration` and what is owed is Gondi's
+// own arithmetic (`owedAt`).
 
 import { describe, it, expect } from 'vitest';
+import type { Address } from 'viem';
+import { owedAt, type Loan } from '../gondi/loanMath';
 import {
   IDLE_DETAIL,
-  QUOTE_UNREADABLE_DETAIL,
   READ_FAILED_DETAIL,
   buildSnapshot,
   idleSnapshot,
@@ -21,24 +26,32 @@ import {
 
 const NOW = 1_700_000_000;
 const LENDING = '0x2222222222222222222222222222222222222222' as const;
+const BORROWER = '0x1111111111111111111111111111111111111111' as Address;
+const LENDER = '0x3333333333333333333333333333333333333333' as Address;
+const COLLECTION = '0x4444444444444444444444444444444444444444' as Address;
+const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address;
+const ONE = 1_000_000_000_000_000_000n;
 
-function raw(over: Partial<RawLoanRead> = {}): RawLoanRead {
+/** A one-lender Gondi loan due `dueIn` seconds after NOW, started a day before NOW. */
+function gondiLoan(dueIn: number, over: Partial<Loan> = {}): Loan {
+  const startTime = BigInt(NOW - 86_400);
   return {
-    loanId: 1,
-    venue: 'tegridy-nft-lending',
-    lendingContract: LENDING,
-    collateralContract: '0x4444444444444444444444444444444444444444',
-    tokenId: 1n,
-    principal: 1_000_000_000_000_000_000n,
-    borrower: '0x1111111111111111111111111111111111111111',
-    repaid: false,
-    defaultClaimed: false,
-    effectiveDeadlineUnix: NOW + 100 * 3600,
-    minGraceSeconds: 3600,
-    defaultedOnChain: false,
-    quotedRepayWei: 1_010_000_000_000_000_000n,
+    borrower: BORROWER,
+    nftCollateralTokenId: 7n,
+    nftCollateralAddress: COLLECTION,
+    principalAddress: WETH,
+    principalAmount: ONE,
+    startTime,
+    duration: BigInt(86_400 + dueIn),
+    tranche: [{ loanId: 1n, floor: 0n, principalAmount: ONE, lender: LENDER, accruedInterest: 0n, startTime, aprBps: 1000n }],
+    protocolFee: 500n,
+    lenderRefinanceDisabled: false,
     ...over,
   };
+}
+
+function raw(loanId: number, dueIn = 100 * 3600, over: Partial<Loan> = {}): RawLoanRead {
+  return { loanId, venue: 'tegridy-nft-lending', lendingContract: LENDING, loan: gondiLoan(dueIn, over) };
 }
 
 describe('only `ready` may be read as an answer', () => {
@@ -66,68 +79,54 @@ describe('only `ready` may be read as an answer', () => {
   });
 });
 
-describe('a loan whose reads failed keeps its row', () => {
-  it('reports unreadable health rather than disappearing from the list', () => {
-    const snapshot = buildSnapshot([raw({ effectiveDeadlineUnix: null })], NOW);
-    expect(snapshot.positions).toHaveLength(1);
-    expect(snapshot.positions[0]!.health.status).toBe('unreadable');
+describe('a position is the hash-checked loan, read as Gondi reads it', () => {
+  it('takes the deadline from startTime + duration of the loan', () => {
+    const r = raw(4, 7200);
+    const p = buildSnapshot([r], NOW).positions[0]!;
+    expect(p.health.deadlineUnix).toBe(Number(r.loan.startTime + r.loan.duration));
+    expect(p.health.deadlineUnix).toBe(NOW + 7200);
+    expect(p.health.secondsToDeadline).toBe(7200);
   });
 
-  it('names the loan in the reason, so the user knows which one is unknown', () => {
-    const snapshot = buildSnapshot([raw({ loanId: 12, effectiveDeadlineUnix: null })], NOW);
-    const health = snapshot.positions[0]!.health;
-    expect(health.status === 'unreadable' && health.detail).toMatch(/Loan #12/);
+  it('quotes what is owed now with owedAt, the same math My Loans shows', () => {
+    const r = raw(4, 7200);
+    const p = buildSnapshot([r], NOW).positions[0]!;
+    expect(p.owedNowWei).toBe(owedAt(r.loan, BigInt(NOW)).total);
+    // A day of 10% APR on 1 WETH is real interest, so the quote is above the principal.
+    expect(p.owedNowWei).toBeGreaterThan(ONE);
   });
 
-  it('reports unreadable health when only the contract’s default verdict went missing', () => {
-    // The row still has a deadline, so a model that judged on the clock alone
-    // would happily band it. Without `isDefaulted` nobody knows whether the
-    // window is open, and that is what the row has to say.
-    const snapshot = buildSnapshot([raw({ defaultedOnChain: null })], NOW);
-    expect(snapshot.positions[0]!.health.status).toBe('unreadable');
+  it('carries the collateral, the borrower and the loan itself from the struct', () => {
+    const r = raw(4);
+    const p = buildSnapshot([r], NOW).positions[0]!;
+    expect(p.collateralContract).toBe(COLLECTION);
+    expect(p.tokenId).toBe(7n);
+    expect(p.principal).toBe(ONE);
+    expect(p.borrower).toBe(BORROWER);
+    expect(p.loan).toBe(r.loan);
+    expect(p.lendingContract).toBe(LENDING);
   });
 
-  it('flags a missing repayment quote separately from a missing deadline', () => {
-    const snapshot = buildSnapshot([raw({ quotedRepayWei: null })], NOW);
-    expect(snapshot.positions[0]!.quotedRepayWei).toBeNull();
-    expect(snapshot.positions[0]!.quoteDetail).toBe(QUOTE_UNREADABLE_DETAIL);
-    expect(snapshot.positions[0]!.health.status).toBe('read');
-  });
-
-  it('leaves quoteDetail null when the quote was read', () => {
-    expect(buildSnapshot([raw()], NOW).positions[0]!.quoteDetail).toBeNull();
+  it('a loan at its deadline second is already past repaying', () => {
+    const p = buildSnapshot([raw(4, 0)], NOW).positions[0]!;
+    expect(p.health.band).toBe('defaulted');
+    expect(p.health.repayable).toBe(false);
   });
 });
 
 describe('the worst position surfaces first', () => {
   it('sorts defaulted above urgent above safe', () => {
-    const snapshot = buildSnapshot(
-      [
-        raw({ loanId: 1, effectiveDeadlineUnix: NOW + 500 * 3600 }),
-        raw({ loanId: 2, effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true }),
-        raw({ loanId: 3, effectiveDeadlineUnix: NOW + 2 * 3600 }),
-      ],
-      NOW,
-    );
+    const snapshot = buildSnapshot([raw(1, 500 * 3600), raw(2, -100_000), raw(3, 2 * 3600)], NOW);
     expect(snapshot.positions.map((p) => p.loanId)).toEqual([2, 3, 1]);
-  });
-
-  it('puts an unreadable loan above every readable one, including a defaulted one', () => {
-    const snapshot = buildSnapshot(
-      [
-        raw({ loanId: 1, effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true }),
-        raw({ loanId: 2, effectiveDeadlineUnix: null }),
-      ],
-      NOW,
-    );
     expect(worstPosition(snapshot)!.loanId).toBe(2);
   });
 
   it('breaks ties by loan id so the order does not shuffle between passes', () => {
-    const snapshot = buildSnapshot(
-      [raw({ loanId: 9 }), raw({ loanId: 3 }), raw({ loanId: 6 })],
-      NOW,
-    );
+    const snapshot = buildSnapshot([raw(9), raw(3), raw(6)], NOW);
     expect(snapshot.positions.map((p) => p.loanId)).toEqual([3, 6, 9]);
+  });
+
+  it('stamps the snapshot with the second it was judged', () => {
+    expect(buildSnapshot([raw(1)], NOW).observedAt).toBe(NOW);
   });
 });
