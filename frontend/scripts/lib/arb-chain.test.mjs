@@ -136,6 +136,14 @@ describe('tripsFor: only what the robot would take', () => {
   it('leaves out a pool that cannot trade', () => {
     expect(trips([whirlpool({ usd: 1000, liquidity: 0n }), whirlpool({ usd: 1020 })])).toHaveLength(0);
   });
+  it('leaves out a bin pool (its depth is rough): the same gap through it gives no trip', () => {
+    const a = decodePool('whirlpool', key(34), whirlpool({ usd: 1000 }));
+    const b = decodePool('whirlpool', key(35), whirlpool({ usd: 1020 }));
+    const ctx = (depthB) => ({ token: ZEC_MINT, decimals: 8, depths: new Map([[a.address, depthOf(a, new Map())], [b.address, depthB]]), usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map(), bridge: null, settings: SETTINGS });
+    const smooth = depthOf(b, new Map());
+    expect(tripsFor([a, b], ctx(smooth)).some((t) => t.pays)).toBe(true);
+    expect(tripsFor([a, b], ctx({ ...smooth, rough: true }))).toHaveLength(0);
+  });
   it('leaves out a pool whose trading is switched off, even with depth', () => {
     const a = decodePool('whirlpool', key(30), whirlpool({ usd: 1000 }));
     const b = { ...decodePool('whirlpool', key(31), whirlpool({ usd: 1020 })), stopped: 'trading switched off' };
