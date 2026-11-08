@@ -139,3 +139,17 @@ describe("once a curve's launching is open", () => {
     }
   });
 });
+
+// Cardano's swap fee follows venueFee.ts: the answer says the rate, its basis and where it is
+// paid while a fee address is registered, and "no fee" only while none is.
+describe('the Cardano swap fee in the answers', () => {
+  it('says the venue takes 0.5% of the ADA side to its two-key treasury, never "no fee there yet"', () => {
+    const cardano = KNOWLEDGE_BASE.filter((e) => /\/cardano swaps/.test(e.answer));
+    expect(cardano.length).toBeGreaterThan(0);
+    for (const e of cardano) {
+      expect(e.answer).toMatch(/the venue takes 0\.5% of the ADA side, paid with your order straight to its two-key Cardano treasury/);
+      expect(e.answer).toMatch(/under about 200 ADA pays it nothing/);
+      expect(e.answer).not.toMatch(/takes no fee there yet/);
+    }
+  });
+});
