@@ -178,9 +178,8 @@ It was rolled back on 2026-10-24 (proposal #16) and upgraded again to the same b
 then rolled back by mistake on 2026-11-04 (proposal #24) and upgraded a third time on 2026-11-06 (proposal #31).
 The days and the transactions are in `MAINNET_RUNBOOK.md`, section 4b.
 
-**The re-upgrade is approved:** vault proposal #23 puts `1e55bcdc…` back, a build of this
-source, and was approved 2 of 2 on 2026-10-31. It can run from 2026-11-02 19:50:49 UTC. Quote
-against this source: once #23 runs, it is the live program.
+**Quote against this source:** since vault proposal #31 ran on 2026-11-06 at 15:13:03 UTC, a
+build of it (`1e55bcdc…`) is the live program.
 
 ---
 
