@@ -33,6 +33,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     under: null,
     fee: { kind: 'reading' },
     clock: 'day1',
+    lps: null,
     ...over,
   };
 }
@@ -79,12 +80,17 @@ describe('the flame catches', () => {
     expect(flame()).toBe('catching');
   });
 
-  it('an add catches the same way', () => {
+  it('an add never takes the flame: its card has the pool instead (answer thirty-two), and the ring’s catch never ticks for it', () => {
     act(() => raiseReceipt(receipt({ action: 'added', clock: 'double' })));
+    expect(flame()).toBeNull();
+    expect(screen.queryByTestId('flame-ring')).toBeNull();
     rise();
-    expect(flame()).toBe('catching');
     catchBeat();
-    expect(tick).toHaveBeenCalledTimes(1);
+    pass(2000);
+    expect(flame()).toBeNull();
+    expect(screen.queryByTestId('flame-ring')).toBeNull();
+    expect(screen.getByTestId('floor-ring')).toBeInTheDocument();
+    expect(tick).not.toHaveBeenCalled();
   });
 
   it('a sale never lights: the ember stays, no catch, no tick, the clock line in place', () => {

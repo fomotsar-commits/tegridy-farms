@@ -217,6 +217,9 @@ export const RECEIPT_WORDS = {
   dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  /** The line under an add's title from the landing on (island answer thirty-two). A ticker that
+   *  already carries its own `$` (GeckoTerminal reads WIF as "$WIF") is not given a second one. */
+  floor: (coin: string) => `You're part of $${coin.replace(/^\$/, '')}'s floor now. Every trade in the pool pays you.`,
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,

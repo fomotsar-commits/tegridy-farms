@@ -2,20 +2,24 @@ import type { Connection } from '@solana/web3.js';
 import { RECEIPT_WORDS } from '../../../lib/arrival';
 import { bungalowByAddress } from '../../../lib/bungalows';
 import { lastReading } from '../../../lib/heat/heatStore';
-import { clockFor, raiseReceipt } from '../../../lib/receipt';
+import { clockFor, raiseReceipt, settleReceipt } from '../../../lib/receipt';
 import { SOLANA_FEE_ACCOUNT } from '../../../lib/solana';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { settleAddReceipt, type FeeRoute } from '../../../lib/solana/receiptRead';
+import type { LpReaders } from './readers';
 
 /**
  * An add that landed ends on the receipt card (island answer twenty-five, build 6): it rises at
  * once, and what went in, with the fee, is then read from the signature. An add of both coins
  * pays the pool no fee; an add made with one coin shows its swap leg's fee, read from step 1.
+ * The pool's other LPs are then read (`holders`, the readers' own; island answer thirty-two):
+ * that many bricks on the card's floor besides the adder's.
  */
 export function raiseAddReceipt(
   rpc: Pick<Connection, 'getTransaction'>,
   signature: string,
-  a: { view: PoolView; wallet: string; ticker: string; decimals: number; leg?: { signature: string; paid: 'quote' | 'token' } },
+  // `holders` is always passed, the reader's own or undefined: a call that forgets it is a type error.
+  a: { view: PoolView; wallet: string; ticker: string; decimals: number; leg?: { signature: string; paid: 'quote' | 'token' }; holders: LpReaders['holders'] },
 ): void {
   const { view } = a;
   const island = bungalowByAddress('solana', view.tokenMint) !== null;
@@ -29,7 +33,15 @@ export function raiseAddReceipt(
     under: RECEIPT_WORDS.addedTo(a.ticker),
     fee: { kind: 'reading' },
     clock: clockFor('added', view.tokenMint, a.wallet, lastReading(), island),
+    lps: null,
   });
+  // The read is at 'confirmed', like the add, so the adder's own share is in it: it is their
+  // brick, already on the floor, and is left out of the count. A read that fails leaves null:
+  // the floor is bedrock and the adder, never a wrong count.
+  void a
+    .holders?.(view)
+    .then((r) => settleReceipt(signature, { lps: r.kind === 'ok' ? r.holders.filter((h) => h.owner !== a.wallet).length : null }))
+    .catch(() => undefined);
   const quote = { mint: view.quote.mint, symbol: view.quote.symbol, decimals: view.quote.decimals };
   const token = { mint: view.tokenMint, symbol: a.ticker, decimals: a.decimals };
   // With the pool's fee settings unread, a swap leg in this pool cannot be split: its row says so.
