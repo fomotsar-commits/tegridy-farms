@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "./TegridyPair.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {TegridyFactoryLib} from "./lib/TegridyFactoryLib.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 // AUDIT FIX 2026-05-26 [H-08] — EnumerableSet tracks per-token TOKEN_BLOCK_CHANGE
 // and per-pair PAIR_DISABLE_CHANGE pending proposals so acceptFeeToSetter can
 // flush every queued proposal the OLD setter left behind on rotation.
@@ -78,6 +79,12 @@ contract TegridyFactory is TimelockAdmin {
     ///         without disturbing existing pairs.
     uint256 public constant MAX_PAIRS = 10000;
     error PairLimitReached();
+    /// @notice Owner ruling 2026-10-25: opening a pool costs exactly 0.006 ETH, paid by
+    ///         whoever opens it (a direct `createPair` caller, or the router on the opener's
+    ///         behalf) straight to `feeTo`. Fixed: a different fee is a new factory.
+    ///         Shape copied from Raydium cp-swap `create_pool_fee` (initialize.rs: a fixed
+    ///         amount moved from the creator to the fee receiver when the pool is made).
+    uint256 public constant POOL_OPENING_FEE = 0.006 ether;
     /// @notice AUDIT FIX F-30-1 / M-21 (MED): emitted when a propose-disable or
     ///         emergency-disable call targets an address that was never registered
     ///         as a pair by THIS factory. Closes the surface where a captured
@@ -242,7 +249,9 @@ contract TegridyFactory is TimelockAdmin {
     ///      before updating reserves. While nonReentrant prevents re-entering the same pair,
     ///      ERC-777 callbacks could re-enter the router or other pairs with stale state.
     ///      Only create pairs with standard ERC-20 tokens.
-    function createPair(address tokenA, address tokenB) external returns (address pair) {
+    /// @dev msg.value must be exactly POOL_OPENING_FEE; it is forwarded to `feeTo`.
+    function createPair(address tokenA, address tokenB) external payable returns (address pair) {
+        require(msg.value == POOL_OPENING_FEE, "OPENING_FEE");
         require(tokenA != tokenB, "IDENTICAL_ADDRESSES");
         // R064 (LOW): enforce the MAX_PAIRS ceiling BEFORE doing any other
         // work, so spam-attempts after the cap are cheap reverts.
@@ -290,6 +299,9 @@ contract TegridyFactory is TimelockAdmin {
         allPairs.push(pair);
 
         emit PairCreated(token0, token1, pair, allPairs.length);
+        // Interaction last (CEI). feeTo is the timelocked treasury (a Safe); the 30k-gas
+        // stipend covers a Safe's receive and is far too little to re-enter createPair.
+        WETHFallbackLib.safeTransferETH(feeTo, msg.value);
     }
 
     /// @notice DEPRECATED: Use proposeFeeToChange() + executeFeeToChange() instead.

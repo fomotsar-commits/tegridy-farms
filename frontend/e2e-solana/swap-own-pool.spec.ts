@@ -11,7 +11,7 @@ import { formatSol, formatTokenAmount } from '../src/lib/launcher/solana/curve/f
 import { ata, fundedKeypair, lamports, poolFacts, sol, tokenAmount, WSOL } from './fixtures/chain';
 import { createSolPool, createToken2022MetadataOnly, transferTokens, type CreatedPool } from './fixtures/lp';
 import { actor, press, type Actor } from './fixtures/lpPage';
-import { ui, connectWallet } from './fixtures/ui';
+import { ui, backToTheRoom, clickReal, connectWallet } from './fixtures/ui';
 
 const UNIT = 1_000_000n;
 const POOL_SOL = sol(10);
@@ -62,16 +62,25 @@ async function trader(browser: Parameters<typeof actor>[0], kp: Keypair, jupiter
 }
 
 /**
- * ONE PRESS. After Buy the wallet is asked with no review screen and no second button,
- * and one line says the swap landed: no card to close. The chain is what each test
- * checks the amounts against.
+ * Every swap in our pool stops on its review before the wallet is asked (owner, 2026-10-13):
+ * nothing is signed until Sign in wallet. A landed swap ends on the receipt card, titled with
+ * what was done (island answer twenty-five), and Back to the room returns to the form. The
+ * chain is what each test checks the amounts against.
  */
 async function landed(a: Actor, words: string): Promise<void> {
+  const p = a.page;
+  await expect(ui.review(p)).toBeVisible({ timeout: 60_000 });
+  await expect(ui.review(p)).toContainText(pool.address.toBase58());
+  expect(a.wallet.signed(), 'nothing is asked of the wallet before Sign').toHaveLength(0);
+  await clickReal(ui.signButton(p), 'Sign in wallet');
   await expect.poll(() => a.wallet.signed().length, { timeout: 90_000 }).toBe(1);
-  await expect(a.page.getByText(words, { exact: true })).toBeVisible({ timeout: 90_000 });
-  await expect(ui.review(a.page)).toHaveCount(0);
-  await expect(ui.outcome(a.page)).toHaveCount(0);
-  await expect(a.page.getByRole('button', { name: 'Sign in wallet' })).toHaveCount(0);
+  // "Bought ROUTE" as it rises; the amount joins it once read from the signature.
+  const [verb, coin] = words.split(' ');
+  await expect(p.getByTestId('receipt-title')).toHaveText(new RegExp(`^${verb} (.+ )?${coin}$`), { timeout: 90_000 });
+  await backToTheRoom(p);
+  await expect(ui.review(p)).toHaveCount(0);
+  await expect(ui.outcome(p)).toHaveCount(0);
+  await expect(p.getByRole('button', { name: 'Sign in wallet' })).toHaveCount(0);
 }
 
 async function openSwap(p: Page, query: string): Promise<void> {
@@ -86,7 +95,7 @@ test.beforeAll(async () => {
   expect(pool.standard).toBe(true);
 });
 
-test('our pool pays more: one press of Buy, the wallet signs a swap in our pool, and the chain holds the trade', async ({ browser }) => {
+test('our pool pays more: Buy opens the review, the wallet signs a swap in our pool, and the chain holds the trade', async ({ browser }) => {
   test.setTimeout(5 * 60_000);
   const me = await fundedKeypair(5);
   // Jupiter prices the token 20% dearer than our pool does.
@@ -111,7 +120,7 @@ test('our pool pays more: one press of Buy, the wallet signs a swap in our pool,
   await expect(p.getByRole('checkbox')).toHaveCount(0);
   await expect(p.getByTestId('solana-receive')).toHaveText(new RegExp(`^${tokenText(expected).replace(/,/g, '').split('.')[0]}`));
 
-  // Buy: the wallet, never Jupiter's transaction.
+  // Buy: our pool's review, then the wallet; never Jupiter's transaction.
   const jupiterBuilds: string[] = [];
   p.on('request', (r) => {
     if (r.url().includes('/api/jupiter/swap/v1/swap')) jupiterBuilds.push(r.url());

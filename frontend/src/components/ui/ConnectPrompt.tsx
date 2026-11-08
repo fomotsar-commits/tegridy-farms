@@ -45,7 +45,8 @@ const DEFAULTS: Record<Surface, { title: string; description: string }> = {
   lending: {
     title: 'Connect to borrow or lend',
     description:
-      'Borrow or lend ETH against NFTs, peer to peer. 1-hour grace period, no liquidation auctions.',
+      // Gondi's loan contract: WETH, and no grace period (repayment closes at the deadline).
+      'Borrow or lend WETH against NFTs, peer to peer. No grace period: a loan unpaid at its deadline can be claimed.',
   },
   governance: {
     title: 'Connect to vote with held time',

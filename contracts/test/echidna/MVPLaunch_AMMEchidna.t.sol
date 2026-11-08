@@ -57,7 +57,7 @@ contract MVPLaunch_AMMEchidna {
         }
 
         factory = new TegridyFactory(address(this), address(this), address(this));
-        pair = TegridyPair(factory.createPair(address(token0), address(token1)));
+        pair = TegridyPair(factory.createPair{value: 0.006 ether}(address(token0), address(token1)));
 
         // Seed pair with initial liquidity so swaps have something to work with.
         token0.mint(address(pair), 1_000_000e18);

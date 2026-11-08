@@ -21,31 +21,38 @@
 //              confirmed yet", with the signature, NEVER as "failed": someone told
 //              "failed" presses the button again and pays twice.
 //
-// HOW IT IS SENT: the wallet only SIGNS (`signTransaction`). We broadcast through
-// our own RPC proxy, because a wallet's own send goes through the wallet's RPC and
-// chain choice. The signature is taken from the signed bytes BEFORE broadcast, so
-// every ending after signing carries it. The same signed bytes are re-sent every
-// couple of seconds until one of the endings above is proven. Same bytes, same
-// signature, so a re-send can never make it run twice. Once the signature is known,
-// and before the first byte leaves, `deps.onSent` is told it, so the page can keep a
-// note that survives a reload while the transaction may still land.
+// HOW IT IS SENT: the wallet only SIGNS. A legacy transaction goes to the adapter's
+// `signTransaction` as an object; a version 1 message (SIMD-0385) goes to the Wallet
+// Standard feature as raw bytes (`signV1`), because web3.js 1.98 cannot carry one. We
+// broadcast through our own RPC proxy, because a wallet's own send goes through the
+// wallet's RPC and chain choice. The signature is taken from the signed bytes BEFORE
+// broadcast, so every ending after signing carries it. The same signed bytes are re-sent
+// every couple of seconds until one of the endings above is proven. Same bytes, same
+// signature, so a re-send can never make it run twice. Once the signature is known, and
+// before the first byte leaves, `deps.onSent` is told it, so the page can keep a note that
+// survives a reload while the transaction may still land.
 //
 // IF THE WALLET CHANGES THE TRANSACTION: we re-check what came back with the same
-// rules as before signing. A wallet may append its own assertion-only guard
-// instructions; anything else that differs (a different fee payer, blockhash,
+// rules as before signing, in either format. A wallet may append its own assertion-only
+// guard instructions; anything else that differs (a different fee payer, blockhash,
 // signer set, or any of our instructions) is refused and nothing is sent. A changed
-// message is also simulated again and its balance effect re-checked.
+// message is also simulated again and its balance effect re-checked. The blockhash rule
+// holds for version 1 too, although Phantom "may refresh the blockhash during signing":
+// a new blockhash has a new last valid height, which would make the expiry proof above
+// wrong and could have someone pay twice.
 
 import { signThrowCopy } from '../../../solana/walletThrow';
 import { blockhashGone, type NoteBlockhash } from '../../../solana/blockhashWindow';
 import { base58 } from '@scure/base';
+import { createSolanaRpc, signature as kitSignature } from '@solana/kit';
 import { Transaction, type Connection } from '@solana/web3.js';
 import { clipDetail } from '../curve/read';
 import { explainFailure } from './errors';
 import { computeUnitLimit, decodeIntent } from './intent';
-import { baseFeeLamports, checkEffect, serializeBody, simulate, simulatedEffect } from './prepare';
-import { priorityLamports } from './budget';
-import type { NotSent, PreparedTx, SubmitDeps, TxKind, TxOutcome, TxSigner, WriteRpc } from './types';
+import { baseFeeOf, checkEffect, serializeBody, simulate, simulatedEffect } from './prepare';
+import { LAMPORTS_PER_SIGNATURE, priorityLamports } from './budget';
+import type { NotSent, PreparedCheck, PreparedTx, SolanaChain, SolanaCluster, SubmitDeps, TxConfig, TxKind, TxOutcome, TxSigner, TxVersion, WriteRpc } from './types';
+import { decodeV1, signV1WithKeypairs, verifyV1Signatures, type V1Wire } from './v1';
 
 const notSent = (stage: NotSent['stage'], message: string, logs?: string[]): NotSent => ({
   status: 'not-sent',
@@ -65,12 +72,24 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/** Every one of our instructions is still there, unchanged and in order (a wallet may add its own between them). */
+function bodyIntact(want: PreparedCheck['body'], got: PreparedCheck['body']): boolean {
+  let j = 0;
+  for (const g of got) {
+    const w = want[j];
+    if (!w) break;
+    if (g.programId === w.programId && g.data === w.data && g.keys.length === w.keys.length && g.keys.every((k, i) => k[0] === w.keys[i]![0])) {
+      j++;
+    }
+  }
+  return j === want.length;
+}
+
 /**
- * Check a transaction the wallet handed back that is not byte-identical to the one
- * we gave it. Returns a reason to refuse, or null.
+ * Check a legacy transaction the wallet handed back that is not byte-identical to the
+ * one we gave it. Returns a reason to refuse, or null.
  */
-async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, signed: Transaction): Promise<string | null> {
-  const ours = p.tx;
+async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, ours: Transaction, signed: Transaction): Promise<string | null> {
   if (!signed.feePayer || !ours.feePayer || !signed.feePayer.equals(ours.feePayer)) {
     return 'Your wallet changed who pays for this transaction, so nothing was sent.';
   }
@@ -79,24 +98,7 @@ async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, signed: Transact
   }
   const decoded = decodeIntent(signed.instructions, p.check.intent, { allowWalletGuards: true });
   if (!decoded.ok) return `Your wallet changed this transaction. ${decoded.reason} Nothing was sent.`;
-
-  // Every one of our instructions must still be there, unchanged and in order.
-  const want = p.check.body;
-  const got = serializeBody(signed.instructions);
-  let j = 0;
-  for (const g of got) {
-    const w = want[j];
-    if (!w) break;
-    if (
-      g.programId === w.programId &&
-      g.data === w.data &&
-      g.keys.length === w.keys.length &&
-      g.keys.every((k, i) => k[0] === w.keys[i]![0])
-    ) {
-      j++;
-    }
-  }
-  if (j !== want.length) return 'Your wallet removed or changed part of this transaction, so nothing was sent.';
+  if (!bodyIntact(p.check.body, serializeBody(signed.instructions))) return 'Your wallet removed or changed part of this transaction, so nothing was sent.';
 
   // The signer set must not grow: no one else may be asked to sign for this.
   const signersOf = (tx: Transaction) =>
@@ -117,7 +119,7 @@ async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, signed: Transact
     if (typeof effect === 'string') return `The safety check could not confirm your wallet’s version: ${effect}. Nothing was sent.`;
     const price = decoded.steps.find((s) => s.kind === 'compute-price');
     const fees =
-      baseFeeLamports(signed) +
+      baseFeeOf(signed.feePayer, signed.instructions) +
       priorityLamports(
         price && price.kind === 'compute-price' ? price.microLamports : 0n,
         computeUnitLimit(signed.instructions, decoded.steps),
@@ -130,15 +132,68 @@ async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, signed: Transact
   return null;
 }
 
+/**
+ * The same check for a version 1 message the wallet handed back with a different message.
+ * The budget is its config: the fee it carries is capped and counted, not read from steps.
+ */
+async function checkWalletChangesV1(rpc: WriteRpc, p: PreparedTx, ours: V1Wire, signed: V1Wire, returned: Uint8Array): Promise<string | null> {
+  if (!signed.payer.equals(ours.payer)) return 'Your wallet changed who pays for this transaction, so nothing was sent.';
+  if (signed.blockhash !== ours.blockhash) return 'Your wallet changed this transaction in a way this page cannot check, so nothing was sent.';
+  const decoded = decodeIntent(signed.instructions, p.check.intent, { allowWalletGuards: true, config: signed.config });
+  if (!decoded.ok) return `Your wallet changed this transaction. ${decoded.reason} Nothing was sent.`;
+  if (!bodyIntact(p.check.body, serializeBody(signed.instructions))) return 'Your wallet removed or changed part of this transaction, so nothing was sent.';
+
+  const before = new Set(ours.signers.map((k) => k.toBase58()));
+  const after = signed.signers.map((k) => k.toBase58());
+  if (before.size !== after.length || after.some((k) => !before.has(k))) {
+    return 'Your wallet changed who has to sign this transaction, so nothing was sent.';
+  }
+
+  try {
+    const sim = await simulate(rpc, returned, p.check.watch);
+    if (!sim.ok) {
+      return `After your wallet changed it, this transaction no longer works: ${explainFailure(sim.err, sim.logs, p.check.intent.cfg, p.kind).message} Nothing was sent.`;
+    }
+    const effect = simulatedEffect(p.check.watch, p.check.pre, sim.accounts);
+    if (typeof effect === 'string') return `The safety check could not confirm your wallet’s version: ${effect}. Nothing was sent.`;
+    const fees = BigInt(signed.signers.length) * LAMPORTS_PER_SIGNATURE + signed.config.priorityFeeLamports;
+    const mismatch = checkEffect(effect, p.check.expect, fees);
+    if (mismatch) return `Blocked after your wallet changed it: ${mismatch}. Nothing was sent.`;
+  } catch (e) {
+    return `Could not re-check the transaction your wallet returned (${clipDetail(e)}), so nothing was sent.`;
+  }
+  return null;
+}
+
+/**
+ * A landed transaction's logs, asked for at version 1. web3.js 1.98 refuses a version 1
+ * answer, so a transaction known to be version 1 is read through kit at the same endpoint,
+ * and so is one web3.js refused (Check again does not know the version). Empty when no
+ * read could run: the reason then stays general rather than wrong.
+ */
+async function readLogs(rpc: WriteRpc, signature: string, version: TxVersion | null): Promise<string[]> {
+  if (version !== 1) {
+    try {
+      const t = await rpc.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' });
+      return [...(t?.meta?.logMessages ?? [])];
+    } catch {
+      /* a version 1 answer: read again below */
+    }
+  }
+  try {
+    if (typeof rpc.rpcEndpoint !== 'string') return [];
+    const t = await createSolanaRpc(rpc.rpcEndpoint)
+      .getTransaction(kitSignature(signature), { encoding: 'base64', commitment: 'confirmed', maxSupportedTransactionVersion: 1 })
+      .send();
+    return [...(t?.meta?.logMessages ?? [])];
+  } catch {
+    return [];
+  }
+}
+
 /** Read the reason out of a landed-and-reverted transaction's logs. */
 async function revertedOutcome(rpc: WriteRpc, p: PreparedTx, signature: string, err: unknown): Promise<TxOutcome> {
-  let logs: string[] = [];
-  try {
-    const t = await rpc.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
-    logs = t?.meta?.logMessages ?? [];
-  } catch {
-    /* the reason stays general rather than becoming wrong */
-  }
+  const logs = await readLogs(rpc, signature, p.wire.version);
   const why = explainFailure(err, logs, p.check.intent.cfg, p.kind);
   return {
     status: 'reverted',
@@ -212,6 +267,91 @@ async function readStatus(rpc: WriteRpc, signature: string, history: boolean): P
   }
 }
 
+/** The signed bytes ready to send and their signature, or why nothing may be sent. */
+type Signed = { signature: string; raw: Uint8Array } | { refusal: string };
+
+/** 1. The wallet signs the legacy transaction as an object. 2. Changes are held to the rules. 3. Our extra signers sign after it. */
+async function signLegacy(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, ours: Transaction): Promise<Signed> {
+  const expected = ours.serializeMessage();
+  let signed: Transaction;
+  try {
+    signed = await signer.signTransaction(ours);
+  } catch (e) {
+    // Signing alone: whatever the wallet says, nothing left the page (lib/solana/walletThrow.ts).
+    return { refusal: signThrowCopy(e) };
+  }
+  if (!(signed instanceof Transaction)) {
+    // A wallet library bundling its own copy of web3.js returns a lookalike class.
+    // Re-read it from its bytes so every check below runs on a real Transaction.
+    try {
+      const bytes = (signed as unknown as { serialize(c: object): Uint8Array }).serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+      signed = Transaction.from(bytes);
+    } catch {
+      return { refusal: 'Your wallet returned something this page cannot check. Nothing was sent.' };
+    }
+  }
+  if (!sameBytes(signed.serializeMessage(), expected)) {
+    const refusal = await checkWalletChanges(rpc, p, ours, signed);
+    if (refusal) return { refusal };
+  }
+  // Our extra signers sign AFTER the wallet (Phantom's rule for multi-signer transactions).
+  try {
+    if (p.extraSigners.length) signed.partialSign(...p.extraSigners);
+  } catch (e) {
+    return { refusal: `The transaction could not be completed (${clipDetail(e)}). Nothing was sent.` };
+  }
+  if (!signed.verifySignatures()) return { refusal: 'A signature on this transaction does not check out. Nothing was sent.' };
+  const sigBytes = signed.signature;
+  if (!sigBytes) return { refusal: 'The transaction has no signature. Nothing was sent.' };
+  try {
+    return { signature: base58.encode(sigBytes), raw: signed.serialize() };
+  } catch (e) {
+    return { refusal: `The signed transaction could not be put together (${clipDetail(e)}). Nothing was sent.` };
+  }
+}
+
+/** The Wallet Standard name of a cluster: what a wallet is told it signs on. */
+const chainOf = (cluster: SolanaCluster): SolanaChain => `solana:${cluster}`;
+
+/** The same three steps for a version 1 message, as bytes through the Wallet Standard feature. */
+async function signV1(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, ours: { bytes: Uint8Array; config: TxConfig }): Promise<Signed> {
+  if (!signer.signV1) {
+    return { refusal: 'This transaction was prepared for a wallet that signs version 1 transactions, and the connected wallet does not. Prepare it again.' };
+  }
+  const expected = decodeV1(ours.bytes);
+  let returned: Uint8Array;
+  try {
+    returned = await signer.signV1(ours.bytes, chainOf(p.check.intent.cfg.cluster));
+  } catch (e) {
+    return { refusal: signThrowCopy(e) };
+  }
+  let signed: V1Wire;
+  try {
+    signed = decodeV1(returned);
+  } catch {
+    return { refusal: 'Your wallet returned something this page cannot check. Nothing was sent.' };
+  }
+  if (!sameBytes(signed.messageBytes, expected.messageBytes)) {
+    const refusal = await checkWalletChangesV1(rpc, p, expected, signed, returned);
+    if (refusal) return { refusal };
+  }
+  // Our extra signers sign AFTER the wallet (Phantom's rule for multi-signer transactions).
+  let raw: Uint8Array;
+  try {
+    raw = signV1WithKeypairs(returned, p.extraSigners);
+    signed = decodeV1(raw);
+  } catch (e) {
+    return { refusal: `The transaction could not be completed (${clipDetail(e)}). Nothing was sent.` };
+  }
+  if (!verifyV1Signatures(signed)) return { refusal: 'A signature on this transaction does not check out. Nothing was sent.' };
+  const sigBytes = signed.signatures.get(p.payer.toBase58());
+  if (!sigBytes) return { refusal: 'The transaction has no signature. Nothing was sent.' };
+  return { signature: base58.encode(sigBytes), raw };
+}
+
 /**
  * Sign with the wallet, add the extra signers, check, broadcast, and watch.
  * Never throws.
@@ -227,63 +367,19 @@ export async function submitPrepared(
   const timeoutMs = deps.timeoutMs ?? 120_000;
   const intervalMs = deps.intervalMs ?? 2_000;
 
-  if (!signer.publicKey || !p.tx.feePayer || !signer.publicKey.equals(p.tx.feePayer)) {
+  if (!signer.publicKey || !p.payer || !signer.publicKey.equals(p.payer)) {
     return notSent('sign', 'The connected wallet is not the one this transaction was prepared for. Prepare it again.');
   }
 
-  const expected = p.tx.serializeMessage();
+  // 1 to 3. The wallet signs (it never broadcasts), anything it changed is held to the
+  // same rules, and our extra signers sign after it: in the format it was prepared in.
+  const signed = p.wire.version === 1 ? await signV1(rpc, signer, p, p.wire) : await signLegacy(rpc, signer, p, p.wire.tx);
+  if ('refusal' in signed) return notSent('sign', signed.refusal);
+  const { signature, raw } = signed;
 
-  // 1. The wallet signs. It never broadcasts.
-  let signed: Transaction;
-  try {
-    signed = await signer.signTransaction(p.tx);
-  } catch (e) {
-    // Signing alone: whatever the wallet says, nothing left the page (lib/solana/walletThrow.ts).
-    return notSent('sign', signThrowCopy(e));
-  }
-  if (!(signed instanceof Transaction)) {
-    // A wallet library bundling its own copy of web3.js returns a lookalike class.
-    // Re-read it from its bytes so every check below runs on a real Transaction.
-    try {
-      const bytes = (signed as unknown as { serialize(c: object): Uint8Array }).serialize({
-        requireAllSignatures: false,
-        verifySignatures: false,
-      });
-      signed = Transaction.from(bytes);
-    } catch {
-      return notSent('sign', 'Your wallet returned something this page cannot check. Nothing was sent.');
-    }
-  }
-
-  // 2. Anything the wallet changed is held to the same rules.
-  if (!sameBytes(signed.serializeMessage(), expected)) {
-    const refusal = await checkWalletChanges(rpc, p, signed);
-    if (refusal) return notSent('sign', refusal);
-  }
-
-  // 3. Our extra signers sign AFTER the wallet (Phantom's rule for multi-signer transactions).
-  try {
-    if (p.extraSigners.length) signed.partialSign(...p.extraSigners);
-  } catch (e) {
-    return notSent('sign', `The transaction could not be completed (${clipDetail(e)}). Nothing was sent.`);
-  }
-  if (!signed.verifySignatures()) {
-    return notSent('sign', 'A signature on this transaction does not check out. Nothing was sent.');
-  }
-
-  // 4. The signature is known before anything leaves the browser.
-  const sigBytes = signed.signature;
-  if (!sigBytes) return notSent('sign', 'The transaction has no signature. Nothing was sent.');
-  const signature = base58.encode(sigBytes);
-  let raw: Buffer;
-  try {
-    raw = signed.serialize();
-  } catch (e) {
-    return notSent('sign', `The signed transaction could not be put together (${clipDetail(e)}). Nothing was sent.`);
-  }
-
-  // From here on the transaction may land even if this tab closes, so the page's
-  // note of it must exist before the first send.
+  // 4. The signature is known before anything leaves the browser. From here on the
+  // transaction may land even if this tab closes, so the page's note of it must exist
+  // before the first send.
   try {
     deps.onSent?.(signature, p.lastValidBlockHeight);
   } catch {
@@ -376,13 +472,7 @@ export async function recheckOutcome(
       return { status: 'unknown', signature, message: 'The network has seen it but has not confirmed it yet.' };
     }
     if (st.err) {
-      let logs: string[] = [];
-      try {
-        const t = await rpc.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
-        logs = t?.meta?.logMessages ?? [];
-      } catch {
-        /* keep it general */
-      }
+      const logs = await readLogs(rpc, signature, null);
       const why = opts.cfg
         ? explainFailure(st.err, logs, opts.cfg, opts.kind)
         : { program: 'other' as const, code: null, message: 'A program refused this transaction.' };

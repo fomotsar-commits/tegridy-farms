@@ -26,6 +26,7 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
@@ -300,6 +301,7 @@ function OpenFlow(p: {
     if (!signer || p.tolerance === null) return;
     const args = {
       owner: signer.publicKey,
+      txVersion: txVersionOf(signer),
       pool: new PublicKey(p.pool.pool.address),
       tickLower: p.range.tickLower,
       tickUpper: p.range.tickUpper,

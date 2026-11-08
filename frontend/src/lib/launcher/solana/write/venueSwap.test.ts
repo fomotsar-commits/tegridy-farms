@@ -20,7 +20,7 @@ import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../sol
 import { BAYLA_MINT } from '../../../solana/lp/tokenSafety';
 import { decodeIntent } from './intent';
 import { LP_COPY } from './liquidity';
-import { CPSWAP, EXT, FakeChain, LAUNCH, addPool, cfgLocal, openAccount, rent, setClock, setTransferFee, skewTestRun, tokenFeeTaken, type PoolFixture, type SimHandler } from './testkit.fixture';
+import { CPSWAP, EXT, FakeChain, LAUNCH, addPool, cfgLocal, legacyTx, openAccount, rent, setClock, setTransferFee, skewTestRun, tokenFeeTaken, type PoolFixture, type SimHandler } from './testkit.fixture';
 import type { AggregatorSeen, PreparedTx, SwapIntent, SwapOpenGate, VenueSwapSummary, WriteRpc } from './types';
 import { VENUE_SWAP_COPY, prepareVenueSwap, swapStepsProblem, type VenueSwapArgs } from './venueSwap';
 
@@ -221,7 +221,7 @@ function summaryOf(p: PreparedTx): VenueSwapSummary {
   if (p.summary.kind !== 'venue-swap') throw new Error('kind');
   return p.summary;
 }
-const swapIx = (p: PreparedTx) => p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+const swapIx = (p: PreparedTx) => legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
 const refusal = async (w: World, a: VenueSwapArgs) => {
   const r = await prepareVenueSwap(W(w.chain), OPEN, a);
   if (r.ok) throw new Error('it prepared');
@@ -628,7 +628,7 @@ describe('the checker: a venue swap read back out of its bytes', () => {
   async function built(o: Parameters<typeof world>[0] = { heldTokens: null }, side: 'buy' | 'sell' = 'buy') {
     const w = world(o);
     const p = ok(await prepareVenueSwap(W(w.chain), OPEN, side === 'buy' ? buy(w) : sell(w)));
-    return { w, p, intent: p.check.intent as SwapIntent, ixs: p.tx.instructions };
+    return { w, p, intent: p.check.intent as SwapIntent, ixs: legacyTx(p).instructions };
   }
   const reasonOf = (r: ReturnType<typeof decodeIntent>) => (r.ok ? 'accepted' : r.reason);
   /** The same instruction with one account swapped for another. */

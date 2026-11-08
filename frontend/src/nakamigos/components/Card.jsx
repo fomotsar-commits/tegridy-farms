@@ -1,7 +1,7 @@
 import { memo, useCallback } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
-import { formatPrice } from "../lib/formatPrice";
+import { formatPrice, formatListingPrice } from "../lib/formatPrice";
 import { OPENSEA_ITEM } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 
@@ -33,7 +33,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
       tabIndex={0}
       data-token-id={nft.id}
       onKeyDown={handleKeyDown}
-      aria-label={`${nft.name}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatPrice(nft.price)} ETH` : ""}`}
+      aria-label={`${nft.name}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatListingPrice(nft)} ETH` : ""}`}
     >
       <div className={`nft-card ${view}`}>
         <div className="card-image-wrap">
@@ -87,7 +87,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
               {nft.price != null ? (
                 <>
                   <div className="card-price" style={{ fontSize: isGallery ? 14 : 12 }}>
-                    <Eth />{formatPrice(nft.price)}
+                    <Eth />{formatListingPrice(nft)}
                   </div>
                   {nft.lastSale != null && (
                     <div className="card-last">Last: {formatPrice(nft.lastSale)}</div>

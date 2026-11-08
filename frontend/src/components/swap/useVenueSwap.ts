@@ -35,7 +35,7 @@ export const GATE_RETRY_MS = 15_000;
 /** A note of a sent swap is looked up again this often while it holds Buy. */
 export const NOTE_RECHECK_MS = 20_000;
 /** A sent swap's note belongs to the wallet that signed it: the fee payer it was built for. */
-export const signerScope = (p: PreparedTx): string | null => (p.tx.feePayer ? swapPendingScope(p.tx.feePayer.toBase58()) : null);
+export const signerScope = (p: PreparedTx): string | null => (p.payer ? swapPendingScope(p.payer.toBase58()) : null);
 
 export interface VenueSwap {
   /** The swap code and the gate are still on their way. */
