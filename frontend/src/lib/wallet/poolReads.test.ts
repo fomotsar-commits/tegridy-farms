@@ -2,7 +2,7 @@
 // 300 a minute per IP: the board and Harvest each read every Streamflow pool and lock ladder for
 // the wallet, on their own, at the same time. A load now reads each pool account once, shared.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 
 const OWNER = '9WAugU3gEpYMy1VQpjjCX7Dqo7PJAwhGfXmhNmpS2Fcz';
@@ -82,6 +82,12 @@ const once = () => {
   }
   return n;
 };
+
+// The board's legs load their readers on demand: loaded once here, so a test's own budget is
+// spent on the load it counts, not on importing @solana code on a busy machine.
+beforeAll(async () => {
+  await import('./readSolanaWallet');
+}, 60_000);
 
 beforeEach(() => {
   reads.length = 0;
