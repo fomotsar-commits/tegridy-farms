@@ -6,8 +6,9 @@
 //
 // Only what a read returned is kept: a part that read, with the time it was read. The board draws
 // it while that part is read again, says it is updating, and gives way to the new answer the
-// moment it lands. A part the new read could not read says so (walletRows.ts's rule); the kept
-// rows never stand in for a failed read.
+// moment it lands. A part whose new read failed is drawn from it too, saying when it was read and
+// that it is being read again (owner, 2026-11-01: the board must not blank what it read a minute
+// ago over a busy relay); a part with nothing kept still says it could not be read.
 //
 // Public chain data under a public address; nothing here signs or spends. It is a cache: the
 // storage sweeper may reclaim it (lib/storage.ts), and the board then reads as it did before.

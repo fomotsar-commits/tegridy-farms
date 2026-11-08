@@ -15,6 +15,95 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
+
+**Believed:** a CI runner with no release folder can rebuild one by dumping each program from
+mainnet and checking it against the repo's pin.
+
+**Measured** (2026-11-08, `stage-from-mainnet.mjs`): the launch program dumped to exactly its pin
+(`a3c41afa`, 470,728 bytes). The pool program dumped to `1e55bcdc` (725,176 bytes), not trunk's
+pin `88b98aa9`: after the roll-back (#24) and the redo (#31) that build is on chain nowhere, its
+buffer spent. Both accounts were sized to their builds that day; for one that is not (the padding
+start-validator.sh allows for), the ELF's own end (`e_shoff + e_shnum * e_shentsize`) is where the
+build stops, and it gave both pinned hashes exactly.
+
+**Do:** fetch by the ELF's end and check the pin; when they differ, refuse and name both hashes,
+because the specs would test a program nobody runs. Re-pin to what mainnet runs (here #1107)
+before expecting that job to go green.
+## 2026-11-07: web3.js 1.98 can neither make nor read a Solana version 1 transaction, and a version 1 message that sets no loaded-data limit cannot run
+
+**Wrong belief:** "version 1" is a wrapper: compile the legacy message, put it in a
+`VersionedTransaction`, ask `getTransaction` for `maxSupportedTransactionVersion: 1`, done. And
+a version 1 message that says nothing about loaded account data behaves like a legacy one.
+
+**Measured:** Phantom support (ticket #455104, 2026-11-05) read one of our liquidity transactions
+and said the builder "still produces legacy transactions"; wrapping a legacy message does not
+convert it. SIMD-0385 (read 2026-11-07): a version 1 message starts with the byte 129, signatures
+come LAST, and its budget is a config mask after the header: bits 0 and 1 together are the whole
+priority fee in lamports (both set or the transaction is invalid), bit 2 the compute-unit limit,
+bit 3 the loaded-accounts-data limit, which when unset means 0, so the transaction fails; a
+ComputeBudget instruction inside is a no-op that still costs units; no lookup tables; 4,096 bytes.
+`@solana/web3.js@1.98.4`, `lib/index.cjs.js` line 5596: `getTransaction` parses `version` as
+`union([literal(0), literal('legacy')])`, so a version 1 answer throws a StructError and the logs
+are lost; nothing in it builds the format. Its `simulateTransaction` (line 7996) reads only
+`serialize()` off anything with a `message` key and base64-encodes the bytes, and its result struct
+is superstruct `type()`, which keeps a field it does not name: in node,
+`create({ a: 1, loadedAccountsDataSize: 5 }, type({ a: number() }))` returned both. `@solana/kit@8.3.0`
+(probe, 2026-11-07): a message with config `{ 69,000 units; 131,072 B; 0 lamports }` and two
+transfers encodes to 254 bytes with mask 15, decodes back to the same config, and
+`getTransactionSizeLimit` says 4,096; `setTransactionMessageConfig` refuses a unit limit above
+1,400,000. Phantom's extension advertises `['legacy', 0, 1]` on `solana:signTransaction`,
+MetaMask's Solana side `['legacy', 0]` (read on memetics.finance, 2026-11-07).
+
+**Do instead:** build version 1 with kit from the same web3.js instructions (`write/v1.ts`), set
+all three config fields every time, the limits from a sizing simulation at the ceiling (the
+loaded-data limit from the simulation's `loadedAccountsDataSize` plus a quarter in 32 KiB pages,
+the legacy default of 64 MiB when the node does not report it, never 0), put the whole priority
+fee in lamports in the config and add no ComputeBudget instruction. Sign through the Wallet
+Standard feature as raw bytes, send the bytes with web3.js `sendRawTransaction`, simulate through
+web3.js with a `{ message, serialize }` shim, and read the transaction back with kit at
+`maxSupportedTransactionVersion: 1`. Keep refusing a changed blockhash although Phantom "may
+refresh the blockhash during signing": a new blockhash is a new last valid height, and the expiry
+proof in `submit.ts` would be wrong. Only a wallet whose feature lists 1 gets version 1; the rest
+keep legacy.
+
+---
+
+## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
+
+**Wrong belief:** a PumpSwap pool is plain x·y = k on its base and quote vaults, charging LP +
+protocol from its GlobalConfig (20 + 5 bps) and the coin creator's 5 bps.
+
+**Measured (2026-11-06, Jupiter quotes held to the same pool, `onlyDirectRoutes`):**
+- Newer pools (300 or 301 bytes) hold a signed 128-bit quote adjustment at byte 245 and price as
+  quote vault + it. SOY's `H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi` held +17,584,291,633 lamports:
+  a 20 SOL buy got 27,244,965,195,998 tokens from Jupiter; vault + adjustment at a 1.2% fee gives
+  27,241,666,087,201 (0.01% off), the vault alone 18% off at small sizes. Eight pools held +14.8 to
+  +17.6 SOL. Four others (TROLL `4w2cys…`, Fartcoin `AmmpSnW5…`, AgenC `BUMh6Y…`, ANSEM `FnzKY6…`)
+  held −9,401 to −17,661,070 lamports, high word all ones: read as u64 they price 10^9 times too high.
+- The fee is the pump fee program's FeeConfig (`pfeeUxB6…`, PDA `["fee_config", PumpSwap]` =
+  `5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx`): 25 tiers by market cap in lamports, 1.25% under
+  420 SOL down to 0.30% from 98,240 SOL; flat 0.30% for a pool with no coin creator. SOY (~605 SOL)
+  paid 1.2% both ways, as its tier says.
+
+**Do instead:** price PumpSwap from vault + the i128 at 245 (when the account is at least 261 bytes)
+and the FeeConfig tier at that price × the token's supply (`scripts/lib/arb-chain.mjs`). Or ask
+Jupiter, which already does.
+## 2026-11-07: a JavaScript replacement string is a pattern, so a `$` before a backtick pasted the whole file into it
+
+**Wrong belief:** `s.replace(oldText, newText)` with a plain string `newText` puts `newText` in
+verbatim, so an edit script can carry any code as its replacement.
+
+**Measured:** an edit script replacing a block of `api/opensea.js` with a block holding the template
+literal `` new RegExp(`^offers/...(...)/nfts/\\d{1,10}/best$`) `` produced a file whose line 122 continued
+with the file's own first line, "// Vercel Serverless Function ...": in a replacement string `` $` ``
+means "everything before the match". `$&` (the match) and `$'` (everything after) do the same.
+
+**Do instead:** pass a function, `s.replace(oldText, () => newText)`: its return value is never
+read as a pattern. Count the file's lines before and after any scripted edit.
+
+---
+
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
 **Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
@@ -139,6 +228,86 @@ of the delta.
 
 ---
 
+## 2026-11-03: a sheet that fits what it holds climbs and drops while its pieces load, and only a per-frame sampler sees it
+
+**Believed:** a bottom sheet that fits its content, with a "Reading…" line about a form's height in each waiting
+state, rises once. Its settled screenshots at 390x844 and at 660 tall were right, and a unit test cannot see a frame.
+
+**Measured** (2026-11-03, #1110, the production build at 390x844 reading mainnet): an init script whose
+`requestAnimationFrame` loop pushed each new value of the sheet's top recorded 313, 634, 294, 313, 354 for the Add
+sheet. The 634 lasted one frame (11 ms): a parent's `useEffect` opened the child's form after the first paint, so one
+frame drew the section without it (the 2026-10-10 scroll-reset entry's mechanism, here a 320 px drop and back). With
+that opened in `useLayoutEffect`, the e2e's stand-in walk still went 653, 313, 294, 354 (a 359 px range): the 653 was
+the frame before anything landed in the sheet's empty slot. With every waiting state held at the height of what it
+waits for, per kind (Add 320 and Buy 204 CSS px, the empty slot included through `:empty`): live 333, 314, 333, 354
+(40 px), the Buy sheet 449 throughout, the stand-in 333, 314, 354. The settled screenshots before and after are the same.
+
+**Do:** sample the geometry of anything that loads in pieces on every frame, not once at the end, and hold each
+waiting state, the empty first frame too, at the height of what it waits for, per kind. A failing movement check is a
+finding: measure it live before touching its threshold. The first fix here loosened the check instead, which would
+have shipped the bounce.
+
+## 2026-11-03: a function you do not own in an effect's dependencies cancels the effect's timer on every render
+
+**Believed:** an effect that fires the confetti once per receipt (a module-level guard on the signature) and then
+starts the 250 ms timer that raises the card will always raise it.
+
+**Measured** (2026-11-03, #1110, `ReceiptCard.tsx`): the confetti provider's `fire` is a new function on each of its
+renders. When the receipt's fee was read within 250 ms of the card opening, that render re-ran the effect: its cleanup
+cleared the pending timer, and the re-run stopped at the once-per-signature guard, so the card stayed at opacity 0
+over a dimmed page. The live walk found it, not a test. The test written for it (an unstable `fire` mock, the fee read
+at once) fails on the code before the fix and passes after, run again on 2026-11-03 by swapping the old file in.
+
+**Do:** keep a once-guarded side effect and a timer in separate effects, the timer keyed only on the stable key (here
+the signature). Treat a function from a provider you do not own as new on every render, and test with a mock that is.
+
+## 2026-11-03: `git stash push <path>` on an unchanged path saves nothing, and the `git stash pop` after it pops another worktree's stash
+
+**Believed:** `git stash push -- <file> && <test> && git stash pop` sets a file aside for a red-first run and puts it
+back.
+
+**Measured** (2026-11-03, in a worktree of this repo): the file's change was already committed, so `push` printed "No
+local changes to save" and saved nothing; `pop` then applied and dropped stash@{0}, another session's July stash (a
+docs edit and four broadcast files). The stash list is one list for every worktree of the repository (12 entries on
+2026-11-03). The popped stash's commit could not be found afterwards in refs, reflogs or
+`git fsck --unreachable --no-reflogs`; it was put back as a new stash from the applied diff.
+
+**Do:** never pair a path stash with a pop. For a red-first run on committed code: `git show <old>:<path> > <path>`,
+run, `git checkout -- <path>`, and prove the restore with `git status --short`. For uncommitted code: copy the file
+aside, swap, copy it back, and `cmp`.
+
+---
+
+## 2026-11-03: a stand-in `window.phantom` did not stop Phantom's poll, and a one-file run never shows an error thrown while its worker stops
+
+**Believed:** setting `window.phantom = { solana: { isPhantom: true } }` lets the Phantom adapter
+find "its" extension and end its one-second poll, so a test file can let its polls end before
+vitest deletes the window (the `afterAll` in `TopNav.ownSolana.test.tsx`, 2026-11-02).
+
+**Measured** (2026-11-03): `@solana/wallet-adapter-phantom` 0.9.29 also wants
+`window.isPhantomInstalled` (`lib/esm/adapter.js:52`). After that `afterAll` ran, all 15 polls of
+the file (5 mounts, each Phantom, Trust and Coinbase) were still live at teardown, and CI runs
+41573483600 and 41683443157 went red on one Phantom tick. With the environment held 1.5 s past
+teardown, the file threw `ReferenceError: window is not defined` 7 times a run, in 3 runs of 3;
+with the guard also setting `isPhantomInstalled`, 0 in 3.
+
+**Believed:** an error thrown while a file's worker is stopping fails the run, so running that
+one file reproduces it.
+**Measured:** vitest 5.0.3 counts unhandled errors only until the run ends, and a one-file run
+ends before its worker has stopped: those 7 errors reached the worker's `rpc.onUnhandledError`
+and the run still exited 0. Run beside a second file that kept the run open, all 7 were counted
+and it exited 1. Also, a `@vitest-environment` line cannot name a path in vitest 5 (it matches
+`[\w-]+`): one that tries is ignored without a word, and the file runs in plain jsdom.
+
+**Do:** a stand-in for an injected wallet passes the adapter's whole check, read from the
+installed source, and a test shows it (`readyState` is `Installed`). `frontend/src/test/setup.ts`
+now stops every interval a test file starts when the file ends, in every file. To reproduce an
+error from after teardown, name a held-open environment with `--environment ./path.ts` (a copy
+of the file without its own `@vitest-environment jsdom` line, which wins over the flag), and keep
+the run open with a second file.
+
+---
+
 ## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
 
 **Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
@@ -228,6 +397,74 @@ so even the loop's own reads share keys; keep the answer at the edge with a long
 `stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
 last good answer. The browser's rule then becomes an age: a price under ten minutes old
 passes, older holds, in one row.
+
+---
+
+## 2026-10-31: an inline `config={{ ... }}` on `ConnectionProvider` made a new Solana connection on every render, and phones ran out of reads
+
+**Believed:** `<ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>` makes
+one Connection per endpoint, and leaving `config` out is just as safe.
+
+**Measured:** `@solana/wallet-adapter-react` 0.15.39 builds it with
+`useMemo(() => new Connection(endpoint, config), [endpoint, config])`. An inline object is new on
+every render, and so is the default when `config` is left out (a default parameter is built on
+each call). So every re-render of the provider made a new Connection, and every card whose effect
+depends on `connection` from `useConnection()` read again. `SolanaProviders.tsx` passed it inline.
+The home's BAYLA ladder card (`SolanaLadderPoolLive`, built to re-read every 45 s) read its pool
+and both vaults about every 5 s: about 100 `/api/solrpc` calls a minute per open home tab, against
+the proxy's 300 a minute per IP (`SOL_RATE_LIMIT` in `frontend/api/solrpc.js`), which a
+household's devices or a mobile carrier's NAT share. The owner's phone and iPad got 429s and the
+dashboard said "Couldn't read your Solana coins just now" (2026-10-31). PR #1087
+(`fix/solana-connection-stable`) passes one module-level `CONNECTION_CONFIG`, and makes `lpFetch`
+(`frontend/src/lib/solana/lp/readFetch.ts`) wait out a 429's `Retry-After` (at most twice, at most
+60 s each), as web3.js already does for its own reads.
+
+**Technique** (finding who spends a rate limit): first the 429s themselves, from Vercel's request
+logs: `vercel logs --environment production --since 1h --limit 1000 --json --non-interactive
+--status-code 429`. It returns at most 50 rows per query (the 2026-10-23 entry below), so slice
+the window with `--since`/`--until`. Then a Playwright script that wraps `window.fetch` in
+`addInitScript`, so the wrapper is in place BEFORE the app loads: web3.js keeps its own reference
+to `fetch`, and a wrapper installed later misses its calls. For each call, record the JSON-RPC
+method, its first param, and the chunk file that made it, from `new Error().stack`.
+
+**Do:** an object or array passed as a prop to a provider that memoizes on it is module-level or
+`useMemo`'d. When a card reads more often than its timer says, check whether `connection` is
+changing under it.
+
+---
+
+## 2026-10-31: a local validator charges more rent than mainnet, a vault simulation needs the vault's account, and a PDA fails to derive under jsdom
+
+Found building and rehearsing the four-rooms ladder pack (`ladder-four-rooms-2026-11`, PR #1083).
+
+**Believed:** a rehearsal can check what a send spent against mainnet's rent.
+**Measured:** `solana-test-validator` 3.1.11 asked 4,426,560 lamports for a 508-byte ladder pool
+and 2,039,280 for a 165-byte token account (6,960 lamports a byte, the 128-byte header included);
+mainnet's `getMinimumBalanceForRentExemption` the same day answered 3,230,880 and 1,488,440 (5,080
+a byte). Four pools spent 0.034045280 SOL on the local chain against 0.02485584 quoted for mainnet,
+and a check written with mainnet's figure failed a send that was right.
+**Do:** read the rent from the chain under test, never a constant.
+
+**Believed:** a snapshot can leave out the Squads vault's own account, because the vault pays
+nothing in the step being rehearsed.
+**Measured:** the signing page simulates each proposal as the vault, and the vault is that
+simulation's fee payer: with no account at its address the page said `AccountNotFound` and offered
+no Sign button, while every other check was green.
+**Do:** load the vault account in every snapshot whose page simulates as the vault.
+
+**Believed:** `PublicKey.findProgramAddressSync` works in any vitest environment.
+**Measured:** under the default `jsdom` environment it threw `Unable to find a viable program address
+nonce` for seeds that derive BAYLA's live pool under `node` (`src/lib/bungalows.test.ts`, the same
+call moved to `src/lib/ladder/program.test.ts`, which is `@vitest-environment node`, passed).
+This is the PDA half of the 2026-10-30 entry on signatures.
+**Do:** put any PDA derivation in a test that declares `// @vitest-environment node`.
+
+### Incidental
+
+`vi.mock('../lib/wallet/readSolanaWallet', factory)` in a test of `src/hooks/useWalletBoard.ts` ran
+its factory but the hook's `import('../lib/wallet/readSolanaWallet')` got the real module: a leg
+read `fetch failed` instead of the mocked rows. The cause was not found. Passing the loader in
+(`solanaJobs(load)`) made the test independent of it.
 
 ---
 

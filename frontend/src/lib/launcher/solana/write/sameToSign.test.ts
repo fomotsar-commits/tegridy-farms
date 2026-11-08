@@ -1,11 +1,12 @@
 // @vitest-environment node
 //
 // What may reach a wallet without a second read: a transaction prepared again whose
-// instructions are the reviewed ones, byte for byte. Real web3 transactions, no chain.
+// instructions are the reviewed ones, byte for byte. Real web3 instructions, no chain.
 import { describe, expect, it } from 'vitest';
-import { ComputeBudgetProgram, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { serializeBody } from './prepare';
 import { sameToSign } from './sameToSign';
-import type { PreparedTx, TxKind } from './types';
+import type { PreparedTx, TxKind, TxVersion } from './types';
 
 const KEY = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const PAYER = KEY(2);
@@ -18,25 +19,18 @@ const keys = (): Meta[] => [
 const ix = (over: { programId?: PublicKey; keys?: Meta[]; data?: number[] } = {}) =>
   new TransactionInstruction({ programId: over.programId ?? KEY(50), keys: over.keys ?? keys(), data: Buffer.from(over.data ?? [1, 2, 3]) });
 
-/** Only what `sameToSign` reads: the kind and the transaction. */
-function p(ixs: TransactionInstruction[], o: { payer?: PublicKey | null; kind?: TxKind; blockhash?: string } = {}): PreparedTx {
-  const tx = new Transaction();
-  if (o.payer !== null) tx.feePayer = o.payer ?? PAYER;
-  tx.recentBlockhash = o.blockhash ?? '11111111111111111111111111111111';
-  if (ixs.length) tx.add(...ixs);
-  return { kind: o.kind ?? 'buy', tx } as unknown as PreparedTx;
+/** Only what `sameToSign` reads: the kind, the payer, the message's version and the body as prepared. */
+function p(ixs: TransactionInstruction[], o: { payer?: PublicKey | null; kind?: TxKind; version?: TxVersion } = {}): PreparedTx {
+  const payer = o.payer === null ? null : (o.payer ?? PAYER);
+  return { kind: o.kind ?? 'buy', payer, wire: { version: o.version ?? 'legacy' }, check: { body: serializeBody(ixs) } } as unknown as PreparedTx;
 }
 
-const budget = (units: number, microLamports: number) => [
-  ComputeBudgetProgram.setComputeUnitLimit({ units }),
-  ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
-];
-
 describe('sameToSign', () => {
-  it('the same instructions under a newer blockhash and another compute budget are the same to sign', () => {
-    const a = p([...budget(70_000, 100), ix(), ix({ data: [4] })]);
-    const b = p([...budget(71_500, 0), ix(), ix({ data: [4] })], { blockhash: 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W' });
-    expect(sameToSign(a, b)).toBe(true);
+  it('the same instructions under a newer blockhash and another budget are the same to sign', () => {
+    // Neither the blockhash nor the budget is part of the body: each prepare sets its own,
+    // `decodeIntent` caps the fee it makes, and the fee is a line of the review.
+    expect(sameToSign(p([ix(), ix({ data: [4] })]), p([ix(), ix({ data: [4] })]))).toBe(true);
+    expect(sameToSign(p([ix()], { version: 1 }), p([ix()], { version: 1 }))).toBe(true);
   });
 
   it.each<[string, PreparedTx]>([
@@ -50,6 +44,7 @@ describe('sameToSign', () => {
     ['who pays', p([ix()], { payer: KEY(60) })],
     ['no payer', p([ix()], { payer: null })],
     ['the kind', p([ix()], { kind: 'sell' })],
+    ['the message version: a version 1 message is not the legacy one', p([ix()], { version: 1 })],
   ])('a difference in %s is not the same to sign', (_what, other) => {
     const a = p([ix()]);
     expect(sameToSign(a, other)).toBe(false);

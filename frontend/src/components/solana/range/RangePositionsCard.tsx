@@ -14,6 +14,7 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { siteNamed } from '../../../lib/solana/lp/identity';
 import { bothAmounts, priceText, tokenWord, withTokenLabel } from './rangeText';
 import { useFlowReports } from './useRangeData';
@@ -210,7 +211,7 @@ function ActionInner(p: {
   const can = !!signer && percent !== null && tolerance !== null && !flow.locked;
   const review = () => {
     if (!signer || percent === null || tolerance === null) return;
-    const base = { owner: signer.publicKey, position, toleranceBps: Number(tolerance) };
+    const base = { owner: signer.publicKey, position, toleranceBps: Number(tolerance), txVersion: txVersionOf(signer) };
     void flow.prepare(
       () => (kind === 'close' ? api.prepareRangeClose(p.rpc, cfg, p.programId, base) : api.prepareRangeRemove(p.rpc, cfg, p.programId, { ...base, percent })),
       { repeatable: true },

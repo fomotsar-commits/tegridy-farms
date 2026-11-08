@@ -82,7 +82,8 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
 function preparedSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
   return {
     kind: 'venue-swap',
-    tx: {} as PreparedTx['tx'],
+    payer: a.owner,
+    wire: { version: 'legacy', tx: {} } as PreparedTx['wire'],
     extraSigners: [],
     blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
     lastValidBlockHeight: 1_000,

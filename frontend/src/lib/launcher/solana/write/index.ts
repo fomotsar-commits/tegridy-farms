@@ -48,6 +48,8 @@ export {
   LAMPORTS_PER_SIGNATURE,
 } from './budget';
 export { TX_SIZE_LIMIT } from './prepare';
+export { V1_TX_SIZE_LIMIT } from './v1';
+export { txVersionOf } from './txVersion';
 export { decodeIntent, LIGHTHOUSE_PROGRAM_ID } from './intent';
 export * from '../discover/metadata';
 export * from '../discover/list';

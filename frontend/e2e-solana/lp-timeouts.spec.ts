@@ -75,7 +75,7 @@ test('a chain read that never answers ends in "could not read" with Read again; 
   await clickReal(again, 'Read again');
   await expect(ui.lp.pools(p)).toHaveCount(1, { timeout: 60_000 });
   await expect(p.locator(`[data-testid="lp-pool"][data-pool="${pool.address.toBase58()}"]`)).toBeVisible();
-  await expect(ui.lp.pools(p).first()).toContainText('2 SOL and 2,000,000 tokens');
+  await expect(ui.lp.pools(p).first()).toContainText('2 SOL and 2,000,000 ESLOW');
   await expect(notice).toHaveCount(0);
   expect(rpc.violations).toEqual([]);
   await ctx.close();
