@@ -7,6 +7,7 @@ import { ERC20_ABI } from '../contracts';
 import { swapVenueOn } from '../chains/swapVenue';
 import { EVM_BASKET, minOut, splitEvenly } from '../islandBasket';
 import { buildEvmOrder, quoteEvmLegs, routeEvmLeg, type QuoteClient } from './islandBasketEvm';
+import { portion } from './universalRouter';
 
 /**
  * The island order, SENT on a fork of the real chain: opt-in, never in CI. Start a fork
@@ -50,11 +51,26 @@ for (const f of FORKS) {
       const order = buildEvmOrder({ venue, quotes, routes, recipient: account.address, slippageBps: 100, deadline })!;
       expect(order).not.toBeNull();
       const before = await balances(pub, account.address);
+      // Base: the venue's fee rides the batch. Its payee is read live; on Ethereum there is none.
+      const fee = quotes.find((x) => x.venueFee)?.venueFee ?? null;
+      expect(fee !== null).toBe(f.chain.id === base.id);
+      const payeeBefore = fee ? await pub.getBalance({ address: fee.recipient }) : 0n;
+      let owed = 0n;
       for (const tx of order) {
         const hash = await wallet.sendTransaction({ to: tx.to, data: tx.data, value: tx.value });
         const receipt = await pub.waitForTransactionReceipt({ hash });
         expect(receipt.status).toBe('success');
-        if (tx.kind === 'batch') expect(await pub.getBalance({ address: tx.to })).toBe(0n);
+        if (tx.kind === 'batch') {
+          expect(await pub.getBalance({ address: tx.to })).toBe(0n);
+          expect(await pub.readContract({ address: venue.weth, abi: ERC20_ABI, functionName: 'balanceOf', args: [tx.to] })).toBe(0n);
+          if (fee) owed += tx.legs.reduce((s, i) => s + portion(quotes[i]!.amountIn, fee.bps), 0n);
+        }
+      }
+      // Exactly each batch coin's own fee, in ETH, and nothing else reached the payee.
+      if (fee) {
+        expect(owed > 0n).toBe(true);
+        expect(await pub.getBalance({ address: fee.recipient }) - payeeBefore).toBe(owed);
+        console.log(`${f.name} venue fee: ${owed} wei to ${fee.recipient} at ${fee.bps} bps`);
       }
       const after = await balances(pub, account.address);
       routes.forEach((r, i) => {
@@ -93,12 +109,16 @@ for (const f of FORKS) {
       const order = buildEvmOrder({ venue, quotes, routes: lied, recipient: account.address, slippageBps: 100, deadline })!;
       const batch = order.find((t) => t.kind === 'batch')!;
       const before = await balances(pub, account.address);
+      const fee = quotes.find((x) => x.venueFee)?.venueFee ?? null;
+      const payeeBefore = fee ? await pub.getBalance({ address: fee.recipient }) : 0n;
       await expect(pub.estimateGas({ account: account.address, to: batch.to, data: batch.data, value: batch.value })).rejects.toThrow();
       const hash = await wallet.sendTransaction({ to: batch.to, data: batch.data, value: batch.value, gas: 3_000_000n });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       expect(receipt.status).toBe('reverted');
       const after = await balances(pub, account.address);
       batch.legs.forEach((i) => expect(after[i]).toBe(before[i]));
+      // A refused order pays no fee either: the fee moves only inside the transaction that buys.
+      if (fee) expect(await pub.getBalance({ address: fee.recipient })).toBe(payeeBefore);
     }, 120_000);
   });
 }

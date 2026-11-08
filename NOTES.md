@@ -35,6 +35,20 @@ protocol from its GlobalConfig (20 + 5 bps) and the coin creator's 5 bps.
 **Do instead:** price PumpSwap from vault + the i128 at 245 (when the account is at least 261 bytes)
 and the FeeConfig tier at that price × the token's supply (`scripts/lib/arb-chain.mjs`). Or ask
 Jupiter, which already does.
+## 2026-11-07: a JavaScript replacement string is a pattern, so a `$` before a backtick pasted the whole file into it
+
+**Wrong belief:** `s.replace(oldText, newText)` with a plain string `newText` puts `newText` in
+verbatim, so an edit script can carry any code as its replacement.
+
+**Measured:** an edit script replacing a block of `api/opensea.js` with a block holding the template
+literal `` new RegExp(`^offers/...(...)/nfts/\\d{1,10}/best$`) `` produced a file whose line 122 continued
+with the file's own first line, "// Vercel Serverless Function ...": in a replacement string `` $` ``
+means "everything before the match". `$&` (the match) and `$'` (everything after) do the same.
+
+**Do instead:** pass a function, `s.replace(oldText, () => newText)`: its return value is never
+read as a pattern. Count the file's lines before and after any scripted edit.
+
+---
 
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 

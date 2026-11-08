@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '../../test-utils/render';
-import { uniswapOn, type EvmLegQuote } from '../../lib/evm/islandBasketEvm';
+import { type EvmLegQuote } from '../../lib/evm/islandBasketEvm';
+import { universalRouterOn } from '../../lib/evm/universalRouter';
 import { swapVenueOn } from '../../lib/chains/swapVenue';
 
 const h = vi.hoisted(() => ({
@@ -33,9 +34,10 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 
 import { IslandBasketEvm } from './IslandBasketEvm';
 
+const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1' as const;
 /** Every pool quotes `out`: on Base, $mfer's V2 pair wins the tie, so the order is the batch plus one V2 transaction. */
 const quoting = (out: bigint) => async (_c: unknown, _v: unknown, legs: { coin: EvmLegQuote['coin']; amountIn: bigint }[]): Promise<EvmLegQuote[]> =>
-  legs.map((l) => ({ coin: l.coin, amountIn: l.amountIn, outside: l.coin.pools.map((pool) => ({ pool, out })), ours: null, unread: false }));
+  legs.map((l) => ({ coin: l.coin, amountIn: l.amountIn, outside: l.coin.pools.map((pool) => ({ pool, out })), ours: null, venueFee: { bps: 50n, recipient: SAFE }, unread: false }));
 
 const ME = '0x00000000000000000000000000000000000000aa' as const;
 const row = (key: string) => screen.getByTestId(`island-basket-row-${key}`);
@@ -46,10 +48,12 @@ const open = async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A split moved in one test is kept in this browser: every test starts even.
+  localStorage.removeItem('tegridy-island-split-v1');
   h.account = { address: ME, isConnected: true };
   h.balance = 10n ** 18n;
   h.quotes.mockImplementation(quoting(1_000_000n));
-  h.send.mockImplementation(async ({ to }: { to: string }) => (to === uniswapOn(8453)!.swapRouter02 ? '0xbatch' : '0xsingle'));
+  h.send.mockImplementation(async ({ to }: { to: string }) => (to === universalRouterOn(8453) ? '0xbatch' : '0xsingle'));
   h.receipt.mockResolvedValue({ kind: 'success', receipt: {}, replacement: null });
 });
 
@@ -59,7 +63,7 @@ describe('IslandBasketEvm', () => {
     expect(screen.queryByTestId('island-basket-open')).toBeNull();
   });
 
-  it('lists every Base coin, the bridged ones marked, and says the venue takes nothing through Uniswap', async () => {
+  it('lists every Base coin, the bridged ones marked, and says the venue takes its fee on V3 coins and nothing on the V2 one', async () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     expect(screen.getByTestId('island-basket-open')).toHaveTextContent('7');
     await open();
@@ -69,7 +73,9 @@ describe('IslandBasketEvm', () => {
     expect(within(list).getByText(/^from Ethereum · Uniswap V3$/)).toBeInTheDocument();
     expect(within(list).getByText(/^from Solana · Uniswap V3$/)).toBeInTheDocument();
     expect(within(list).getByText(/^· Uniswap V2$/)).toBeInTheDocument();
-    expect(screen.getByTestId('island-basket-fee')).toHaveTextContent(/No site fee.*venue earns nothing/);
+    expect(screen.getByTestId('island-basket-fee')).toHaveTextContent(
+      'Site fee: 0.50% of each coin bought through Uniswap V3 or our own pool goes to the venue, in ETH. $mfer through Uniswap V2: no site fee, the venue earns nothing on it. Uniswap’s pool fee is inside each quote.',
+    );
   });
 
   it('sends the Uniswap batch, then the V2 coin, and marks every coin bought', async () => {
@@ -78,11 +84,29 @@ describe('IslandBasketEvm', () => {
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
     await waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
-    expect(h.send.mock.calls[0]![0].to).toBe(uniswapOn(8453)!.swapRouter02);
+    expect(h.send.mock.calls[0]![0].to).toBe(universalRouterOn(8453));
     expect(h.send.mock.calls[1]![0].to).toBe(swapVenueOn(8453)!.uniswapV2Router);
     // The test run came first, as this wallet.
     expect(h.client.estimateGas).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(7));
+  });
+
+  it('buys in the split the sliders set: $mfer at 0% is left out, so its V2 transaction is never sent', async () => {
+    const { EVM_BASKET } = await import('../../lib/islandBasket');
+    const mfer = EVM_BASKET.base.find((c) => c.room === 'mfer')!;
+    renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
+    await open();
+    fireEvent.change(screen.getByTestId(`island-basket-split-mfer-${mfer.token}`), { target: { value: '0' } });
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy 6 coins'));
+    expect(within(row(`mfer-${mfer.token}`)).getByText(/Not in this order/)).toBeInTheDocument();
+    const legs = h.quotes.mock.calls.at(-1)![2] as { coin: { room: string } }[];
+    expect(legs.map((l) => l.coin.room)).not.toContain('mfer');
+    expect(legs).toHaveLength(6);
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(6));
+    // One Uniswap batch, and no V2 transaction for the coin left out.
+    expect(h.send).toHaveBeenCalledTimes(1);
+    expect(h.send.mock.calls[0]![0].to).toBe(universalRouterOn(8453));
   });
 
   it('sends nothing when prices moved past slippage since they were shown', async () => {

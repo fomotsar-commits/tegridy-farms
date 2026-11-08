@@ -76,6 +76,21 @@ describe('ChainPicker', () => {
     expect(button()).toHaveFocus();
   });
 
+  // In the Buy sheet's coin row, the sheet's own Escape is a window listener: it must not hear the list's.
+  it('Escape in the list stops there: a window listener under it never hears it', () => {
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    try {
+      mount();
+      fireEvent.click(button());
+      fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', heard);
+    }
+  });
+
   it('closes on a press outside it', () => {
     mount();
     fireEvent.click(button());

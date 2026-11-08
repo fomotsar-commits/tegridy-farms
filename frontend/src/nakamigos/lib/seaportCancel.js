@@ -13,7 +13,7 @@
  * live counter via getCounter(offerer) and rebuild OrderComponents.
  */
 import { CONDUIT_KEY, resolveSeaportTarget } from "../constants";
-import { cancelRefusal, venueRefusalError } from "./venue";
+import { cancelChainFor, walletChainLabel, venueRefusalError } from "./venue";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -66,15 +66,21 @@ export function buildOrderComponents(params, counter) {
  * error (callers already map err.code 4001 → "rejected").
  */
 export async function cancelSeaportOrder({ ethers, signer, params, seaportAddress }) {
-  // An order on another chain cannot be cancelled on Ethereum (lib/venue.js).
-  const refusal = cancelRefusal(params);
-  if (refusal) throw venueRefusalError(refusal);
+  // Sent on the order's own chain (lib/venue.js): a Base order on Base.
+  const where = cancelChainFor(params);
+  if (where.error) throw venueRefusalError(where);
+  if (where.chainId !== 1) {
+    const network = await signer.provider.getNetwork();
+    if (Number(network.chainId) !== where.chainId) {
+      throw venueRefusalError({ error: "wrong-chain", message: `Switch your wallet to ${walletChainLabel(where.chain)} to cancel this order.` });
+    }
+  }
   // SECURITY: pin the target HERE, at the sink, rather than at each call site —
   // every caller passes a server-supplied `protocol_address` (MyListings,
   // OrderBookPanel), and this is the one place that turns it into a contract the
   // user signs against. Fail closed: an unrecognised target is refused, never
   // silently rewritten to the default.
-  const target = resolveSeaportTarget(seaportAddress);
+  const target = resolveSeaportTarget(seaportAddress, where.chainId);
   if (!target) throw new Error('Unexpected transaction target — aborting for safety');
   const seaport = new ethers.Contract(target, SEAPORT_CANCEL_ABI, signer);
   const counter = await seaport.getCounter(params.offerer);

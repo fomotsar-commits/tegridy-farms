@@ -139,7 +139,7 @@ describe("a family slug reads stats and items, and nothing else", () => {
         ...(BASE_BUY.includes(slug) ? [] : [(s) => `listings/collection/${s}/best`]),
         (s) => `listings/collection/${s}/all`,
         (s) => `offers/collection/${s}/all`,
-        (s) => `offers/collection/${s}/nfts/1/best`,
+        ...(BASE_BUY.includes(slug) ? [] : [(s) => `offers/collection/${s}/nfts/1/best`]),
         (s) => `events/collection/${s}`,
       ])("refuses %s at 400, without asking OpenSea", async (build) => {
         const out = await call({ query: { path: build(slug) } });
@@ -322,10 +322,29 @@ describe("fill calldata is built only for Ethereum venue orders and Base buy lis
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("an accept on Base is refused even when it names a venue contract", async () => {
+  it("an accept on Base that names an Ethereum venue contract is refused", async () => {
     const out = await call(accept({ hash: "0xoffer", chain: "base", protocol_address: SEAPORT }, { asset_contract_address: GOLD, token_id: "1" }));
+    expect(out.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([["solana"], [undefined], ["Base"], ["optimism"]])("an accept naming chain %s is refused and never forwarded", async (chain) => {
+    const out = await call(accept({ hash: "0xoffer", chain, protocol_address: SEAPORT }, { asset_contract_address: BOJ, token_id: "1" }));
     expect(out.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([["Bojungles", BOJ], ["Seeds", SEEDS]])("an accept on Base of a %s offer is forwarded when its answer moves only that NFT", async (_label, token) => {
+    upstreamBody = fillMoving(token);
+    const out = await call(accept({ hash: "0xoffer", chain: "base", protocol_address: SEAPORT }, { asset_contract_address: token, token_id: "1" }));
+    expect(out.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).offer.chain).toBe("base");
+  });
+
+  it("an accept on Base whose answer moves an Ethereum venue NFT is refused with 403", async () => {
+    upstreamBody = fillMoving(GOLD);
+    const out = await call(accept({ hash: "0xoffer", chain: "base", protocol_address: SEAPORT }, { asset_contract_address: BOJ, token_id: "1" }));
+    expect(out.status).toBe(403);
   });
 
   it("an accept that names no NFT contract is refused", async () => {
@@ -399,5 +418,71 @@ describe("browsing cannot spend the checkout's budget", () => {
       body: { listing: { hash: "0xlisting", chain: "ethereum" }, fulfiller: { address: "0x" + "a".repeat(40) } },
     });
     expect(rate.calls.map((c) => c.identifier)).toContain("opensea");
+  });
+});
+
+// Bojungles and Seeds are bid on here, on Base: an item offer is posted to
+// OpenSea's Base order book, and its maker and the token's owner read it back.
+describe("Bojungles and Seeds take offers on Base", () => {
+  const offerBody = (token) => ({
+    parameters: {
+      offer: [{ itemType: 1, token: "0x4200000000000000000000000000000000000006" }],
+      consideration: [{ itemType: 2, token, identifierOrCriteria: "7" }],
+    },
+  });
+
+  it.each([["Bojungles", BOJ], ["Seeds", SEEDS]])("a Base offer on %s is posted", async (_label, token) => {
+    const out = await call({ method: "POST", query: { path: "orders/base/seaport/offers" }, body: offerBody(token) });
+    expect(out.status).toBe(200);
+    expect(new URL(String(fetchMock.mock.calls[0][0])).pathname).toBe("/api/v2/orders/base/seaport/offers");
+  });
+
+  it.each([["Gold Cards", GOLD], ["the memes", ADDR.junglebaymemes.toLowerCase()], ["an unknown contract", "0x" + "9".repeat(40)]])("a Base offer on %s is refused 403", async (_label, token) => {
+    const out = await call({ method: "POST", query: { path: "orders/base/seaport/offers" }, body: offerBody(token) });
+    expect(out.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([["Bojungles", BOJ], ["Seeds", SEEDS]])("an Ethereum offer on %s is refused 403", async (_label, token) => {
+    const out = await call({ method: "POST", query: { path: "orders/ethereum/seaport/offers" }, body: offerBody(token) });
+    expect(out.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["orders/base/seaport/listings", "orders/solana/seaport/offers", "orders/Base/seaport/offers"])("POST %s is not a route", async (path) => {
+    const out = await call({ method: "POST", query: { path }, body: offerBody(BOJ) });
+    expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  for (const slug of BASE_BUY) {
+    it(`GET offers/collection/${slug}/nfts/{id}/best is admitted with no query`, async () => {
+      const out = await call({ query: { path: `offers/collection/${slug}/nfts/42/best` } });
+      expect(out.status).toBe(200);
+      const bad = await call({ query: { path: `offers/collection/${slug}/nfts/42/best`, limit: "5" } });
+      expect(bad.status).toBe(400);
+      const notId = await call({ query: { path: `offers/collection/${slug}/nfts/4x/best` } });
+      expect(notId.status).toBe(400);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it(`GET offers/collection/${slug}/all is admitted for one maker only`, async () => {
+      const maker = "0x" + "a".repeat(40);
+      const out = await call({ query: { path: `offers/collection/${slug}/all`, maker, limit: "50" } });
+      expect(out.status).toBe(200);
+      expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get("maker")).toBe(maker);
+      for (const query of [{}, { maker: "nobody" }, { maker, token_ids: "1" }]) {
+        const refused = await call({ query: { path: `offers/collection/${slug}/all`, ...query } });
+        expect(refused.status).toBe(400);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("offers/build and criteria_offers still refuse a Base slug: only item offers are made on Base", async () => {
+    for (const path of ["offers/build", "criteria_offers"]) {
+      const out = await call({ method: "POST", query: { path }, body: { criteria: { collection: { slug: "bojungless" } } } });
+      expect(out.status).toBe(403);
+    }
   });
 });

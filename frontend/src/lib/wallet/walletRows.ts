@@ -67,7 +67,19 @@ export interface NamedLeg<T> {
    * new one: when they were read, epoch ms.
    */
   readAt?: number;
+  /**
+   * Set when the new read of this part failed and the rows are its last read (readAt): the
+   * failure's reason. The board says so, and keeps reading it again.
+   */
+  failed?: string;
 }
+
+/**
+ * A coin off the island's list is listed among the holdings only when it is worth this much or
+ * more at a read price (owner, 2026-11-01: "it should show all the tokens in the persons wallet
+ * above 1$ not just island tokens").
+ */
+export const OTHER_COIN_MIN_USD = 1;
 
 /** Live rooms whose coin is on this chain and has an address. */
 export function islandCoinsOn(chain: WalletChain, bungalows: readonly Bungalow[] = BUNGALOWS): Bungalow[] {
