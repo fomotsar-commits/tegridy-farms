@@ -93,9 +93,10 @@ describe('baylaLine: every state, the island’s words', () => {
   });
 });
 
-// Island answer twenty-five, §2: one green button per screen. On a screen whose own green
-// button makes the same move as her line's, her line's button goes quiet; one row per state.
-describe('sameMove: her button goes quiet where the screen’s own green button makes her move', () => {
+// One green button per screen (island answer twenty-five, §2): the rule is the screen's (answer
+// twenty-eight, §2.2). Wherever the screen draws its own green button her line's button goes
+// quiet, whatever move it makes; one row per state.
+describe('sameMove: her button goes quiet wherever the screen draws its own green button', () => {
   const cold = reading({ isCold: true, degrees: 0, tier: 'Drifter' });
   it.each([
     ['the countdown or the Buy sheet, a cold wallet', base({ reading: cold, room: BAYLA, screenMove: 'start' }), true],
@@ -103,10 +104,11 @@ describe('sameMove: her button goes quiet where the screen’s own green button 
     ['the Add sheet, Jupiter slow in the room', base({ reading: reading(), room: BAYLA, slow: { price: '0.001 SOL', age: '4 min' }, screenMove: 'add' }), true],
     ['the receipt card, after a trade', base({ reading: reading(), room: BAYLA, landed: 'trade', screenMove: 'receipt' }), true],
     ['the receipt card, after an add', base({ landed: 'add', screenMove: 'receipt' }), true],
-    ['the countdown, a warm wallet in the room: her Add is another move', base({ reading: reading(), room: BAYLA, screenMove: 'start' }), false],
-    ['the Add sheet, a cold wallet: her Start the clock is another move', base({ reading: cold, room: BAYLA, screenMove: 'add' }), false],
-    ['the countdown, no wallet read', base({ screenMove: 'start' }), false],
-    ['the countdown, a Resident: her Launch is another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), false],
+    ['the countdown, a warm wallet in the room: her Add, another move', base({ reading: reading(), room: BAYLA, screenMove: 'start' }), true],
+    ['the home after a read, under the floor: her Pick, another move', base({ reading: reading({ daysToPlant: 102 }), screenMove: 'start' }), true],
+    ['the Add sheet, a cold wallet: her Start the clock, another move', base({ reading: cold, room: BAYLA, screenMove: 'add' }), true],
+    ['the countdown, no wallet read', base({ screenMove: 'start' }), true],
+    ['the countdown, a Resident: her Launch, another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), true],
     ['a screen with no green button of its own', base({ reading: cold, room: BAYLA }), false],
     ['a screen that says null', base({ reading: cold, room: BAYLA, screenMove: null }), false],
     ['the sheet, a stranger: her Read heat is under its veil', base({ screenMove: 'sheet' }), true],
@@ -142,6 +144,12 @@ describe('the door is not open yet (island answer twenty-six)', () => {
     expect(baylaLine(base({ reading: low, room: BAYLA })).text).toBe('12.34°. Every day in this pool counts double.');
     expect(baylaLine(base({ reading: low })).text).toBe('12.34°. Pick a bungalow and add to its pool.');
     expect(baylaLine(base({ reading: reading({ degrees: 12.34, tier: 'Drifter', daysToPlant: 41 }) })).text).toBe('12.34°. Resident in 41 days.');
+  });
+
+  it('says “1 day” at one, in the singular, on the home and on the door (answer twenty-eight, §2.1)', () => {
+    const one = reading({ degrees: 79.33, tier: 'Observer', daysToPlant: 1 });
+    expect(baylaLine(base({ reading: one })).text).toBe('79.33° Observer. Resident in 1 day.');
+    expect(baylaLine(base({ reading: one, screenMove: 'door' })).text).toBe('79.33°. Resident in 1 day.');
   });
 
   it('says the door is not open on every screen, never that it is', () => {
