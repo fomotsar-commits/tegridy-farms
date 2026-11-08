@@ -325,12 +325,12 @@ describe('the changelog is one line per change', () => {
 
   // While launching is off (curveWriteFlag.ts), no visitor reaches a Solana launch's form,
   // review or page, so a line about them says when they arrive, as the 2026-10-01 door
-  // line does. Once the owner switches launching on, the qualifier stays true.
+  // line does. Once the owner switches launching on, the qualifier stays true. Both files
+  // count: the Changelog tab also shows the days that moved to CHANGELOG_EARLIER.md.
   it.skipIf(CURVE_WRITES_ENABLED)('while launching is off, a line about the Solana launch form, review, plant or page says when it arrives', () => {
     const WRITE_ONLY = /Solana launch (form|review)|Solana launch's page|Solana launch on \/curve-launch plants/i;
-    // Both files: the site's Changelog tab shows them as one list, and a day past the thirty
-    // carries its lines into the earlier file unchanged.
-    const claims = [unreleased(read('CHANGELOG.md')), read('docs', 'CHANGELOG_EARLIER.md')]
+    const earlier = read('docs', 'CHANGELOG_EARLIER.md');
+    const claims = [unreleased(read('CHANGELOG.md')), earlier.slice(earlier.indexOf('## Days'))]
       .join('\n')
       .split('\n')
       .filter((l) => l.startsWith('- ') && WRITE_ONLY.test(l));

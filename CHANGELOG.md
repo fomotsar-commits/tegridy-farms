@@ -10,17 +10,26 @@ The site's Changelog tab shows both files.
 ### 2026-11-08
 
 - Solana pools: the pool program is upgraded again, so pool share tokens can get a name in wallets and the launch fee tier is kept for launches: opening a pool the public way no longer accepts it. Its on-chain security contact is an email and links on memetics.finance again. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. "The program" card no longer says the program was built before them.
+- Dashboard: Holdings now list every coin in your wallet worth $1 or more, not only SOL, ETH and the island's coins: on Solana at Jupiter's price, on Ethereum and Base at DefiLlama's. A coin with no room on the island shows its own ticker and its whole address; a copy of an island coin's ticker reads "fake PEPE". When a read fails, the board asks again by itself after a few seconds, and every 20 seconds after that, and keeps your last read on screen with when it was read instead of blanking that part.
+- Solana swap: the token search lists the island's coins right after SOL, USDC and USDT, then every coin with $200 or more in one of our pools, and those coins are marked as ours ("Island coin", "Verified · $640 pool here") and ask for no risk tick box. Search finds them by letters only and one letter off, so "bigbrain" finds BIG BRAIN and "soyjack" finds SOY (Soyjak). On Ethereum and Base the island's coins lead the quick picks.
+- Buy all bungalows: a slider on each coin sets how much of the order it gets. The shares always add up to 100%, a coin at 0% is left out, and Split evenly puts it back. Your split is kept in this browser.
+- Buy all bungalows on Base now pays the venue its usual 0.5% on every coin it buys through a Uniswap V3 pool, as a swap does: each coin's fee comes out of its share of the ETH, goes to the venue's fee Safe on Base in the same transaction, and the rest is swapped, so each coin's quote is already net of it. A coin whose best pool is Uniswap V2 ($mfer, when V2 pays more) still pays the venue nothing, as a V2 swap does. The order's fee line now says so; before, it said every Uniswap coin was fee-free.
+- Pools, Open a pool: one pool per pair and fee tier. When a coin already has a pool with SOL, USDC or BAYLA on the public fee tier that takes deposits, the form no longer opens a second one for that pair: it names that pool and asks you to add to it instead, so the pair's liquidity stays in one place. A pair with no such pool opens as before, the form starts on one of those, and when every pair a coin can have is taken, Open a pool is not offered. A pool that takes no deposits (empty, paused, or failing its checks) does not count.
+- Marketplace: a listing shows the exact price the wallet will ask for. Prices were cut to four decimals, so a 0.01899 ETH listing read 0.0189.
+- Marketplace: Bojungles and Seeds can be listed for sale and bid on here, on Base. The seller pays the venue 0.5% of the price, to its Base treasury; an accepted offer also pays OpenSea's 1%.
 - Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
+- The Buy sheet: the network drop-down takes "Any coin"'s place at the end of the coin row, the same drop-down as the home's swap card. It reads Solana; picking Ethereum, Base, Robinhood Chain or Cardano opens that network's own swap page. Another Solana coin is still one press away: pick a coin, then its name on the You get line. Escape in the network list now closes only the list, not the sheet under it.
+- Swap: the same for Ethereum, Base and Robinhood Chain in Swap's network menu. Picking Base now prices Base's pools with Base's coins and balances even when your wallet stays on another network; before, a wallet that did not switch kept the swap on its own network. A line above the tabs says when your wallet is on a different network, with a button to switch, and Swap waits until it is there. On Base or Robinhood Chain, DCA, Limit, TWAP and Trigger still run on Ethereum only, and their notice's "Open these tabs on Ethereum" now opens them there for a connected wallet too, and asks it to switch.
 
 ### 2026-11-07
 
-- Solana: a wallet that signs the newer version 1 transaction format (Phantom does) now gets every write this site builds in that format: add or remove liquidity, open a pool, buy, sell, graduate, range positions and a swap in our pools. The compute limit, the account-data limit and the priority fee are written into the message itself, which is what Phantom's simulation asks for. The review reads as before; the priority fee shown is the exact amount the message carries. A wallet without version 1 keeps the legacy format, unchanged. The island basket's multi-coin buy stays legacy for now (its one-approval batch goes through the wallet's older signing call).
 - Marketplace: Bojungles and Seeds from the Memetic Garden can be bought here. Their pages show each OpenSea listing's exact price, and an item's panel has a Buy button that settles on Base through Seaport, OpenSea's own contract. The buyer pays the seller's OpenSea price plus Base gas; the venue takes no fee on these buys. Listing them for sale and making offers still happen on OpenSea.
 - Our Solana pools can now be charted by GeckoTerminal: the site serves the four data feeds its indexer reads (`/api/gt/latest-block`, `/api/gt/asset`, `/api/gt/pair`, `/api/gt/events`), every number read from the chain itself. Once GeckoTerminal lists the venue, each pool gets a public chart page and shows up in CoinGecko's on-chain data, where traders and price bots look.
 - Cardano swap: the venue fee is on. A swap of about 200 ADA or more pays 0.5% of its ADA side (the ADA you pay in, or the ADA the pool quotes back on a sale) in the same transaction, straight to the venue's two-key Cardano treasury; under that it pays none, because a Cardano payment must hold about 1 ADA. The quote and the review show the amount, and the review shows the treasury's whole address so you can match it on your wallet's screen. Minswap's own fees are unchanged.
 
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
+- Solana: a wallet that signs the newer version 1 transaction format (Phantom does) now gets every write this site builds in that format: add or remove liquidity, open a pool, buy, sell, graduate, range positions and a swap in our pools. The compute limit, the account-data limit and the priority fee are written into the message itself, which is what Phantom's simulation asks for. The review reads as before; the priority fee shown is the exact amount the message carries. A wallet without version 1 keeps the legacy format, unchanged. The island basket's multi-coin buy stays legacy for now (its one-approval batch goes through the wallet's older signing call).
 
 ### 2026-11-06
 
@@ -51,9 +60,12 @@ The site's Changelog tab shows both files.
 - BOBO, SOY, BRAINLET and RIZZ: staking now works exactly like BAYLA's. Each room has a pool on the same lock ladder: lock for 7 days to 4 years, and a longer lock earns a bigger share of the rewards (0.40× to 4.00×); leave early and you give up a share of your stake that shrinks as the lock runs down (at most 75%), which stays in the pool for the stakers who remain; up to 10,000,000 per wallet. Each pool pays in its own coin, from rewards the team's vault puts in, and the venue takes nothing. The room's old Streamflow pool takes no new stakes; if you staked there, you can still claim, unstake and rescue on the room's page. The dashboard, Harvest and the home page's TVL read every room's ladder, not only BAYLA's.
 - BAYLA lock ladder: a position still locked can be locked for longer without leaving it, for example a one-year lock moved to four years. The new lock counts from today and gets the same boost a new stake of that length gets, so it earns a bigger share of the same daily BAYLA; there is no fee and no tokens move. Before you confirm, the card says the new end date, the new boost and what leaving early would then cost (up to 75%). Only lengths that raise the boost are offered, and a lock that has ended is withdrawn instead.
 
-### 2026-11-02
+### 2026-11-03
 
 - Swap on Base: BNKR, DRB, QR, JBM, $mfer, and TOWELI and RIZZ on Base now trade against their own Uniswap V3 pools, the ones holding their real liquidity, through Uniswap's own router. Selling 1.75 million BNKR now gets about 0.22 ETH instead of 0.0000011 ETH. The swap still takes whichever route pays you most, after fees: our pools, Uniswap V2, or the coin's V3 pool. A trade through the V3 pool pays the venue its usual 0.5%, always in ETH, to the venue's fee Safe on Base, in the same transaction; the pool's own 1% fee goes to its liquidity providers. A sale asks you to approve the coin once, then to sign a permit for exactly the amount you are selling, valid for 30 minutes. These coins are now on Base's swap list, so they no longer show as unverified.
+
+### 2026-11-02
+
 - A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
 
 ### 2026-11-01
@@ -341,6 +353,79 @@ The site's Changelog tab shows both files.
 - Solana swap: fewer steps and less to read. A swap in our own pool goes straight to your wallet when nothing needs a second look, and the risk tick-box is gone for SOL, USDC and BAYLA and asked once per token for the rest.
 - Solana LP: a pool priced in a coin Jupiter has no price for (in practice only BAYLA) can be opened and added to, with a warning before you sign. A price that could not be read still switches both off.
 - Solana LP: when Jupiter has no price for a token with a launch pool, its other pools are checked against the launch pool's price. No token has a launch pool yet, so nothing reads differently today.
+
+### 2026-10-07
+
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
+
+### 2026-10-06
+
+- Solana swap: a trade now goes to our own pool when it pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and a swap in our pool opens a review first.
+
+### 2026-10-04
+
+- Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.
+- Solana LP: a pool can be paired with SOL, USDC or BAYLA. Open a pool has a "Pair with" choice, so a BAYLA/USDC pool can be opened from the site. Every amount, price and review is in the pool's own coin; the fee to open and the account deposits are still paid in SOL. Pools are listed SOL first, then USDC, then BAYLA.
+- Solana LP: any token can have a pool. No price, a price more than 3% off the market, a freezable token or a copied name is now a warning before you sign; tokens with a transfer fee and anything not read are still refused.
+- Your positions: each position has an Add more liquidity button beside Remove liquidity. It opens the Add form of the pool that share is in, never another pool's.
+- Open a pool: when a token has several pools, the card points to the biggest one whose price is at the market, and "In all, from your wallet" now counts the tokens as well as the coin and the SOL.
+- TOWELI: on a phone the "Burned forever" and "Fixed supply" rows are no longer cut off with an ellipsis. A long value wraps onto a second line.
+- Burn tracker: a Solana read that never answers is given up after 20 seconds, and the card says it could not read, with Refresh ready again. It used to say "Reading" for good. With no connection, Refresh on an Ethereum or Base bungalow now says it could not read; it used to do nothing and leave the old figure up.
+- The dashboard of an Ethereum or Base bungalow (PEPE, QR, MFER, BNKR, DRB, JBM) sits in the page column with side margins. Its cards used to run to the edges of the window.
+- Read Heat: inside a wallet's own browser that carries both Ethereum and Solana, such as Trust Wallet's, the button offers "Use my Ethereum address" and "Use my Solana address" instead of asking for Ethereum only.
+- Solana pools and trades: a review you take your time reading can still be signed. Sign in wallet builds it again on fresh numbers first; if every line reads the same your wallet opens, and if any line changed you are shown which, beside the button. It used to say the quote was too old and send you back to the form. A launch review is unchanged.
+- Every bungalow now has a burn tracker: the percent of everything ever minted that is burnt, the amount and where it went, read from the token's own chain. A burn that could not be read says so and never shows as zero.
+- TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
+
+### 2026-10-03
+
+- Solana LP on a phone: the tab opens on Create a pool, Add liquidity and Remove liquidity, with the site's own Solana tokens as buttons, so no address has to be pasted.
+- Solana LP: the open-a-pool and add-liquidity forms start with the wallet and the amount boxes. The long notes that used to fill two phone screens above them now follow the form, and the review still repeats the main ones before you sign. A wallet that cannot pay is told so first, with what to do next.
+- Solana LP: when a token already has a pool, the Open a new pool card has a button that opens that pool's Add liquidity form (the first pool on the venue, BAYLA/SOL, was opened on 2026-10-03). A greyed Review button now says why right above it.
+- Solana LP: Remove liquidity takes you to Your positions, which says that is where liquidity is taken out and, for a wallet with no shares, that there is nothing to remove yet.
+- The page that Pools opens has a link to the Solana LP tab on its first screen, and the Pools icon in the phone's bottom bar stays lit on every Pools tab.
+- Connecting on a phone with no wallet in the browser: the wallet list says that Open app loads the page inside that wallet's own app.
+- Open a pool: a token that already has a pool can have another. The card names the biggest pool that passes the checks and suggests adding to it first, and the Open a pool button stays, so anyone can open a separate pool of their own. Before, the button was taken away once one passing pool existed.
+- Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
+- Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
+- Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.
+- Solana pools: SOL that a stranger sends to your wrapped-SOL, token or pool-share address before that account exists no longer blocks Remove liquidity, Add liquidity, opening a pool, a curve buy or a pool swap. The site opens the account over it and you pay only what is missing from its deposit.
+- Solana pools: a token, a pool share or a lamport that someone sends you or the fee account between the balance read and the test run no longer ends Review with "Blocked: the simulation shows a different token amount than this screen says". Taking more from you than the review says, or paying you less than the minimum, is still blocked.
+- Solana pools: when this site cannot build a withdrawal for a token, the message no longer points to a section that is not on screen.
+- On the pools page and in the Solana curve and pool-swap panels, a comma typed in an amount, percent or slippage box works as the decimal point, so a phone keypad with a comma and no point can enter 0,5. A pasted amount with thousands commas, such as 68,066, is still refused and never read as 68.066.
+- A real token amount too small to show at four decimals reads "<0.0001" instead of "0" on the liquidity, launch and trade screens.
+- Pool pages: a token whose name or symbol is a look-alike spelling of a well-known one (SoIana, S0L, TOWELl, BAYLA Token) is flagged as a copy, and this site does not open pools or take deposits for it. Letters or digits outside plain A to Z and 0 to 9 get a warning.
+- Launcher: names such as $SOL and Official $BAYLA are refused as copies, by the same rule the pool pages use.
+- Open a pool: when our pool index lists its maximum of 96 pools for a token, the button is no longer switched off. The card says the token has more pools than the index lists, and it no longer says a new pool would be the first.
+- Your positions: pool shares already matched to their pool are listed first, and reading again does not repeat index lookups that found nothing in the last minute.
+- On /curve-launch, while launching is off, the "Who may plant" door shows a wallet's reading and says "Launching here is not switched on yet." It no longer tells a wallet at 80 degrees or more that the launch lane is open, and the "Open a launch" card says launching is off too.
+- When a Solana transaction is turned away because it took too long to sign, the card says so and tells you to start over. Nothing was sent.
+- Solana swap: when your wallet balance cannot be read, the page shows "Balance: –" with a Retry button instead of "Balance: 0". A balance that really is zero still shows 0.
+- Solana swap: "No route" appears only when Jupiter itself says there is no route. If a quote could not be fetched, the page says that and offers "Try again" without you retyping the amount.
+- Dashboard, TOWELI room: the TOWELI Price card says "Could not load" when no price source answers, instead of loading forever or showing $0.00000000.
+- Solana Connect no longer goes dead while a wallet is being waited on. If Phantom or another wallet is locked, or its approval window opened where you did not see it, the Connect buttons still open the wallet list, the page says which wallet it is waiting for and what to do, and you can pick another wallet without reloading.
+- On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
+- Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
+- On every other page the Connect button at the top now asks which network first, Solana or Ethereum, so a Solana wallet can be connected from the home page, the Earn list and the doors. Once a wallet is connected the button lists both networks.
+- A Solana wallet you connected stays connected as you move between pages, and comes back on your next visit. With an Ethereum wallet connected too, the button at the top names the Ethereum account off the Solana pages and lists both wallets when tapped.
+- On a phone, a wallet's "Open app" row in the Solana wallet list now finishes the job. The site opens again inside that wallet's app and asks the wallet to connect by itself. Before, the page inside the app looked like the start again, and Connect, Solana and the wallet had to be pressed a second time. The page left behind says where the connect went.
+- Connect buttons that open the Ethereum wallet list (swap, liquidity, TOWELI's pages and the exposure scan) now say "Connect Ethereum wallet" instead of "Connect Wallet".
+- The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
+- A DCA or limit-order swap your wallet cancelled no longer counts as done: the schedule does not count it and the order goes back to waiting. A sped-up swap still counts.
+- A TWAP or stop-loss whose registration your wallet cancelled no longer says it was registered, and no CoW order is signed on top of a token approval your wallet cancelled.
+- A zap stops at a step your wallet cancelled and says it was replaced, instead of calling it confirmed and sending the next step.
+- A cancelled integrator fee withdrawal no longer says Withdrew, and a cancelled curve launch says it was cancelled instead of reporting a missing launch log.
+- When the result of a CoW token approval or an integrator fee withdrawal cannot be read, the site says it cannot tell and points to the explorer, instead of showing an error.
+- A DCA swap that landed is counted even when the browser will not save to storage, instead of showing Confirming forever, and another open tab can no longer make that schedule swap twice.
+- On the Solana swap page, a swap, DCA or limit order that was sent but not confirmed while the page watched says it cannot tell and links to Solscan, instead of saying it failed, and one failed status check no longer reads as a failure.
+- On Solana, a BAYLA lock ladder transaction, a DCA or a limit order is called failed only once the network has confirmed the failure; a failure seen before that is watched until the network decides, as a swap already was.
+- On /pools, the fee sheet's trader-pays figure for launch pools adds the creator fee that every launch pool charges on top of its trade fee, and shows that fee on its own line, paid to the token's creator. It had shown the trade fee alone, so a trade there read cheaper than it is.
+- On /pools, the fee tiers, each pool's card, the add-liquidity panel and its review say what a trade on that pool costs, creator fee included when the pool charges one, and say so when a pool charges none.
+- On /pools, a pool you open is shown at its tier's trade fee alone, because a pool opened from this site never charges a creator fee.
+- On /pools, the venue card says anyone can open a pool only while the fee tier it read takes new pools.
+- The /pools fee sheet's note about where its rates come from no longer has an em dash.
+- The site's own tests now run on Vitest 5 and jsdom 30; nothing a visitor sees changes.
 
 ## Earlier
 

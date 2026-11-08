@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
+
+**Believed:** a CI runner with no release folder can rebuild one by dumping each program from
+mainnet and checking it against the repo's pin.
+
+**Measured** (2026-11-08, `stage-from-mainnet.mjs`): the launch program dumped to exactly its pin
+(`a3c41afa`, 470,728 bytes). The pool program dumped to `1e55bcdc` (725,176 bytes), not trunk's
+pin `88b98aa9`: after the roll-back (#24) and the redo (#31) that build is on chain nowhere, its
+buffer spent. Both accounts were sized to their builds that day; for one that is not (the padding
+start-validator.sh allows for), the ELF's own end (`e_shoff + e_shnum * e_shentsize`) is where the
+build stops, and it gave both pinned hashes exactly.
+
+**Do:** fetch by the ELF's end and check the pin; when they differ, refuse and name both hashes,
+because the specs would test a program nobody runs. Re-pin to what mainnet runs (here #1107)
+before expecting that job to go green.
 ## 2026-11-07: web3.js 1.98 can neither make nor read a Solana version 1 transaction, and a version 1 message that sets no loaded-data limit cannot run
 
 **Wrong belief:** "version 1" is a wrapper: compile the legacy message, put it in a
@@ -74,6 +89,20 @@ protocol from its GlobalConfig (20 + 5 bps) and the coin creator's 5 bps.
 **Do instead:** price PumpSwap from vault + the i128 at 245 (when the account is at least 261 bytes)
 and the FeeConfig tier at that price × the token's supply (`scripts/lib/arb-chain.mjs`). Or ask
 Jupiter, which already does.
+## 2026-11-07: a JavaScript replacement string is a pattern, so a `$` before a backtick pasted the whole file into it
+
+**Wrong belief:** `s.replace(oldText, newText)` with a plain string `newText` puts `newText` in
+verbatim, so an edit script can carry any code as its replacement.
+
+**Measured:** an edit script replacing a block of `api/opensea.js` with a block holding the template
+literal `` new RegExp(`^offers/...(...)/nfts/\\d{1,10}/best$`) `` produced a file whose line 122 continued
+with the file's own first line, "// Vercel Serverless Function ...": in a replacement string `` $` ``
+means "everything before the match". `$&` (the match) and `$'` (everything after) do the same.
+
+**Do instead:** pass a function, `s.replace(oldText, () => newText)`: its return value is never
+read as a pattern. Count the file's lines before and after any scripted edit.
+
+---
 
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
