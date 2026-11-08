@@ -3,7 +3,7 @@ import { fulfillSeaportOrder } from "../../api";
 import { chainTxUrl, walletChainLabel } from "../../lib/venue";
 import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
-import { exactEth } from "../../hooks/useBuyHereListings";
+import { shownEth, listingPriceTitle } from "../../lib/formatPrice";
 import { askWalletToSwitch } from "../../lib/walletSwitch";
 
 /**
@@ -44,8 +44,10 @@ export default function BuyHere({ collection, item, listing, listingsStatus, wal
     return <p className="ext-panel-note">Not listed for sale right now.</p>;
   }
 
-  // Exact, from wei: never a rounded figure below what the wallet will ask for.
-  const price = exactEth(listing.priceWei);
+  // From wei, rounded UP past six decimals: never below what the wallet will
+  // ask for. The exact figure rides in the price's tooltip when it differs.
+  const price = shownEth(listing.priceWei);
+  const exactTitle = listingPriceTitle(listing);
 
   const buy = async () => {
     if (!wallet) {
@@ -88,7 +90,7 @@ export default function BuyHere({ collection, item, listing, listingsStatus, wal
   return (
     <div className="ext-buy">
       <div className="ext-buy-price">
-        <span className="ext-fact-label">Price</span> <strong>{price} ETH</strong> <span>on {chainName}</span>
+        <span className="ext-fact-label">Price</span> <strong title={exactTitle}>{price} ETH</strong> <span>on {chainName}</span>
       </div>
       <button
         type="button"

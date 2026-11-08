@@ -77,7 +77,7 @@ contract Audit195Pair is Test {
             token1 = tA;
         }
 
-        address pairAddr = factory.createPair(address(token0), address(token1));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(token0), address(token1));
         pair = TegridyPair(pairAddr);
 
         // Mint tokens to test accounts
@@ -134,7 +134,7 @@ contract Audit195Pair is Test {
         address tA = address(hugeA) < address(hugeB) ? address(hugeA) : address(hugeB);
         address tB = address(hugeA) < address(hugeB) ? address(hugeB) : address(hugeA);
 
-        address freshPairAddr = factory.createPair(tA, tB);
+        address freshPairAddr = factory.createPair{value: 0.006 ether}(tA, tB);
         TegridyPair freshPair = TegridyPair(freshPairAddr);
 
         // Mint amounts that exceed uint112 max (~5.19e33)
@@ -482,7 +482,7 @@ contract Audit195Pair is Test {
         AuditMockERC20 tY = new AuditMockERC20("Y", "Y", 18);
         address aX = address(tX) < address(tY) ? address(tX) : address(tY);
         address aY = address(tX) < address(tY) ? address(tY) : address(tX);
-        address fpAddr = factory.createPair(aX, aY);
+        address fpAddr = factory.createPair{value: 0.006 ether}(aX, aY);
         TegridyPair fp = TegridyPair(fpAddr);
 
         tX.mint(attacker, 1_000_000 ether);
