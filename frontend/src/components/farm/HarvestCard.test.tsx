@@ -33,6 +33,9 @@ vi.mock('../../lib/harvest/solana', () => ({
   signsAll: (s: { signAllTransactions?: unknown }) => (typeof s?.signAllTransactions === 'function' ? s : null),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
+// The pool reads Harvest shares with the dashboard's board (lib/wallet/heldReads.ts).
+const held = vi.hoisted(() => ({ forget: vi.fn() }));
+vi.mock('../../lib/wallet/heldReads', () => ({ forgetHeldReads: held.forget }));
 vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 
 import { HarvestCard } from './HarvestCard';
@@ -121,6 +124,26 @@ describe('Harvest card', () => {
     expect(screen.getByText(/only the network fee was spent/)).toBeTruthy();
     expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 reverted.');
     expect(evm.refetch).toHaveBeenCalled();
+  });
+
+  it('Check again reads the pools afresh: a pool read held from before the press is forgotten first', async () => {
+    const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
+    sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send)], held: [], unread: [] });
+    const owner = {};
+    act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: {} }, true));
+    try {
+      show();
+      fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 1 claim' }));
+      const again = await screen.findByRole('button', { name: 'Check again' });
+      await waitFor(() => expect(sol.read).toHaveBeenCalledTimes(2));
+      const forgets = held.forget.mock.calls.length;
+      fireEvent.click(again);
+      await waitFor(() => expect(sol.read).toHaveBeenCalledTimes(3));
+      expect(held.forget.mock.calls.length).toBe(forgets + 1);
+      expect(held.forget.mock.invocationCallOrder.at(-1)!).toBeLessThan(sol.read.mock.invocationCallOrder.at(-1)!);
+    } finally {
+      act(() => setSolanaSurface(owner, null));
+    }
   });
 
   it('a Solana wallet is the page’s one connection: read at its address, claimed with its signer', async () => {

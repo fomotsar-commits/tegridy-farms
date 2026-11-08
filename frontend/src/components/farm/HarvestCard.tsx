@@ -10,6 +10,7 @@ import { EVM_CHAIN_IDS, type EvmClaim } from '../../lib/harvest/evm';
 import type { SolanaClaim } from '../../lib/harvest/solana';
 import { promptCount, runHarvest, runSummary, type SendTogether } from '../../lib/harvest/run';
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
+import { forgetHeldReads } from '../../lib/wallet/heldReads';
 import {
   HARVEST_CHAIN_LABEL, orderClaims,
   type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
@@ -113,7 +114,9 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   const [run, setRun] = useState<{ rows: RunRow[]; done: boolean } | null>(null);
   const [me] = useState(() => ({}));
 
+  // Afresh: never a pool read held for this load (lib/wallet/heldReads.ts).
   const reread = () => {
+    forgetHeldReads();
     setSolNonce((n) => n + 1);
     void evm.refetch();
   };

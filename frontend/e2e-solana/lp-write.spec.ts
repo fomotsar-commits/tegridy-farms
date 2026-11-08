@@ -27,13 +27,13 @@ import {
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
-  closeTokenAccount, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
+  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
   squatStandard, transferLp, transferTokens, type CreatedPool,
 } from './fixtures/lp';
 import { SOL_COIN } from './fixtures/coins';
 import {
   actor, addAndReview, closeAll, connect, depositPlan, ensureConnected, esc, openAdd, openPools, openRemove, pct, pendingNotes, poolCard, positionRow, press, pressable,
-  reviewDeposit, reviewRows, shareRow, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
+  reviewDeposit, reviewRows, shareRow, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Actor, type Prices,
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
 import { gapCostOf, gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
@@ -96,7 +96,9 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     A.walletB = await fundedKeypair(10);
     A.mint = await createClassicToken(A.creator, { supply: 10_000_000n * UNIT, name: { name: 'E2E Write A', symbol: 'EWRA' } });
     A.poolA = await createSolPool(A.creator, A.mint, { configIndex: 1, sol: sol(2), tokens: 2_000_000n * UNIT, at: 'standard' });
-    A.poolB = await createLaunchTierPool(A.creator, A.mint, { sol: sol(1), tokens: 1_000_000n * UNIT });
+    // A second pool this site adds to: the public tier again, at an address of its own. (A
+    // launch-tier pool no launch made is never listed or added to, owner 2026-10-24.)
+    A.poolB = await createSolPool(A.creator, A.mint, { configIndex: 1, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'fresh' });
     await transferTokens(A.creator, A.walletB.publicKey, A.mint, 2_000_000n * UNIT);
     A.prices = priced(A.mint);
   });
@@ -290,8 +292,8 @@ const B = {} as {
   prices: Prices;
   pusher: Keypair;
   stranger: Keypair;
-  // T1: a tier-1 pool and a tier-0 pool of one token (E6, E13, E14, E19).
-  creator1: Keypair; t1: PublicKey; a1: CreatedPool; b1: CreatedPool; w6: Keypair; w13: Keypair; r14: Keypair;
+  // T1: a tier-1 pool (E6, E13, E14, E19).
+  creator1: Keypair; t1: PublicKey; a1: CreatedPool; w6: Keypair; w13: Keypair; r14: Keypair;
   // E3: the Token-2022 metadata-only token.
   creator3: Keypair; t3: PublicKey; p3: CreatedPool; w3: Keypair;
   // E4: a graduated launch.
@@ -334,7 +336,6 @@ test.describe('group B (chromium only)', () => {
         B.creator1 = await fundedKeypair(20);
         B.t1 = await classic(B.creator1, 'E2E Write B1', 'EWB1');
         B.a1 = await pool(B.creator1, B.t1, 1, 2, 2_000_000n);
-        B.b1 = await createLaunchTierPool(B.creator1, B.t1, { sol: sol(1), tokens: 1_000_000n * UNIT });
         B.w6 = await fundedKeypair(3);
         B.w13 = await fundedKeypair(2);
         await transferTokens(B.creator1, B.w6.publicKey, B.t1, 1_000_000n * UNIT);
@@ -464,20 +465,22 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('E4: a graduated launch pool; with Jupiter down it is unchecked (E4a), with "no route" it takes a deposit; Add, then Remove All', async ({ browser }) => {
+  test('E4: a graduated launch pool; with Jupiter down its outside price is one row and Add stays (E4a), with "no route" it takes a deposit; Add, then Remove All', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const launch = B.launchMint.toBase58();
     const a = await actor(browser, B.buyer, { prices: B.prices, down: new Set([launch]) });
     const p = a.page;
     expect(B.launchPool.equals(poolStatePda(B.launchMint, LAUNCH_PROGRAM))).toBe(true);
     await openPools(p, B.launchMint);
-    // E4a: Jupiter down is not "no route": no Add.
+    // E4a: Jupiter down is an outside price not read: one row, never a gate (island answer
+    // twenty-seven, 966abd678). The pool's own reads decide, and they pass.
     const card = poolCard(p, B.launchPool);
     await expect(card).toHaveAttribute('data-origin', 'launch-pool', { timeout: 60_000 });
-    await expect(card).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
-    await expect(card).toHaveAttribute('data-add', 'checks', { timeout: 60_000 });
-    await expect(card).toContainText('HTTP 502');
-    await expect(ui.lp.addButton(card)).toHaveCount(0);
+    await expect(card).toHaveAttribute('data-price', 'unread', { timeout: 60_000 });
+    // Its label and value sit side by side, so the text runs them together.
+    await expect(card).toContainText(/Outside price\s*not read yet/);
+    await expect(card).toHaveAttribute('data-deposits', 'allowed');
+    await expect(card).toHaveAttribute('data-add', 'offer');
     // Jupiter answers again ("no route": the stub does not price this mint).
     a.jup.setDown(launch, false);
     await press(ui.lp.findButton(p), 'Find pools');
@@ -922,7 +925,7 @@ test.describe('group B (chromium only)', () => {
   // deposit, and says its price was checked against nothing. A price that came through one
   // of our own pools is a different thing, and has not changed: it is a read that failed,
   // so that pool is still not checked and still offers no Add.
-  test('E18: a pool with no market price takes a deposit with a warning; a price through our own pool is still not checked and offers no Add; the creator\'s Remove stays', async ({ browser }) => {
+  test('E18: a pool with no market price takes a deposit with a warning; a price through our own pool is not an outside price, one row and no gate; the creator\'s Remove stays', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const a = await actor(browser, B.creator18, { prices: B.prices, routeThrough: B.pr.address });
     const p = a.page;
@@ -954,16 +957,16 @@ test.describe('group B (chromium only)', () => {
     expect((await tokenAmount(lpAcc))! - held, 'the deposit landed').toBe(plan.lp);
     await closeAll(p, panel);
 
-    // A price through our own pool: still not checked, no warning in place of the check, and no Add.
+    // A price through our own pool is no outside price: never compared as one, and, as any
+    // outside price not read, one row and never a gate (island answer twenty-seven, 966abd678).
     await openPools(p, B.tr);
     const routed = poolCard(p, B.pr.address);
-    await expect(routed).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
-    await expect(routed).toHaveAttribute('data-price', 'unread');
-    await expect(routed).toHaveAttribute('data-add', 'checks');
-    await expect(routed).toContainText('came through our own pools');
-    await expect(routed).toContainText('Adding is off: a check above could not be run just now.');
+    await expect(routed).toHaveAttribute('data-price', 'unread', { timeout: 60_000 });
+    await expect(routed).toContainText(/Outside price\s*not read yet/);
+    await expect(routed).not.toContainText('agrees');
+    await expect(routed).toHaveAttribute('data-deposits', 'allowed');
+    await expect(routed).toHaveAttribute('data-add', 'offer');
     await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
-    await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
     await ensureConnected(p);
     for (const pool of [B.pu, B.pr]) {
@@ -998,20 +1001,30 @@ test.describe('group B (chromium only)', () => {
     // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
     const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;
     const seen: string[] = [];
-    for (const pool of [B.a1, B.b1]) {
-      const { panel } = await addAndReview(a, pool.address, '0.05');
-      const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
+    const review = async (x: Actor, pool: PublicKey) => {
+      const { panel } = await addAndReview(x, pool, '0.05');
+      const { rows, f } = await reviewDeposit(x, panel, pool, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
-      await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
+      expect(await guardText(ui.lp.section(x.page))).not.toMatch(NO_YIELD);
+      await press(x.page.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
-    }
-    expect(seen[0]).not.toBe(seen[1]);
-    expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
-    expect(a.wallet.records).toEqual([]);
-    expect(a.rpc.violations).toEqual([]);
+      expect(await guardText(ui.lp.section(x.page))).not.toMatch(NO_YIELD);
+      expect(x.wallet.records).toEqual([]);
+      expect(x.rpc.violations).toEqual([]);
+    };
+    // The public tier: T1's pool. The launch tier: the graduated launch's pool (E4's), the one
+    // pool there this site adds to (a launch-tier pool no launch made is never listed, owner
+    // 2026-10-24), read by its holder with no Jupiter route, as E4 reads it.
+    await review(a, B.a1.address);
     await a.ctx.close();
+    const b = await actor(browser, B.buyer, { prices: B.prices });
+    await openPools(b.page, B.launchMint);
+    await connect(b.page);
+    await expect(poolCard(b.page, B.launchPool)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
+    await review(b, B.launchPool);
+    expect(seen[0]).not.toBe(seen[1]);
+    await b.ctx.close();
   });
 
   // Owner, 2026-10-29: a token with a transfer fee may have a pool. The pool program charges

@@ -189,6 +189,29 @@ describe("Solana: only SOL, USDC and BAYLA add dollars", () => {
     expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2760, pools: 5, unvalued: 0 });
   });
 
+  it("names each coin with one pool worth $200 or more, at its deepest pool, deepest first", async () => {
+    const w = world();
+    const BIG = key(3);
+    const SMALL = key(4);
+    w.pool(CP, [SOL, 2], [MEME, 1_000_000]); // $400
+    w.pool(CP, [SOL, 3], [MEME, 1]); // $600: MEME's deepest
+    w.pool(CP, [USDC, 99], [SMALL, 5]); // $198: under the line
+    w.pool(CP, [USDC, 99], [SMALL, 5]); // two small pools are not one $200 pool
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // a coin/coin pool names no coin
+    w.pool(RANGE, [SOL, 5], [BIG, 1e9]); // a range pool at its SOL only: $500
+    w.pool(CP, [JUNK, 1e12], [MEME, 1e12]); // no coin: worth nothing here
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.poolCoins).toEqual([{ mint: MEME, usd: 600 }, { mint: BIG, usd: 500 }]);
+  });
+
+  it("names no coin while Solana's pools are not read", async () => {
+    const w = world();
+    const { vault0 } = w.pool(CP, [SOL, 5], [MEME, 5]);
+    w.vaults.set(vault0, { ...w.vaults.get(vault0), mint: JUNK });
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.poolCoins).toBeUndefined();
+  });
+
   it("adds nothing for a pool that holds no coin, and does not read its vaults", async () => {
     const w = world();
     const junk = w.pool(CP, [JUNK, 1e12], [MEME, 1e12]);

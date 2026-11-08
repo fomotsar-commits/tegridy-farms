@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { shownEth, formatListingPrice, listingsTotalWei } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import Usd from "./Usd";
 import NftImage from "./NftImage";
@@ -516,7 +517,7 @@ export default function ShoppingCart({
                     gap: 3,
                   }}>
                     <Eth />
-                    {item.price ?? "—"}
+                    {item.price != null ? formatListingPrice(item) : "—"}
                   </div>
                 </div>
 
@@ -816,7 +817,11 @@ export default function ShoppingCart({
                   marginBottom: 4,
                 }}>
                   {purchasableItems.length} item{purchasableItems.length !== 1 ? "s" : ""} for{" "}
-                  <strong>{purchasableItems.reduce((s, i) => s + (i.price || 0), 0).toFixed(4)} ETH</strong>
+                  <strong>{(() => {
+                    // Exact from wei when every item has it, so the total is never read below what is paid.
+                    const wei = listingsTotalWei(purchasableItems);
+                    return wei != null ? shownEth(wei.toString()) : purchasableItems.reduce((s, i) => s + (i.price || 0), 0).toFixed(4);
+                  })()} ETH</strong>
                 </div>
                 {estimatingGas && (
                   <div style={{
