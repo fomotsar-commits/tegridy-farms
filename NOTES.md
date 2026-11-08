@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
+
+**Believed:** a CI runner with no release folder can rebuild one by dumping each program from
+mainnet and checking it against the repo's pin.
+
+**Measured** (2026-11-08, `stage-from-mainnet.mjs`): the launch program dumped to exactly its pin
+(`a3c41afa`, 470,728 bytes). The pool program dumped to `1e55bcdc` (725,176 bytes), not trunk's
+pin `88b98aa9`: after the roll-back (#24) and the redo (#31) that build is on chain nowhere, its
+buffer spent. A ProgramData dump also carries tail padding when a smaller build sits in a larger
+account; the ELF's own end (section headers: `e_shoff + e_shnum * e_shentsize`) cut both exactly.
+
+**Do:** fetch by the ELF's end and check the pin; when they differ, refuse and name both hashes,
+because the specs would test a program nobody runs. Re-pin to what mainnet runs (here #1107)
+before expecting that job to go green.
+
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
 **Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
