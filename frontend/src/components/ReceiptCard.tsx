@@ -70,7 +70,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
     const t = window.setTimeout(() => setRisen(true), RISE_AFTER_MS);
     return () => window.clearTimeout(t);
   }, [receipt.signature]);
-  // An add's card is about 680 px tall: on a shorter screen the focus trap's focus scrolls the
+  // An add's card is about 660 px tall: on a shorter screen the focus trap's focus scrolls the
   // layer to the card's foot, and the head, where the moment plays, would be off the top. The
   // moment the card is up, the layer goes back to its top.
   const layerRef = useRef<HTMLDivElement>(null);
