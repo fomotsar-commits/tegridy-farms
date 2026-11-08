@@ -44,8 +44,9 @@ import { QUOTE_COINS, quotesFor, readPair, type QuoteCoin } from './quotes';
  * pools there are (100 accounts a call: 25 pools a call in the second round).
  *
  * THE LAUNCH TIER. Fee tier 0 is for graduations, which open the launch pool. Some builds of
- * the pool program (88b98aa9, on mainnet since 2026-10-24) also let anyone open a pool on it
- * directly, for free. Such a pool is read and marked (`launchTierWithoutLaunch`), then never
+ * the pool program (88b98aa9, on mainnet until the upgrade and again during each roll-back:
+ * 2026-10-24 to 11-03 and 2026-11-04 to 11-06) also let anyone open a pool on it directly, for free, and a
+ * pool opened then stays after the upgrade. Such a pool is read and marked (`launchTierWithoutLaunch`), then never
  * listed, quoted or added to (owner, 2026-10-24); its holders can still take their liquidity out.
  */
 
