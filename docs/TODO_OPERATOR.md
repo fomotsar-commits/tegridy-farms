@@ -271,6 +271,11 @@ member A's balance for the old four-proposal plan and #30, both covered above).
 4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
    `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
    must end `RESULT: the upgrade is live and both pools are untouched.`
+   ✅ **Done 2026-11-06:** #31 executed at 15:13:03 UTC by member B from the page (slot 466,155,644,
+   transaction `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK`).
+   The check ended `RESULT: the upgrade is live and both pools are untouched.` The upload's 3.684732
+   SOL went back to the paying wallet. 0 pools were opened on the launch tier while it was open.
+   #30 is now safe to run; #18 and #3 can never run.
 5. The same hour: #1107 (it says `1e55bcdc` is live; it must not merge before). Until then the
    registry's `88b98aa9` pin is right again.
 
@@ -301,7 +306,7 @@ lamports.
 |---|---|---|---|---|---|
 | **#22** | Range upgrade: opening a range pool costs 0.5 SOL, paid to the vault | `6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3` (`1e896e1e`) | 7.758 SOL to the deploy wallet, at the execute | 2026-11-02 19:52:54 | execute, 1st |
 | **#23** | Pool re-upgrade | `Dh3uiriV6E7NToAoY8VorXXWVFNEfop9eLkYtphFFCTV` (`1e55bcdc`) | 3.685 SOL to the deploy wallet, at the execute | 2026-11-02 19:50:49 | execute, 2nd |
-| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build running now) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
+| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build #23 replaces) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
 | **#25** | Ladder upgrade: stakers can extend a running lock, and the vault can raise the per-wallet limit | `G2Ss3jvX9HFSDR1BYecYq4pvXZWSwF2RM79XsfTHj53J` (`1b91609c`) | 2.705 SOL to the ladder deploy wallet, at the execute | 2026-11-02 19:47:33 | execute, 3rd |
 | **#26** | Ladder per-wallet limit, 2,000,000 to 10,000,000 BAYLA (it can only ever go up) | none | none | 2026-11-02 19:49:35, and only after #25 | execute, 4th |
 
@@ -1757,14 +1762,16 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. Off chain again since the roll-back of 2026-10-24
+### ⬜ O-0929-10: four `security_txt!` fields. On chain again since the re-upgrade; one look left
 
-**2026-10-24: rolled back.** The pre-staged roll-back, proposal #16, executed at 17:03:00 UTC
-(slot 460,927,956), so mainnet runs the 2026-09-29 build `88b98aa9…` again and the explorer's
-security tab shows the old text. Do not tick this box until the re-upgrade has executed and the
-tab shows the new values. The paragraph below was true from 2026-10-23 until the roll-back.
+**Rolled back, then upgraded again.** The pre-staged roll-back, proposal #16, executed on
+2026-10-24 at 17:03:00 UTC (slot 460,927,956), and mainnet ran the 2026-09-29 build `88b98aa9…`
+with the old text until proposal #23 put the build below back (runbook section 4b, under the
+roll-back). The same happened once more: roll-back #24 ran by mistake on 2026-11-04 at 02:52:42
+UTC, and proposal #31 put the build back on 2026-11-06 at 15:13:03 UTC. The paragraph below is
+true again.
 
-**Where it stood from 2026-10-23: the upgrade had executed.** The pool program on mainnet was the build
+**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
 that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
 closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
 the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website

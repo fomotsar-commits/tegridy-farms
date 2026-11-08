@@ -32,7 +32,7 @@
 // wrapped-SOL account, or open one. An opening paired with one of them therefore opens no
 // account at all: the coin is spent from the wallet's own account for it.
 //
-// Account POSITIONS come from the release IDLs (pinned by sha256 in genesis-accounts.mjs),
+// Account POSITIONS come from the programs' own IDLs (pinned by sha256 in genesis-accounts.mjs),
 // never from the frontend's ix.ts, so a builder bug cannot pass its own check here.
 import { PublicKey, VersionedTransaction, type MessageCompiledInstruction } from '@solana/web3.js';
 // @ts-expect-error -- a plain .mjs module shared with the validator scripts; it has no types
