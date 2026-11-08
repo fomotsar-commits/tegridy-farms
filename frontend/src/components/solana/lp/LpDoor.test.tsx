@@ -524,9 +524,12 @@ describe('a pool that refuses deposits, for every reason', () => {
     const deposits = within(card).getByTestId('lp-pool-deposits');
     expect(within(deposits).getByText('Deposits: refused here')).toHaveClass('text-rose-300/90');
     expect(deposits).toHaveTextContent(c.reason);
-    // A screen reader landing on the heading still hears the reason.
-    const heading = within(card).getByRole('heading', { level: 3 });
-    expect(heading).toHaveFocus();
+    // A screen reader landing on the heading still hears the reason. The card takes focus in
+    // its own effect (PoolCard `useShownOnce`), which can run after the reason is drawn: on
+    // a loaded CI runner the first case read focus still on <body>. Wait for it, reading the
+    // heading afresh each time, so a card that never takes focus (or loses it) still fails.
+    await waitFor(() => expect(within(cardOf(v.address)).getByRole('heading', { level: 3 })).toHaveFocus(), { timeout: 5_000 });
+    const heading = within(cardOf(v.address)).getByRole('heading', { level: 3 });
     const described = heading.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '');
     expect(described.join(' ')).toContain(c.reason);
     expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
