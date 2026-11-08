@@ -104,10 +104,12 @@ test("the deployer's funds are plain ADA only, read with _extended", () => {
   assert.deepEqual(plainFunds([{ ...row(1, '500000000', []), inline_datum: { bytes: 'd87980' } }], DEPLOYER, []), []);
 });
 
-test('the mainnet inputs template: the proven treasury, both owners from their wallets, and nothing run before the owner says so', () => {
+test("the mainnet inputs template: the proven treasury, both owners from their wallets, the owner's picks confirmed", () => {
   const raw = JSON.parse(readFileSync(new URL('../deploy/mainnet-inputs.template.json', import.meta.url), 'utf8'));
-  assert.deepEqual(raw._pending, ['ownerA', 'ownerB', 'poolStake']);
-  assert.throws(() => checkNothingPending(raw), /pending the owner's OK/);
+  // The owner confirmed ownerA, ownerB and poolStake on 2026-11-08 ("Use your picks"): nothing is pending.
+  assert.equal(raw._pending, undefined);
+  assert.match(raw._confirmed, /2026-11-08/);
+  checkNothingPending(raw);
   for (const k of ['deployer', 'seedTxIn', 'lockSeedTxIn', 'batcherKeyHash']) assert.equal(raw[k], '', `${k} is left for the run`);
   const payKey = (a: string) => CSL.BaseAddress.from_address(CSL.Address.from_bech32(a))!.payment_cred().to_keyhash()!.to_hex();
   assert.equal(raw.ownerA, payKey(WALLET_A));

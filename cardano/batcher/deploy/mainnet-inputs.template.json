@@ -1,6 +1,6 @@
 {
- "_readme": "Mainnet inputs for scripts/deploy.ts and scripts/cosign.ts. Copy to inputs.json outside the repo and fill the empty fields: deployer = the Eternl wallet address that pays the fees and holds both seeds; seedTxIn and lockSeedTxIn = two UTxOs at that address; batcherKeyHash = from the batcher's server, where its key is made. Before the records step, add batcherFee (lovelace per order, the owner's call). Delete _pending once the owner has confirmed each field it names: deploy.ts and cosign.ts refuse inputs that still carry it.",
- "_pending": ["ownerA", "ownerB", "poolStake"],
+ "_readme": "Mainnet inputs for scripts/deploy.ts and scripts/cosign.ts. Copy to inputs.json outside the repo and fill the empty fields: deployer = the Eternl wallet address that pays the fees and holds both seeds; seedTxIn and lockSeedTxIn = two UTxOs at that address; batcherKeyHash = from the batcher's server, where its key is made. Before the records step, add batcherFee (lovelace per order, the owner's call). deploy.ts and cosign.ts refuse any inputs that carry a _pending field.",
+ "_confirmed": "2026-11-08: the owner confirmed ownerA, ownerB and poolStake below (\"Use your picks\"). Near launch the treasury's stake address stake17yqk0xxsav3nhlk9kac4vqxxv47zc7aczjp5yy2qa69sg7gvqwdvm must be registered and its vote delegated to Always Abstain in Eternl, or the pools' staking rewards cannot be withdrawn.",
  "_wallets": {
   "ownerA": "the payment key hash of Eternl wallet mem2 (key A): addr1qyppzmwvfz5dk6eny849hcsp9390cj7ml769fd00twvct5yk3nxuz23aapvfjckhjndl86jknefaarvky4yxw9njvt0q8f5ref",
   "ownerB": "the payment key hash of Eternl wallet mem (key B): addr1q8axzalz877tpqp9ytsd3v48gkyk6t64u2fmuljfdu0vskugqsplyt0mzmm8avnasxywcm8qq6kmt7feyt8naf65lpaqcgmw0e",
