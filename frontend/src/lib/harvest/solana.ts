@@ -10,15 +10,17 @@ import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 // Every read and every claim is the pool card's own, wired the way that card wires it:
 // Streamflow through readEntries/readPool and claimRewards (LighthousePoolLive), the
 // ladder through readLadderPool/readLadderWallet/readVaultBalances + earnedNow and
-// ladderClaim/ladderClaimCarried (SolanaLadderPoolLive). One claim alone is one of those
+// ladderClaim/ladderClaimCarried (SolanaLadderPoolLive). Each read is made once per load and
+// shared with the dashboard's board (wallet/poolReads.ts). One claim alone is one of those
 // calls. Several go on one prompt (sendClaimsTogether), each built from the same
 // instructions those calls send, in a transaction of its own.
 import { solanaRpcEndpoint } from '../solana';
 import {
-  claimBrokenByRateChange, claimRefusal, claimRewards, claimRewardsInstructions, readEntries, readPool,
+  claimBrokenByRateChange, claimRefusal, claimRewards, claimRewardsInstructions,
   type PoolView, type StakeEntryView,
 } from '../bungalowStaking';
-import { readLadderPool, readLadderWallet, readVaultBalances, type LadderWalletView } from '../ladder/read';
+import type { LadderWalletView } from '../ladder/read';
+import { sharedEntries, sharedLadderPool, sharedLadderWallet, sharedPool, sharedVaultBalances } from '../wallet/poolReads';
 import { earnedNow, isLadderConfigured, ladderProgramId, type LadderPoolView } from '../ladder/program';
 import {
   ladderClaim, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs, refusalReason,
@@ -216,12 +218,12 @@ async function readStreamflowHarvest(owner: string, target: StakeTarget): Promis
   const what = target.retired ? `your ${sym} stakes in its old pool` : `your ${sym} stakes`;
   const unread = (detail: string) => unreadPlan({ key: `sf:${target.pool}`, chain: 'solana', roomId: target.room.id, what, detail });
   try {
-    const entries = await readEntries(target.pool, owner);
+    const entries = await sharedEntries(target.pool, owner);
     if (!entries.ok) return unread(entries.reason);
     const open = entries.entries.filter((e) => e.closedTs === 0);
     if (!open.length) return empty();
     // The pool only for a pool the wallet is in, as the dashboard reads it.
-    const pool = await readPool(target.pool);
+    const pool = await sharedPool(target.pool);
     if (!pool.ok) return unread(pool.reason);
     return planStreamflow(target, pool.pool, open);
   } catch (e) {
@@ -233,17 +235,11 @@ async function readLadderHarvest(owner: string, room: Bungalow & { ladderPool: s
   if (!isLadderConfigured()) return empty();
   const unread = (detail: string) => unreadPlan({ key: `ladder:${room.ladderPool}`, chain: 'solana', roomId: room.id, what: `your ${room.symbol} locks`, detail });
   try {
-    const conn = connection();
-    const programId = ladderProgramId();
-    const poolKey = new PublicKey(room.ladderPool);
-    const [p, w] = await Promise.all([
-      readLadderPool(conn, programId, poolKey),
-      readLadderWallet(conn, programId, poolKey, new PublicKey(owner)),
-    ]);
+    const [p, w] = await Promise.all([sharedLadderPool(room.ladderPool), sharedLadderWallet(room.ladderPool, owner)]);
     if (!w.ok) return unread(w.reason);
     if (!w.value.stats) return empty();
     if (!p.ok) return unread(p.reason);
-    const vaults = await readVaultBalances(conn, p.value);
+    const vaults = await sharedVaultBalances(p.value);
     return planLadder(room, p.value, w.value, vaults.rewardRaw, nowSecs);
   } catch (e) {
     return unread(clipReason(e));

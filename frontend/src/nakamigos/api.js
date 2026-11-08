@@ -2,7 +2,9 @@ import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS
 import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll, buyChainFor, walletChainLabel } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
+import { buyTradeRefusal, decodeSeaportTrade, shownPriceCeilingWei } from "./lib/seaportTrade";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
+import { exactEth } from "./lib/formatPrice";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -729,15 +731,28 @@ async function fetchOpenSeaListingsPage(slug, cursor) {
   return { raw: data.listings || [], next: data.next || null };
 }
 
+// The price below is read as 18-decimal ETH. A listing in any other coin would
+// be misread (5,000 USDC is 5e9 units: "0 ETH", the floor of the book), so only a
+// listing in ETH whose signed order asks for nothing but ETH is shown at all.
+export function isEthListing(listing) {
+  const current = listing?.price?.current;
+  if (current?.currency !== "ETH" || (current.decimals != null && Number(current.decimals) !== 18)) return false;
+  const consideration = listing?.protocol_data?.parameters?.consideration;
+  return !Array.isArray(consideration) || consideration.every((c) => Number(c?.itemType) === 0);
+}
+
 // Normalize raw OpenSea listing payloads into our listing shape, deduped by
 // tokenId (cheapest wins) and sorted cheapest-first. Pure — safe to re-run as
 // background pages stream in.
 function normalizeOpenSeaListings(allRawListings) {
-  const allListings = allRawListings.map(listing => {
+  const allListings = allRawListings.filter(isEthListing).map(listing => {
     const offer = listing.protocol_data?.parameters?.offer?.[0];
     const tokenId = offer?.identifierOrCriteria || null;
     const priceWei = listing.price?.current?.value;
-    const price = priceWei ? Number(BigInt(priceWei) * 10000n / BigInt(1e18)) / 10000 : null;
+    // Exact, from wei. A four-decimal cut here rounded DOWN (0.01899 came out
+    // 0.0189), so every surface showed less than the buy cost.
+    const exact = exactEth(priceWei);
+    const price = exact != null ? Number(exact) : null;
     return {
       tokenId: tokenId ? String(tokenId) : null,
       price,
@@ -1379,6 +1394,15 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress, chain = 
   // What gets signed is `encoded`, so the NFT it moves is read back from it.
   const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), listingNftTokens(listing), chain);
   if (nftRefusal) return nftRefusal;
+  // ...and so is everything else it commits the buyer to: ETH only, no more than
+  // the shown price, the listed token, delivered to the buyer.
+  const tradeRefusal = buyTradeRefusal(decodeSeaportTrade(iface, fnName, encoded), {
+    buyer: buyerAddress,
+    tokenId: listing.tokenId ?? listing.id,
+    txValue,
+    maxValue: shownPriceCeilingWei(listing),
+  });
+  if (tradeRefusal) return tradeRefusal;
 
   return { to: txData.to, value: txValue, data: encoded };
 }

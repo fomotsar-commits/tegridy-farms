@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { formatListingPrice } from "../lib/formatPrice";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { OPENSEA_ITEM } from "../constants";
 import { fulfillSeaportOrder, getProvider } from "../api";
@@ -405,7 +406,7 @@ function ScatterPlot({ deals, allListedNfts, onPick }) {
             <tr key={d.nft?.id ?? i}>
               <td>#{d.nft?.id}</td>
               <td>{d.nft?.rank ?? "—"}</td>
-              <td>{d.nft?.price != null ? d.nft.price.toFixed(4) : "—"}</td>
+              <td>{d.nft?.price != null ? formatListingPrice(d.nft) : "—"}</td>
               <td>{d.isDeal ? "Yes" : "No"}</td>
             </tr>
           ))}
@@ -701,7 +702,7 @@ export default function Deals({
         ? await fulfillNativeOrder(nft.nativeOrder)
         : await fulfillSeaportOrder(nft);
       if (result.success) {
-        addToast(`Purchased #${nft.id} for ${(nft.price ?? 0).toFixed(4)} ETH`, "success");
+        addToast(`Purchased #${nft.id} for ${formatListingPrice(nft)} ETH`, "success");
         recordTransaction({
           type: "buy",
           nft,
@@ -996,7 +997,7 @@ export default function Deals({
                   <td style={{ ...S.td, fontWeight: 600 }}>#{deal.id}</td>
                   <td style={S.td}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <Eth size={12} /> {deal.price.toFixed(4)}
+                      <Eth size={12} /> {formatListingPrice(deal)}
                     </span>
                   </td>
                   <td style={{ ...S.td, color: "var(--text-dim)" }}>

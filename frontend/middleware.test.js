@@ -11,6 +11,9 @@
 // the island" are different facts, and NEITHER of them is "0°".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import middleware from './middleware.js';
 
 const ORIGIN = 'https://memetics.finance';
@@ -322,6 +325,146 @@ describe('the marketplace collection cards', () => {
         expect(title, path).not.toMatch(/\u2014/);
         expect(title, path).toMatch(/\| Tradermigos$/);
       }
+    }
+  });
+});
+
+// \u2500\u2500 THE ADD'S SHARE LINK (island answer thirty-one) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+//
+// After an add, the receipt card posts memetics.finance/lp/<room> or /lp/<mint> to X. Two
+// readers: X's crawler gets the island's card, the painting titled for the coin; a person is
+// sent to the Add. The card states no figure of the venue's own.
+describe('the add\u2019s share link', () => {
+  const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
+  const CARD = `${ORIGIN}/share/lp-card.jpg`;
+  const ALT = 'Bayla lays a glowing infinity brick on the island&#39;s plinth, under memetics.finance';
+  const UNNAMED = 'Hold the floor. Every trade pays you.';
+  const meta = (html, prop) => {
+    const m = new RegExp(`<meta (?:property|name)="${prop}" content="([^"]*)">`).exec(html);
+    return m ? m[1] : null;
+  };
+  const card = async (path) => (await middleware(req(path))).text();
+  const identity = (attributes) => vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: { attributes } }) }));
+
+  it('a room\u2019s card: the painting at 2048 by 1024 with its words, titled for the room\u2019s coin', async () => {
+    const html = await card('/lp/bayla');
+    expect(meta(html, 'og:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
+    expect(meta(html, 'twitter:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
+    expect(meta(html, 'og:description')).toBe('Add SOL + BAYLA to its pool on memetics.finance. Every trade in the pool pays you.');
+    expect(meta(html, 'og:image')).toBe(CARD);
+    expect(meta(html, 'twitter:image')).toBe(CARD);
+    expect(meta(html, 'og:image:width')).toBe('2048');
+    expect(meta(html, 'og:image:height')).toBe('1024');
+    expect(meta(html, 'og:image:alt')).toBe(ALT);
+    expect(meta(html, 'twitter:image:alt')).toBe(ALT);
+    expect(meta(html, 'twitter:card')).toBe('summary_large_image');
+    expect(meta(html, 'og:url')).toBe(`${ORIGIN}/lp/bayla`);
+    expect(meta(html, 'og:site_name')).toBe('memetics.finance');
+  });
+
+  it('a room\u2019s card reads nothing upstream', async () => {
+    const html = await card('/lp/brainlet');
+    expect(meta(html, 'og:title')).toBe('Hold $BRAINLET&#39;s floor. Every trade pays you.');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the edge runs on the road, so both readers reach it', async () => {
+    const { config } = await import('./middleware.js');
+    expect(config.matcher).toContain('/lp/:path*');
+  });
+
+  it('any other token\u2019s card is named from one identity read, and its person is sent to the LP door', async () => {
+    fetchMock = identity({ name: 'dogwifhat', symbol: 'WIF' });
+    vi.stubGlobal('fetch', fetchMock);
+    const html = await card(`/lp/${WIF}`);
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${WIF}`]);
+    expect(meta(html, 'og:title')).toBe('Hold $WIF&#39;s floor. Every trade pays you.');
+    expect(meta(html, 'og:description')).toBe('Add SOL + WIF to its pool on memetics.finance. Every trade in the pool pays you.');
+    expect(meta(html, 'og:url')).toBe(`${ORIGIN}/lp/${WIF}`);
+    const res = await middleware(req(`/lp/${WIF}`, HUMAN));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(`${ORIGIN}/pools?mint=${WIF}&task=add`);
+  });
+
+  it('a token whose name cannot be read still gets the card, unnamed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    const res = await middleware(req(`/lp/${WIF}`));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(meta(html, 'og:title')).toBe(UNNAMED);
+    expect(meta(html, 'og:description')).toBe('Add liquidity to any pool on memetics.finance. Every trade in the pool pays you.');
+    expect(meta(html, 'og:image')).toBe(CARD);
+  });
+
+  it('a symbol read with its own $ (WIF\u2019s reads "$WIF") is printed with one', async () => {
+    vi.stubGlobal('fetch', identity({ name: 'dogwifhat', symbol: '$WIF' }));
+    expect(meta(await card(`/lp/${WIF}`), 'og:title')).toBe('Hold $WIF&#39;s floor. Every trade pays you.');
+  });
+
+  it.each(['<b>WIF</b>', 'WIF \ud83d\ude80', '$$WIF', 'W$IF', 'W'.repeat(13), '$', '', 42])('a symbol that is not a plain ticker (%s) is not printed', async (symbol) => {
+    vi.stubGlobal('fetch', identity({ name: 'x', symbol }));
+    const html = await card(`/lp/${WIF}`);
+    expect(meta(html, 'og:title')).toBe(UNNAMED);
+    expect(html).not.toContain('<b>');
+  });
+
+  it('a person is sent to the room\u2019s Add sheet, on the deployment that served the link', async () => {
+    const res = await middleware(req('/lp/bayla', HUMAN));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(`${ORIGIN}/bayla?sheet=add`);
+    const preview = 'https://tegridy-farms-git-feat-x.vercel.app';
+    const fromPreview = await middleware(new Request(`${preview}/lp/soy`, { headers: { 'user-agent': HUMAN } }));
+    expect(fromPreview.headers.get('location')).toBe(`${preview}/soy?sheet=add`);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['/lp', '/lp/', '/lp/not-a-coin', '/lp/__proto__', '/lp/constructor', '/lp/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca'])(
+    'a link naming neither (%s): the card unnamed, nothing read; a person to /pools',
+    async (path) => {
+      const html = await card(path);
+      expect(meta(html, 'og:title')).toBe(UNNAMED);
+      expect(meta(html, 'og:url')).toBe(`${ORIGIN}/pools`);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const res = await middleware(req(path, HUMAN));
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe(`${ORIGIN}/pools`);
+    },
+  );
+
+  it('the rooms match the sheet\u2019s rooms, id for id and coin for coin', async () => {
+    const { LP_ROOMS } = await import('./middleware.js');
+    const { sheetRooms } = await import('./src/lib/sheet.ts');
+    expect(Object.entries(LP_ROOMS ?? {})).toEqual(sheetRooms().map((b) => [b.id, b.symbol]));
+  });
+
+  it('the picture on disk is a JPEG at 2048 by 1024, under X\u2019s 5 MB', () => {
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'public', 'share', 'lp-card.jpg');
+    const buf = readFileSync(file);
+    expect([buf[0], buf[1]]).toEqual([0xff, 0xd8]);
+    let size = null;
+    for (let i = 2; i + 9 < buf.length && buf[i] === 0xff; i += 2 + buf.readUInt16BE(i + 2)) {
+      const marker = buf[i + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        size = { width: buf.readUInt16BE(i + 7), height: buf.readUInt16BE(i + 5) };
+        break;
+      }
+    }
+    expect(size).toEqual({ width: 2048, height: 1024 });
+    expect(statSync(file).size).toBeLessThan(5 * 1024 * 1024);
+  });
+
+  it('no card on the road carries an em dash', async () => {
+    vi.stubGlobal('fetch', identity({ name: 'dogwifhat', symbol: 'WIF' }));
+    for (const path of ['/lp/bayla', `/lp/${WIF}`, '/lp/nothing']) {
+      expect(await card(path), path).not.toMatch(/\u2014/);
+    }
+  });
+
+  it('/read still answers, and every other card prints no picture size or words', async () => {
+    const read = await card(`/read/${ADDR}`);
+    expect(read).toContain('1,694 days held');
+    for (const html of [read, await card('/scan'), await card('/nakamigos/bojungles')]) {
+      expect(html).not.toMatch(/og:image:(?:width|height|alt)|twitter:image:alt/);
     }
   });
 });

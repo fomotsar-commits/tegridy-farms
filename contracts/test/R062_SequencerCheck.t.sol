@@ -94,7 +94,7 @@ contract R062SequencerCheckTest is Test {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
 
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Seed 100 : 200 reserves (1 : 2 price ratio).

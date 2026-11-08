@@ -126,7 +126,9 @@ async function openPicker(side: 'Pay with' | 'Buy') {
 describe('the token picker', () => {
   it('Pay opens on SOL, USDC and USDT, each name a 44px press with its address, then the rest', async () => {
     const dialog = await openPicker('Pay with');
-    expect(rows(dialog).map((r) => r.getAttribute('data-token-row'))).toEqual([SOL_MINT, USDC_MINT, USDT_MINT, BAYLA_MINT]);
+    // Then the island coins, BAYLA first (owner, 2026-11-01: "always showcasing for swaps").
+    expect(rows(dialog).map((r) => r.getAttribute('data-token-row')).slice(0, 4)).toEqual([SOL_MINT, USDC_MINT, USDT_MINT, BAYLA_MINT]);
+    expect(within(dialog).getByText('Island coins')).toBeInTheDocument();
     for (const mint of [SOL_MINT, USDC_MINT, USDT_MINT]) {
       const name = within(rowOf(dialog, mint)!).getByTestId('coin-name');
       expect(name).toHaveAccessibleName(new RegExp(`: copy its address ${mint}$`));

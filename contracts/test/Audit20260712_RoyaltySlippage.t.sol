@@ -90,7 +90,7 @@ contract Audit20260712_RoyaltySlippageTest is Test {
     function _createBuyPool(uint256 ethAmount) internal returns (address pool) {
         uint256[] memory emptyIds = new uint256[](0);
         vm.prank(alice);
-        pool = factory.createPool{value: ethAmount}(
+        pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.BUY, SPOT_PRICE, DELTA, 0, emptyIds
         );
     }

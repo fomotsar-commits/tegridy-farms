@@ -7,8 +7,9 @@ page. The owner sends the form. Nothing in this folder sends anything.
 
 ## Before sending
 
-1. Vault proposal #23 has run (it can from 2026-11-02 19:50:49 UTC) and its check passed, so
-   the pool program on mainnet is `1e55bcdc…` again.
+1. ✅ The pool program on mainnet is `1e55bcdc…` again. #23 ran on 2026-11-03, the roll-back #24
+   ran by mistake on 2026-11-04, and #31 put the build back on 2026-11-06 at 15:13:03 UTC; its
+   check passed.
 2. The fixtures are taken again from that program, as `README.md` says under "To take new
    snapshots": delete `tests/fixtures/memetics.so`, run the refresh, pin the new hash in
    `tests/parity.rs`, and write `tests/fixtures/quote_vectors.json` again, with the site's

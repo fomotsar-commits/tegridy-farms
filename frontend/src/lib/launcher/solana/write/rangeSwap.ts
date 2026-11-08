@@ -293,6 +293,7 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   // 7. Simulate twice and compare.
   return buildAndSimulate(rpc, {
     kind: 'range-swap',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent,

@@ -31,6 +31,20 @@ const H = vi.hoisted(() => {
 
 const { fetchHeatMock, fetchLaunchRadarMock, fetchLauncherOutcomesMock, FakeHeatUnavailable } = H;
 
+// The venue-lending gate is CLOSED for real (no reader for loans on Gondi's contract yet:
+// lib/shield/venues.ts, pinned in sources.test.ts). It is opened here so the deadline
+// pipeline itself stays pinned for the day a reader exists.
+vi.mock('../shield/venues', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shield/venues')>();
+  return {
+    ...actual,
+    shieldVenueReadiness: () => ({
+      ...actual.shieldVenueReadiness(),
+      'tegridy-nft-lending': { readable: true, detail: null, address: '0x5555555555555555555555555555555555555555' },
+    }),
+  };
+});
+
 vi.mock('../heat/heatClient', () => ({
   fetchHeat: (...args: unknown[]) => H.fetchHeatMock(...args),
   HeatUnavailableError: H.FakeHeatUnavailable,

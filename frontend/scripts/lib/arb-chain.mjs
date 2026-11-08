@@ -16,8 +16,29 @@
  * scanner's test run from the robot's wallet decides.
  */
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import bs58 from 'bs58';
 import { judgeTrip, rankTrips, robotRule } from '../../src/lib/solana/keeper/rule.ts';
+
+/**
+ * A folder only this user may read, for a script's cache and logs: <home>/.tegridy-arb/<name>,
+ * never the shared temp folder (where another account could plant or read a file of the same
+ * name). `home` is for tests.
+ */
+export function privateDir(name, home = os.homedir()) {
+  const dir = path.join(home, '.tegridy-arb', name);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/**
+ * One log line with no line breaks or other control characters, so a value from outside (a
+ * coin's ticker, a websocket's answer) can neither forge a line nor hide one.
+ */
+// eslint-disable-next-line no-control-regex
+export const oneLine = (text) => String(text).replace(/[\r\n\x00-\x1f\x7f\u{2028}\u{2029}]/gu, '');
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -29,6 +50,16 @@ export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 export const COINS = Object.freeze({
   [SOL_MINT]: { symbol: 'SOL', decimals: 9 },
   [USDC_MINT]: { symbol: 'USDC', decimals: 6 },
+});
+
+/**
+ * Coins a pool may be priced in besides SOL and USDC, each with the pool that links it to one of
+ * them (read in the same slot as the coin's pools): BAYLA through our BAYLA/SOL pool, USDT
+ * through a Raydium USDT/USDC pool. A trip through one adds a swap at each end.
+ */
+export const QUOTES = Object.freeze({
+  '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump': { symbol: 'BAYLA', decimals: 6, program: TOKEN_2022_PROGRAM, bridge: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4' },
+  [USDT_MINT]: { symbol: 'USDT', decimals: 6, program: TOKEN_PROGRAM, bridge: '7TbGqz32RsuwXbXY7EyBCiAnMbJq1gm1wKmfjQjuwoyF' },
 });
 
 /** The robot's wallet and the two figures of its (keeper/plan.ts DEFAULT_LIMITS, MAX_LAMPORTS_SPENT) a test run needs. Its cap and floor are keeper/rule.ts's. */
@@ -72,8 +103,13 @@ export const DEXES = Object.freeze({
 });
 export const dexOfProgram = (program) => Object.keys(DEXES).find((k) => DEXES[k].program === program) ?? null;
 
-/** PumpSwap's one fee setting for every pool (its GlobalConfig). */
-export const PUMPSWAP_GLOBAL = 'ADyA8hdefvWN2dbGGWFotbzWxrAvLW83WG6QCVXvJKqw';
+/**
+ * PumpSwap's fees: the pump fee program's FeeConfig for PumpSwap (PDA ["fee_config", PumpSwap],
+ * read 11-06): flat fees for a pool with no coin creator, else a tier by the coin's market cap
+ * (1.25% under 420 SOL, down to 0.30% from 98,240 SOL). GlobalConfig's flat 0.30% is not it.
+ */
+export const PUMP_FEE_CONFIG = '5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx';
+export const PUMP_FEE_PROGRAM = 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ';
 
 const tagOf = (name) => createHash('sha256').update(`account:${name}`).digest().subarray(0, 8);
 const TAGS = Object.fromEntries(Object.entries(DEXES).map(([k, d]) => [k, d.tag ? tagOf(d.tag) : null]));
@@ -135,7 +171,10 @@ export function decodePool(dex, address, data) {
     }
     case 'pumpswap': {
       if (data.length < 243) return null;
-      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)) };
+      // A newer pool prices with a signed 128-bit quote (SOL) adjustment at byte 245 beside its
+      // vault: Jupiter matches vault + it to 0.01% (SOY, +17.6 SOL, 11-06); some hold a few lamports below 0.
+      const extraB = data.length >= 261 ? BigInt.asIntN(128, u128(data, 245)) : 0n;
+      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)), extraB };
     }
     case 'dlmm': {
       const binStep = u16(data, 80);
@@ -157,12 +196,30 @@ export function decodePool(dex, address, data) {
 export const clmmConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 51 ? u32(data, 47) / 1e6 : null);
 /** The trade and creator fees in a cp-swap fee config (ours and Raydium CPMM), or null. */
 export const cpConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 116 ? { trade: Number(u64(data, 12)) / 1e6, creator: Number(u64(data, 108)) / 1e6 } : null);
-/** PumpSwap's fees (GlobalConfig): LP + protocol, and the coin creator's on top when a pool has one. */
-export const pumpGlobalFee = (data) =>
-  Buffer.isBuffer(data) && data.length >= 321 ? { base: Number(u64(data, 40) + u64(data, 48)) / 1e4, creator: Number(u64(data, 313)) / 1e4 } : null;
+/** The pump fee program's FeeConfig: flat fees and market-cap tiers, each a fraction; null when not one. */
+export function pumpFeeConfig(data) {
+  if (!Buffer.isBuffer(data) || data.length < 73 || !data.subarray(0, 8).equals(tagOf('FeeConfig'))) return null;
+  const fees = (at) => Number(u64(data, at) + u64(data, at + 8) + u64(data, at + 16)) / 1e4;
+  const n = u32(data, 65);
+  if (n === 0 || data.length < 69 + n * 40) return null;
+  const tiers = Array.from({ length: n }, (_, i) => ({ threshold: Number(u128(data, 69 + i * 40)), fee: fees(69 + i * 40 + 16) }));
+  return { flat: fees(41), tiers };
+}
 
-/** The pool with its real fee filled in from `configs` (address → decoded fee config); null when unread. */
-export function withFee(pool, configs) {
+/** A PumpSwap pool's fee: its market cap's tier (lamports: supply × SOL per token) or the flat fee. */
+function pumpFee(pool, cfg, ctx) {
+  if (!pool.creatorSet || pool.mintB !== SOL_MINT) return cfg.flat;
+  if (!ctx?.depth || !(ctx.supply > 0)) return Math.max(cfg.flat, ...cfg.tiers.map((t) => t.fee)); // depth unread: the dearest
+  const cap = (ctx.depth.b / ctx.depth.a) * Number(ctx.supply);
+  if (cap < cfg.tiers[0].threshold) return cfg.tiers[0].fee;
+  return [...cfg.tiers].reverse().find((t) => cap >= t.threshold).fee;
+}
+
+/**
+ * The pool with its real fee filled in from `configs` (address → decoded fee config); null when
+ * unread. A PumpSwap pool's needs its depth and its token's supply (`ctx`): its tier is its market cap.
+ */
+export function withFee(pool, configs, ctx) {
   if (pool.dex === 'clmm') {
     const f = configs.get(pool.config);
     return typeof f === 'number' ? { ...pool, fee: f } : null;
@@ -172,8 +229,8 @@ export function withFee(pool, configs) {
     return f ? { ...pool, fee: f.trade + (pool.creatorOn ? f.creator : 0) } : null;
   }
   if (pool.dex === 'pumpswap') {
-    const f = configs.get(PUMPSWAP_GLOBAL);
-    return f ? { ...pool, fee: f.base + (pool.creatorSet ? f.creator : 0) } : null;
+    const cfg = configs.get(PUMP_FEE_CONFIG);
+    return cfg ? { ...pool, fee: pumpFee(pool, cfg, ctx) } : null;
   }
   return pool.fee === null ? null : pool;
 }
@@ -199,7 +256,7 @@ export function depthOf(pool, amounts) {
   if (va === undefined || vb === undefined || va === null || vb === null) return null;
   if (pool.kind === 'pair') {
     const a = Number(va - pool.owedA);
-    const b = Number(vb - pool.owedB);
+    const b = Number(vb - pool.owedB + (pool.extraB ?? 0n));
     return a > 0 && b > 0 ? { a, b } : null;
   }
   const price = (1 + pool.binStep / 1e4) ** pool.activeId;
@@ -232,25 +289,47 @@ export function legOf(pool, depth, fromMint) {
  */
 export function tripsFor(pools, ctx) {
   const trips = [];
-  const usable = pools.filter((p) => !p.stopped && ctx.depths.get(p.address) && COINS[p.mintA === ctx.token ? p.mintB : p.mintA]);
+  // ctx.quotes: quote mint → { pool, depth } linking it to SOL or USDC (QUOTES), when read.
+  const linked = (q) => COINS[q] || ctx.quotes?.get(q);
+  // A bin pool's depth (Meteora DLMM) is rough: its price steps are not read, so a gap through
+  // it is not a real one. 11-06/07: 1,328 of 1,330 test runs through one lost at Jupiter's real
+  // quote (median -1.32% against +0.52% on paper); the other two lost too. Left out until the
+  // bins are read.
+  const usable = pools.filter((p) => !p.stopped && ctx.depths.get(p.address) && !ctx.depths.get(p.address).rough && linked(p.mintA === ctx.token ? p.mintB : p.mintA));
   const coinOf = (p) => (p.mintA === ctx.token ? p.mintB : p.mintA);
+  const link = (q) => ctx.quotes.get(q);
+  const coinAcross = (q) => (COINS[q] ? q : link(q).pool.mintA === q ? link(q).pool.mintB : link(q).pool.mintA);
   for (const buy of usable) {
     for (const sell of usable) {
       if (buy === sell) continue;
-      const start = coinOf(buy);
-      const end = coinOf(sell);
-      const legs = [legOf(buy, ctx.depths.get(buy.address), start), legOf(sell, ctx.depths.get(sell.address), ctx.token)];
+      const qBuy = coinOf(buy);
+      const qSell = coinOf(sell);
+      const start = coinAcross(qBuy);
+      const legs = [];
+      if (qBuy !== start) legs.push(legOf(link(qBuy).pool, link(qBuy).depth, start));
+      legs.push(legOf(buy, ctx.depths.get(buy.address), qBuy), legOf(sell, ctx.depths.get(sell.address), ctx.token));
+      let end = qSell;
+      if (!COINS[qSell]) {
+        legs.push(legOf(link(qSell).pool, link(qSell).depth, qSell));
+        end = coinAcross(qSell);
+      }
       if (end !== start) {
         if (!ctx.bridge) continue;
         legs.push(legOf(ctx.bridge.pool, ctx.bridge.depth, end));
       }
+      if (legs.length > 4) continue;
       const coin = COINS[start];
       const holds = ctx.holds?.get(start);
       const judged = judgeTrip(legs, { decimals: coin.decimals, coinUsd: ctx.usd.get(start), solUsd: ctx.usd.get(SOL_MINT), holdsRaw: holds === undefined ? null : holds, settings: ctx.settings });
       if (typeof judged === 'string') continue;
-      const tokenUsd = (l) => (l.from === ctx.token ? l.rout / l.rin : l.rin / l.rout) * 10 ** (ctx.decimals - COINS[l.from === ctx.token ? l.to : l.from].decimals) * ctx.usd.get(l.from === ctx.token ? l.to : l.from);
-      const priceBuy = tokenUsd(legs[0]);
-      const priceSell = tokenUsd(legs[1]);
+      const decimalsOf = (m) => (COINS[m] ?? QUOTES[m]).decimals;
+      const tokenUsd = (l) => {
+        const q = l.from === ctx.token ? l.to : l.from;
+        return (l.from === ctx.token ? l.rout / l.rin : l.rin / l.rout) * 10 ** (ctx.decimals - decimalsOf(q)) * (ctx.usd.get(q) ?? NaN);
+      };
+      const at = qBuy === start ? 0 : 1;
+      const priceBuy = tokenUsd(legs[at]);
+      const priceSell = tokenUsd(legs[at + 1]);
       trips.push({
         coin: start,
         legs: legs.map((l) => ({ pool: l.pool.address, dex: l.pool.dex, from: l.from, to: l.to, fee: l.fee, rough: Boolean(ctx.depths.get(l.pool.address)?.rough) })),
@@ -268,21 +347,47 @@ export function tripsFor(pools, ctx) {
         roiPct: judged.roiPct,
         gapInUsd: judged.gapInUsd,
         gapNetUsd: judged.gapNetUsd,
+        reachUsd: reachOf(legs) * (ctx.usd.get(start) / 10 ** coin.decimals),
         capUsd: judged.capUsd,
         floatUsd: judged.floatUsd,
         pays: judged.takes,
         why: judged.why,
         sizedBy: judged.sizedBy,
-        threeSwap: legs.length === 3,
-        // The robot's trips today: two swaps with one in our pool (its Jupiter trip; Jupiter's
-        // best route is at least this pool's price), or both in our pools. Two outside pools,
-        // or a third swap through SOL/USDC, it does not take yet.
-        robotTakes: legs.length === 2 && legs.some((l) => l.pool.dex === 'ours'),
+        threeSwap: legs.length > 2,
+        // Every coin the trip holds between its first and last swap (ATAs the test run opens).
+        via: legs.slice(1).map((l) => l.from),
+        // The robot takes two-swap trips: one in our pool (its own), or two outside pools
+        // (keeper/takes.ts, since 7f40aed31). Three or four swaps it does not take yet.
+        robotTakes: legs.length === 2,
       });
     }
   }
   return rankTrips(trips, 'profit');
 }
+
+/**
+ * The most a trip can ever bring back, in its start coin's raw units, at any size and any gap: no
+ * pool pays out more than it holds, and the swaps after it pay at most their price. Its thinnest
+ * pool sets it.
+ */
+function reachOf(legs) {
+  let reach = Infinity;
+  let rate = 1; // start coin per unit of what leg i pays out, at the later legs' prices
+  for (let i = legs.length - 1; i >= 0; i--) {
+    reach = Math.min(reach, legs[i].rout * rate);
+    rate *= legs[i].rout / legs[i].rin;
+  }
+  return reach;
+}
+
+/**
+ * Trips that do not pay, nearest to paying first (each coin's closest, and the closest list). A trip
+ * that can never bring back the floor goes last whatever its gap: a pool on it holds dust. Then the
+ * dollars it makes at its best size; then, for trips that make nothing at any size, the gap less the
+ * pools' fees.
+ */
+const canPay = (t) => Number(t.reachUsd >= t.floorUsd);
+export const nearestFirst = (trips) => [...trips].sort((a, b) => canPay(b) - canPay(a) || b.gainUsd - a.gainUsd || b.gapPct - b.costPct - (a.gapPct - a.costPct));
 
 /** The ticker a Metaplex metadata account claims (untrusted: shown as the token's claim only). */
 export function metadataSymbol(data) {
@@ -319,6 +424,7 @@ export function testRunProblem(c, minProfit) {
   if (c.coinAfter - c.coinBefore < minProfit) return `the coin grew by ${c.coinAfter - c.coinBefore}, under the floor ${minProfit}`;
   if (c.tokenAfter < c.tokenBefore) return 'the token account shrank';
   if (c.otherAfter < c.otherBefore) return 'the robot’s other coin shrank';
+  if ((c.via ?? []).some((v) => v.after < v.before)) return 'a coin held mid-trip shrank';
   if (c.lamportsBefore - c.lamportsAfter > BigInt(ROBOT.maxLamportsSpent)) return 'it costs more SOL than fees and rent';
   return null;
 }
@@ -336,3 +442,56 @@ export function busyTokens(json) {
   }
   return out;
 }
+
+const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/**
+ * Every pool a DexScreener `token-pairs/v1/solana/<mint>` answer lists for `mint` on Solana, deepest
+ * first, at least `minUsd` deep by its own figure. Untrusted: it only says which accounts to read;
+ * the chain says whose pool each is (its owner) and what it holds. One read per coin replaces
+ * twelve one-coin getProgramAccounts calls, which the public RPC refuses.
+ */
+export function poolsFromListing(json, mint, minUsd) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(json) ? json : []) {
+    const address = String(raw?.pairAddress ?? '');
+    const sides = [raw?.baseToken?.address, raw?.quoteToken?.address].map(String);
+    const usd = Number(raw?.liquidity?.usd);
+    if (raw?.chainId !== 'solana' || !ADDRESS.test(address) || seen.has(address) || !sides.includes(mint)) continue;
+    if (!(usd >= minUsd)) continue;
+    seen.add(address);
+    out.push({ address, listedUsd: usd });
+  }
+  return out.sort((a, b) => b.listedUsd - a.listedUsd);
+}
+
+/**
+ * Pools whose price the scanner misread: a test run's quote for a leg came back well under what the
+ * pool's own figures said. Such a pool is left out of test runs for 10 minutes, doubling with
+ * each misread to 6 hours, so one wrong reading cannot spend every test run (11-06: 153 of 160
+ * test runs went to two such pools, TRUMP's Meteora pool and ZEC's Raydium CLMM pool).
+ */
+export class Misreads {
+  constructor() {
+    this.count = new Map();
+    this.until = new Map();
+  }
+  /** A leg's quote (`quoted`) against the pool's own figure (`expected`), both raw out; true when misread. */
+  judge(pool, expected, quoted, now, tolerance = 0.02) {
+    if (!(expected > 0) || Number(quoted) >= Number(expected) * (1 - tolerance)) return false;
+    const n = (this.count.get(pool) ?? 0) + 1;
+    this.count.set(pool, n);
+    this.until.set(pool, now + Math.min(10 * 60_000 * 2 ** (n - 1), 6 * 60 * 60_000));
+    return true;
+  }
+  held(pool, now) {
+    return (this.until.get(pool) ?? 0) > now;
+  }
+  list(now) {
+    return [...this.until].filter(([, t]) => t > now).map(([pool, until]) => ({ pool, until, times: this.count.get(pool) }));
+  }
+}
+
+/** The rows the robot may take now: two swaps, a test run that passed within `keepMs`. */
+export const takeRows = (rows, now, keepMs) => rows.filter((r) => r.robotTakes && r.proof?.ok && now - r.proof.at < keepMs);

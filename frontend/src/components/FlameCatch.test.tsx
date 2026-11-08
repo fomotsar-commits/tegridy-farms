@@ -42,6 +42,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     fee: { kind: 'reading' },
     clock: 'day1',
     holders: 412,
+    lps: null,
     ...over,
   };
 }
@@ -119,11 +120,17 @@ describe('the shore answers', () => {
     expect(tick).not.toHaveBeenCalled();
   });
 
-  it('an add strikes the same way', () => {
+  it('an add never strikes the shore: its card has the pool instead (answer thirty-two), and the shore never ticks for it', () => {
     act(() => raiseReceipt(receipt({ action: 'added', clock: 'double' })));
+    expect(card()).not.toHaveAttribute('data-flame');
+    expect(screen.queryByTestId('flame-ring')).toBeNull();
     rise();
     up();
-    expect(states()).toEqual(['catching']);
+    pass(2000);
+    expect(start).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('flame-ring')).toBeNull();
+    expect(screen.getByTestId('floor-ring')).toBeInTheDocument();
+    expect(tick).not.toHaveBeenCalled();
   });
 
   it('a sale never strikes: the engine draws the cooling light at once, and the line says it cools', () => {
@@ -319,8 +326,10 @@ describe('the CSS', () => {
     expect(rule('.flame-ring[data-shore="lit"] .flame-ember')).toMatch(/opacity:\s*0/);
   });
 
-  it('a beat warms the edge: rgba(170,255,160,0.9) with a 70 px glow', () => {
-    const beat = rule('.receipt-card.receipt-beat');
+  it('a buy’s or a sale’s beat warms the edge: rgba(170,255,160,0.9) with a 70 px glow; an add’s beat is the pool’s own', () => {
+    const beat = rule('.receipt-card[data-flame].receipt-beat');
+    // Scoped to the shore's cards: its !important would otherwise paint an add's beats Bayla's green on any coin's pool.
+    expect(css).not.toMatch(/(?:^|\n)\.receipt-card\.receipt-beat\s*\{/);
     expect(beat).toMatch(/border-color:\s*rgba\(170,\s*255,\s*160,\s*0\.9\)/);
     expect(beat).toMatch(/0 0 70px rgba\(130,\s*255,\s*120,\s*0\.34\)/);
   });

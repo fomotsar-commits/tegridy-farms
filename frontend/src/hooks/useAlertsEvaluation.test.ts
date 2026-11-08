@@ -19,6 +19,19 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { COVERAGE_STATEMENT, PRIORS_STORAGE_KEY, useAlertsEvaluation } from './useAlertsEvaluation';
 import type { AlertRule } from '../lib/alerts/rules';
 
+// The venue-lending gate is CLOSED for real (no reader for loans on Gondi's contract yet:
+// lib/shield/venues.ts). Opened here so the injected-reader wiring stays pinned.
+vi.mock('../lib/shield/venues', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/shield/venues')>();
+  return {
+    ...actual,
+    shieldVenueReadiness: () => ({
+      ...actual.shieldVenueReadiness(),
+      'tegridy-nft-lending': { readable: true, detail: null, address: '0x5555555555555555555555555555555555555555' },
+    }),
+  };
+});
+
 const SUBJECT = '0x420698cfdeddea6bc78d59bc17798113ad278f9d' as const;
 
 function rule(over: Partial<AlertRule> = {}): AlertRule {
