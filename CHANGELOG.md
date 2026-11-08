@@ -489,16 +489,6 @@ The site's Changelog tab shows both files.
 - A Solana staking pool or position that could not be read says so and offers Try again, on /farm and the dashboard.
 - Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, the fee hook row no longer says a redeploy is queued, and the page says a linked file can be newer than the deployed code.
 
-### 2026-09-24
-
-- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
-
-### 2026-09-22
-
-- Staking cards say how the island reads a locked bag.
-- The heat explainer reads the island's sentences.
-- Bungalow links open once, on the room's hero.
-
 ## Earlier
 
 The long form lives in git. `git show 531813e6:CHANGELOG.md` is this file as it stood before
