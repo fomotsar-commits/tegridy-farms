@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
 import type { Address } from 'viem';
-import { CHAIN_ID, TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
+import { CHAIN_ID, TEGRIDY_NFT_LENDING_ADDRESS } from '../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI } from '../lib/contracts';
 import { useMyLoans } from './useMyLoans';
 import {
@@ -44,7 +44,9 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const { loans, isLoading: loansLoading, isError: loansError, loansUnread } = useMyLoans();
 
-  const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+  // The reads below are the first-version contract's. The venue gate says whether they may
+  // run at all; with NFT lending on Gondi's contract it is closed (lib/shield/venues.ts).
+  const lendingDeployed = shieldVenueReadiness()['tegridy-nft-lending'].readable;
 
   // Borrower side only. A lender's exposure is real but it is not a liquidation
   // risk — a lender whose borrower defaults RECEIVES the collateral — and

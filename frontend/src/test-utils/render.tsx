@@ -26,16 +26,23 @@
  *   import { ProvidersWrapper } from '@/test-utils/render';
  *   renderHook(() => useFoo(), { wrapper: ProvidersWrapper });
  */
-import type { ReactElement, ReactNode } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 
 export function ProvidersWrapper({ children }: { children: ReactNode }) {
+  // The app's own QueryClient lives with WagmiProvider, which tests replace with mocks; a
+  // fresh one per render serves components that call useQuery directly. No retries, so a
+  // failed fetch fails at once.
+  const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   return (
-    <MemoryRouter>
-      <ThemeProvider>{children}</ThemeProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ThemeProvider>{children}</ThemeProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
