@@ -52,6 +52,11 @@ import {
   isVenueCoin,
   needsRiskAck,
   withVenueCoinsFirst,
+  venueMark,
+  isIslandCoin,
+  listedTokens,
+  resolveMints,
+  ISLAND_TOKENS,
   isRiskAcked,
   rememberRiskAck,
   forgetRiskAck,
@@ -69,6 +74,7 @@ import {
   type TrendingCategory,
   type TrendingInterval,
 } from '../lib/solanaTokenList';
+import { loadPoolCoins, poolCoinMints, usePoolCoins } from '../lib/solana/poolCoins';
 import {
   getQuote,
   NoRouteError,
@@ -311,12 +317,19 @@ function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 
 
 type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
 
+/** A pool's worth, short: $640, $1.2K, $35K. */
+const shortUsd = (usd: number) => (usd >= 1000 ? `$${(usd / 1000).toFixed(usd >= 10_000 ? 0 : 1)}K` : `$${Math.round(usd)}`);
+
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
-  // The venue's own coin is known by its mint, so it says that and not "Unverified".
+  // A coin the venue vouches for is known by its mint (venueMark), so it says why and not
+  // "Unverified": its own coin, an island room's, or one with a $200 pool here.
   // Only a coin Jupiter verifies gets no mark at all: SOL and USDC need none.
-  if (isVenueCoin(t.mint) && isUnverified(t)) out.push({ label: `This venue’s ${t.symbol}`, tone: 'green' });
-  else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
+  const mark = venueMark(t);
+  if (mark && isUnverified(t)) {
+    const label = mark.kind === 'venue' ? `This venue’s ${t.symbol}` : mark.kind === 'island' ? 'Island coin' : `Verified · ${shortUsd(mark.usd)} pool here`;
+    out.push({ label, tone: 'green' });
+  } else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   // Amber rather than red on a curated mint: USDC really can freeze, and saying
   // so is right — but it is a known property of the asset, not a warning sign.
@@ -544,15 +557,38 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [query]);
 
+  // The venue's own list (listedTokens): the coins with a $200 pool here, read as the picker
+  // opens, then Jupiter's rows for them and the island's coins (pictures, names), in one call.
+  // Each answer draws again; one that fails leaves the list's own rows.
+  usePoolCoins();
+  const [, setNamed] = useState(0);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void (async () => {
+      await resolveMints(ISLAND_TOKENS.map((t) => t.mint), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+      await loadPoolCoins();
+      await resolveMints(poolCoinMints(), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+    })();
+    return () => ctrl.abort();
+  }, []);
+
   const list = results ?? featured;
   // With nothing typed: SOL, USDC and USDT first (island answer twenty-four), under the venue's
-  // BAYLA where the list leads with it (the Buy list, owner 2026-10-08); then Favorites, Recent
-  // and Popular, each coin once. Remembered tokens still go through riskBadges like any row.
+  // BAYLA where the list leads with it (the Buy list, owner 2026-10-08); then the island's coins
+  // (owner, 2026-11-01: "always showcasing for swaps") and the coins with a $200 pool here; then
+  // Favorites, Recent and Popular, each coin once. Remembered tokens still go through riskBadges.
   const groups = results
     ? null
     : (() => {
         const top = [...(featured[0]?.mint === BAYLA.mint ? [featured[0]] : []), ...MAJORS];
         const seen = new Set(top.map((t) => t.mint));
+        const listed = listedTokens();
+        const island = listed.filter((t) => isIslandCoin(t.mint) && !seen.has(t.mint));
+        for (const t of island) seen.add(t.mint);
+        const pools = listed.filter((t) => venueMark(t)?.kind === 'pool' && !seen.has(t.mint));
+        for (const t of pools) seen.add(t.mint);
         const favs = getFavoriteTokens().filter((t) => !seen.has(t.mint));
         for (const t of favs) seen.add(t.mint);
         const recents = getRecentTokens().filter((t) => !seen.has(t.mint));
@@ -560,6 +596,8 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
         const popular = featured.filter((t) => !seen.has(t.mint));
         return [
           { label: null, tokens: top },
+          { label: 'Island coins', tokens: island },
+          { label: 'On our pools', tokens: pools },
           { label: 'Favorites', tokens: favs },
           { label: 'Recent', tokens: recents },
           { label: 'Popular', tokens: popular },
