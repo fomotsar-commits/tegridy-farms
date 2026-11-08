@@ -13,7 +13,7 @@
  *
  * The venue's edits to the island's file, and nothing else: typed for this repo's
  * noUncheckedIndexedAccess (SpriteName, four `!` on reads inside their own bounds, the palm's
- * fronds `as const`).
+ * fronds `as const`), and the sprites made after the null-context check in startShoreMoment.
  */
 export type ShoreState = 'catching' | 'lit' | 'ember';
 export interface ShoreMomentOptions {
@@ -98,10 +98,12 @@ function blit2(c: CanvasRenderingContext2D, img: Sprite, x: number, y: number, r
 }
 const ease = (x: number): number => { x = Math.max(0, Math.min(1, x)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 export function startShoreMoment(o: ShoreMomentOptions): () => void {
-  const sp = sprites();
   const sctx = o.shore.getContext('2d');
   const fctx = o.fx.getContext('2d');
   if (!sctx || !fctx) return () => {};
+  // The venue's one move: the sprites are drawn after the canvases are known to draw (the island's
+  // order built them first and threw where a browser hands back no 2D canvas, as jsdom does).
+  const sp = sprites();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const rnd = seeded(hash(o.wallet + ':' + Date.now()));
   let W = 0, H = 0, SW = 0, SH = 0;
