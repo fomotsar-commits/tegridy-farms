@@ -4,6 +4,32 @@
 > on it: charging to open a pool on Ethereum (written 2026-10-25), and on Base and Robinhood Chain
 > (added 2026-11-07, [below](#base-and-robinhood-chain)).
 
+## Deployed 2026-11-08
+
+You ran the deploy on all three chains on 2026-11-08 (Robinhood by cast replay). Every setting was
+read back on chain afterwards.
+
+| Chain | Factory | Router | SwapFeeRouter | SwapFeeRouterAdmin |
+|---|---|---|---|---|
+| Ethereum | `0xf73C993A1303Fe3612c5F878783CEf63D080834E` | `0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22` | `0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4` | `0x5c109a51B786473DCDE2De41a133d42515f60590` |
+| Base | `0x09E1B43f90cb6488063BB91310FD40c4339027e6` | `0x7D7DA5d6335efdCdd510C439cB7948b31562847f` | `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` | `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37` |
+| Robinhood | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` | `0x85AB297793e14283b54347C92C6AEFBaa20d1492` | `0xe9c38b477573c7f386892E3CE15Ccb38f637e23e` |
+
+Libraries (CREATE2, the same address on all three): TegridyFactoryLib
+`0xc5314777f077DD16A4A37062430bAa96CCc33d0F`, SwapFeeRouterConvertLib
+`0xbA591C0b84435290123Cd25C33b2DaccaAa0D306`.
+
+**On Ethereum the roles differ from the commands below** (your pick 2026-11-08): `FEE_TO_SETTER`
+was the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` and `GUARDIAN` the pause-guardian
+Safe `0xCDCA0F0621ce34012AD61bBD140f327EB778F354`, not `0xA360…b7F8`: two of `0xA360`'s three signers
+(`0xE9B7…`, `0xe44E…`) are delegated by EIP-7702 to the same contract and together meet its 2 of 3,
+while the treasury Safe always needs your `0x28d7` key, which has no delegation.
+
+Two things the Robinhood replay taught, now in [`ROBINHOOD_CAST_REPLAY.md`](ROBINHOOD_CAST_REPLAY.md):
+`cast send --create <code>` reads every flag after the code as a constructor argument, so the
+options go first; and the SwapFeeRouter's initcode (46,786 hex characters) is longer than a Windows
+command line, so it only sends from WSL.
+
 ## What this does
 
 Your ruling of 2026-10-25: opening a pool costs **0.006 ETH on every EVM chain** (about $14 that
