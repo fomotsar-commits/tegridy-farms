@@ -13,14 +13,6 @@ use anchor_spl::{
     token_2022::{self},
     token_interface::{initialize_account3, InitializeAccount3, Mint},
 };
-use std::collections::HashSet;
-
-const MINT_WHITELIST: [&'static str; 4] = [
-    "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM",
-    "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g",
-    "FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4",
-    "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
-];
 
 pub fn transfer_from_user_to_pool_vault<'a>(
     authority: AccountInfo<'a>,
@@ -205,19 +197,16 @@ pub fn support_mint_associated_is_initialized(
     return Ok(mint_associated_is_initialized);
 }
 
+// memetics.finance: a support-mint record no longer lets a Token-2022 coin skip the
+// extension check below. It did, for every extension, a permanent delegate or a transfer
+// hook included, and the vault could make one for any coin. The record and its two
+// instructions stay, so the program's interface is upstream's, but nothing reads it here.
 pub fn is_supported_mint(
     mint_account: &InterfaceAccount<Mint>,
-    mint_associated_is_initialized: bool,
+    _mint_associated_is_initialized: bool,
 ) -> Result<bool> {
     let mint_info = mint_account.to_account_info();
     if *mint_info.owner == Token::id() {
-        return Ok(true);
-    }
-    let mint_whitelist: HashSet<&str> = MINT_WHITELIST.into_iter().collect();
-    if mint_whitelist.contains(mint_account.key().to_string().as_str()) {
-        return Ok(true);
-    }
-    if mint_associated_is_initialized {
         return Ok(true);
     }
     let mint_data = mint_info.try_borrow_data()?;
@@ -332,4 +321,104 @@ pub fn create_or_allocate_account<'a>(
         system_program::assign(cpi_context.with_signer(&[siger_seed]), program_id)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod is_supported_mint_test {
+    use super::*;
+    use spl_token_2022::extension::{
+        metadata_pointer::MetadataPointer, permanent_delegate::PermanentDelegate,
+        BaseStateWithExtensionsMut, StateWithExtensionsMut,
+    };
+
+    /// The program's own view of a mint account: `key`, owned by `owner`, holding `data`.
+    fn mint_account(key: Pubkey, owner: Pubkey, data: Vec<u8>) -> InterfaceAccount<'static, Mint> {
+        let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(key)),
+            false,
+            false,
+            Box::leak(Box::new(1_461_600u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(owner)),
+            false,
+            0,
+        )));
+        InterfaceAccount::<Mint>::try_from(info).unwrap()
+    }
+
+    /// A Token-2022 mint at `key` carrying `extensions`.
+    fn token_2022_mint(key: Pubkey, extensions: &[ExtensionType]) -> InterfaceAccount<'static, Mint> {
+        let len =
+            ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(extensions)
+                .unwrap();
+        let mut data = vec![0u8; len];
+        let mut state =
+            StateWithExtensionsMut::<spl_token_2022::state::Mint>::unpack_uninitialized(&mut data)
+                .unwrap();
+        for e in extensions {
+            match e {
+                ExtensionType::PermanentDelegate => {
+                    state.init_extension::<PermanentDelegate>(true).unwrap();
+                }
+                ExtensionType::MetadataPointer => {
+                    state.init_extension::<MetadataPointer>(true).unwrap();
+                }
+                _ => unreachable!("add the extension here"),
+            }
+        }
+        state.base.decimals = 6;
+        state.base.is_initialized = true;
+        state.pack_base();
+        state.init_account_type().unwrap();
+        mint_account(key, spl_token_2022::id(), data)
+    }
+
+    // The four stablecoins upstream's MINT_WHITELIST let in by name (USDP, GYEN, ZUSD, PYUSD).
+    const DELETED_WHITELIST: [Pubkey; 4] = [
+        pubkey!("HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM"),
+        pubkey!("Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g"),
+        pubkey!("FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4"),
+        pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"),
+    ];
+
+    #[test]
+    fn the_four_stablecoins_meet_the_same_extension_check_as_every_coin() {
+        for key in DELETED_WHITELIST {
+            let mint = token_2022_mint(key, &[ExtensionType::PermanentDelegate]);
+            assert!(!is_supported_mint(&mint, false).unwrap(), "{key} is let in by name");
+        }
+    }
+
+    #[test]
+    fn a_support_mint_record_does_not_skip_the_extension_check() {
+        let mint = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::PermanentDelegate]);
+        assert!(!is_supported_mint(&mint, true).unwrap());
+    }
+
+    // Controls: what the program let in before still goes in, and what it refused still does.
+    #[test]
+    fn a_classic_mint_and_an_allowed_extension_still_go_in() {
+        use anchor_lang::solana_program::program_pack::Pack;
+        use anchor_spl::token::spl_token::state::Mint as ClassicMint;
+        let mut data = vec![0u8; ClassicMint::LEN];
+        ClassicMint::pack(
+            ClassicMint {
+                decimals: 9,
+                is_initialized: true,
+                ..Default::default()
+            },
+            &mut data,
+        )
+        .unwrap();
+        let classic = mint_account(Pubkey::new_unique(), Token::id(), data);
+        assert!(is_supported_mint(&classic, false).unwrap());
+        let named = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::MetadataPointer]);
+        assert!(is_supported_mint(&named, false).unwrap());
+    }
+
+    #[test]
+    fn a_permanent_delegate_without_a_record_is_still_refused() {
+        let mint = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::PermanentDelegate]);
+        assert!(!is_supported_mint(&mint, false).unwrap());
+    }
 }

@@ -54,6 +54,25 @@ describe('CurveLaunchesGridView', () => {
     expect(screen.getByText(/no launches on base yet/i)).toBeInTheDocument();
   });
 
+  it('with launching off (island answer twenty-six) says only that: never that the curve is live, or to create one', () => {
+    render(
+      <MemoryRouter>
+        <CurveLaunchesGridView chainName="Base" launchCount={0n} tokens={[]} renderCard={() => null} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/no launches on base yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/curve is live|create one/i)).toBeNull();
+  });
+
+  it('with launching on, invites the first launch from the form above', () => {
+    render(
+      <MemoryRouter>
+        <CurveLaunchesGridView chainName="Base" launchCount={0n} tokens={[]} launchOpen renderCard={() => null} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/the curve is live and the first launch writes history/i)).toBeInTheDocument();
+  });
+
   it('renders one card slot per token when launches exist', () => {
     const renderCard = vi.fn((t: `0x${string}`) => <div data-testid="slot">{t}</div>);
     render(

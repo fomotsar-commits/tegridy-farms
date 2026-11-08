@@ -814,7 +814,7 @@ export default function TradePage() {
             stop-loss, from a Safe, on a pair with configured feeds has a real executor
             (CoW's watchtower). Everything else needs the venue keeper, which is not
             built, so `triggerArmState` reports "Not armed" with the reason and the
-            submit button reads "Cannot be armed". Mounting it does not arm anything. */}
+            submit button reads "Not armed yet". Mounting it does not arm anything. */}
         {tab === 'trigger' && (
           <m.div role="tabpanel" id="trade-panel-trigger" aria-labelledby="trade-tab-trigger" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">

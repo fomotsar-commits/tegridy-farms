@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { clearGateAudit } from '../../lib/heat/gateAudit';
 import { parseHeatReading } from '../../lib/heat/heatOracle';
 
@@ -41,7 +42,13 @@ vi.mock('../../lib/heat/heatClient', () => ({
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
 
+// The countdown's roster reads the island's board through the torches read.
+vi.mock('../../hooks/useIslandTorches', () => ({ useIslandTorches: () => null }));
+
 const { LaunchGate } = await import('../LaunchGate');
+
+/** The door, inside the router every page that mounts it has. */
+const door = () => render(<MemoryRouter><LaunchGate /></MemoryRouter>);
 
 function reading(degrees: number, tier: string) {
   const now = Math.floor(Date.now() / 1000);
@@ -68,7 +75,7 @@ beforeEach(() => {
 describe('the door mounts the audit panel where a denied wallet is standing', () => {
   it('COLD carries the panel, collapsed', async () => {
     h.fetchHeat.mockResolvedValue(reading(62.4, 'Observer'));
-    render(<LaunchGate />);
+    door();
     await screen.findByText('COLD');
     await waitFor(() => expect(toggle()).toBeInTheDocument());
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
@@ -76,34 +83,37 @@ describe('the door mounts the audit panel where a denied wallet is standing', ()
 
   it('STALE carries the panel too — an unreadable door still owes its record', async () => {
     h.fetchHeat.mockRejectedValue(new Error('unreachable'));
-    render(<LaunchGate />);
+    door();
     await screen.findByText('STALE');
     await waitFor(() => expect(toggle()).toBeInTheDocument());
   });
 
   it('WARM does not — there is no refusal to account for', async () => {
     h.fetchHeat.mockResolvedValue(reading(195.54, 'Builder'));
-    render(<LaunchGate />);
+    door();
     await screen.findByText('WARM');
     expect(toggle()).not.toBeInTheDocument();
   });
 
   it('no wallet, no panel — nothing has been decided about anybody', async () => {
     h.address = undefined;
-    render(<LaunchGate />);
+    door();
     await screen.findByText(/Connect the Ethereum wallet/i);
     expect(toggle()).not.toBeInTheDocument();
   });
 });
 
-describe('the COLD door says what size can do, in the island words', () => {
-  it('names the 80 floor and says size cannot buy a day, with no prose em dash', async () => {
+// The countdown's words (island answer twenty-four, build 5): a wallet under 80° is never
+// told "Cannot". The door says its reading and the island's line, and the note under the
+// card keeps what held time is, with no prose em dash.
+describe('the COLD door speaks the countdown’s words', () => {
+  it('says the reading and the line, and never cannot', async () => {
     h.fetchHeat.mockResolvedValue(reading(73.89, 'Observer'));
-    render(<LaunchGate />);
+    door();
     await screen.findByText('COLD');
-    expect(screen.getByText(/This wallet reads 73\.89° \(Observer\)\. The door opens at 80°,/)).toBeInTheDocument();
+    expect(screen.getByText('This wallet reads 73.89° (Observer). Residents launch here. Nobody can buy last year.')).toBeInTheDocument();
     const why = screen.getByText(/^Warmth is held time\./);
-    expect(why.textContent).toContain('Size can raise what a day is worth, it cannot buy a day.');
-    expect(why.textContent).not.toMatch(/larger bag|—/);
+    expect(why.textContent).toContain('Nobody approves this by hand and there is nobody to ask');
+    expect(why.textContent).not.toMatch(/larger bag|—|\bcannot\b/i);
   });
 });

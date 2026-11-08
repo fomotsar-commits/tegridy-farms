@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
 import { expectNoSidewaysScroll } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
+import { LAUNCH_DOOR_OPEN } from '../src/lib/launcher/door';
 
 async function settle(page: Page, path: string, size: { width: number; height: number }): Promise<void> {
   await page.setViewportSize(size);
@@ -147,6 +148,7 @@ for (const path of ['/', '/toweli']) {
 }
 
 test('/launch at 390px: all four steps are on screen, none cut off', async ({ page, walletMock: _w }) => {
+  test.skip(!LAUNCH_DOOR_OPEN, 'the launch door is closed (island answer twenty-six): /launch is the countdown, and its four steps wait behind the door');
   await settle(page, '/launch', { width: 390, height: 844 });
   const third = page.getByText('Fees & disclosure', { exact: true }).first();
   await expect(third).toBeVisible({ timeout: 15_000 });

@@ -55,6 +55,8 @@ pub struct Pool {
     /// no per-wallet limit sets this equal to `deposit_cap`, which is explicit and
     /// cannot be reached by forgetting to configure it. Carved from `_reserved`, so
     /// `8 + Pool::INIT_SPACE` stays 508.
+    ///
+    /// Raise-only via `raise_wallet_cap` (added 2026-10-27), never above `deposit_cap`.
     pub max_wallet_principal: u64,
 
     /// REAL principal, exactly as Synthetix means `_totalSupply`. Authoritative.
@@ -131,8 +133,10 @@ pub struct Position {
     pub nonce: u32,
     /// Principal, in raw base units — what ARRIVED.
     pub amount: u64,
-    /// `amount x boost / BPS`, frozen at stake time.
+    /// `amount x boost / BPS`, frozen at stake time. `extend_lock` (added 2026-10-29) is
+    /// the one later writer: it re-prices from its own `now` and never lowers it.
     pub weight: u128,
+    /// Only ever moved LATER, and only by `extend_lock` while the lock still runs.
     pub lock_end: i64,
     /// Synthetix `userRewardPerTokenPaid`.
     pub reward_per_weight_paid: u128,
@@ -207,6 +211,18 @@ pub struct Withdrawn {
 }
 
 #[event]
+pub struct LockExtended {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub nonce: u32,
+    /// The new lock, counted from this instruction's clock.
+    pub lock_secs: i64,
+    pub lock_end: i64,
+    pub previous_weight: u128,
+    pub weight: u128,
+}
+
+#[event]
 pub struct RewardPaid {
     pub pool: Pubkey,
     pub owner: Pubkey,
@@ -265,6 +281,13 @@ pub struct CapRaiseProposed {
 
 #[event]
 pub struct CapRaised {
+    pub pool: Pubkey,
+    pub previous_cap: u64,
+    pub new_cap: u64,
+}
+
+#[event]
+pub struct WalletCapRaised {
     pub pool: Pubkey,
     pub previous_cap: u64,
     pub new_cap: u64,

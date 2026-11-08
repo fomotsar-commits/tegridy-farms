@@ -123,7 +123,7 @@ export function GateAuditPanel({ address, onReRead, limit = DEFAULT_LIMIT }: Gat
             Every decision this door takes is written down on this device, with the reading it used.
             It is kept here and nowhere else: it is never sent anywhere, and it is not analytics.
             Each row shows the floor <strong className="text-white/80">that decision</strong> was taken
-            against, so a floor that moves later cannot rewrite what you were measured against.
+            against, so a floor that moves later never rewrites what you were measured against.
           </p>
 
           {view?.kind === 'unavailable' && (
@@ -137,8 +137,8 @@ export function GateAuditPanel({ address, onReRead, limit = DEFAULT_LIMIT }: Gat
 
           {view?.kind === 'unreadable' && (
             <Notice tone="warn">
-              The stored record is not in the shape this page writes, so it cannot be read back.
-              Nothing is being guessed from it, and it is being ignored.
+              The stored record is not in the shape this page writes, so this page does not read it
+              back. Nothing is being guessed from it, and it is being ignored.
             </Notice>
           )}
 

@@ -396,6 +396,25 @@ describe('poolPins', () => {
 
 // ── deposit ──────────────────────────────────────────────────────────────────
 
+// Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+// The pool here is the live one everyone had left that day: the locked 100 shares over 5
+// lamports and 2,138 token units.
+describe('a pool too empty to hold its price', () => {
+  const live = (o: Parameters<typeof world>[0] = {}) => world({ sol: 5n, tokens: 2_138n, lpSupply: 100n, ...o });
+
+  it('builds no deposit on the fresh read, even one that fits the wallet at the price the pool agrees with', async () => {
+    expect(refused(await deposit(live(), { maxIn: 1_000n }, priced(5 / 1e9 / (2_138 / 1e6))))).toBe(
+      'We did not build this deposit: This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
+    );
+  });
+
+  it('still builds the withdrawal of whoever holds its last shares', async () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units; the wallet holds the other 1,000.
+    const p = ok(await withdraw(world({ sol: 3_480n, tokens: 348n, lpSupply: 1_100n, heldLp: 1_000n })));
+    expect(p.kind).toBe('lp-withdraw');
+  });
+});
+
 describe('prepareLpDeposit', () => {
   it('a clean pool: one deposit, bounded on both sides, every number from the transaction', async () => {
     const w = world();
@@ -504,11 +523,15 @@ describe('prepareLpDeposit', () => {
     expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
-    const w = world();
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
+  // Answer twenty-seven withdrew twenty-four's hold: the pool's own price is the truth of a
+  // deposit, and an outside price not read is one row, never a gate and never a warning.
+  it('builds when the outside price cannot be read at prepare, or the read throws: one row, never a gate, never a warning', async () => {
+    const s = ok(await deposit(world(), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
-    expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
+    expect((ok(await deposit(world(), {}, throwing)).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
@@ -733,13 +756,14 @@ describe('prepareLpDeposit', () => {
     expect((plain.summary as LpDepositSummary).enableCreatorFee).toBe(false);
   });
 
-  it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {
+  it('a never-traded launch pool prepares when Jupiter answers no route, and when Jupiter is down (answer twenty-seven)', async () => {
     const w = world({ launch: true });
     const p = ok(await deposit(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
     expect((p.summary as LpDepositSummary).origin).toBe('launch-pool');
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
-    // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // At prepare Jupiter is down: the outside price is one row, never a gate.
+    const down = ok(await deposit(world({ launch: true }), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })));
+    expect((down.summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // A launch pool with no route keeps its own-average check. Off that average it builds
@@ -876,10 +900,10 @@ describe('prepareLpDeposit', () => {
       expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
       expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
 
-      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      // Jupiter is down: one row (answer twenty-seven), and the launch pool does not stand in.
       const down = besideLaunch();
       const downReads = reads(down.w);
-      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect((await summaryOf(down.w, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).price).toMatchObject({ state: 'unread', outside: true });
       expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
 
       // A deposit into the launch pool itself reads it once, as the pool it writes to.
@@ -935,9 +959,10 @@ describe('prepareLpDeposit', () => {
       expect((ok(await deposit(tradedFor(1_440n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
     });
 
-    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
-    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
-      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // UNREAD IS STILL REFUSED for the pool's own reads: the same brand-new pool builds nothing
+    // when its clock or its price record was not read. Jupiter not answering is one row (answer twenty-seven).
+    it('nothing is built when the clock was not read, or when its price record is missing; Jupiter failing to answer is no gate', async () => {
+      expect((ok(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
       const noClock = tradedFor(120n);
       setClock(noClock.chain, null);
       expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);

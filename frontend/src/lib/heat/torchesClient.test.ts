@@ -95,11 +95,63 @@ describe('fetchIslandTorches', () => {
     expect(data.places).toHaveLength(2);
   });
 
+  // The countdown's roster (island answer twenty-five, screen 2): the flames warming toward
+  // the launch door, as the proxy counted them. Unread or malformed is null, never 0.
+  it('keeps the count of flames warming toward the door, and only a whole count', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: 28 }));
+    expect((await fetchIslandTorches()).warming).toBe(28);
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: 0 }));
+    expect((await fetchIslandTorches({ fresh: true })).warming).toBe(0);
+    for (const unread of [null, undefined, '28', 2.5, -1]) {
+      vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: unread }));
+      expect((await fetchIslandTorches({ fresh: true })).warming, String(unread)).toBeNull();
+    }
+  });
+
   it('a 502 and a network error are both unavailable, never an empty island', async () => {
     vi.stubGlobal('fetch', answer(502, { error: 'The island could not be read' }));
     await expect(fetchIslandTorches()).rejects.toBeInstanceOf(TorchesUnavailableError);
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
     await expect(fetchIslandTorches({ fresh: true })).rejects.toBeInstanceOf(TorchesUnavailableError);
+  });
+});
+
+// THE TIMELINE (island answer twenty-four, build 7): the proxy's newest hung piece, as
+// api/_lib/torches.js forwards it. Checked again here, so a picture or a door that is not
+// the island's never reaches an <img> or a link, whatever the proxy let through.
+describe('the newest piece hung on the island', () => {
+  const PIECE = {
+    image: 'https://junglebayisland.com/api/storage-image?key=gallery%2Floground%2F7f4dc061-e10a-4ae3-b73f-83e078efad26%2Flarge.webp',
+    artist: 'loground',
+    title: 'Halloween',
+    door: 'https://memetics.wtf/b/ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933',
+    lit_at: '2026-10-28T20:55:02.000Z',
+  };
+
+  it('keeps its picture, artist, title, door and time', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: PIECE }));
+    expect((await fetchIslandTorches()).lastPiece).toEqual({
+      image: PIECE.image, artist: 'loground', title: 'Halloween', door: PIECE.door, litAtMs: Date.parse(PIECE.lit_at),
+    });
+  });
+
+  it('keeps a piece with no title; the artist is the one word it needs', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: { ...PIECE, title: null } }));
+    expect((await fetchIslandTorches()).lastPiece).toMatchObject({ artist: 'loground', title: null });
+  });
+
+  it.each([
+    ['not served', undefined],
+    ['null', null],
+    ['a picture off the island', { ...PIECE, image: 'https://evil.example/x.webp' }],
+    ['a picture over http', { ...PIECE, image: 'http://junglebayisland.com/api/storage-image?key=x' }],
+    ['a door off the island', { ...PIECE, door: 'https://memetics.wtf.evil.example/b/pepe' }],
+    ['a door that is a script', { ...PIECE, door: 'javascript:alert(1)' }],
+    ['no artist', { ...PIECE, artist: '' }],
+    ['no time', { ...PIECE, lit_at: 'soon' }],
+  ])('is null when %s', async (_why, piece) => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: piece }));
+    expect((await fetchIslandTorches()).lastPiece).toBeNull();
   });
 });
 

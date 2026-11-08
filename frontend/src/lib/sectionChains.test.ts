@@ -48,7 +48,8 @@ describe('which tab serves which network', () => {
 
   it('launches on the EVM curve wherever its launcher is deployed, and the simulator names none', () => {
     expect(tabChains('/eth-curve')).toEqual(['base', 'robinhood', 'ethereum']);
-    expect(tabChains('/launch')).toEqual(['ethereum']);
+    // The launch door names no network while it is closed (island answer twenty-six).
+    expect(tabChains('/launch')).toBe('any');
     expect(tabChains('/curve-launch')).toEqual(['solana']);
     expect(tabChains('/launch-simulator')).toBe('any');
   });
@@ -57,18 +58,23 @@ describe('which tab serves which network', () => {
 describe('where a pick goes', () => {
   const pools = POOLS_SECTION.items;
   const launch = LAUNCH_SECTION.items;
+  // The same section the day the EVM curve's switch opens (curveChains.ts CURVE_LAUNCH_OPEN).
+  const launchCurveOpen = launch.map((i) => (i.to === '/eth-curve' ? { ...i, soon: false } : i));
 
   it('stays on the tab the visitor is on when it serves the network', () => {
     expect(chainDestination(launch, '/eth-curve', 'base')).toBe('/eth-curve');
     expect(chainDestination(pools, '/liquidity', 'robinhood')).toBe('/liquidity');
-    expect(chainDestination(launch, '/launch-simulator', 'base')).toBe('/launch-simulator');
+    expect(chainDestination(launchCurveOpen, '/launch-simulator', 'base')).toBe('/launch-simulator');
+    // Launching off on every rail (answer twenty-six): no launch tab serves Base, so a pick goes nowhere.
+    expect(chainDestination(launch, '/launch-simulator', 'base')).toBeNull();
   });
 
   it("else goes to the section's first live tab on that network", () => {
     expect(chainDestination(pools, '/liquidity', 'solana')).toBe('/pools');
     expect(chainDestination(pools, '/pools', 'ethereum')).toBe('/liquidity');
     expect(chainDestination(pools, '/zap', 'base')).toBe('/liquidity');
-    expect(chainDestination(launch, '/launch', 'robinhood')).toBe('/eth-curve');
+    expect(chainDestination(launchCurveOpen, '/curve-launch', 'robinhood')).toBe('/eth-curve');
+    expect(chainDestination(launch, '/launch', 'robinhood')).toBeNull();
     expect(chainDestination(SWAP_SECTION.items, '/solana', 'ethereum')).toBe('/swap');
   });
 

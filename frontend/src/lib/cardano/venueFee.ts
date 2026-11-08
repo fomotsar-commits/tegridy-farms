@@ -21,11 +21,16 @@
 import { parseAddressBech32, type ParsedAddress } from './address';
 
 /**
- * The venue's Cardano fee address, the whole bech32. NULL UNTIL THE OWNER REGISTERS ONE: with
- * no address the swap still works and charges no venue fee, and the fee line says why. Set it
- * in code, in a reviewed change, never from an env var a deploy could get wrong.
+ * The venue's Cardano fee address, the whole bech32: the two-key treasury ("memetics.finance",
+ * an Eternl multi-sig wallet the owner made 2026-10-31). Both of its parts are scripts that
+ * need BOTH owner signatures: spending (script 356341c9…) and staking (script 016798d0…), so
+ * no single signature can move the fees or redirect their staking rewards. Proven on mainnet
+ * 2026-11-07: tx 06c0fc16… spent from it with exactly those two signatures, both valid.
+ * Set in code, in a reviewed change, never from an env var a deploy could get wrong. Null
+ * turns the fee off: the swap still works and the fee line says why.
  */
-export const CARDANO_VENUE_FEE_ADDRESS: string | null = null;
+export const CARDANO_VENUE_FEE_ADDRESS: string | null =
+  'addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat';
 
 /** The rate, in basis points of the ADA side: 50 = 0.5%, the Solana swap's live rate. */
 export const CARDANO_VENUE_FEE_BPS = 50;

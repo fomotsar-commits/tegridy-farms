@@ -24,7 +24,8 @@ describe('exotic numeraire gate', () => {
     // but not execution-proven — same unexercised-graduation status the live ETH launcher
     // carries). If exotic is ever re-gated (set false + redeploy), flip this back too.
     expect(EXOTIC_LAUNCHES_ENABLED).toBe(true);
-    expect(isExoticLaunchEnabled()).toBe(true); // launcher enabled AND exotic on
+    // Exotic stays on behind the launcher, which is off on every rail (island answer twenty-six).
+    expect(isExoticLaunchEnabled()).toBe(false);
   });
 
   it('isAllowedNumeraire tracks the flag: ETH always; TOWELI iff exotic is on', () => {

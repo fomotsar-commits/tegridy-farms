@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { BAR_NAV } from '../../lib/navConfig';
+import { opensSheet, SHEET_PRESS } from '../../lib/sheet';
 import { BaylaLine } from '../BaylaLine';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
@@ -354,8 +355,9 @@ export const TopNav = React.memo(function TopNav() {
                 URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
+              const to = word.to;
               return (
-                <Link key={word.label} to={word.to} aria-current={lit ? 'page' : undefined}
+                <Link key={word.label} to={to} state={opensSheet(to) ? SHEET_PRESS : undefined} aria-current={lit ? 'page' : undefined}
                   className={`nav-link ${lit ? 'active' : ''}`}>
                   {word.label}
                 </Link>
