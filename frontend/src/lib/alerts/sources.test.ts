@@ -73,8 +73,19 @@ describe('an unconfigured indexer is reported as unreadable', () => {
   it('the indexer-backed kinds are exactly the ones that go dark with it', () => {
     vi.stubEnv('VITE_INDEXER_URL', '');
     const dark = ALERT_RULE_KINDS.filter((k) => !readinessForRule(k).readable);
-    expect(dark.sort()).toEqual(['lp-unlock', 'whale-move']);
-    expect(darkSources(ALERT_RULE_KINDS)).toEqual(['indexer']);
+    // loan-deadline is dark on its own, indexer or not: see the describe below.
+    expect(dark.sort()).toEqual(['loan-deadline', 'lp-unlock', 'whale-move']);
+    expect(darkSources(ALERT_RULE_KINDS).sort()).toEqual(['indexer', 'venue-lending']);
+  });
+});
+
+describe("loan deadlines: NFT lending is on Gondi's contract, which nothing here reads yet", () => {
+  it("the venue-lending source is unreadable and says so in the shield's own words", async () => {
+    const { VENUE_LOANS_NOT_WATCHED } = await import('../shield/venues');
+    const r = sourceReadiness()['venue-lending'];
+    expect(r.readable).toBe(false);
+    expect(r.detail).toBe(VENUE_LOANS_NOT_WATCHED);
+    expect(readinessForRule('loan-deadline').readable).toBe(false);
   });
 });
 
@@ -99,10 +110,11 @@ describe('which kinds this deployment could actually ask about', () => {
     expect(evaluableRuleKinds().length).toBeGreaterThan(0);
   });
 
-  it('excludes exactly the indexer-backed kinds, and nothing else', () => {
+  it('excludes exactly the indexer-backed kinds and loan deadlines, and nothing else', () => {
     vi.stubEnv('VITE_INDEXER_URL', '');
     const missing = ALERT_RULE_KINDS.filter((k) => !evaluableRuleKinds().includes(k));
-    expect(missing.sort()).toEqual(['lp-unlock', 'whale-move']);
+    // loan-deadline: no reader for loans on Gondi's contract yet (lib/shield/venues.ts).
+    expect(missing.sort()).toEqual(['loan-deadline', 'lp-unlock', 'whale-move']);
   });
 
   it('the GeckoTerminal source is readable, and states the quota it works inside', () => {

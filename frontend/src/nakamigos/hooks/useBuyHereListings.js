@@ -3,10 +3,6 @@ import { fetchListings } from "../api";
 import { canBuyOnVenue, canTradeOnVenue } from "../lib/venue";
 import { exactEth } from "../lib/formatPrice";
 
-// One copy lives in lib/formatPrice.js. Passed through here so screens that
-// import it from this hook (the Base trade screens) keep working.
-export { exactEth };
-
 /**
  * True for an OpenSea listing this venue offers to buy for a Base buy
  * collection: priced in ETH with a readable wei amount, with an order hash,

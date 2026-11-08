@@ -60,7 +60,7 @@ contract TegridyPairTest is Test {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
 
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         tokenA.transfer(alice, 100_000_000 ether);
@@ -114,7 +114,7 @@ contract TegridyPairTest is Test {
         address t1 = address(highDec) < address(normal) ? address(normal) : address(highDec);
 
         // High-decimal tokens are now accepted (skim validation handles balance discrepancies)
-        address pairAddr = factory.createPair(t0, t1);
+        address pairAddr = factory.createPair{value: 0.006 ether}(t0, t1);
         assertTrue(pairAddr != address(0));
     }
 
@@ -268,7 +268,7 @@ contract TegridyPairTest is Test {
     // ===== FIRST DEPOSITOR MINIMUM PER-TOKEN CHECK =====
 
     function test_revert_firstDeposit_dustToken0() public {
-        TegridyPair freshPair = TegridyPair(factory.createPair(
+        TegridyPair freshPair = TegridyPair(factory.createPair{value: 0.006 ether}(
             address(new MockERC20Pair("X", "X", 18)),
             address(new MockERC20Pair("Y", "Y", 18))
         ));
@@ -287,7 +287,7 @@ contract TegridyPairTest is Test {
     }
 
     function test_revert_firstDeposit_dustToken1() public {
-        TegridyPair freshPair = TegridyPair(factory.createPair(
+        TegridyPair freshPair = TegridyPair(factory.createPair{value: 0.006 ether}(
             address(new MockERC20Pair("X2", "X2", 18)),
             address(new MockERC20Pair("Y2", "Y2", 18))
         ));
@@ -305,7 +305,7 @@ contract TegridyPairTest is Test {
     }
 
     function test_firstDeposit_exactMinimumTokens() public {
-        TegridyPair freshPair = TegridyPair(factory.createPair(
+        TegridyPair freshPair = TegridyPair(factory.createPair{value: 0.006 ether}(
             address(new MockERC20Pair("X3", "X3", 18)),
             address(new MockERC20Pair("Y3", "Y3", 18))
         ));

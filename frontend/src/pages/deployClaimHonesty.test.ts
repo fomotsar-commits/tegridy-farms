@@ -2,12 +2,12 @@
  * The four NFT-finance addresses below are wired. If any regresses to 0x0 the
  * app has a real problem, and the "not deployed" copy sitting in its fallback
  * branch becomes reachable again. That is fine, but it must be a deliberate
- * change, not a silent one.
+ * change, not a silent one. NFT lending is Gondi's loan contract (GONDI_LOAN_ADDRESS).
  */
 import { describe, it, expect } from 'vitest';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import {
   PREMIUM_ACCESS_ADDRESS,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   isDeployed,
@@ -16,7 +16,7 @@ import {
 describe('deployment states are not collapsed into each other', () => {
   it.each([
     ['PremiumAccess (Gold Card)', PREMIUM_ACCESS_ADDRESS],
-    ['NFT lending', TEGRIDY_NFT_LENDING_ADDRESS],
+    ['NFT lending (Gondi)', GONDI_LOAN_ADDRESS],
     ['NFT pool factory', TEGRIDY_NFT_POOL_FACTORY_ADDRESS],
     ['LaunchpadV2', TEGRIDY_LAUNCHPAD_V2_ADDRESS],
   ])('%s is wired, so its "not deployed" branch stays unreachable', (_label, addr) => {
