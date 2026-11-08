@@ -57,6 +57,24 @@ describe("the server venue list", () => {
     expect([...VENUE_CONTRACTS].sort()).toEqual(Object.values(VENUE_SLUG_CONTRACTS).sort());
   });
 
+  it("the Base buy list equals the client's venueBuy collections, OpenSea slug to lowercase contract", async () => {
+    const { BASE_BUY_SLUG_CONTRACTS, BASE_BUY_SLUGS, BASE_BUY_CONTRACTS, VENUE_CONTRACTS } = await registry();
+    const { canBuyOnVenue, canTradeOnVenue } = await clientVenue();
+    const clientBuys = Object.values(COLLECTIONS).filter((c) => canBuyOnVenue(c) && !canTradeOnVenue(c));
+    expect(BASE_BUY_SLUG_CONTRACTS).toEqual(
+      Object.fromEntries(clientBuys.map((c) => [c.openseaSlug, c.contract.toLowerCase()])),
+    );
+    expect(BASE_BUY_SLUG_CONTRACTS).toEqual({
+      bojungless: ADDR.bojungles.toLowerCase(),
+      "seeds-from-the-memetic-garden": ADDR.memeticseeds.toLowerCase(),
+    });
+    expect(clientBuys.every((c) => c.chain === "base" && c.standard === "erc721")).toBe(true);
+    expect(Object.isFrozen(BASE_BUY_SLUG_CONTRACTS)).toBe(true);
+    expect([...BASE_BUY_SLUGS].sort()).toEqual(Object.keys(BASE_BUY_SLUG_CONTRACTS).sort());
+    // A Base buy contract joins no Ethereum allowlist.
+    for (const c of BASE_BUY_CONTRACTS) expect(VENUE_CONTRACTS.has(c)).toBe(false);
+  });
+
   it("every venue slug is also its OpenSea slug, so one list serves both", () => {
     for (const c of Object.values(COLLECTIONS).filter((x) => x.venueTrade)) {
       expect(c.slug, c.name).toBe(c.openseaSlug);

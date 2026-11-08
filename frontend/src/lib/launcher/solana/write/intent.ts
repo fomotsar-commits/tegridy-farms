@@ -89,7 +89,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxConfig, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -977,12 +977,19 @@ export interface DecodeOptions {
    * for the transaction a wallet HANDS BACK; never for one we built.
    */
   allowWalletGuards?: boolean;
+  /**
+   * A version 1 message's config (SIMD-0385). With it the fee cap reads the config, its
+   * limits must be ones the network runs, and a ComputeBudget instruction in the body is
+   * refused: the runtime ignores one there.
+   */
+  config?: TxConfig;
 }
 
 /**
  * Decode every instruction into a step, or refuse the transaction with a reason a
  * person can read. Also enforces: at most one unit limit and one unit price, and
- * the priority fee they imply is within `ctx.maxPriorityLamports`.
+ * the priority fee they imply (or the one a version 1 config carries) is within
+ * `ctx.maxPriorityLamports`.
  */
 export function decodeIntent(
   instructions: readonly TransactionInstruction[],
@@ -1001,6 +1008,7 @@ export function decodeIntent(
         refuse(`it calls a program this page never uses (${p.toBase58()})`);
       }
       if (!allowed.has(family!)) refuse(`it calls a program this kind of transaction never uses (${p.toBase58()})`);
+      if (family === 'compute' && opts.config) refuse('it sets its budget in an instruction a version 1 transaction ignores');
       if (family === 'compute') steps.push(computeBudget(ix));
       else if (family === 'system') steps.push(system(ix, ctx));
       else if (family === 'token') steps.push(token(ix, ctx));
@@ -1039,9 +1047,18 @@ export function decodeIntent(
     const burns = steps.filter((s) => s.kind === 'plant-burn');
     const gives = steps.filter((s) => s.kind === 'plant-transfer');
     if (burns.length > 1 || gives.length > 1) refuse('it plants more than once');
-    const limit = computeUnitLimit(instructions, steps);
-    const price = prices[0]?.kind === 'compute-price' ? prices[0].microLamports : 0n;
-    if (priorityLamports(price, limit) > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    if (opts.config) {
+      const c = opts.config;
+      if (!Number.isInteger(c.computeUnitLimit) || c.computeUnitLimit <= 0 || c.computeUnitLimit > MAX_UNITS_PER_TRANSACTION) {
+        refuse('its compute budget is outside what the network runs');
+      }
+      if (!Number.isInteger(c.loadedAccountsDataSizeLimit) || c.loadedAccountsDataSizeLimit <= 0) refuse('it would load no account data, so it could not run');
+      if (c.priorityFeeLamports > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    } else {
+      const limit = computeUnitLimit(instructions, steps);
+      const price = prices[0]?.kind === 'compute-price' ? prices[0].microLamports : 0n;
+      if (priorityLamports(price, limit) > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    }
     return { ok: true, steps };
   } catch (e) {
     if (e instanceof Refuse) return { ok: false, reason: `This transaction was blocked because ${e.message}.` };

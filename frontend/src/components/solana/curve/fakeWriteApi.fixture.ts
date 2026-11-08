@@ -122,7 +122,8 @@ export function prepared(summary: TxSummary, over: Partial<PreparedTx> = {}): Pr
   tx.feePayer = CREATOR;
   return {
     kind: summary.kind,
-    tx,
+    payer: CREATOR,
+    wire: { version: 'legacy', tx },
     extraSigners: summary.kind === 'create' ? [Keypair.generate()] : [],
     blockhash: '11111111111111111111111111111111',
     lastValidBlockHeight: 1234,

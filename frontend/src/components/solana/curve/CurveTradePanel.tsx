@@ -24,6 +24,7 @@ import { WalletNeeded } from './WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
 import type { ActionAvailability, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 
 type Side = 'buy' | 'sell';
 
@@ -123,12 +124,13 @@ export function CurveTradePanel({
     if (!signer || raw === null || slippageBps === null) return;
     if (side === 'buy') {
       const build = () =>
-        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps });
+        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps, txVersion: txVersionOf(signer) });
       void flow.prepare(build, { repeatable: true });
     } else if (rentFloor !== null) {
       const build = () =>
         api.prepareCurveSell(rpc, gate, {
           trader: signer.publicKey,
+          txVersion: txVersionOf(signer),
           mint,
           curve,
           curveRentFloor: rentFloor,

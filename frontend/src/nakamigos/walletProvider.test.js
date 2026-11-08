@@ -170,7 +170,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = OTHER_WALLET; // wallet extension is on a different account
 
     const res = await api.fulfillSeaportOrder(
-      { orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
+      { tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
       { buyerAddress: CONNECTED },
     );
 
@@ -194,7 +194,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = CONNECTED;
 
     const res = await api.fulfillSeaportOrder(
-      { orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
+      { tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
       { buyerAddress: CONNECTED },
     );
 
@@ -212,7 +212,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = CONNECTED;
     expect(window.ethereum).toBeUndefined();
 
-    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", contract: NAKAMIGOS }, {});
+    const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", contract: NAKAMIGOS }, {});
 
     expect(res.error).toBeUndefined();
     expect(res.success).toBe(true);

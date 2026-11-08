@@ -671,7 +671,7 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('P6: with fee tier 1 missing from the page\'s reads, Create says "not created yet"; Remove lands and Add is offered (create facts never touch the gate)', async ({ browser }) => {
+  test('P6: with fee tier 1 missing from the page\'s reads, Create says "not created yet"; a launch-tier pool no launch made is not listed or added to, and its Remove lands (create facts never touch the gate)', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const a = await actor(browser, B.c6, { prices: B.prices });
     const p = a.page;
@@ -688,8 +688,10 @@ test.describe('group B (chromium only)', () => {
       "New pools from this site go on the public fee tier (tier 1), and that tier has not been created on the network yet. When the team's vault creates it, the Open a pool button appears here.",
     );
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
-    await expect(poolCard(p, B.p6.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
-    await pressable(ui.lp.addButton(poolCard(p, B.p6.address)), 'Add liquidity');
+    // The token's one pool is on the launch tier and no launch made it: never listed, swapped
+    // in or added to (owner, 2026-10-24). Its holder can still take it out, below.
+    await expect(ui.lp.finder(p)).toContainText('1 pool of this token was opened on the launch fee tier without a launch. This site does not list it, swap in it or add to it.', { timeout: 60_000 });
+    await expect(poolCard(p, B.p6.address)).toHaveCount(0);
 
     const row = positionRow(p, B.p6.address);
     const lpAcc = ata(B.p6.lpMint, B.c6.publicKey);
@@ -1285,11 +1287,10 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(MONEY);
-    // The page's lines for "on" sit in small print (the hero's and the status card's Details,
-    // the Swap routes card's How it works): textContent reads them folded. The status card
-    // is under the LP section, so its line says "above".
+    // The page's lines for "on" sit in small print (the status card's Details, the Swap
+    // routes card's How it works): textContent reads them folded. The status card is under
+    // the LP section, so its line says "above". The hero's own line went with that hero.
     const body = ((await p.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
-    expect(body).toContain('This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).');
     expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section above says whether it can right now).');
     // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
     expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
