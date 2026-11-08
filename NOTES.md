@@ -15,6 +15,32 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: under one pool per pair and fee tier, a front-runner's pool at ten times the market takes the pair, so Start over opens nothing
+
+**Believed:** after a front-run at the standard tier-1 address (a stranger opens the pool while
+the review is on screen), Start over opens the pool at a one-off address with a second signer, as
+P5 and P16 of `frontend/e2e-solana/lp-create.spec.ts` held and the outcome line promised ("the
+site will use a new address").
+
+**Measured** (the E2E Solana job on trunk `cea65ce5a`, run 42478603075: 143 passed, 4 failed, every
+one card copy after an opening that landed; then the same tests on this machine's WSL validator):
+a pool more than 3% off its reference is `allowed` with a warning (ruling 2026-10-04), and
+`pairTaken` falls back to such a pool when it is the only one, so a squat at ten times the market
+with `openTimeFromNow: 0` takes the SOL pair: after Start over the form stays on SOL, names the
+squatter's pool as "takes deposits, with a warning", and Review stays off with the amounts still
+typed. A squat with `openTimeFromNow: TEN_YEARS` is refused ("Swaps are blocked until …"), takes
+nothing, and P4 and P18 still open at a one-off address. Against the card, panel and offers from
+before #1094 (its diff reversed onto the tree), the rewritten P1, P5 and P16 failed at exactly
+the new assertions, in 12 minutes (one build; group B's fixtures made once per failure); restored
+byte for byte, the same four runs passed in 4.7 minutes of tests.
+
+**Do:** when an e2e squat should leave a pair free, give it a far-future open time or no deposits;
+when it should take the pair, open it at or off the market. An outcome that says what Start over
+will do must say both cases. The validator starts from a worktree under a path with a space when
+the script path is quoted inside `bash -lc` (`E2E_RPC_PORT=18899`, READY in under a minute); run
+the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and its own
+`E2E_SOLANA_OUT`, so another checkout's run is never built over.
+
 ## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
 
 **Believed:** a CI runner with no release folder can rebuild one by dumping each program from

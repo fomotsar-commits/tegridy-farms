@@ -127,7 +127,7 @@ export const LP_FAILURE_COPY: Record<Exclude<LpKind, 'lp-create'>, LpFailureCopy
 export const CREATE_FAILURE_COPY = {
   notApproved:
     "Opening new pools on the public fee tier was switched off by the pool program's admin (the team's vault) before this ran. Nothing was opened.",
-  addressInUse: 'Someone opened a pool at this address first. Nothing was opened. Start over: the site will use a new address.',
+  addressInUse: 'Someone opened a pool at this address first. Nothing was opened. Start over: if their pool takes deposits, add to it instead; if not, yours gets a new address.',
   emptySupply: 'One side of the opening was empty when it ran. Nothing was opened.',
   notSupportMint: 'The pool program does not take this kind of token. Nothing was opened.',
   initLpAmountTooLess: `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Nothing was opened.`,
