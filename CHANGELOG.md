@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-08
 
+- Receipt card (Solana): the flame in the ring becomes the island's whole moment. The card's head is the coin's shore at night. The moment a buy's or an add's card is up, a strike in the ring throws sparks, the fire rises past the card and settles back, one light flies onto the shore, and every light on it takes that light's beat three times, then breathes with it. A sale is never struck: your light stays on the shore, cooling. With Reduce Motion on, the moment still plays, held to the ring, and stops once the third beat settles. The card's rows, fee, signature, clock line and buttons are unchanged.
 - Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
 
 ### 2026-11-07
