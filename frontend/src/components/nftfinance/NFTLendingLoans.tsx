@@ -23,6 +23,7 @@ import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import {
   CARD_BG,
   CARD_BORDER,
+  FADED,
   LABEL_STYLE,
   LENDING_LIVE,
   WETH_DEPOSIT_ABI,
@@ -320,8 +321,8 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
         <button
           onClick={handleRepayStep}
           disabled={busy || repayStep === null}
-          className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.25), var(--color-purple-25))', border: '1px solid rgba(16,185,129,0.3)' }}
+          className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
+          style={busy || repayStep === null ? FADED : undefined}
         >
           {busy
             ? 'Confirm in Wallet...'

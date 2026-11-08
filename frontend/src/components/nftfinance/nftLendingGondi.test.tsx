@@ -173,6 +173,32 @@ describe('lend: signing Gondi offers', () => {
     expect(wagmiMock.signTypedData()).not.toHaveBeenCalled();
   });
 
+  // Owner, 2026-11-08: "the green button stays faded throughout the whole process". It was a
+  // 30% tint at every step, and it unlocked on an amount alone, so the click went to a toast.
+  it('stays faded until every box holds a valid value, then turns solid green', () => {
+    weth(0n, 0n); // the owner's case: no WETH yet, so the first step is the wrap
+    renderWithProviders(<NFTLendingSection />);
+    const action = () => screen.getAllByRole('button').find((b) => /^(Wrap|Approve|Sign Offer)/.test(b.textContent ?? '')) as HTMLButtonElement;
+    const faded = () => {
+      expect(action().disabled).toBe(true);
+      expect(action().style.opacity).toBe('0.4');
+    };
+    faded(); // nothing entered
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Loan amount (WETH)' }), { target: { value: '0.0001' } });
+    faded(); // an amount, no APR
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: '0' } });
+    faded(); // an APR of 0 is not an offer
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: '1000' } });
+    expect(action().textContent).toBe('Wrap 0.0001 ETH to WETH');
+    expect(action().disabled).toBe(false);
+    expect(action()).toHaveClass('btn-primary');
+    expect(action().style.opacity).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'One specific NFT' }));
+    faded(); // which NFT? not said yet
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Token ID' }), { target: { value: '5' } });
+    expect(action().disabled).toBe(false);
+  });
+
   it('skips no step on an unread WETH balance', () => {
     weth('failure', parseEther('5'));
     renderWithProviders(<NFTLendingSection />);
@@ -202,6 +228,8 @@ describe('borrow: taking an offer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve NFT' }));
     expect(writes()[0]).toMatchObject({ address: NAKA, functionName: 'approve', args: [LOAN, 77n] });
 
+    expect(screen.getByRole('button', { name: 'Take Loan' })).toHaveClass('btn-primary');
+    expect(screen.getByRole('button', { name: 'Take Loan' }).style.opacity).toBe('');
     fireEvent.click(screen.getByRole('button', { name: 'Take Loan' }));
     const call = writes()[1]!;
     expect(call).toMatchObject({ address: LOAN, functionName: 'emitLoan' });
@@ -222,6 +250,7 @@ describe('borrow: taking an offer', () => {
     fireEvent.click(await screen.findByText('NAKA #55'));
     expect(screen.getByText('NAKA #55 is not in your wallet.')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Take Loan' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Take Loan' }).style.opacity).toBe('0.4');
   });
 
   it.each([
@@ -274,6 +303,8 @@ describe('my loans: only a loan the chain confirms gets a button', () => {
 
   it('a matching hash: repay sends the recorded loan back, whole', async () => {
     const card = (await openMyLoans(loanHash(loanFromJson(loanJson)))).closest('div.relative') as HTMLElement;
+    expect(within(card).getByRole('button', { name: 'Repay Loan' })).toHaveClass('btn-primary');
+    expect(within(card).getByRole('button', { name: 'Repay Loan' }).style.opacity).toBe('');
     fireEvent.click(within(card).getByRole('button', { name: 'Repay Loan' }));
     const call = writes()[0]!;
     expect(call).toMatchObject({ address: LOAN, functionName: 'repayLoan' });
