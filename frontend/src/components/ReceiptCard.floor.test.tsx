@@ -231,7 +231,7 @@ describe('an add: the pool is the card’s head', () => {
     expect(layer.scrollTop).toBe(0);
   });
 
-  it('a buy’s card comes back to its top too: its head is the shore (answer thirty), as tall a card', () => {
+  it('a buy’s card comes back to its top too: it has a head as well (the shore, answer thirty), about 600 px, taller than a short phone’s screen', () => {
     act(() => raiseReceipt(add({ action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } })));
     const layer = screen.getByTestId('receipt-layer');
     layer.scrollTop = 40;
