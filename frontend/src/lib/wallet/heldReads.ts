@@ -29,7 +29,7 @@ export function heldRead<T>(key: string, make: () => Promise<T>, whole: (answer:
   return read;
 }
 
-/** A staking write, a Refresh or a Check again: every pool is read afresh by the next caller. */
+/** A staking note (a write, or the dashboard's Refresh) or a Check again: the next caller reads afresh. */
 export function forgetHeldReads(): void {
   held.clear();
 }

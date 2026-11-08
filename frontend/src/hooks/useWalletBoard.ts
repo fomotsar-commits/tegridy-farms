@@ -21,7 +21,6 @@ import {
   type WalletChain,
 } from '../lib/wallet/walletRows';
 import { isHoldingRow, isPositionRow, recallWallet, rememberLegs } from '../lib/wallet/boardMemory';
-import { forgetHeldReads } from '../lib/wallet/heldReads';
 
 /**
  * The dashboard's reads for the connected wallets (owner, 2026-10-22: "positions on the website
@@ -331,10 +330,6 @@ export function useWalletBoard(): WalletBoard {
     evmAddress: evmAddress ?? null,
     holdings: [...sol.holdings, ...evm.holdings],
     positions: [...sol.positions, ...evm.positions],
-    // A press reads afresh, never a pool read held for this load (lib/wallet/heldReads.ts).
-    refresh: () => {
-      forgetHeldReads();
-      setNonce((n) => n + 1);
-    },
+    refresh: () => setNonce((n) => n + 1),
   };
 }
