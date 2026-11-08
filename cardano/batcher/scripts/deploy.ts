@@ -41,7 +41,8 @@ if (cmd === 'compile') {
 
 const scripts: Scripts = JSON.parse(readFileSync(join(out, 'scripts.json'), 'utf8')).scripts;
 if (cmd === 'records') {
-  const r = records(inputs, scripts, state.refs, { batcherFee: BigInt(inputs.batcherFee), refSizes: state.refSizes });
+  // openPoolBudget: a pool opening's two scripts as the node measured them on a real one, with headroom (state.json, set by hand).
+  const r = records(inputs, scripts, state.refs, { batcherFee: BigInt(inputs.batcherFee), refSizes: state.refSizes, openPoolBudget: (state as { openPoolBudget?: Parameters<typeof records>[3]['openPoolBudget'] }).openPoolBudget });
   console.log(JSON.stringify({ ...r, txs: state.txs, locked: state.locked, fees: state.fees }, null, 1));
   process.exit(0);
 }

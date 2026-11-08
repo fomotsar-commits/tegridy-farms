@@ -36,7 +36,7 @@ test('refused inputs', () => {
   assert.throws(() => checkInputs({ ...BASE, lockSeedTxIn: BASE.seedTxIn }), /two different UTxOs/);
   assert.throws(() => checkInputs({ ...BASE, batcherKeyHash: BASE.ownerA }), /must not be an owner key/);
   assert.throws(() => checkInputs({ ...BASE, openingFee: -1n }), /negative/);
-  assert.throws(() => checkInputs({ ...BASE, network: 0 }), /mainnet/);
+  assert.throws(() => checkInputs({ ...BASE, network: 0 }), /sweep.treasury is not a preprod address/);
   assert.throws(() => checkInputs({ ...BASE, poolStake: { type: 'Key', hash: 'zz' } }), /28-byte hash/);
 });
 
