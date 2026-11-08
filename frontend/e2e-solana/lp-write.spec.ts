@@ -465,20 +465,22 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('E4: a graduated launch pool; with Jupiter down it is unchecked (E4a), with "no route" it takes a deposit; Add, then Remove All', async ({ browser }) => {
+  test('E4: a graduated launch pool; with Jupiter down its outside price is one row and Add stays (E4a), with "no route" it takes a deposit; Add, then Remove All', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const launch = B.launchMint.toBase58();
     const a = await actor(browser, B.buyer, { prices: B.prices, down: new Set([launch]) });
     const p = a.page;
     expect(B.launchPool.equals(poolStatePda(B.launchMint, LAUNCH_PROGRAM))).toBe(true);
     await openPools(p, B.launchMint);
-    // E4a: Jupiter down is not "no route": no Add.
+    // E4a: Jupiter down is an outside price not read: one row, never a gate (island answer
+    // twenty-seven, 966abd678). The pool's own reads decide, and they pass.
     const card = poolCard(p, B.launchPool);
     await expect(card).toHaveAttribute('data-origin', 'launch-pool', { timeout: 60_000 });
-    await expect(card).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
-    await expect(card).toHaveAttribute('data-add', 'checks', { timeout: 60_000 });
-    await expect(card).toContainText('HTTP 502');
-    await expect(ui.lp.addButton(card)).toHaveCount(0);
+    await expect(card).toHaveAttribute('data-price', 'unread', { timeout: 60_000 });
+    // Its label and value sit side by side, so the text runs them together.
+    await expect(card).toContainText(/Outside price\s*not read yet/);
+    await expect(card).toHaveAttribute('data-deposits', 'allowed');
+    await expect(card).toHaveAttribute('data-add', 'offer');
     // Jupiter answers again ("no route": the stub does not price this mint).
     a.jup.setDown(launch, false);
     await press(ui.lp.findButton(p), 'Find pools');
@@ -923,7 +925,7 @@ test.describe('group B (chromium only)', () => {
   // deposit, and says its price was checked against nothing. A price that came through one
   // of our own pools is a different thing, and has not changed: it is a read that failed,
   // so that pool is still not checked and still offers no Add.
-  test('E18: a pool with no market price takes a deposit with a warning; a price through our own pool is still not checked and offers no Add; the creator\'s Remove stays', async ({ browser }) => {
+  test('E18: a pool with no market price takes a deposit with a warning; a price through our own pool is not an outside price, one row and no gate; the creator\'s Remove stays', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const a = await actor(browser, B.creator18, { prices: B.prices, routeThrough: B.pr.address });
     const p = a.page;
@@ -955,16 +957,16 @@ test.describe('group B (chromium only)', () => {
     expect((await tokenAmount(lpAcc))! - held, 'the deposit landed').toBe(plan.lp);
     await closeAll(p, panel);
 
-    // A price through our own pool: still not checked, no warning in place of the check, and no Add.
+    // A price through our own pool is no outside price: never compared as one, and, as any
+    // outside price not read, one row and never a gate (island answer twenty-seven, 966abd678).
     await openPools(p, B.tr);
     const routed = poolCard(p, B.pr.address);
-    await expect(routed).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
-    await expect(routed).toHaveAttribute('data-price', 'unread');
-    await expect(routed).toHaveAttribute('data-add', 'checks');
-    await expect(routed).toContainText('came through our own pools');
-    await expect(routed).toContainText('Adding is off: a check above could not be run just now.');
+    await expect(routed).toHaveAttribute('data-price', 'unread', { timeout: 60_000 });
+    await expect(routed).toContainText(/Outside price\s*not read yet/);
+    await expect(routed).not.toContainText('agrees');
+    await expect(routed).toHaveAttribute('data-deposits', 'allowed');
+    await expect(routed).toHaveAttribute('data-add', 'offer');
     await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
-    await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
     await ensureConnected(p);
     for (const pool of [B.pu, B.pr]) {

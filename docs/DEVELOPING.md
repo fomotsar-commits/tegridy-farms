@@ -146,8 +146,10 @@ E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188 E2E_SOLANA_OUT="$TEMP
   `TEGRIDY_RELEASE_ARTIFACTS_WSL` for the second). Without it, build one from mainnet the way CI
   does: `node scripts/solana-localnet/stage-from-mainnet.mjs --out <dir>`. It refuses, naming both
   hashes, when the repo pins a build mainnet no longer runs.
-- The whole suite (187 tests, chromium and a phone) takes about two hours here; add `-g "<title>"`
-  for one test. Its own port, ledger and output folder keep it apart from another checkout's run.
+- The whole suite (187 tests: chromium, and the LP specs again as a phone, 40 of them desktop-only
+  by design) took 1.1 hours here on 2026-11-08; each failure restarts the worker and rebuilds its
+  group's fixtures, so a red run takes longer. Add `-g "<title>"` for one test. Its own port,
+  ledger and output folder keep it apart from another checkout's run.
 - Stop the validator when done (Ctrl-C there, or `stop-validator.sh`): its ledger grows about
   10 GB an hour.
 
