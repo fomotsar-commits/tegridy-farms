@@ -114,10 +114,10 @@ function AddInner({
     (outcome, prepared, sig) => {
       record(outcome, prepared, sig);
       // Every add that lands ends on the receipt card (island answer twenty-five, build 6).
-      if (outcome.status === 'confirmed' && owner) raiseAddReceipt(connection, outcome.signature, { view, wallet: owner, ticker, decimals, leg });
+      if (outcome.status === 'confirmed' && owner) raiseAddReceipt(connection, outcome.signature, { view, wallet: owner, ticker, decimals, leg, holders: writes.readers.holders });
       onSettled?.(outcome, prepared, sig);
     },
-    [record, onSettled, connection, owner, view, ticker, decimals, leg],
+    [record, onSettled, connection, owner, view, ticker, decimals, leg, writes.readers.holders],
   );
   const flow = useTxFlow(api, writes.rpc, settled, writes.pending.sent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);

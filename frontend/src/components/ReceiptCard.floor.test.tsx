@@ -129,6 +129,11 @@ describe('an add: the pool is the card’s head', () => {
     expect(line()).toHaveTextContent("You're part of $WIF's floor now. Every trade in the pool pays you.");
   });
 
+  it('a ticker that carries its own $ is not given a second', () => {
+    act(() => raiseReceipt(add({ coin: { symbol: '$WIF', mint: WIF } })));
+    expect(line()).toHaveTextContent("You're part of $WIF's floor now. Every trade in the pool pays you.");
+  });
+
   it('the pool’s LP count read after the card is up reaches the running moment as setLps, never a restart', () => {
     act(() => raiseReceipt(add()));
     rise();
@@ -216,6 +221,23 @@ describe('an add: the pool is the card’s head', () => {
     expect(opts(1).state).toBe('playing');
   });
 
+  it('the head is in view when the moment starts: a card taller than the screen, scrolled to its foot by the focus, comes back to its top', () => {
+    act(() => raiseReceipt(add()));
+    const layer = screen.getByTestId('receipt-layer');
+    layer.scrollTop = 40;
+    expect(layer.scrollTop).toBe(40);
+    rise();
+    expect(layer.scrollTop).toBe(0);
+  });
+
+  it('a buy’s card is left where the focus put it', () => {
+    act(() => raiseReceipt(add({ action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } })));
+    const layer = screen.getByTestId('receipt-layer');
+    layer.scrollTop = 40;
+    rise();
+    expect(layer.scrollTop).toBe(40);
+  });
+
   it('Back stops the moment and takes the screen-wide canvas off the body', () => {
     act(() => raiseReceipt(add()));
     rise();
@@ -274,6 +296,15 @@ describe('the CSS', () => {
     expect(css).toMatch(/\.receipt-card\[data-floor="lit"\]\s*\{\s*border-color:\s*rgba\(var\(--floor-hue\),\s*0\.55\)/);
     expect(css).toMatch(/\.receipt-card\[data-floor\]\.receipt-flash\s*\{\s*border-color:\s*#ffffff/);
     expect(css).toMatch(/\.receipt-card\[data-floor\]\.receipt-beat\s*\{\s*border-color:\s*rgba\(var\(--floor-hue-mid\)/);
+  });
+
+  it('the add’s card still rises: its edge’s transition keeps the card’s own 300 ms opacity and slide', () => {
+    // `.receipt-card[data-floor]` outranks the card's `motion-safe:transition-[opacity,transform]`:
+    // a transition list without them snaps the card up (seen on the walk: opacity 0 to 1 in one frame).
+    const rule = css.match(/\.receipt-card\[data-floor\]\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/transition:[^;]*opacity 0\.3s/);
+    expect(rule).toMatch(/transition:[^;]*transform 0\.3s/);
+    expect(rule).toMatch(/transition:[^;]*border-color 0\.6s ease/);
   });
 
   it('the screen-wide canvas sits over the receipt layer and takes no taps', () => {

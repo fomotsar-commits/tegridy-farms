@@ -300,6 +300,7 @@ function raiseSwapReceipt(
     under: null,
     fee: { kind: 'reading' },
     clock: clockFor(action, coin.mint, a.wallet, lastReading(), island),
+    lps: null,
   });
   void settleSwapReceipt(rpc, signature, { wallet: a.wallet, action, paid: a.pay, got: { ...a.buy, native: a.buy.mint === SOL_MINT }, sent: a.sent, route: a.route, coin: coin.symbol });
 }

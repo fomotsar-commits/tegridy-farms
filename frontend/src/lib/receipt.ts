@@ -35,6 +35,12 @@ export interface Receipt {
   under: string | null;
   fee: ReceiptFee;
   clock: ClockLine | null;
+  /**
+   * How many other wallets hold a share of this pool, read after an add (lib/solana/lp/holders.ts,
+   * the adder's own share left out): that many LP bricks on the add's floor (island answer
+   * thirty-two). Null until read, when the read fails, and for a swap.
+   */
+  lps: number | null;
 }
 
 let current: Receipt | null = null;
@@ -61,7 +67,7 @@ export function raiseReceipt(r: Receipt): void {
 }
 
 /** What the transaction was read to have done, for the receipt it belongs to (a later receipt is not touched). */
-export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee'>>): void {
+export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee' | 'lps'>>): void {
   if (!current || current.signature !== signature) return;
   current = { ...current, ...patch };
   emit();
