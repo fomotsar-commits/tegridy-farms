@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { chainLabel, standardLabel, marketItemUrl, explorerAddressUrl } from "../../lib/venue";
+import { chainLabel, standardLabel, marketItemUrl, explorerAddressUrl, canBuyOnVenue } from "../../lib/venue";
 import MarketButton from "./MarketButton";
+import BuyHere from "./BuyHere";
 import { itemName } from "./externalCopy";
 
 function short(addr) {
@@ -18,9 +19,10 @@ function Fact({ label, children }) {
 
 // One item of a view-only collection: what was read about it, and a link to
 // its page on OpenSea (per item where an item page was verified, the
-// collection page otherwise). No action is offered here, and a token held by
-// the burn address gets no market link at all.
-export default function ExternalItemPanel({ collection, item, onClose }) {
+// collection page otherwise). A token held by the burn address gets no market
+// link at all. A Base buy collection (lib/venue.js canBuyOnVenue) also offers
+// its OpenSea listing for sale here (BuyHere); every other one offers no action.
+export default function ExternalItemPanel({ collection, item, onClose, listing = null, listingsStatus = "idle", wallet = null, onConnect, addToast, onBought }) {
   const closeRef = useRef(null);
   const [broken, setBroken] = useState(false);
   const name = itemName(collection, item);
@@ -28,6 +30,7 @@ export default function ExternalItemPanel({ collection, item, onClose }) {
   const itemUrl = item.id != null ? marketItemUrl(collection, item.id) : null;
   const explorer = explorerAddressUrl(collection);
   const market = collection.market?.name;
+  const buyHere = canBuyOnVenue(collection);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -72,6 +75,20 @@ export default function ExternalItemPanel({ collection, item, onClose }) {
             <p className="ext-panel-note">
               This token is held by the burn address, so it cannot be bought on {market || "any market"} or anywhere else.
             </p>
+          ) : buyHere && market ? (
+            <div className="ext-panel-actions">
+              <BuyHere
+                collection={collection}
+                item={item}
+                listing={listing}
+                listingsStatus={listingsStatus}
+                wallet={wallet}
+                onConnect={onConnect}
+                addToast={addToast}
+                onBought={onBought}
+              />
+              <MarketButton collection={collection} href={itemUrl || undefined} compact />
+            </div>
           ) : market ? (
             <div className="ext-panel-actions">
               <MarketButton collection={collection} href={itemUrl || undefined} />

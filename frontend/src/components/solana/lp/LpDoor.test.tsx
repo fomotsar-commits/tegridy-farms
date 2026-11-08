@@ -524,9 +524,10 @@ describe('a pool that refuses deposits, for every reason', () => {
     const deposits = within(card).getByTestId('lp-pool-deposits');
     expect(within(deposits).getByText('Deposits: refused here')).toHaveClass('text-rose-300/90');
     expect(deposits).toHaveTextContent(c.reason);
-    // A screen reader landing on the heading still hears the reason.
+    // A screen reader landing on the heading still hears the reason. The card's effect moves
+    // focus just after it draws, so wait for it rather than racing it.
     const heading = within(card).getByRole('heading', { level: 3 });
-    expect(heading).toHaveFocus();
+    await waitFor(() => expect(heading).toHaveFocus());
     const described = heading.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '');
     expect(described.join(' ')).toContain(c.reason);
     expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();

@@ -7,8 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-08
+
+- Solana pools: the pool program is upgraded again, so pool share tokens can get a name in wallets and the launch fee tier is kept for launches: opening a pool the public way no longer accepts it. Its on-chain security contact is an email and links on memetics.finance again. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. "The program" card no longer says the program was built before them.
+- Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
+
 ### 2026-11-07
 
+- Marketplace: Bojungles and Seeds from the Memetic Garden can be bought here. Their pages show each OpenSea listing's exact price, and an item's panel has a Buy button that settles on Base through Seaport, OpenSea's own contract. The buyer pays the seller's OpenSea price plus Base gas; the venue takes no fee on these buys. Listing them for sale and making offers still happen on OpenSea.
 - Our Solana pools can now be charted by GeckoTerminal: the site serves the four data feeds its indexer reads (`/api/gt/latest-block`, `/api/gt/asset`, `/api/gt/pair`, `/api/gt/events`), every number read from the chain itself. Once GeckoTerminal lists the venue, each pool gets a public chart page and shows up in CoinGecko's on-chain data, where traders and price bots look.
 - Cardano swap: the venue fee is on. A swap of about 200 ADA or more pays 0.5% of its ADA side (the ADA you pay in, or the ADA the pool quotes back on a sale) in the same transaction, straight to the venue's two-key Cardano treasury; under that it pays none, because a Cardano payment must hold about 1 ADA. The quote and the review show the amount, and the review shows the treasury's whole address so you can match it on your wallet's screen. Minswap's own fees are unchanged.
 
