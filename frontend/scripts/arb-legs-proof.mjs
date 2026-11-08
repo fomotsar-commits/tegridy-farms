@@ -6,12 +6,14 @@
  * computes, and test-runs it. A leg passes when the program accepts the accounts and pays out
  * exactly that amount, with the pool unchanged between the read and the test run.
  *
- *   node scripts/arb-legs-proof.mjs [--fixture <file>]   prints each venue's result
+ *   node scripts/arb-legs-proof.mjs                       prints each venue's result
+ *   node scripts/arb-legs-proof.mjs --fixture > <file>    the same results on stderr, and on stdout
+ *                                                         what each passing test run saw, as JSON
  *
- * --fixture writes what each passing test run saw (the pool's accounts as read, the instruction,
- * the amount paid out), the evidence keeper/directLegs.test.ts holds the legs to.
+ * The --fixture JSON (the pool's accounts as read, the instruction, the amount paid out) is the
+ * evidence keeper/directLegs.test.ts holds the legs to. It goes to stdout, not to a file this
+ * script opens: what an RPC answered is never written to disk by the script itself.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -51,7 +53,9 @@ const WALLET = new PublicKey('9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz');
 const SOL = 'So11111111111111111111111111111111111111112';
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const AMOUNT_IN = 10_000_000n;
-const fixtureAt = process.argv.includes('--fixture') ? process.argv[process.argv.indexOf('--fixture') + 1] : null;
+const FIXTURE = process.argv.includes('--fixture');
+/** The results: on stdout, or on stderr when stdout carries the fixture. */
+const say = (line) => (FIXTURE ? console.error(line) : console.log(line));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let last = 0;
@@ -130,8 +134,8 @@ for (const c of CASES) {
       const got = post[2] !== null ? post[2] - amountOf(before.get(outAta)) : null;
       const unchanged = post[1] !== null && amountOf(acc.get(b.vOut)) - post[1] === got;
       const ok = !v.err && got === b.leg.out && unchanged;
-      console.log(`${c.venue} ${c.pool} (read at slot ${slot}, run at ${sim.context.slot}): ${ok ? 'PASSES' : 'FAILS'}; directLegs says ${b.leg.out}, the program paid ${got}${v.err ? `; error ${JSON.stringify(v.err)}` : ''}${unchanged ? '' : '; the pool moved between the read and the test run'}; ${v.unitsConsumed} units`);
-      if (v.err) console.log((v.logs ?? []).slice(-8).map((l) => `    ${l}`).join('\n'));
+      say(`${c.venue} ${c.pool} (read at slot ${slot}, run at ${sim.context.slot}): ${ok ? 'PASSES' : 'FAILS'}; directLegs says ${b.leg.out}, the program paid ${got}${v.err ? `; error ${JSON.stringify(v.err)}` : ''}${unchanged ? '' : '; the pool moved between the read and the test run'}; ${v.unitsConsumed} units`);
+      if (v.err) say((v.logs ?? []).slice(-8).map((l) => `    ${l}`).join('\n'));
       if (ok) {
         fixtures.push({
           venue: c.venue, pool: c.pool, slot, amountIn: String(AMOUNT_IN), out: String(got), fees: b.fees ? Object.fromEntries(Object.entries(b.fees).map(([k, x]) => [k, String(x)])) : undefined,
@@ -142,9 +146,9 @@ for (const c of CASES) {
       }
       if (unchanged) break;
     } catch (e) {
-      console.log(`${c.venue} ${c.pool}: not run (${e instanceof Error ? e.message : String(e)})`);
+      say(`${c.venue} ${c.pool}: not run (${e instanceof Error ? e.message : String(e)})`);
       break;
     }
   }
 }
-if (fixtureAt) fs.writeFileSync(fixtureAt, `${JSON.stringify(fixtures, null, 1)}\n`);
+if (FIXTURE) process.stdout.write(`${JSON.stringify(fixtures, null, 1)}\n`);

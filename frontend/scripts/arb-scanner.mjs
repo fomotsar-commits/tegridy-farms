@@ -30,13 +30,12 @@
  *   node scripts/arb-scanner.mjs --once    one pass, printed here
  *
  * Settings (environment): ARB_PORT (8791), ARB_RPC_URL (the public mainnet RPC),
- * ARB_LOG (a CSV of every test run; default in the system's temp folder), ARB_ROBOT_URL (the
+ * ARB_LOG (a CSV of every test run; default <home>/.tegridy-arb/scanner/test-runs.csv), ARB_ROBOT_URL (the
  * robot's gap screen, http://127.0.0.1:8792/state.json; "off" judges with this scanner's own),
  * ARB_COINS_FILE (the arbitrage map's ranked coins, scripts/arb-map.mjs; none by default)
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -74,7 +73,7 @@ const TS = await import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solan
 const LH = await keeper('lighthouse.ts');
 const PORT = Number(process.env.ARB_PORT || 8791);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
-const LOG = process.env.ARB_LOG?.trim() || path.join(os.tmpdir(), 'arb-scanner-test-runs.csv');
+const LOG = process.env.ARB_LOG?.trim() || path.join(C.privateDir('scanner'), 'test-runs.csv');
 const ROBOT_URL = process.env.ARB_ROBOT_URL?.trim() || 'http://127.0.0.1:8792/state.json';
 const ONCE = process.argv.includes('--once');
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
@@ -97,7 +96,8 @@ const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
-const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
+// Coins' tickers and the services' answers reach the log: one line each (lib/arb-chain.mjs oneLine).
+const log = (line) => console.log(`${new Date().toISOString()}  ${C.oneLine(line)}`);
 
 /** A reader no sooner than `gap` after its last read, and `rest` after a refusal for speed. */
 function gated(gap, rest, read) {

@@ -18,11 +18,10 @@
  *
  * Settings (environment): ARB_LISTEN_PORT (8799), ARB_RPC_URL (public mainnet), ARB_WS_URL (the
  * RPC's, as ws), ARB_ROBOT_URL (http://127.0.0.1:8792/state.json), ARB_LISTEN_LOG (each gap, JSON
- * lines; default in the system's temp folder), ARB_MAX_COINS, ARB_LISTEN_COMMITMENT (confirmed).
+ * lines; default <home>/.tegridy-arb/listen/gaps.jsonl), ARB_MAX_COINS, ARB_LISTEN_COMMITMENT (confirmed).
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -61,7 +60,7 @@ const PORT = Number(process.env.ARB_LISTEN_PORT || 8799);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const WS = process.env.ARB_WS_URL?.trim() || RPC.replace(/^http/i, 'ws');
 const ROBOT_URL = process.env.ARB_ROBOT_URL?.trim() || 'http://127.0.0.1:8792/state.json';
-const LOG = process.env.ARB_LISTEN_LOG?.trim() || path.join(os.tmpdir(), 'arb-listen-gaps.jsonl');
+const LOG = process.env.ARB_LISTEN_LOG?.trim() || path.join(C.privateDir('listen'), 'gaps.jsonl');
 const COMMITMENT = process.env.ARB_LISTEN_COMMITMENT?.trim() || 'confirmed';
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
 // Gentler than the scanner's 0.7 s: the robot reads the same public RPC from this IP.
@@ -84,7 +83,8 @@ const RULE_EVERY_MS = 5 * 60_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
-const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
+// A websocket's answer and a coin's ticker reach the log: one line each, nothing else (lib/arb-chain.mjs oneLine).
+const log = (line) => console.log(`${new Date().toISOString()}  ${C.oneLine(line)}`);
 
 function gated(gap, rest, read) {
   let next = 0;

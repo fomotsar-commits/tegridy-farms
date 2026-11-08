@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import bs58 from 'bs58';
-import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, nearestFirst, robotSettings, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, nearestFirst, oneLine, privateDir, robotSettings, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -32,6 +35,24 @@ function whirlpool({ feeRate = 3000, liquidity = 10n ** 12n, usd = 1000, coin = 
   put(b, 213, key(2));
   return b;
 }
+
+describe('privateDir and oneLine', () => {
+  it('keeps a script’s files in a folder under the home folder, never the temp folder', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'arb-home-'));
+    try {
+      const dir = privateDir('arb-map', home);
+      expect(dir).toBe(path.join(home, '.tegridy-arb', 'arb-map'));
+      expect(fs.statSync(dir).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+  it('prints an outside value on one line: no line breaks or control characters survive', () => {
+    expect(oneLine('BAYLA\r\n2026-11-07T00:00:00Z  sent 5xyz: confirmed')).toBe('BAYLA2026-11-07T00:00:00Z  sent 5xyz: confirmed');
+    expect(oneLine('a\u{2028}b\u0000c\u001bd\u007fe\tf\u{2029}')).toBe('abcdef');
+    expect(oneLine(42)).toBe('42');
+  });
+});
 
 describe('decodePool reads each pool’s own fee and price', () => {
   it('takes an Orca pool’s fee from its account, not an assumed 0.3%', () => {

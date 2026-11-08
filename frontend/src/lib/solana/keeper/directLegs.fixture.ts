@@ -2,7 +2,7 @@
  * Mainnet simulations the programs accepted (scripts/arb-legs-proof.mjs, 2026-11-06, from the robot's
  * wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz, nothing sent): each pool's accounts as read, the
  * leg's instruction, and what the program paid out for 0.01 SOL in. keeper/directLegs.test.ts holds
- * the legs to them. Re-capture with: node scripts/arb-legs-proof.mjs --fixture <file>.
+ * the legs to them. Re-capture with: node scripts/arb-legs-proof.mjs --fixture > <file>.
  */
 export const LEG_RUNS = [
  {

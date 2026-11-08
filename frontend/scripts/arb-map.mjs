@@ -15,7 +15,7 @@
  *
  * Settings (environment): ARB_MAP_RPC_URL (program scans; the public mainnet RPC is the only free
  * host that allows them), ARB_MAP_READ_RPC_URL (account reads; publicnode), ARB_MAP_DIR (cache and
- * output; <temp>/arb-map), ARB_MAP_SLICES ("0-255": which of each program's 256 slices to list),
+ * output; <home>/.tegridy-arb/arb-map, a folder only this user reads), ARB_MAP_SLICES ("0-255": which of each program's 256 slices to list),
  * ARB_MAP_GAP_MS (2000 between program scans), ARB_MAP_READ_GAP_MS (250 between account reads),
  * ARB_MAP_MIN_DEPTH_USD (500 a pool), ARB_MAP_TOP (40 rows kept), ARB_MAP_RELIST_H (24),
  * ARB_MAP_EVERY_MS (300000), and the robot's own KEEPER_MAX_TRADE_USD / KEEPER_MIN_PROFIT_USD.
@@ -24,7 +24,6 @@
  * coins' addresses, for the scanner's ARB_COINS_FILE).
  */
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -69,7 +68,7 @@ const num = (name, fallback) => {
 };
 const SCAN_RPC = env('ARB_MAP_RPC_URL', 'https://api.mainnet-beta.solana.com');
 const READ_RPC = env('ARB_MAP_READ_RPC_URL', 'https://solana-rpc.publicnode.com');
-const DIR = env('ARB_MAP_DIR', path.join(os.tmpdir(), 'arb-map'));
+const DIR = env('ARB_MAP_DIR', '') || C.privateDir('arb-map');
 const [SLICE_FROM, SLICE_TO] = env('ARB_MAP_SLICES', '0-255').split('-').map(Number);
 const GAP_MS = num('ARB_MAP_GAP_MS', 2_000);
 const READ_GAP_MS = num('ARB_MAP_READ_GAP_MS', 250);
@@ -87,7 +86,14 @@ const METAPLEX = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
-const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
+const log = (line) => console.log(`${new Date().toISOString()}  ${C.oneLine(line)}`);
+
+/** Writes a whole file or none of it: to a name beside it, then renamed over it (the scanner reads arb-map-coins.json while this writes). */
+async function writeWhole(file, text) {
+  const part = `${file}.${process.pid}.part`;
+  await fs.writeFile(part, text, { mode: 0o600 });
+  await fs.rename(part, file);
+}
 
 // Each host is called no sooner than its gap after its last call; a refusal, a dropped
 // connection or a timeout rests 30 s and asks again (lib/arb-map.mjs).
@@ -95,19 +101,32 @@ const scan = M.rpcHost(SCAN_RPC, GAP_MS, { log });
 const read = M.rpcHost(READ_RPC, READ_GAP_MS, { log });
 
 const POOLS_DIR = path.join(DIR, 'pools');
-const sliceFile = (s) => path.join(POOLS_DIR, `${s.dex}-${s.size}-${s.byte.toString(16).padStart(2, '0')}.json`);
+const sliceName = (s) => `${s.dex}-${s.size}-${s.byte.toString(16).padStart(2, '0')}.json`;
+const sliceFile = (s) => path.join(POOLS_DIR, sliceName(s));
+/** When each slice was last listed (slice file name → ms), kept apart from the slices it dates. */
+const LISTED = path.join(DIR, 'listed.json');
+
+async function readListed() {
+  try {
+    const o = JSON.parse(await fs.readFile(LISTED, 'utf8'));
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch {
+    return {};
+  }
+}
 
 // ─── 1. every pool, program by program ───────────────────────────────────────────────────
 async function listPools() {
-  await fs.mkdir(POOLS_DIR, { recursive: true });
+  await fs.mkdir(POOLS_DIR, { recursive: true, mode: 0o700 });
   const want = M.slices().filter((s) => s.byte >= SLICE_FROM && s.byte <= SLICE_TO);
+  // A slice's age comes from this record, not from its own file: nothing is checked on a file and
+  // then written over. A cache from before the record lists again once (about 80 minutes).
+  const listed = await readListed();
   let read = 0;
   let found = 0;
   let skipped = 0;
   for (const s of want) {
-    const f = sliceFile(s);
-    const st = await fs.stat(f).catch(() => null);
-    if (st && Date.now() - st.mtimeMs < RELIST_MS) {
+    if (Date.now() - (Number(listed[sliceName(s)]) || 0) < RELIST_MS) {
       skipped++;
       continue;
     }
@@ -123,7 +142,9 @@ async function listPools() {
       const p = M.poolFromSlice(s.dex, s.size, a.pubkey, a.account.data[0]);
       if (p && M.sidesOf(p)) pools.push(p);
     }
-    await fs.writeFile(f, M.toJson({ at: Date.now(), dex: s.dex, size: s.size, byte: s.byte, pools }));
+    await writeWhole(sliceFile(s), M.toJson({ at: Date.now(), dex: s.dex, size: s.size, byte: s.byte, pools }));
+    listed[sliceName(s)] = Date.now();
+    await writeWhole(LISTED, JSON.stringify(listed));
     read++;
     found += pools.length;
     if (read % 32 === 0) log(`listed ${read + skipped}/${want.length} slices: ${found} pools priced in SOL or USDC so far`);
@@ -246,8 +267,8 @@ async function nameRows() {
 
 async function writeOut() {
   const out = { at: new Date().toISOString(), settings: SETTINGS, minDepthUsd: MIN_DEPTH_USD, counts: S.counts, rows: S.rows };
-  await fs.writeFile(path.join(DIR, 'arb-map.json'), JSON.stringify(out, null, 1));
-  await fs.writeFile(path.join(DIR, 'arb-map-coins.json'), JSON.stringify(S.rows.map((r) => r.mint)));
+  await writeWhole(path.join(DIR, 'arb-map.json'), JSON.stringify(out, null, 1));
+  await writeWhole(path.join(DIR, 'arb-map-coins.json'), JSON.stringify(S.rows.map((r) => r.mint)));
 }
 
 function print() {
@@ -261,7 +282,7 @@ function print() {
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────────────────
-await fs.mkdir(DIR, { recursive: true });
+await fs.mkdir(DIR, { recursive: true, mode: 0o700 });
 log(`arb map: scans ${redactRpcUrl(SCAN_RPC)} every ${GAP_MS} ms, reads ${redactRpcUrl(READ_RPC)} every ${READ_GAP_MS} ms, slices ${SLICE_FROM}-${SLICE_TO}, cache ${DIR}`);
 for (;;) {
   // A round that fails (a host gone for minutes) is logged and tried again next round; a listing

@@ -16,8 +16,29 @@
  * scanner's test run from the robot's wallet decides.
  */
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import bs58 from 'bs58';
 import { judgeTrip, rankTrips, robotRule } from '../../src/lib/solana/keeper/rule.ts';
+
+/**
+ * A folder only this user may read, for a script's cache and logs: <home>/.tegridy-arb/<name>,
+ * never the shared temp folder (where another account could plant or read a file of the same
+ * name). `home` is for tests.
+ */
+export function privateDir(name, home = os.homedir()) {
+  const dir = path.join(home, '.tegridy-arb', name);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/**
+ * One log line with no line breaks or other control characters, so a value from outside (a
+ * coin's ticker, a websocket's answer) can neither forge a line nor hide one.
+ */
+// eslint-disable-next-line no-control-regex
+export const oneLine = (text) => String(text).replace(/[\r\n\x00-\x1f\x7f\u{2028}\u{2029}]/gu, '');
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
