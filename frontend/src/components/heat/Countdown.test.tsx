@@ -103,6 +103,12 @@ describe('the screen for a cold wallet, as drawn', () => {
 });
 
 describe('the number', () => {
+  it('reads “1 day” at one, in the singular (answer twenty-eight, §2.1)', () => {
+    mount(<Countdown reading={reading(79.33, 'Observer', { days_to_plant: 1 })} look="screen" />);
+    expect(screen.getByText('1').nextElementSibling?.textContent).toBe('day');
+    expect(text()).not.toContain('days');
+  });
+
   it('is the island’s served days, with “days” beside it on one baseline', () => {
     mount(<Countdown reading={reading(41.2, 'Observer', { days_to_plant: 148 })} look="screen" />);
     const number = screen.getByText('148');
@@ -202,9 +208,10 @@ describe('the roster', () => {
     }
   });
 
-  it('is left out at one, which the island’s words have no singular for', () => {
+  it('reads in the singular at one, never left out (answer twenty-eight, §2.1)', () => {
     h.warming = 1;
     mount(<Countdown reading={COLD} look="screen" />);
+    expect(screen.getByText('1 flame is warming toward the door right now.')).toBeInTheDocument();
     expect(text()).not.toContain('flames are warming');
   });
 });
