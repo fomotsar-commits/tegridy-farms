@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import type { Wallet } from '@solana/wallet-adapter-react';
-import { PHONE_WALLET_ROW, orderWallets, rowStatus, waitedOnWalletLabel, walletLabel } from './solanaWalletOrder';
+import {
+  PHONE_WALLET_ROW,
+  hasExtension,
+  opensInWalletApp,
+  orderWallets,
+  rowStatus,
+  waitedOnWalletLabel,
+  walletLabel,
+} from './solanaWalletOrder';
+import { TangemWalletName } from './solanaWalletConnect';
 
 /** A row as orderWallets reads it: an adapter name and a ready state. */
 function row(name: string, readyState: WalletReadyState): Wallet {
@@ -81,6 +90,46 @@ describe('the row that asks Android for a wallet app', () => {
       'Phantom | Open app',
       'Backpack | Open app',
       'Any wallet app | Open app',
+    ]);
+  });
+});
+
+/**
+ * Tangem (owner ask, 2026-11-01): a card wallet whose phone app connects over
+ * WalletConnect only. Its row scans the QR on a computer and opens the app on a
+ * phone, where the connection comes back to this page.
+ */
+describe('the Tangem row', () => {
+  it('is offered under the exact name its adapter registers (solanaWalletConnect.ts)', () => {
+    // An offered wallet ranks ahead of one that is not, whatever order they come in.
+    expect(listed([row('Glow', Loadable), row(TangemWalletName, Loadable)])).toEqual([
+      'Tangem | Open app',
+      'Glow | Open app',
+    ]);
+  });
+
+  it('shows the QR where the QR row exists, and says so', () => {
+    expect(rowStatus(NotDetected, 'Tangem', true)).toBe('Scan QR code');
+  });
+
+  it('on a phone says it opens the app, but never reopens this page inside it', () => {
+    expect(rowStatus(Loadable, 'Tangem')).toBe('Open app');
+    expect(opensInWalletApp(Loadable, 'Tangem')).toBe(false);
+    // The control: the offered wallets that do reopen the page still do.
+    expect(opensInWalletApp(Loadable, 'Trust')).toBe(true);
+  });
+
+  it('offers no extension in place of its QR; Trust and Jupiter still do', () => {
+    expect(hasExtension('Tangem')).toBe(false);
+    expect(hasExtension('Trust')).toBe(true);
+    expect(hasExtension('Jupiter')).toBe(true);
+  });
+
+  it('comes after the other wallets offered by name', () => {
+    expect(listed([row('Tangem', Loadable), row('Backpack', Loadable), row('Phantom', Loadable)])).toEqual([
+      'Phantom | Open app',
+      'Backpack | Open app',
+      'Tangem | Open app',
     ]);
   });
 });

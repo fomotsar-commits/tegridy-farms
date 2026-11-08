@@ -26,7 +26,7 @@
 import { createConnector } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { UserRejectedRequestError } from 'viem';
-import { COINBASE_ICON, TRUST_ICON } from './walletIcons';
+import { COINBASE_ICON, TANGEM_ICON, TRUST_ICON } from './walletIcons';
 import { getWalletConnectConnector } from '@rainbow-me/rainbowkit';
 import type {
   RainbowKitWalletConnectParameters,
@@ -281,6 +281,56 @@ export const trustWallet = ({
       : getInjectedConnector({ flag: isMobile() ? 'isTrust' : 'isTrustWallet' }),
   };
 };
+
+/**
+ * Tangem — trustWallet's WalletConnect path above, under Tangem's name and
+ * link. RainbowKit 2.2.11 ships no Tangem wallet to vendor, and none is needed:
+ * Tangem has no extension and no in-app browser, so WalletConnect is its only
+ * way into any site and the injected branch has nothing to find.
+ *
+ * The phone link is the Tangem app's own, `tangem://wc?uri=<encoded uri>`: its
+ * iOS app's URL tests accept exactly that form (tangem-app-ios
+ * IncomingURLValidatorTests) and its Android app registers `tangem://wc`
+ * (AndroidManifest.xml). It has the shape of Trust's `trust://wc?uri=`, so
+ * RainbowKit saves it the same way and later signature requests open the app.
+ * A computer shows the QR, which the phone app scans.
+ *
+ * `installed` stays undefined, never false: there is no provider to probe, and
+ * false would drop the row from RainbowKit's phone list. That list drops it to
+ * hide rows a tap cannot serve (rabbyWallet's note); this one's tap opens the
+ * app, so the row belongs there.
+ *
+ * Tangem connects Ethereum and Base over WalletConnect, and Robinhood Chain
+ * since its release 6.2. wagmi's walletConnect connector proposes every chain
+ * as optional, so an app that lacks one still connects the others.
+ *
+ * Needs a projectId, like Trust: wired only into wagmi.ts's projectId branch.
+ */
+export const tangemWallet = ({
+  projectId,
+  walletConnectParameters,
+}: {
+  projectId: string;
+  walletConnectParameters?: RainbowKitWalletConnectParameters;
+}): Wallet => ({
+  id: 'tangem',
+  name: 'Tangem',
+  iconUrl: async () => TANGEM_ICON,
+  iconBackground: '#fff',
+  downloadUrls: {
+    android: 'https://play.google.com/store/apps/details?id=com.tangem.wallet',
+    ios: 'https://apps.apple.com/us/app/tangem-crypto-wallet/id1354868448',
+    mobile: 'https://tangem.com',
+    qrCode: 'https://tangem.com',
+  },
+  mobile: {
+    getUri: (uri: string) => `tangem://wc?uri=${encodeURIComponent(uri)}`,
+  },
+  qrCode: {
+    getUri: (uri: string) => uri,
+  },
+  createConnector: getWalletConnectConnector({ projectId, walletConnectParameters }),
+});
 
 // The package's own icon module (dist/rabbyWallet-GFVPHCTK.js), byte-identical.
 const RABBY_ICON = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2028%2028%22%3E%3Cg%20clip-path%3D%22url(%23a)%22%3E%3Cpath%20fill%3D%22%238697FF%22%20d%3D%22M28%200H0v28h28V0Z%22%2F%3E%3Cpath%20fill%3D%22url(%23b)%22%20d%3D%22M22.54%2015.078c.677-1.514-2.673-5.744-5.874-7.506-2.017-1.365-4.12-1.178-4.545-.579-.935%201.316%203.094%202.43%205.788%203.731-.58.252-1.125.703-1.446%201.28-1.004-1.096-3.209-2.04-5.796-1.28-1.743.513-3.191%201.721-3.751%203.546a1.097%201.097%200%201%200-.445%202.1c.112%200%20.463-.075.463-.075l5.612.041c-2.244%203.56-4.018%204.081-4.018%204.698s1.697.45%202.335.22c3.05-1.1%206.327-4.531%206.89-5.519%202.36.295%204.345.33%204.786-.657Z%22%2F%3E%3Cpath%20fill%3D%22url(%23c)%22%20fill-rule%3D%22evenodd%22%20d%3D%22m17.885%2010.713.025.01c.125-.049.105-.233.07-.378-.078-.333-1.438-1.676-2.715-2.277-1.743-.82-3.025-.777-3.212-.398.356.726%201.998%201.408%203.714%202.12.723.3%201.46.606%202.118.923Z%22%20clip-rule%3D%22evenodd%22%2F%3E%3Cpath%20fill%3D%22url(%23d)%22%20fill-rule%3D%22evenodd%22%20d%3D%22M15.701%2018.036a10.296%2010.296%200%200%200-1.2-.37c.482-.862.583-2.138.128-2.945-.639-1.133-1.44-1.736-3.304-1.736-1.024%200-3.783.346-3.832%202.648-.005.242%200%20.464.017.667l5.036.037a17.264%2017.264%200%200%201-1.871%202.483c.669.172%201.221.316%201.728.448.48.125.92.24%201.38.357a21.003%2021.003%200%200%200%201.918-1.59Z%22%20clip-rule%3D%22evenodd%22%2F%3E%3Cpath%20fill%3D%22url(%23e)%22%20d%3D%22M6.848%2016.063c.206%201.75%201.2%202.435%203.232%202.638%202.032.203%203.197.067%204.749.208%201.296.118%202.453.778%202.882.55.386-.205.17-.947-.347-1.423-.67-.617-1.597-1.046-3.229-1.199.325-.89.234-2.138-.27-2.817-.731-.982-2.079-1.426-3.785-1.232-1.782.202-3.49%201.08-3.232%203.275Z%22%2F%3E%3C%2Fg%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%2210.464%22%20x2%3D%2222.394%22%20y1%3D%2213.737%22%20y2%3D%2217.12%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20stop-color%3D%22%23fff%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23fff%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22c%22%20x1%3D%2220.386%22%20x2%3D%2211.779%22%20y1%3D%2213.509%22%20y2%3D%224.879%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20stop-color%3D%22%237258DC%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23797DEA%22%20stop-opacity%3D%220%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22d%22%20x1%3D%2215.94%22%20x2%3D%227.673%22%20y1%3D%2218.337%22%20y2%3D%2213.584%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20stop-color%3D%22%237461EA%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23BFC2FF%22%20stop-opacity%3D%220%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22e%22%20x1%3D%2211.177%22%20x2%3D%2216.765%22%20y1%3D%2213.648%22%20y2%3D%2220.749%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20stop-color%3D%22%23fff%22%2F%3E%3Cstop%20offset%3D%22.984%22%20stop-color%3D%22%23D5CEFF%22%2F%3E%3C%2FlinearGradient%3E%3CclipPath%20id%3D%22a%22%3E%3Cpath%20fill%3D%22%23fff%22%20d%3D%22M0%200h28v28H0z%22%2F%3E%3C%2FclipPath%3E%3C%2Fdefs%3E%3C%2Fsvg%3E';
