@@ -25,6 +25,10 @@ export const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 // Solid backing for a selected choice: the art bled through the old translucent tint and
 // washed out the label.
 export const SELECTED_BG = 'rgba(6, 40, 30, 0.92)';
+// The money buttons (Wrap/Approve/Sign Offer, Take Loan, Repay) use the site's solid green
+// .btn-primary, and fade only while they can't be pressed. Inline, because .btn-primary is
+// unlayered CSS and its own 0.70 disabled opacity beats Tailwind's disabled:opacity-40.
+export const FADED: React.CSSProperties = { opacity: 0.4 };
 
 export const WETH_DEPOSIT_ABI = [
   { type: 'function', name: 'deposit', inputs: [], outputs: [], stateMutability: 'payable' },

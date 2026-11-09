@@ -16,6 +16,19 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { AlertRuleBuilder } from './AlertRuleBuilder';
 import type { AlertRule } from '../../lib/alerts/rules';
 
+// GONDI_LOAN_ADDRESS is zero until the deploy (the real state); `gondiState` stands in a
+// deployed address where a test needs the loan contract to exist.
+const gondiState = vi.hoisted(() => ({ address: '0x0000000000000000000000000000000000000000' }));
+vi.mock('../../lib/gondi/loanOffer.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    get GONDI_LOAN_ADDRESS() {
+      return gondiState.address;
+    },
+  };
+});
+
 // Annotated with the component's own props rather than left to inference: the
 // nulls below would otherwise be inferred as the literal type `null`, so a case
 // that overrides one with a real message — the store-warning test — could not be
@@ -80,8 +93,8 @@ describe('a dark kind is disclosed where it is chosen', () => {
     const dark = groups[1]!;
     const labels = [...dark.querySelectorAll('option')].map((o) => o.textContent);
     // The indexer is unhosted AND has no transfer or lock tables, so the first two
-    // cannot be evaluated by any rail on this deployment. Loan deadlines: NFT lending is
-    // on Gondi's contract, and no reader for its loans is built yet.
+    // cannot be evaluated by any rail on this deployment. Loan deadlines: Gondi's loan
+    // contract is not deployed yet.
     expect(labels).toEqual([
       'Whale move (not readable here)',
       'LP unlock (not readable here)',
@@ -96,6 +109,18 @@ describe('a dark kind is disclosed where it is chosen', () => {
     // The inbox's own words for a gap (lib/alerts/inbox.ts), never "cannot".
     expect(line.textContent).toContain('it will report “Could not evaluate” until the source is readable');
     expect(line.textContent).not.toMatch(/\bcannot\b/i);
+  });
+
+  it('once Gondi’s loan contract is deployed, loan deadlines move to the readable group', () => {
+    gondiState.address = '0x5555555555555555555555555555555555555555';
+    try {
+      renderBuilder();
+      const [readable, dark] = select().querySelectorAll('optgroup');
+      expect([...readable!.querySelectorAll('option')].map((o) => o.value)).toContain('loan-deadline');
+      expect([...dark!.querySelectorAll('option')].map((o) => o.value)).not.toContain('loan-deadline');
+    } finally {
+      gondiState.address = '0x0000000000000000000000000000000000000000';
+    }
   });
 
   it('the readable group holds the pool kinds', () => {
