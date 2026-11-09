@@ -138,7 +138,7 @@ export default function LiquidityPage() {
           ) : (
             <p>
               Providers split the 0.3% swap fee by pool share. The venue can take one sixth of it,
-              paid to its fee Safe as new pool shares, but only on a pool where it has switched that
+              paid to the venue as new pool shares, but only on a pool where it has switched that
               on. Each pool in the list says whether it has.
             </p>
           )}

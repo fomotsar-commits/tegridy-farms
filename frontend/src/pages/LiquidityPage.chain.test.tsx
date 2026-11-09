@@ -77,6 +77,7 @@ describe('/liquidity on the picked chain', () => {
     // treasury Safe: the line names neither, only the venue.
     expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue as new pool shares/);
     expect(screen.getByText(/^Base pools\./)).not.toHaveTextContent(/fee Safe/);
+    expect(screen.getByText(/The venue can take one sixth of it/)).toHaveTextContent('paid to the venue as new pool shares');
     expect(screen.queryByText(/TOWELI\/ETH/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
     expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
