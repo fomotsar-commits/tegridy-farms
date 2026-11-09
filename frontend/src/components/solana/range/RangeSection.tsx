@@ -11,7 +11,7 @@ import { lpFetch } from '../../../lib/solana/lp/readFetch';
 import { listedOutsidePrice, readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
+import { quoteCoin, quotesFor } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
@@ -105,7 +105,11 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
   const tokenMint = parsed?.ok ? parsed.mint : BAYLA_MINT;
-  const coins = QUOTE_COINS.filter((q) => q.mint !== tokenMint);
+  // A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
+  // index). Offered one ranked below it, the pair's token is that other coin and the opening card
+  // called both coins by this page's ticker. Only SOL has none above it, and parseMintInput
+  // already turns a SOL link away.
+  const coins = quotesFor(tokenMint);
   const [coinMint, setCoinMint] = useState(coins[0]!.mint);
   const coin = coins.find((q) => q.mint === coinMint) ?? coins[0]!;
 

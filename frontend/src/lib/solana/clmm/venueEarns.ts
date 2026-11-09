@@ -34,7 +34,9 @@ const VAULT_CAN = 'which needs two signatures and can change the pool rates';
  * The venue's other take from range pools, said beside its cut of each swap: the program's
  * pool-opening fee (lib.rs CREATE_POOL_FEE, paid to the vault; owner, 2026-10-25).
  */
-export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)} SOL, to the team’s shared wallet.`;
+// The opening card and the review call this wallet the venue's vault and the split line the team's
+// shared wallet: this sentence names it both ways, so a stranger reads one wallet (law-25 read, #1040).
+export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)} SOL, to the venue’s vault, the team’s shared wallet.`;
 
 type Tier = Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'owner' | 'fundOwner'>;
 

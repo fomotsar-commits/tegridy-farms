@@ -117,7 +117,9 @@ describe('the pool-opening fee, as the range screens say it', () => {
   it('says the amount the program charges and the wallet it pays, by the name the cut uses for it', () => {
     expect(CREATE_POOL_FEE_LAMPORTS).toBe(500_000_000n);
     expect(CREATE_POOL_FEE_RECEIVER.toBase58()).toBe(VAULT);
-    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s shared wallet.');
+    // The opening card and the review call this wallet the venue's vault; the split line calls it
+    // the team's shared wallet. This sentence names it both ways, so a stranger reads one wallet.
+    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5 SOL, to the venue’s vault, the team’s shared wallet.');
     expect(rangeVenueEarns(tier()).where).toContain('to the team’s shared wallet');
   });
 });

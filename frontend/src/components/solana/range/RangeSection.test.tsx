@@ -21,7 +21,7 @@ import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/
 import { bothAmounts } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { BRAINLET_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 
 /**
@@ -144,7 +144,7 @@ describe('how a range position earns', () => {
     expect(card.textContent).toContain('share 84% of it (0.84% of the swap)');
     expect(card.textContent).toContain('The venue keeps 16% (0.16% of the swap)');
     // The venue's other take, the program's pool-opening fee: in plain sight, not in the fine print.
-    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s shared wallet.');
+    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the venue’s vault, the team’s shared wallet.');
     expect(opening.closest('details')).toBeNull();
     // Visible, not folded into the fine print.
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
@@ -760,5 +760,34 @@ describe('the risks, beside the deposit and on the review', () => {
     const disclosure = await within(open).findByTestId('range-review-disclosure');
     expect(disclosure).toHaveTextContent(RANGE_RISK_SHORT);
     expect(disclosure).toHaveTextContent(/you could not take your money out until it switched them back on/);
+  });
+});
+
+// A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
+// index). Offered a coin ranked below it, the pair's token is that other coin, and the opening
+// card called both coins by the page's ticker: "BAYLA per BAYLA", "100,000 BAYLA and 19,218 BAYLA"
+// for an amount of BRAINLET (law-25 read of #1040, 2026-11-09).
+describe('which coins a token pairs with', () => {
+  const pairedWith = async () =>
+    within(await screen.findByRole('group', { name: 'Paired with' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+
+  it('BAYLA pairs with the coins ranked above it, SOL and USDC, never with an island coin below it', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }));
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
+  });
+
+  it('an island coin lower in the list pairs with every coin above it, BAYLA included', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+  });
+
+  it('a link to SOL, which no coin outranks, shows BAYLA and says why, instead of a page with nothing to pair', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${SOL_QUOTE.mint}`);
+    const card = await screen.findByTestId('range-pools');
+    expect(card).toHaveTextContent('That is SOL itself.');
+    expect(card).toHaveTextContent('Showing BAYLA.');
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
   });
 });
