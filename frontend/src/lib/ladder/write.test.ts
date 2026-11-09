@@ -26,13 +26,14 @@ import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransact
 import { base58 } from '@scure/base';
 import { V1_VERSION_BYTE, assembleV1, decodeV1, loadedDataLimitFromSimulation, signV1WithKeypairs } from '../launcher/solana/write/v1';
 import { MAX_OWN_PRIORITY_LAMPORTS, computeLimitFromSimulation } from '../launcher/solana/write/budget';
+import { MAX_WALLET_PRIORITY_LAMPORTS, v1ComputeLimit } from '../solana/v1Send';
 import { DECLINED_IN_WALLET, lostAnswerCopy } from '../solana/swap/walletCopy';
 import { notSignedCopy } from '../solana/walletThrow';
 import { reloadHeld } from '../reloadHold';
 import { poolPda, stakeVaultPda, rewardVaultPda, ASSOCIATED_TOKEN_PROGRAM_ID, MIN_LOCK_SECS } from './program';
 import { createAtaIdempotentIx } from './ix';
 import {
-  LADDER_ERRORS, MAX_WALLET_PRIORITY_LAMPORTS, anchorCode, classifyWriteError, ladderComputeLimit, refusalReason, submitLadder,
+  LADDER_ERRORS, anchorCode, classifyWriteError, refusalReason, submitLadder,
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs,
   type LadderWriteCtx,
 } from './write';
@@ -611,7 +612,7 @@ describe('a wallet that signs version 1 gets version 1: tested first, signed onl
     expect(w.blockhash).toBe(BLOCKHASH);
     // The budget is the message's config, measured by the sizing run; no ComputeBudget step.
     expect(w.config).toEqual({
-      computeUnitLimit: ladderComputeLimit(40_000),
+      computeUnitLimit: v1ComputeLimit(40_000),
       loadedAccountsDataSizeLimit: loadedDataLimitFromSimulation(100_000),
       priorityFeeLamports: 0n,
     });
@@ -661,6 +662,16 @@ describe('a wallet that signs version 1 gets version 1: tested first, signed onl
     expect(sendRawTransaction).not.toHaveBeenCalled();
   });
 
+  it('a test run the node did not answer is no verdict: it goes at the ceiling, and our send is checked by the network', async () => {
+    const { conn, sendRawTransaction } = v1Conn();
+    (conn.simulateTransaction as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('429 Too Many Requests'));
+    const { adapter, signTransaction } = v1Wallet();
+    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
+    expect(r.ok).toBe(true);
+    expect(decodeV1(signTransaction.mock.calls[0]![0].transaction).config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: 64 * 1024 * 1024, priorityFeeLamports: 0n });
+    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
+  });
+
   it('a decline in the wallet: nothing was sent, in the words every write uses', async () => {
     const { conn, sendRawTransaction } = v1Conn();
     const declined = Object.assign(new Error('User rejected the request.'), { code: 4001 });
@@ -694,7 +705,7 @@ describe('a wallet that signs version 1 gets version 1: tested first, signed onl
 
   it('keeps the pool writes’ numbers: the same compute rule and the same priority-fee cap', () => {
     for (const used of [undefined, 0, 1, 999, 40_000, 1_210_000, 1_399_999, 2_000_000]) {
-      expect(ladderComputeLimit(used)).toBe(computeLimitFromSimulation(used));
+      expect(v1ComputeLimit(used)).toBe(computeLimitFromSimulation(used));
     }
     expect(MAX_WALLET_PRIORITY_LAMPORTS).toBe(MAX_OWN_PRIORITY_LAMPORTS);
   });

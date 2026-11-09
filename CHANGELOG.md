@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-09
 
-- BAYLA staking on Solana: a wallet that signs version 1 transactions (Phantom does) now gets staking, claiming, extending a lock and withdrawing as version 1, with the compute and account-data limits written into the message. Each one is test-run before the wallet is asked, the wallet only signs, and the site sends it. A refused test run is said in the program's own words before any wallet prompt. Other wallets keep the old way, unchanged.
+- BAYLA staking on Solana: a wallet that signs version 1 transactions (Phantom does) now gets staking, claiming, extending a lock and withdrawing as version 1, with the compute and account-data limits written into the message. Each one is test-run before the wallet is asked, the wallet only signs, and the site sends it. A refused test run is said in the program's own words before any wallet prompt. Claim all on the dashboard does the same for every Solana claim it gathers, still on one wallet prompt. Other wallets keep the old way, unchanged.
 
 ### 2026-11-08
 
