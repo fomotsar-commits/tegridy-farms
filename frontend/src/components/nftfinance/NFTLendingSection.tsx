@@ -57,6 +57,7 @@ import {
   COLLECTIONS,
   COLLECTION_ART,
   EASE,
+  FADED,
   LABEL_STYLE,
   LENDING_LIVE,
   SELECTED_BG,
@@ -449,7 +450,15 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
     : step === 1
     ? { label: approving ? 'Confirm in Wallet...' : approveQuery.isLoading ? 'Approving...' : `Approve ${needed !== null ? fmtWeth(needed) : ''} WETH`, onClick: handleApprove }
     : { label: signing ? 'Sign in Wallet...' : 'Sign Offer (no gas)', onClick: () => void handleSign() };
-  const primaryDisabled = isConnected ? busy || (step < 2 && (wethShort === null || needsApproval === null)) : !openConnectModal;
+  // Every box the offer needs holds a valid value: the button is faded until then, so a
+  // full-colour button always means a click goes to the wallet, not to an error toast.
+  const parsedTokenId = anyToken ? null : parseTokenId(tokenId);
+  const formReady =
+    principalWei !== null && aprValue !== null && aprValue > 0n && loansN !== null &&
+    (anyToken || (parsedTokenId !== null && parsedTokenId > 0n));
+  const primaryDisabled = isConnected
+    ? busy || !formReady || (step < 2 && (wethShort === null || needsApproval === null))
+    : !openConnectModal;
 
   return (
     <div className="space-y-5">
@@ -617,12 +626,8 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
       <button
         onClick={primary.onClick}
         disabled={primaryDisabled}
-        className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{
-          background: busy ? 'var(--color-purple-15)' : 'linear-gradient(135deg, rgba(16,185,129,0.3), var(--color-purple-30))',
-          border: '1px solid var(--color-purple-30)',
-          color: 'white',
-        }}
+        className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
+        style={primaryDisabled ? FADED : undefined}
       >
         {primary.label}
       </button>
@@ -921,6 +926,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
   const atTerm = principal + interestFor(principal, apr, duration);
   const blocked = status !== 'live';
+  const takeLoanDisabled = !isConnected || blocked || borrowing || borrowQuery.isLoading || pledgedId === null || knownNotOwned;
 
   return (
     <div
@@ -1042,9 +1048,9 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 </button>
                 <button
                   onClick={handleBorrow}
-                  disabled={!isConnected || blocked || borrowing || borrowQuery.isLoading || pledgedId === null || knownNotOwned}
-                  className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.25), var(--color-purple-25))', border: '1px solid rgba(16,185,129,0.3)' }}
+                  disabled={takeLoanDisabled}
+                  className="btn-primary min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
+                  style={takeLoanDisabled ? FADED : undefined}
                 >
                   {borrowing ? 'Confirm...' : borrowQuery.isLoading ? 'Opening loan...' : 'Take Loan'}
                 </button>
