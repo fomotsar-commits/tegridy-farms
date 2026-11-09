@@ -7,7 +7,7 @@
 import { SolanaSignTransaction, type SolanaSignTransactionFeature } from '@solana/wallet-standard-features';
 import type { PublicKey } from '@solana/web3.js';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
-import type { TxSigner } from '../launcher/solana/write/types';
+import type { SolanaChain, TxSigner } from '../launcher/solana/write/types';
 
 type SignV1 = NonNullable<TxSigner['signV1']>;
 type SignFeature = SolanaSignTransactionFeature[typeof SolanaSignTransaction];
@@ -50,5 +50,25 @@ export function v1SignerOf(adapter: unknown, publicKey: PublicKey): SignV1 | nul
     const [result] = await feature.signTransaction({ account, chain, transaction: bytes });
     if (!result) throw new Error('The wallet did not return a signed transaction.');
     return new Uint8Array(result.signedTransaction);
+  };
+}
+
+/**
+ * The same, for several version 1 transactions on ONE wallet prompt (Claim all): the
+ * feature takes several inputs and answers them in order. Null when this wallet keeps the
+ * legacy path. A short answer throws, so no claim is matched to another's signature.
+ */
+export function v1SignAllOf(adapter: unknown, publicKey: PublicKey): ((list: readonly Uint8Array[], chain: SolanaChain) => Promise<Uint8Array[]>) | null {
+  const wallet = standardWalletOf(adapter);
+  if (!wallet) return null;
+  const address = publicKey.toBase58();
+  if (!signingAccount(wallet, address)) return null;
+  return async (list, chain) => {
+    const account = signingAccount(wallet, address);
+    const feature = signFeatureOf(wallet);
+    if (!account || !feature || !wallet.accounts.includes(account)) throw new Error('Wallet account changed. Reconnect.');
+    const results = await feature.signTransaction(...list.map((transaction) => ({ account, chain, transaction })));
+    if (!Array.isArray(results) || results.length !== list.length) throw new Error('The wallet did not return every signed transaction.');
+    return results.map((r) => new Uint8Array(r.signedTransaction));
   };
 }

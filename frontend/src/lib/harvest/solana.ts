@@ -30,6 +30,8 @@ import { holdReload } from '../reloadHold';
 import { sendSigned, signatureOf, stampBlockhash } from '../solana/swap/islandBasketSol';
 import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
 import { signThrowCopy } from '../solana/walletThrow';
+import { v1SignAllOf } from '../solana/v1Signer';
+import { acceptSignedV1, prepareV1 } from '../solana/v1Send';
 import { ladderRooms, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, solanaStakePools, type StakeTarget } from '../wallet/walletRows';
 import type { ClaimResult, HarvestClaim, HarvestPlan, HarvestUnread } from './types';
@@ -312,6 +314,10 @@ export async function sendClaimsTogether(
     for (const c of claims) settle(c.key, { kind: 'unconfirmed', reason: 'Your Solana wallet is not connected, so nothing was sent.' });
     return 'done';
   }
+  // A wallet that signs version 1 (Phantom's extension) gets version 1 claims, on the same
+  // one prompt (Phantom, ticket #455104). The rest keep the version 0 way below, unchanged.
+  const signAllV1 = v1SignAllOf(wallet, owner);
+  if (signAllV1) return sendClaimsTogetherV1(claims, owner, signAllV1, settle, conn, confirmMs);
   const ready: { claim: SolanaClaim; tx: VersionedTransaction }[] = [];
   for (const c of claims) {
     let tx: VersionedTransaction;
@@ -366,7 +372,76 @@ async function sendSignedClaim(conn: ClaimConn, got: VersionedTransaction | unde
     return { kind: 'unconfirmed', reason: NOT_SIGNED };
   }
   if (!sig) return { kind: 'unconfirmed', reason: NOT_SIGNED };
-  const sent = await sendSigned(conn, tx.serialize(), sig, confirmMs);
+  return sendAndWatch(conn, tx.serialize(), sig, confirmMs);
+}
+
+/**
+ * Claim all for a wallet that signs version 1 (lib/solana/v1Send.ts): the same promises
+ * as the version 0 way, in this format. One fresh blockhash, read first (a version 1
+ * message carries it from its first test run); each claim built and test-run on its own,
+ * its compute and data limits measured, one the test run refuses said in its pool's
+ * words and never put to the wallet; every claim on ONE prompt; each signed message held
+ * to the rules (acceptSignedV1), then sent and watched on its own through our RPC.
+ */
+async function sendClaimsTogetherV1(
+  claims: readonly SolanaClaim[],
+  owner: PublicKey,
+  signAll: NonNullable<ReturnType<typeof v1SignAllOf>>,
+  settle: (key: string, r: ClaimResult) => void,
+  conn: ClaimConn,
+  confirmMs: number,
+): Promise<'done'> {
+  const fresh = await conn.getLatestBlockhash('confirmed').catch(() => null);
+  if (!fresh) {
+    for (const c of claims) settle(c.key, { kind: 'unconfirmed', reason: 'The Solana network could not be reached just now, so nothing was sent.' });
+    return 'done';
+  }
+  const ready: { claim: SolanaClaim; bytes: Uint8Array }[] = [];
+  for (const c of claims) {
+    let instructions: TransactionInstruction[];
+    try {
+      instructions = await c.build(owner);
+    } catch (e) {
+      settle(c.key, { kind: 'unconfirmed', reason: `Its transaction could not be built just now (${clipReason(e)}), so nothing was sent for it.` });
+      continue;
+    }
+    const prepared = await prepareV1(conn, owner, instructions, fresh);
+    if ('refusedRun' in prepared) {
+      settle(c.key, { kind: 'unconfirmed', reason: c.refused(prepared.refusedRun.logs) });
+      continue;
+    }
+    if ('tooLarge' in prepared) {
+      settle(c.key, { kind: 'unconfirmed', reason: 'Its transaction is too large for Solana, so nothing was sent for it.' });
+      continue;
+    }
+    ready.push({ claim: c, bytes: prepared.bytes });
+  }
+  if (!ready.length) return 'done';
+  // Until every claim is answered the page does not reload itself (lib/staleBuild.ts).
+  const release = holdReload();
+  try {
+    let signed: Uint8Array[];
+    try {
+      signed = await signAll(ready.map((r) => r.bytes), 'solana:mainnet');
+    } catch (e) {
+      // Signing alone: whatever the wallet says, nothing left the page.
+      const why = signThrowCopy(e);
+      for (const r of ready) settle(r.claim.key, why === DECLINED_IN_WALLET ? { kind: 'declined' } : { kind: 'unconfirmed', reason: why });
+      return 'done';
+    }
+    await Promise.allSettled(ready.map(async (r, k) => {
+      const accepted = await acceptSignedV1(conn, r.bytes, signed[k]!, owner);
+      settle(r.claim.key, 'refusal' in accepted ? { kind: 'unconfirmed', reason: accepted.refusal } : await sendAndWatch(conn, accepted.raw, accepted.signature, confirmMs));
+    }));
+  } finally {
+    release();
+  }
+  return 'done';
+}
+
+/** Send signed bytes through our RPC, preflight first, and say how the claim ended. */
+async function sendAndWatch(conn: ClaimConn, raw: Uint8Array, sig: string, confirmMs: number): Promise<ClaimResult> {
+  const sent = await sendSigned(conn, raw, sig, confirmMs);
   if (sent.kind === 'not-sent') return { kind: 'unconfirmed', reason: sent.why };
   if (sent.outcome === 'confirmed') return { kind: 'claimed', tx: sig };
   if (sent.outcome === 'reverted') return { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: sig };
