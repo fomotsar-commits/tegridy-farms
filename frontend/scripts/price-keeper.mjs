@@ -95,6 +95,11 @@
  *                           A handover older than 0.8 s is not built (default off)
  *   KEEPER_ENGINE_ONLY      yes = no passes against Jupiter and no quick checks: only the engine's
  *                           handovers (a proof run, or a robot given over to the engine; default no)
+ *   KEEPER_V1               yes = a trip too big for a legacy transaction (1,232 bytes: three swaps
+ *                           through two PumpSwap pools, as the engine hands over) is built as a
+ *                           version 1 transaction (SIMD-0385, 4,096 bytes, no lookup table),
+ *                           test-run the same way and sent the usual way, never through Jito;
+ *                           a trip that fits is built as before (keeper/v1tx.ts; default no)
  *   KEEPER_GAS_LOW_SOL      a trip's gain lands as wrapped SOL, but fees, Jito tips and new
  *                           accounts are paid in plain SOL: when plain SOL is under this, the
  *                           running robot unwraps wrapped SOL to bring it back up to
@@ -172,6 +177,7 @@ const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
 const { jitoSender } = await lib('solana/keeper/jito.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 const { DEFAULT_GAS, GAS_TOPUP_UNITS, gasTopUp, gasTopUpIxs } = await lib('solana/keeper/gas.ts');
+const { isV1, signV1 } = await lib('solana/keeper/v1tx.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -235,8 +241,14 @@ function keeperAddress(key) {
 }
 
 async function sendSigned(tx, key) {
-  tx.sign([key]);
-  const signature = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 });
+  // A version 1 trip (keeper/v1tx.ts) is signed over its own message bytes; the node takes its wire as it does any.
+  let raw;
+  if (isV1(tx)) raw = signV1(tx, key).wire;
+  else {
+    tx.sign([key]);
+    raw = tx.serialize();
+  }
+  const signature = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 });
   const { outcome } = await pollConfirm(conn, signature, 60_000);
   return { signature, outcome };
 }
@@ -915,6 +927,7 @@ async function main() {
       direct: yes('KEEPER_DIRECT'),
       directLookupTables: env.KEEPER_DIRECT_ALTS?.trim() ? env.KEEPER_DIRECT_ALTS.split(',').map((x) => x.trim()).filter(Boolean) : DEFAULT_SETTINGS.directLookupTables,
       directIds: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY },
+      v1: yes('KEEPER_V1'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
@@ -985,6 +998,8 @@ async function main() {
     const sendJito = async (tx) => {
       const hold = holdReason();
       if (hold) throw new Error(hold);
+      // cycle.ts never hands Jito a version 1 trip; this says so if it ever did.
+      if (isV1(tx)) throw new Error('a version 1 transaction is not sent through Jito');
       tx.sign([key]);
       return jito(tx);
     };
@@ -1154,6 +1169,7 @@ async function main() {
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
     log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
     log(`  direct trips (our pool against the coin's ${settings.allowRaydium ? 'PumpSwap, Raydium CPMM or AMM v4' : 'PumpSwap'} pool, both swaps built here, no Jupiter call): ${settings.direct ? (streamsOn ? 'ON, from the first pass on' : 'ON, but no outside pools are heard, so none are weighed') : 'off (KEEPER_DIRECT=yes)'}`);
+    log(`  trips too big for a legacy transaction (1,232 bytes): ${settings.v1 ? 'built as version 1 (up to 4,096 bytes, no lookup table), sent the usual way, not through Jito' : 'skipped (KEEPER_V1=yes builds them as version 1)'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();

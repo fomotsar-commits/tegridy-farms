@@ -27,6 +27,7 @@ import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
 import { DIRECT_LOOKUP_TABLES, directPlan, readDirectPools, type DirectIds, type DirectPool } from './direct';
 import type { EngineRecord, RouteLegs } from './engine';
+import { V1_TX_SIZE_LIMIT, assembleV1, fitsLegacy, isV1, v1Config, type TripTx } from './v1tx';
 import type { StreamPool } from './streams';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
@@ -72,8 +73,8 @@ export interface KeeperIo {
   owner: PublicKey;
   /** The site's pool index (`/api/pools`), as a fetch for poolIndex.ts. */
   indexFetch: typeof fetch;
-  /** Signs and sends; absent on a dry run, which stops after the test run. */
-  send?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
+  /** Signs and sends, a v0 or a version 1 trip (keeper/v1tx.ts); absent on a dry run, which stops after the test run. */
+  send?: (tx: TripTx) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
   /** Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO. 'lost': it never landed. */
   sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
@@ -135,6 +136,13 @@ export interface KeeperSettings extends KeeperLimits {
   directIds: DirectIds | null;
   /** The lookup tables a direct trip compiles with (keeper/direct.ts DIRECT_LOOKUP_TABLES). */
   directLookupTables: readonly string[];
+  /**
+   * A trip too big for a legacy transaction (1,232 bytes: three swaps through two PumpSwap
+   * pools) is built as a version 1 transaction instead (keeper/v1tx.ts, 4,096 bytes, no lookup
+   * table), test-run the same way and sent the usual way, not through Jito (KEEPER_V1, off by
+   * default). A trip that fits is built as before.
+   */
+  v1: boolean;
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -148,6 +156,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   direct: false,
   directIds: null,
   directLookupTables: DIRECT_LOOKUP_TABLES,
+  v1: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -1428,10 +1437,16 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
   const alts = await lookupTablesOf(io.rpc, (t.loan ?? 0n) > 0n ? [...new Set([...t.lookupTables, KAMINO_LOOKUP_TABLE])] : t.lookupTables);
   // `held`: the coin account's amount the trip starts from. The Lighthouse check is last: it
   // holds the account to `held` + the floor once every swap has run, or the trip is undone.
-  const build = async (units: number, held: bigint, tip?: Trip['tip']) => {
-    const { blockhash } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string } }).value;
+  // A trip that fits a legacy transaction is built as before. One that does not is built as
+  // version 1 when that is on (keeper/v1tx.ts): the same instructions, the budget in its config,
+  // `loaded` (what the test run loaded) sizing its loaded-data limit.
+  const build = async (units: number, held: bigint, tip?: Trip['tip'], loaded?: number): Promise<TripTx> => {
+    const { blockhash, lastValidBlockHeight } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string; lastValidBlockHeight?: number } }).value;
     const instructions = tripInstructions(owner, { ...t, tip }, s.microLamports, units, held);
-    return new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
+    const v0 = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
+    if (!s.v1 || fitsLegacy(v0)) return v0;
+    // The height is kit's bookkeeping only: the wire carries the blockhash alone.
+    return assembleV1(owner, blockhash, lastValidBlockHeight ?? 0, v1Config(units, s.microLamports, loaded), instructions);
   };
 
   let sim: Simulated;
@@ -1456,13 +1471,15 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
     return 'test-checks';
   }
   const gainedInTest = change.coinAfter - change.coinBefore;
-  io.log(`${t.name}: ${t.says(gainedInTest)}`);
+  io.log(`${t.name}: ${t.says(gainedInTest)}${sim.v1 ? ` (a version 1 transaction, ${sim.bytes} bytes: too big for a legacy one)` : ''}`);
   // Jito: a SOL trip only (the tip is SOL), sized from this test run's gain and the plain SOL it
   // leaves; the floor rises by it.
   // A pool whose last bundle did not land goes the usual way for a while, not the same bundle again.
   const plainOnly = s.jito && t.coin.mint === SOL_QUOTE.mint && io.bans?.plainOnly(pools, Date.now()) === true;
   if (plainOnly) io.log(`${t.name}: goes the usual way, no tip: a Jito bundle through it did not land in the last ${PLAIN_AFTER_DROP_MS / 60_000} min`);
-  const tipLamports = s.jito && !plainOnly && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  // A version 1 trip goes the usual way: Jito is not asked to carry one.
+  if (s.jito && sim.v1 && t.coin.mint === SOL_QUOTE.mint) io.log(`${t.name}: goes the usual way, no tip: a version 1 transaction is not sent through Jito`);
+  const tipLamports = s.jito && !plainOnly && !sim.v1 && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
   const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
   if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
@@ -1470,8 +1487,15 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
   // the Lighthouse check counts from this amount.
   const atSend = await balances(io.rpc, keys);
   const units = Math.ceil(sim.units * 1.2) + 10_000;
-  const tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
-  const r = tip && io.sendJito ? await io.sendJito(await build(units, atSend.coin, tip)) : await io.send(await build(units, atSend.coin));
+  let tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
+  let final = await build(units, atSend.coin, tip, sim.loaded);
+  // The tip's own instruction can tip a trip past the legacy size: then it goes as version 1, untipped.
+  if (tip && isV1(final)) {
+    io.log(`${t.name}: with the tip it no longer fits a legacy transaction: goes the usual way as version 1, no tip`);
+    tip = undefined;
+    final = await build(units, atSend.coin, undefined, sim.loaded);
+  }
+  const r = tip && io.sendJito && !isV1(final) ? await io.sendJito(final) : await io.send(final);
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
@@ -1635,17 +1659,23 @@ interface Simulated {
   err: unknown;
   lastLog: string | null;
   units: number;
+  /** What the test run loaded, when the node says: a version 1 trip's loaded-data limit is sized from it. */
+  loaded?: number;
+  /** Whether the trip ran as a version 1 transaction, and its size. */
+  v1: boolean;
+  bytes: number;
   after: Balances;
 }
 
-async function simulate(rpc: SolanaRpc, tx: VersionedTransaction, keys: PublicKey[]): Promise<Simulated> {
+async function simulate(rpc: SolanaRpc, tx: TripTx, keys: PublicKey[]): Promise<Simulated> {
   let bytes: Uint8Array;
   try {
-    bytes = tx.serialize();
+    bytes = isV1(tx) ? tx.wire : tx.serialize();
   } catch {
     throw new Error('the trip’s swaps do not fit in one transaction');
   }
-  if (bytes.length > MAX_TRANSACTION_BYTES) throw new Error(`the trip’s swaps do not fit in one transaction (${bytes.length} bytes of ${MAX_TRANSACTION_BYTES})`);
+  const limit = isV1(tx) ? V1_TX_SIZE_LIMIT : MAX_TRANSACTION_BYTES;
+  if (bytes.length > limit) throw new Error(`the trip’s swaps do not fit in one transaction (${bytes.length} bytes of ${limit})`);
   const r = (await rpc('simulateTransaction', [
     Buffer.from(bytes).toString('base64'),
     {
@@ -1655,7 +1685,7 @@ async function simulate(rpc: SolanaRpc, tx: VersionedTransaction, keys: PublicKe
       commitment: 'confirmed',
       accounts: { encoding: 'base64', addresses: keys.map((k) => k.toBase58()) },
     },
-  ])) as { value: { err: unknown; logs?: string[] | null; unitsConsumed?: number; accounts?: ({ data: [string, string]; lamports: number } | null)[] | null } };
+  ])) as { value: { err: unknown; logs?: string[] | null; unitsConsumed?: number; loadedAccountsDataSize?: number; accounts?: ({ data: [string, string]; lamports: number } | null)[] | null } };
   const v = r.value;
   const acc = v.accounts ?? [];
   const data = (i: number) => {
@@ -1668,6 +1698,9 @@ async function simulate(rpc: SolanaRpc, tx: VersionedTransaction, keys: PublicKe
     err: v.err,
     lastLog: logs.length ? logs[logs.length - 1]! : null,
     units: v.unitsConsumed ?? SIM_UNITS,
+    loaded: typeof v.loadedAccountsDataSize === 'number' ? v.loadedAccountsDataSize : undefined,
+    v1: isV1(tx),
+    bytes: bytes.length,
     after: { coin: tokenAmount(data(0)), token: tokenAmount(data(1)), tokenExists: !!acc[1], other: tokenAmount(data(2)), otherExists: !!acc[2], lamports: BigInt(acc[3]?.lamports ?? 0) },
   };
 }
