@@ -36,13 +36,13 @@ const seaportBid = (eth: string, qty = 1, criteria: Record<string, unknown> = { 
     order_hash: '0x01',
     price: { currency: 'WETH', value: wei },
     criteria: { collection: { slug: 'junglebay' }, ...criteria },
-    protocol_data: { parameters: { offer: [{ startAmount: wei }], consideration: [{ itemType: 4, startAmount: String(qty) }] } },
+    protocol_data: { parameters: { offer: [{ startAmount: wei }], consideration: [{ itemType: 4, identifierOrCriteria: '0', startAmount: String(qty) }] } },
   };
 };
 const fetchMock = vi.fn(async (url: string) => {
   const path = url.includes('/api/opensea') ? new URL(url, 'http://x').searchParams.get('path') : null;
   if (path === 'collections/junglebay/stats') return new Response(JSON.stringify(market.stats), { status: market.statsStatus });
-  if (path === 'offers/collection/junglebay/all') return new Response(JSON.stringify(market.offers), { status: market.offersStatus });
+  if (path === 'offers/collection/junglebay') return new Response(JSON.stringify(market.offers), { status: market.offersStatus });
   if (path) return new Response('{}', { status: 404 });
   return new Response(JSON.stringify({ offers: [], count: 0, live: true, loans: [] }));
 });

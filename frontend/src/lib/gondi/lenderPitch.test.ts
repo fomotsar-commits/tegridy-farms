@@ -5,6 +5,7 @@ import {
   GONDI_OWN_LOAN_ADDRESSES,
   LENDING_OPENSEA_SLUGS,
   bidBook,
+  buysAnyTokenOrder,
   exitCheck,
   fetchLendingMarket,
   lowestOwnFeeBps,
@@ -155,14 +156,40 @@ describe('LENDING_OPENSEA_SLUGS', () => {
   });
 });
 
+describe('buysAnyTokenOrder', () => {
+  const order = (consideration: unknown) => ({ protocol_data: { parameters: { consideration } } });
+  it('only a criteria item with criteria 0 buys any token', () => {
+    expect(buysAnyTokenOrder(order([{ itemType: 4, identifierOrCriteria: '0' }]))).toBe(true);
+    expect(buysAnyTokenOrder(order([{ itemType: 5, identifierOrCriteria: '0' }]))).toBe(true);
+    expect(buysAnyTokenOrder(order([{ itemType: 1, identifierOrCriteria: '0' }, { itemType: 4, identifierOrCriteria: '0' }]))).toBe(true);
+  });
+  it('an offer on one token, a trait root or a shape it cannot read does not', () => {
+    expect(buysAnyTokenOrder(order([{ itemType: 2, identifierOrCriteria: '4321' }]))).toBe(false);
+    expect(buysAnyTokenOrder(order([{ itemType: 3, identifierOrCriteria: '7' }]))).toBe(false);
+    expect(buysAnyTokenOrder(order([{ itemType: 4, identifierOrCriteria: '0x9f3c' }]))).toBe(false);
+    expect(buysAnyTokenOrder(order([{ itemType: 1, identifierOrCriteria: '0' }]))).toBe(false);
+    expect(buysAnyTokenOrder({})).toBe(false);
+    expect(buysAnyTokenOrder(null)).toBe(false);
+  });
+});
+
 describe('fetchLendingMarket', () => {
   afterEach(() => vi.unstubAllGlobals());
   const JBAC = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9';
-  const seaportBid = (wei: string, qty = 1) => ({
+  // The shapes OpenSea returned 2026-11-09: a collection bid asks for item type 4 with
+  // criteria 0; an offer on one JBAC asks for item type 2 with that token's id.
+  const seaportBid = (wei: string, qty = 1, nft: { itemType: number; identifierOrCriteria: string } = { itemType: 4, identifierOrCriteria: '0' }, remaining?: number) => ({
     order_hash: '0x01',
     price: { currency: 'WETH', value: wei },
-    criteria: { collection: { slug: 'junglebay' }, trait: null },
-    protocol_data: { parameters: { offerer: '0x4444444444444444444444444444444444444444', offer: [{ startAmount: wei }], consideration: [{ itemType: 4, startAmount: String(qty) }] } },
+    criteria: null,
+    ...(remaining !== undefined ? { remaining_quantity: remaining } : {}),
+    protocol_data: {
+      parameters: {
+        offerer: '0x4444444444444444444444444444444444444444',
+        offer: [{ startAmount: wei }],
+        consideration: [{ ...nft, startAmount: String(qty) }, { itemType: 1, identifierOrCriteria: '0', startAmount: '1550000000000000' }],
+      },
+    },
   });
   function stub(routes: { stats?: unknown; offers?: unknown; offersStatus?: number; statsStatus?: number }) {
     const fetchMock = vi.fn(async (url: string) => {
@@ -170,7 +197,8 @@ describe('fetchLendingMarket', () => {
       if (path === 'collections/junglebay/stats') {
         return new Response(JSON.stringify(routes.stats ?? {}), { status: routes.statsStatus ?? 200 });
       }
-      if (path === 'offers/collection/junglebay/all') {
+      // The collection-offers route: `/all` mixes in single-token offers.
+      if (path === 'offers/collection/junglebay') {
         return new Response(JSON.stringify(routes.offers ?? {}), { status: routes.offersStatus ?? 200 });
       }
       return new Response('{}', { status: 404 });
@@ -198,6 +226,26 @@ describe('fetchLendingMarket', () => {
     stub({ statsStatus: 500, offers: { offers: [seaportBid('280000000000000000')] } });
     const m = await fetchLendingMarket(JBAC);
     expect(m).toEqual({ floor: null, sales30d: null, bids: { bestBid: 0.28, nearFloor: null } });
+  });
+  it('an offer on ONE token is no buyer for the lender\'s NFT, however high (the 0.155 JBAC offers)', async () => {
+    stub({
+      stats: { total: { floor_price: 0.0278 } },
+      offers: {
+        offers: [
+          seaportBid('155000000000000000', 1, { itemType: 2, identifierOrCriteria: '4321' }),
+          seaportBid('90000000000000000', 1, { itemType: 4, identifierOrCriteria: '0x9f3c' }), // a trait root
+          seaportBid('19900000000000000'),
+        ],
+      },
+    });
+    const m = await fetchLendingMarket(JBAC);
+    expect(m.bids).toEqual({ bestBid: 0.0199, nearFloor: 0 });
+  });
+  it('a part-filled bid counts only what is left of it', async () => {
+    stub({ stats: { total: { floor_price: 0.3 } }, offers: { offers: [seaportBid('1400000000000000000', 5, undefined, 2)] } });
+    const m = await fetchLendingMarket(JBAC);
+    expect(m.bids?.bestBid).toBeCloseTo(0.28, 10); // 1.4 / 5 in floats
+    expect(m.bids?.nearFloor).toBe(2);
   });
   it('a collection this venue does not lend on is not read at all', async () => {
     const f = stub({});

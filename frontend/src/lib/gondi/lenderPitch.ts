@@ -166,13 +166,38 @@ export function readStats(json: unknown): Pick<LendingMarket, 'floor' | 'sales30
   return { floor, sales30d };
 }
 
+interface RawSeaportOffer {
+  remaining_quantity?: unknown;
+  protocol_data?: { parameters?: { consideration?: { itemType?: unknown; identifierOrCriteria?: unknown; startAmount?: unknown }[] } };
+}
+
+/**
+ * Does this Seaport order buy ANY token of the collection? Only when the NFT it asks for is a
+ * criteria item (ERC721/1155_WITH_CRITERIA, item types 4 and 5) with criteria 0. Item type 2
+ * or 3 is an offer on ONE token; a non-zero criteria is a trait or token-list root.
+ *
+ * Measured 2026-11-09: OpenSea's `offers/collection/junglebay/all` returned 50 offers, every
+ * one item type 2 (0.13 to 0.155 WETH on single JBACs, floor 0.0278): read as collection bids
+ * they would have said "a buyer already bids 0.155". `offers/collection/junglebay` returned
+ * the real ones (item type 4, criteria 0, best 0.0199).
+ */
+export function buysAnyTokenOrder(raw: unknown): boolean {
+  const items = (raw as RawSeaportOffer)?.protocol_data?.parameters?.consideration;
+  if (!Array.isArray(items)) return false;
+  const nft = items.find((c) => [2, 3, 4, 5].includes(Number(c?.itemType)));
+  if (!nft) return false;
+  return (Number(nft.itemType) === 4 || Number(nft.itemType) === 5) && String(nft.identifierOrCriteria) === '0';
+}
+
 export async function fetchLendingMarket(collection: string): Promise<LendingMarket> {
   const slug = LENDING_OPENSEA_SLUGS[collection.toLowerCase()];
   if (!slug) return { floor: null, sales30d: null, bids: null };
-  // The marketplace's own normalizer (price per item); loaded only when this panel asks.
+  // `offers/collection/{slug}` = collection-wide offers, best per item first (the `/all`
+  // route mixes in single-token offers: see buysAnyTokenOrder). The marketplace's own
+  // normalizer (price per item) is loaded only when this panel asks.
   const [statsRes, offersRes, offersLib] = await Promise.allSettled([
     openseaGet(`collections/${slug}/stats`),
-    openseaGet(`offers/collection/${slug}/all`),
+    openseaGet(`offers/collection/${slug}`),
     import('../../nakamigos/api-offers.js'),
   ]);
   const stats = statsRes.status === 'fulfilled' ? readStats(statsRes.value) : { floor: null, sales30d: null };
@@ -180,7 +205,14 @@ export async function fetchLendingMarket(collection: string): Promise<LendingMar
   if (offersRes.status === 'fulfilled' && offersLib.status === 'fulfilled') {
     const raw = (offersRes.value as { offers?: unknown }).offers;
     if (Array.isArray(raw)) {
-      bids = bidBook(raw.map((o) => offersLib.value.normalizeCollectionOffer(o) as CollectionBidLike), stats.floor);
+      const normalize = offersLib.value.normalizeCollectionOffer as (o: unknown) => CollectionBidLike;
+      const usable = raw.filter(buysAnyTokenOrder).map((o) => {
+        const b = normalize(o);
+        // A part-filled bid buys only what is left of it.
+        const left = Number((o as RawSeaportOffer).remaining_quantity);
+        return Number.isInteger(left) && left >= 0 && left < b.quantity ? { ...b, quantity: left } : b;
+      });
+      bids = bidBook(usable, stats.floor);
     }
   }
   return { ...stats, bids };
