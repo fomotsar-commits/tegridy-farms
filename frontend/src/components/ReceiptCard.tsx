@@ -105,7 +105,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
     tick();
     closeReceipt();
   };
-  const title = receipt.title ?? (receipt.action === 'added' ? `Added SOL + ${receipt.coin.symbol}` : `${receipt.action === 'sold' ? 'Sold' : 'Bought'} ${receipt.coin.symbol}`);
+  // Until the add is read, its title names the pool's two coins; an add that names no pairing coin names none.
+  const added = receipt.pairing ? `Added ${receipt.pairing} + ${receipt.coin.symbol}` : `Added ${receipt.coin.symbol}`;
+  const title = receipt.title ?? (receipt.action === 'added' ? added : `${receipt.action === 'sold' ? 'Sold' : 'Bought'} ${receipt.coin.symbol}`);
   // An add shares on X (island answer thirty-one): its link names the coin's room, else its mint.
   const lpTarget = receipt.action === 'added' ? (sheetRoom(receipt.coin.mint)?.id ?? receipt.coin.mint) : null;
 
