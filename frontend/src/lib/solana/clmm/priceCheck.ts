@@ -27,6 +27,13 @@ function referenceOf(pair: Pair, token: OutsidePrice, coin: OutsidePrice | null)
   return token.solPerToken / coin.solPerToken;
 }
 
+/** The market's price on its own, in the pool's coin per token: what a new pool's opening price starts at. */
+export function marketReference(pair: Pair, token: OutsidePrice, coin: OutsidePrice | null): number | Exclude<RangePriceCheck, { pool: number }> {
+  const reference = referenceOf(pair, token, coin);
+  if (typeof reference === 'number' && (!Number.isFinite(reference) || reference <= 0)) return { state: 'unread', detail: 'the outside price is not a positive number' };
+  return reference;
+}
+
 /**
  * What a move back to `reference` would cost this deposit, in the coin's base units: the
  * deposit valued at the outside price, less what the position would hold once the pool's
@@ -61,9 +68,8 @@ export type MarketGap =
 
 /** The pool's price against the outside one, before any deposit: what the card shows beside the pool's price. */
 export function marketGap(pair: Pair, sqrtPriceX64: bigint, outside: OutsidePrice, coinOutside: OutsidePrice | null): MarketGap {
-  const reference = referenceOf(pair, outside, coinOutside);
+  const reference = marketReference(pair, outside, coinOutside);
   if (typeof reference !== 'number') return reference;
-  if (!Number.isFinite(reference) || reference <= 0) return { state: 'unread', detail: 'the outside price is not a positive number' };
   const pool = priceNumber(priceAtSqrt(pair, sqrtPriceX64));
   const diff = pool / reference - 1;
   return { state: Math.abs(diff) <= PRICE_TOLERANCE ? 'agrees' : 'disagrees', pool, reference, diff };

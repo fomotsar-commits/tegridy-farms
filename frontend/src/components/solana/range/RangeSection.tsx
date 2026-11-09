@@ -11,7 +11,7 @@ import { lpFetch } from '../../../lib/solana/lp/readFetch';
 import { listedOutsidePrice, readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
+import { quoteCoin, quotesFor } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
@@ -20,7 +20,7 @@ import { freezeWarning, readTokenSafety, type TokenSafety } from '../../../lib/s
 import { siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
-import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
+import { RANGE_OPENING_FEE_TEXT, rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -32,6 +32,7 @@ import { Card, Notice, Row } from '../curve/ui';
 import { useCurveSigner } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature } from '../curve/usePendingTrades';
 import type { RangeWriteApi, WriteRpc } from '../curve/ports';
+import { RangeCreateCard } from './RangeCreateCard';
 import { RangeOpenCard } from './RangeOpenCard';
 import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
@@ -104,7 +105,11 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
   const tokenMint = parsed?.ok ? parsed.mint : BAYLA_MINT;
-  const coins = QUOTE_COINS.filter((q) => q.mint !== tokenMint);
+  // A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
+  // index). Offered one ranked below it, the pair's token is that other coin and the opening card
+  // called both coins by this page's ticker. Only SOL has none above it, and parseMintInput
+  // already turns a SOL link away.
+  const coins = quotesFor(tokenMint);
   const [coinMint, setCoinMint] = useState(coins[0]!.mint);
   const coin = coins.find((q) => q.mint === coinMint) ?? coins[0]!;
 
@@ -129,6 +134,12 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const tokenCheck = useChainRead(`check:${tokenMint}`, 0, () => checksOf(readers, [tokenMint]));
   const tokenLabel = tokenTicker(tokenMint, tokenCheck.read?.kind === 'ok' ? tokenCheck.read.value.get(tokenMint) : null);
   const named: NamedPair | null = useMemo(() => (pair ? withTokenLabel(pair, tokenLabel) : null), [pair, tokenLabel]);
+  // No pool for the pair yet: it can be opened on fee tier 0, the 1% tier, and only there.
+  const openTier = tierList && poolList?.length === 0 ? (tierList.find((t) => t.index === 0) ?? null) : null;
+  const tokenDecimals =
+    quoteCoin(tokenMint)?.decimals ?? (freeze.read?.kind === 'ok' ? (freeze.read.value.kind === 'mint' ? freeze.read.value.decimals : 'not-a-mint') : freeze.read ? 'unread' : null);
+  // The "Open this pool" card shows, so the empty notice points to it (on a phone it is a screen below).
+  const canCreate = openTier !== null && tokenDecimals !== 'not-a-mint';
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
@@ -229,7 +240,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         ) : tierList.length === 0 ? (
           <Notice>The range program has no fee tiers on this network yet, so there is no pool to put liquidity in.</Notice>
         ) : poolList.length === 0 ? (
-          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.`}</Notice>
+          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.${canCreate ? ' Open it below.' : ''}`}</Notice>
         ) : (
           <div className="space-y-2" role="group" aria-label="Pools by fee">
             {poolList.map((x) => {
@@ -276,6 +287,30 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         />
       )}
 
+      {canCreate && openTier && (
+        <RangeCreateCard
+          key={`${tokenMint}:${coin.mint}`}
+          tier={openTier}
+          tokenMint={tokenMint}
+          tokenLabel={tokenLabel}
+          tokenDecimals={tokenDecimals === 'unread' ? null : tokenDecimals}
+          tokenUnread={tokenDecimals === 'unread'}
+          onReadAgain={finished}
+          coin={coin}
+          canOpen={canOpen}
+          why={why}
+          write={write}
+          rpc={writeRpc}
+          programId={programId}
+          reads={readers}
+          signerState={signerState}
+          pending={pending}
+          held={held || busyBy.positions}
+          onBusy={openBusy}
+          onFinished={finished}
+        />
+      )}
+
       <RangePositionsCard
         read={positions.read}
         nameOf={nameOf}
@@ -300,6 +335,7 @@ const NOTE_WHAT = {
   'range-open': 'opening a range position',
   'range-remove': 'taking liquidity or fees out of a range position',
   'range-close': 'closing a range position',
+  'range-create': 'opening a range pool and its first position',
 } as const;
 
 /**
@@ -362,6 +398,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
           Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
+      <p className="text-white/85">{RANGE_OPENING_FEE_TEXT}</p>
       {/* Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10). */}
       {venue?.elsewhere && (
         <div data-testid="range-venue-elsewhere" className="space-y-1">
