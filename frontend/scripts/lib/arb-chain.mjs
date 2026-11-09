@@ -176,7 +176,9 @@ export function decodePool(dex, address, data) {
       // A newer pool prices with a signed 128-bit quote (SOL) adjustment at byte 245 beside its
       // vault: Jupiter matches vault + it to 0.01% (SOY, +17.6 SOL, 11-06); some hold a few lamports below 0.
       const extraB = data.length >= 261 ? BigInt.asIntN(128, u128(data, 245)) : 0n;
-      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)), extraB };
+      // The pool's own coin creator fee, basis points (u64 at byte 261; keeper/directLegs.ts decodePumpPool).
+      const creatorFeeBps = data.length >= 269 ? Number(u64(data, 261)) : 0;
+      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)), extraB, creatorFeeBps };
     }
     case 'dlmm': {
       const binStep = u16(data, 80);
@@ -204,17 +206,26 @@ export function pumpFeeConfig(data) {
   const fees = (at) => Number(u64(data, at) + u64(data, at + 8) + u64(data, at + 16)) / 1e4;
   const n = u32(data, 65);
   if (n === 0 || data.length < 69 + n * 40) return null;
-  const tiers = Array.from({ length: n }, (_, i) => ({ threshold: Number(u128(data, 69 + i * 40)), fee: fees(69 + i * 40 + 16) }));
+  // `lpProtocol`: the tier's LP and protocol fees alone, for a pool that sets its own creator fee.
+  const tiers = Array.from({ length: n }, (_, i) => ({ threshold: Number(u128(data, 69 + i * 40)), fee: fees(69 + i * 40 + 16), lpProtocol: Number(u64(data, 69 + i * 40 + 16) + u64(data, 69 + i * 40 + 24)) / 1e4 }));
   return { flat: fees(41), tiers };
 }
 
-/** A PumpSwap pool's fee: its market cap's tier (lamports: supply × SOL per token) or the flat fee. */
+/**
+ * A PumpSwap pool's fee, as PumpSwap's own Buy and Sell events showed it (2026-11-09): a pool with
+ * a coin creator, priced in SOL, by its market cap's tier (lamports: supply × SOL per token); a pool
+ * that sets its own creator fee (`creatorFeeBps`: GRR / BOBO and STORMIE / BOBO, 300) pays its
+ * tier's LP and protocol fees, the cap in its quote coin's units, plus that fee; any other, flat.
+ */
 function pumpFee(pool, cfg, ctx) {
-  if (!pool.creatorSet || pool.mintB !== SOL_MINT) return cfg.flat;
-  if (!ctx?.depth || !(ctx.supply > 0)) return Math.max(cfg.flat, ...cfg.tiers.map((t) => t.fee)); // depth unread: the dearest
+  const own = (pool.creatorFeeBps ?? 0) / 1e4;
+  if (!pool.creatorSet) return cfg.flat;
+  if (pool.mintB !== SOL_MINT && !(own > 0)) return cfg.flat;
+  const feeOf = (t) => (own > 0 ? (t.lpProtocol ?? t.fee) + own : t.fee);
+  if (!ctx?.depth || !(ctx.supply > 0)) return Math.max(cfg.flat, ...cfg.tiers.map(feeOf)); // depth unread: the dearest
   const cap = (ctx.depth.b / ctx.depth.a) * Number(ctx.supply);
-  if (cap < cfg.tiers[0].threshold) return cfg.tiers[0].fee;
-  return [...cfg.tiers].reverse().find((t) => cap >= t.threshold).fee;
+  if (cap < cfg.tiers[0].threshold) return feeOf(cfg.tiers[0]);
+  return feeOf([...cfg.tiers].reverse().find((t) => cap >= t.threshold));
 }
 
 /**

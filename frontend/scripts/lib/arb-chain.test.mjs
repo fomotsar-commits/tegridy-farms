@@ -328,11 +328,13 @@ describe('PumpSwap pools priced as PumpSwap prices them (11-06: Jupiter paid 3% 
   const Q = 86860086012n;
   const V = 17584291633n;
   const SUPPLY = 1_000_000_000n * 10n ** 6n;
-  function pumpPool({ extra = V, creator = true, length = 301 } = {}) {
+  function pumpPool({ extra = V, creator = true, length = 301, quote = SOL_MINT, ownFeeBps = 0n } = {}) {
     const b = Buffer.alloc(length);
     tag('Pool').copy(b, 0);
     put(b, 43, ZEC_MINT);
-    put(b, 75, SOL_MINT);
+    put(b, 75, quote);
+    // The pool's own creator fee (u64 at byte 261): GRR / BOBO holds 300.
+    if (length >= 269) b.writeBigUInt64LE(ownFeeBps, 261);
     put(b, 139, key(1));
     put(b, 171, key(2));
     if (creator) put(b, 211, key(3));
@@ -394,5 +396,24 @@ describe('PumpSwap pools priced as PumpSwap prices them (11-06: Jupiter paid 3% 
     // Unread, the fee is not guessed.
     expect(withFee(p, new Map(), { depth: depthOf(p, amounts), supply: SUPPLY })).toBeNull();
     expect(pumpFeeConfig(Buffer.alloc(100))).toBeNull();
+  });
+
+  it('charges a pool its own creator fee where it sets one: GRR / BOBO, priced in BOBO, pays 3% on top (PumpSwap’s events, 11-09)', () => {
+    const cfg = pumpFeeConfig(feeConfigBytes());
+    const configs = new Map([[PUMP_FEE_CONFIG, cfg]]);
+    const BOBO = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+    const bobo = pumpPool({ quote: BOBO, ownFeeBps: 300n });
+    expect(bobo.creatorFeeBps).toBe(300);
+    // The tier's LP and protocol fees, 20 + 5 bps, and the pool's 300 in place of the tier's 95.
+    expect(withFee(bobo, configs, { depth: depthOf(bobo, amounts), supply: SUPPLY }).fee).toBeCloseTo(0.0325, 9);
+    // Under the first tier: 2 + 93 + 300 bps. Depth unread: the dearest the pool could pay.
+    const small = new Map([[key(1), B * 4n], [key(2), Q]]);
+    expect(withFee(bobo, configs, { depth: depthOf(bobo, small), supply: SUPPLY }).fee).toBeCloseTo(0.0395, 9);
+    expect(withFee(bobo, configs, {}).fee).toBeCloseTo(0.0395, 9);
+    // A pool priced in another coin that sets no fee of its own, and an older layout, stay flat.
+    expect(withFee(pumpPool({ quote: BOBO }), configs, { depth: depthOf(bobo, amounts), supply: SUPPLY }).fee).toBeCloseTo(0.003, 9);
+    expect(pumpPool({ length: 261 }).creatorFeeBps).toBe(0);
+    // A SOL pool with no fee of its own still pays its tier.
+    expect(withFee(pumpPool(), configs, { depth: depthOf(bobo, amounts), supply: SUPPLY }).fee).toBeCloseTo(0.012, 9);
   });
 });

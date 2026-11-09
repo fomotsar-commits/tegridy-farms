@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { decodeAmmConfig, decodePoolState } from '../cpswap/program';
-import { PUMP_BUYBACK_RECIPIENTS, PUMP_GLOBAL_CONFIG, ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, decodePumpPool, pumpBuyLeg, pumpPoolV2, pumpSellLeg, type AmmV4Pool, type PumpFees } from './directLegs';
+import { PUMP_BUYBACK_RECIPIENTS, PUMP_GLOBAL_CONFIG, ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, decodePumpPool, pumpBuyLeg, pumpFeesFor, pumpPoolV2, pumpSellLeg, pumpSellOut, type AmmV4Pool, type PumpFeeConfig, type PumpFees } from './directLegs';
 import { LEG_RUNS } from './directLegs.fixture';
 
 // Raydium's ids live in scripts/lib/raydium-programs.mjs (src/ may not name them; a test may).
@@ -127,5 +127,41 @@ describe('PumpSwap: buy and sell, held to mainnet simulations (2026-11-07)', () 
     // The buy's two volume accounts sit between the shared head and the fee accounts.
     expect(shape(sell.ix.keys)).toEqual(shape([...buy.ix.keys.slice(0, 19), ...buy.ix.keys.slice(21)]));
     expect(Buffer.from(sell.ix.data).subarray(0, 8)).toEqual(Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]));
+  });
+});
+
+describe('PumpSwap fees: what the program charged, by its own Buy and Sell events (2026-11-09)', () => {
+  const BOBO = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+  const fees = (lp: bigint, protocol: bigint, creator: bigint): PumpFees => ({ lpBps: lp, protocolBps: protocol, creatorBps: creator });
+  // The pump fee program's FeeConfig as read 11-09 (three of its 25 tiers).
+  const cfg: PumpFeeConfig = { flat: fees(25n, 5n, 0n), tiers: [{ threshold: 0n, fees: fees(2n, 93n, 30n) }, { threshold: 420n * 10n ** 9n, fees: fees(20n, 5n, 95n) }, { threshold: 14_740n * 10n ** 9n, fees: fees(20n, 5n, 65n) }] };
+  const pool = (quoteMint: string, creatorFeeBps: bigint, creator = 'CaXHYNCoyCJfzgk7NCmCJH9Lgj3LQSMwnDTzK2QPsa5f') => ({ address: 'P', baseMint: 'B', quoteMint, baseVault: 'BV', quoteVault: 'QV', coinCreator: creator, quoteExtra: 0n, creatorFeeBps });
+  // GRR / BOBO (BhTN1D…) at 11-09: 159.65M GRR against 3.26M BOBO, a cap of 16.5 trillion BOBO units.
+  const base = 159_650_335_261_006n;
+  const quote = 3_258_522_752_223n;
+  const supply = 807_000_000n * 10n ** 6n;
+
+  it('reads a pool’s own creator fee at byte 261, and 0 on the older layouts', () => {
+    const b = new Uint8Array(301);
+    new DataView(b.buffer).setBigUint64(261, 300n, true);
+    expect(decodePumpPool('P', b)!.creatorFeeBps).toBe(300n);
+    expect(decodePumpPool('P', new Uint8Array(261))!.creatorFeeBps).toBe(0n);
+    expect(decodePumpPool('P', new Uint8Array(243))!.creatorFeeBps).toBe(0n);
+  });
+
+  it('charges GRR / BOBO its tier’s LP and protocol fees and its own 3% to the creator, as the program did', () => {
+    expect(pumpFeesFor(pool(BOBO, 300n), cfg, base, quote, supply)).toEqual(fees(20n, 5n, 300n));
+    // What the robot assumed before: the flat 25 + 5 + 0, nearly 3% short on every swap there.
+    expect(pumpFeesFor(pool(BOBO, 0n), cfg, base, quote, supply)).toEqual(fees(25n, 5n, 0n));
+    // A SOL pool that sets no fee of its own pays its tier, as before; one with no coin creator, flat.
+    expect(pumpFeesFor(pool(SOL, 0n), cfg, base, quote, supply)).toEqual(fees(20n, 5n, 65n));
+    expect(pumpFeesFor(pool(BOBO, 300n, '11111111111111111111111111111111'), cfg, base, quote, supply)).toEqual(fees(25n, 5n, 0n));
+  });
+
+  it('pays 3% less out of GRR / BOBO than the flat fees said: why every trip through it was refused (6004)', () => {
+    const p = pool(BOBO, 300n);
+    const now = pumpSellOut(p, pumpFeesFor(p, cfg, base, quote, supply), base, quote, 10n ** 12n)!;
+    const before = pumpSellOut(p, cfg.flat, base, quote, 10n ** 12n)!;
+    expect(Number(before - now) / Number(before)).toBeCloseTo(0.0295, 3);
   });
 });

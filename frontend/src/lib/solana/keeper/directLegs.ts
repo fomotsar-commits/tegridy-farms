@@ -184,13 +184,21 @@ export interface PumpPool {
   coinCreator: string;
   /** A newer pool's signed quote adjustment (byte 245, arb-chain.mjs): its quote reserve is the vault plus it. */
   quoteExtra: bigint;
+  /**
+   * The pool's own coin creator fee, basis points (u64 at byte 261), 0 when it sets none. A pool
+   * priced in another memecoin carries one: GRR / BOBO and STORMIE / BOBO hold 300, and PumpSwap
+   * charges 3% to the creator on every trade there (its own Buy and Sell events, 2026-11-09).
+   * A SOL pool holds 0 and pays its market cap's tier.
+   */
+  creatorFeeBps: bigint;
 }
 
 /** A PumpSwap Pool account (arb-chain.mjs decodePool's offsets), or null. */
 export function decodePumpPool(address: string, data: Uint8Array): PumpPool | null {
   if (data.length < 243) return null;
   const extra = data.length >= 261 ? BigInt.asIntN(128, u64(data, 245) + (u64(data, 253) << 64n)) : 0n;
-  return { address, baseMint: key(data, 43), quoteMint: key(data, 75), baseVault: key(data, 139), quoteVault: key(data, 171), coinCreator: key(data, 211), quoteExtra: extra };
+  const creatorFeeBps = data.length >= 269 ? u64(data, 261) : 0n;
+  return { address, baseMint: key(data, 43), quoteMint: key(data, 75), baseVault: key(data, 139), quoteVault: key(data, 171), coinCreator: key(data, 211), quoteExtra: extra, creatorFeeBps };
 }
 
 /** The three fees a trade pays, in basis points of the quote side. */
@@ -216,16 +224,21 @@ export function decodePumpFeeConfig(data: Uint8Array): PumpFeeConfig | null {
 }
 
 /**
- * The fees a pool pays (arb-chain.mjs pumpFee): a pool with a coin creator, priced in SOL, by its
- * market cap's tier (quote reserve × supply ÷ base reserve); any other, the flat fees.
+ * The fees a pool pays (arb-chain.mjs pumpFee), as PumpSwap's own Buy and Sell events showed them
+ * on 2026-11-09: a pool with a coin creator, priced in SOL, by its market cap's tier (quote reserve
+ * × supply ÷ base reserve); a pool that sets its own creator fee (`creatorFeeBps`, the pools priced
+ * in another memecoin) pays its tier's LP and protocol fees, the cap in its quote coin's units, and
+ * that creator fee in place of the tier's; any other, the flat fees.
  */
 export function pumpFeesFor(p: PumpPool, cfg: PumpFeeConfig, baseReserve: bigint, quoteReserve: bigint, supply: bigint): PumpFees {
   const noCreator = p.coinCreator === SYSTEM_PROGRAM.toBase58();
-  if (noCreator || p.quoteMint !== 'So11111111111111111111111111111111111111112' || baseReserve <= 0n) return cfg.flat;
+  const own = p.creatorFeeBps ?? 0n;
+  if (noCreator || baseReserve <= 0n) return cfg.flat;
+  if (p.quoteMint !== 'So11111111111111111111111111111111111111112' && own === 0n) return cfg.flat;
   const cap = (quoteReserve * supply) / baseReserve;
   let fees = cfg.tiers[0]!.fees;
   for (const t of cfg.tiers) if (cap >= t.threshold) fees = t.fees;
-  return fees;
+  return own > 0n ? { ...fees, creatorBps: own } : fees;
 }
 
 const feeOf = (amount: bigint, bps: bigint) => ceilDiv(amount * bps, 10_000n);
