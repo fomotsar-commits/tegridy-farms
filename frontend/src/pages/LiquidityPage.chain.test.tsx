@@ -58,14 +58,19 @@ describe('/liquidity on the picked chain', () => {
   });
 
   // Opening a pool pays the factory's POOL_OPENING_FEE (0.006 ETH) to the treasury Safe: the
-  // money line says it before any wallet is asked (law-25 read of #1169, 2026-11-09).
+  // money line says it before any wallet is asked (law-25 read of #1169, 2026-11-09), in 8
+  // words, since /liquidity sits at its 140-word ceiling (e2e/word-budget.spec.ts); How it
+  // works says where it goes and that adding costs nothing extra.
   it.each([
     ['/liquidity', /^Ethereum pools\./],
     ['/liquidity?c=8453', /^Base pools\./],
     ['/liquidity?c=4663', /^Robinhood Chain pools\./],
-  ])('%s: the money line says what opening a pool costs, to whom, and that adding costs nothing extra', (path, line) => {
+  ])('%s: the money line says what opening a pool costs and who gets it; How it works says the rest', (path, line) => {
     at(path);
-    expect(screen.getByText(line)).toHaveTextContent("Opening a new pool costs 0.006 ETH, paid to the venue's treasury; adding to a pool already open costs nothing extra.");
+    expect(screen.getByText(line)).toHaveTextContent('Opening a pool pays the venue 0.006 ETH.');
+    expect(screen.getByText(/^Opening a new pool pays 0\.006 ETH/)).toHaveTextContent(
+      "Opening a new pool pays 0.006 ETH to the venue's treasury, on top of the deposit and not part of your liquidity. Adding to a pool already open costs nothing extra.",
+    );
   });
 
   it('follows ?c= with no wallet: Base names Base, hides the Ethereum table and says where the venue cut goes', () => {

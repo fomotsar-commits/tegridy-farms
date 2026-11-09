@@ -72,10 +72,17 @@ export default function LiquidityPage() {
   const onMainnet = headerChainId === CHAIN_ID;
   const chainName = getChainConfig(headerChainId)?.name ?? 'Ethereum';
   // Where new pools open on the factory that charges to open one, the money line says so before
-  // any wallet is asked (law-25 read of #1169): the form says it again once the pair is new.
-  const openingLine = openingVenueOn(headerChainId)
-    ? ` Opening a new pool costs ${OPENING_FEE_TEXT}, paid to the venue's treasury; adding to a pool already open costs nothing extra.`
-    : '';
+  // any wallet is asked (law-25 read of #1169), in 8 words: the page sits at its word ceiling
+  // (e2e/word-budget.spec.ts, 140). Where it goes and that adding costs nothing is in How it works;
+  // the form says it all again once the pair is new.
+  const opensForFee = openingVenueOn(headerChainId) !== null;
+  const openingLine = opensForFee ? ` Opening a pool pays the venue ${OPENING_FEE_TEXT}.` : '';
+  const openingDetail = opensForFee && (
+    <p>
+      Opening a new pool pays {OPENING_FEE_TEXT} to the venue&apos;s treasury, on top of the deposit and
+      not part of your liquidity. Adding to a pool already open costs nothing extra.
+    </p>
+  );
   // A pool picked from the list, and a count that remounts the form on every pick.
   const [pick, setPick] = useState<{ pool: LiquidityPick; n: number } | null>(null);
   const onPick = (pool: LiquidityPick) => setPick((prev) => ({ pool, n: (prev?.n ?? 0) + 1 }));
@@ -142,6 +149,7 @@ export default function LiquidityPage() {
               on. Each pool in the list says whether it has.
             </p>
           )}
+          {openingDetail}
           <p>
             Pair two tokens into a pool and every swap that routes through it pays you a share of
             its fee, in proportion to how much of the pool is yours. Your position is an ERC-20
