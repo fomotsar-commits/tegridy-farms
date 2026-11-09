@@ -15,6 +15,69 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: under one pool per pair and fee tier, a front-runner's pool at ten times the market takes the pair, so Start over opens nothing
+
+**Believed:** after a front-run at the standard tier-1 address (a stranger opens the pool while
+the review is on screen), Start over opens the pool at a one-off address with a second signer, as
+P5 and P16 of `frontend/e2e-solana/lp-create.spec.ts` held and the outcome line promised ("the
+site will use a new address").
+
+**Measured** (the E2E Solana job on trunk `cea65ce5a`, run 42478603075: 143 passed, 4 failed, every
+one card copy after an opening that landed; then the same tests on this machine's WSL validator):
+a pool more than 3% off its reference is `allowed` with a warning (ruling 2026-10-04), and
+`pairTaken` falls back to such a pool when it is the only one, so a squat at ten times the market
+with `openTimeFromNow: 0` takes the SOL pair: after Start over the form stays on SOL, names the
+squatter's pool as "takes deposits, with a warning", and Review stays off with the amounts still
+typed. A squat with `openTimeFromNow: TEN_YEARS` is refused ("Swaps are blocked until …"), takes
+nothing, and P4 and P18 still open at a one-off address. Against the card, panel and offers from
+before #1094 (its diff reversed onto the tree), the rewritten P1, P5 and P16 failed at exactly
+the new assertions, in 12 minutes (one build; group B's fixtures made once per failure); restored
+byte for byte, the same four runs passed in 4.7 minutes of tests.
+
+Then train 3's run of the job (42523708267) failed the rewritten P1 once, on chromium only: the
+page reads a token's pools the moment an opening confirms, and that read fell in the second before
+the new pool's open time (it opens one second after it lands). Its card said "Swaps open at …
+Deposits wait until then", so it took no pair, and the Open a pool card offered a second pool for
+the pool just opened; nothing read again until something was pressed. The finder now reads once
+more when a pool it read opens within two minutes (`PoolFinder.tsx` `opensInSeconds`), pinned in
+`CreatePoolCard.test.tsx` with fake timers.
+
+**Do:** when an e2e squat should leave a pair free, give it a far-future open time or no deposits;
+when it should take the pair, open it at or off the market. An outcome that says what Start over
+will do must say both cases. A read taken as a thing lands can land in the second before it
+counts: schedule the next read from the chain's own clock instead of trusting the first. The validator starts from a worktree under a path with a space when
+the script path is quoted inside `bash -lc` (`E2E_RPC_PORT=18899`, READY in under a minute); run
+the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and its own
+`E2E_SOLANA_OUT`, so another checkout's run is never built over. Stop it when done: with CI's
+`E2E_LIMIT_LEDGER_SIZE=4000000` the ledger folder still measured 13 GB (`du -sh`) after about 40
+minutes of two three-test runs, since that cap bounds the shred store and not the accounts and
+snapshots beside it.
+## 2026-11-08: a hand-written `transition` replaces a Tailwind transition utility, and `focus()` scrolls a tall dialog to its foot
+
+**Wrong belief 1:** a rule like `.receipt-card[data-floor] { transition: border-color 0.6s ease, box-shadow 0.6s ease; }`
+animates the card's edge while the card's own `motion-safe:transition-[opacity,transform] motion-safe:duration-300`
+keeps sliding it up.
+
+**Measured (2026-11-08, Chromium at 390x664, island answer 32's walk on the dev server):** the add's card read
+`transitionProperty: "border-color, box-shadow"`, and its opacity went from 0 to 1 between two samples 70 ms apart: no
+slide at all. `transition` is a shorthand that sets the whole list, and the class-plus-attribute selector outranks the
+one utility class, so the utility's entries are simply gone. With `opacity 0.3s` and `transform 0.3s` added to the
+rule's own list, the same samples read 0, 0.08, 0.59, 0.88 over 300 ms.
+
+**Do instead:** a rule that sets `transition` on an element that also carries a Tailwind transition utility repeats
+the utility's entries in its own list. Check with `getComputedStyle(el).transitionProperty`, not by eye.
+
+**Wrong belief 2:** focusing a dialog's container (`useFocusTrap(true, { focusContainer: true })`) leaves its scrolling
+layer where layout put it.
+
+**Measured (same day, a bare page in Chromium at 390x664: a fixed `overflow-y: auto` layer, a card with 16 px
+margins):** after a plain `card.focus()`, a 660 px card's layer was scrolled to its maximum (28 px), so the card's top
+sat above the screen; with `focus({ preventScroll: true })` it stayed at 0; a 430 px card did not scroll at all. On
+the venue that cut off the head of the add's receipt card, where its moment plays, on an iPhone 14 sized screen.
+
+**Do instead:** a dialog that can be taller than the screen either focuses with `{ preventScroll: true }` or puts the
+layer back to its top once it is up (what `ReceiptCard.tsx` does for an add).
+
 ## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
 
 **Believed:** a CI runner with no release folder can rebuild one by dumping each program from

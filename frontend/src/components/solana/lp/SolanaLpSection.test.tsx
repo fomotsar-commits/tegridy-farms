@@ -6,7 +6,7 @@ import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -204,8 +204,8 @@ describe('the LP section', () => {
     mount(readers({ findPools: vi.fn(async () => s) }));
     const none = await screen.findByTestId('lp-no-pools');
     // The plain "none found" line (see the next test) must not be what a cut list says.
-    expect(none).not.toHaveTextContent(/No pools pairing this token with SOL, USDC or BAYLA found\./);
-    expect(none).toHaveTextContent('None of the pools our index returned pairs this token with SOL, USDC or BAYLA. It returned its maximum, so there may be more.');
+    expect(none).not.toHaveTextContent(`No pools pairing this token with ${QUOTE_COINS_OR} found.`);
+    expect(none).toHaveTextContent(`None of the pools our index returned pairs this token with ${QUOTE_COINS_OR}. It returned its maximum, so there may be more.`);
     expect(screen.getByTestId('lp-index-truncated')).toHaveClass('text-amber-300/90');
     expect(screen.getByTestId('lp-status')).toHaveTextContent(/returned its maximum/);
   });
@@ -366,7 +366,7 @@ describe('your positions', () => {
     const aside = await screen.findByTestId('lp-positions-set-aside');
     const rows = within(aside).getAllByTestId('lp-position');
     expect(rows.map((r) => r.getAttribute('data-pool-kind'))).toEqual(['other-pair', 'absent', 'not-a-pool']);
-    expect(rows[0]).toHaveTextContent("Neither side of this pool is SOL, USDC or BAYLA. This site does not show those pools, so nothing about it is checked here.");
+    expect(rows[0]).toHaveTextContent(`Neither side of this pool is ${QUOTE_COINS_OR}. This site does not show those pools, so nothing about it is checked here.`);
     expect(rows[0]).toHaveTextContent(t0);
     expect(rows[1]).toHaveTextContent(/could not be confirmed on chain/);
     expect(rows[2]).toHaveTextContent(/not owned by the pool program/);

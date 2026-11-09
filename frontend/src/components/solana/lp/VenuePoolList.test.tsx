@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_IN_TURN, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
@@ -211,7 +211,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(within(rows[1]!).getByRole('list', { name: /: warnings$/ })).toBeInTheDocument();
     // What each tag means, and the threshold, are one press away.
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in an island coin never gets this tag).');
     // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
@@ -298,7 +298,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     await screen.findByTestId('lp-all-pools-prices-unread');
     rows = screen.getAllByTestId('lp-all-pools-row');
     expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual(['BAYLA / SOL · 1% tier', 'CORN / SOL · 1% tier', 'CORN / USDC · 1% tier']);
-    expect(screen.getByRole('list', { name: 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: `All pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first` })).toBeInTheDocument();
   });
 
   it('a visitor in a room sees the same order: the room’s own coin is not pinned on top (owner, 2026-11-01: "Pure TVL order")', async () => {

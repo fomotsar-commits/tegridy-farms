@@ -86,7 +86,7 @@ describe('BaylaLine', () => {
     const press = screen.getByRole('button', { name: 'Receipt' });
     // Island answer twenty-five, build 6: the card that was raised, closed, then asked for again.
     act(() => {
-      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, title: null, under: null, fee: { kind: 'reading' }, clock: null });
+      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, title: null, under: null, fee: { kind: 'reading' }, clock: null, holders: null, lps: null });
       closeReceipt();
     });
     expect(screen.getByTestId('receipt-open')).toHaveTextContent('false');

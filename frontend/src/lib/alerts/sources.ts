@@ -63,10 +63,10 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
   },
   'venue-lending': {
     id: 'venue-lending',
-    label: 'Venue lending contracts (direct reads)',
-    attribution: 'direct reads of the venue’s own lending contracts',
+    label: 'Venue NFT loans (checked on chain)',
+    attribution: 'the venue’s offer book, each loan checked against Gondi’s loan contract',
     operatorStep:
-      'A code step, not a setting: NFT lending runs on Gondi’s loan contract, and no reader for its loans is built yet (lib/shield/venues.ts). Once one is, loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
+      'Deploy Gondi’s loan contract and set GONDI_LOAN_ADDRESS (lib/gondi/loanOffer.js). Loans are then listed from the offer book and each is checked on chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
   },
   'gecko-pool': {
     id: 'gecko-pool',
@@ -113,9 +113,9 @@ export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
       readable: indexerReadable,
       detail: indexerReadable ? null : (indexerConfigProblem() ?? INDEXER_UNSET_DETAIL),
     },
-    // Deployed is the whole gate here: the contract is read directly, so there is
-    // no service to configure. A failed RPC read is an outage and is reported as
-    // one at read time, exactly like the same-origin sources below.
+    // Deployed is the whole gate here (lib/shield/venues.ts). A failed read is an
+    // outage and is reported as one at read time, exactly like the same-origin
+    // sources below.
     'venue-lending': {
       readable: lending.readable,
       detail: lending.readable ? null : lending.detail,

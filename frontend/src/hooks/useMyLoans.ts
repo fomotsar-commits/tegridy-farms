@@ -39,7 +39,9 @@ export interface MyLoan {
   startTime: bigint;
   /** startTime + duration. Gondi has no grace period: from this second the loan can be claimed. */
   deadline: bigint;
-  /** Always false here (only open loans are listed); kept for the shield's row shape. */
+  /** The loan as getLoanHash confirmed it. Repaying or claiming sends it back whole. */
+  loan: Loan;
+  /** Always false here: only open loans are listed. */
   repaid: boolean;
   defaultClaimed: boolean;
   status: 'active' | 'overdue' | 'repaid' | 'defaulted';
@@ -61,6 +63,7 @@ function toMyLoan(id: number, loan: Loan, wallet: string, now: bigint): MyLoan |
     aprBps: (isBorrower ? loan.tranche[0] : mine[0])?.aprBps ?? 0n,
     startTime: loan.startTime,
     deadline,
+    loan,
     repaid: false,
     defaultClaimed: false,
     // Gondi: `expirationTime > block.timestamp` is the only thing that stops a claim.

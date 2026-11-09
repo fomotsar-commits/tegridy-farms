@@ -63,8 +63,10 @@ describe('the $BAYLA the page opens on', () => {
     expect(opensOn).toBe(BAYLA);
     expect([SOL, opensOn!].filter(needsRiskAck)).toEqual([]);
     // The owner, 2026-11-01: the island's coins are verified here, so a room's coin asks for none.
-    expect(needsRiskAck({ mint: openingBuyMint('', room('bobo')), symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(false);
-    // The control: a coin the venue does not vouch for keeps its tick box.
+    const bobo = openingBuyMint('', room('bobo'));
+    expect(needsRiskAck({ mint: bobo, symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(false);
+    // The control: a coin the venue does not vouch for keeps its tick box, the same ticker at another mint included.
     expect(needsRiskAck({ mint: 'Other11111111111111111111111111111111111111', symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
+    expect(needsRiskAck({ mint: `${bobo.slice(0, 20)}k${bobo.slice(21)}`, symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
   });
 });
