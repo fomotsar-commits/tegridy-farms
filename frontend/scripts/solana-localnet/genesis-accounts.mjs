@@ -34,6 +34,12 @@
 // holds (usdcMintAuthority), so the e2e can give wallets USDC. Its freeze authority stays
 // mainnet's: the token check says USDC's issuer can freeze, and nothing here can.
 //
+// ./golden/{bobo,soy,brainlet,rizz}-mint.mainnet.json are the same kind of read of the
+// island's other four coins (classic token program, 82 B, 6 decimals, read 2026-11-07 at
+// slot 466781606). They are NOT seeded: src/lib/solana/lp/quotes.test.ts pins each coin's
+// pairing row (program, decimals, no authorities) to them, and the local validator has no
+// pool paired with one.
+//
 // The e2e GlobalConfig is the 1-SOL book the rehearsal initialised on the same binary
 // (run 3111 step c, and run 230): 1% fee split 50/50, 3.69% platform reserve, target
 // 1 SOL + 0.05 SOL migration reserve. The program itself accepted exactly these values
