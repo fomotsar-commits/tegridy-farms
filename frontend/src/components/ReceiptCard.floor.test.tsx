@@ -48,6 +48,7 @@ function add(over: Partial<Receipt> = {}): Receipt {
     under: 'to the SOL + BAYLA pool',
     fee: { kind: 'add', network: '0.000005 SOL' },
     clock: 'double',
+    holders: null,
     lps: null,
     ...over,
   };
@@ -230,12 +231,12 @@ describe('an add: the pool is the card’s head', () => {
     expect(layer.scrollTop).toBe(0);
   });
 
-  it('a buy’s card is left where the focus put it', () => {
+  it('a buy’s card comes back to its top too: it has a head as well (the shore, answer thirty), about 600 px, taller than a short phone’s screen', () => {
     act(() => raiseReceipt(add({ action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } })));
     const layer = screen.getByTestId('receipt-layer');
     layer.scrollTop = 40;
     rise();
-    expect(layer.scrollTop).toBe(40);
+    expect(layer.scrollTop).toBe(0);
   });
 
   it('Back stops the moment and takes the screen-wide canvas off the body', () => {
@@ -249,19 +250,20 @@ describe('an add: the pool is the card’s head', () => {
   });
 });
 
-describe('a buy and a sale keep what they had', () => {
+describe('a buy and a sale keep the shore (answer thirty)', () => {
   it.each([
-    ['a buy', { action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } }],
-    ['a sale', { action: 'sold', clock: 'kept', under: null, fee: { kind: 'reading' } }],
-  ] as const)('%s: the flame ring, no pool, no floor line, and an LP count changes nothing', (_name, over) => {
+    ['a buy', { action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } }, 'catching'],
+    ['a sale', { action: 'sold', clock: 'kept', under: null, fee: { kind: 'reading' } }, 'ember'],
+  ] as const)('%s: the shore’s ring, no pool, no floor line, and an LP count changes nothing', (_name, over, flameState) => {
     act(() => raiseReceipt(add({ ...over, lps: null })));
     const before = html();
-    expect(card()).toHaveAttribute('data-flame', 'ember');
+    expect(card()).toHaveAttribute('data-flame', flameState);
     expect(card()).not.toHaveAttribute('data-floor');
     expect(screen.getByTestId('flame-ring')).toBeInTheDocument();
     expect(card().querySelector('.receipt-floor')).toBeNull();
     expect(screen.queryByTestId('receipt-floor-line')).toBeNull();
-    expect(card().style.marginTop).toContain('520px');
+    expect(card().style.marginTop).toContain('670px');
+    expect(screen.getByTestId('receipt-shore-slot')).toBeInTheDocument();
     expect(card().style.border).toBe('1px solid rgba(139, 92, 246, 0.45)');
     act(() => closeReceipt());
     act(() => raiseReceipt(add({ ...over, lps: 9 })));
@@ -273,12 +275,14 @@ describe('a buy and a sale keep what they had', () => {
     expect(fxOnBody()).toBeNull();
   });
 
-  it('a buy still catches its flame, with its one tick', () => {
+  it('a buy’s ticks are the shore engine’s, never the card’s, and the pool’s engine never starts', () => {
     act(() => raiseReceipt(add({ action: 'bought', clock: 'day1', under: null, fee: { kind: 'reading' } })));
     rise();
     expect(card()).toHaveAttribute('data-flame', 'catching');
-    pass(300);
-    expect(tick).toHaveBeenCalledTimes(1);
+    pass(3000);
+    // jsdom has no canvas: the shore's engine draws and ticks nothing here, and the card adds no tick of its own.
+    expect(tick).not.toHaveBeenCalled();
+    expect(engine.start).not.toHaveBeenCalled();
   });
 });
 

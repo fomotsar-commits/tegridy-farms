@@ -2,7 +2,7 @@ import type { Connection } from '@solana/web3.js';
 import { RECEIPT_WORDS } from '../../../lib/arrival';
 import { bungalowByAddress } from '../../../lib/bungalows';
 import { lastReading } from '../../../lib/heat/heatStore';
-import { clockFor, raiseReceipt, settleReceipt } from '../../../lib/receipt';
+import { clockFor, holdersFor, raiseReceipt, settleReceipt } from '../../../lib/receipt';
 import { SOLANA_FEE_ACCOUNT } from '../../../lib/solana';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { settleAddReceipt, type FeeRoute } from '../../../lib/solana/receiptRead';
@@ -33,6 +33,7 @@ export function raiseAddReceipt(
     under: RECEIPT_WORDS.addedTo(a.ticker),
     fee: { kind: 'reading' },
     clock: clockFor('added', view.tokenMint, a.wallet, lastReading(), island),
+    holders: holdersFor(view.tokenMint, a.wallet, lastReading()),
     lps: null,
   });
   // The read is at 'confirmed', like the add, so the adder's own share is in it: it is their

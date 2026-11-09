@@ -217,6 +217,12 @@ export const RECEIPT_WORDS = {
   dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  /** Under the title once the buyer's light lands on the shore (island answer thirty, §2). */
+  shore: (coin: string) => `You're on $${coin}'s shore. Every light here holds it.`,
+  /** The words of `shore` the island's drawing marks, bold in the shore's green. */
+  shoreMark: (coin: string) => `$${coin}'s shore.`,
+  /** A sale: the light stays on the shore, cooling (island answer thirty, §1). */
+  shoreCooling: 'Your light stays on the shore, cooling. The island remembers every day you held.',
   /** The line under an add's title from the landing on (island answer thirty-two). A ticker that
    *  already carries its own `$` (GeckoTerminal reads WIF as "$WIF") is not given a second one. */
   floor: (coin: string) => `You're part of $${coin.replace(/^\$/, '')}'s floor now. Every trade in the pool pays you.`,

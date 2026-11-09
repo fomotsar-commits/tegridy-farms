@@ -13,16 +13,17 @@ import { hueOf, type FloorState } from '../lib/floorMoment';
 
 /** The veil first, then the card rises (its 300 ms transition). */
 const RISE_AFTER_MS = 250;
-/** The catch begins the moment the card is up: the rise's own 300 ms (index.css counts the same). */
+/** The strike comes the moment the card is up: the rise's own 300 ms (index.css counts the same). */
 const CATCH_AFTER_MS = 300;
+/** Each beat (the shore's three, the floor's three) flares the card's edge this long (island answers thirty and thirty-two). */
+const BEAT_MS = 240;
 /** An add's flash turns the card's edge white this long, then it holds the token's hue (answer thirty-two). */
 const FLASH_EDGE_MS = 120;
-/** Each of the floor's three beats flares the card's edge this long. */
-const BEAT_EDGE_MS = 240;
 
 /**
- * The catch is once a landing: the signature it last caught for. Bayla's Receipt raises the card
- * again lit, still. An add's moment marks it at its landing, so a card closed before then plays again.
+ * The moment is once a landing: the signature whose light (a buy's, on the shore) or brick (an add's,
+ * on the pool's floor) last landed. Bayla's Receipt raises the card again at rest; a card closed
+ * before its landing plays again.
  */
 let caughtFor: string | null = null;
 
@@ -30,9 +31,9 @@ let caughtFor: string | null = null;
  * The receipt card (island answer twenty-five, screen 3, build 6): one card over the page the
  * action landed on. What was done, the fee and where it went (read from the signature:
  * lib/solana/receiptRead.ts), what it did to the wallet's clock, one green button that hands
- * over the island's card, and Back to the room. The toast is for errors only. On a buy's or a
- * sale's card, the island's flame catches in the ring the moment the card is up (answer
- * twenty-nine: FlameCatch.tsx). An add's card has a head instead: the pool, where the flash
+ * over the island's card, and Back to the room. The toast is for errors only. Its head answers the
+ * action the moment the card is up: a buy's or a sale's is the coin's shore (answer thirty:
+ * FlameCatch.tsx and the island's engine, lib/shoreMoment.ts); an add's is the pool, where the flash
  * plays and the adder's brick lands on the floor of every LP's (answer thirty-two: FloorHead.tsx).
  */
 export function ReceiptCard() {
@@ -46,18 +47,21 @@ export function ReceiptCard() {
 function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const titleId = useId();
   const [risen, setRisen] = useState(false);
-  // Caught already when this card was raised (Bayla's Receipt): lit at once, nothing moves.
+  const [up, setUp] = useState(false);
+  // Played already when this card was raised (Bayla's Receipt): at rest at once.
   const [caughtBefore] = useState(() => caughtFor === receipt.signature);
-  // A sale never lights: the ember sits in the ring, steady.
-  const flame: FlameState = receipt.action === 'sold' ? 'ember' : caughtBefore ? 'lit' : risen ? 'catching' : 'ember';
-  // An add's head is the pool, never a flame (island answer thirty-two): the moment plays once per
-  // signature, and a card raised again after its landing opens at rest.
+  const sold = receipt.action === 'sold';
+  // An add's head is the pool, never the shore (island answer thirty-two).
   const isAdd = receipt.action === 'added';
+  // A sale never strikes: the ember sits in the ring and the light on the shore cools.
+  const flame: FlameState = sold ? 'ember' : caughtBefore ? 'lit' : 'catching';
+  // An add's moment plays once per signature; a card raised again after its landing opens at rest.
   const floor: FloorState = caughtBefore ? 'lit' : 'playing';
-  // From the flash on the card's edge holds the token's hue; the line under the title shows from the landing.
+  // The line under the title: from the landing; at once for a card at rest and for a sale.
+  const [landed, setLanded] = useState(() => caughtBefore || sold);
+  // From an add's flash on, the card's edge holds the token's hue.
   const [lit, setLit] = useState(caughtBefore);
-  const [landed, setLanded] = useState(caughtBefore);
-  // The flash's white edge and each beat's flare: a class on the card, let go by a timer.
+  // A beat's flare and an add's white flash: a class on the card, let go by a timer.
   const [edge, setEdge] = useState('');
   const edgeTimer = useRef(0);
   useEffect(() => () => window.clearTimeout(edgeTimer.current), []);
@@ -71,24 +75,24 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
     const t = window.setTimeout(() => setRisen(true), RISE_AFTER_MS);
     return () => window.clearTimeout(t);
   }, [receipt.signature]);
-  // An add's card is about 660 px tall: on a shorter screen the focus trap's focus scrolls the
-  // layer to the card's foot, and the head, where the moment plays, would be off the top. The
-  // moment the card is up, the layer goes back to its top.
+  useEffect(() => {
+    if (!risen) return;
+    const t = window.setTimeout(() => setUp(true), CATCH_AFTER_MS);
+    return () => window.clearTimeout(t);
+  }, [risen]);
+  // Every card has a head now and is taller than a short screen: the focus trap's focus scrolls
+  // the layer to the card's foot, and the head, where the moment plays, would be off the top.
+  // The moment the card is up, the layer goes back to its top.
   const layerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (isAdd && risen && layerRef.current) layerRef.current.scrollTop = 0;
-  }, [isAdd, risen]);
-  // The catch: one tick as the flame grows out of the ember, once per signature. A card closed
-  // before it has not caught, and catches when raised again. An add's ticks are its moment's.
-  useEffect(() => {
-    if (isAdd || flame !== 'catching') return;
-    const t = window.setTimeout(() => {
-      if (caughtFor === receipt.signature) return;
-      caughtFor = receipt.signature;
-      tick();
-    }, CATCH_AFTER_MS);
-    return () => window.clearTimeout(t);
-  }, [isAdd, flame, receipt.signature]);
+    if (risen && layerRef.current) layerRef.current.scrollTop = 0;
+  }, [risen]);
+  // Once per signature, marked when the light (or the brick) lands: a card closed before the landing plays again when raised.
+  const onLanded = () => {
+    caughtFor = receipt.signature;
+    setLanded(true);
+  };
+  const onBeat = () => flare('receipt-beat', BEAT_MS);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeReceipt();
@@ -119,8 +123,8 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
         data-floor={isAdd ? (lit ? 'lit' : 'playing') : undefined}
         className={`receipt-card relative w-full max-w-[358px] my-4 outline-none motion-safe:transition-[opacity,transform] motion-safe:duration-300${edge ? ` ${edge}` : ''}`}
         style={{
-          // An add's card is about 160 px taller (its head): centred the same way.
-          marginTop: `clamp(16px, calc((100dvh - ${isAdd ? 680 : 520}px) / 2), 172px)`,
+          // Centred by the card's height: the pool's head is a little taller than the shore's.
+          marginTop: `clamp(16px, calc((100dvh - ${isAdd ? 680 : 670}px) / 2), 172px)`,
           background: 'var(--color-bg-surface)',
           borderRadius: 20,
           // An add's edge is index.css's (".receipt-card[data-floor]"): the flash and the beats are classes on it.
@@ -144,21 +148,18 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
                 setLit(true);
                 flare('receipt-flash', FLASH_EDGE_MS);
               }}
-              onLanded={() => {
-                setLanded(true);
-                caughtFor = receipt.signature;
-              }}
-              onBeat={() => flare('receipt-beat', BEAT_EDGE_MS)}
+              onLanded={onLanded}
+              onBeat={onBeat}
             />
           ) : (
             <div className="receipt-floor" aria-hidden="true" />
           )
         ) : (
-          // The 56 px ring in the venue's green: the ember, and the flame that catches in it.
-          <FlameCatch state={flame} />
+          // The coin's shore across the card's head, the ring on its bottom edge: the moment waits for the card to be up.
+          <FlameCatch state={flame} up={up} wallet={receipt.wallet} holders={receipt.holders} onLanded={onLanded} onBeat={onBeat} />
         )}
-        {/* An add's title clears the ring's lower half, which hangs 28 px below the head. */}
-        <h2 id={titleId} className={`${isAdd ? 'mt-10' : 'mt-4'} text-center text-white text-[24px] leading-[30px]`} style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800 }} data-testid="receipt-title">
+        {/* The title clears the ring's lower half, which hangs below either head. */}
+        <h2 id={titleId} className="mt-10 text-center text-white text-[24px] leading-[30px]" style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800 }} data-testid="receipt-title">
           {title}
         </h2>
         {receipt.under && (
@@ -166,11 +167,21 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
             {receipt.under}
           </p>
         )}
-        {isAdd && (
+        {isAdd ? (
           // Always in the layout (nothing below it moves), shown from the landing.
           <p className="receipt-floor-line mt-1 text-center text-[14px]" data-on={landed ? '1' : '0'} data-testid="receipt-floor-line" style={{ color: 'var(--color-text-secondary)' }}>
             {RECEIPT_WORDS.floor(receipt.coin.symbol)}
           </p>
+        ) : (
+          // The line under the title. Its two lines are kept from the start, as the island drew it, so
+          // nothing below moves when the light lands.
+          <div className="mt-1 min-h-[40px]" data-testid="receipt-shore-slot">
+            {landed && (
+              <p className="text-center text-[14px] leading-[20px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-shore-line">
+                {sold ? RECEIPT_WORDS.shoreCooling : <ShoreWords coin={receipt.coin.symbol} />}
+              </p>
+            )}
+          </div>
         )}
 
         <div className="mt-5 pt-2 pb-2" style={{ borderTop: '1px solid rgba(139,92,246,0.25)', borderBottom: '1px solid rgba(139,92,246,0.25)' }} data-testid="receipt-rows">
@@ -211,6 +222,21 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** "You're on $BAYLA's shore. Every light here holds it.", the coin's shore marked as the island drew it. */
+function ShoreWords({ coin }: { coin: string }) {
+  const line = RECEIPT_WORDS.shore(coin);
+  const mark = RECEIPT_WORDS.shoreMark(coin);
+  const at = line.indexOf(mark);
+  if (at < 0) return line;
+  return (
+    <>
+      {line.slice(0, at)}
+      <strong style={{ color: '#a0f8d0', fontWeight: 700 }}>{mark}</strong>
+      {line.slice(at + mark.length)}
+    </>
   );
 }
 
