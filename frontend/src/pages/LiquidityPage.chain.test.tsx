@@ -57,12 +57,26 @@ describe('/liquidity on the picked chain', () => {
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
+  // Opening a pool pays the factory's POOL_OPENING_FEE (0.006 ETH) to the treasury Safe: the
+  // money line says it before any wallet is asked (law-25 read of #1169, 2026-11-09).
+  it.each([
+    ['/liquidity', /^Ethereum pools\./],
+    ['/liquidity?c=8453', /^Base pools\./],
+    ['/liquidity?c=4663', /^Robinhood Chain pools\./],
+  ])('%s: the money line says what opening a pool costs, to whom, and that adding costs nothing extra', (path, line) => {
+    at(path);
+    expect(screen.getByText(line)).toHaveTextContent("Opening a new pool costs 0.006 ETH, paid to the venue's treasury; adding to a pool already open costs nothing extra.");
+  });
+
   it('follows ?c= with no wallet: Base names Base, hides the Ethereum table and says where the venue cut goes', () => {
     at('/liquidity?c=8453');
     // The chain is named in the money line, not an eyebrow (owner, 2026-10-14).
     // A new pair starts with kLast = 0, so a Base pool's cut is off until the venue switches
-    // it on; the line may not claim it is on (it did until 2026-10-17).
-    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue's fee Safe/);
+    // it on; the line may not claim it is on (it did until 2026-10-17). A pool on the old
+    // factory pays that cut to the fee-remittance Safe, one opened since 2026-11-08 to the
+    // treasury Safe: the line names neither, only the venue.
+    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue as new pool shares/);
+    expect(screen.getByText(/^Base pools\./)).not.toHaveTextContent(/fee Safe/);
     expect(screen.queryByText(/TOWELI\/ETH/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
     expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
