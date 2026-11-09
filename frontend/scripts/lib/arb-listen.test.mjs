@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, outcomeOf, outcomesFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -127,6 +127,21 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     ]);
     expect(coinsFromMap(map, { max: 2 }).map((c) => c.mint)).toEqual(['A', 'C']);
     expect(coinsFromMap(null)).toEqual([]);
+  });
+
+  it('lists a pool of ours under its memecoin, and a pool of two memecoins under both', () => {
+    const coins = { SOL: {}, USDC: {} };
+    const quotes = { BAYLA: {}, USDT: {} };
+    const pool = (mintA, mintB) => ({ mintA, mintB });
+    expect(ourPoolCoins(pool('SOL', 'GRR'), coins, quotes)).toEqual(['GRR']);
+    expect(ourPoolCoins(pool('TBB', 'BAYLA'), coins, quotes)).toEqual(['TBB']);
+    // A pricing coin's own pool is that coin's.
+    expect(ourPoolCoins(pool('BAYLA', 'SOL'), coins, quotes)).toEqual(['BAYLA']);
+    expect(ourPoolCoins(pool('USDC', 'BAYLA'), coins, quotes)).toEqual(['BAYLA']);
+    // BIG BRAIN / BRAINLET, BRAINLET / SOY: both ends.
+    expect(ourPoolCoins(pool('BIGBRAIN', 'BRAINLET'), coins, quotes)).toEqual(['BIGBRAIN', 'BRAINLET']);
+    expect(ourPoolCoins(pool('SOY', 'BRAINLET'), coins, quotes)).toEqual(['SOY', 'BRAINLET']);
+    expect(ourPoolCoins(pool('USDC', 'SOL'), coins, quotes)).toEqual([]);
   });
 
   it('counts the money a sender reaching each gap 1 s and 3 s after it opened would have found', () => {

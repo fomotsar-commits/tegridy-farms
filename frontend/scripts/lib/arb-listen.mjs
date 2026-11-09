@@ -272,6 +272,22 @@ export function coinsByAccount(coins) {
 }
 
 /**
+ * The coins one of OUR pools is listed under (arb-listen.mjs listFromMarkets): the coin it holds
+ * that is neither a trip's coin (`coins`: SOL, USDC) nor a fixed pricing coin (`quotes`: BAYLA,
+ * USDT); a pricing coin's own pool (BAYLA / SOL) is that coin's. A pool of two memecoins, which
+ * the site's pairing coins allow (owner 2026-11-07: BOBO, SOY, BRAINLET, RIZZ; BIG BRAIN /
+ * BRAINLET), is listed under BOTH: from each coin's side the other is reached through its own
+ * deepest pool, so only both sides between them judge every route through it.
+ */
+export function ourPoolCoins(pool, coins, quotes) {
+  const sides = [pool.mintA, pool.mintB];
+  const plain = sides.filter((x) => !coins[x] && !quotes[x]);
+  if (plain.length) return [...new Set(plain)];
+  const other = sides.find((x) => !coins[x]);
+  return other ? [other] : [];
+}
+
+/**
  * The coins of the chain-wide map (scripts/arb-map.mjs, its arb-map.json): each coin with two or
  * more pools deep enough, and those pools, in the map's order. Only the venues the robot prices to
  * the unit and swaps itself (DIRECT_DEXES): bin and band pools read as x·y = k made the fake gaps

@@ -563,10 +563,11 @@ async function listFromMarkets() {
   for (const o of ours) {
     const p = C.decodePool('ours', o.pubkey, Buffer.from(o.account.data[0], 'base64'));
     if (!p) continue;
-    const m = [p.mintA, p.mintB].find((x) => !C.COINS[x] && !C.QUOTES[x]) ?? [p.mintA, p.mintB].find((x) => !C.COINS[x]);
-    if (!m) continue;
-    symbols.set(m, null);
-    ourPools.set(m, [...(ourPools.get(m) ?? []), o.pubkey]);
+    // A pool of two memecoins (BIG BRAIN / BRAINLET) is each coin's: both ends' routes are judged.
+    for (const m of L.ourPoolCoins(p, C.COINS, C.QUOTES)) {
+      symbols.set(m, null);
+      ourPools.set(m, [...(ourPools.get(m) ?? []), o.pubkey]);
+    }
   }
   const lists = [...Array.from({ length: GECKO_PAGES }, (_, i) => `pools?sort=h24_volume_usd_desc&page=${i + 1}`), ...Array.from({ length: TRENDING_PAGES }, (_, i) => `trending_pools?page=${i + 1}`)];
   for (const list of lists) {
