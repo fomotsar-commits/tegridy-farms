@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -142,6 +142,17 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     expect(ourPoolCoins(pool('BIGBRAIN', 'BRAINLET'), coins, quotes)).toEqual(['BIGBRAIN', 'BRAINLET']);
     expect(ourPoolCoins(pool('SOY', 'BRAINLET'), coins, quotes)).toEqual(['SOY', 'BRAINLET']);
     expect(ourPoolCoins(pool('USDC', 'SOL'), coins, quotes)).toEqual([]);
+  });
+
+  it('links the coins our pools are priced in first, then the most-used, under the cap', () => {
+    const uses = new Map([['RAY', 9], ['JUP', 7], ['BONK', 5], ['SOY', 1], ['BRAINLET', 2]]);
+    // Without ours, SOY (1 use) falls under a cap of 3.
+    expect(quotesToLink(uses, new Set(), 3)).toEqual(['RAY', 'JUP', 'BONK']);
+    // With our BRAINLET / SOY and BIG BRAIN / BRAINLET pools, both come first, most-used first.
+    expect(quotesToLink(uses, new Set(['SOY', 'BRAINLET']), 3)).toEqual(['BRAINLET', 'SOY', 'RAY']);
+    // A coin of ours no pool here uses is not asked for.
+    expect(quotesToLink(uses, new Set(['RIZZ']), 2)).toEqual(['RAY', 'JUP']);
+    expect(quotesToLink(new Map(), new Set(), 80)).toEqual([]);
   });
 
   it('counts the money a sender reaching each gap 1 s and 3 s after it opened would have found', () => {

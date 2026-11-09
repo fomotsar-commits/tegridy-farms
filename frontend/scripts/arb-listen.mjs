@@ -639,13 +639,17 @@ async function listFromMap() {
  */
 async function linkMemeQuotes(withFees) {
   const uses = new Map();
+  // Coins one of OUR pools is priced in (SOY for BRAINLET / SOY): linked before any other.
+  const ours = new Set();
   for (const [m, ps] of withFees) {
     for (const p of ps) {
       const q = quoteOf(p, m);
-      if (!C.COINS[q] && !C.QUOTES[q]) uses.set(q, (uses.get(q) ?? 0) + 1);
+      if (C.COINS[q] || C.QUOTES[q]) continue;
+      uses.set(q, (uses.get(q) ?? 0) + 1);
+      if (p.dex === 'ours') ours.add(q);
     }
   }
-  const wanted = [...uses].sort((a, b) => b[1] - a[1]).slice(0, MEME_QUOTES_MAX).map(([q]) => q);
+  const wanted = L.quotesToLink(uses, ours, MEME_QUOTES_MAX);
   if (!wanted.length) return;
   S.note = `linking ${wanted.length} memecoins other coins are priced in`;
   await readAll(wanted);

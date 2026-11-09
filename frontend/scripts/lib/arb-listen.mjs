@@ -288,6 +288,19 @@ export function ourPoolCoins(pool, coins, quotes) {
 }
 
 /**
+ * The memecoins to link to SOL or USDC (arb-listen.mjs linkMemeQuotes), `max` at most: every coin
+ * one of OUR pools is priced in first (`ours`: the owner's pairing coins, SOY for BRAINLET / SOY,
+ * however few pools use them), then the rest by how many pools are priced in each (`uses`),
+ * most first. Without this, a coin only our pools use fell under the cut of 80 on 11-09.
+ */
+export function quotesToLink(uses, ours, max) {
+  const byUse = (a, b) => (uses.get(b) ?? 0) - (uses.get(a) ?? 0);
+  const first = [...ours].filter((q) => uses.has(q)).sort(byUse);
+  const rest = [...uses.keys()].filter((q) => !ours.has(q)).sort(byUse);
+  return [...first, ...rest].slice(0, max);
+}
+
+/**
  * The coins of the chain-wide map (scripts/arb-map.mjs, its arb-map.json): each coin with two or
  * more pools deep enough, and those pools, in the map's order. Only the venues the robot prices to
  * the unit and swaps itself (DIRECT_DEXES): bin and band pools read as x·y = k made the fake gaps
