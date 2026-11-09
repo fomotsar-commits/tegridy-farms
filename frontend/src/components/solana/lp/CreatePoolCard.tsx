@@ -64,7 +64,7 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
  * absent or blocked is refused, in the words of the check that blocked it.
  *
  * ONE ANSWER PER PAIRING COIN (`pairFacts`). A new pool pairs the token with SOL, USDC or
- * BAYLA, and the pool to add to instead is one paired with the same coin. So each coin
+ * an island coin (quotes.ts), and the pool to add to instead is one paired with the same coin. So each coin
  * that has such a pool gets its own line and its own Add button, what a pool holds is
  * said in that pool's own coin, and the card says which coins have no pool yet. The coin
  * itself is chosen in the form.

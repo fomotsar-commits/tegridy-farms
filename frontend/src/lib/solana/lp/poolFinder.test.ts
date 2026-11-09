@@ -152,7 +152,7 @@ describe('findPools: what a pool read must not hide', () => {
 
   // S1-R01: everything the index may return is read; nothing it names is cut here.
   it('reads every address the index may return, plus the four it works out', async () => {
-    // The launch pool, and the public tier's standard address for each of three coins.
+    // The launch pool, and the public tier's standard address for each pairing coin.
     expect(MAX_CANDIDATES).toBe(1 + QUOTE_COINS.length + POOL_INDEX_MAX);
     const mint = key();
     const pools = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), quoteReserve: BigInt(i + 1) * 10n ** 6n, tokenReserve: 10n }));
@@ -179,7 +179,7 @@ describe('knownPoolAddresses', () => {
       const quote = QUOTE_COINS.find((q) => q.mint === s.quote)!;
       expect(s.address, `${quote.symbol} tier ${s.index}`).toBe(buildPool({ mint, quote, configIndex: s.index, quoteReserve: 1n, tokenReserve: 1n }).address.toBase58());
     }
-    expect(new Set(k.standard.map((s) => s.address)).size).toBe(3);
+    expect(new Set(k.standard.map((s) => s.address)).size).toBe(QUOTE_COINS.length);
     expect(k.launchPool).toBe(poolStatePda(mint, LAUNCH).toBase58());
     expect(WSOL.toBase58()).not.toBe(mint.toBase58());
   });
@@ -192,7 +192,7 @@ describe('knownPoolAddresses', () => {
   });
 });
 
-// Owner ruling 2026-10-03: a pool may pair a token with SOL, USDC or BAYLA.
+// Owner rulings 2026-10-03 and 2026-11-07: a pool may pair a token with SOL, USDC or an island coin.
 describe('findPools: pools paired with USDC and BAYLA', () => {
   const USDC6 = 10n ** 6n;
 
