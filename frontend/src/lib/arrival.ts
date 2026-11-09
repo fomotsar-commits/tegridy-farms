@@ -1,4 +1,5 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+import { SITE_URL } from './constants';
 import { roomSpeaksOn } from './routeVoice';
 // Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
 import type { HeatTier } from './heat/heatOracle';
@@ -195,12 +196,18 @@ export const HEAT_WORDS = {
   ladderCold: 'Cold',
 } as const;
 
+/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. A ticker
+ *  that carries its own "$" (WIF's reads "$WIF") is posted with one. */
+const LP_POST = (coin: string) => `Just added liquidity to $${coin.replace(/^\$/, '')} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+/** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
+const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
+
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
   /** The venue's own word for a sale (the swap page's "Sold"); the island drew the buy and the add. */
   sold: (amount: string, coin: string) => `Sold ${amount} ${coin}`,
-  /** `quote` is the pool's pairing coin (SOL, USDC or BAYLA), `pair` what went in of it. */
+  /** `quote` is the pool's pairing coin (any of `QUOTE_COINS`: SOL, USDC or an island coin), `pair` what went in of it. */
   added: (pair: string, quote: string, amount: string, coin: string) => `Added ${pair} ${quote} + ${amount} ${coin}`,
   addedTo: (quote: string, coin: string) => `to the ${quote} + ${coin} pool`,
   fee: 'Fee',
@@ -211,9 +218,23 @@ export const RECEIPT_WORDS = {
   dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  /** Under the title once the buyer's light lands on the shore (island answer thirty, §2). */
+  shore: (coin: string) => `You're on $${coin}'s shore. Every light here holds it.`,
+  /** The words of `shore` the island's drawing marks, bold in the shore's green. */
+  shoreMark: (coin: string) => `$${coin}'s shore.`,
+  /** A sale: the light stays on the shore, cooling (island answer thirty, §1). */
+  shoreCooling: 'Your light stays on the shore, cooling. The island remembers every day you held.',
+  /** The line under an add's title from the landing on (island answer thirty-two). A ticker that
+   *  already carries its own `$` (GeckoTerminal reads WIF as "$WIF") is not given a second one. */
+  floor: (coin: string) => `You're part of $${coin.replace(/^\$/, '')}'s floor now. Every trade in the pool pays you.`,
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
+  shareX: 'Share on X',
+  lpPost: LP_POST,
+  lpLink: LP_LINK,
+  /** X's composer with the post written: nothing is published until the person posts it. */
+  lpIntent: (coin: string, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
 } as const;
 
 export const TRENCHER_WORDS = {

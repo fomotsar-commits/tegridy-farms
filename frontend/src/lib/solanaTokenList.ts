@@ -97,7 +97,11 @@ export const BUY_TOKENS: SolToken[] = [
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
 ];
 
-/** The coins this venue's own pools pair a token with: SOL, USDC and the venue's BAYLA. */
+/**
+ * The venue's own coins: SOL, USDC and the venue's BAYLA. Our pools pair a token with these and
+ * with every island coin (lib/solana/lp/quotes.ts; a test pins the two lists together); the
+ * island's other coins are vouched for as ISLAND_TOKENS below, with their own mark.
+ */
 export const VENUE_COINS: readonly SolToken[] = [SOL, USDC, BAYLA];
 const VENUE_COIN_MINTS: ReadonlySet<string> = new Set(VENUE_COINS.map((t) => t.mint));
 

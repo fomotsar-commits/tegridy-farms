@@ -10,11 +10,11 @@ import { useToweliQueueInternal } from '../hooks/useTowelie';
 import { answerQuestion } from '../lib/towelieKnowledge';
 import {
   isDeployed,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from '../lib/constants';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { artImgProps } from '../lib/artSrcSet';
 
 // ─────────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ const ROUTE_TIPS: Record<string, string> = {
 function tipIsLive(pathname: string): boolean {
   if (pathname === '/nft-finance') {
     return [
-      TEGRIDY_NFT_LENDING_ADDRESS,
+      GONDI_LOAN_ADDRESS,
       TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
       TEGRIDY_LAUNCHPAD_V2_ADDRESS,
     ].some(isDeployed);

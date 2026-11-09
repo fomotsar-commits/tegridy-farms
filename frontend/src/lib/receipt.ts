@@ -30,13 +30,22 @@ export interface Receipt {
   action: 'bought' | 'sold' | 'added';
   /** The coin the card is about, as the venue names it. */
   coin: { symbol: string; mint: string };
-  /** On an add, the pool's pairing coin by its ticker: SOL, USDC or BAYLA. */
+  /** On an add, the pool's pairing coin by its ticker: SOL, USDC or an island coin (`QUOTE_COINS`). */
   pairing?: string;
   /** The action's words, from what the transaction moved; null until read. */
   title: string | null;
   under: string | null;
   fee: ReceiptFee;
   clock: ClockLine | null;
+  /** The coin's holders as the island counts them (its room_holders on this wallet's reading), for the
+   *  shore's lights (island answer thirty); null when not read. */
+  holders: number | null;
+  /**
+   * How many other wallets hold a share of this pool, read after an add (lib/solana/lp/holders.ts,
+   * the adder's own share left out): that many LP bricks on the add's floor (island answer
+   * thirty-two). Null until read, when the read fails, and for a swap.
+   */
+  lps: number | null;
 }
 
 let current: Receipt | null = null;
@@ -63,7 +72,7 @@ export function raiseReceipt(r: Receipt): void {
 }
 
 /** What the transaction was read to have done, for the receipt it belongs to (a later receipt is not touched). */
-export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee'>>): void {
+export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee' | 'lps'>>): void {
   if (!current || current.signature !== signature) return;
   current = { ...current, ...patch };
   emit();
@@ -111,6 +120,16 @@ export function clockFor(action: Receipt['action'], coinMint: string, wallet: st
   if (action === 'sold') return 'kept';
   if (!reading || reading.address.toLowerCase() !== wallet.toLowerCase()) return null;
   return reading.breakdown.some((row) => row.tokenAddress === coinMint) ? 'kept' : 'day1';
+}
+
+/**
+ * The shore's lights (island answer thirty, §2): the coin's room_holders on this wallet's reading,
+ * as heatOracle parses it. Null when the reading is another wallet's, when it has no row for the
+ * coin (a first buy has none yet), or when the row carries no count: the shore then draws its own.
+ */
+export function holdersFor(coinMint: string, wallet: string, reading: HeatReading | null): number | null {
+  if (!reading || reading.address.toLowerCase() !== wallet.toLowerCase()) return null;
+  return reading.breakdown.find((row) => row.tokenAddress === coinMint)?.roomHolders ?? null;
 }
 
 export function clockText(line: ClockLine, coin: string): string {

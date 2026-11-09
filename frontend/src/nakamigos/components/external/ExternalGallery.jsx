@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { itemName } from "./externalCopy";
-import { exactEth } from "../../hooks/useBuyHereListings";
+import { shownEth } from "../../lib/formatPrice";
 
 const ItemCard = memo(function ItemCard({ collection, item, onPick, price }) {
   const [broken, setBroken] = useState(false);
@@ -102,7 +102,7 @@ export default function ExternalGallery({ collection, items, onRetry, onPick, no
           <div className="ext-gallery-count">{countLine(collection, items)}</div>
           <div className="gallery-grid gallery ext-gallery-grid">
             {items.list.map((item) => (
-              <ItemCard key={item.id} collection={collection} item={item} onPick={onPick} price={exactEth(listings?.get(String(item.id))?.priceWei)} />
+              <ItemCard key={item.id} collection={collection} item={item} onPick={onPick} price={shownEth(listings?.get(String(item.id))?.priceWei)} />
             ))}
           </div>
         </>

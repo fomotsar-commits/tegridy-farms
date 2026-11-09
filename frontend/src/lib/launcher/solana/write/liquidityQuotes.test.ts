@@ -14,7 +14,7 @@ import { IX_DEPOSIT, IX_WITHDRAW, decodePoolState } from '../../../solana/cpswap
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 import { decodeIntent } from './intent';
 import {
   LP_COPY,
@@ -508,7 +508,7 @@ describe('prepareLpWithdraw: a pool paired with USDC or BAYLA', () => {
   it('a coin that is not on the list cannot be built for, and the message says the shares are safe', async () => {
     const w = holding(USDC_QUOTE);
     const msg = refused(await withdraw(w, { quoteMint: Keypair.generate().publicKey }));
-    expect(msg).toMatch(/This site cannot build a withdrawal for this token yet \(its pool is not paired with SOL, USDC or BAYLA\)/);
+    expect(msg).toContain(`This site cannot build a withdrawal for this token yet (its pool is not paired with ${QUOTE_COINS_OR})`);
     expect(msg).toMatch(/Your pool shares stay in your wallet\./);
   });
 });

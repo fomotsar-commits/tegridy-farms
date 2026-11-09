@@ -1,4 +1,4 @@
-// An add's card names the pool's own pairing coin (SOL, USDC or BAYLA), read from the add's own
+// An add's card names the pool's own pairing coin (SOL, USDC or an island coin), read from the add's own
 // deposit event. Pinned to real adds into the venue's pools on mainnet, one per pairing coin.
 import { describe, expect, it, vi } from 'vitest';
 import rows from './lp/__fixtures__/mainnet-history/pool.baylaSol.2026-10-10.transactions.json';

@@ -17,7 +17,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_QUOTE, USDC_QUOTE, quotesFor, type QuoteCoin, type QuoteSymbol } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS, USDC_QUOTE, quotesFor, type QuoteCoin, type QuoteSymbol } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { tokenReasons } from '../../../lib/solana/lp/poolHealth';
@@ -70,7 +70,7 @@ const freezableCopy = realToken(MINT, { freeze: FREEZER, name: 'BOBO', symbol: '
 const feeToken = realToken(MINT, { transferFee: true });
 const hookToken = realToken(MINT, { transferHook: true });
 
-const STANDARD: Record<QuoteSymbol, string> = { SOL: key().toBase58(), USDC: key().toBase58(), BAYLA: key().toBase58() };
+const STANDARD = Object.fromEntries(QUOTE_COINS.map((q) => [q.symbol, key().toBase58()])) as Record<QuoteSymbol, string>;
 function noPools(): PoolSearchRead {
   const coins = quotesFor(M);
   return {

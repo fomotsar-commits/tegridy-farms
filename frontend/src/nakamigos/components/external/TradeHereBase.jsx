@@ -4,7 +4,7 @@ import { createItemOffer, fetchTokenOfferBook, acceptOffer } from "../../api-off
 import { chainTxUrl, walletChainLabel } from "../../lib/venue";
 import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
-import { exactEth } from "../../hooks/useBuyHereListings";
+import { exactEth, shownEth } from "../../lib/formatPrice";
 import { askWalletToSwitch } from "../../lib/walletSwitch";
 
 const PRICE_RE = /^\d{1,6}(\.\d{1,18})?$/;
@@ -77,7 +77,9 @@ export default function TradeHereBase({ collection, item, wallet, onConnect, add
 
   const order = book.order;
   const mine = order && wallet && String(order.maker).toLowerCase() === String(wallet).toLowerCase();
-  const orderPrice = order ? exactEth(String(order.price_wei)) : null;
+  // Shown rounded UP past six decimals (never below what is paid); exact in the tooltip.
+  const orderPrice = order ? shownEth(String(order.price_wei)) : null;
+  const orderExact = order ? exactEth(String(order.price_wei)) : null;
   const best = offers.best;
 
   const list = async () => {
@@ -128,7 +130,7 @@ export default function TradeHereBase({ collection, item, wallet, onConnect, add
         {book.status === "ready" && !order && <span className="ext-panel-note">Not listed here.</span>}
         {order && (
           <>
-            <strong className="ext-trade-price">{orderPrice} ETH</strong>
+            <strong className="ext-trade-price" title={orderExact && orderExact !== orderPrice ? `${orderExact} ETH exactly` : undefined}>{orderPrice} ETH</strong>
             {mine ? (
               <button type="button" className="btn-secondary ext-trade-btn" disabled={busy === "cancel"} onClick={cancel}>
                 {busy === "cancel" ? "Confirming..." : "Cancel my listing"}

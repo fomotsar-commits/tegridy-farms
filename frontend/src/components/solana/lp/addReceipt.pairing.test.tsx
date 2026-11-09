@@ -1,4 +1,4 @@
-// An add's card rises naming the pool's own pairing coin (SOL, USDC or BAYLA): the line under the
+// An add's card rises naming the pool's own pairing coin (SOL, USDC or an island coin): the line under the
 // title, and the title it shows until the add's transaction is read (or when it cannot be).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';

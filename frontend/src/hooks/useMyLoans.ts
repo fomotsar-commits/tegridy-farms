@@ -1,205 +1,154 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount, useReadContract, usePublicClient } from 'wagmi';
-import { type Address } from 'viem';
-import { TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
-import { TEGRIDY_NFT_LENDING_ABI } from '../lib/contracts';
+import { useAccount, useReadContracts } from 'wagmi';
+import type { Hex } from 'viem';
+import { CHAIN_ID, isDeployed } from '../lib/constants';
+import { GONDI_LOAN_ABI } from '../lib/gondi/abi.js';
+import { GONDI_LOAN_ADDRESS, sameAddress } from '../lib/gondi/loanOffer.js';
+import { loanEnd, loanFromJson, loanHash, type Loan } from '../lib/gondi/loanMath';
+import { useBookLoans } from '../lib/gondi/offerBook';
 
-// R044: chunk large loan-id sweeps into batches of 50 so a 5000-loan
-// system doesn't fire one giant multicall. 60s refetch (F130) — loan state
-// (repaid / defaulted / overdue) doesn't move per-block but must not freeze
-// for the whole session either.
-const LOAN_CHUNK_SIZE = 50;
-const REFETCH_MS = 60_000;
-// F130: re-evaluate overdue status on a 60s minute-tick so a loan crossing its
-// deadline while the dashboard is open flips to "overdue" without a reload.
+// The wallet's open NFT loans, for the dashboard.
+//
+// NFT lending runs on Gondi's v3.2 loan contract, which keeps only a hash of each loan. So
+// the loans come from the offer book's records (lib/gondi/offerBook.ts), and each open one
+// is checked against `getLoanHash` on mainnet, exactly as My Loans does
+// (components/nftfinance/NFTLendingLoans.tsx). A zero hash is a loan closed on chain that
+// the book has not heard about yet, and it is left out. A hash that does not match, or that
+// could not be read, is UNREAD: counted, never shown as a loan and never dropped silently.
+
+/** Re-evaluate overdue on a minute tick, so a loan passing its due time flips without a reload. */
 const STATUS_TICK_MS = 60_000;
+const REFETCH_MS = 60_000;
+const ZERO_HASH = `0x${'0'.repeat(64)}`;
 
 /** User's side of the loan. Drives how we frame numbers (owed vs earning). */
 export type LoanRole = 'borrower' | 'lender';
 
 export interface MyLoan {
+  /** Gondi's loan id. */
   id: number;
   role: LoanRole;
   borrower: string;
+  /** The first lender. A loan can have several (tranches); `principal` is this wallet's part when it lends. */
   lender: string;
-  offerId: bigint;
   tokenId: bigint;
   collateralContract: string;
+  /** Borrower: the whole loan. Lender: the sum of this wallet's tranches. */
   principal: bigint;
   aprBps: bigint;
   startTime: bigint;
+  /** startTime + duration. Gondi has no grace period: from this second the loan can be claimed. */
   deadline: bigint;
+  /** The loan as getLoanHash confirmed it. Repaying or claiming sends it back whole. */
+  loan: Loan;
+  /** Always false here: only open loans are listed. */
   repaid: boolean;
   defaultClaimed: boolean;
   status: 'active' | 'overdue' | 'repaid' | 'defaulted';
 }
 
-/**
- * Returns the connected wallet's outstanding TegridyNFTLending loans, as either
- * borrower or lender. Repaid / defaulted loans are filtered out — this is a
- * "what's open on my books" view, not a history log.
- */
-type ReadResult = { status: 'success'; result: unknown } | { status: 'failure' };
+function toMyLoan(id: number, loan: Loan, wallet: string, now: bigint): MyLoan | null {
+  const isBorrower = sameAddress(loan.borrower, wallet);
+  const mine = loan.tranche.filter((t) => sameAddress(t.lender, wallet));
+  if (!isBorrower && mine.length === 0) return null;
+  const deadline = loanEnd(loan);
+  return {
+    id,
+    role: isBorrower ? 'borrower' : 'lender',
+    borrower: loan.borrower,
+    lender: loan.tranche[0]?.lender ?? '',
+    tokenId: loan.nftCollateralTokenId,
+    collateralContract: loan.nftCollateralAddress,
+    principal: isBorrower ? loan.principalAmount : mine.reduce((acc, t) => acc + t.principalAmount, 0n),
+    aprBps: (isBorrower ? loan.tranche[0] : mine[0])?.aprBps ?? 0n,
+    startTime: loan.startTime,
+    deadline,
+    loan,
+    repaid: false,
+    defaultClaimed: false,
+    // Gondi: `expirationTime > block.timestamp` is the only thing that stops a claim.
+    status: now >= deadline ? 'overdue' : 'active',
+  };
+}
 
 export function useMyLoans() {
   const { address } = useAccount();
-  // Every read below goes to mainnet: the count is pinned `chainId: CHAIN_ID`
-  // and the scan uses the mainnet client. NOT gated on useChainId() ===
-  // CHAIN_ID as well: for a wallet on Base or Robinhood that gate zeroed the
-  // count and skipped the scan, an empty list with no failure flag set,
-  // which the dashboard can only read as "no loans". See useLPFarming.ts.
-  const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+  const deployed = isDeployed(GONDI_LOAN_ADDRESS);
+  const book = useBookLoans(deployed ? address : undefined);
 
-  const { data: nftLoanCount, isError: nftCountError } = useReadContract({
-    address: TEGRIDY_NFT_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_NFT_LENDING_ABI,
-    functionName: 'loanCount',
-    chainId: CHAIN_ID,
-    query: { enabled: nftDeployed, refetchInterval: REFETCH_MS },
+  const openRows = useMemo(
+    () => (book.data?.loans ?? []).filter((r) => r.status === 'open'),
+    [book.data],
+  );
+
+  const hashes = useReadContracts({
+    contracts: openRows.map((r) => ({
+      address: GONDI_LOAN_ADDRESS,
+      abi: GONDI_LOAN_ABI,
+      functionName: 'getLoanHash',
+      args: [BigInt(r.loanId)],
+      chainId: CHAIN_ID,
+    }) as const),
+    query: { enabled: deployed && openRows.length > 0, refetchInterval: REFETCH_MS },
   });
 
-  const nftCount = nftLoanCount ? Number(nftLoanCount) : 0;
-
-  const [nftResults, setNftResults] = useState<ReadResult[]>([]);
-  const [nftLoading, setNftLoading] = useState(false);
-  // F130: a real refresh tick (the old `setLoading((p) => p)` interval was a
-  // no-op identity setState that React bailed out of, so loans never re-scanned).
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  // F130: per-minute tick consumed by the `outstanding` memo so overdue status
-  // recomputes live against a fresh `now` even between full re-scans.
   const [statusTick, setStatusTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => {
-      setRefreshNonce((n) => n + 1);
-      setStatusTick((n) => n + 1);
-    }, STATUS_TICK_MS);
+    const id = setInterval(() => setStatusTick((n) => n + 1), STATUS_TICK_MS);
     return () => clearInterval(id);
   }, []);
 
-  // R044: chunk loan IDs into batches of 50 via Promise.all. Avoids one
-  // giant multicall for high-id contracts and lets a single bad loan in
-  // one chunk fail without poisoning the whole batch.
-  useEffect(() => {
-    if (!publicClient || !nftDeployed || nftCount === 0 || !address) {
-      setNftResults([]);
-      setNftLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setNftLoading(true);
-    (async () => {
-      const ids = Array.from({ length: nftCount }, (_, i) => i);
-      const chunks: number[][] = [];
-      for (let i = 0; i < ids.length; i += LOAN_CHUNK_SIZE) {
-        chunks.push(ids.slice(i, i + LOAN_CHUNK_SIZE));
-      }
-      const all: ReadResult[] = [];
-      for (const chunk of chunks) {
-        const settled = await Promise.all(
-          chunk.map((id) =>
-            publicClient
-              .readContract({
-                address: TEGRIDY_NFT_LENDING_ADDRESS as Address,
-                abi: TEGRIDY_NFT_LENDING_ABI,
-                functionName: 'getLoan',
-                args: [BigInt(id)],
-              })
-              .then<ReadResult>((result) => ({ status: 'success', result }))
-              .catch<ReadResult>(() => ({ status: 'failure' })),
-          ),
-        );
-        if (cancelled) return;
-        all.push(...settled);
-      }
-      if (!cancelled) {
-        setNftResults(all);
-        setNftLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-    // F130: refreshNonce in deps re-runs the scan every REFETCH_MS via the shared tick.
-  }, [publicClient, nftDeployed, nftCount, address, refreshNonce]);
-
-  const outstanding = useMemo<MyLoan[]>(() => {
-    if (!address) return [];
+  const { loans, unreadRecords } = useMemo(() => {
+    if (!address || openRows.length === 0 || !hashes.data) return { loans: [] as MyLoan[], unreadRecords: 0 };
     const now = BigInt(Math.floor(Date.now() / 1000));
-    const lower = address.toLowerCase();
-    const result: MyLoan[] = [];
-
-    // TegridyNFTLending tuple: (borrower, lender, offerId, tokenId, collateralContract, principal, aprBps, startTime, deadline, repaid, defaultClaimed)
-    for (let i = 0; i < nftResults.length; i++) {
-      const r = nftResults[i];
-      if (!r || r.status !== 'success' || !r.result) continue;
-      const l = r.result as readonly [
-        string, string, bigint, bigint, string, bigint, bigint, bigint, bigint, boolean, boolean,
-      ];
-      if (l[9] || l[10]) continue;
-      const isBorrower = l[0].toLowerCase() === lower;
-      const isLender = l[1].toLowerCase() === lower;
-      if (!isBorrower && !isLender) continue;
-      const status: MyLoan['status'] = now > l[8] ? 'overdue' : 'active';
-      result.push({
-        id: i,
-        role: isBorrower ? 'borrower' : 'lender',
-        borrower: l[0], lender: l[1], offerId: l[2], tokenId: l[3],
-        collateralContract: l[4],
-        principal: l[5], aprBps: l[6], startTime: l[7], deadline: l[8],
-        repaid: l[9], defaultClaimed: l[10], status,
-      });
-    }
-
-    // Surface the most urgent first: overdue, then soonest deadline.
-    result.sort((a, b) => {
+    const out: MyLoan[] = [];
+    let unread = 0;
+    openRows.forEach((row, i) => {
+      const read = hashes.data?.[i];
+      if (!read || read.status !== 'success') { unread++; return; }
+      const chainHash = String(read.result as Hex).toLowerCase();
+      if (chainHash === ZERO_HASH) return;
+      let loan: Loan;
+      try {
+        loan = loanFromJson(row.loan);
+      } catch {
+        unread++;
+        return;
+      }
+      if (loanHash(loan).toLowerCase() !== chainHash) { unread++; return; }
+      const mine = toMyLoan(Number(row.loanId), loan, address, now);
+      if (mine) out.push(mine);
+    });
+    // Most urgent first: overdue, then soonest due.
+    out.sort((a, b) => {
       if (a.status !== b.status) return a.status === 'overdue' ? -1 : 1;
       return Number(a.deadline - b.deadline);
     });
-    return result;
-    // F130: statusTick re-evaluates `now` (and therefore overdue) on the minute tick.
+    return { loans: out, unreadRecords: unread };
+    // statusTick re-evaluates `now` (and therefore overdue) on the minute tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- statusTick is the intentional time dep
-  }, [nftResults, address, statusTick]);
+  }, [openRows, hashes.data, address, statusTick]);
 
-  // Distinguish "no loans" from "couldn't read": the count read failing, or every
-  // per-loan detail read failing (RPC down), previously rendered as an empty list
-  // that looked like the user had no loans. Surface it so the UI can say so.
-  const nftReadFailed = nftCountError || (nftResults.length > 0 && nftResults.every((r) => r.status === 'failure'));
+  const hashesPending = openRows.length > 0 && !hashes.data;
+  const allHashesFailed = openRows.length > 0 && !!hashes.data && hashes.data.every((r) => r.status !== 'success');
+  const isError = book.isError || (openRows.length > 0 && hashes.isError) || allHashesFailed;
 
-  // OUTAGE-AS-COMPLETE. The flag above fires only when NOTHING came back, so
-  // a chunk sweep that lost SOME ids returned a shorter list under the same
-  // "these are your loans" heading: the dashboard counted it, summed the
-  // principal and badged the overdue ones off a set it had no reason to believe
-  // was whole, and the shield watched a book with holes in it. A partial read is
-  // still unread - carry how many records did not answer, and let every claim of
-  // completeness gate on that rather than on the length of the list.
-  //
-  // `null`, never 0, when the loanCount read failed: those ids were never
-  // enumerated, so the size of the gap is itself unread, and "0 could not be
-  // read" is exactly the false zero this exists to refuse.
-  const loanCountUnread = Boolean(nftCountError);
-  const unreadCount = loanCountUnread
-    ? null
-    : nftResults.filter((r) => r.status === 'failure').length;
-  const loansUnread = unreadCount === null || unreadCount > 0;
+  // `null`, never 0, when the book itself did not answer: the wallet's loans were never
+  // listed, so the size of the gap is unread too.
+  const unreadCount = book.isError ? null : unreadRecords;
 
   return {
-    loans: outstanding,
-    isLoading: nftLoading,
-    isError: Boolean(nftReadFailed),
+    loans,
+    isLoading: book.isLoading || (hashesPending && !hashes.isError),
+    isError,
     /**
-     * The list is real but NOT known to be complete: at least one loan record
-     * did not answer, or the `loanCount` read failed so the contract was never
-     * enumerated. Strictly weaker than `isError`, which means nothing was read.
-     * Every consumer that states or implies "this is all of them" - totals,
-     * counts, the empty state, the shield's watch list - must branch on this,
-     * never on `loans.length`.
+     * The list is real but NOT known to be complete: a loan record did not answer, or the
+     * book did not. Every consumer that states or implies "this is all of them" (totals,
+     * counts, the empty state) must branch on this, never on `loans.length`.
      */
-    loansUnread,
-    /**
-     * How many loan records were asked for and did not answer. Null when the
-     * `loanCount` read failed, because the size of the gap is unread too and
-     * must render as unknown rather than as a number. A 0 means a whole sweep.
-     */
+    loansUnread: unreadCount === null || unreadCount > 0,
+    /** How many open loan records did not check out on chain. Null when the book did not answer. */
     unreadCount,
-    deployed: nftDeployed,
+    deployed,
   };
 }
