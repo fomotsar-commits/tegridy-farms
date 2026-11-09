@@ -51,6 +51,8 @@ import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 import { MyLoansTab } from './NFTLendingLoans';
+import { LenderMarketPanel } from './LenderMarketPanel';
+import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
   CARD_BORDER,
@@ -442,6 +444,19 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
 
   const interestPerLoan = principalWei !== null && aprValue !== null ? interestFor(principalWei, aprValue, BigInt(duration)) : null;
   const venueCut = interestPerLoan !== null && feeBps !== null ? (interestPerLoan * BigInt(feeBps) + 9_999n) / 10_000n : null;
+  // Idea 2 (owner 2026-11-09): Gondi's own contract keeps a bigger share of the interest, so
+  // the same take-home needs a higher rate there. Read live; no read, no line.
+  const { data: gondiOwnFees } = useReadContracts({
+    contracts: GONDI_OWN_LOAN_ADDRESSES.map(
+      (address) => ({ address, abi: GONDI_LOAN_ABI, functionName: 'getProtocolFee', chainId: CHAIN_ID }) as const,
+    ),
+    query: { enabled: LENDING_LIVE, staleTime: 3_600_000 },
+  });
+  const gondiFeeBps = lowestOwnFeeBps(gondiOwnFees);
+  const gondiSameAprBps =
+    aprValue !== null && gondiFeeBps !== null && feeBps !== null && gondiFeeBps > feeBps
+      ? sameTakeHomeAprBps(Number(aprValue), feeBps, gondiFeeBps)
+      : null;
 
   const primary = !isConnected
     ? { label: 'Connect Wallet', onClick: openConnectModal ?? (() => {}) }
@@ -487,6 +502,8 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
         </div>
       </div>
 
+      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} />
+
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -511,11 +528,8 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             </button>
           ))}
         </div>
-        {anyToken ? (
-          <p className="text-white/70 text-[11px] mt-2" style={LABEL_STYLE}>
-            Borrowers usually lock their cheapest one, so lend at the floor price.
-          </p>
-        ) : (
+        {/* "Borrowers usually lock their cheapest one" now lives in the market card's "Why" above. */}
+        {!anyToken && (
           <input
             type="number"
             step="1"
@@ -609,6 +623,12 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             {fmtWeth(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
             {venueCut !== null && feeBps !== null ? `, after the venue's ${bpsToPercent(feeBps)}% of the interest` : ''}
           </p>
+          {gondiSameAprBps !== null && gondiFeeBps !== null && (
+            <p className="text-white/85 text-[11px] mt-1" data-testid="lend-same-take-home">
+              Same take-home as {bpsToPercent(gondiSameAprBps)}% APR on Gondi&apos;s own contracts, which keep{' '}
+              {bpsToPercent(gondiFeeBps)}% of the interest or more.
+            </p>
+          )}
         </m.div>
       )}
 
