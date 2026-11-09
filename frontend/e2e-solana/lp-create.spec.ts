@@ -376,7 +376,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     // then reads it again as it opens, with nothing pressed, and only then it takes the pair.
     await expect(poolCard(p, pool)).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
     await expect(ui.lp.create.panel(p).getByTestId('lp-create-taken')).toContainText(
-      `This token already has a SOL pool on the public fee tier that passes the checks: ${pool.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${pool.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
     );
     expect(a.wallet.signed()).toHaveLength(1);
     await closeAll(p, ui.lp.create.panel(p));
@@ -384,7 +384,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(createCard(p)).toHaveAttribute('data-advice', 'opened-here', { timeout: 60_000 });
     await expect(createCard(p).getByTestId('lp-create-opened')).toContainText(`You opened a pool for this token just now (${pool.toBase58()}). Your share is under 'Your positions'.`);
     await expect(createCard(p).getByTestId('lp-create-still')).toHaveText(
-      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC or BAYLA on the public fee tier, at ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}.`,
+      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}.`,
     );
     await expect(ui.lp.create.openButton(p)).toHaveCount(1);
     await expect(positionRow(p, pool)).toHaveAttribute('data-remove', 'offer', { timeout: 60_000 });
@@ -677,7 +677,7 @@ test.describe('group B (chromium only)', () => {
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(ui.lp.create.pair(p)).toHaveAttribute('data-coin', 'SOL');
     await expect(ui.lp.create.panel(p).getByTestId('lp-create-taken')).toContainText(
-      `This token already has a SOL pool on the public fee tier that takes deposits, with a warning: ${squat.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
+      `This token already has a SOL pool on the public fee tier that takes deposits, with a warning: ${squat.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
       { timeout: 60_000 },
     );
     await expect(ui.lp.create.panel(p)).toContainText('a new address of its own (the standard address is already taken)');
@@ -1209,7 +1209,7 @@ test.describe('group B (chromium only)', () => {
       `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${B.p16.address.toBase58()}, holding 1 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
     );
     await expect(createCard(p).getByTestId('lp-create-still')).toHaveText(
-      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC or BAYLA on the public fee tier, at ${terms}.`,
+      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at ${terms}.`,
     );
     await expect(poolCard(p, B.p16.address)).toHaveAttribute('data-add', 'offer');
     await pressable(ui.lp.addButton(poolCard(p, B.p16.address)), 'Add liquidity');
@@ -1230,7 +1230,7 @@ test.describe('group B (chromium only)', () => {
     await expect(ui.lp.create.pair(p)).toHaveAttribute('data-coin', 'SOL');
     await expect(ui.lp.create.maxSol(p)).toBeVisible({ timeout: 30_000 });
     await expect(panel.getByTestId('lp-create-taken')).toContainText(
-      `This token already has a SOL pool on the public fee tier that passes the checks: ${B.p16.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${B.p16.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
     );
     await expect(panel.getByTestId('lp-create-first')).toHaveCount(0);
     await expect(panel).toContainText('a new address of its own (the standard address is already taken)');
