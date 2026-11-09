@@ -95,6 +95,45 @@ describe('runCycle, for the gap log', () => {
     expect(r.sent).toBe(0);
   });
 
+  // 2026-11-08: the float at 0 left these trips skipped for 4.4 h while a loan could carry them.
+  it('takes a SOL gap on a loan when the keeper holds none and loans are on; never a USDC one', async () => {
+    const { readMarketPrices } = await import('../lp/poolList');
+    const prices = { kind: 'ok', usd: new Map([[SOL_QUOTE.mint, 100], [USDC_QUOTE.mint, 1]]) } as Awaited<ReturnType<typeof readMarketPrices>>;
+    const sol = view();
+    const usdc = view(USDC_QUOTE);
+    pools = [sol, usdc];
+    gaps.set(sol.address, arb(0.3, 70));
+    gaps.set(usdc.address, arb(0.3, 70));
+    // The keeper holds nothing at all: no coin account, no token account.
+    const rpc = vi.fn(async (method: string, params: unknown[]) => {
+      if (method !== 'getMultipleAccounts') throw new Error(`unexpected ${method}`);
+      return { value: (params[0] as string[]).map(() => null) };
+    });
+    const quote = vi.fn(async () => {
+      throw new Error('Jupiter answered 400: NO_ROUTES_FOUND');
+    });
+    const run = (flashLoans: boolean) => {
+      vi.mocked(readMarketPrices).mockResolvedValueOnce(prices);
+      return runCycle({ rpc, jupiter: { quote } as unknown as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() }, { ...settings, flashLoans });
+    };
+    const outcomes = (r: Awaited<ReturnType<typeof runCycle>>) => r.seen.map((g) => [g.pool, g.outcome]);
+
+    const off = await run(false);
+    expect(outcomes(off)).toEqual([
+      [sol.address, 'no-coin'],
+      [usdc.address, 'no-coin'],
+    ]);
+    expect(quote).not.toHaveBeenCalled();
+
+    // Loans on: the SOL gap goes on to Jupiter's quote (no route on this fake chain); USDC cannot borrow.
+    const on = await run(true);
+    expect(outcomes(on)).toEqual([
+      [sol.address, 'no-route'],
+      [usdc.address, 'no-coin'],
+    ]);
+    expect(quote).toHaveBeenCalled();
+  });
+
   it('weighs nothing when the pools are not read', async () => {
     const { listPools } = await import('../lp/poolList');
     vi.mocked(listPools).mockResolvedValueOnce({ kind: 'unread', detail: 'down' });

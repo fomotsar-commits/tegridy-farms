@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
-import { flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
+import { canStartTrip, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
 
 const RIVAL = new PublicKey('Cn8LrZZnFD6qpyUY5uxJqTYKJ131U1dQLspEJqsxBn34');
 const RIVAL_SOL = new PublicKey('5XxSQ4X57z31aJBaC21FVRV5jXuU6jDQn96FsaPBKfTT');
@@ -54,5 +54,14 @@ describe('flash loan: the real trip’s instructions, byte for byte', () => {
     expect(loanFor(SOL_QUOTE.mint, 4n, 4n, true)).toBe(0n);
     expect(loanFor(SOL_QUOTE.mint, 10n, 4n, false)).toBe(0n);
     expect(loanFor(USDC_QUOTE.mint, 10n, 4n, true)).toBe(0n);
+  });
+
+  it('starts a trip from nothing held only when a loan carries all of it: SOL, loans on', () => {
+    expect(canStartTrip(SOL_QUOTE.mint, 0n, true)).toBe(true);
+    expect(canStartTrip(SOL_QUOTE.mint, 0n, false)).toBe(false);
+    expect(canStartTrip(USDC_QUOTE.mint, 0n, true)).toBe(false);
+    // Anything held starts a trip, loans or not.
+    expect(canStartTrip(SOL_QUOTE.mint, 1n, false)).toBe(true);
+    expect(canStartTrip(USDC_QUOTE.mint, 1n, false)).toBe(true);
   });
 });
