@@ -18,6 +18,19 @@ import {
 } from './sources';
 import { ALERT_RULE_KINDS } from './rules';
 
+// GONDI_LOAN_ADDRESS is zero until the deploy (the real state); `gondiState` stands in a
+// deployed address where a test needs the loan contract to exist.
+const gondiState = vi.hoisted(() => ({ address: '0x0000000000000000000000000000000000000000' }));
+vi.mock('../gondi/loanOffer.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    get GONDI_LOAN_ADDRESS() {
+      return gondiState.address;
+    },
+  };
+});
+
 beforeEach(() => vi.unstubAllEnvs());
 afterEach(() => vi.unstubAllEnvs());
 
@@ -73,19 +86,31 @@ describe('an unconfigured indexer is reported as unreadable', () => {
   it('the indexer-backed kinds are exactly the ones that go dark with it', () => {
     vi.stubEnv('VITE_INDEXER_URL', '');
     const dark = ALERT_RULE_KINDS.filter((k) => !readinessForRule(k).readable);
-    // loan-deadline is dark on its own, indexer or not: see the describe below.
+    // loan-deadline is dark until Gondi's loan contract is deployed: see the describe below.
     expect(dark.sort()).toEqual(['loan-deadline', 'lp-unlock', 'whale-move']);
     expect(darkSources(ALERT_RULE_KINDS).sort()).toEqual(['indexer', 'venue-lending']);
   });
 });
 
-describe("loan deadlines: NFT lending is on Gondi's contract, which nothing here reads yet", () => {
-  it("the venue-lending source is unreadable and says so in the shield's own words", async () => {
-    const { VENUE_LOANS_NOT_WATCHED } = await import('../shield/venues');
+describe("loan deadlines: read from Gondi's loan contract once it is deployed", () => {
+  it('while GONDI_LOAN_ADDRESS is zero, the venue-lending source is unreadable and says why', () => {
+    gondiState.address = '0x0000000000000000000000000000000000000000';
     const r = sourceReadiness()['venue-lending'];
     expect(r.readable).toBe(false);
-    expect(r.detail).toBe(VENUE_LOANS_NOT_WATCHED);
+    expect(r.detail).toMatch(/not deployed/i);
     expect(readinessForRule('loan-deadline').readable).toBe(false);
+  });
+
+  it('with the loan contract deployed, deadline rules are readable', () => {
+    gondiState.address = '0x5555555555555555555555555555555555555555';
+    try {
+      const r = sourceReadiness()['venue-lending'];
+      expect(r.readable).toBe(true);
+      expect(r.detail).toBeNull();
+      expect(evaluableRuleKinds()).toContain('loan-deadline');
+    } finally {
+      gondiState.address = '0x0000000000000000000000000000000000000000';
+    }
   });
 });
 
@@ -113,7 +138,7 @@ describe('which kinds this deployment could actually ask about', () => {
   it('excludes exactly the indexer-backed kinds and loan deadlines, and nothing else', () => {
     vi.stubEnv('VITE_INDEXER_URL', '');
     const missing = ALERT_RULE_KINDS.filter((k) => !evaluableRuleKinds().includes(k));
-    // loan-deadline: no reader for loans on Gondi's contract yet (lib/shield/venues.ts).
+    // loan-deadline: Gondi's loan contract is not deployed yet (lib/shield/venues.ts).
     expect(missing.sort()).toEqual(['loan-deadline', 'lp-unlock', 'whale-move']);
   });
 

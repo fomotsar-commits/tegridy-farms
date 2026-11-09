@@ -41,7 +41,7 @@ const say = (logs: string[], code: number, kind?: TxKind) =>
 describe('opening a pool: every failure row in its own words', () => {
   it('a front-run at the standard address is the System program’s custom 0, said as such', () => {
     expect(say(frontRunLogs, 0, 'lp-create')).toBe(
-      'Someone opened a pool at this address first. Nothing was opened. Start over: the site will use a new address.',
+      'Someone opened a pool at this address first. Nothing was opened. Start over: if their pool takes deposits, add to it instead; if not, yours gets a new address.',
     );
   });
 
