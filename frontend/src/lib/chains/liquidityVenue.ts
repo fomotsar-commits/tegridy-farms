@@ -63,6 +63,9 @@ export function liquidityVenueOn(chainId: number | undefined | null): LiquidityV
   };
 }
 
+/** What opening a pool costs on `openingVenueOn`'s factory: TegridyFactory's POOL_OPENING_FEE, a constant 0.006 ether. */
+export const OPENING_FEE_TEXT = '0.006 ETH';
+
 /**
  * The venue that NEW pools open on: the factory + router that charge 0.006 ETH to open a
  * pool (owner ruling 2026-10-25). Null where they are not deployed, which keeps today's

@@ -3,6 +3,8 @@ import type { usePoolTVL } from '../../hooks/usePoolTVL';
 import { TOKEN_LOGOS } from '../farm/poolConfig';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { CHAIN_ID } from '../../lib/constants';
+import { OPENING_FEE_TEXT, openingVenueOn } from '../../lib/chains/liquidityVenue';
 
 /**
  * The venue's own pools, as a table.
@@ -132,7 +134,7 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
         <p>
           This venue is small on purpose and the list is short. Most ERC-20 pairs can be opened here —
           ERC-777 tokens are refused by the factory — and if the pair does not exist yet, the first
-          deposit creates it and sets its starting price.
+          deposit creates it{openingVenueOn(CHAIN_ID) ? `, sets its starting price and pays the ${OPENING_FEE_TEXT} opening fee to the venue's treasury.` : ' and sets its starting price.'}
         </p>
         {/* /pools is the OTHER venue — the Solana AMM — and is a sibling tab, so
             this is a pointer rather than a link out of the section. */}

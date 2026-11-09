@@ -70,22 +70,26 @@ Being done by sessions (nothing from you):
 
 ---
 
-## 2026-11-07: opening a pool on Ethereum, Base and Robinhood costs 0.006 ETH (one script per chain, your key)
+## 2026-11-08: opening a pool on Ethereum, Base and Robinhood costs 0.006 ETH (deployed; three Safe batches left)
 
 Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools; on 2026-11-07
-"Add Base + Robinhood too", with the fee there going to the treasury Safe `0x796c…38C0`. Every
-command and what you should see: [`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md). Until these
-run, opening a pool is free on all three chains.
+"Add Base + Robinhood too", with the fee there going to the treasury Safe `0x796c…38C0`. You
+deployed all three on 2026-11-08; the addresses are in [`CONTRACTS.md`](CONTRACTS.md) and
+[`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md).
 
 - ✅ **How the site swaps the new coin pools** (your word 2026-10-27, "do whats best"): through a
   second SwapFeeRouter bound to the new router, with the same 0.5% to the venue.
-- ⬜ **Ethereum: deploy the new coin-pool factory, router and SwapFeeRouter** (one script, your
-  key), then the Safe accepts ownership of the SwapFeeRouter and its admin (one batch). Pools opened
-  there pay 0.006 ETH to the treasury; today's pool and the old factory stay as they are.
-- ⬜ **Base: the same script** (your key), then the multisig `0xBC4E…Be5B` accepts the two (one
-  batch). Base's 7 pools on the old factory stay as they are.
-- ⬜ **Robinhood: the same script, deployed by cast replay** (forge can't broadcast on chain 4663),
-  then the multisig accepts the two.
+- ✅ **Deployed on Ethereum, Base and Robinhood** (2026-11-08, your key; Robinhood by cast replay).
+  On Ethereum the treasury Safe `0x7D26…Bd7d` holds the factory's fee setting and is offered the
+  SwapFeeRouter (your pick 2026-11-08, over `0xA360`, whose 2 of 3 two delegated signers can meet).
+- ⬜ **Each Safe accepts ownership, by 2026-11-22** (one batch per chain, two calls, each with data
+  `0x79ba5097` = `acceptOwnership()`):
+  - Ethereum, treasury Safe `0x7D26…Bd7d`: `0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4` and
+    `0x5c109a51B786473DCDE2De41a133d42515f60590`.
+  - Base, multisig `0xBC4E…Be5B`: `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` and
+    `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37`.
+  - Robinhood, multisig `0xBC4E…Be5B`: `0x85AB297793e14283b54347C92C6AEFBaa20d1492` and
+    `0xe9c38b477573c7f386892E3CE15Ccb38f637e23e`.
 - ⬜ **NFT pools (Ethereum):** the NFT pool factory redeploy below now charges 0.006 ETH to open a
   pool too. Nothing extra to run.
 
