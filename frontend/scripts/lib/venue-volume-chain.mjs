@@ -1,22 +1,30 @@
 // The chain readers behind the all-time volume counter (scripts/venue-volume.mjs).
 // Each reader starts from its cursor, reads only what is new, and returns the new swaps
-// with their SOL, USDC or WETH leg. It values nothing: the caller prices each swap once,
-// when first seen. A reader that cannot finish throws, so its cursor never moves past a
-// swap it did not read. Keyless endpoints only; every address is pinned to
+// with their SOL, USDC, USDT or WETH leg. It values nothing: the caller prices each swap
+// once, when first seen. A reader that cannot finish throws, so its cursor never moves past
+// a swap it did not read. Keyless endpoints only; every address is pinned to
 // scripts/addresses.json by venue-volume.test.mjs.
 
 export const VENUE_PROGRAM = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT";
 export const JUPITER_PROGRAM = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
-// The Squads vault's WSOL and USDC accounts: the site's Jupiter fee lands in these.
+// The Squads vault's WSOL, USDC and USDT accounts: the site's Jupiter fee lands in one of
+// these (src/lib/jupiter.ts picks the fee mint). An account added here is read from its
+// first signature, since the cursor has no entry for it.
 export const JUPITER_FEE_ACCOUNTS = [
   "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa",
   "3gGzyz6cushQWNTAYRj4qJoQJyGcqdctXh98vNwBRvZ6",
+  "GT8LWC8xwwXGE9FatRyMDZccSYBqYNRMZkz2SCdgV6dj",
 ];
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 export const SOLANA_RPC = "https://api.mainnet-beta.solana.com";
-// Counted apart (bot_swaps, bot_usd) so a "without bots" figure needs no rescan.
-export const SOLANA_BOTS = new Set(["CzacL7gUCr4HYz6a2TGJjnmAR3Uxc65WEkKy6rU8w5bf"]);
+// Counted apart (bot_swaps, bot_usd) so a "without bots" figure needs no rescan: an outside
+// arbitrage wallet, and the venue's own price keeper (scripts/price-keeper.mjs).
+export const SOLANA_BOTS = new Set([
+  "CzacL7gUCr4HYz6a2TGJjnmAR3Uxc65WEkKy6rU8w5bf",
+  "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz",
+]);
 const POOL_SIZE = 637;
 
 export const EVM_SWAP_TOPIC = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822";
@@ -107,17 +115,17 @@ function tokenDelta(tx, index) {
   };
   return pick(tx.meta.postTokenBalances) - pick(tx.meta.preTokenBalances);
 }
-// Value on USDC when the swap has a USDC leg, else on SOL.
+// Value on a dollar leg (USDC, then USDT) when the swap has one, else on SOL.
+const LEG_MINTS = [USDC_MINT, USDT_MINT, SOL_MINT];
 function pickLeg(amounts) {
-  if (amounts[USDC_MINT] > 0n) return { mint: USDC_MINT, raw: amounts[USDC_MINT] };
-  if (amounts[SOL_MINT] > 0n) return { mint: SOL_MINT, raw: amounts[SOL_MINT] };
-  return null;
+  const mint = LEG_MINTS.find((m) => amounts[m] > 0n);
+  return mint ? { mint, raw: amounts[mint] } : null;
 }
 
 /**
  * A swap in one of our pools: one vault rose and the other fell. Deposits (both rise),
  * withdrawals (both fall) and fee collection are not swaps. Returns null for those, or
- * { leg, payer } where leg is the SOL or USDC side (null when the pool has neither).
+ * { leg, payer } where leg is the USDC, USDT or SOL side (null when the pool has none).
  */
 export function poolSwap(tx, pool) {
   if (tx.meta.err) return null;
@@ -144,9 +152,9 @@ const SWAPS_HOP = 112;
 /**
  * A Jupiter swap that paid our fee into `feeAccount`, read from Jupiter's own events:
  * FeeEvent (V1) or the fee account's own balance change (V2) says what our fee was; the
- * SwapEvents or the SwapsEvent give each hop. The leg is the swap's net SOL or USDC across
- * hops, with a fee taken from the input added back: what the trader put in or got out
- * before our fee. Null when no fee reached `feeAccount`; throws when one did with no hops.
+ * SwapEvents or the SwapsEvent give each hop. The leg is the swap's net USDC, USDT or SOL
+ * across hops, with a fee taken from the input added back: what the trader put in or got
+ * out before our fee. Null when no fee reached `feeAccount`; throws when one did with no hops.
  */
 export function jupiterSwap(tx, feeAccount) {
   if (tx.meta.err) return null;
@@ -196,7 +204,7 @@ export function jupiterSwap(tx, feeAccount) {
   if (!fee) return null;
   if (hops === 0) throw new Error(`a Jupiter fee with no SwapEvent (new event shape?): ${tx.transaction.signatures?.[0] ?? "?"}`);
   const amounts = {};
-  for (const m of [USDC_MINT, SOL_MINT]) {
+  for (const m of LEG_MINTS) {
     const n = net[m] ?? 0n;
     amounts[m] = n < 0n ? -n + (fee.mint === m ? fee.amount : 0n) : n;
   }
