@@ -32,9 +32,22 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -
         Some(5) => amm_config.create_pool_fee = value,
         Some(6) => amm_config.disable_create_pool = if value == 0 { false } else { true },
         Some(7) => update_creator_fee_rate(amm_config, value),
+        // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
+        // lets through (states/config.rs). The System Program's address, all zeros, is nobody.
+        Some(8) => set_swap_guard(amm_config, value)?,
+        Some(9) => {
+            let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
+            amm_config.keeper = *keeper.key;
+        }
         _ => return err!(ErrorCode::InvalidInput),
     }
 
+    Ok(())
+}
+
+fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
+    require!(swap_guard <= 1, ErrorCode::InvalidInput);
+    amm_config.swap_guard = swap_guard;
     Ok(())
 }
 
@@ -244,5 +257,22 @@ mod fund_owner_test {
         let mut t = owned_by(crate::admin::ID);
         set_new_fund_owner(&mut t, island).unwrap();
         assert_eq!(t.fund_owner, island);
+    }
+}
+
+#[cfg(test)]
+mod swap_guard_setting_test {
+    use super::*;
+
+    #[test]
+    fn the_guard_is_set_on_and_off_and_nothing_else() {
+        let mut t = test_tier(AmmConfig::default());
+        set_swap_guard(&mut t, 1).unwrap();
+        assert_eq!(t.swap_guard, 1);
+        set_swap_guard(&mut t, 0).unwrap();
+        assert_eq!(t.swap_guard, 0);
+        let refused = set_swap_guard(&mut t, 2);
+        assert!(matches!(refused, Err(e) if format!("{e:?}").contains("InvalidInput")));
+        assert_eq!(t.swap_guard, 0);
     }
 }

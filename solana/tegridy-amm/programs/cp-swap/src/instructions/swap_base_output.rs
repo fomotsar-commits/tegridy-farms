@@ -11,6 +11,14 @@ pub fn swap_base_output(
     max_amount_in: u64,
     amount_out_received: u64,
 ) -> Result<()> {
+    // memetics.finance: the swap guard, as in swap_base_input (states/config.rs refuses_swap).
+    require!(
+        !ctx.accounts.amm_config.refuses_swap(
+            solana_program::instruction::get_stack_height(),
+            ctx.accounts.payer.key
+        ),
+        ErrorCode::SwapNotDirect
+    );
     require_gt!(amount_out_received, 0);
     let block_timestamp = solana_program::clock::Clock::get()?.unix_timestamp as u64;
     let pool_id = ctx.accounts.pool_state.key();
