@@ -284,6 +284,12 @@
 >         None,
 >     )?;
 >     Ok(())
+=== src/error.rs ===
+42a43,46
+>     /// memetics.finance: the tier's swap guard is on and another program called the swap
+>     /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
+>     #[msg("This pool's swaps must be sent directly, not called by another program")]
+>     SwapNotDirect,
 === src/instructions/admin/collect_fund_fee.rs ===
 11,12c11,12
 <     /// Only admin or fund_owner can collect fee now
@@ -317,29 +323,44 @@
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 === src/instructions/admin/update_config.rs ===
-43c43
+34a35,41
+>         // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
+>         // lets through (states/config.rs). The System Program's address, all zeros, is nobody.
+>         Some(8) => set_swap_guard(amm_config, value)?,
+>         Some(9) => {
+>             let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
+>             amm_config.keeper = *keeper.key;
+>         }
+40a48,53
+> fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
+>     require!(swap_guard <= 1, ErrorCode::InvalidInput);
+>     amm_config.swap_guard = swap_guard;
+>     Ok(())
+> }
+> 
+43c56
 <     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-48c48,50
+48c61,63
 <     assert!(trade_fee_rate + amm_config.creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     // memetics.finance: never 0, as in create_amm_config (lib.rs).
 >     assert!(trade_fee_rate > 0);
 >     assert!(trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-54c56
+54c69
 <     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-59c61
+59c74
 <     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-75a78,80
+75a91,93
 >     // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
 >     // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
 >     require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
-84a90,247
+84a103,277
 > }
 > 
 > /// A fee tier as the update helpers take it.
@@ -498,6 +519,23 @@
 >         set_new_fund_owner(&mut t, island).unwrap();
 >         assert_eq!(t.fund_owner, island);
 >     }
+> }
+> 
+> #[cfg(test)]
+> mod swap_guard_setting_test {
+>     use super::*;
+> 
+>     #[test]
+>     fn the_guard_is_set_on_and_off_and_nothing_else() {
+>         let mut t = test_tier(AmmConfig::default());
+>         set_swap_guard(&mut t, 1).unwrap();
+>         assert_eq!(t.swap_guard, 1);
+>         set_swap_guard(&mut t, 0).unwrap();
+>         assert_eq!(t.swap_guard, 0);
+>         let refused = set_swap_guard(&mut t, 2);
+>         assert!(matches!(refused, Err(e) if format!("{e:?}").contains("InvalidInput")));
+>         assert_eq!(t.swap_guard, 0);
+>     }
 === src/instructions/initialize.rs ===
 204a205,209
 >     // TEGRIDY FORK: index 0 is the launch tier (no opening fee, the lowest trade fee).
@@ -505,8 +543,31 @@
 >     if ctx.accounts.amm_config.index == 0 {
 >         return err!(ErrorCode::NotApproved);
 >     }
+=== src/instructions/swap_base_input.rs ===
+75a76,84
+>     // memetics.finance: a tier whose swap guard is on takes a swap only as an instruction of the
+>     // transaction itself, its keeper's apart (states/config.rs refuses_swap).
+>     require!(
+>         !ctx.accounts.amm_config.refuses_swap(
+>             solana_program::instruction::get_stack_height(),
+>             ctx.accounts.payer.key
+>         ),
+>         ErrorCode::SwapNotDirect
+>     );
+=== src/instructions/swap_base_output.rs ===
+13a14,21
+>     // memetics.finance: the swap guard, as in swap_base_input (states/config.rs refuses_swap).
+>     require!(
+>         !ctx.accounts.amm_config.refuses_swap(
+>             solana_program::instruction::get_stack_height(),
+>             ctx.accounts.payer.key
+>         ),
+>         ErrorCode::SwapNotDirect
+>     );
 === src/states/config.rs ===
-4a5,11
+1a2
+> use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
+4a6,12
 > /// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
 > pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 > 
@@ -514,7 +575,102 @@
 > /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 > pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 > 
-34a42,90
+28a37,45
+>     /// memetics.finance: the swap guard. 0, a swap on this tier runs wherever it is called
+>     /// from, as upstream. 1, a swap must be an instruction of the transaction itself: one that
+>     /// another program calls is refused (`refuses_swap`). On 2026-11-10 every arbitrage bot in
+>     /// these pools traded from inside its own program, and every wallet's swap was direct.
+>     /// Taken from upstream's padding, which every tier holds as zeros: off until the admin sets it.
+>     pub swap_guard: u64,
+>     /// memetics.finance: the one signer whose swaps another program may still call while the
+>     /// guard is on. The all-zero key, which every tier starts with, is nobody.
+>     pub keeper: Pubkey,
+30c47
+<     pub padding: [u64; 15],
+---
+>     pub padding: [u64; 10],
+34c51,178
+<     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 * 15;
+---
+>     // The same 236 bytes as upstream: the guard and the keeper take 40 of its 120 of padding.
+>     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 + 32 + 8 * 10;
+> 
+>     /// memetics.finance: whether this tier refuses a swap that `payer` signs at `stack_height`:
+>     /// 1 for an instruction of the transaction itself, more for one another program calls.
+>     pub fn refuses_swap(&self, stack_height: usize, payer: &Pubkey) -> bool {
+>         self.swap_guard != 0
+>             && stack_height > TRANSACTION_LEVEL_STACK_HEIGHT
+>             && (self.keeper == Pubkey::default() || self.keeper != *payer)
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod swap_guard_test {
+>     use super::*;
+> 
+>     const DIRECT: usize = TRANSACTION_LEVEL_STACK_HEIGHT;
+>     const CALLED: usize = TRANSACTION_LEVEL_STACK_HEIGHT + 1;
+> 
+>     fn tier(swap_guard: u64, keeper: Pubkey) -> AmmConfig {
+>         AmmConfig {
+>             swap_guard,
+>             keeper,
+>             ..Default::default()
+>         }
+>     }
+> 
+>     // What every tier on mainnet holds until the admin sets it: zeros where the padding was.
+>     #[test]
+>     fn a_tier_as_upstream_left_it_refuses_nothing() {
+>         let t = AmmConfig::default();
+>         assert_eq!((t.swap_guard, t.keeper), (0, Pubkey::default()));
+>         let anyone = Pubkey::new_unique();
+>         assert!(!t.refuses_swap(DIRECT, &anyone));
+>         assert!(!t.refuses_swap(CALLED, &anyone));
+>         assert!(!t.refuses_swap(CALLED + 3, &anyone));
+>     }
+> 
+>     #[test]
+>     fn the_guard_takes_every_direct_swap_and_refuses_one_another_program_calls() {
+>         let t = tier(1, Pubkey::default());
+>         let anyone = Pubkey::new_unique();
+>         assert!(!t.refuses_swap(DIRECT, &anyone));
+>         assert!(t.refuses_swap(CALLED, &anyone));
+>         assert!(t.refuses_swap(CALLED + 3, &anyone));
+>     }
+> 
+>     #[test]
+>     fn with_no_keeper_set_nobody_is_let_through_not_even_the_all_zero_key() {
+>         let t = tier(1, Pubkey::default());
+>         assert!(t.refuses_swap(CALLED, &Pubkey::default()));
+>     }
+> 
+>     #[test]
+>     fn the_keeper_alone_may_be_called_by_another_program() {
+>         let keeper = Pubkey::new_unique();
+>         let t = tier(1, keeper);
+>         assert!(!t.refuses_swap(CALLED, &keeper));
+>         assert!(!t.refuses_swap(DIRECT, &keeper));
+>         assert!(t.refuses_swap(CALLED, &Pubkey::new_unique()));
+>     }
+> 
+>     // A keeper set while the guard is off changes nothing.
+>     #[test]
+>     fn the_guard_off_refuses_nothing_whatever_the_keeper() {
+>         let t = tier(0, Pubkey::new_unique());
+>         assert!(!t.refuses_swap(CALLED, &Pubkey::new_unique()));
+>     }
+> 
+>     #[test]
+>     fn the_account_is_the_size_upstream_made_it() {
+>         assert_eq!(AmmConfig::LEN, 236);
+>         let mut data = Vec::new();
+>         tier(1, Pubkey::new_unique()).try_serialize(&mut data).unwrap();
+>         assert_eq!(data.len(), AmmConfig::LEN);
+>         // The guard sits where the padding began (byte 116), the keeper right after it (124).
+>         assert_eq!(data[116..124], 1u64.to_le_bytes());
+>         assert!(data[156..].iter().all(|b| *b == 0));
+>     }
 > }
 > 
 > #[cfg(test)]

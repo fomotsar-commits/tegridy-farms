@@ -78,6 +78,13 @@ fallback for pairs we don't host well.
 > later cp-swap upgrade built from this source, a vault proposal of its own: the planned redo
 > to `1e55bcdc…` (#31) does not carry them. `diff-guard` was re-pinned for it.
 
+> **2026-11-10: the swap guard, in source.** A fee tier can be set to take a swap only as an
+> instruction of the transaction itself: one that another program calls is refused, unless the
+> tier's keeper signs it. Off on every tier until the vault switches it on, and the vault can
+> switch it off again. See "The swap guard" below. It reaches mainnet with the next cp-swap
+> upgrade built from this source, which also carries the fee rules of 2026-11-03.
+> `diff-guard` was re-pinned for it.
+
 ---
 
 ## The entire code diff from upstream
@@ -88,9 +95,13 @@ Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 `instructions/initialize.rs` (since 2026-10-19: public `initialize` refuses fee tier 0, see
 "The launch-tier gate" below), **plus the fee rules and the coin check** of 2026-11-03
 (`collect_fund_fee.rs`, `update_config.rs`, `states/config.rs`, `utils/token.rs` and the
-`create_amm_config` checks in `lib.rs`; see "The fee rules and the coin check" below).
-**No other code**: all swap, curve, and fee math is byte-identical to upstream, and no other
-upstream instruction is changed. After the fork,
+`create_amm_config` checks in `lib.rs`; see "The fee rules and the coin check" below),
+**plus the swap guard** of 2026-11-10 (one refusal at the top of `swap_base_input.rs` and of
+`swap_base_output.rs`, two fields of `states/config.rs` taken from upstream's padding, two
+settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" below).
+**No other code**: all swap, curve, and fee math is byte-identical to upstream (the guard
+refuses a swap before any of it runs, or leaves it alone), and no other upstream instruction
+is changed. After the fork,
 **no external party retains any authority on this program**; every authority is the Tegridy
 admin/treasury.
 
@@ -376,6 +387,69 @@ undone, and only the controls passed there.
 | unit tests (`cargo test --lib`, now run by CI's `build` job): six on the fee helpers in `update_config.rs` and four on its fund-fee hand-over, four on `is_supported_mint`, three on how each live tier splits a swap's fee (`states/config.rs`) | 27 of 27 with upstream's ten. Fixes undone: the seven that guard the first fixes fail; with the hand-over check alone removed, its three refusal tests fail; the controls pass. Each mutant that breaks only what a boundary or split test pins also fails it: a ceiling one unit low on the creator path and on the fund path, the venue's share rounded up, the venue's and the island's rates swapped, and the hand-over check comparing with the tier's protocol owner instead of the admin |
 | `tests/cp-swap-fee-rules.test.ts` (CI's migration-rehearsal job), on a local validator, both builds made as that job makes them (Solana 2.3.0, Anchor 0.32.1, this wallet as admin): `create_amm_config`'s checks and the collect rule, which a unit test cannot reach, and the one hand-over as a real instruction | 8 of 8. Fixes undone: the five that guard a fix fail (each refused tier made; the admin collects the fund fee), the control passes. Hand-over check alone removed: its two tests fail (the second hand-over goes through), the other six pass |
 | the range-pool program's own test of its `is_supported_mint` | 2 of 2. Fix undone: the guard fails, the control passes |
+
+### The swap guard (2026-11-10)
+
+Owner, 2026-11-10: "we need to protect our pools from all arb bots". Measured that day on the 25
+pools (24 hours, 204 swaps, each transaction read in full): 120 were arbitrage bots (three
+programs: `GLCNMEV6…`, `LiveiNLx…`, `1oan39me…`), and every one of them reached this program
+from inside the bot's own program (a cross-program call). The other 84, two visitors' wallets
+and the venue's own price robot, were instructions of their transaction itself. Their
+transactions held only this program, the token programs, the associated-token program, the
+System Program, ComputeBudget and Lighthouse.
+
+| Rule | Where | Before |
+|---|---|---|
+| A fee tier holds a swap guard, 0 (off) or 1 (on), and a keeper. Both sit in what upstream left as padding, so the account is the same 236 bytes and every tier on chain reads as off, with no keeper, until the vault sets them. | `states/config.rs`: `swap_guard` (byte 116), `keeper` (byte 124), `padding` now 10 words | 15 words of padding |
+| With the guard on, a swap must be an instruction of the transaction itself (stack height 1). One that another program calls is refused with 6015 `SwapNotDirect`, unless the tier's keeper signs it. The all-zero key, which every tier starts with, is no keeper. `swap_base_input` and `swap_base_output` alike; deposits, withdrawals and every other instruction are untouched. | `AmmConfig::refuses_swap`, called first in `swap_base_input.rs` and `swap_base_output.rs`, reading `get_stack_height()` | a swap ran wherever it was called from |
+| Only the admin (the vault) sets them: `update_amm_config` param 8 takes 0 or 1 and refuses anything else (6003 `InvalidInput`); param 9 takes the keeper as the first remaining account (the System Program's address clears it; none handed in is 6003). | `update_config.rs` | params 0 to 7 |
+| One new error, last in the list, so every code before it keeps its number. | `error.rs`: 6015 `SwapNotDirect`, "This pool's swaps must be sent directly, not called by another program" | 6014 was the last |
+
+The swap, curve and fee maths is untouched: the guard runs before any of it, and either
+refuses the swap or leaves it alone. No account list changes, so every client (the site, the
+robot, the Jupiter SDK) sends the same instruction as before.
+
+**What it changes on chain, once upgraded.** Nothing, until the vault switches a tier's guard
+on (a proposal of its own: `update_amm_config(8, 1)` on the tier; all 25 pools read
+2026-11-10 are on fee setting 1). From then, on that tier's pools:
+
+- A wallet that sends its own swap trades as before: same fee, same price, same limits.
+- A swap sent from inside another program is refused. Today that is the three bots above and
+  nobody else. It is also every aggregator (Jupiter calls a pool from inside its own
+  program), every trading bot or app that routes through its own program, and every
+  smart-contract wallet: a Squads vault's swap is a call from the Squads program. None of
+  these traded in these pools in the 24 hours read.
+- The venue's robot is not affected and needs no keeper: it sends each swap as an
+  instruction of its own transaction (27 of 27). The keeper exists for a robot that later
+  trades through a program of its own; until the vault names one, the rule is the same for
+  everybody.
+- It is a deterrent with a known edge, not a wall. A bot rewritten to send this program's
+  swap as its own instruction, beside its other legs or as one transaction of a Jito bundle,
+  is not refused. Listing an aggregator later means letting its program through, which this
+  version cannot do per caller (it needs the instructions sysvar, an account-list change).
+- The vault switches it off the same way (`update_amm_config(8, 0)`), with no upgrade.
+
+**In the same release as the upgrade, not before** (each describes the program on chain): the
+committed `idl/raydium_cp_swap.json` and its hash in
+`frontend/src/lib/launcher/solana/write/idl.test.ts` (the tier's two fields, the error); the
+site's error table `frontend/src/lib/solana/cpswap/errors.ts` (6015 and its words); the lines
+a visitor reads before adding liquidity or opening a pool, which say how this program differs
+from Raydium's (`frontend/src/components/solana/lp/LpDisclosures.tsx`,
+`SolanaLpSection.tsx`, tied by `src/test/poolProgramCopy.test.ts`); the Jupiter SDK's
+fixture `jupiter-sdk/tests/fixtures/memetics.so` and the hash its parity test pins;
+`MAINNET_RUNBOOK.md` and the registry text in `frontend/scripts/addresses.json`. This
+upgrade is also the first to carry the fee rules of 2026-11-03, with their own list above.
+
+**How it was proved, 2026-11-10.** The validator runs were made as CI's migration-rehearsal
+job makes them (the test wallet as admin, a throwaway program id), on Agave 3.1.11 with
+Anchor 0.32.1; CI runs them on 2.3.0.
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): six on `refuses_swap` and the account's size (`states/config.rs`), one on the guard's setting (`update_config.rs`) | 34 of 34 with the 27 before |
+| `tests/cp-swap-swap-guard.test.ts` on a local validator, with `tests/cpi-caller` (a test-only program that calls the program it is handed) as the other program: guard off, a called swap goes through; on, a wallet's own swap goes through and a called one is refused, both kinds, with nothing moved; the keeper alone is let through; the System Program's address clears it; only the admin sets either, the guard only to 0 or 1; off again, as upstream | 8 of 8 |
+| the same file against the same build with `refuses_swap` made always false | the three refusals fail (the called swap goes through); the five controls pass |
+| `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
 
 ---
 

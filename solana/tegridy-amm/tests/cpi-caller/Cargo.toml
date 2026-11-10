@@ -1,0 +1,17 @@
+[package]
+name = "cpi-caller"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "TEST ONLY. Calls the program it is handed with the accounts and data it is handed, as an arbitrage bot's program calls a pool. For tests/cp-swap-swap-guard.test.ts on a local validator; deployed nowhere else."
+
+# Its own workspace, as jupiter-sdk is: the pool program's workspace manifest and lock are
+# pinned byte for byte (solana/guards), and a folder under programs/ would join it.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+# The version cp-swap itself builds with (../../Cargo.lock).
+solana-program = "=2.3.0"
