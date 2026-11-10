@@ -1263,22 +1263,22 @@
       "address": "0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630",
       "role": "NFT lending: Gondi's MultiSourceLoan v3.2, unchanged. Borrowers lock a JBAC, Nakamigos or GNSS NFT and borrow WETH from signed lender offers; the venue takes 500 bps of the interest, paid to the treasury Safe. The site's GONDI_LOAN_ADDRESS (src/lib/gondi/loanOffer.js).",
       "status": "live, deployed 2026-11-07",
-      "custody": "deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d accepts: pendingOwner() is the Safe, and transferOwnership() opens 2 days after the request (2026-11-09 21:43:47 UTC).",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2); accepted 2026-11-10 in Safe nonce 1, tx 0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487, pendingOwner() now zero.",
       "expect": {
         "type": "contract"
       },
-      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (6th of 6), receipt status 0x1, block 0x1924f27, tx 0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f. Runtime bytecode read back equal to contracts/vendor/gondi-v3.2/build/MultiSourceLoan.json apart from immutables; Etherscan-verified. owner() and pendingOwner() read 2026-11-08."
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (6th of 6), receipt status 0x1, block 0x1924f27, tx 0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f. Runtime bytecode read back equal to contracts/vendor/gondi-v3.2/build/MultiSourceLoan.json apart from immutables; Etherscan-verified. owner() = the treasury Safe and pendingOwner() = 0x0 read 2026-11-10 on two RPCs."
     },
     {
       "id": "gondi-liquidator",
       "address": "0xe61613035B85308F31E068bBC31257524ffE7Fa6",
       "role": "Gondi's AuctionWithBuyoutLoanLiquidator v3.2, unchanged: runs the 3-day auction for an unpaid loan funded by several lenders. Only gondi-loan is a valid loan contract.",
       "status": "live, deployed 2026-11-07",
-      "custody": "deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d accepts: pendingOwner() is the Safe, and transferOwnership() opens 2 days after the request (2026-11-09 21:43:35 UTC).",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2); accepted 2026-11-10 in Safe nonce 1, tx 0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487, pendingOwner() now zero.",
       "expect": {
         "type": "contract"
       },
-      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (5th of 6), receipt status 0x1, block 0x1924f26, tx 0xb325dc5526aad9ede20f868e11ff951743c9ebffec74d68fc811c498a3f05ae8. Etherscan-verified. owner() and pendingOwner() read 2026-11-08."
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (5th of 6), receipt status 0x1, block 0x1924f26, tx 0xb325dc5526aad9ede20f868e11ff951743c9ebffec74d68fc811c498a3f05ae8. Etherscan-verified. owner() = the treasury Safe and pendingOwner() = 0x0 read 2026-11-10 on two RPCs."
     },
     {
       "id": "gondi-liquidation-distributor",
