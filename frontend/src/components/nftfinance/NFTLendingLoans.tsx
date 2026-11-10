@@ -14,7 +14,7 @@ import { GONDI_LOAN_ABI } from '../../lib/gondi/abi.js';
 import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, loansPerOffer, sameAddress } from '../../lib/gondi/loanOffer.js';
 import { downloadIcs, loanDueIcs } from '../../lib/gondi/calendar';
 import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/gondi/loanMath';
-import { nextRepayStep, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
+import { nextRepayStep, repayCovered, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
 import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
 import { LoanTimeline } from './LoanTimeline';
@@ -227,7 +227,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
   const owedNow = owedAt(loan, now);
   // Wrap what is short, approve, repay: the same steps the loan shield builds (lib/gondi/repay.ts).
   const owedPadded = repayNeeded(loan, now);
-  const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded) : null;
+  const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded, repayCovered(loan, now)) : null;
   const repayStep = next?.step ?? null;
   const wethShort = next?.wethShort ?? null;
 

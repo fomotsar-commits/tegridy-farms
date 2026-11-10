@@ -103,12 +103,12 @@ test.describe('NFT lending surface', () => {
     await expect(page.getByText(`You own NAKA #${seed.tokenId}.`)).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole('button', { name: /^Approve NFT$/ }).click();
-    // Latches to "Approved" only on a confirmed receipt.
-    await expect(
-      page.getByRole('button', { name: /^Approved$/ }),
-      'the NFT approval never confirmed on the fork, so the borrow below could only revert.',
-    ).toBeVisible({ timeout: 60_000 });
-    await page.getByRole('button', { name: /^Take Loan$/ }).click();
+    // One button: it turns from "Approve NFT" into "Take Loan" only on a confirmed receipt
+    // (or once getApproved reads back the loan contract), so Take Loan cannot be pressed early.
+    const takeLoan = page.getByRole('button', { name: /^Take Loan$/ });
+    await expect(takeLoan, 'the NFT approval never confirmed on the fork, so the borrow below could only revert.').toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole('button', { name: /^Approve NFT$/ })).toHaveCount(0);
+    await takeLoan.click();
 
     // THE BORROW LANDED: the NFT is in the loan contract (read from the fork), and the
     // loan shows under My Loans, recorded from the borrow's own receipt and matched
