@@ -22,7 +22,7 @@ import { ERC20_ABI } from '../contracts';
 import { GONDI_LOAN_ABI } from '../gondi/abi.js';
 import { WETH_ADDRESS } from '../gondi/loanOffer.js';
 import type { Loan } from '../gondi/loanMath';
-import { nextRepayStep, repayLoanArgs, repayNeeded, type RepayStep } from '../gondi/repay';
+import { nextRepayStep, repayCovered, repayLoanArgs, repayNeeded, type RepayStep } from '../gondi/repay';
 import { EXECUTION_IS_YOURS } from './automation';
 import type { ShieldHealth } from './health';
 
@@ -110,7 +110,7 @@ export function prepareRepay(input: PreparedRepayInput): PreparedRepayResult {
   }
 
   const neededWei = repayNeeded(loan, BigInt(input.nowUnix));
-  const { step, wethShort } = nextRepayStep(input.wethBalance, input.wethAllowance, neededWei);
+  const { step, wethShort } = nextRepayStep(input.wethBalance, input.wethAllowance, neededWei, repayCovered(loan, BigInt(input.nowUnix)));
   const base = { executor: 'user' as const, neededWei, chainId: input.chainId, loanId: input.loanId };
 
   if (step === 'wrap') {
