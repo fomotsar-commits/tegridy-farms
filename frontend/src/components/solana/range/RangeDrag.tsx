@@ -108,6 +108,7 @@ export function RangeDrag(p: {
       aria-valuetext={`${stopTimes(shown[which])}: ${formatSolPrice(priceAtStop(p.now, shown[which]))}`}
       data-testid={`range-drag-${which}`}
       className="sr-only"
+      style={{ fontSize: 16 }}
     />
   );
 

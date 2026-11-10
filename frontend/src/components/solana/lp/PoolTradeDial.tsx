@@ -97,7 +97,7 @@ export function PoolTradeDial({ view, creatorFeeRate }: { view: PoolView; creato
           aria-label={`Size of one buy, in ${view.quote.symbol}`}
           aria-valuetext={`${headline}. ${paid}`}
           className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-          style={{ minHeight: 44 }}
+          style={{ minHeight: 44, fontSize: 16 }}
         />
       </div>
       <p className="text-white/80" aria-live="polite" data-testid="lp-trade-dial-paid">

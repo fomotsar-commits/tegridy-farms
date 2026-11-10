@@ -78,7 +78,7 @@ export function FloorBar(p: {
         aria-label={`Amount lent, against the ${p.symbol} floor and best bid`}
         aria-valuetext={valueText}
         className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-        style={{ minHeight: 44 }}
+        style={{ minHeight: 44, fontSize: 16 }}
       />
     </div>
   );

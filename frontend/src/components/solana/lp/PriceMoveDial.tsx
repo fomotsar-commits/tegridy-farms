@@ -84,7 +84,7 @@ export function PriceMoveDial({ quoteSymbol }: { quoteSymbol: string }) {
           aria-label="Price, against when you added"
           aria-valuetext={valueText}
           className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-          style={{ minHeight: 44 }}
+          style={{ minHeight: 44, fontSize: 16 }}
         />
       </div>
       <p className="text-white/80" aria-live="polite" data-testid="lp-price-dial-mix">

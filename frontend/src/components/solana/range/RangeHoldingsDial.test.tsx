@@ -80,6 +80,8 @@ describe.each(PAIRS)('%s', (_, pair) => {
       render(<RangeHoldingsDial pair={pair} r={r} liquidity={plan.liquidity} now={NOW} />);
       expect(screen.getByTestId('range-holdings').dataset.where).toBe('inside');
       expect(slider().value).toBe(String(holdingsStop(min, max, NOW)));
+      // The phone guard's 16px rule for every input (see lp/sliderFont.test.tsx).
+      expect(slider().style.fontSize).toBe('16px');
       expect(text('range-holdings-headline')).toMatch(/BAYLA and .* SOL$/);
       expect(text('range-holdings-at')).toMatch(/^at 0\.000\d+ SOL per BAYLA$/);
       expect(text('range-holdings-line')).toBe('Inside your range it holds both, and earns from swaps.');

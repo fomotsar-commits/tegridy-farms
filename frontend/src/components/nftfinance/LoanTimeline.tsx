@@ -134,7 +134,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
           aria-label={side === 'borrower' ? 'Day you repay on' : 'Day the loan is repaid on'}
           aria-valuetext={valueText}
           className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-          style={{ minHeight: 44 }}
+          style={{ minHeight: 44, fontSize: 16 }}
         />
       </div>
 

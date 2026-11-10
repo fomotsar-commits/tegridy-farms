@@ -102,7 +102,7 @@ export function RangeHoldingsDial({ pair, r, liquidity, now }: { pair: Pair; r: 
           aria-label={`Price, to see what the position holds there`}
           aria-valuetext={`${headline} ${at}. ${line}`}
           className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-          style={{ minHeight: 44 }}
+          style={{ minHeight: 44, fontSize: 16 }}
         />
       </div>
       <p className={`text-[11px] ${out ? 'text-amber-300' : 'text-white/75'}`} aria-live="polite" data-testid="range-holdings-line">
