@@ -524,7 +524,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
         </div>
       </div>
 
-      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} />
+      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} setPrincipal={setPrincipal} />
 
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
