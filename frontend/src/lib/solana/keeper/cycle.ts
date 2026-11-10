@@ -790,6 +790,13 @@ async function gateOf(io: KeeperIo, mint: string): Promise<string | null> {
 export async function engineTrip(io: KeeperIo, s: KeeperSettings, rec: EngineRecord, name: string): Promise<Tried> {
   const coin = KEEPER_COINS.find((c) => c.mint === rec.coinMint);
   if (!coin || !io.routeLegs) return 'no-plan';
+  // Only trips through our own pools (owner 2026-11-10: "i cannot have memetics.finance get arbd by
+  // someone else ... focus our bot only on our stuff and relevant pools"): one that touches none of
+  // ours costs no call and no attention, whatever the engine hands over.
+  if (!rec.legs.some((l) => l.dex === 'ours')) {
+    io.log(`${name}: skipped, it does not pass through one of our pools`);
+    return 'no-plan';
+  }
   if (rec.legs.some((l) => l.inCut > 0 || l.outCut > 0)) {
     io.log(`${name}: skipped, the coin has a transfer fee: left to the pass`);
     return 'no-plan';

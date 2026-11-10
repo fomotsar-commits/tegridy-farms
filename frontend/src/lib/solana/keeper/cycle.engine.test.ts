@@ -126,6 +126,20 @@ describe('engineTrip: a handed-over trip through the send step', () => {
     await engineTrip(r.io, s, record(legs, { inRaw: 80n * SOL }), 'X');
     expect(calls[0]!.amountIn).toBe(50n * SOL);
   });
+  it('takes only trips through one of our pools: another venue’s gap costs no call (owner 11-10)', async () => {
+    const legs = [leg('A', 'poolA', SOL_QUOTE.mint, MINT, (x) => x, []), leg('B', 'poolB', MINT, SOL_QUOTE.mint, (x) => x, [])];
+    const r = rig(legs, 0n);
+    const rec = record(legs);
+    rec.legs[0]!.dex = 'whirlpool';
+    rec.legs[1]!.dex = 'dlmm';
+    expect(await engineTrip(r.io, s, rec, 'X')).toBe('no-plan');
+    expect(r.io.rpc).not.toHaveBeenCalled();
+    expect(r.io.routeLegs).not.toHaveBeenCalled();
+    expect(r.io.log).toHaveBeenCalledWith(expect.stringContaining('does not pass through one of our pools'));
+    // One leg of ours is enough: SOL > BOBO on PumpSwap > GRR on PumpSwap > SOL in ours.
+    rec.legs[1]!.dex = 'ours';
+    expect(await engineTrip(r.io, s, rec, 'X')).not.toBe('no-plan');
+  });
   it('leaves a transfer-fee coin to the pass, asking the chain nothing', async () => {
     const legs = [leg('A', 'poolA', SOL_QUOTE.mint, MINT, (x) => x, []), leg('B', 'poolB', MINT, SOL_QUOTE.mint, (x) => x, [])];
     const r = rig(legs, 0n);

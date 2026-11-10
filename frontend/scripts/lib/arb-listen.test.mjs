@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SNAPSHOT_MAX_ACCOUNTS, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, snapshotOf, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SNAPSHOT_MAX_ACCOUNTS, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, snapshotOf, stage0Report, throughOurs, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -161,6 +161,14 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     // Capped: never more than SNAPSHOT_MAX_ACCOUNTS accounts.
     const many = Array.from({ length: SNAPSHOT_MAX_ACCOUNTS + 10 }, (_, i) => `K${i}`);
     expect(Object.keys(snapshotOf(many, () => ({ data: Buffer.from([0]), owner: 'P', slot: 1 })).accounts)).toHaveLength(SNAPSHOT_MAX_ACCOUNTS);
+  });
+
+  it('keeps only the trips that pass through one of our pools', () => {
+    expect(throughOurs(trip(['p1', 'p2'], ['ammV4', 'ours'], true))).toBe(true);
+    expect(throughOurs(trip(['p1', 'p2', 'p3'], ['pumpswap', 'pumpswap', 'ours'], true))).toBe(true);
+    // BTC through Orca, PumpSwap and Meteora: none of ours.
+    expect(throughOurs(trip(['p1', 'p2', 'p3'], ['whirlpool', 'pumpswap', 'dlmm'], true))).toBe(false);
+    expect(throughOurs({})).toBe(false);
   });
 
   it('links the coins our pools are priced in first, then the most-used, under the cap', () => {

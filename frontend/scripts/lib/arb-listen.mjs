@@ -73,6 +73,13 @@ export function handoverOf(t, ctx) {
 /** Whether a handover still stands at `now`. */
 export const handoverStands = (rec, now) => now < rec.expiresAt;
 
+/**
+ * Whether a trip passes through one of OUR pools (owner 2026-11-10: "i cannot have memetics.finance
+ * get arbd by someone else ... focus our bot only on our stuff and relevant pools"). With ARB_COINS
+ * set to ours, a trip that does not is neither counted nor handed over.
+ */
+export const throughOurs = (t) => Array.isArray(t?.legs) && t.legs.some((l) => l.dex === 'ours');
+
 /** The most accounts, and bytes of their data, one handover's snapshot carries. */
 export const SNAPSHOT_MAX_ACCOUNTS = 64;
 export const SNAPSHOT_MAX_BYTES = 256 * 1024;

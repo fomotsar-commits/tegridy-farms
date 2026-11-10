@@ -115,8 +115,11 @@ const COMMITMENT = process.env.ARB_LISTEN_COMMITMENT?.trim() || 'confirmed';
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
 const MAP_FILE = process.env.ARB_MAP_FILE?.trim() || null;
 const COINS_MODE = process.env.ARB_COINS?.trim().toLowerCase() || (MAP_FILE ? 'both' : 'markets');
-if (!['map', 'markets', 'both'].includes(COINS_MODE)) throw new Error(`ARB_COINS must be map, markets or both, not "${COINS_MODE}"`);
-if (COINS_MODE !== 'markets' && !MAP_FILE) throw new Error(`ARB_COINS=${COINS_MODE} needs ARB_MAP_FILE`);
+if (!['map', 'markets', 'both', 'ours'].includes(COINS_MODE)) throw new Error(`ARB_COINS must be map, markets, both or ours, not "${COINS_MODE}"`);
+if ((COINS_MODE === 'map' || COINS_MODE === 'both') && !MAP_FILE) throw new Error(`ARB_COINS=${COINS_MODE} needs ARB_MAP_FILE`);
+// ARB_COINS=ours (owner 2026-11-10: "focus our bot only on our stuff and relevant pools"): only the
+// coins of our own pools, each with its pools on every venue, and only trips through one of ours.
+const ONLY_OURS = COINS_MODE === 'ours';
 const numEnv = (name, fallback) => {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -558,8 +561,11 @@ function admit(m, symbolHint) {
   return true;
 }
 
-/** The coins and their pools, as the scanner finds them (arb-scanner.mjs readUniverse, discover): mint → pool addresses. */
-async function listFromMarkets() {
+/**
+ * The coins and their pools, as the scanner finds them (arb-scanner.mjs readUniverse, discover): mint → pool addresses.
+ * Our pools' coins always; `busiest` adds the busiest and trending coins on every venue (off for ARB_COINS=ours).
+ */
+async function listFromMarkets({ busiest = true } = {}) {
   const ours = await scanRpc('getProgramAccounts', [C.DEXES.ours.program, { encoding: 'base64', commitment: COMMITMENT, filters: [{ dataSize: C.DEXES.ours.size }] }]);
   const ourPools = new Map();
   const symbols = new Map();
@@ -572,7 +578,7 @@ async function listFromMarkets() {
       ourPools.set(m, [...(ourPools.get(m) ?? []), o.pubkey]);
     }
   }
-  const lists = [...Array.from({ length: GECKO_PAGES }, (_, i) => `pools?sort=h24_volume_usd_desc&page=${i + 1}`), ...Array.from({ length: TRENDING_PAGES }, (_, i) => `trending_pools?page=${i + 1}`)];
+  const lists = busiest ? [...Array.from({ length: GECKO_PAGES }, (_, i) => `pools?sort=h24_volume_usd_desc&page=${i + 1}`), ...Array.from({ length: TRENDING_PAGES }, (_, i) => `trending_pools?page=${i + 1}`)] : [];
   for (const list of lists) {
     S.note = `coin list: ${list}`;
     try {
@@ -718,8 +724,8 @@ async function discover() {
   await readBasics();
   const listed = new Map();
   const add = (m, addrs) => listed.set(m, [...new Set([...(listed.get(m) ?? []), ...addrs])]);
-  if (COINS_MODE !== 'markets') for (const [m, addrs] of await listFromMap()) add(m, addrs);
-  if (COINS_MODE !== 'map') for (const [m, addrs] of await listFromMarkets()) add(m, addrs);
+  if (COINS_MODE === 'map' || COINS_MODE === 'both') for (const [m, addrs] of await listFromMap()) add(m, addrs);
+  if (COINS_MODE !== 'map') for (const [m, addrs] of await listFromMarkets({ busiest: !ONLY_OURS })) add(m, addrs);
   await readAll([...new Set([...listed.values()].flat())]);
   const candidates = new Map();
   for (const [m, addrs] of listed) {
@@ -818,7 +824,9 @@ function judgeNow(coin, closedBy) {
   }
   // With loans on, the robot borrows SOL past its float (keeper/flashLoan.ts): SOL trips are held by the cap only.
   const holds = new Map(ATAS.filter(([m]) => !(S.flashLoans && m === C.SOL_MINT)).map(([m, a]) => [m, Number(C.tokenAmount(dataOf(a)) ?? 0n)]));
-  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds, bridge, quotes, settings: S.settings, tokenCut: coin.cut, exact });
+  const every = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds, bridge, quotes, settings: S.settings, tokenCut: coin.cut, exact });
+  // ARB_COINS=ours: a trip that does not pass through one of our pools is neither counted nor handed over.
+  const trips = ONLY_OURS ? every.filter(L.throughOurs) : every;
   if (needs.size) {
     S.stats.needs += needs.size;
     readSoon(needs, coin.mint);
@@ -1186,7 +1194,7 @@ server.on('error', (e) => {
   log(e.code === 'EADDRINUSE' ? `Port ${PORT} is taken: set ARB_LISTEN_PORT` : `stopped: ${said(e)}`);
   process.exit(1);
 });
-server.listen(PORT, '127.0.0.1', () => log(`Engine: http://127.0.0.1:${PORT}/state.json; handovers for the robot at /events (standing ${L.HANDOVER_TTL_MS} ms each); gaps logged to ${LOG}; coins from ${COINS_MODE === 'both' ? 'the map and the markets' : COINS_MODE === 'map' ? 'the map' : 'the markets'}; this process sends nothing`));
+server.listen(PORT, '127.0.0.1', () => log(`Engine: http://127.0.0.1:${PORT}/state.json; handovers for the robot at /events (standing ${L.HANDOVER_TTL_MS} ms each); gaps logged to ${LOG}; coins from ${COINS_MODE === 'both' ? 'the map and the markets' : COINS_MODE === 'map' ? 'the map' : COINS_MODE === 'ours' ? 'our own pools only, and only trips through one of them' : 'the markets'}; this process sends nothing`));
 
 try {
   await discover();
