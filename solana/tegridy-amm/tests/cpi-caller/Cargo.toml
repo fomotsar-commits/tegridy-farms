@@ -15,3 +15,9 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 # The version cp-swap itself builds with (../../Cargo.lock).
 solana-program = "=2.3.0"
+
+# Cargo.lock here is the pool program's own lock cut down to what this crate uses: copy
+# ../../Cargo.lock over it and run `cargo metadata`, which keeps every entry it can use and
+# drops the rest. Never `cargo generate-lockfile`: a fresh lock picks crates newer than the
+# cargo Solana 2.3.0 builds with (1.84) can read. The first one took block-buffer 0.12.1,
+# which wants edition 2024, and CI's build of this crate failed on it (2026-11-10).
