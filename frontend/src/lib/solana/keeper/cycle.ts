@@ -26,7 +26,7 @@ import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
 import { DIRECT_LOOKUP_TABLES, directPlan, readDirectPools, type DirectIds, type DirectPool } from './direct';
-import type { EngineRecord, RouteLegs } from './engine';
+import type { EngineRecord, EngineSnapshot, RouteLegs } from './engine';
 import { V1_TX_SIZE_LIMIT, assembleV1, fitsLegacy, isV1, v1Config, type TripTx } from './v1tx';
 import type { StreamPool } from './streams';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
@@ -88,9 +88,12 @@ export interface KeeperIo {
   /**
    * The swaps of a route the engine handed over (keeper/engine.ts), built from the robot's own
    * read of each pool (scripts/lib/arb-legs.mjs, handed in by scripts/price-keeper.mjs: Raydium's
-   * ids may not sit in src/); absent: no engine trips.
+   * ids may not sit in src/); absent: no engine trips. `from`: the engine's copy of the trip's
+   * accounts and its slot (KEEPER_FAST): an account the copy holds is not read again.
    */
-  routeLegs?: (rec: EngineRecord, owner: PublicKey, nowSecs: number) => Promise<RouteLegs>;
+  routeLegs?: (rec: EngineRecord, owner: PublicKey, nowSecs: number, from?: { snapshot: EngineSnapshot; slot: number }) => Promise<RouteLegs>;
+  /** A recent blockhash the robot keeps fresh in the background, for the fast path; absent: asked at the send. */
+  recentBlockhash?: () => Promise<{ blockhash: string; lastValidBlockHeight?: number }>;
   log: (line: string) => void;
 }
 
@@ -143,6 +146,31 @@ export interface KeeperSettings extends KeeperLimits {
    * default). A trip that fits is built as before.
    */
   v1: boolean;
+  /**
+   * The fast path for the engine's trips (KEEPER_FAST, off by default; owner 2026-11-10, against a
+   * rival bot that lands in the same block as the trades it follows): swaps built from the
+   * engine's copy of the pools with no read of their own, and a SOL trip through Jito sent with
+   * no test run, its tip sized from the robot's own quote (sendChecked). Needs KEEPER_JITO.
+   */
+  fast: boolean;
+}
+
+/**
+ * The oldest the engine's copy of a trip's pools may be, in slots behind the slot it judged at, for
+ * the fast path to build from it (about 5 s at 200 ms a slot); older, the robot reads for itself.
+ */
+export const FAST_SNAPSHOT_MAX_AGE_SLOTS = 25;
+
+/**
+ * The compute limit a fast trip asks for in place of a test run's measure: what a swap on its
+ * exchange took on mainnet, with room (a CLMM swap through four price bands took 320,000; an
+ * x·y = k swap under 60,000), plus the token accounts, any loan, the tip and the Lighthouse check.
+ * Too little and the trip fails, and through Jito costs nothing; too much costs only its priority fee.
+ */
+export function fastUnits(dexes: readonly string[], opens: number, loan: boolean): number {
+  const per: Record<string, number> = { ours: 90_000, cpmm: 90_000, ammV4: 80_000, pumpswap: 130_000, whirlpool: 220_000, clmm: 360_000, dlmm: 250_000, damm: 130_000 };
+  const swaps = dexes.reduce((n, d) => n + (per[d] ?? 360_000), 0);
+  return Math.min(MAX_TRIP_UNITS, swaps + opens * 30_000 + (loan ? 80_000 : 0) + 40_000);
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -157,6 +185,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   directIds: null,
   directLookupTables: DIRECT_LOOKUP_TABLES,
   v1: false,
+  fast: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -776,7 +805,11 @@ export async function engineTrip(io: KeeperIo, s: KeeperSettings, rec: EngineRec
     return 'no-plan';
   }
   const nowSecs = Math.floor(Date.now() / 1000);
-  const built = await io.routeLegs(rec, io.owner, nowSecs);
+  // The fast path (KEEPER_FAST): a SOL trip through Jito, the engine's copy of its pools fresh
+  // enough to build from. The swaps are built from that copy with no read of their own; sendChecked
+  // then sends it with no test run. Anything else: the robot reads every pool itself, as ever.
+  const fast = s.fast && s.jito && coin.mint === SOL_QUOTE.mint && rec.snapshot !== undefined && rec.slot - rec.snapshot.slot <= FAST_SNAPSHOT_MAX_AGE_SLOTS;
+  const built = fast ? await io.routeLegs(rec, io.owner, nowSecs, { snapshot: rec.snapshot!, slot: rec.slot }) : await io.routeLegs(rec, io.owner, nowSecs);
   if (typeof built === 'string') {
     io.log(`${name}: skipped, ${built}`);
     return 'no-plan';
@@ -859,6 +892,8 @@ export async function engineTrip(io: KeeperIo, s: KeeperSettings, rec: EngineRec
       floor: minProfit,
       verdict: (c) => simulationProblem(c, { minProfit }),
       says: (gained) => `${legs.map((l) => l.venue).join(' > ')}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)}; the engine said +${amt(engineOut - rec.inRaw)} at ${amt(rec.inRaw)})`,
+      // The coin's own account is opened too when the trip starts from nothing (tripInstructions).
+      ...(fast ? { fast: { gain: back - coinIn, units: fastUnits(legs.map((l) => l.dex), opens + (before.coin > 0n ? 0 : 1), loan > 0n) } } : {}),
     });
   });
 }
@@ -1354,6 +1389,12 @@ export interface Trip {
   /** Why the test run's result must not be sent, or null. */
   verdict: (c: SimulatedChange) => string | null;
   says: (gained: bigint) => string;
+  /**
+   * Set by a trip that may take the fast path (KEEPER_FAST, sendChecked): what the robot's own
+   * quotes say it gains (sizes the Jito tip in place of a test run's gain) and the compute limit
+   * to ask for (in place of the test run's units).
+   */
+  fast?: { gain: bigint; units: number };
 }
 
 /**
@@ -1441,13 +1482,39 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
   // version 1 when that is on (keeper/v1tx.ts): the same instructions, the budget in its config,
   // `loaded` (what the test run loaded) sizing its loaded-data limit.
   const build = async (units: number, held: bigint, tip?: Trip['tip'], loaded?: number): Promise<TripTx> => {
-    const { blockhash, lastValidBlockHeight } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string; lastValidBlockHeight?: number } }).value;
+    // The fast path takes the blockhash the robot keeps fresh in the background, if it keeps one.
+    const { blockhash, lastValidBlockHeight } =
+      t.fast && io.recentBlockhash ? await io.recentBlockhash() : ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string; lastValidBlockHeight?: number } }).value;
     const instructions = tripInstructions(owner, { ...t, tip }, s.microLamports, units, held);
     const v0 = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
     if (!s.v1 || fitsLegacy(v0)) return v0;
     // The height is kit's bookkeeping only: the wire carries the blockhash alone.
     return assembleV1(owner, blockhash, lastValidBlockHeight ?? 0, v1Config(units, s.microLamports, loaded), instructions);
   };
+
+  // The fast path (KEEPER_FAST; owner 2026-11-10: beat the rival bot's speed). A SOL trip that
+  // goes through Jito and fits a legacy transaction is sent WITHOUT the test run and without a
+  // second balance read: Jito never lands a bundle whose transaction fails, so a trip that would
+  // lose costs nothing, and the chain's own checks still hold every one (each swap's minimum, and
+  // last the Lighthouse floor: the coin account ends at least at `before` + the floor + the tip).
+  // The tip is sized from the robot's own quote (`fast.gain`), the compute limit is `fast.units`.
+  // Anything else, or a trip whose quote leaves no tip, takes the test run as before.
+  if (t.fast && s.fast && s.jito && io.send && io.sendJito && t.coin.mint === SOL_QUOTE.mint && io.bans?.plainOnly(pools, Date.now()) !== true) {
+    const units = t.fast.units;
+    // Plain SOL the trip leaves: the base fee, its priority fee and any new token account come out of it first.
+    const costs = 5_000n + BigInt(Math.ceil((units * s.microLamports) / 1e6)) + (t.before.tokenExists ? 0n : NEW_ACCOUNT_RENT);
+    const tipLamports = jitoTip(t.fast.gain, t.floor, t.before.lamports - costs);
+    if (tipLamports !== null) {
+      const tip = { lamports: tipLamports, account: pickTipAccount() };
+      const final = await build(units, t.before.coin, tip);
+      if (!isV1(final)) {
+        const amt = amountText(t.coin);
+        io.log(`${t.name}: fast, no test run: ${amt(t.coinIn)} in, the robot's own quote gains ${amt(t.fast.gain)} (floor ${amt(t.floor)}); through Jito with a tip of ${tipLamports} lamports, added to the floor`);
+        return sendAndRecord(io, t, pools, keys, t.before, final, tip);
+      }
+      io.log(`${t.name}: too big for a legacy transaction, so not fast: the usual test run`);
+    } else io.log(`${t.name}: its quoted gain leaves no Jito tip, so not fast: the usual test run`);
+  }
 
   let sim: Simulated;
   try {
@@ -1495,6 +1562,12 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
     tip = undefined;
     final = await build(units, atSend.coin, undefined, sim.loaded);
   }
+  return sendAndRecord(io, t, pools, keys, atSend, final, tip);
+}
+
+/** Send a built trip (through Jito when it carries a tip), then log and record what it did. */
+async function sendAndRecord(io: KeeperIo, t: Trip, pools: string[], keys: PublicKey[], atSend: Balances, final: TripTx, tip: Trip['tip']): Promise<Tried> {
+  if (!io.send) return 'not-sent';
   const r = tip && io.sendJito && !isV1(final) ? await io.sendJito(final) : await io.send(final);
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());

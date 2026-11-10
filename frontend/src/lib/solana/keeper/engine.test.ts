@@ -38,6 +38,32 @@ describe('engineRecord: one handover, whole or not at all', () => {
     expect(r.coinMint).toBe(SOL_QUOTE.mint);
     expect(r.tokenMint).toBe(MINT);
   });
+  it('takes the engine’s snapshot of the trip’s accounts, and drops a broken one without dropping the record', () => {
+    const owner = key();
+    const snapshot = { slot: 99, accounts: { [A]: [owner, 'AQID'], [B]: [owner, ''] } };
+    const r = engineRecord(row({ snapshot }))!;
+    expect(r.snapshot?.slot).toBe(99);
+    expect([...r.snapshot!.accounts.get(A)!.data]).toEqual([1, 2, 3]);
+    expect(r.snapshot!.accounts.get(A)!.owner).toBe(owner);
+    expect(r.snapshot!.accounts.get(B)!.data).toHaveLength(0);
+    // Without one, as before.
+    expect(engineRecord(row())!.snapshot).toBeUndefined();
+    // Any bad part: no snapshot, the record still stands (the robot reads for itself).
+    for (const bad of [
+      { slot: 99, accounts: { [A]: ['not-an-address', 'AQID'] } },
+      { slot: 99, accounts: { 'not-an-address': [owner, 'AQID'] } },
+      { slot: 99, accounts: { [A]: [owner, 'not base64!'] } },
+      { slot: -1, accounts: { [A]: [owner, 'AQID'] } },
+      { slot: 99, accounts: {} },
+      { slot: 99, accounts: { [A]: [owner, 'A'.repeat(16_004)] } },
+      { slot: 99, accounts: Object.fromEntries(Array.from({ length: 65 }, () => [key(), [owner, 'AQID']])) },
+      'x',
+    ]) {
+      const got = engineRecord(row({ snapshot: bad }));
+      expect(got).not.toBeNull();
+      expect(got!.snapshot).toBeUndefined();
+    }
+  });
   it('takes three legs through a second coin, and a USDC trip', () => {
     const C = key();
     const legs = [

@@ -67,6 +67,40 @@ export interface EngineRecord {
   mints: Record<string, string>;
   /** The prices the engine judged at (mint → USD), for the robot's floor and cap in the coin. */
   usd: Map<string, number>;
+  /**
+   * The accounts the trip touches as the engine held them (lib/arb-listen.mjs snapshotOf), for the
+   * fast path (KEEPER_FAST): the robot builds its swaps from them instead of reading each pool
+   * again, and the chain's own checks (each swap's minimum, the Lighthouse floor) and a Jito bundle
+   * that never lands when one fails stand in for its test run. `slot`: the oldest account that
+   * moves with trades. Absent: the robot reads everything itself, as ever.
+   */
+  snapshot?: EngineSnapshot;
+}
+
+export interface EngineSnapshot {
+  slot: number;
+  accounts: Map<string, { owner: string; data: Uint8Array }>;
+}
+
+/** The most accounts, and base64 characters of one account's data, a snapshot may carry. */
+export const SNAPSHOT_MAX_ACCOUNTS = 64;
+const SNAPSHOT_MAX_DATA_CHARS = 16_000;
+
+/** A record's snapshot, or undefined when it has none or any part of it is not one (the record still stands). */
+function snapshotOf(x: unknown): EngineSnapshot | undefined {
+  if (!isObject(x) || !isObject(x.accounts)) return undefined;
+  const slot = num(x.slot);
+  if (slot === null || !Number.isInteger(slot) || slot < 0) return undefined;
+  const entries = Object.entries(x.accounts);
+  if (entries.length === 0 || entries.length > SNAPSHOT_MAX_ACCOUNTS) return undefined;
+  const accounts = new Map<string, { owner: string; data: Uint8Array }>();
+  for (const [k, v] of entries) {
+    if (!isAddress(k) || !Array.isArray(v) || v.length !== 2 || !isAddress(v[0])) return undefined;
+    const b64 = v[1];
+    if (typeof b64 !== 'string' || b64.length > SNAPSHOT_MAX_DATA_CHARS || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) return undefined;
+    accounts.set(k, { owner: v[0] as string, data: Uint8Array.from(Buffer.from(b64, 'base64')) });
+  }
+  return { slot, accounts };
 }
 
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
@@ -153,6 +187,10 @@ export function engineRecord(row: unknown): EngineRecord | null {
     gapPct,
     mints,
     usd,
+    ...(row.snapshot === undefined ? {} : (() => {
+      const snapshot = snapshotOf(row.snapshot);
+      return snapshot ? { snapshot } : {};
+    })()),
   };
 }
 

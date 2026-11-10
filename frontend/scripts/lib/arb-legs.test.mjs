@@ -159,3 +159,40 @@ describe('routeLegReader: refusals', () => {
     expect(await read(rec('phoenix', pool.address), owner, 1)).toBe(`pool ${pool.address} is not a phoenix pool`);
   });
 });
+
+describe('routeLegReader from the engine’s copy (KEEPER_FAST)', () => {
+  const ids = { cpmm: key(), ammV4: key(), ammV4Authority: key(), clmm: key() };
+  const rec = (dex, poolAddress) => ({ legs: [{ pool: poolAddress, dex, from: pool.mintA, to: pool.mintB, accounts: [] }], mints: {} });
+  const copyOf = (entries) => ({ slot: 41, accounts: new Map(entries.map(([k, owner, bytes]) => [k, { owner, data: Uint8Array.from(bytes) }])) });
+
+  it('takes an account the copy holds without a call: the same answer the chain’s read gives', async () => {
+    const calls = [];
+    const rpc = async (method, params) => {
+      calls.push(params[0]);
+      return { context: { slot: 7 }, value: params[0].map(() => null) };
+    };
+    const read = routeLegReader({ rpc, ids });
+    const snapshot = copyOf([[pool.address, key(), [0]]]);
+    // The copy says another program owns it: refused as a read would, the pool itself never asked for.
+    expect(await read(rec('whirlpool', pool.address), owner, 1, { snapshot, slot: 50 })).toBe(`pool ${pool.address} is not a Orca pool`);
+    expect(calls.flat()).not.toContain(pool.address);
+  });
+
+  it('reads only what the copy lacks, and everything without one', async () => {
+    const calls = [];
+    const rpc = async (method, params) => {
+      calls.push(params[0]);
+      return { context: { slot: 7 }, value: params[0].map(() => null) };
+    };
+    const read = routeLegReader({ rpc, ids });
+    const other = key();
+    expect(await read(rec('dlmm', pool.address), owner, 1, { snapshot: copyOf([[other, key(), [1]]]), slot: 50 })).toBe(`pool ${pool.address} not found`);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(pool.address);
+    expect(calls[0]).not.toContain(other);
+    // No copy: as before, one call for all.
+    calls.length = 0;
+    expect(await read(rec('dlmm', pool.address), owner, 1)).toBe(`pool ${pool.address} not found`);
+    expect(calls).toHaveLength(1);
+  });
+});

@@ -73,6 +73,36 @@ export function handoverOf(t, ctx) {
 /** Whether a handover still stands at `now`. */
 export const handoverStands = (rec, now) => now < rec.expiresAt;
 
+/** The most accounts, and bytes of their data, one handover's snapshot carries. */
+export const SNAPSHOT_MAX_ACCOUNTS = 64;
+export const SNAPSHOT_MAX_BYTES = 256 * 1024;
+
+/**
+ * The accounts a handover's trip touches as the engine holds them, for a robot that builds its
+ * swaps from them instead of reading each pool again (KEEPER_FAST; owner 2026-11-10: beat the
+ * rival's speed). `keys`: the accounts to copy; `get(k)`: the engine's copy ({ data, owner, slot })
+ * or nothing. Only a copy with its owner program goes in (the robot checks every pool's owner); a
+ * key left out the robot reads itself. `slot`: the OLDEST copy's among the accounts that move with
+ * trades, so the record never claims a fresher view than its stalest one; `fixed` (fee configs,
+ * PumpSwap's GlobalConfig, mints: read once, rarely changed) go in without counting. Null when
+ * no account that moves could be copied.
+ */
+export function snapshotOf(keys, get, fixed = new Set()) {
+  const accounts = {};
+  let bytes = 0;
+  let slot = null;
+  for (const k of [...new Set(keys)].filter((x) => typeof x === 'string' && x)) {
+    if (Object.keys(accounts).length >= SNAPSHOT_MAX_ACCOUNTS) break;
+    const a = get(k);
+    if (!a?.data || typeof a.owner !== 'string' || !Number.isFinite(a.slot)) continue;
+    if (bytes + a.data.length > SNAPSHOT_MAX_BYTES) continue;
+    bytes += a.data.length;
+    accounts[k] = [a.owner, Buffer.from(a.data).toString('base64')];
+    if (!fixed.has(k)) slot = slot === null ? a.slot : Math.min(slot, a.slot);
+  }
+  return slot === null ? null : { slot, accounts };
+}
+
 const plainText = (x, max) => (typeof x === 'string' ? x.replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, max) : null);
 
 /**

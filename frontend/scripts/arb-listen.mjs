@@ -140,6 +140,9 @@ const MEME_QUOTES_MAX = numEnv('ARB_MEME_QUOTES', 80);
 const VERIFY_MS = numEnv('ARB_VERIFY_MS', 1_500);
 const VERIFY_RPC = process.env.ARB_VERIFY_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
+// PumpSwap's GlobalConfig (["global_config"]): a PumpSwap swap names its protocol fee recipient from
+// it. Read once at the start, so a handover's snapshot carries it (keeper/directLegs.ts PUMP_GLOBAL_CONFIG).
+const PUMP_GLOBAL_CONFIG = PublicKey.findProgramAddressSync([Buffer.from('global_config')], new PublicKey(C.DEXES.pumpswap.program))[0].toBase58();
 // One swap moves two vaults in one slot; their updates arrive apart. A coin is judged once both are in.
 const JUDGE_AFTER_MS = 250;
 // The public websocket closes a socket (1013, "try again later") that asks for ~100 accounts in
@@ -514,7 +517,7 @@ async function readConfigs(pools) {
 
 /** The robot's coin accounts and rule, the SOL/USDC bridge, and the pricing coins' link pools and prices. */
 async function readBasics() {
-  await readAll([...ATAS.map(([, a]) => a), BRIDGE]);
+  await readAll([...ATAS.map(([, a]) => a), BRIDGE, PUMP_GLOBAL_CONFIG]);
   S.bridgePool = C.decodePool('whirlpool', BRIDGE, dataOf(BRIDGE));
   if (S.bridgePool) await readVenueAccounts([S.bridgePool]);
   await readRule();
@@ -896,10 +899,39 @@ function handOver(coin, trips, pools, slot, now) {
     any = true;
     const g = S.book.open.get(rec.route);
     if (g) g.handed = (g.handed ?? 0) + 1;
-    const body = `event: handover\ndata: ${JSON.stringify(rec)}\n\n`;
+    // On the stream only (not /state.json): the accounts the trip touches as held here, for a
+    // robot that builds from them instead of reading each pool again (KEEPER_FAST).
+    const snapshot = snapshotFor(t, byAddress);
+    const body = `event: handover\ndata: ${JSON.stringify(snapshot ? { ...rec, snapshot } : rec)}\n\n`;
     for (const res of sseListeners) res.write(body);
   }
   if (any && S.handover.size > 500) for (const [route, r] of S.handover) if (!L.handoverStands(r, now)) S.handover.delete(route);
+}
+
+/**
+ * A trip's snapshot (lib/arb-listen.mjs snapshotOf): every account of its pools the engine prices
+ * from (vaults, arrays, an Orca Oracle), each pool's fee config, PumpSwap's GlobalConfig and
+ * FeeConfig for a PumpSwap leg, and the coins' mints. Configs and mints count as fixed.
+ */
+function snapshotFor(t, byAddress) {
+  const keys = [];
+  const fixed = new Set([C.PUMP_FEE_CONFIG, PUMP_GLOBAL_CONFIG]);
+  for (const l of t.legs) {
+    const p = byAddress.get(l.pool);
+    if (!p) continue;
+    keys.push(...L.accountsOf(p));
+    if (p.oracle) keys.push(p.oracle);
+    if (p.config) {
+      keys.push(p.config);
+      fixed.add(p.config);
+    }
+    if (p.dex === 'pumpswap') keys.push(C.PUMP_FEE_CONFIG, PUMP_GLOBAL_CONFIG);
+    for (const m of [l.from, l.to]) {
+      keys.push(m);
+      fixed.add(m);
+    }
+  }
+  return L.snapshotOf(keys, (k) => S.acc.get(k), fixed);
 }
 
 /** An /events stream: the handovers standing now, then each new one as it is judged; a comment every 15 s keeps it open. */

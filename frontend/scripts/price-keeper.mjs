@@ -95,6 +95,11 @@
  *                           A handover older than 0.8 s is not built (default off)
  *   KEEPER_ENGINE_ONLY      yes = no passes against Jupiter and no quick checks: only the engine's
  *                           handovers (a proof run, or a robot given over to the engine; default no)
+ *   KEEPER_FAST             yes = the engine's trips take the fast path: swaps built from the
+ *                           engine's copy of the pools (no read of their own), and a SOL trip
+ *                           through Jito sent with NO test run, its tip sized from the robot's own
+ *                           quote; each swap's minimum and the Lighthouse floor still hold it, and
+ *                           Jito never lands a bundle that fails. Needs KEEPER_JITO (default no)
  *   KEEPER_V1               yes = a trip too big for a legacy transaction (1,232 bytes: three swaps
  *                           through two PumpSwap pools, as the engine hands over) is built as a
  *                           version 1 transaction (SIMD-0385, 4,096 bytes, no lookup table),
@@ -928,8 +933,30 @@ async function main() {
       directLookupTables: env.KEEPER_DIRECT_ALTS?.trim() ? env.KEEPER_DIRECT_ALTS.split(',').map((x) => x.trim()).filter(Boolean) : DEFAULT_SETTINGS.directLookupTables,
       directIds: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY },
       v1: yes('KEEPER_V1'),
+      fast: yes('KEEPER_FAST'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
+    // The fast path's blockhash: refreshed every BLOCKHASH_EVERY_MS in the background (one call each),
+    // so a fast trip asks for none at its send. A blockhash lives about 30 s; this one is at most 5 s old.
+    let blockhashKept = null;
+    const BLOCKHASH_EVERY_MS = 5_000;
+    const refreshBlockhash = async () => {
+      try {
+        const r = await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }]);
+        blockhashKept = { ...r.value, at: Date.now() };
+      } catch {
+        // Kept as it was; freshBlockhash asks again if it grows too old.
+      }
+    };
+    const freshBlockhash = async () => {
+      if (!blockhashKept || Date.now() - blockhashKept.at > 3 * BLOCKHASH_EVERY_MS) await refreshBlockhash();
+      if (!blockhashKept) throw new Error('no blockhash read');
+      return { blockhash: blockhashKept.blockhash, lastValidBlockHeight: blockhashKept.lastValidBlockHeight };
+    };
+    if (settings.fast) {
+      await refreshBlockhash();
+      setInterval(refreshBlockhash, BLOCKHASH_EVERY_MS).unref();
+    }
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
     const checkMs = num('KEEPER_CHECK_SEC', 10) * 1000;
     const dustMs = num('KEEPER_DUST_EVERY_MIN', 60) * 60_000;
@@ -1085,6 +1112,8 @@ async function main() {
       directPools: settings.direct ? () => streams.pools : undefined,
       // The swaps of a route the engine hands over, built from the robot's own read (scripts/lib/arb-legs.mjs).
       routeLegs: engine?.routeLegs,
+      // The fast path's blockhash, kept fresh in the background (below): none asked for at the send.
+      recentBlockhash: settings.fast ? () => freshBlockhash() : undefined,
       log,
     };
     // The engine's handovers (keeper/engine.ts): each acted on the moment it arrives, one at a time,
@@ -1170,6 +1199,7 @@ async function main() {
     log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
     log(`  direct trips (our pool against the coin's ${settings.allowRaydium ? 'PumpSwap, Raydium CPMM or AMM v4' : 'PumpSwap'} pool, both swaps built here, no Jupiter call): ${settings.direct ? (streamsOn ? 'ON, from the first pass on' : 'ON, but no outside pools are heard, so none are weighed') : 'off (KEEPER_DIRECT=yes)'}`);
     log(`  trips too big for a legacy transaction (1,232 bytes): ${settings.v1 ? 'built as version 1 (up to 4,096 bytes, no lookup table), sent the usual way, not through Jito' : 'skipped (KEEPER_V1=yes builds them as version 1)'}`);
+    log(`  fast path for the engine's trips: ${settings.fast ? (settings.jito && engine ? "ON: swaps built from the engine's copy of the pools, a SOL trip through Jito sent with no test run (each swap's minimum and the Lighthouse floor still hold it; a failing bundle never lands)" : `asked for (KEEPER_FAST) but idle: it needs ${settings.jito ? '' : 'KEEPER_JITO=yes'}${!settings.jito && !engine ? ' and ' : ''}${engine ? '' : 'KEEPER_ENGINE_URL'}`) : 'off (KEEPER_FAST=yes)'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SNAPSHOT_MAX_ACCOUNTS, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, snapshotOf, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -142,6 +142,25 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     expect(ourPoolCoins(pool('BIGBRAIN', 'BRAINLET'), coins, quotes)).toEqual(['BIGBRAIN', 'BRAINLET']);
     expect(ourPoolCoins(pool('SOY', 'BRAINLET'), coins, quotes)).toEqual(['SOY', 'BRAINLET']);
     expect(ourPoolCoins(pool('USDC', 'SOL'), coins, quotes)).toEqual([]);
+  });
+
+  it('copies the accounts a handover touches, with their owners, its slot the oldest copy’s', () => {
+    const held = new Map([
+      ['POOL', { data: Buffer.from([1, 2, 3]), owner: 'PROG', slot: 105 }],
+      ['VAULT', { data: Buffer.from([4]), owner: 'TOKEN', slot: 101 }],
+      // A copy whose owner was never read is left for the robot to read itself.
+      ['NOOWNER', { data: Buffer.from([5]), slot: 107 }],
+    ]);
+    const s = snapshotOf(['POOL', 'VAULT', 'NOOWNER', 'MISSING', 'POOL', null], (k) => held.get(k));
+    expect(s).toEqual({ slot: 101, accounts: { POOL: ['PROG', 'AQID'], VAULT: ['TOKEN', 'BA=='] } });
+    expect(snapshotOf(['MISSING'], (k) => held.get(k))).toBeNull();
+    // A fee config read at the start goes in, but its old slot does not make the view look old.
+    const withConfig = new Map([...held, ['CONFIG', { data: Buffer.from([9]), owner: 'PROG', slot: 3 }]]);
+    expect(snapshotOf(['POOL', 'CONFIG'], (k) => withConfig.get(k), new Set(['CONFIG']))).toEqual({ slot: 105, accounts: { POOL: ['PROG', 'AQID'], CONFIG: ['PROG', 'CQ=='] } });
+    expect(snapshotOf(['CONFIG'], (k) => withConfig.get(k), new Set(['CONFIG']))).toBeNull();
+    // Capped: never more than SNAPSHOT_MAX_ACCOUNTS accounts.
+    const many = Array.from({ length: SNAPSHOT_MAX_ACCOUNTS + 10 }, (_, i) => `K${i}`);
+    expect(Object.keys(snapshotOf(many, () => ({ data: Buffer.from([0]), owner: 'P', slot: 1 })).accounts)).toHaveLength(SNAPSHOT_MAX_ACCOUNTS);
   });
 
   it('links the coins our pools are priced in first, then the most-used, under the cap', () => {

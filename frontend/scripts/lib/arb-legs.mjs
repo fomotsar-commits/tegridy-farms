@@ -163,15 +163,31 @@ export function dammSwapIx(pool, owner, aToB, amountIn, minOut, programs) {
  * per hundred accounts) and answers the legs built, or why not. `rpc(method, params)` is the
  * robot's; `ids` Raydium's program ids ({ cpmm, ammV4, ammV4Authority, clmm }); `pick` chooses
  * PumpSwap's buyback recipient.
+ *
+ * Given `from` ({ snapshot, slot }: the engine's copy of the trip's accounts, keeper/engine.ts
+ * EngineSnapshot, and the slot it judged at), an account the copy holds is taken from it and only
+ * the rest are read: the fast path (KEEPER_FAST), where a Jito bundle that never lands when a swap
+ * fails, and each swap's minimum and the Lighthouse floor, stand in for the robot's own read and
+ * test run. `reads` says how many calls it still made.
  */
 export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'confirmed' }) {
   const idOf = { ours: REGISTERED_PROGRAM_ID.toBase58(), cpmm: ids?.cpmm, ammV4: ids?.ammV4, clmm: ids?.clmm, pumpswap: C.DEXES.pumpswap.program, whirlpool: V.WHIRLPOOL_PROGRAM, dlmm: V.DLMM_PROGRAM, damm: V.DAMM_PROGRAM };
   const acc = new Map();
   let slot = null;
+  let reads = 0;
+  let copy = null;
   async function read(keys) {
-    const want = [...new Set(keys)].filter((k) => k && !acc.has(k));
+    let want = [...new Set(keys)].filter((k) => k && !acc.has(k));
+    if (copy) {
+      for (const k of want) {
+        const a = copy.get(k);
+        if (a) acc.set(k, { owner: a.owner, data: Buffer.from(a.data) });
+      }
+      want = want.filter((k) => !acc.has(k));
+    }
     for (let i = 0; i < want.length; i += 100) {
       const part = want.slice(i, i + 100);
+      reads++;
       const r = await rpc('getMultipleAccounts', [part, { encoding: 'base64', commitment }]);
       if (!Array.isArray(r?.value) || r.value.length !== part.length) throw new Error('the pools were not read');
       slot = Math.max(slot ?? 0, Number(r.context?.slot ?? 0));
@@ -184,9 +200,13 @@ export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'con
     return p ? pk(p) : null;
   };
 
-  return async function readRouteLegs(rec, owner, nowSecs) {
+  return async function readRouteLegs(rec, owner, nowSecs, from) {
     acc.clear();
     slot = null;
+    reads = 0;
+    copy = from?.snapshot?.accounts ?? null;
+    // From the engine's copy alone, the clock is the engine's: the slot it judged at.
+    if (copy) slot = from.slot ?? from.snapshot.slot ?? null;
     const mints = [...new Set(rec.legs.flatMap((l) => [l.from, l.to]))];
     const pump = rec.legs.some((l) => l.dex === 'pumpswap');
     await read([...rec.legs.flatMap((l) => [l.pool, ...l.accounts]), ...mints, ...(pump ? [PUMP_GLOBAL_CONFIG.toBase58(), PUMP_FEE_CONFIG.toBase58()] : [])]);
@@ -225,7 +245,7 @@ export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'con
       if (typeof built === 'string') return `${C.DEXES[l.dex]?.name ?? l.dex} ${l.pool}: ${built}`;
       legs.push({ pool: l.pool, dex: l.dex, venue: C.DEXES[l.dex]?.name ?? l.dex, from: l.from, to: l.to, fromProgram: progFrom, toProgram: progTo, ...built });
     }
-    return { legs, slot };
+    return { legs, slot, reads };
   };
 }
 
