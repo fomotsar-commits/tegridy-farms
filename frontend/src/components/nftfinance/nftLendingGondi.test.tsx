@@ -98,9 +98,9 @@ beforeEach(() => {
   book = { offers: [], loans: [] };
 });
 
-function fillLend(amount = '1', apr = '1000') {
+function fillLend(amount = '1', apr = '10') {
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Loan amount (WETH)' }), { target: { value: amount } });
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: apr } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (%)' }), { target: { value: apr } });
 }
 
 describe('lend: signing Gondi offers', () => {
@@ -186,9 +186,9 @@ describe('lend: signing Gondi offers', () => {
     faded(); // nothing entered
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Loan amount (WETH)' }), { target: { value: '0.0001' } });
     faded(); // an amount, no APR
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: '0' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (%)' }), { target: { value: '0' } });
     faded(); // an APR of 0 is not an offer
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: '1000' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (%)' }), { target: { value: '10' } });
     expect(action().textContent).toBe('Wrap 0.0001 ETH to WETH');
     expect(action().disabled).toBe(false);
     expect(action()).toHaveClass('btn-primary');
@@ -225,13 +225,30 @@ describe('borrow: taking an offer', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: /Your NAKA to lock/ }), { target: { value: '77' } });
     expect(screen.getByText('You own NAKA #77.')).toBeTruthy();
 
+    // One button. Not approved yet: it approves, and there is no Take Loan to press early.
+    expect(screen.queryByRole('button', { name: 'Take Loan' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Approve NFT' })).toHaveClass('btn-primary');
     fireEvent.click(screen.getByRole('button', { name: 'Approve NFT' }));
     expect(writes()[0]).toMatchObject({ address: NAKA, functionName: 'approve', args: [LOAN, 77n] });
+    expect(writes()).toHaveLength(1);
+  });
 
+  it('an NFT already approved on chain skips straight to Take Loan, and shows the due date', async () => {
+    book.offers = [{ offer: bookOffer(), signature: SIG, createdAt: '' }];
+    weth(parseEther('5'), parseEther('5'));
+    offerChecks();
+    wagmiMock.setReadResult({ functionName: 'ownerOf', address: NAKA, result: WALLET });
+    wagmiMock.setReadResult({ functionName: 'getApproved', address: NAKA, result: LOAN });
+    await openBorrow();
+    fireEvent.click(await screen.findByText('NAKA · any NFT'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Your NAKA to lock/ }), { target: { value: '77' } });
+    expect(screen.getByText(/due about/)).toBeTruthy();
+
+    expect(screen.queryByRole('button', { name: 'Approve NFT' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Take Loan' })).toHaveClass('btn-primary');
     expect(screen.getByRole('button', { name: 'Take Loan' }).style.opacity).toBe('');
     fireEvent.click(screen.getByRole('button', { name: 'Take Loan' }));
-    const call = writes()[1]!;
+    const call = writes()[0]!;
     expect(call).toMatchObject({ address: LOAN, functionName: 'emitLoan' });
     const data = (call.args as [EmitArg])[0];
     expect(data.borrower).toBe(WALLET);
@@ -249,8 +266,9 @@ describe('borrow: taking an offer', () => {
     await openBorrow();
     fireEvent.click(await screen.findByText('NAKA #55'));
     expect(screen.getByText('NAKA #55 is not in your wallet.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Take Loan' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Take Loan' }).style.opacity).toBe('0.4');
+    expect(screen.queryByRole('button', { name: 'Take Loan' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Approve NFT' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Approve NFT' }).style.opacity).toBe('0.4');
   });
 
   it.each([
@@ -273,7 +291,69 @@ describe('borrow: taking an offer', () => {
     fireEvent.click(await screen.findByText('NAKA · any NFT'));
     expect(screen.getByText(/Couldn.t check this offer on chain/)).toBeTruthy();
     fireEvent.change(screen.getByRole('spinbutton', { name: /Your NAKA to lock/ }), { target: { value: '77' } });
-    expect((screen.getByRole('button', { name: 'Take Loan' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Take Loan' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Approve NFT' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('lists the cheapest rate first', async () => {
+    book.offers = [
+      { offer: bookOffer({ offerId: '1', aprBps: '2000' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '2', aprBps: '900' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '3', aprBps: '1400' }), signature: SIG, createdAt: '' },
+    ];
+    weth(parseEther('5'), parseEther('5'));
+    offerChecks();
+    await openBorrow();
+    await screen.findAllByText('NAKA · any NFT');
+    const rates = screen.getAllByText(/^\d+\.\d{2}%$/).map((el) => el.textContent);
+    expect(rates).toEqual(['9.00%', '14.00%', '20.00%']);
+  });
+});
+
+describe('lend: what the offer means and where it stands', () => {
+  it('says what the lender owns if it is not repaid, and that an empty book makes it the first offer', async () => {
+    weth(parseEther('5'), parseEther('5'));
+    renderWithProviders(<NFTLendingSection />);
+    fillLend();
+    expect((await screen.findByTestId('lend-default-outcome')).textContent).toBe('Not repaid: you own a JBAC for 1.0000 WETH, and no interest.');
+    expect((await screen.findByTestId('lend-rate-rank')).textContent).toBe('No other JBAC offers: yours would be the first.');
+  });
+
+  it('ranks the typed rate among other lenders\' offers, lowest first, leaving out the wallet\'s own', async () => {
+    book.offers = [
+      { offer: bookOffer({ offerId: '1', aprBps: '900' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '2', aprBps: '2000' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '3', aprBps: '100', lender: WALLET }), signature: SIG, createdAt: '' },
+    ];
+    weth(parseEther('5'), parseEther('5'));
+    renderWithProviders(<NFTLendingSection />);
+    fillLend('1', '14');
+    await waitFor(() =>
+      expect(screen.getByTestId('lend-rate-rank').textContent).toBe('Your rate would rank 2 of 3 on JBAC. Borrowers see the lowest first.'),
+    );
+  });
+});
+
+describe('borrow: an empty book gives the borrower something to do', () => {
+  it('copies a link that opens the Lend tab on the collection', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy link for a lender' }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/nft-finance?lend=JBAC`);
+  });
+
+  it('a ?lend=NAKA link opens the Lend tab with Nakamigos picked', async () => {
+    window.history.replaceState(null, '', '/nft-finance?lend=NAKA');
+    try {
+      weth(parseEther('5'), parseEther('5'));
+      renderWithProviders(<NFTLendingSection />);
+      fillLend();
+      expect((await screen.findByTestId('lend-default-outcome')).textContent).toContain('you own a NAKA for 1.0000 WETH');
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
   });
 });
 
