@@ -17,6 +17,7 @@ import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/go
 import { nextRepayStep, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
 import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
+import { LoanTimeline } from './LoanTimeline';
 import { FinePrint } from '../ui/FinePrint';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
@@ -385,6 +386,17 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
           <p className={`text-[13px] font-semibold ${view === 'overdue' ? 'text-yellow-400' : 'text-white'}`}>{deadlineStr}</p>
           <p className="text-white/70 text-[11px]">Due {formatDue(end)}</p>
         </div>
+      )}
+
+      {view === 'active' && (
+        <LoanTimeline
+          side={isBorrower ? 'borrower' : 'lender'}
+          start={Number(loan.startTime)}
+          duration={Number(loan.duration)}
+          now={Number(now)}
+          nft={`${collectionSymbol(loan.nftCollateralAddress)} #${loan.nftCollateralTokenId.toString()}`}
+          costAt={(at) => owedAt(loan, BigInt(at))}
+        />
       )}
 
       {open && (
