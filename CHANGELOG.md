@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-10
 
+- NFT marketplace: Best collection offer, the order book and the depth chart now count only bids that buy any NFT in the collection. They used to count offers on one NFT or a hand-picked few, so they could show a best bid far above the floor: up to 0.155 WETH on Jungle Bay (floor 0.028) and 3.5 WETH on Nakamigos (floor 0.08). Trait offers still show in their own column.
 - NFT lending: the rate is typed in percent, you tap your NFT to borrow, and My Loans shows totals and due dates.
 
 ### 2026-11-09

@@ -4,6 +4,7 @@ import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTION
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
+import { buysAnyTokenOrder } from "./lib/offerScope";
 import { cancelChainFor, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal, buyChainFor, bookCollectionByContract } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { acceptTradeRefusal, decodeSeaportTrade } from "./lib/seaportTrade";
@@ -205,7 +206,7 @@ export function collectionOfferQuantity(parameters) {
 }
 
 /**
- * Normalize one `offers/collection/{slug}/all` entry to a PRICE PER ITEM.
+ * Normalize one `offers/collection/{slug}` (or `/all`) entry to a PRICE PER ITEM.
  *
  * OpenSea's `price.value` is the whole-order total, so an N-item bid read
  * straight off it reports a bid N times higher than any single token could
@@ -238,25 +239,45 @@ export function normalizeCollectionOffer(o) {
   };
 }
 
+// The bids that buy ANY token of the collection: the best-collection-offer tile,
+// the order book and the depth chart. `offers/collection/{slug}/all` is NOT that
+// list, it mixes in offers on single tokens and on token lists. Read live
+// 2026-11-10, its first page held no collection-wide bid at all for JBAC or GNSS
+// (50 single-token offers each, 0.079 to 0.155 and 0.05 to 0.15 WETH against
+// floors of 0.0279 and 0.0109), and for Nakamigos 48 token-list bids at 3.0 to
+// 3.5 WETH against a 0.08 floor. `offers/collection/{slug}` holds the
+// collection-wide ones (best per item: JBAC 0.0209, GNSS 0.0082, NAKA 0.0758).
+// The lending card reads the same route through the same filter.
 export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
-    return (data.offers || []).map(normalizeCollectionOffer);
+    const data = await openseaGet(`offers/collection/${osSlug}`, {}, { signal });
+    return (data.offers || []).filter(buysAnyTokenOrder).map(normalizeCollectionOffer);
   } catch (err) {
     console.warn("Fetch collection offers failed:", err.message);
     return [];
   }
 }
 
+// The mixed feed, for the trait panels only: deriveTraitOffers keeps its trait
+// rows and drops the single-token and token-list ones.
+export async function fetchAllCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
+  const osSlug = openseaSlug || slug;
+  try {
+    const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
+    return (data.offers || []).map(normalizeCollectionOffer);
+  } catch (err) {
+    console.warn("Fetch all collection offers failed:", err.message);
+    return [];
+  }
+}
+
 // SELF-AUDIT 2026-05-27, resolved 2026-06-09: OpenSea's dedicated
 // `offers/collection/{slug}/traits` endpoint 400s on every `mode` value we
-// tried and has no public spec. But `offers/collection/{slug}/all` (already
-// fetched for the collection-offers panel) includes criteria offers, and
-// trait offers carry `criteria.trait = { type, value }` — so the per-trait
-// best bid is derived from data the app already has. Zero extra requests
-// against OpenSea's rate limit.
-// Input: normalized offers from fetchCollectionOffers (price in ETH).
+// tried and has no public spec. But `offers/collection/{slug}/all` includes
+// criteria offers, and trait offers carry `criteria.trait = { type, value }` —
+// so the per-trait best bid is derived from that one read.
+// Input: normalized offers from fetchAllCollectionOffers (price in ETH).
 // Output: { [traitType]: { [traitValue]: { priceEth, count } } }
 export function deriveTraitOffers(collectionOffers = []) {
   const map = {};
