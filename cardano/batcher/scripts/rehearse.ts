@@ -381,7 +381,10 @@ if (step === 'split') {
   const datum = mkConstr(0, [mkConstr(0, [mkBytes(deployerHash)]), self, mkConstr(0, []), self, mkConstr(0, []), asset(authen, LP_NAME), mkConstr(0, [TRUE, mkConstr(0, [mkInt(swap)]), mkInt(minimum), TRUE]), mkInt(2_000_000n), NONE]);
   const orderAddress = CSL.BaseAddress.new(0, CSL.Credential.from_scripthash(CSL.ScriptHash.from_hex(scripts.order.hash)), CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(deployerHash))).to_address().to_bech32(undefined);
   const [f] = await funds();
-  const b = await built({ spends: [], plain: [f!], reads: [], outputs: [output(orderAddress, swap + 4_000_000n, [], datum), output(deployer, 500_000_000n)] });
+  // The first order also set aside a plain 500 ADA coin for the Execute to spend. The order after
+  // the Execute is paid from that coin's change (499.5 ADA), so it sets one aside only if it can.
+  const spare = BigInt(out(f!).amount().coin().to_str()) >= swap + 4_000_000n + 500_000_000n + 2_000_000n;
+  const b = await built({ spends: [], plain: [f!], reads: [], outputs: [output(orderAddress, swap + 4_000_000n, [], datum), ...(spare ? [output(deployer, 500_000_000n)] : [])] });
   console.log(`order: ${b.txId}, fee ${b.fee}; swap ${swap} lovelace, expects ${outQ}, minimum ${minimum}`);
   state.order = { swap, expected: outQ, minimum, address: orderAddress };
   save();
