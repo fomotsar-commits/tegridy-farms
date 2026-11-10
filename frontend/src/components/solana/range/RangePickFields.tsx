@@ -4,6 +4,7 @@ import { Notice, Row } from '../curve/ui';
 import type { RangePick } from './rangePick';
 import { RangeStrip } from './RangeStrip';
 import { RangeDrag } from './RangeDrag';
+import { RangeHoldingsDial } from './RangeHoldingsDial';
 import { priceNumberText, priceText, tokenName, tokenWord } from './rangeText';
 
 /** The price the range starts from and the market's, for the strip that draws the range against both. */
@@ -20,7 +21,22 @@ export interface StripPrices {
  * The presets, the two prices, the range they make, drawn (RangeStrip), and the amount
  * (`useRangePick`). `at` names the price the range starts from.
  */
-export function RangePickFields({ pair, p, busy, at, strip }: { pair: Pair; p: RangePick; busy: boolean; at: string; strip: StripPrices }) {
+export function RangePickFields({
+  pair,
+  p,
+  busy,
+  at,
+  strip,
+  liquidity = null,
+}: {
+  pair: Pair;
+  p: RangePick;
+  busy: boolean;
+  at: string;
+  strip: StripPrices;
+  /** The liquidity the card planned from the typed amount; null until there is a plan. */
+  liquidity?: bigint | null;
+}) {
   const PRESETS: { id: Preset; label: string }[] = [
     { id: 'close', label: `Close to ${at}` },
     { id: 'wide', label: 'Wide' },
@@ -138,6 +154,7 @@ export function RangePickFields({ pair, p, busy, at, strip }: { pair: Pair; p: R
               onChange={(e) => p.setAmountText(e.target.value)}
             />
           </label>
+          <RangeHoldingsDial pair={pair} r={r} liquidity={liquidity} now={priceNumber(strip.now)} />
         </>
       )}
     </fieldset>
