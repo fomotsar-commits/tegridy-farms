@@ -50,6 +50,7 @@ import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
+import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
 import { MyLoansTab } from './NFTLendingLoans';
 import { LenderMarketPanel } from './LenderMarketPanel';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
@@ -67,10 +68,12 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  formatDue,
   formatDuration,
   newOfferId,
   nowSeconds,
   parseAmount,
+  parseAprPercent,
   parseTokenId,
   shortenAddress,
 } from './nftLendingShared';
@@ -286,7 +289,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
   const [anyToken, setAnyToken] = useState(true);
   const [tokenId, setTokenId] = useState('');
   const [principal, setPrincipal] = useState('');
-  const [aprBps, setAprBps] = useState('');
+  const [aprPct, setAprPct] = useState('');
   const [duration, setDuration] = useState(DURATION_PRESETS[2]!.seconds); // 30d
   const [openFor, setOpenFor] = useState(OPEN_PRESETS[2]!.seconds); // 7d
   const [loanCount, setLoanCount] = useState('1');
@@ -294,7 +297,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
   const selectedSymbol = collectionSymbol(selectedCollection);
 
   const principalWei = parseAmount(principal);
-  const aprValue = /^\d{1,6}$/.test(aprBps) ? BigInt(aprBps) : null;
+  const aprValue = parseAprPercent(aprPct);
   const loansN = /^\d{1,3}$/.test(loanCount) && Number(loanCount) >= 1 && Number(loanCount) <= 100 ? BigInt(loanCount) : null;
   const needed = principalWei !== null && loansN !== null ? principalWei * loansN : null;
 
@@ -366,7 +369,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
     if (!LENDING_LIVE) { toast.error('NFT lending is not live yet'); return false; }
     if (principalWei === null) { toast.error('Enter a valid loan amount'); return false; }
-    if (aprValue === null || aprValue === 0n) { toast.error('Enter a valid APR in basis points'); return false; }
+    if (aprValue === null || aprValue === 0n) { toast.error('Enter a yearly rate in percent, up to 1000'); return false; }
     if (loansN === null) { toast.error('Loans this offer can fund: 1 to 100'); return false; }
     return true;
   };
@@ -431,7 +434,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
       await postOffer(checked.offer, signature);
       toast.success('Offer posted. Your WETH stays in your wallet until a borrower takes it.');
       setPrincipal('');
-      setAprBps('');
+      setAprPct('');
       setTokenId('');
       setLoanCount('1');
       refreshBook();
@@ -562,18 +565,19 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
         </div>
         <div>
           <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-            APR (bps){' '}
-            {aprValue !== null && aprValue > 0n && <span className="text-emerald-400 normal-case">({bpsToPercent(Number(aprValue))}%)</span>}
-            <InfoTooltip text="Annual rate in basis points: 100 bps = 1%, 1000 bps = 10%. Borrowers pay interest only for the days they borrow." />
+            APR (%)
+            <InfoTooltip text="The yearly rate, in percent: 14 means 14% a year. Borrowers pay interest only for the days they borrow." />
           </label>
           <input
             type="number"
-            step="1"
+            step="0.01"
             min="0"
-            placeholder="e.g. 1000 = 10%"
-            aria-label="APR (bps)"
-            value={aprBps}
-            onChange={(e) => setAprBps(e.target.value)}
+            max="1000"
+            inputMode="decimal"
+            placeholder="e.g. 14"
+            aria-label="APR (%)"
+            value={aprPct}
+            onChange={(e) => setAprPct(e.target.value)}
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
@@ -743,7 +747,16 @@ function BorrowTab() {
       }),
     [rows, checks.data, checks.isError],
   );
-  const shown = offers.filter((o) => o.status === 'live' || o.status === 'checking' || o.status === 'unknown');
+  // Cheapest rate first; at the same rate, the larger loan first.
+  const shown = offers
+    .filter((o) => o.status === 'live' || o.status === 'checking' || o.status === 'unknown')
+    .sort((a, b) => {
+      const byApr = Number(a.row.offer.aprBps) - Number(b.row.offer.aprBps);
+      if (byApr !== 0) return byApr;
+      const pa = BigInt(a.row.offer.principalAmount);
+      const pb = BigInt(b.row.offer.principalAmount);
+      return pa === pb ? 0 : pa > pb ? -1 : 1;
+    });
   const live = shown.filter((o) => o.status === 'live').map((o) => o.row.offer);
   const bestApr = live.length ? Math.min(...live.map((o) => Number(o.aprBps))) : null;
   const largest = live.length ? live.reduce((max, o) => (BigInt(o.principalAmount) > max ? BigInt(o.principalAmount) : max), 0n) : null;
@@ -863,7 +876,19 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
     repeatCost: 'a second approval only costs gas.',
   });
   const [approvedId, setApprovedId] = useState<bigint | null>(null);
-  const approvedForPledged = approveOk && approvedId !== null && approvedId === pledgedId;
+  // Already approved on chain (an earlier visit, or another site): step 1 is done.
+  const approvalRead = useReadContract({
+    address: offer.nftCollateralAddress,
+    abi: ERC721_ABI,
+    functionName: 'getApproved',
+    args: [pledgedId ?? 0n],
+    chainId: CHAIN_ID,
+    query: { enabled: isExpanded && pledgedId !== null && ownsPledged },
+  });
+  const approvedOnChain = typeof approvalRead.data === 'string' && sameAddress(approvalRead.data, GONDI_LOAN_ADDRESS);
+  const approvedForPledged = approvedOnChain || (approveOk && approvedId !== null && approvedId === pledgedId);
+  // The borrower's own NFTs from this collection, to tap instead of typing an ID.
+  const owned = useWalletCollectionNfts(address, offer.nftCollateralAddress, isExpanded && anyToken && LENDING_LIVE);
 
   const { writeContract: emitLoan, data: borrowTx, isPending: borrowing } = useWriteContract();
   const borrowQuery = useWaitForTransactionReceipt({ hash: borrowTx, onReplaced: noteReplacement });
@@ -946,7 +971,9 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
   const atTerm = principal + interestFor(principal, apr, duration);
   const blocked = status !== 'live';
-  const takeLoanDisabled = !isConnected || blocked || borrowing || borrowQuery.isLoading || pledgedId === null || knownNotOwned;
+  const stepDisabled =
+    !isConnected || blocked || pledgedId === null || knownNotOwned ||
+    (approvedForPledged ? borrowing || borrowQuery.isLoading : approving || approveQuery.isLoading);
 
   return (
     <div
@@ -997,6 +1024,34 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
             <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
               {anyToken ? (
                 <div>
+                  {owned.data && owned.data.tokens.length > 0 && (
+                    <div role="group" aria-label={`Your ${symbol}`} className="flex gap-2 overflow-x-auto no-scrollbar pb-2 mb-1">
+                      {owned.data.tokens.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          aria-pressed={pickedId === t.id}
+                          aria-label={`${symbol} #${t.id}`}
+                          onClick={() => setPickedId(t.id)}
+                          className={`relative shrink-0 w-[72px] h-[72px] rounded-lg overflow-hidden transition-all ${
+                            pickedId === t.id ? 'border-2 border-emerald-500/80' : 'border border-white/15 hover:border-white/40'
+                          }`}
+                          style={{ background: CARD_BG }}
+                        >
+                          {t.image && <img src={t.image} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                          <span className="absolute bottom-0 inset-x-0 text-[10px] font-mono text-white text-center truncate px-1" style={{ background: 'rgba(0,0,0,0.8)' }}>
+                            #{t.id}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {owned.data && !owned.data.complete && (
+                    <p className="text-white/70 text-[11px] mb-1.5">Showing some of your {symbol}. Type the ID for any other.</p>
+                  )}
+                  {owned.data && owned.data.complete && owned.data.tokens.length === 0 && (
+                    <p className="text-yellow-300 text-[11px] mb-1.5">No {symbol} found in this wallet.</p>
+                  )}
                   <label className="text-white/85 text-[11px] uppercase tracking-wider flex items-center gap-1.5 mb-1.5" style={LABEL_STYLE}>
                     Your {symbol} to lock
                     <InfoTooltip text="This offer takes any NFT from the collection. Enter the token ID of the one you want to lock." />
@@ -1041,7 +1096,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
               <TxSummary>
                 You lock <span className="font-mono text-white font-semibold">{collateralLabel}</span> and receive{' '}
                 <span className="font-mono text-white font-semibold">{fmtWeth(principal)} WETH</span>. Repaid at the end it costs{' '}
-                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>
+                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>, due about{' '}
+                <span className="text-white font-semibold">{formatDue(nowSeconds() + duration)}</span>.
                 <span className="block text-[11px] text-white/70 mt-1">Repay early to pay less: interest counts only the days you borrow.</span>
               </TxSummary>
 
@@ -1057,24 +1113,17 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
               <StepIndicator steps={['Approve NFT', 'Take Loan']} currentStep={approvedForPledged ? 1 : 0} />
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleApprove}
-                  disabled={!isConnected || blocked || approving || approveQuery.isLoading || approvedForPledged || pledgedId === null || knownNotOwned}
-                  className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: approvedForPledged ? 'rgba(16,185,129,0.15)' : 'var(--color-purple-20)', border: `1px solid ${approvedForPledged ? 'rgba(16,185,129,0.3)' : 'var(--color-purple-30)'}` }}
-                >
-                  {approvedForPledged ? 'Approved' : approving ? 'Confirm...' : approveQuery.isLoading ? 'Approving...' : 'Approve NFT'}
-                </button>
-                <button
-                  onClick={handleBorrow}
-                  disabled={takeLoanDisabled}
-                  className="btn-primary min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
-                  style={takeLoanDisabled ? FADED : undefined}
-                >
-                  {borrowing ? 'Confirm...' : borrowQuery.isLoading ? 'Opening loan...' : 'Take Loan'}
-                </button>
-              </div>
+              {/* One button, two presses: approve the NFT, then take the loan. */}
+              <button
+                onClick={approvedForPledged ? handleBorrow : handleApprove}
+                disabled={stepDisabled}
+                className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
+                style={stepDisabled ? FADED : undefined}
+              >
+                {approvedForPledged
+                  ? borrowing ? 'Confirm...' : borrowQuery.isLoading ? 'Opening loan...' : 'Take Loan'
+                  : approving ? 'Confirm...' : approveQuery.isLoading ? 'Approving...' : 'Approve NFT'}
+              </button>
             </div>
           </m.div>
         )}

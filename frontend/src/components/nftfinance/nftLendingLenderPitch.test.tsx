@@ -76,9 +76,9 @@ beforeEach(() => {
 
 const card = () => screen.getByTestId('lender-market');
 const tile = (label: string) => within(card()).getByText(label).closest('div')!;
-function fillLend(amount: string, apr = '1000') {
+function fillLend(amount: string, apr = '10') {
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Loan amount (WETH)' }), { target: { value: amount } });
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (bps)' }), { target: { value: apr } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'APR (%)' }), { target: { value: apr } });
 }
 
 describe('idea 1: the pitch', () => {
@@ -142,7 +142,7 @@ describe('idea 4: who buys it', () => {
 describe('idea 2: same take-home on Gondi\'s own contracts', () => {
   it('compares with the LOWER Gondi fee: 10% here keeps what 11.18% keeps at 15%', async () => {
     renderWithProviders(<NFTLendingSection />);
-    fillLend('1', '1000');
+    fillLend('1', '10');
     await waitFor(() =>
       expect(screen.getByTestId('lend-same-take-home').textContent).toBe(
         "Same take-home as 11.18% APR on Gondi's own contracts, which keep 15.00% of the interest or more.",
@@ -153,7 +153,7 @@ describe('idea 2: same take-home on Gondi\'s own contracts', () => {
   it('says nothing when either Gondi fee is unread: the missing one could be the lower', async () => {
     fee(GONDI_V31, 'failure');
     renderWithProviders(<NFTLendingSection />);
-    fillLend('1', '1000');
+    fillLend('1', '10');
     await waitFor(() => expect(screen.getByText(/after the venue's 5.00% of the interest/)).toBeTruthy());
     expect(screen.queryByTestId('lend-same-take-home')).toBeNull();
   });
@@ -161,7 +161,7 @@ describe('idea 2: same take-home on Gondi\'s own contracts', () => {
   it('says nothing when our own fee is unread', async () => {
     fee(LOAN, 'failure');
     renderWithProviders(<NFTLendingSection />);
-    fillLend('1', '1000');
+    fillLend('1', '10');
     await waitFor(() => expect(screen.getByText('Interest a loan earns, repaid at term')).toBeTruthy());
     expect(screen.queryByTestId('lend-same-take-home')).toBeNull();
   });

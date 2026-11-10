@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-10
+
+- NFT lending: the rate is typed in percent, you tap your NFT to borrow, and My Loans shows totals and due dates.
+
 ### 2026-11-09
 
 - NFT lending, Lend tab: it says what an offer is (a floor bid that earns while it waits), shows the picked collection's OpenSea floor, best bid, bids near the floor and 30-day sales, says if a buyer already bids what you lend, and gives the rate on Gondi's own contracts that keeps you the same interest.
