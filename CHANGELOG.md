@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-10
 
 - NFT lending and pools: drag a loan through its days to see what repaying costs, or what a lender keeps, on any of them; amounts at 60, 75 or 90% of the floor; where your rate ranks; a link a borrower can send a lender; and on Add liquidity, drag the price to see your position against just holding; on range pools, drag the two edges of your range; and under "More about this pool", drag the size of one buy to see how far it moves the price and who it pays.
+- NFT lending, My Loans: repaying no longer gets stuck asking for the same WETH approval again. The approval covers what is owed 10 minutes on, and the next step now checks for 2 minutes on, not the full 10.
 - NFT lending: the rate is typed in percent, you tap your NFT to borrow, and My Loans shows totals and due dates.
 
 ### 2026-11-09
