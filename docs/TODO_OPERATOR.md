@@ -148,8 +148,8 @@ points), paid to the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` 
 grace period: from the due second the lender can take the NFT** (a loan funded by several lenders goes to a 3-day
 auction instead). The contract is Gondi's v3.2, unchanged.
 
-**Who owns it.** The treasury Safe, your pick on 2026-11-05. For the loan contract and its liquidator that takes a
-second step two days after the deploy (step 6); until then your deployer wallet owns those two.
+**Who owns it.** The treasury Safe, your pick on 2026-11-05. Since 2026-11-10 (step 6) it owns all six contracts,
+the loan contract and its liquidator included; the deployer wallet owns none of them.
 
 | Step | When (UTC) | What | Who |
 |---|---|---|---|
@@ -158,7 +158,7 @@ second step two days after the deploy (step 6); until then your deployer wallet 
 | ✅ 3 | done 2026-11-07 | Checked on chain: all six contracts' code equals Gondi's build byte for byte (deploy-time settings masked); the fee is 500 basis points to the treasury Safe; WETH is the only currency; Jungle Bay, Nakamigos and GNSS are the only collections; the registry, both lists and the distributor are owned by the Safe; the Safe is the pending owner of the loan contract and the liquidator. All six show their source on Etherscan. The address is in the site (#1039 `f4dc31d90`), and the borrow-then-repay browser test passed against the real contract on a copy of mainnet. | a session |
 | ✅ 4 | done 2026-11-07 | `frontend/supabase/migrations/030_nft_loan_offers.sql` ran in Supabase's SQL editor ("Success. No rows returned"). Checked after: the ledger has its row, both tables have row security on with no policies, the public and signed-in roles have no access, and both shape checks and all three indexes exist. The server role holds every table right (the schema's default grants from 008), not only the three the file grants. Do not run it again (it is safe to, but there is no need). | a session, on your word |
 | ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
-| ⬜ 6 | from 2026-11-09 21:44 UTC | The treasury Safe calls `transferOwnership()` on the loan contract `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` and on the liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6` (the chain allows it 2 days after the request: 21:43:47 and 21:43:35 UTC). A session prepares both transactions for the Safe; both signers sign. Until then the deployer wallet owns those two. | you |
+| ✅ 6 | done 2026-11-10 | The treasury Safe called `transferOwnership()` on the loan contract `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` and on the liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6`, in one batch at Safe nonce 1 (tx `0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487`, block 26,384,182), signed by both signers. Read after on two RPCs: `owner()` is the Safe and `pendingOwner()` is zero on both. A stray `pause()` on TegridyNFTPoolFactory sits in the Safe's queue at nonce 2: it cannot execute (that factory's owner is `0xA36053477568Fb5382492F3A5970D35Fe896b7F8`, and it is already paused), so the next real Safe transaction at nonce 2 replaces it. | you, both signers |
 
 **✅ Step 2 is done (2026-11-07). The commands below are kept as a record. Do not run them again.**
 

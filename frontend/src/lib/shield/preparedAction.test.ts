@@ -118,7 +118,8 @@ describe('the three steps are exactly what My Loans sends', () => {
   });
 
   it('approves the loan contract for the padded amount once the WETH is there', () => {
-    const a = ok({ wethBalance: NEEDED, wethAllowance: NEEDED - 1n });
+    // An allowance under what is owed 2 minutes on (repayCovered): the approval is for the padded amount.
+    const a = ok({ wethBalance: NEEDED, wethAllowance: 0n });
     expect(a.kind).toBe('approve');
     expect(a.to).toBe(WETH_ADDRESS);
     expect(a.value).toBe(0n);

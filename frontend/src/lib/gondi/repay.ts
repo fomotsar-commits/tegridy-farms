@@ -21,11 +21,33 @@ export function repayNeeded(loan: Loan, nowUnix: bigint): bigint {
   return owedAt(loan, nowUnix + REPAY_PAD_SECONDS).total;
 }
 
+/**
+ * How far ahead a step must already be covered before the next one is offered: 2 minutes,
+ * time for a transaction sent now to land.
+ *
+ * WHY THERE ARE TWO NUMBERS. What is owed grows every second. `repayNeeded` (10 minutes on)
+ * is how much to WRAP and APPROVE; if the same figure also decided whether enough is wrapped
+ * and approved, it would have moved on by the time the approval confirmed, and the button
+ * would ask for the same approval again, for good: a borrower could never reach Repay. So
+ * the amount aims 10 minutes ahead and the check asks only for 2. An approval then stays
+ * good for about 8 minutes, and one left longer than that is asked for again, rightly.
+ */
+export const REPAY_COVER_SECONDS = 120n;
+
+/** The WETH that must ALREADY be on hand and approved for the next step to be offered. */
+export function repayCovered(loan: Loan, nowUnix: bigint): bigint {
+  return owedAt(loan, nowUnix + REPAY_COVER_SECONDS).total;
+}
+
 export type RepayStep = 'wrap' | 'approve' | 'repay';
 
-/** Which of the three transactions comes next: wrap the WETH short, approve it, then repay. */
-export function nextRepayStep(wethBalance: bigint, allowance: bigint, needed: bigint): { step: RepayStep; wethShort: bigint } {
-  const wethShort = wethBalance < needed ? needed - wethBalance : 0n;
-  if (wethShort > 0n) return { step: 'wrap', wethShort };
-  return { step: allowance < needed ? 'approve' : 'repay', wethShort };
+/**
+ * Which of the three transactions comes next: wrap the WETH short, approve it, then repay.
+ * `needed` (repayNeeded) sizes the wrap; `covered` (repayCovered) is the lower bar the
+ * balance and the allowance are checked against. Both must be given: a caller that checks
+ * against `needed` itself never gets past its own approval.
+ */
+export function nextRepayStep(wethBalance: bigint, allowance: bigint, needed: bigint, covered: bigint): { step: RepayStep; wethShort: bigint } {
+  if (wethBalance < covered) return { step: 'wrap', wethShort: needed > wethBalance ? needed - wethBalance : 0n };
+  return { step: allowance < covered ? 'approve' : 'repay', wethShort: 0n };
 }

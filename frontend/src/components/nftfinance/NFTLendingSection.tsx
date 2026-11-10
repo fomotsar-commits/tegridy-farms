@@ -50,7 +50,12 @@ import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
+import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
+import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
+import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
+import { LenderMarketPanel } from './LenderMarketPanel';
+import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
   CARD_BORDER,
@@ -65,10 +70,12 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  formatDue,
   formatDuration,
   newOfferId,
   nowSeconds,
   parseAmount,
+  parseAprPercent,
   parseTokenId,
   shortenAddress,
 } from './nftLendingShared';
@@ -97,6 +104,8 @@ type Tab = (typeof TABS)[number];
 /* ─── Main Component ────────────────────────────────────────────── */
 export function NFTLendingSection() {
   void useAccount(); // keep wagmi context alive
+  // A borrower's "?lend=NAKA" link lands a lender on the Lend tab with that collection picked.
+  const [linked] = useState(() => (typeof window === 'undefined' ? null : lendLinkCollection(window.location.search)));
   const [activeTab, setActiveTab] = useState<Tab>('Lend');
   // Explicit <Tab>: inference widens T under the test project's `strictFunctionTypes: false`.
   const tabKeys = useTabListKeys<Tab>(TABS, activeTab, setActiveTab);
@@ -233,7 +242,7 @@ export function NFTLendingSection() {
       <AnimatePresence mode="wait">
         {activeTab === 'Lend' && (
           <m.div key="lend" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
-            <LendTab feeBps={feeBps} />
+            <LendTab feeBps={feeBps} initialCollection={linked ? (linked.address as Address) : undefined} />
           </m.div>
         )}
         {activeTab === 'Borrow' && (
@@ -273,18 +282,18 @@ export function NFTLendingSection() {
 /* ═══════════════════════════════════════════════════════════════════
    LEND TAB
    ═══════════════════════════════════════════════════════════════════ */
-function LendTab({ feeBps }: { feeBps: number | null }) {
+function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initialCollection?: Address }) {
   const { address, isConnected } = useAccount();
   // A disabled "Connect Wallet" button dispatches no click; it opens the modal instead.
   const openConnectModal = useSafeConnectModal();
   const chainId = useChainId();
   const refreshBook = useRefreshBook();
-  const [selectedCollection, setSelectedCollection] = useState<Address>(COLLECTIONS[0]!.address);
+  const [selectedCollection, setSelectedCollection] = useState<Address>(initialCollection ?? COLLECTIONS[0]!.address);
   // Default: any NFT in the collection (owner, 2026-10-27). One specific NFT stays an option.
   const [anyToken, setAnyToken] = useState(true);
   const [tokenId, setTokenId] = useState('');
   const [principal, setPrincipal] = useState('');
-  const [aprBps, setAprBps] = useState('');
+  const [aprPct, setAprPct] = useState('');
   const [duration, setDuration] = useState(DURATION_PRESETS[2]!.seconds); // 30d
   const [openFor, setOpenFor] = useState(OPEN_PRESETS[2]!.seconds); // 7d
   const [loanCount, setLoanCount] = useState('1');
@@ -292,7 +301,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
   const selectedSymbol = collectionSymbol(selectedCollection);
 
   const principalWei = parseAmount(principal);
-  const aprValue = /^\d{1,6}$/.test(aprBps) ? BigInt(aprBps) : null;
+  const aprValue = parseAprPercent(aprPct);
   const loansN = /^\d{1,3}$/.test(loanCount) && Number(loanCount) >= 1 && Number(loanCount) <= 100 ? BigInt(loanCount) : null;
   const needed = principalWei !== null && loansN !== null ? principalWei * loansN : null;
 
@@ -364,7 +373,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
     if (!LENDING_LIVE) { toast.error('NFT lending is not live yet'); return false; }
     if (principalWei === null) { toast.error('Enter a valid loan amount'); return false; }
-    if (aprValue === null || aprValue === 0n) { toast.error('Enter a valid APR in basis points'); return false; }
+    if (aprValue === null || aprValue === 0n) { toast.error('Enter a yearly rate in percent, up to 1000'); return false; }
     if (loansN === null) { toast.error('Loans this offer can fund: 1 to 100'); return false; }
     return true;
   };
@@ -429,7 +438,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
       await postOffer(checked.offer, signature);
       toast.success('Offer posted. Your WETH stays in your wallet until a borrower takes it.');
       setPrincipal('');
-      setAprBps('');
+      setAprPct('');
       setTokenId('');
       setLoanCount('1');
       refreshBook();
@@ -441,7 +450,32 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
   };
 
   const interestPerLoan = principalWei !== null && aprValue !== null ? interestFor(principalWei, aprValue, BigInt(duration)) : null;
+  // The floor the market card already reads (same query, no second request), for the
+  // one-tap amounts; and the collection's open offers, to say where this rate would rank.
+  const market = useLendingMarket(selectedCollection, LENDING_LIVE);
+  const floor = market.data?.floor ?? null;
+  const shares = FLOOR_SHARES.map((pct) => ({ pct, amount: floorShareAmount(floor, pct) })).filter(
+    (x): x is { pct: (typeof FLOOR_SHARES)[number]; amount: string } => x.amount !== null,
+  );
+  const rivals = useBookOffers({ collection: selectedCollection, enabled: LENDING_LIVE });
+  const rank =
+    aprValue !== null && rivals.data
+      ? rateRank(aprValue, rivals.data.offers.filter((r) => !address || !sameAddress(r.offer.lender, address)).map((r) => r.offer))
+      : null;
   const venueCut = interestPerLoan !== null && feeBps !== null ? (interestPerLoan * BigInt(feeBps) + 9_999n) / 10_000n : null;
+  // Idea 2 (owner 2026-11-09): Gondi's own contract keeps a bigger share of the interest, so
+  // the same take-home needs a higher rate there. Read live; no read, no line.
+  const { data: gondiOwnFees } = useReadContracts({
+    contracts: GONDI_OWN_LOAN_ADDRESSES.map(
+      (address) => ({ address, abi: GONDI_LOAN_ABI, functionName: 'getProtocolFee', chainId: CHAIN_ID }) as const,
+    ),
+    query: { enabled: LENDING_LIVE, staleTime: 3_600_000 },
+  });
+  const gondiFeeBps = lowestOwnFeeBps(gondiOwnFees);
+  const gondiSameAprBps =
+    aprValue !== null && gondiFeeBps !== null && feeBps !== null && gondiFeeBps > feeBps
+      ? sameTakeHomeAprBps(Number(aprValue), feeBps, gondiFeeBps)
+      : null;
 
   const primary = !isConnected
     ? { label: 'Connect Wallet', onClick: openConnectModal ?? (() => {}) }
@@ -487,6 +521,8 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
         </div>
       </div>
 
+      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} />
+
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -511,11 +547,8 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             </button>
           ))}
         </div>
-        {anyToken ? (
-          <p className="text-white/70 text-[11px] mt-2" style={LABEL_STYLE}>
-            Borrowers usually lock their cheapest one, so lend at the floor price.
-          </p>
-        ) : (
+        {/* "Borrowers usually lock their cheapest one" now lives in the market card's "Why" above. */}
+        {!anyToken && (
           <input
             type="number"
             step="1"
@@ -545,21 +578,41 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
+          {shares.length > 0 && (
+            <div role="group" aria-label="Share of the floor" className="flex gap-2 mt-2">
+              {shares.map(({ pct, amount }) => (
+                <button
+                  key={pct}
+                  type="button"
+                  aria-pressed={principal === amount}
+                  aria-label={`${pct}% of the floor: ${amount} WETH`}
+                  onClick={() => setPrincipal(amount)}
+                  className={`flex-1 min-h-[44px] rounded-xl text-[13px] font-medium transition-all ${
+                    principal === amount ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/10 text-white/80 hover:border-white/25'
+                  }`}
+                  style={{ background: principal === amount ? SELECTED_BG : CARD_BG }}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-            APR (bps){' '}
-            {aprValue !== null && aprValue > 0n && <span className="text-emerald-400 normal-case">({bpsToPercent(Number(aprValue))}%)</span>}
-            <InfoTooltip text="Annual rate in basis points: 100 bps = 1%, 1000 bps = 10%. Borrowers pay interest only for the days they borrow." />
+            APR (%)
+            <InfoTooltip text="The yearly rate, in percent: 14 means 14% a year. Borrowers pay interest only for the days they borrow." />
           </label>
           <input
             type="number"
-            step="1"
+            step="0.01"
             min="0"
-            placeholder="e.g. 1000 = 10%"
-            aria-label="APR (bps)"
-            value={aprBps}
-            onChange={(e) => setAprBps(e.target.value)}
+            max="1000"
+            inputMode="decimal"
+            placeholder="e.g. 14"
+            aria-label="APR (%)"
+            value={aprPct}
+            onChange={(e) => setAprPct(e.target.value)}
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
@@ -568,7 +621,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
 
       <PresetRow label="Loan length" presets={DURATION_PRESETS} value={duration} onChange={setDuration} />
       <PresetRow
-        label="Offer open for"
+        label="Open for"
         tooltip="How long borrowers can take this offer. Cancel it any time from My Loans."
         presets={OPEN_PRESETS}
         value={openFor}
@@ -577,7 +630,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
 
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-          Loans this offer can fund
+          Loans to fund
           <InfoTooltip text="Each loan uses the full amount. With 3, up to three borrowers can each take one. Your wallet needs WETH for all of them while the offer is open." />
         </label>
         <input
@@ -609,6 +662,22 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             {fmtWeth(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
             {venueCut !== null && feeBps !== null ? `, after the venue's ${bpsToPercent(feeBps)}% of the interest` : ''}
           </p>
+          <p className="text-amber-300 text-[12px] mt-2" data-testid="lend-default-outcome">
+            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWeth(principalWei)} WETH, and no interest.
+          </p>
+          {rank !== null && (
+            <p className="text-white/80 text-[12px] mt-1" data-testid="lend-rate-rank">
+              {rank.of === 1
+                ? `No other ${selectedSymbol} offers: yours would be the first.`
+                : `Your rate would rank ${rank.rank} of ${rank.of} on ${selectedSymbol}. Borrowers see the lowest first.`}
+            </p>
+          )}
+          {gondiSameAprBps !== null && gondiFeeBps !== null && (
+            <p className="text-white/85 text-[11px] mt-1" data-testid="lend-same-take-home">
+              Same take-home as {bpsToPercent(gondiSameAprBps)}% APR on Gondi&apos;s own contracts, which keep{' '}
+              {bpsToPercent(gondiFeeBps)}% of the interest or more.
+            </p>
+          )}
         </m.div>
       )}
 
@@ -723,7 +792,16 @@ function BorrowTab() {
       }),
     [rows, checks.data, checks.isError],
   );
-  const shown = offers.filter((o) => o.status === 'live' || o.status === 'checking' || o.status === 'unknown');
+  // Cheapest rate first; at the same rate, the larger loan first.
+  const shown = offers
+    .filter((o) => o.status === 'live' || o.status === 'checking' || o.status === 'unknown')
+    .sort((a, b) => {
+      const byApr = Number(a.row.offer.aprBps) - Number(b.row.offer.aprBps);
+      if (byApr !== 0) return byApr;
+      const pa = BigInt(a.row.offer.principalAmount);
+      const pb = BigInt(b.row.offer.principalAmount);
+      return pa === pb ? 0 : pa > pb ? -1 : 1;
+    });
   const live = shown.filter((o) => o.status === 'live').map((o) => o.row.offer);
   const bestApr = live.length ? Math.min(...live.map((o) => Number(o.aprBps))) : null;
   const largest = live.length ? live.reduce((max, o) => (BigInt(o.principalAmount) > max ? BigInt(o.principalAmount) : max), 0n) : null;
@@ -770,7 +848,20 @@ function BorrowTab() {
       ) : book.isError ? (
         <EmptyCard title="Couldn't load offers." line="The offer book did not answer. Try again in a moment." />
       ) : shown.length === 0 ? (
-        <EmptyCard title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`} line="Be the first! Switch to the Lend tab to make one." />
+        <EmptyCard
+          title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
+          line="Lenders make the offers. Send one this page."
+          action={{
+            label: 'Copy link for a lender',
+            onClick: () => {
+              const symbol = filter !== 'all' ? filter : COLLECTIONS[0]!.symbol;
+              const link = lenderLink(window.location.origin, symbol);
+              void (navigator.clipboard?.writeText(link) ?? Promise.reject(new Error('no clipboard')))
+                .then(() => toast.success('Link copied. It opens the Lend tab.'))
+                .catch(() => toast.error(`Could not copy. The link is ${link}`));
+            },
+          }}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {shown.map(({ row, status }) => {
@@ -791,13 +882,18 @@ function BorrowTab() {
   );
 }
 
-function EmptyCard({ title, line }: { title: string; line: string }) {
+function EmptyCard({ title, line, action }: { title: string; line: string; action?: { label: string; onClick: () => void } }) {
   return (
     <div className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
       <ArtImg pageId="nft-lending" idx={4} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       <div className="relative z-10 m-2 rounded-lg p-6 md:p-8 text-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
         <p className="text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{title}</p>
         <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{line}</p>
+        {action && (
+          <button type="button" onClick={action.onClick} className="btn-primary mt-3 min-h-[44px] px-4 rounded-xl text-[13px]">
+            {action.label}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -843,7 +939,19 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
     repeatCost: 'a second approval only costs gas.',
   });
   const [approvedId, setApprovedId] = useState<bigint | null>(null);
-  const approvedForPledged = approveOk && approvedId !== null && approvedId === pledgedId;
+  // Already approved on chain (an earlier visit, or another site): step 1 is done.
+  const approvalRead = useReadContract({
+    address: offer.nftCollateralAddress,
+    abi: ERC721_ABI,
+    functionName: 'getApproved',
+    args: [pledgedId ?? 0n],
+    chainId: CHAIN_ID,
+    query: { enabled: isExpanded && pledgedId !== null && ownsPledged },
+  });
+  const approvedOnChain = typeof approvalRead.data === 'string' && sameAddress(approvalRead.data, GONDI_LOAN_ADDRESS);
+  const approvedForPledged = approvedOnChain || (approveOk && approvedId !== null && approvedId === pledgedId);
+  // The borrower's own NFTs from this collection, to tap instead of typing an ID.
+  const owned = useWalletCollectionNfts(address, offer.nftCollateralAddress, isExpanded && anyToken && LENDING_LIVE);
 
   const { writeContract: emitLoan, data: borrowTx, isPending: borrowing } = useWriteContract();
   const borrowQuery = useWaitForTransactionReceipt({ hash: borrowTx, onReplaced: noteReplacement });
@@ -926,7 +1034,9 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
   const atTerm = principal + interestFor(principal, apr, duration);
   const blocked = status !== 'live';
-  const takeLoanDisabled = !isConnected || blocked || borrowing || borrowQuery.isLoading || pledgedId === null || knownNotOwned;
+  const stepDisabled =
+    !isConnected || blocked || pledgedId === null || knownNotOwned ||
+    (approvedForPledged ? borrowing || borrowQuery.isLoading : approving || approveQuery.isLoading);
 
   return (
     <div
@@ -977,6 +1087,34 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
             <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
               {anyToken ? (
                 <div>
+                  {owned.data && owned.data.tokens.length > 0 && (
+                    <div role="group" aria-label={`Your ${symbol}`} className="flex gap-2 overflow-x-auto no-scrollbar pb-2 mb-1">
+                      {owned.data.tokens.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          aria-pressed={pickedId === t.id}
+                          aria-label={`${symbol} #${t.id}`}
+                          onClick={() => setPickedId(t.id)}
+                          className={`relative shrink-0 w-[72px] h-[72px] rounded-lg overflow-hidden transition-all ${
+                            pickedId === t.id ? 'border-2 border-emerald-500/80' : 'border border-white/15 hover:border-white/40'
+                          }`}
+                          style={{ background: CARD_BG }}
+                        >
+                          {t.image && <img src={t.image} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                          <span className="absolute bottom-0 inset-x-0 text-[10px] font-mono text-white text-center truncate px-1" style={{ background: 'rgba(0,0,0,0.8)' }}>
+                            #{t.id}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {owned.data && !owned.data.complete && (
+                    <p className="text-white/70 text-[11px] mb-1.5">Showing some of your {symbol}. Type the ID for any other.</p>
+                  )}
+                  {owned.data && owned.data.complete && owned.data.tokens.length === 0 && (
+                    <p className="text-yellow-300 text-[11px] mb-1.5">No {symbol} found in this wallet.</p>
+                  )}
                   <label className="text-white/85 text-[11px] uppercase tracking-wider flex items-center gap-1.5 mb-1.5" style={LABEL_STYLE}>
                     Your {symbol} to lock
                     <InfoTooltip text="This offer takes any NFT from the collection. Enter the token ID of the one you want to lock." />
@@ -1021,7 +1159,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
               <TxSummary>
                 You lock <span className="font-mono text-white font-semibold">{collateralLabel}</span> and receive{' '}
                 <span className="font-mono text-white font-semibold">{fmtWeth(principal)} WETH</span>. Repaid at the end it costs{' '}
-                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>
+                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>, due about{' '}
+                <span className="text-white font-semibold">{formatDue(nowSeconds() + duration)}</span>.
                 <span className="block text-[11px] text-white/70 mt-1">Repay early to pay less: interest counts only the days you borrow.</span>
               </TxSummary>
 
@@ -1037,24 +1176,17 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
               <StepIndicator steps={['Approve NFT', 'Take Loan']} currentStep={approvedForPledged ? 1 : 0} />
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleApprove}
-                  disabled={!isConnected || blocked || approving || approveQuery.isLoading || approvedForPledged || pledgedId === null || knownNotOwned}
-                  className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: approvedForPledged ? 'rgba(16,185,129,0.15)' : 'var(--color-purple-20)', border: `1px solid ${approvedForPledged ? 'rgba(16,185,129,0.3)' : 'var(--color-purple-30)'}` }}
-                >
-                  {approvedForPledged ? 'Approved' : approving ? 'Confirm...' : approveQuery.isLoading ? 'Approving...' : 'Approve NFT'}
-                </button>
-                <button
-                  onClick={handleBorrow}
-                  disabled={takeLoanDisabled}
-                  className="btn-primary min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
-                  style={takeLoanDisabled ? FADED : undefined}
-                >
-                  {borrowing ? 'Confirm...' : borrowQuery.isLoading ? 'Opening loan...' : 'Take Loan'}
-                </button>
-              </div>
+              {/* One button, two presses: approve the NFT, then take the loan. */}
+              <button
+                onClick={approvedForPledged ? handleBorrow : handleApprove}
+                disabled={stepDisabled}
+                className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
+                style={stepDisabled ? FADED : undefined}
+              >
+                {approvedForPledged
+                  ? borrowing ? 'Confirm...' : borrowQuery.isLoading ? 'Opening loan...' : 'Take Loan'
+                  : approving ? 'Confirm...' : approveQuery.isLoading ? 'Approving...' : 'Approve NFT'}
+              </button>
             </div>
           </m.div>
         )}

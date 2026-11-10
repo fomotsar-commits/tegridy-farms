@@ -64,6 +64,30 @@ export function parseAmount(value: string): bigint | null {
   }
 }
 
+/** The highest rate the Lend form signs: 1000% a year. A lender used to basis points who
+ *  types "1400" for 14% is stopped here instead of signing a 1400% offer nobody takes. */
+export const MAX_APR_BPS = 100_000n;
+
+/** A typed yearly rate in percent ("14", "12.5", "9.75") as basis points, or null when it
+ *  is not a positive number of at most two decimals within MAX_APR_BPS. */
+export function parseAprPercent(value: string): bigint | null {
+  const m = /^(\d{1,4})(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!m) return null;
+  const bps = BigInt(m[1]!) * 100n + BigInt((m[2] ?? '').padEnd(2, '0') || '0');
+  return bps > 0n && bps <= MAX_APR_BPS ? bps : null;
+}
+
+/** A due moment (seconds since 1970) in the reader's own time zone: "Dec 10, 2026, 3:14 PM". */
+export function formatDue(seconds: bigint | number): string {
+  return new Date(Number(seconds) * 1000).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 /** A typed token id, or null when it is not a whole number. */
 export function parseTokenId(value: string): bigint | null {
   const v = value.trim();

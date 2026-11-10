@@ -11,9 +11,10 @@ import { toast } from 'sonner';
 import { CHAIN_ID } from '../../lib/constants';
 import { ERC20_ABI } from '../../lib/contracts';
 import { GONDI_LOAN_ABI } from '../../lib/gondi/abi.js';
-import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, sameAddress } from '../../lib/gondi/loanOffer.js';
+import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, loansPerOffer, sameAddress } from '../../lib/gondi/loanOffer.js';
+import { downloadIcs, loanDueIcs } from '../../lib/gondi/calendar';
 import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/gondi/loanMath';
-import { nextRepayStep, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
+import { nextRepayStep, repayCovered, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
 import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
@@ -30,6 +31,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  formatDue,
   formatDuration,
   nowSeconds,
 } from './nftLendingShared';
@@ -49,7 +51,14 @@ export function MyLoansTab() {
   const { address, isConnected } = useAccount();
   const loans = useBookLoans(LENDING_LIVE ? address : undefined);
   const offers = useBookOffers({ lender: address, enabled: LENDING_LIVE && !!address });
-  const rows = loans.data?.loans ?? [];
+  // Open loans first, soonest deadline on top; settled ones after, newest first.
+  const rows = [...(loans.data?.loans ?? [])].sort((a, b) => {
+    if ((a.status === 'open') !== (b.status === 'open')) return a.status === 'open' ? -1 : 1;
+    const ea = loanEnd(loanFromJson(a.loan));
+    const eb = loanEnd(loanFromJson(b.loan));
+    if (ea === eb) return 0;
+    return a.status === 'open' ? (ea < eb ? -1 : 1) : ea > eb ? -1 : 1;
+  });
   const openRows = rows.filter((r) => r.status === 'open');
 
   const hashes = useReadContracts({
@@ -76,6 +85,8 @@ export function MyLoansTab() {
       ) : rows.length === 0 ? (
         <Notice title="No loans yet." line="Take an offer in the Borrow tab, or make one in the Lend tab." />
       ) : (
+        <>
+        <LoanTotals rows={openRows} hashes={hashes.data} wallet={address} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {rows.map((row) => {
             const i = openRows.indexOf(row);
@@ -84,6 +95,7 @@ export function MyLoansTab() {
             return <LoanCard key={row.loanId} row={row} chainHash={chainHash} userAddress={address} />;
           })}
         </div>
+        </>
       )}
 
       <MyOffers rows={offers.data?.offers ?? []} loading={offers.isLoading} failed={offers.isError} />
@@ -98,6 +110,70 @@ function Notice({ title, line }: { title: string; line?: string }) {
       <CardArt pageId="nft-finance" idx={19} />
       <p className="text-white/70 text-[13px]">{title}</p>
       {line && <p className="text-white/70 text-[11px] mt-1">{line}</p>}
+    </div>
+  );
+}
+
+/* ─── Totals ────────────────────────────────────────────────────── */
+// What the wallet owes and is owed right now, and the next deadline. Only loans whose hash
+// read back and matched are counted; if any open loan is unread, no total is shown at all:
+// a total that silently leaves a loan out reads as a smaller debt.
+function LoanTotals({
+  rows,
+  hashes,
+  wallet,
+}: {
+  rows: BookLoan[];
+  hashes: readonly { status: 'success' | 'failure'; result?: unknown }[] | undefined;
+  wallet: Address;
+}) {
+  if (rows.length === 0) return null;
+  const now = nowSeconds();
+  let owe = 0n;
+  let owed = 0n;
+  let nextDue: bigint | null = null;
+  let live = 0;
+  let unread = false;
+  rows.forEach((row, i) => {
+    const read = hashes?.[i];
+    if (!read || read.status !== 'success') {
+      unread = true;
+      return;
+    }
+    const loan = loanFromJson(row.loan);
+    if ((read.result as Hex) === ZERO_HASH) return; // closed since the record
+    if (String(read.result).toLowerCase() !== loanHash(loan).toLowerCase()) {
+      unread = true;
+      return;
+    }
+    const end = loanEnd(loan);
+    const at = owedAt(loan, now < end ? now : end);
+    if (sameAddress(loan.borrower, wallet)) owe += at.total;
+    else owed += at.toLenders;
+    if (now < end && (nextDue === null || end < nextDue)) nextDue = end;
+    live += 1;
+  });
+  if (!unread && live === 0) return null;
+  const tiles = unread
+    ? [{ label: 'Totals', value: 'Unavailable' }]
+    : [
+        ...(owe > 0n ? [{ label: 'You owe now', value: `${fmtWeth(owe)} WETH` }] : []),
+        ...(owed > 0n ? [{ label: 'Owed to you now', value: `${fmtWeth(owed)} WETH` }] : []),
+        ...(nextDue !== null ? [{ label: 'Next due', value: formatDue(nextDue) }] : []),
+      ];
+  return (
+    <div
+      data-testid="loan-totals"
+      className="relative isolate rounded-xl p-3 flex flex-wrap gap-x-8 gap-y-2"
+      style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+    >
+      <CardArt pageId="nft-finance" idx={19} />
+      {tiles.map((t) => (
+        <div key={t.label}>
+          <p className="text-white/70 text-[11px] uppercase tracking-wider" style={LABEL_STYLE}>{t.label}</p>
+          <p className="text-white text-[15px] font-semibold" style={LABEL_STYLE}>{t.value}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -150,7 +226,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
   const owedNow = owedAt(loan, now);
   // Wrap what is short, approve, repay: the same steps the loan shield builds (lib/gondi/repay.ts).
   const owedPadded = repayNeeded(loan, now);
-  const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded) : null;
+  const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded, repayCovered(loan, now)) : null;
   const repayStep = next?.step ?? null;
   const wethShort = next?.wethShort ?? null;
 
@@ -231,6 +307,21 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
     );
   };
 
+  const handleCalendar = () => {
+    const nft = `${collectionSymbol(loan.nftCollateralAddress)} #${loan.nftCollateralTokenId.toString()}`;
+    const ok = downloadIcs(
+      `loan-${row.loanId}-due.ics`,
+      loanDueIcs({
+        loanId: row.loanId,
+        title: `Repay loan #${row.loanId} or lose ${nft}`,
+        description: `Loan #${row.loanId}: about ${fmtWeth(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
+        dueSeconds: Number(end),
+        nowSeconds: Number(nowSeconds()),
+      }),
+    );
+    if (!ok) toast.error(`Could not build the calendar file. The loan is due ${formatDue(end)}.`);
+  };
+
   const busy = tx.isPending || txQuery.isLoading;
   const deadlineStr = (() => {
     if (!open) return '--';
@@ -292,6 +383,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
         >
           <p className={`text-[11px] ${view === 'overdue' ? 'text-yellow-400' : 'text-white/70'}`}>{view === 'overdue' ? 'OVERDUE' : 'Time Remaining'}</p>
           <p className={`text-[13px] font-semibold ${view === 'overdue' ? 'text-yellow-400' : 'text-white'}`}>{deadlineStr}</p>
+          <p className="text-white/70 text-[11px]">Due {formatDue(end)}</p>
         </div>
       )}
 
@@ -334,6 +426,24 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
             ? 'Repay Loan'
             : 'Reading your WETH...'}
         </button>
+      )}
+      {isBorrower && view === 'active' && (
+        <>
+          <button
+            type="button"
+            onClick={handleCalendar}
+            className="w-full min-h-[44px] rounded-xl text-[13px] font-medium text-white transition-all"
+            style={{ background: 'var(--color-purple-20)', border: '1px solid var(--color-purple-30)' }}
+          >
+            Add due date to calendar
+          </button>
+          <FinePrint summary="About reminders">
+            <p>
+              The site cannot message you. The calendar file reminds you a week, three days, a day and two hours before the
+              deadline, from your own calendar. Past the deadline the loan can no longer be repaid.
+            </p>
+          </FinePrint>
+        </>
       )}
 
       {isLender && view === 'overdue' && (
@@ -400,6 +510,21 @@ function MyOfferRow({ row }: { row: BookOffer }) {
     );
   };
   const symbol = collectionSymbol(o.nftCollateralAddress);
+  // How much of a reusable offer borrowers have already taken. A single-loan offer has
+  // capacity 0 and leaves the book once used, so it has no count to show.
+  const reusable = BigInt(o.capacity) !== 0n;
+  const usedRead = useReadContract({
+    address: GONDI_LOAN_ADDRESS,
+    abi: GONDI_LOAN_ABI,
+    functionName: 'getUsedCapacity',
+    args: [o.lender, BigInt(o.offerId)],
+    chainId: CHAIN_ID,
+    query: { enabled: LENDING_LIVE && reusable },
+  });
+  const taken =
+    reusable && typeof usedRead.data === 'bigint'
+      ? `${(usedRead.data / BigInt(o.principalAmount)).toString()} of ${loansPerOffer(o).toString()} taken · `
+      : '';
   return (
     <div className="rounded-xl p-3 flex items-center justify-between gap-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <div className="min-w-0">
@@ -407,6 +532,7 @@ function MyOfferRow({ row }: { row: BookOffer }) {
           {fmtWeth(BigInt(o.principalAmount))} WETH · {bpsToPercent(Number(o.aprBps))}% · {formatDuration(Number(o.duration))}
         </p>
         <p className="text-white/70 text-[11px] truncate">{isWholeCollectionOffer(o) ? `${symbol} · any NFT` : `${symbol} #${o.nftCollateralTokenId}`}</p>
+        <p className="text-white/70 text-[11px] truncate">{taken}open until {formatDue(BigInt(o.expirationTime))}</p>
       </div>
       <button
         onClick={handleCancel}
