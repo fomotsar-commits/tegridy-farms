@@ -3,6 +3,7 @@ import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import type { RangePick } from './rangePick';
 import { RangeStrip } from './RangeStrip';
+import { RangeDrag } from './RangeDrag';
 import { priceNumberText, priceText, tokenName, tokenWord } from './rangeText';
 
 /** The price the range starts from and the market's, for the strip that draws the range against both. */
@@ -77,6 +78,15 @@ export function RangePickFields({ pair, p, busy, at, strip }: { pair: Pair; p: R
           />
         </label>
       </div>
+      <RangeDrag
+        now={priceNumber(strip.now)}
+        lo={r ? priceNumber(rangePrices(pair, r).min) : null}
+        hi={r ? priceNumber(rangePrices(pair, r).max) : null}
+        at={at}
+        setMin={p.setMin}
+        setMax={p.setMax}
+        disabled={busy}
+      />
       <RangeStrip
         now={priceNumber(strip.now)}
         market={strip.market}
