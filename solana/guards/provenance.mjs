@@ -100,7 +100,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: 'cdb7fc63483e49f179b7b4e339252293fcf938469be88c2dad5a7e4783614199',
+    deltaSha256: '5a4cfc29397c15e28fc848539d4b3798a8ac70f40e5fdf33450fd2b3ba517785',
     patched: [
       'src/lib.rs',
       'src/error.rs',

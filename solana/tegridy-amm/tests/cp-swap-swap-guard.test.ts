@@ -11,6 +11,11 @@
  *    unless the tier's keeper signs it. A wallet's own swap is untouched.
  *  - Only the admin sets the guard (0 or 1) and the keeper; the System Program's address,
  *    all zeros, is no keeper.
+ *  - Only swaps are guarded: a deposit or a withdrawal another program calls goes through.
+ *
+ * Without CPI_CALLER_ID this file fails on CI, where the job always sets it, and is skipped
+ * anywhere else: a plain `anchor test` runs tests/*.test.ts and deploys only the workspace's
+ * own programs, so tests/cpi-caller is not on its chain.
  */
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
@@ -22,6 +27,7 @@ import {
   getAssociatedTokenAddressSync,
   mintTo,
   NATIVE_MINT,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -35,6 +41,8 @@ const POOL_VAULT_SEED = Buffer.from("pool_vault");
 const POOL_LP_MINT_SEED = Buffer.from("pool_lp_mint");
 const OBSERVATION_SEED = Buffer.from("observation");
 const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
+/** The SPL Memo program a withdrawal names. */
+const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 /** Where the guard and the keeper sit in a tier's account: upstream's padding began at byte 116. */
 const GUARD_AT = 116;
 const KEEPER_AT = 124;
@@ -42,7 +50,16 @@ const KEEPER_AT = 124;
 /** What a failed send says, its last logs included: a refused swap names its error there. */
 const failure = (e: unknown) => `${String(e)}\n${((e as { logs?: string[] }).logs ?? []).join("\n")}`;
 
-describe("cp-swap swap guard", () => {
+const CALLER_ID = process.env.CPI_CALLER_ID;
+if (!CALLER_ID) {
+  if (process.env.CI) throw new Error("CPI_CALLER_ID is not set: the address tests/cpi-caller was deployed at");
+  console.warn("cp-swap swap guard: SKIPPED, CPI_CALLER_ID is not set (tests/cpi-caller is not deployed on this chain)");
+  describe.skip("cp-swap swap guard", () => {
+    it("needs tests/cpi-caller deployed and its address in CPI_CALLER_ID");
+  });
+}
+
+if (CALLER_ID) describe("cp-swap swap guard", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
   const provider = anchor.getProvider() as AnchorProvider;
   const conn = provider.connection;
@@ -52,8 +69,7 @@ describe("cp-swap swap guard", () => {
     JSON.parse(fs.readFileSync(path.resolve(__dirname, "../target/idl/raydium_cp_swap.json"), "utf8")) as Idl,
     provider
   ) as Program<Idl>;
-  if (!process.env.CPI_CALLER_ID) throw new Error("CPI_CALLER_ID is not set: the address tests/cpi-caller was deployed at");
-  const CALLER = new PublicKey(process.env.CPI_CALLER_ID);
+  const CALLER = new PublicKey(CALLER_ID);
   const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, cpSwap.programId)[0];
   const INDEX = 40;
   const tier = pda([AMM_CONFIG_SEED, new BN(INDEX).toArrayLike(Buffer, "be", 2)]);
@@ -66,6 +82,7 @@ describe("cp-swap swap guard", () => {
   let m0: PublicKey;
   let m1: PublicKey;
   let pool: PublicKey;
+  let lp: PublicKey;
   let vault0: PublicKey;
   let vault1: PublicKey;
   let observationState: PublicKey;
@@ -104,6 +121,28 @@ describe("cp-swap swap guard", () => {
       return failure(e) || "refused";
     }
   };
+  /** A deposit for, or a withdrawal of, 1 LP token by the wallet, which holds the pool's first LP tokens. */
+  const liquidityIx = (kind: "deposit" | "withdraw"): Promise<TransactionInstruction> => {
+    const accounts = {
+      owner: wallet.publicKey,
+      authority,
+      poolState: pool,
+      ownerLpToken: own(lp, wallet.publicKey),
+      token0Account: own(m0, wallet.publicKey),
+      token1Account: own(m1, wallet.publicKey),
+      token0Vault: vault0,
+      token1Vault: vault1,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      tokenProgram2022: TOKEN_2022_PROGRAM_ID,
+      vault0Mint: m0,
+      vault1Mint: m1,
+      lpMint: lp,
+    };
+    return kind === "deposit"
+      ? cpSwap.methods.deposit(new BN(1_000_000), new BN(100_000_000), new BN(100_000_000)).accountsPartial(accounts).instruction()
+      : cpSwap.methods.withdraw(new BN(1_000_000), new BN(0), new BN(0)).accountsPartial({ ...accounts, memoProgram: MEMO_PROGRAM }).instruction();
+  };
+  const lpHeld = async () => (await getAccount(conn, own(lp, wallet.publicKey))).amount;
   const direct = async (who: Keypair, kind: "in" | "out" = "in") => send(await swapIx(who.publicKey, kind), who);
   const viaProgram = async (who: Keypair, kind: "in" | "out" = "in") => send(called(await swapIx(who.publicKey, kind)), who);
   const held = async (who: Keypair) => [(await getAccount(conn, own(m0, who.publicKey))).amount, (await getAccount(conn, own(m1, who.publicKey))).amount];
@@ -148,7 +187,7 @@ describe("cp-swap swap guard", () => {
       }
     }
     pool = pda([POOL_SEED, tier.toBuffer(), m0.toBuffer(), m1.toBuffer()]);
-    const lp = pda([POOL_LP_MINT_SEED, pool.toBuffer()]);
+    lp = pda([POOL_LP_MINT_SEED, pool.toBuffer()]);
     vault0 = pda([POOL_VAULT_SEED, pool.toBuffer(), m0.toBuffer()]);
     vault1 = pda([POOL_VAULT_SEED, pool.toBuffer(), m1.toBuffer()]);
     observationState = pda([OBSERVATION_SEED, pool.toBuffer()]);
@@ -220,8 +259,19 @@ describe("cp-swap swap guard", () => {
       const why = await viaProgram(stranger, kind);
       assert.include(why, "SwapNotDirect", `swap_base_${kind}put: ${why}`);
       assert.include(why, "must be sent directly");
+      // The number the site's error table will key on: the last of the list, after upstream's 6014.
+      assert.include(why, "Error Number: 6015");
     }
     assert.deepEqual(await held(stranger), before);
+  });
+
+  it("with the guard on, a deposit and a withdrawal another program calls still go through: only swaps are guarded", async () => {
+    assert.equal((await settings()).guard, 1n);
+    const start = await lpHeld();
+    assert.equal(await send(called(await liquidityIx("deposit")), wallet), "");
+    assert.equal(await lpHeld(), start + 1_000_000n, "the called deposit minted its LP tokens");
+    assert.equal(await send(called(await liquidityIx("withdraw")), wallet), "");
+    assert.equal(await lpHeld(), start, "the called withdrawal burned them");
   });
 
   it("the keeper alone may be called by another program; only the admin names it", async () => {

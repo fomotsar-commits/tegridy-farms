@@ -407,11 +407,17 @@ System Program, ComputeBudget and Lighthouse.
 
 The swap, curve and fee maths is untouched: the guard runs before any of it, and either
 refuses the swap or leaves it alone. No account list changes, so every client (the site, the
-robot, the Jupiter SDK) sends the same instruction as before.
+robot, the Jupiter SDK) sends the same instruction as before. The check costs every swap one
+more syscall (reading the stack height, about 100 compute units), guard on or off: a client
+that pins a swap's compute limit to exactly what one uses today would need that much more.
+The site and the robot both leave room.
 
 **What it changes on chain, once upgraded.** Nothing, until the vault switches a tier's guard
 on (a proposal of its own: `update_amm_config(8, 1)` on the tier; all 25 pools read
-2026-11-10 are on fee setting 1). From then, on that tier's pools:
+2026-11-10 are on fee setting 1). Fee setting 0, the launch tier, held no pool that day, but
+a coin that graduates from the launchpad opens its pool there: that tier needs the same
+proposal, or those pools are not guarded. Read on mainnet the same day, both tiers hold
+zeros in bytes 116 to 236: guard off, no keeper. From the switch-on, on that tier's pools:
 
 - A wallet that sends its own swap trades as before: same fee, same price, same limits.
 - A swap sent from inside another program is refused. Today that is the three bots above and
@@ -440,6 +446,12 @@ fixture `jupiter-sdk/tests/fixtures/memetics.so` and the hash its parity test pi
 `MAINNET_RUNBOOK.md` and the registry text in `frontend/scripts/addresses.json`. This
 upgrade is also the first to carry the fee rules of 2026-11-03, with their own list above.
 
+**Before these pools are listed on an aggregator.** The Jupiter SDK reads no guard
+(`jupiter-sdk/src/state.rs` decodes a tier's fees only), so it would quote a pool on a
+guarded tier, and every such route would be refused on chain. Before a listing, either the
+SDK refuses to quote a tier whose guard is on, or the program lets that aggregator's program
+through (the account-list change named above).
+
 **How it was proved, 2026-11-10.** The validator runs were made as CI's migration-rehearsal
 job makes them (the test wallet as admin, a throwaway program id), on Agave 3.1.11 with
 Anchor 0.32.1; CI runs them on 2.3.0.
@@ -447,8 +459,8 @@ Anchor 0.32.1; CI runs them on 2.3.0.
 | run | result |
 |---|---|
 | unit tests (`cargo test --lib`): six on `refuses_swap` and the account's size (`states/config.rs`), one on the guard's setting (`update_config.rs`) | 34 of 34 with the 27 before |
-| `tests/cp-swap-swap-guard.test.ts` on a local validator, with `tests/cpi-caller` (a test-only program that calls the program it is handed) as the other program: guard off, a called swap goes through; on, a wallet's own swap goes through and a called one is refused, both kinds, with nothing moved; the keeper alone is let through; the System Program's address clears it; only the admin sets either, the guard only to 0 or 1; off again, as upstream | 8 of 8 |
-| the same file against the same build with `refuses_swap` made always false | the three refusals fail (the called swap goes through); the five controls pass |
+| `tests/cp-swap-swap-guard.test.ts` on a local validator, with `tests/cpi-caller` (a test-only program that calls the program it is handed) as the other program: guard off, a called swap goes through; on, a wallet's own swap goes through and a called one is refused, both kinds, with nothing moved; the keeper alone is let through; the System Program's address clears it; only the admin sets either, the guard only to 0 or 1; with the guard on, a deposit and a withdrawal another program calls still go through; the refusal carries the number 6015; off again, as upstream | 9 of 9 |
+| the same file against the same build with `refuses_swap` made always false | the three refusals fail (the called swap goes through); the six controls pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
 
 ---
