@@ -166,3 +166,26 @@ describe('idea 2: same take-home on Gondi\'s own contracts', () => {
     expect(screen.queryByTestId('lend-same-take-home')).toBeNull();
   });
 });
+
+describe('one-tap amounts as a share of the floor', () => {
+  it('fills the amount box with 90% of the floor it read', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    const name = '90% of the floor: 0.2700 WETH';
+    await screen.findByRole('button', { name });
+    expect(screen.getByRole('button', { name: '60% of the floor: 0.1800 WETH' })).toBeTruthy();
+    // This file's framer-motion stand-in builds a new component on every parent render, so
+    // the form remounts while the section's own reads land: press the chip that is on screen.
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole('button', { name }));
+      expect((screen.getByRole('spinbutton', { name: 'Loan amount (WETH)' }) as HTMLInputElement).value).toBe('0.2700');
+      expect(screen.getByRole('button', { name }).getAttribute('aria-pressed')).toBe('true');
+    });
+  });
+
+  it('offers none when the floor could not be read', async () => {
+    market.statsStatus = 500;
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Floor')).getByText('–')).toBeTruthy());
+    expect(screen.queryByRole('group', { name: 'Share of the floor' })).toBeNull();
+  });
+});

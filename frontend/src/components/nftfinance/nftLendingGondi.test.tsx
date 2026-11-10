@@ -310,6 +310,53 @@ describe('borrow: taking an offer', () => {
   });
 });
 
+describe('lend: what the offer means and where it stands', () => {
+  it('says what the lender owns if it is not repaid, and that an empty book makes it the first offer', async () => {
+    weth(parseEther('5'), parseEther('5'));
+    renderWithProviders(<NFTLendingSection />);
+    fillLend();
+    expect((await screen.findByTestId('lend-default-outcome')).textContent).toBe('Not repaid: you own a JBAC for 1.0000 WETH, and no interest.');
+    expect((await screen.findByTestId('lend-rate-rank')).textContent).toBe('No other JBAC offers: yours would be the first.');
+  });
+
+  it('ranks the typed rate among other lenders\' offers, lowest first, leaving out the wallet\'s own', async () => {
+    book.offers = [
+      { offer: bookOffer({ offerId: '1', aprBps: '900' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '2', aprBps: '2000' }), signature: SIG, createdAt: '' },
+      { offer: bookOffer({ offerId: '3', aprBps: '100', lender: WALLET }), signature: SIG, createdAt: '' },
+    ];
+    weth(parseEther('5'), parseEther('5'));
+    renderWithProviders(<NFTLendingSection />);
+    fillLend('1', '14');
+    await waitFor(() =>
+      expect(screen.getByTestId('lend-rate-rank').textContent).toBe('Your rate would rank 2 of 3 on JBAC. Borrowers see the lowest first.'),
+    );
+  });
+});
+
+describe('borrow: an empty book gives the borrower something to do', () => {
+  it('copies a link that opens the Lend tab on the collection', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy link for a lender' }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/nft-finance?lend=JBAC`);
+  });
+
+  it('a ?lend=NAKA link opens the Lend tab with Nakamigos picked', async () => {
+    window.history.replaceState(null, '', '/nft-finance?lend=NAKA');
+    try {
+      weth(parseEther('5'), parseEther('5'));
+      renderWithProviders(<NFTLendingSection />);
+      fillLend();
+      expect((await screen.findByTestId('lend-default-outcome')).textContent).toContain('you own a NAKA for 1.0000 WETH');
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+});
+
 describe('my loans: only a loan the chain confirms gets a button', () => {
   const loanJson: LoanJson = {
     borrower: WALLET,

@@ -51,6 +51,8 @@ import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
+import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
+import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
 import { LenderMarketPanel } from './LenderMarketPanel';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
@@ -102,6 +104,8 @@ type Tab = (typeof TABS)[number];
 /* ─── Main Component ────────────────────────────────────────────── */
 export function NFTLendingSection() {
   void useAccount(); // keep wagmi context alive
+  // A borrower's "?lend=NAKA" link lands a lender on the Lend tab with that collection picked.
+  const [linked] = useState(() => (typeof window === 'undefined' ? null : lendLinkCollection(window.location.search)));
   const [activeTab, setActiveTab] = useState<Tab>('Lend');
   // Explicit <Tab>: inference widens T under the test project's `strictFunctionTypes: false`.
   const tabKeys = useTabListKeys<Tab>(TABS, activeTab, setActiveTab);
@@ -238,7 +242,7 @@ export function NFTLendingSection() {
       <AnimatePresence mode="wait">
         {activeTab === 'Lend' && (
           <m.div key="lend" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
-            <LendTab feeBps={feeBps} />
+            <LendTab feeBps={feeBps} initialCollection={linked ? (linked.address as Address) : undefined} />
           </m.div>
         )}
         {activeTab === 'Borrow' && (
@@ -278,13 +282,13 @@ export function NFTLendingSection() {
 /* ═══════════════════════════════════════════════════════════════════
    LEND TAB
    ═══════════════════════════════════════════════════════════════════ */
-function LendTab({ feeBps }: { feeBps: number | null }) {
+function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initialCollection?: Address }) {
   const { address, isConnected } = useAccount();
   // A disabled "Connect Wallet" button dispatches no click; it opens the modal instead.
   const openConnectModal = useSafeConnectModal();
   const chainId = useChainId();
   const refreshBook = useRefreshBook();
-  const [selectedCollection, setSelectedCollection] = useState<Address>(COLLECTIONS[0]!.address);
+  const [selectedCollection, setSelectedCollection] = useState<Address>(initialCollection ?? COLLECTIONS[0]!.address);
   // Default: any NFT in the collection (owner, 2026-10-27). One specific NFT stays an option.
   const [anyToken, setAnyToken] = useState(true);
   const [tokenId, setTokenId] = useState('');
@@ -446,6 +450,18 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
   };
 
   const interestPerLoan = principalWei !== null && aprValue !== null ? interestFor(principalWei, aprValue, BigInt(duration)) : null;
+  // The floor the market card already reads (same query, no second request), for the
+  // one-tap amounts; and the collection's open offers, to say where this rate would rank.
+  const market = useLendingMarket(selectedCollection, LENDING_LIVE);
+  const floor = market.data?.floor ?? null;
+  const shares = FLOOR_SHARES.map((pct) => ({ pct, amount: floorShareAmount(floor, pct) })).filter(
+    (x): x is { pct: (typeof FLOOR_SHARES)[number]; amount: string } => x.amount !== null,
+  );
+  const rivals = useBookOffers({ collection: selectedCollection, enabled: LENDING_LIVE });
+  const rank =
+    aprValue !== null && rivals.data
+      ? rateRank(aprValue, rivals.data.offers.filter((r) => !address || !sameAddress(r.offer.lender, address)).map((r) => r.offer))
+      : null;
   const venueCut = interestPerLoan !== null && feeBps !== null ? (interestPerLoan * BigInt(feeBps) + 9_999n) / 10_000n : null;
   // Idea 2 (owner 2026-11-09): Gondi's own contract keeps a bigger share of the interest, so
   // the same take-home needs a higher rate there. Read live; no read, no line.
@@ -562,6 +578,25 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
+          {shares.length > 0 && (
+            <div role="group" aria-label="Share of the floor" className="flex gap-2 mt-2">
+              {shares.map(({ pct, amount }) => (
+                <button
+                  key={pct}
+                  type="button"
+                  aria-pressed={principal === amount}
+                  aria-label={`${pct}% of the floor: ${amount} WETH`}
+                  onClick={() => setPrincipal(amount)}
+                  className={`flex-1 min-h-[44px] rounded-xl text-[13px] font-medium transition-all ${
+                    principal === amount ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/10 text-white/80 hover:border-white/25'
+                  }`}
+                  style={{ background: principal === amount ? SELECTED_BG : CARD_BG }}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -586,7 +621,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
 
       <PresetRow label="Loan length" presets={DURATION_PRESETS} value={duration} onChange={setDuration} />
       <PresetRow
-        label="Offer open for"
+        label="Open for"
         tooltip="How long borrowers can take this offer. Cancel it any time from My Loans."
         presets={OPEN_PRESETS}
         value={openFor}
@@ -595,7 +630,7 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
 
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-          Loans this offer can fund
+          Loans to fund
           <InfoTooltip text="Each loan uses the full amount. With 3, up to three borrowers can each take one. Your wallet needs WETH for all of them while the offer is open." />
         </label>
         <input
@@ -627,6 +662,16 @@ function LendTab({ feeBps }: { feeBps: number | null }) {
             {fmtWeth(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
             {venueCut !== null && feeBps !== null ? `, after the venue's ${bpsToPercent(feeBps)}% of the interest` : ''}
           </p>
+          <p className="text-amber-300 text-[12px] mt-2" data-testid="lend-default-outcome">
+            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWeth(principalWei)} WETH, and no interest.
+          </p>
+          {rank !== null && (
+            <p className="text-white/80 text-[12px] mt-1" data-testid="lend-rate-rank">
+              {rank.of === 1
+                ? `No other ${selectedSymbol} offers: yours would be the first.`
+                : `Your rate would rank ${rank.rank} of ${rank.of} on ${selectedSymbol}. Borrowers see the lowest first.`}
+            </p>
+          )}
           {gondiSameAprBps !== null && gondiFeeBps !== null && (
             <p className="text-white/85 text-[11px] mt-1" data-testid="lend-same-take-home">
               Same take-home as {bpsToPercent(gondiSameAprBps)}% APR on Gondi&apos;s own contracts, which keep{' '}
@@ -803,7 +848,20 @@ function BorrowTab() {
       ) : book.isError ? (
         <EmptyCard title="Couldn't load offers." line="The offer book did not answer. Try again in a moment." />
       ) : shown.length === 0 ? (
-        <EmptyCard title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`} line="Be the first! Switch to the Lend tab to make one." />
+        <EmptyCard
+          title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
+          line="Lenders make the offers. Send one this page."
+          action={{
+            label: 'Copy link for a lender',
+            onClick: () => {
+              const symbol = filter !== 'all' ? filter : COLLECTIONS[0]!.symbol;
+              const link = lenderLink(window.location.origin, symbol);
+              void (navigator.clipboard?.writeText(link) ?? Promise.reject(new Error('no clipboard')))
+                .then(() => toast.success('Link copied. It opens the Lend tab.'))
+                .catch(() => toast.error(`Could not copy. The link is ${link}`));
+            },
+          }}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {shown.map(({ row, status }) => {
@@ -824,13 +882,18 @@ function BorrowTab() {
   );
 }
 
-function EmptyCard({ title, line }: { title: string; line: string }) {
+function EmptyCard({ title, line, action }: { title: string; line: string; action?: { label: string; onClick: () => void } }) {
   return (
     <div className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
       <ArtImg pageId="nft-lending" idx={4} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       <div className="relative z-10 m-2 rounded-lg p-6 md:p-8 text-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
         <p className="text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{title}</p>
         <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{line}</p>
+        {action && (
+          <button type="button" onClick={action.onClick} className="btn-primary mt-3 min-h-[44px] px-4 rounded-xl text-[13px]">
+            {action.label}
+          </button>
+        )}
       </div>
     </div>
   );
