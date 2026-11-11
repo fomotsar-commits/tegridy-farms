@@ -431,7 +431,7 @@ export function PoolCard({
             </div>
           )}
           <Notice>
-            LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
+            LPs’ share of fees stays in the pool, so each pool share is worth a little more after every trade.
           </Notice>
           {readers?.poolPast && <PoolPastBlock view={view} safety={safety} readers={readers} />}
         </Part>

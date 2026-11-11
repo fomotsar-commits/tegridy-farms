@@ -37,7 +37,7 @@ import type {
 } from '../../../lib/launcher/solana/write/types';
 import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
-import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
+import type { LpClaimBasis, LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
 import type { RangeCreateArgs, RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
 import type { VenueSwapArgs } from '../../../lib/launcher/solana/write/venueSwap';
@@ -101,7 +101,7 @@ export type {
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
 export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
-export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
+export type { LpClaimBasis, LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
 

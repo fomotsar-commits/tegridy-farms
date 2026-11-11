@@ -258,7 +258,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
 
 
 /**
- * One line saying fees need no claim, and where the earning cards are. It stands above the
+ * One line saying fees grow the shares, and where the earning cards are. It stands above the
  * finder at every size, in the page as it is drawn, so it is on the first screen and a
  * screen reader hears it first. The finder's three buttons still fit under it on the
  * shortest phone (e2e/tab-target-size.spec.ts pins both).
@@ -266,7 +266,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
 function LpEarnLine() {
   return (
     <p data-testid="lp-earn-line" className="px-1 text-white/85 text-[13px] leading-snug">
-      Fees grow your pool shares. Nothing to claim.
+      Fees grow your pool shares.
     </p>
   );
 }

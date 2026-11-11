@@ -187,11 +187,11 @@ describe('the pool card reads like a pool', () => {
     expect(rowValue(card, 'Fee tier 1')).toBe('Traders pay 1% a trade');
     expect(rowValue(card, 'Of that fee')).toBe('LPs keep 0.840% of each trade, the venue 0.160%');
     expect(rowValue(card, 'Paired with')).toBe('SOL');
-    expect(card).toHaveTextContent('LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.');
+    expect(card).toHaveTextContent('LPs’ share of fees stays in the pool, so each pool share is worth a little more after every trade.');
     // How an LP is paid stays in view as the fee split; the longer sentence is a press away.
     expect(within(card).getByTestId('lp-pool-split')).toBeVisible();
     expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent('LPs keep 0.840% of each trade, the venue 0.160%.');
-    expect(within(card).getByTestId('lp-pool-more')).toHaveTextContent('LPs’ share of fees is not paid out separately');
+    expect(within(card).getByTestId('lp-pool-more')).toHaveTextContent('LPs’ share of fees stays in the pool');
     expect(card).toHaveTextContent('Deposits: the checks pass');
     // Fewer words (#803): the notice stays on the card, the reassurance sits in the drop-down.
     expect(within(card).getByText('Adding liquidity here is not switched on yet.')).toBeVisible();
