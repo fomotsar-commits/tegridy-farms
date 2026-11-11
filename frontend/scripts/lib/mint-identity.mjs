@@ -192,8 +192,8 @@ export const MINT_TOKENS = [
     pool: '3sw9bPyEk29AMkwr2fHeQiyKiptNkUgfvtY8u5QrJdWh',
     coins: [COINS.STORMIE, COINS.SOL],
     name: 'STORMIE/SOL LP',
-    // "STORMIE-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'STORM-SOL',
+    // "STORMIE-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'STRMIE-SOL',
     description: share('STORMIE/SOL', `STORMIE (${COINS.STORMIE})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',
@@ -250,8 +250,8 @@ export const MINT_TOKENS = [
     pool: '9P1KhvycWZiEb2hYidGoc5U9Lji8mgjZHRn4CdGcFkVy',
     coins: [COINS.SHOCKER, COINS.SOL],
     name: 'SHOCKER/SOL LP',
-    // "SHOCKER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'SHOCK-SOL',
+    // "SHOCKER-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'SHOCKR-SOL',
     description: share('SHOCKER/SOL', `SHOCKER (${COINS.SHOCKER})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',
@@ -262,8 +262,8 @@ export const MINT_TOKENS = [
     pool: '9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ',
     coins: [COINS.GROYPER, COINS.SOL],
     name: 'GROYPER/SOL LP',
-    // "GROYPER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'GROYP-SOL',
+    // "GROYPER-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'GROYPR-SOL',
     description: share('GROYPER/SOL', `GROYPER (${COINS.GROYPER})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',

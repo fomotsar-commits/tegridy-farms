@@ -956,7 +956,7 @@
     {
       "id": "venue-lp-mint-stormie-sol",
       "address": "GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx",
-      "role": "Pool-share (LP) mint of venue-pool-stormie-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx.json: \"STORMIE/SOL LP\", symbol STORM-SOL.",
+      "role": "Pool-share (LP) mint of venue-pool-stormie-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx.json: \"STORMIE/SOL LP\", symbol STRMIE-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 21.812876290 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
       "expect": {
@@ -1056,7 +1056,7 @@
     {
       "id": "venue-lp-mint-shocker-sol",
       "address": "J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj",
-      "role": "Pool-share (LP) mint of venue-pool-shocker-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 253, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj.json: \"SHOCKER/SOL LP\", symbol SHOCK-SOL.",
+      "role": "Pool-share (LP) mint of venue-pool-shocker-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 253, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj.json: \"SHOCKER/SOL LP\", symbol SHOCKR-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 89.563874170 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
       "expect": {
@@ -1076,7 +1076,7 @@
     {
       "id": "venue-lp-mint-groyper-sol",
       "address": "A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE",
-      "role": "Pool-share (LP) mint of venue-pool-groyper-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE.json: \"GROYPER/SOL LP\", symbol GROYP-SOL.",
+      "role": "Pool-share (LP) mint of venue-pool-groyper-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE.json: \"GROYPER/SOL LP\", symbol GROYPR-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 17.747728837 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
       "expect": {
