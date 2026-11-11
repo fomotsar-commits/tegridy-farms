@@ -51,8 +51,9 @@ code is Raydium's; the admin keys and names are ours.
 - **A pool opened from the site uses the 1% fee tier.** Every swap pays 1%: **0.84% stays in
   the pool** for its liquidity providers and **0.16% is the venue's take**: 0.104% to the venue's
   vault and 0.056% to the island's Workshop (Jungle Bay Island's share, agreed 2026-10-18).
-- **How liquidity providers earn:** there is no claim button. The 0.84% stays in the pool, so
-  each pool share redeems for more over time. You collect it when you remove liquidity.
+- **How liquidity providers earn:** the 0.84% stays in the pool, so each pool share redeems
+  for more over time. You collect it when you remove liquidity, or on its own with Claim fees on
+  your position: the pool program's own withdraw of just enough shares to pay out those fees.
 - **How the venue earns:** the 0.16% cut, plus **0.15 SOL** paid to the vault by whoever opens
   a new pool.
 - **Launch pools** (where a launched token graduates) use a separate 0.25% tier, of which
