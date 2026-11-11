@@ -11,6 +11,8 @@ import { lpFetch } from '../../../lib/solana/lp/readFetch';
 import { listedOutsidePrice, readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { siteTokens } from '../../../lib/solana/lp/siteTokens';
+import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { quoteCoin, quotesFor } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
@@ -28,7 +30,8 @@ import { CoinRiskNotice } from '../lp/LpDisclosures';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { RANGE_PENDING_SCOPE } from '../curve/pendingTrade';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
-import { Card, Notice, Row } from '../curve/ui';
+import { Card, Field, Notice, Row } from '../curve/ui';
+import { inputCls, inputStyle } from '../curve/uiFormat';
 import { useCurveSigner } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature } from '../curve/usePendingTrades';
 import type { RangeWriteApi, WriteRpc } from '../curve/ports';
@@ -45,7 +48,8 @@ import { useChainRead, useRangeWrites } from './useRangeData';
  * the range program at the address `clmm/programId.ts` names, over `/api/solrpc`. Writes
  * follow LP's own switch: 'on' opens positions and takes out, 'withdraw-only' only takes
  * out, 'off' fetches no write code at all. `?mint=` picks the token; nothing else is read
- * from the address.
+ * from the address. The token buttons and the address box write `?mint=`, so a press reads
+ * exactly as a link to that token would.
  */
 export default function RangeSection() {
   const readers = useMemo(() => browserRangeReaders(withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })), 'confirmed'), RANGE_PROGRAM_ID), []);
@@ -174,12 +178,28 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
     setCoinMint(mint);
     setChosen(null);
   };
-  const clearToken = () =>
+  // The token: one press for a coin with a room here (a phone has no address to paste), or any
+  // coin by its mint address. Both write `?mint=` (BAYLA, the default, leaves the address bare),
+  // and a new token starts on its first pairing coin, SOL.
+  const roomId = useActiveBungalowId();
+  const tokens = useMemo(() => siteTokens(roomId), [roomId]);
+  const [typed, setTyped] = useState('');
+  const [typedError, setTypedError] = useState<string | null>(null);
+  const pickToken = (mint: string) => {
+    setTypedError(null);
+    pickCoin(quotesFor(mint)[0]!.mint);
     setParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.delete('mint');
+      if (mint === BAYLA_MINT) next.delete('mint');
+      else next.set('mint', mint);
       return next;
     });
+  };
+  const submitTyped = () => {
+    const p = parseMintInput(typed);
+    if (!p.ok) setTypedError(p.reason);
+    else pickToken(p.mint);
+  };
 
   return (
     <div className="space-y-4">
@@ -202,16 +222,48 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
       )}
 
       <Card title="Pick a pool" testId="range-pools" art={<CardArt pageId="range-pools" idx={1} />}>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Token">
+          {tokens.map((t) => (
+            <button key={t.mint} type="button" aria-pressed={t.mint === tokenMint} disabled={busy} className={chipCls(t.mint === tokenMint)} onClick={() => pickToken(t.mint)}>
+              {t.symbol}
+            </button>
+          ))}
+        </div>
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitTyped();
+          }}
+        >
+          {/* The warning on names stays on screen at the field, as on the Pools tab: a copied name is how a fake token gets in. */}
+          <Field label="Or any token’s mint address" hint="The token’s address, not its name: anyone can copy a name." error={typedError}>
+            {(a11y) => (
+              <input
+                {...a11y}
+                className={`${inputCls} font-mono`}
+                style={inputStyle}
+                value={typed}
+                onChange={(e) => {
+                  setTyped(e.target.value);
+                  // The refusal was about the text that was there: it does not stay over a new one.
+                  setTypedError(null);
+                }}
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="text"
+              />
+            )}
+          </Field>
+          <button type="submit" disabled={busy} className="btn-secondary min-h-[44px] px-4 text-[12px]">
+            Show its pools
+          </button>
+        </form>
         <Row label="Token" value={tokenLabel ?? tokenMint} mono={tokenLabel === null} />
         {/* A ticker off the site's own list is the coin's claim: its whole address goes with it. */}
         {tokenLabel !== null && !siteNamed(tokenMint) && <Row label="Token address" value={tokenMint} />}
         <TokenFreezeNotice mint={tokenMint} read={freeze.read} />
         {raw && parsed && !parsed.ok && <Notice tone="warn">{`The token in the link is not one this page can read (${parsed.reason}). Showing BAYLA.`}</Notice>}
-        {parsed?.ok && tokenMint !== BAYLA_MINT && (
-          <button type="button" className="underline text-white/70 min-h-[44px]" onClick={clearToken}>
-            Back to BAYLA
-          </button>
-        )}
         <div className="flex flex-wrap gap-2" role="group" aria-label="Paired with">
           {coins.map((q) => (
             <button
@@ -219,7 +271,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
               type="button"
               aria-pressed={q.mint === coin.mint}
               disabled={busy}
-              className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${q.mint === coin.mint ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
+              className={chipCls(q.mint === coin.mint)}
               onClick={() => pickCoin(q.mint)}
             >
               With {q.symbol}
@@ -330,6 +382,10 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
     </div>
   );
 }
+
+/** A token or pairing-coin button, lit while it is the one picked. */
+const chipCls = (on: boolean) =>
+  `min-h-[44px] px-3 rounded-lg border text-[12px] ${on ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`;
 
 const NOTE_WHAT = {
   'range-open': 'opening a range position',

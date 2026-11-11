@@ -10,9 +10,11 @@ The site's Changelog tab shows both files.
 ### 2026-11-11
 
 - Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
+- Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
 
 ### 2026-11-10
 
+- Menu: cut down. Island lists Lore and Launch (the launch page), and Dashboard once a wallet connects; Swap, Pools and Lock (Staking, NFT Loans) stay. Check and the Launch group leave the menu, and so do the island's other pages, Yield, Copy Trading and Checkout. Every one still opens at its own address, and the island lobby and the Lock tabs still list theirs.
 - NFT lending and pools: drag a loan through its days to see what repaying costs, or what a lender keeps, on any of them; amounts at 60, 75 or 90% of the floor, and a bar that draws your amount against the floor and the best bid; where your rate ranks; a link a borrower can send a lender; and on Add liquidity, drag the price to see your position against just holding; on range pools, drag the two edges of your range, then drag the price to see what the position would hold there; and under "More about this pool", drag the size of one buy to see how far it moves the price and who it pays.
 - NFT lending, My Loans: repaying no longer gets stuck asking for the same WETH approval again. The approval covers what is owed 10 minutes on, and the next step now checks for 2 minutes on, not the full 10.
 - NFT marketplace: Best collection offer, the order book and the depth chart now count only bids that buy any NFT in the collection. They used to count offers on one NFT or a hand-picked few, so they could show a best bid far above the floor: up to 0.155 WETH on Jungle Bay (floor 0.028) and 3.5 WETH on Nakamigos (floor 0.08). Trait offers still show in their own column.

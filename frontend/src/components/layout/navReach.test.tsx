@@ -55,6 +55,14 @@ const URL_ONLY: Record<string, string> = {
   // Owner, 2026-10-24: the Nakamigos marketplace left the home, the nav and the venue's
   // metadata (a drainer-profile surface on the venue's domain); the route stays.
   '/nakamigos': "the Nakamigos marketplace: off the nav since 2026-10-24; the bungalow rooms' Marketplace door still opens it",
+  // Owner, 2026-11-10: Check off the menu, "hide it all". Its strip still joins the seven.
+  '/trust': 'Check, off the menu since 2026-11-10',
+  '/scan': 'Check, off the menu since 2026-11-10',
+  '/deployer': 'Check, off the menu since 2026-11-10',
+  '/exposure': 'Check, off the menu since 2026-11-10',
+  '/terminal': 'Check, off the menu since 2026-11-10',
+  '/chart': 'Check, off the menu since 2026-11-10',
+  '/alerts': 'Check, off the menu since 2026-11-10',
 };
 
 /** Where a visitor can start: the four words, the drawer and the footer's own links. */
