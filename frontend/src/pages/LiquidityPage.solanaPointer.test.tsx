@@ -43,10 +43,10 @@ afterEach(() => {
   lp.mode = 'on';
 });
 
-describe('/liquidity points a Solana visitor at the Venue AMM tab', () => {
+describe('/liquidity points a Solana visitor at the Solana pools (/pools)', () => {
   it('with a link in its header, before the paragraph and the pool table', () => {
     mount();
-    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Venue AMM tab' });
+    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove Solana pools' });
     expect(link).toHaveAttribute('href', '/pools');
     const header = screen.getByRole('heading', { level: 1, name: 'Liquidity' }).parentElement!;
     expect(header).toContainElement(link);
@@ -64,8 +64,8 @@ describe('/liquidity points a Solana visitor at the Venue AMM tab', () => {
   });
 
   it.each<[LpWriteMode, string, RegExp]>([
-    ['withdraw-only', 'On Solana? Take liquidity out on the Venue AMM tab', /create|add/i],
-    ['off', 'On Solana? Find a pool on the Venue AMM tab', /create|add|remove|take/i],
+    ['withdraw-only', 'On Solana? Take liquidity out of Solana pools', /create|add/i],
+    ['off', 'On Solana? Find a Solana pool', /create|add|remove|take/i],
   ])('LP %s: the link promises only what that tab can do', (mode, text, never) => {
     lp.mode = mode;
     const pointer = mount();
