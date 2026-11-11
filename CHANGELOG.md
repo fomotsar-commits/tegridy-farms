@@ -101,6 +101,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-02
 
+- Solana pools: the two BAYLA pool shares take their pair names in wallets, "BAYLA/SOL LP" and "BAYLA/USDC LP", like every other pool share.
 - A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
 
 ### 2026-11-01
