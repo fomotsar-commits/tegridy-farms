@@ -319,6 +319,14 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 ## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
 
+**2026-11: the build moved on.** The vault's proposal #32 upgraded the program to `01fe923b…`
+(714,776 bytes): the swap guard, which is off until the vault's proposal #33 switches it on for
+both fee settings, and the fee rules of 2026-11-03 (`TEGRIDY_FORK.md` has a section for each).
+That round has its own block below, "Upgraded to the build with the swap guard: proposal #32",
+and its own pack and paper (`pool-swap-guard-upgrade-2026-11`, `START-HERE.md`). Everything else
+in this section is the record of the first upgrade and its roll-backs. There "the new build"
+means `1e55bcdc…`, which is the roll-back build since #32, and "the old build" means `88b98aa9…`.
+
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
 was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. It was rolled back
 on 2026-10-24 and upgraded again with proposal #23, rolled back again by mistake on 2026-11-04
@@ -387,6 +395,29 @@ upload's 3.684732 SOL went back to the paying wallet. Its four facts, read from 
 | Slot of the execute (the program's "Last Deployed In Slot") | `466,155,644` |
 | Transaction of the execute (its signature) | `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK` |
 | Size of the program's data account afterwards (bytes) | `725,221` |
+
+**Upgraded to the build with the swap guard: proposal #32.** One proposal, with no roll-back
+beside it, from the pack `pool-swap-guard-upgrade-2026-11`. The build is `01fe923b…`, 714,776
+bytes, made from `mvp-launch` at the merge of pull request #1177 (`137862c6f`): two clean builds
+and CI's build job gave the same file, and the same toolchain rebuilt `1e55bcdc…` from its own
+commit. It is smaller than the build it replaced, so there was no enlarge: the data account
+stays 725,221 bytes, and the program in it is followed by zeros. It carries the swap guard, off
+on every fee setting, and the fee rules of 2026-11-03, which no earlier build had. In the same
+sitting the owner proposed and approved #33, which switches the guard on for both fee settings
+(`update_amm_config`, setting 8, value 1, on `BHMteE8u…` and on `CapqvAA9…`). The program on
+chain before the upgrade refuses that setting (6003 `InvalidInput`), so #33 could only run after
+#32. Rehearsed on a copy of mainnet on 2026-11-10 (the pack's `evidence/stage7-swap-guard`).
+Its four facts, read from mainnet by `read-upgrade-record.mjs`:
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+
+The switch-on, #33, is a setting and not an upgrade, so it has no row above. The pack's
+`scripts/7-verify-guard.mjs` reads it: both fee settings accounts hold 1 in bytes 116 to 124.
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the
@@ -1163,8 +1194,10 @@ source fix is not in the deployed bytecode, so this step remains blocked on a pr
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
 - `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
   (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).
-  Enforced bound: **`protocol_fee_rate + fund_fee_rate ≤ 1_000_000`** (there is NO "≤ trade_fee_rate"
-  rule — setting it to `2500` would collect ~0.0006% of volume, i.e. almost nothing).
+  Enforced bound: **`protocol_fee_rate + fund_fee_rate ≤ 200_000`**, 20% of the trade fee, since
+  the upgrade of 2026-11 (before it: `≤ 1_000_000`). The same upgrade refuses a `trade_fee_rate`
+  of 0 and holds `trade_fee_rate + creator_fee_rate ≤ 40_000`, 4% of a swap. (There is NO
+  "≤ trade_fee_rate" rule — setting it to `2500` would collect ~0.0006% of volume, i.e. almost nothing.)
 - `fund_fee_rate`, `create_pool_fee`.
 - **`create_pool_fee` receiver** must be a **WSOL token account** (`create_pool_fee_reveiver::ID`
   from step 2 = the treasury's WSOL ATA), not a wallet.
@@ -1173,6 +1206,12 @@ source fix is not in the deployed bytecode, so this step remains blocked on a pr
 there is no treasury parameter. To hand fee-collection authority to a *distinct* treasury, call
 `update_config` (param 3 = new protocol owner, param 4 = new fund owner) after this. Fees land at
 whatever token account you name at collection time regardless.
+
+**Param 4 works once per fee setting since the upgrade of 2026-11.** It is accepted only while
+the vault is still the fund owner. After the hand-over nobody can point that fee setting's fund
+fee anywhere else, the vault included (6001 `InvalidOwner`): only a program upgrade can. Both
+live fee settings were handed to the island's Workshop before that upgrade, so theirs is fixed.
+Since the same upgrade only the fund owner collects the fund fee; the vault cannot.
 
 ### ⚖️ OWNER DECISION — who holds `admin::ID`, knowing what it can do
 
@@ -1194,9 +1233,15 @@ and burning the LP does not protect a pool from any of them:
   `initialize_with_permission` then refuses every pool, so every graduation fails until it is
   set back. Same effect as closing the permission.
 - **Reprice every pool on the config** — `update_config` params 0 and 7 change the trade fee
-  and the creator fee, and swaps read both live. The only bound is trade + creator < 100%. This
+  and the creator fee, and swaps read both live. Since the upgrade of 2026-11 the bound is a trade
+  fee above 0 and trade + creator at most 4% of a swap (before it: trade + creator < 100%). This
   reaches graduated burned-LP pools too.
-- **Sweep accrued protocol and fund fees** to any recipient (the fallback collector).
+- **Sweep accrued protocol fees** to any recipient. Until the upgrade of 2026-11 it could sweep
+  fund fees too (the fallback collector); since then only a fee setting's fund owner collects them.
+- **Switch the swap guard on or off for a fee setting**: `update_config` param 8, since the
+  upgrade of 2026-11. On, every pool on that fee setting refuses a swap that another program
+  calls (6015 `SwapNotDirect`), an aggregator's included, and graduated burned-LP pools too.
+  Param 9 names the one signer the guard still lets through.
 
 Today the source bakes a single operator-held key (the comment on `admin::ID` in
 `programs/cp-swap/src/lib.rs` says why: to prove graduation before a 2-of-N ceremony). A

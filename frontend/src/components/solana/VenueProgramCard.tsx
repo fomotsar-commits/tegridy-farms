@@ -13,7 +13,7 @@ export function VenueProgramCard() {
     <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
       <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-      {/* True of the program running since its upgrade and of the source: both carry our authority
+      {/* True of the program running since its upgrades and of the source: both carry our authority
           constants. The small print names what else the fork adds. */}
       <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with our keys</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-1">
@@ -22,23 +22,34 @@ export function VenueProgramCard() {
       <FinePrint summary="The program">
         <p>
           The AMM is a fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
-          upstream commit, refuses any differing file outside three, and sha256-hashes the
-          remaining delta against a pinned value. That delta is four authority constants,
-          the program&rsquo;s own name and contact text, comments, one added instruction and
-          one added check. The instruction lets a pool&rsquo;s share token carry a name and a
+          upstream commit, refuses any differing file outside a reviewed list, and sha256-hashes
+          the remaining delta against a pinned value. That delta is four authority constants,
+          the program&rsquo;s own name and contact text, comments, one added instruction, one
+          added check, fee limits and a swap guard. The instruction lets a pool&rsquo;s share token carry a name and a
           picture in wallets. Its caller chooses nothing: the name and the link are fixed in
           the program. It has no way to move pool funds. Whoever calls it pays a small one-time fee
           for the record. The check keeps the launch fee tier for launches: opening a pool
           there the public way is refused, and a launch&rsquo;s graduation still opens its
           pool there.
-          The curve, the swap, the deposit and withdraw paths and the fee maths are
+          The fee limits: a fee tier charges a trader more than nothing and at most four percent of a
+          swap, at most a fifth of that fee goes to the venue and the island together, and
+          only the account a fee tier names for the island&rsquo;s share can collect it. No
+          coin is let in by name: every coin meets the same check.
+          The swap guard is a switch our vault holds for each fee tier. While it is on, a
+          pool there takes a swap only when a wallet sends it directly. A swap that another
+          program makes is refused: a router, a trading app or a smart wallet that trades
+          through a program of its own. Swaps from this site are sent directly. Adding and
+          removing liquidity are not guarded.
+          The curve, the swap maths, the deposit and withdraw paths and the fee maths are
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.
         </p>
         {/* Until the pool program's upgrade, and again during each roll-back (2026-10-24 to 11-03,
             2026-11-04 to 11-06), a paragraph here said the program on Solana was built before that instruction
             was added. It went out with each upgrade, and src/test/poolProgramCopy.test.ts keeps it
-            out for as long as the harness pins that build. */}
+            out for as long as the harness pins that build. The fee limits and the swap guard came
+            with the upgrade of 2026-11, and the same test takes them out again if the harness
+            pins an earlier build. */}
         <p>
           A browser has no way to list pools itself: <code className="font-mono">getProgramAccounts</code> stays
           off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,

@@ -85,6 +85,14 @@ fallback for pairs we don't host well.
 > upgrade built from this source, which also carries the fee rules of 2026-11-03.
 > `diff-guard` was re-pinned for it.
 
+> **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
+> vault's proposal #32 upgraded the program to the build made from this source at the merge of
+> pull request #1177 (sha256 `01fe923b…`, 714,776 bytes). The build before it, `1e55bcdc…`, is
+> the roll-back build now. The guard was off on every tier at the upgrade; the vault's proposal
+> #33, approved in the same sitting, switches it on for both tiers. The day, the slot and the
+> transaction are recorded in `MAINNET_RUNBOOK.md`, section 4b. Neither the fee rules nor the
+> guard has been audited.
+
 ---
 
 ## The entire code diff from upstream

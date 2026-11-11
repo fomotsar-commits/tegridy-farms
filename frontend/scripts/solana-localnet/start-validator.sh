@@ -10,11 +10,12 @@
 # What it loads, and nothing else:
 #   - tegridy-launch and cp-swap: the EXACT .so files mainnet runs, at their mainnet
 #     ids, upgrade authority none. tegridy-launch is the 2026-09-26 release's file.
-#     cp-swap is the build it was upgraded to (1e55bcdc…, 725,176 bytes: the one with
-#     create_lp_metadata, whose public initialize refuses fee tier 0), which sits in the
-#     same folder under its own name with its own checksum list. The release's
-#     cp_swap.mainnet.so (88b98aa9…, what mainnet ran
-#     before the upgrade) stays in that folder and is not loaded. Each file's sha256
+#     cp-swap is the build it was upgraded to (01fe923b…, 714,776 bytes: the one with
+#     the swap guard and the fee rules of 2026-11-03; like the build before it, it has
+#     create_lp_metadata and its public initialize refuses fee tier 0), which sits in the
+#     same folder under its own name with its own checksum list. The builds mainnet ran
+#     before (cp_swap.upgrade-1e55bcdc.mainnet.so, and the release's cp_swap.mainnet.so,
+#     88b98aa9…) stay in that folder and are not loaded. Each file's sha256
 #     must match the checksum list that came with it AND the pins below, or nothing
 #     starts. genesis-accounts.mjs says which three files the upgrade added.
 #   - Metaplex Token Metadata, cloned from mainnet at genesis (read-only).
@@ -55,9 +56,9 @@ LAUNCH=64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2
 CPSWAP=EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT
 METAPLEX=metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
 PIN_LAUNCH=a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d
-PIN_CPSWAP=1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22
-SO_CPSWAP=cp_swap.upgrade-1e55bcdc.mainnet.so
-SUMS_CPSWAP=SHA256SUMS.upgrade-1e55bcdc
+PIN_CPSWAP=01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938
+SO_CPSWAP=cp_swap.upgrade-01fe923b.mainnet.so
+SUMS_CPSWAP=SHA256SUMS.upgrade-01fe923b
 
 die() { echo "REFUSING: $*" >&2; exit 1; }
 

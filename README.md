@@ -135,7 +135,8 @@ our fee Safe. There is no TOWELI staking on either chain.
   firm. The pool program's changes from Raydium's (its admin keys, plus one added instruction
   that names pool share tokens and one check that keeps the launch fee tier for launches, both
   live since its third upgrade on 2026-11-06, and before that from 2026-10-23 to 2026-10-24 and
-  from 2026-11-03 to 2026-11-04, each time until a roll-back) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
+  from 2026-11-03 to 2026-11-04, each time until a roll-back; and fee limits and a swap guard,
+  live since the upgrade of 2026-11) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
 
 ---
 

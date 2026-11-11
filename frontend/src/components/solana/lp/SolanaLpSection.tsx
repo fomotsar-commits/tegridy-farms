@@ -335,18 +335,25 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
         <FinePrint summary="Risks">
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
           <p>{RISK_SHORT}</p>
-          {/* True of the pool program RUNNING on mainnet since its upgrade to the build that has
-              create_lp_metadata and refuses a public opening on fee tier 0. Before the upgrade this named
-              the admin keys as the only change. src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
+          {/* True of the pool program RUNNING on mainnet since its upgrade of 2026-11 to the build that has
+              create_lp_metadata, refuses a public opening on fee tier 0, holds a fee tier's fees inside limits
+              and has the swap guard. Before the first upgrade this named the admin keys as the only change.
+              src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
           <p>
             Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
-            share tokens and one added check that keeps the launch fee tier for launches (see “The program”{' '}
+            share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard (see
+            “The program”{' '}
             {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
               no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
-              update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
+              update_amm_config, create_amm_config, collect_protocol_fee) and its upgrade authority. Since the upgrade
+              of 2026-11: collect_fund_fee is the fund owner's alone (the island's Workshop on both tiers, read
+              2026-11-10), update_amm_config hands a tier's fund fee over only once (both tiers are handed over), a
+              tier's fees are held inside the program's ceilings (states/config.rs), and update_amm_config's
+              setting 8 switches a tier's swap guard. The ceiling is said in words: this page prints no fee
+              figure that was not read from the chain (PoolsPage.test.tsx). */}
           <p>
             Read on chain 2026-10-20: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
@@ -358,15 +365,18 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
           </p>
           <p>
             The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
-            venue’s share, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
-            fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
-            them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
-            back on.
+            venue’s share, and that applies to pools already open. The program holds those fees inside limits: a fee tier charges a
+            trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together. On the
+            two fee tiers open today the vault cannot collect the island’s share or send it anywhere else. It can switch the swap
+            guard on or off for a fee tier, add fee tiers, collect the venue’s share of trading fees, and replace the program.
+            Every pool’s coins sit in accounts that program controls, so a replacement could move them. If it switched off removing
+            on a pool, you could not take your money out of that pool until it switched removing back on.
           </p>
           <p>
             Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
-            only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
-            liquidity providers can end up with less than if they had just held both tokens.
+            only from trades sent to it by this site’s own swap, or by someone using the pool program directly. While the swap guard
+            is on, directly means sent by the wallet itself: the pool refuses a trade that another program makes. When the price
+            moves, liquidity providers can end up with less than if they had just held both tokens.
           </p>
           <p>{DISCLOSURE_NOTICE[mode]}</p>
         </FinePrint>
