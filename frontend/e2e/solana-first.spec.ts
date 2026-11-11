@@ -1,5 +1,5 @@
 // Build 2 of the outside review, "Solana first, and the five-word bar" (2026-11-01): a stranger
-// with no room reads Island · Swap · Add · Lock · Launch, Add third, and Swap opens the Buy
+// with no room reads Island · Swap · Add · Yield · Launch, Add third, and Swap opens the Buy
 // sheet over the home on the island's coins, nothing lit (answer twenty-seven, cut 3), the row
 // ending in the swap's network drop-down. Where Launch opens is not walked here: launching on Solana is off in a production build
 // (curveWriteFlag.ts), and navConfig.test.ts holds the word to the curve's switch both ways.
@@ -27,7 +27,7 @@ test('a stranger with no room: the bar reads five words, Add third, and Swap rai
   await page.goto('/');
   await bar(page).locator('a').first().waitFor({ timeout: 30_000 });
   const words = await bar(page).locator('a').evaluateAll((as) => as.map((a) => (a as HTMLElement).innerText.trim()));
-  expect(words, 'the bar on the home').toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
+  expect(words, 'the bar on the home').toEqual(['Island', 'Swap', 'Add', 'Yield', 'Launch']);
 
   await bar(page).getByRole('link', { name: 'Swap', exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get('sheet'), 'Swap did not raise the Buy sheet').toBe('buy');

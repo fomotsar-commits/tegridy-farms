@@ -87,7 +87,7 @@ export default function PoolsPage() {
         {doorWaiting !== null && <LpDoorFrame mint={doorWaiting} waiting />}
         <div ref={setDoorAt} />
         <m.div className="mb-6" initial={headingOnScreen ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          {/* No eyebrow and no Details here: the tab strip says Venue AMM and the network, the Rates card
+          {/* No eyebrow and no Details here: the tab strip says Add / Remove and the network, the Rates card
               says the split, and the status card says whether a pool can be opened (owner, 2026-10-13: as
               few words as possible). */}
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">

@@ -43,7 +43,7 @@ function countLoads(page: Page) {
 }
 
 /**
- * The Ethereum form, and the press that opens the Venue AMM page from it: since 2026-10-15
+ * The Ethereum form, and the press that opens the /pools page from it: since 2026-10-15
  * that is the Pools network drop-down, then Solana (the strip lists one network's tabs). Either
  * way it is an in-app route change that lazy-loads PoolsPage.
  */
@@ -147,8 +147,8 @@ test('a part outside the page area that fails to load gets the same notice', asy
   await page.route(HOST_PAGE, (route: Route) => route.fulfill(NEXT_BUILD_PAGE));
   const seen = countLoads(page);
   await page.goto('/island');
-  // The bar's Lock word, /island to /earn: neither is on the LP road.
-  const lock = page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
+  // The bar's Yield word, /island to /earn: neither is on the LP road.
+  const lock = page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Yield$/ }).first();
   await expect(lock).toHaveAttribute('href', '/earn', { timeout: 30_000 });
   const tab = { click: () => lock.click() };
   // This tab has already reloaded itself away from this build once.

@@ -29,6 +29,18 @@ export const COINS = {
   BOBO: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump',
   BRAINLET: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump',
   CRYING: 'Ep5tnKTSkLDeQ12ctS3RhQNcbcApkcyJcGPgHh4dpump',
+  GRR: 'DBEjiLMt9USaM3SdC9YtNcKGnXLdFhzokwnykH4Wpump',
+  MROCKS: 'moon3CP11XLvrAxUPBnPtueDEJvmjqAyZwPuq7wBC1y',
+  'BIG BRAIN': 'J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump',
+  STORMIE: 'HqyTxEqk7qmLu2Gnx46eEZwQhzCf2yVqRompLaKYpump',
+  APE: '2Wkip2U5x93mjaAvoq8zaedweP73GgRtbaQhNcwXpump',
+  TBB: '42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump',
+  OGDOGE: 'utLyQQCPvjuCc6zeaXdsFeEC3JNdxKS3vxaZWoGdoge',
+  SHOCKER: 'E6LwzUpR2NsdUzAiGzZb1K5PbffkXANagXHt1R4BTRiX',
+  GROYPER: '7QAn5wqkBcGuvfLLC16iLvX8fPyqXrzkMqnzHLS9NNna',
+  USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  ZBCN: 'ZBCNpuD7YMXzTHB2fhGkGi78MNsHGLRXUhRewNRm9RU',
+  KWIF: '6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt',
 };
 
 /**
@@ -36,12 +48,14 @@ export const COINS = {
  * bytes to it. `ring` names the ring colour in the generator. `art` names the bungalow
  * whose door art sits inside the ring; a row without it carries BAYLA's island mark.
  * A pool share's `coins` are its two coins, the pool's own coin first and the coin it
- * is paired with last, the order its name reads.
+ * is paired with last, the order its name reads (the site's own reading, quotes.ts
+ * `readPair`). The ring is the paired coin's: violet SOL, blue USDC, and the neutral
+ * moonlight ring for an island coin paired with, which has no ring colour of its own.
  *
  * Owner rulings 2026-10-24: a pool share is named "<first coin>/<second coin> LP"; only
  * a bungalow's coin gets its own art inside its ring, every other share gets BAYLA's.
- * The two BAYLA shares still carry the names of 2026-10-08 until the pool program is
- * upgraded again: the upgrade's own page compares their live files with its copies.
+ * Every pool of the program with a share anyone can hold is listed. A pool whose only
+ * shares are the 100 locked at its opening is not: no wallet can ever show its share.
  */
 export const MINT_TOKENS = [
   {
@@ -49,7 +63,7 @@ export const MINT_TOKENS = [
     kind: 'pool-share',
     pool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
     coins: [COINS.BAYLA, COINS.SOL],
-    name: 'Bayla LP SOL',
+    name: 'BAYLA/SOL LP',
     symbol: 'BAYLA-SOL',
     description: share('BAYLA/SOL', 'BAYLA', 'SOL'),
     picture: 'bayla-sol',
@@ -60,7 +74,7 @@ export const MINT_TOKENS = [
     kind: 'pool-share',
     pool: 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm',
     coins: [COINS.BAYLA, COINS.USDC],
-    name: 'Bayla LP USDC',
+    name: 'BAYLA/USDC LP',
     symbol: 'BAYLA-USDC',
     description: share('BAYLA/USDC', 'BAYLA', 'USDC'),
     picture: 'bayla-usdc',
@@ -137,6 +151,178 @@ export const MINT_TOKENS = [
     description: share('SOL/USDC', 'SOL', 'USDC'),
     picture: 'bayla-usdc',
     ring: 'usdc',
+  },
+  {
+    mint: 'tCzVHDSMxQ1ANFZZ2bA3JnxYXRws9uj84GdrbejLTWQ',
+    kind: 'pool-share',
+    pool: 'rD73MYkgDq7RKDxaJMFmiBu1feCAg2hQKHnVucZ5cZH',
+    coins: [COINS.GRR, COINS.SOL],
+    name: 'GRR/SOL LP',
+    symbol: 'GRR-SOL',
+    description: share('GRR/SOL', `GRR (${COINS.GRR})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: '5uicWVk3D85RLjNmcexohqCDyuZjyHnpzd1aWiUMBQ29',
+    kind: 'pool-share',
+    pool: 'raEFEHUYRBYVSJ5jiu5KLm2BQeVCNS5g8W7YoAJVYBd',
+    coins: [COINS.MROCKS, COINS.SOL],
+    name: 'MROCKS/SOL LP',
+    symbol: 'MROCKS-SOL',
+    description: share('MROCKS/SOL', `MROCKS (${COINS.MROCKS})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: '85PrZH8qw15Yq22P2jhhBUWSFZzsC1XSdarmeaEq7q5j',
+    kind: 'pool-share',
+    pool: '3YRW6wJscukRaWutB6QgPwtK1EQM9KA7CXcXTtmN3GJK',
+    coins: [COINS['BIG BRAIN'], COINS.SOL],
+    name: 'BIG BRAIN/SOL LP',
+    // "BIGBRAIN-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'BIGB-SOL',
+    description: share('BIG BRAIN/SOL', `BIG BRAIN (${COINS['BIG BRAIN']})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx',
+    kind: 'pool-share',
+    pool: '3sw9bPyEk29AMkwr2fHeQiyKiptNkUgfvtY8u5QrJdWh',
+    coins: [COINS.STORMIE, COINS.SOL],
+    name: 'STORMIE/SOL LP',
+    // "STORMIE-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'STORM-SOL',
+    description: share('STORMIE/SOL', `STORMIE (${COINS.STORMIE})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'F793raKNWfn11PmqWdwMNp7A6kkfFqFjGG199M2CfGPj',
+    kind: 'pool-share',
+    pool: '6EESMGsgzDc2N3PaVsue5FizVDvi2ZRuY8j3iPLkrkxs',
+    coins: [COINS.APE, COINS.SOL],
+    name: 'APE/SOL LP',
+    symbol: 'APE-SOL',
+    description: share('APE/SOL', `APE (${COINS.APE})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'BTHYKjLHCJtBaKWVvBeqAgBF6aU7fwCYheoPH8ztpJr3',
+    kind: 'pool-share',
+    pool: '75n4yk8teGKvS4mkREUzYe56CQTFQwWo75V6nFHon4vs',
+    coins: [COINS.TBB, COINS.SOL],
+    name: 'TBB/SOL LP',
+    symbol: 'TBB-SOL',
+    description: share('TBB/SOL', `TBB (${COINS.TBB})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: '7P5oYhpAhnssPasq6iedy5ebVP279CHJJXotwZ4qgP4W',
+    kind: 'pool-share',
+    pool: '7JZ4Qnjh86s2aRc514LRTFJvJa2Wb6ZLuN6FdhMrs8vh',
+    coins: [COINS.BRAINLET, COINS.SOY],
+    name: 'BRAINLET/SOY LP',
+    // "BRAINLET-SOY" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'BRAIN-SOY',
+    description: share('BRAINLET/SOY', 'BRAINLET', 'SOY'),
+    picture: 'brainlet-soy',
+    ring: 'moonlight',
+    art: 'brainlet',
+  },
+  {
+    mint: 'BibsjCKijbUYmDJwKWVH9Qsvn4Dq1hUrczynKxRvQj2x',
+    kind: 'pool-share',
+    pool: '7zaN5voCmWe4U6CwxPQLxqcf7UffJfo3kiLLLtBjQQgx',
+    coins: [COINS.OGDOGE, COINS.SOL],
+    name: 'OGDOGE/SOL LP',
+    symbol: 'OGDOGE-SOL',
+    description: share('OGDOGE/SOL', `OGDOGE (${COINS.OGDOGE})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj',
+    kind: 'pool-share',
+    pool: '9P1KhvycWZiEb2hYidGoc5U9Lji8mgjZHRn4CdGcFkVy',
+    coins: [COINS.SHOCKER, COINS.SOL],
+    name: 'SHOCKER/SOL LP',
+    // "SHOCKER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'SHOCK-SOL',
+    description: share('SHOCKER/SOL', `SHOCKER (${COINS.SHOCKER})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE',
+    kind: 'pool-share',
+    pool: '9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ',
+    coins: [COINS.GROYPER, COINS.SOL],
+    name: 'GROYPER/SOL LP',
+    // "GROYPER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'GROYP-SOL',
+    description: share('GROYPER/SOL', `GROYPER (${COINS.GROYPER})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'CK4s5DWKVwBpvBmW3isKTNv2YiPTuvtwQZ6NUCsh9rCc',
+    kind: 'pool-share',
+    pool: 'BVkaypc3tiKHDjka7SnCGeKG2Uc2D3n5rh2w3mDTjdK4',
+    coins: [COINS['BIG BRAIN'], COINS.BRAINLET],
+    name: 'BIG BRAIN/BRAINLET LP',
+    // "BIGBRAIN-BRAINLET" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
+    symbol: 'BIGB-BRAIN',
+    description: share('BIG BRAIN/BRAINLET', `BIG BRAIN (${COINS['BIG BRAIN']})`, 'BRAINLET'),
+    picture: 'pool-share',
+    ring: 'moonlight',
+  },
+  {
+    mint: 'AZbCsNo77ETPa2E2bER8pF65GbS9r9Lhkt1mwNEgJWKf',
+    kind: 'pool-share',
+    pool: 'G23uSnADCtgMdRfBdRhYj3JRVL9Ky9GEVdyy7jK9ughx',
+    coins: [COINS.USDT, COINS.USDC],
+    name: 'USDT/USDC LP',
+    symbol: 'USDT-USDC',
+    description: share('USDT/USDC', `USDT (${COINS.USDT})`, 'USDC'),
+    picture: 'bayla-usdc',
+    ring: 'usdc',
+  },
+  {
+    mint: 'EJpDTWGtM43uih26eBM7tSG7AJuMGQgfjMY2Sdq92hBo',
+    kind: 'pool-share',
+    pool: 'H8TVzALWtq9CJDfnkKtgnfjNcRXUShvxYArwmBfj7Kkd',
+    coins: [COINS.ZBCN, COINS.SOL],
+    name: 'ZBCN/SOL LP',
+    symbol: 'ZBCN-SOL',
+    description: share('ZBCN/SOL', `ZBCN (${COINS.ZBCN})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: 'FnqVeoNc95YDpfo8WGboFjujxWzxuHdhafJ3i7rSziEh',
+    kind: 'pool-share',
+    pool: 'HBGZFvYZnKMsrjn42C9ZbQCKYd5a1NAt4MaXnrKNuMES',
+    coins: [COINS.KWIF, COINS.SOL],
+    name: 'KWIF/SOL LP',
+    symbol: 'KWIF-SOL',
+    description: share('KWIF/SOL', `KWIF (${COINS.KWIF})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: '2FKSKBGStzrTfcF8evAEQkCwA6eXnMdKdCAvNfY9c1ux',
+    kind: 'pool-share',
+    pool: 'Hb6naTh2QFrRioeAhNToFEPgKaN1iiyDzGacYi1c7gm1',
+    coins: [COINS.USDT, COINS.SOL],
+    name: 'USDT/SOL LP',
+    symbol: 'USDT-SOL',
+    description: share('USDT/SOL', `USDT (${COINS.USDT})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
   },
   {
     mint: 'g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN',
