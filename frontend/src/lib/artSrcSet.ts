@@ -73,7 +73,7 @@ export function widthsFor(src: string): number[] {
  * 271px thumbnail and a 1280px backdrop by ART_POOL_ALL, so the large candidate
  * has to stay available or the backdrop would be served a 960px upscale.
  */
-export function artSrcSet(src: string): string | undefined {
+export function artSrcSet(src: string, opts: { phoneCard?: boolean } = {}): string | undefined {
   // PRODUCTION ONLY, and this is the load-bearing safety rail.
   //
   // The manifest is COMMITTED (tsc and vitest need it in a fresh clone) but the
@@ -91,10 +91,31 @@ export function artSrcSet(src: string): string | undefined {
   if (!natural) return undefined;
   const widths = widthsFor(src);
   if (widths.length === 0) return undefined;
+  // A CARD'S BACKGROUND ON A PHONE STOPS AT THE WIDEST DERIVATIVE.
+  //
+  // Measured on the live site, 2026-11-11, at 390px and 3 device pixels per CSS pixel: a
+  // 356px card wants 1068 pixels, the widest derivative is 960, so the browser skipped it
+  // and took the ORIGINAL: 590 KB, 481 KB and 372 KB for three cards on /range-pools where
+  // their 960 webps are 134 KB, 98 KB and 149 KB. That art sits under a 0.52 to 0.78 scrim
+  // with text on top; 960 pixels across 1068 cannot be seen there. So for that one case the
+  // original is left out and the 960 is the most the browser can pick. Only when a 960
+  // really exists: a source the generator gave no 960 keeps its original, or the card
+  // would be offered nothing wide enough at all.
+  const top = DERIVATIVE_WIDTHS[DERIVATIVE_WIDTHS.length - 1]!;
+  const capped = opts.phoneCard === true && widths.includes(top);
   return [
     ...widths.map((w) => `${derivedUrl(src, w)} ${w}w`),
-    `${src} ${natural}w`,
+    ...(capped ? [] : [`${src} ${natural}w`]),
   ].join(', ');
+}
+
+/** The widest a phone's screen is, in CSS pixels, for the card cap above. */
+export const PHONE_MAX_WIDTH = 640;
+
+/** True on a phone-width viewport. False where there is no window or no matchMedia: the cap is off. */
+export function phoneViewport(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia(`(max-width: ${PHONE_MAX_WIDTH}px)`).matches;
 }
 
 /**

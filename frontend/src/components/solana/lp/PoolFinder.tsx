@@ -283,7 +283,7 @@ export function PoolFinder({
   const reread = useCallback(() => again(true), [again]);
   // The home card reads again by itself when a read failed, a few times and spaced out: a busy
   // RPC answers a later ask more often than not, and the card has no field to press Find in.
-  // Each try is a fresh lookup. After the last, Read again and the Venue AMM tab stay on screen.
+  // Each try is a fresh lookup. After the last, Read again and the Pools page link stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
@@ -882,7 +882,7 @@ function opensInSeconds(search: PoolSearch): bigint | null {
 }
 
 /**
- * The home card's way on when a read failed: read again here, or add on the Venue AMM tab,
+ * The home card's way on when a read failed: read again here, or add on the Pools page (/pools),
  * where the LP door opens Add with one coin on this pool (SolanaLpSection, `task=add`).
  */
 function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetry?: () => void }) {
@@ -898,7 +898,7 @@ function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetr
         className="inline-flex items-center min-h-[44px] px-1 text-[13px] underline underline-offset-4"
         style={{ color: 'var(--color-kyle)' }}
       >
-        Add on the Venue AMM tab
+        Add on the Pools page
       </Link>
     </div>
   );

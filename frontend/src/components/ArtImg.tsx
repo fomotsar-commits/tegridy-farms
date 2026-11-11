@@ -1,13 +1,18 @@
 import { useState, type ImgHTMLAttributes, type CSSProperties, type SyntheticEvent } from 'react';
 import { pageArt } from '../lib/artConfig';
 import { PLACEHOLDER_NFT } from '../lib/imageSafety';
-import { artSrcSet, artSizes } from '../lib/artSrcSet';
+import { artSrcSet, artSizes, phoneViewport } from '../lib/artSrcSet';
 
 type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   pageId: string;
   idx: number;
   /** Position used when no /art-studio override is set. */
   fallbackPosition?: string;
+  /**
+   * A card's scrimmed background (CardArt): on a phone-width screen the original is left
+   * out of the candidates, so the widest file fetched is the 960 webp (lib/artSrcSet.ts).
+   */
+  phoneCard?: boolean;
 };
 
 /**
@@ -64,6 +69,7 @@ export function ArtImg({
   pageId,
   idx,
   fallbackPosition,
+  phoneCard,
   style,
   width,
   height,
@@ -91,7 +97,7 @@ export function ArtImg({
   // be decided from the same value rather than computed twice.
   const resolvedLoading = loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy');
   const [srcSetFailed, setSrcSetFailed] = useState(false);
-  const candidateSet = artSrcSet(art.src);
+  const candidateSet = artSrcSet(art.src, { phoneCard: phoneCard === true && phoneViewport() });
   // Dropped for the retry: re-rendering without it makes the browser load `src`.
   const srcSet = srcSetFailed ? undefined : candidateSet;
   /**

@@ -232,7 +232,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
         {writesTop}
         {finder}
         {/* No Your positions card: each Add form carries its own Connect, and a wallet's
-            shares are on the Venue AMM tab. The full notice is one drop-down. */}
+            shares are on the Pools page (/pools). The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
@@ -343,7 +343,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
             Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
             share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard (see
             “The program”{' '}
-            {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
+            {programBelow ? 'below' : 'on the Pools page'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),

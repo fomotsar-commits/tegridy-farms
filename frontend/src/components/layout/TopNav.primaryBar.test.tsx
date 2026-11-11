@@ -1,4 +1,4 @@
-// The top bar reads Island · Swap · Add · Lock · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// The top bar reads Island · Swap · Add · Yield · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
 // 2026-11-01), and everything else is one drawer that opens at every width. navReach.test.tsx
 // proves no page is stranded; SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
@@ -34,7 +34,7 @@ import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
-const WORDS = ['Island', 'Swap', 'Add', 'Lock', 'Launch'];
+const WORDS = ['Island', 'Swap', 'Add', 'Yield', 'Launch'];
 
 /** Where the router is: what "Jump to" opened. */
 function Where() {
@@ -66,7 +66,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
+  it('reads Island · Swap · Add · Yield · Launch, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -83,7 +83,7 @@ describe('TopNav: the bar', () => {
       expect(within(bar()).getByRole('link', { name: w.label }).getAttribute('href'), w.label).toBe(w.to);
     }
     expect(within(bar()).getByRole('link', { name: 'Island' }).getAttribute('href')).toBe('/');
-    expect(within(bar()).getByRole('link', { name: 'Lock' }).getAttribute('href')).toBe('/earn');
+    expect(within(bar()).getByRole('link', { name: 'Yield' }).getAttribute('href')).toBe('/earn');
   });
 
   it('keeps Dashboard off the bar, connected or not', () => {
@@ -95,8 +95,8 @@ describe('TopNav: the bar', () => {
     ['/', 'Island'],
     ['/bayla', 'Island'],
     ['/island', 'Island'],
-    ['/earn/pepe', 'Lock'],
-    ['/nft-finance', 'Lock'],
+    ['/earn/pepe', 'Yield'],
+    ['/nft-finance', 'Yield'],
     ['/eth-curve', 'Launch'],
     ['/solana', 'Swap'],
     ['/pools', 'Add'],
@@ -131,11 +131,11 @@ describe('TopNav: the menu', () => {
   // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
   // direct access on the app"; 2026-10-19: organise them, on the desktop as on a phone.
   // Owner, 2026-11-10: the menu cut down; Launch and Check left as groups.
-  it("is the site's index: Island, Swap, Pools, Lock, then the records", () => {
+  it("is the site's index: Island, Swap, Pools, Yield, then the records", () => {
     const drawer = openDrawer();
     const index = within(drawer).getByRole('navigation', { name: 'Site index' });
     expect(within(index).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(
-      ['Island', 'Swap', 'Pools', 'Lock', 'Records'],
+      ['Island', 'Swap', 'Pools', 'Yield', 'Records'],
     );
   });
 
@@ -150,7 +150,7 @@ describe('TopNav: the menu', () => {
     expect(pages(true)).toEqual([['Lore', '/lore'], ['Launch', '/launch'], ['Dashboard', '/dashboard']]);
   });
 
-  it("lists every page under its group's word, named as its tab is; Pools lands on Venue AMM", () => {
+  it("lists every page under its group's word, named as its tab is; Pools lands on /pools", () => {
     const drawer = openDrawer();
     for (const group of INDEX_GROUPS) {
       const region = within(drawer).getByRole('region', { name: group.heading });
@@ -162,7 +162,10 @@ describe('TopNav: the menu', () => {
         .toEqual(group.items.map((i) => [indexName(group, i), i.to]));
     }
     expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/pools');
-    for (const gone of ['Check', 'Scanner', 'Yield', 'Copy Trading', 'Checkout', 'Gallery', 'Gold Card']) {
+    // Owner, 2026-11-11: Pools' one Add / Remove is /pools; Venue AMM, the Ethereum form and Zap are off it.
+    const pools = within(within(drawer).getByRole('region', { name: 'Pools' })).getAllByRole('link');
+    expect(pools.filter((l) => l.textContent === 'Add / Remove').map((l) => l.getAttribute('href'))).toEqual(['/pools']);
+    for (const gone of ['Check', 'Scanner', 'Yield Routing', 'Copy Trading', 'Checkout', 'Gallery', 'Gold Card', 'Venue AMM', 'Zap']) {
       expect(within(drawer).queryByRole('link', { name: gone }), gone).toBeNull();
     }
   });
@@ -183,10 +186,10 @@ describe('TopNav: the menu', () => {
   });
 
   it('marks the group and the page you are on', () => {
-    const drawer = openDrawer('/zap');
+    const drawer = openDrawer('/pools');
     expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Zap' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Lock' })).not.toHaveAttribute('aria-current');
+    expect(within(drawer).getByRole('link', { name: 'Add / Remove' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Yield' })).not.toHaveAttribute('aria-current');
     expect(within(drawer).getByRole('link', { name: 'Lore' })).not.toHaveAttribute('aria-current');
   });
 
@@ -197,17 +200,17 @@ describe('TopNav: the menu', () => {
 
   it('Jump to narrows the index to the pages called that, and Enter opens the first', () => {
     openDrawer();
-    fireEvent.change(field(), { target: { value: 'zap' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Zap']);
+    fireEvent.change(field(), { target: { value: 'remove' } });
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove']);
     fireEvent.keyDown(field(), { key: 'Enter' });
     expect(screen.queryByRole('dialog', { name: 'Navigation menu' })).toBeNull();
-    expect(screen.getByTestId('where').textContent).toBe('/zap');
+    expect(screen.getByTestId('where').textContent).toBe('/pools');
   });
 
   it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {
     openDrawer();
     fireEvent.change(field(), { target: { value: 'pools' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Venue AMM', 'Range', 'Zap']);
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Range']);
     fireEvent.change(field(), { target: { value: 'zebra' } });
     expect(within(dialog()).queryAllByRole('link')).toEqual([]);
     expect(within(dialog()).getByRole('status').textContent).toMatch(/zebra/);
