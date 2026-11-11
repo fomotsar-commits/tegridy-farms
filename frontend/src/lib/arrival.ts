@@ -176,6 +176,9 @@ export const COUNTDOWN_WORDS = {
   days: dayWord,
   unserved: 'about half a year',
   under: 'to the door, if you hold from today.',
+  /** Under `unserved` (island answer thirty-four): half a year counts from a real position, and a
+   *  stranger, a cold wallet and a dust bag at 0° hold none today. */
+  underUnserved: 'to the door, from your first real buy.',
   today: '0° today',
   door: (floor: number) => `${floor}° · the door`,
   line: 'Residents launch here. Nobody can buy last year.',
@@ -196,9 +199,15 @@ export const HEAT_WORDS = {
   ladderCold: 'Cold',
 } as const;
 
-/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. A ticker
- *  that carries its own "$" (WIF's reads "$WIF") is posted with one. */
-const LP_POST = (coin: string) => `Just added liquidity to $${coin.replace(/^\$/, '')} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+/** A ticker as the card's words print it after their own "$": one "$" of the coin's own is dropped
+ *  (GeckoTerminal reads WIF as "$WIF"). */
+const bare = (coin: string) => coin.replace(/^\$/, '');
+/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. `null`: the
+ *  venue read no ticker of the coin's own (none at all, or a copy's), and the post names no coin (answer thirty-four). */
+const LP_POST = (coin: string | null) =>
+  coin === null
+    ? "Just added liquidity on memetics.finance. I'm part of the floor now. Every trade in the pool pays me."
+    : `Just added liquidity to $${bare(coin)} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
 /** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
 const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
 
@@ -219,14 +228,17 @@ export const RECEIPT_WORDS = {
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
   /** Under the title once the buyer's light lands on the shore (island answer thirty, §2). */
-  shore: (coin: string) => `You're on $${coin}'s shore. Every light here holds it.`,
+  shore: (coin: string) => `You're on $${bare(coin)}'s shore. Every light here holds it.`,
   /** The words of `shore` the island's drawing marks, bold in the shore's green. */
-  shoreMark: (coin: string) => `$${coin}'s shore.`,
+  shoreMark: (coin: string) => `$${bare(coin)}'s shore.`,
   /** A sale: the light stays on the shore, cooling (island answer thirty, §1). */
   shoreCooling: 'Your light stays on the shore, cooling. The island remembers every day you held.',
-  /** The line under an add's title from the landing on (island answer thirty-two). A ticker that
-   *  already carries its own `$` (GeckoTerminal reads WIF as "$WIF") is not given a second one. */
-  floor: (coin: string) => `You're part of $${coin.replace(/^\$/, '')}'s floor now. Every trade in the pool pays you.`,
+  /** The line under an add's title from the landing on (island answer thirty-two). `null`: no ticker of
+   *  the coin's own was read, and the line names no coin (answer thirty-four). */
+  floor: (coin: string | null) =>
+    coin === null ? "You're part of the floor now. Every trade in the pool pays you." : `You're part of $${bare(coin)}'s floor now. Every trade in the pool pays you.`,
+  /** The words of `floor` the island's drawing marks, bold in the token's hue. */
+  floorMark: (coin: string) => `$${bare(coin)}'s floor`,
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
@@ -234,7 +246,7 @@ export const RECEIPT_WORDS = {
   lpPost: LP_POST,
   lpLink: LP_LINK,
   /** X's composer with the post written: nothing is published until the person posts it. */
-  lpIntent: (coin: string, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
+  lpIntent: (coin: string | null, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
 } as const;
 
 export const TRENCHER_WORDS = {

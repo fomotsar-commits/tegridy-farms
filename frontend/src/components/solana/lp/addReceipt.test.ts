@@ -28,7 +28,7 @@ const ok = (owners: string[]): HoldersRead => ({ kind: 'ok', holders: owners.map
 const settled = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function raise(holders: ((v: PoolView) => Promise<HoldersRead>) | undefined) {
-  raiseAddReceipt(rpc, SIG, { view, wallet: WALLET, ticker: 'BAYLA', decimals: 6, holders });
+  raiseAddReceipt(rpc, SIG, { view, wallet: WALLET, ticker: 'BAYLA', named: true, decimals: 6, holders });
 }
 
 beforeEach(() => clearReceipt());
@@ -82,5 +82,36 @@ describe('the add’s LP count', () => {
     answer(ok(['A1', 'B2']));
     await settled();
     expect(lastReceipt()).toMatchObject({ signature: 'newer', lps: null });
+  });
+});
+
+// Island answer thirty-four: the card is told what the venue read, never left to guess it from a word.
+describe('what the add tells its card about the coin', () => {
+  const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
+  const other = { ...view, tokenMint: WIF } as unknown as PoolView;
+  const usdcPool = { ...view, quote: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 } } as unknown as PoolView;
+
+  it('an island coin, named by the site: on the island, named, its pairing coin the pool’s', () => {
+    raiseAddReceipt(rpc, SIG, { view, wallet: WALLET, ticker: 'BAYLA', named: true, decimals: 6, holders: undefined });
+    expect(lastReceipt()).toMatchObject({ coin: { symbol: 'BAYLA', mint: BAYLA }, island: true, unnamed: false, pairing: 'SOL', clock: 'double' });
+  });
+
+  it('a coin with no room on the island: not the island’s, no clock line', () => {
+    raiseAddReceipt(rpc, SIG, { view: other, wallet: WALLET, ticker: 'WIF', named: true, decimals: 6, holders: undefined });
+    expect(lastReceipt()).toMatchObject({ coin: { symbol: 'WIF', mint: WIF }, island: false, unnamed: false, clock: null });
+  });
+
+  it.each([
+    ['a ticker that was not read', 'tokens'],
+    ['a copy', 'fake USDC'],
+  ])('%s: the card keeps the venue’s word for it and is told it is no name', (_name, ticker) => {
+    raiseAddReceipt(rpc, SIG, { view: other, wallet: WALLET, ticker, named: false, decimals: 6, holders: undefined });
+    expect(lastReceipt()).toMatchObject({ coin: { symbol: ticker, mint: WIF }, unnamed: true });
+    expect(lastReceipt()?.under).toBe(`to the SOL + ${ticker} pool`);
+  });
+
+  it('a USDC pool says so', () => {
+    raiseAddReceipt(rpc, SIG, { view: usdcPool, wallet: WALLET, ticker: 'BAYLA', named: true, decimals: 6, holders: undefined });
+    expect(lastReceipt()?.pairing).toBe('USDC');
   });
 });

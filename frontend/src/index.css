@@ -676,6 +676,8 @@ body {
 .receipt-card[data-floor].receipt-beat { border-color: rgba(var(--floor-hue-mid),0.95); box-shadow: 0 24px 64px rgba(0,0,0,0.65), 0 0 70px rgba(var(--floor-hue),0.36); transition: border-color 0.08s ease, box-shadow 0.08s ease; }
 .receipt-card[data-floor].receipt-flash { border-color: #ffffff; box-shadow: 0 24px 64px rgba(0,0,0,0.65), 0 0 90px rgba(200,230,255,0.7); transition: none; }
 .receipt-floor-line { opacity: 0; transform: translateY(6px); transition: opacity 0.7s ease, transform 0.7s ease; }
+/* "$COIN's floor" in the line, as the island drew it: bold, in the token's hue (the card carries --floor-hue-mid). */
+.receipt-floor-mark { color: rgb(var(--floor-hue-mid)); font-weight: 700; }
 .receipt-floor-line[data-on="1"] { opacity: 1; transform: none; }
 @keyframes floor-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
 @media (prefers-reduced-motion: reduce) {

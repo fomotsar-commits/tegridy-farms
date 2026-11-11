@@ -8,8 +8,12 @@ import { CoinName } from '../ui/CoinName';
 import { SHEET_ROW_WORDS, useSheet } from './sheetContext';
 
 const CHIP = 'flex items-center gap-2 min-h-[44px] rounded-full text-[13px] font-semibold text-white';
-// Lit as the amount chips under it are lit: the purple edge.
-const chipStyle = (lit: boolean) => ({ background: 'var(--color-bg-input)', border: `1px solid ${lit ? 'rgba(139,92,246,0.70)' : 'var(--color-border)'}` });
+// The picked coin is filled, so at a phone's width it reads as the choice (island answer thirty-four).
+// The amount chips under it keep their edge: an amount is a shortcut, the coin is the choice.
+const chipStyle = (lit: boolean) =>
+  lit
+    ? { background: 'rgba(139,92,246,0.24)', border: '1px solid rgba(167,139,250,0.95)', fontWeight: 700 }
+    : { background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' };
 
 /**
  * The bungalow row: the rooms a sheet acts on (lib/sheet.ts sheetRooms), a chip each by its ticker,
