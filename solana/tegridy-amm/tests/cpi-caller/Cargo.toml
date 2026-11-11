@@ -1,0 +1,23 @@
+[package]
+name = "cpi-caller"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "TEST ONLY. Calls the program it is handed with the accounts and data it is handed, as an arbitrage bot's program calls a pool. For tests/cp-swap-swap-guard.test.ts on a local validator; deployed nowhere else."
+
+# Its own workspace, as jupiter-sdk is: the pool program's workspace manifest and lock are
+# pinned byte for byte (solana/guards), and a folder under programs/ would join it.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+# The version cp-swap itself builds with (../../Cargo.lock).
+solana-program = "=2.3.0"
+
+# Cargo.lock here is the pool program's own lock cut down to what this crate uses: copy
+# ../../Cargo.lock over it and run `cargo metadata`, which keeps every entry it can use and
+# drops the rest. Never `cargo generate-lockfile`: a fresh lock picks crates newer than the
+# cargo Solana 2.3.0 builds with (1.84) can read. The first one took block-buffer 0.12.1,
+# which wants edition 2024, and CI's build of this crate failed on it (2026-11-10).

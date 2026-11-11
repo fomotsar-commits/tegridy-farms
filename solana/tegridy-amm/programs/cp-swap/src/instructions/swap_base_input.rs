@@ -73,6 +73,15 @@ pub struct Swap<'info> {
 }
 
 pub fn swap_base_input(ctx: Context<Swap>, amount_in: u64, minimum_amount_out: u64) -> Result<()> {
+    // memetics.finance: a tier whose swap guard is on takes a swap only as an instruction of the
+    // transaction itself, its keeper's apart (states/config.rs refuses_swap).
+    require!(
+        !ctx.accounts.amm_config.refuses_swap(
+            solana_program::instruction::get_stack_height(),
+            ctx.accounts.payer.key
+        ),
+        ErrorCode::SwapNotDirect
+    );
     let block_timestamp = solana_program::clock::Clock::get()?.unix_timestamp as u64;
     let pool_id = ctx.accounts.pool_state.key();
     let pool_state = &mut ctx.accounts.pool_state.load_mut()?;

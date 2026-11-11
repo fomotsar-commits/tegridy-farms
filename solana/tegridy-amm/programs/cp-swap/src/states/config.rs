@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
 
 pub const AMM_CONFIG_SEED: &str = "amm_config";
 
@@ -33,12 +34,99 @@ pub struct AmmConfig {
     pub fund_owner: Pubkey,
     /// The pool creator fee, denominated in hundredths of a bip (10^-6)
     pub creator_fee_rate: u64,
+    /// memetics.finance: the swap guard. 0, a swap on this tier runs wherever it is called
+    /// from, as upstream. 1, a swap must be an instruction of the transaction itself: one that
+    /// another program calls is refused (`refuses_swap`). On 2026-11-10 every arbitrage bot in
+    /// these pools traded from inside its own program, and every wallet's swap was direct.
+    /// Taken from upstream's padding, which every tier holds as zeros: off until the admin sets it.
+    pub swap_guard: u64,
+    /// memetics.finance: the one signer whose swaps another program may still call while the
+    /// guard is on. The all-zero key, which every tier starts with, is nobody.
+    pub keeper: Pubkey,
     /// padding
-    pub padding: [u64; 15],
+    pub padding: [u64; 10],
 }
 
 impl AmmConfig {
-    pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 * 15;
+    // The same 236 bytes as upstream: the guard and the keeper take 40 of its 120 of padding.
+    pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 + 32 + 8 * 10;
+
+    /// memetics.finance: whether this tier refuses a swap that `payer` signs at `stack_height`:
+    /// 1 for an instruction of the transaction itself, more for one another program calls.
+    pub fn refuses_swap(&self, stack_height: usize, payer: &Pubkey) -> bool {
+        self.swap_guard != 0
+            && stack_height > TRANSACTION_LEVEL_STACK_HEIGHT
+            && (self.keeper == Pubkey::default() || self.keeper != *payer)
+    }
+}
+
+#[cfg(test)]
+mod swap_guard_test {
+    use super::*;
+
+    const DIRECT: usize = TRANSACTION_LEVEL_STACK_HEIGHT;
+    const CALLED: usize = TRANSACTION_LEVEL_STACK_HEIGHT + 1;
+
+    fn tier(swap_guard: u64, keeper: Pubkey) -> AmmConfig {
+        AmmConfig {
+            swap_guard,
+            keeper,
+            ..Default::default()
+        }
+    }
+
+    // What every tier on mainnet holds until the admin sets it: zeros where the padding was.
+    #[test]
+    fn a_tier_as_upstream_left_it_refuses_nothing() {
+        let t = AmmConfig::default();
+        assert_eq!((t.swap_guard, t.keeper), (0, Pubkey::default()));
+        let anyone = Pubkey::new_unique();
+        assert!(!t.refuses_swap(DIRECT, &anyone));
+        assert!(!t.refuses_swap(CALLED, &anyone));
+        assert!(!t.refuses_swap(CALLED + 3, &anyone));
+    }
+
+    #[test]
+    fn the_guard_takes_every_direct_swap_and_refuses_one_another_program_calls() {
+        let t = tier(1, Pubkey::default());
+        let anyone = Pubkey::new_unique();
+        assert!(!t.refuses_swap(DIRECT, &anyone));
+        assert!(t.refuses_swap(CALLED, &anyone));
+        assert!(t.refuses_swap(CALLED + 3, &anyone));
+    }
+
+    #[test]
+    fn with_no_keeper_set_nobody_is_let_through_not_even_the_all_zero_key() {
+        let t = tier(1, Pubkey::default());
+        assert!(t.refuses_swap(CALLED, &Pubkey::default()));
+    }
+
+    #[test]
+    fn the_keeper_alone_may_be_called_by_another_program() {
+        let keeper = Pubkey::new_unique();
+        let t = tier(1, keeper);
+        assert!(!t.refuses_swap(CALLED, &keeper));
+        assert!(!t.refuses_swap(DIRECT, &keeper));
+        assert!(t.refuses_swap(CALLED, &Pubkey::new_unique()));
+    }
+
+    // A keeper set while the guard is off changes nothing.
+    #[test]
+    fn the_guard_off_refuses_nothing_whatever_the_keeper() {
+        let t = tier(0, Pubkey::new_unique());
+        assert!(!t.refuses_swap(CALLED, &Pubkey::new_unique()));
+    }
+
+    #[test]
+    fn the_account_is_the_size_upstream_made_it() {
+        assert_eq!(AmmConfig::LEN, 236);
+        let mut data = Vec::new();
+        tier(1, Pubkey::new_unique()).try_serialize(&mut data).unwrap();
+        assert_eq!(data.len(), AmmConfig::LEN);
+        // The guard sits where the padding began (byte 116), the keeper right after it (124).
+        assert_eq!(data[116..124], 1u64.to_le_bytes());
+        assert!(data[156..].iter().all(|b| *b == 0));
+    }
 }
 
 #[cfg(test)]

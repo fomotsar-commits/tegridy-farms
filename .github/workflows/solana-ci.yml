@@ -1210,12 +1210,31 @@ jobs:
             exit 1
           fi
 
+      # TEST ONLY: a program that calls the program it is handed, the way an arbitrage
+      # bot's own program calls a pool. tests/cp-swap-swap-guard.test.ts reaches cp-swap's
+      # swap through it, which the swap guard refuses. Its own workspace and lock
+      # (tests/cpi-caller), so cp-swap's pinned workspace does not see it.
+      - name: Build the test-only caller program
+        run: |
+          set -euo pipefail
+          cd tests/cpi-caller
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/cpi-caller-build.log
+          SO=target/deploy/cpi_caller.so
+          if [ ! -f "$SO" ]; then
+            echo "::warning::first cargo build-sbf produced no artifact (toolchain install only), retrying"
+            cargo build-sbf -- --locked 2>&1 | tee -a /tmp/cpi-caller-build.log
+          fi
+          [ -f "$SO" ] || { echo "::error::cargo build-sbf exited 0 but produced no $SO"; exit 1; }
+          solana-keygen new --no-bip39-passphrase --silent --force -o target/deploy/cpi_caller-keypair.json
+          ls -l "$SO"
+
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
-      # The same deployed cp-swap (this wallet its admin) also runs its fee rules:
-      # tests/cp-swap-fee-rules.test.ts opens its own tiers, so neither file needs the other.
-      - name: Deploy both, run the rehearsal and cp-swap's fee rules
+      # The same deployed cp-swap (this wallet its admin) also runs its fee rules and its swap
+      # guard: tests/cp-swap-fee-rules.test.ts and tests/cp-swap-swap-guard.test.ts each open
+      # their own tiers, so no file needs another.
+      - name: Deploy both, run the rehearsal, cp-swap's fee rules and its swap guard
         env:
           ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
           ANCHOR_WALLET: /home/runner/.config/solana/id.json
@@ -1237,8 +1256,11 @@ jobs:
             solana -u http://127.0.0.1:8899 program deploy \
               --program-id "target/deploy/${P}-keypair.json" "target/deploy/${P}.so"
           done
+          solana -u http://127.0.0.1:8899 program deploy \
+            --program-id tests/cpi-caller/target/deploy/cpi_caller-keypair.json tests/cpi-caller/target/deploy/cpi_caller.so
+          export CPI_CALLER_ID=$(solana-keygen pubkey tests/cpi-caller/target/deploy/cpi_caller-keypair.json)
 
-          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts tests/cp-swap-fee-rules.test.ts
+          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts tests/cp-swap-fee-rules.test.ts tests/cp-swap-swap-guard.test.ts
 
   # ─────────────────────────────────────────────────────────────────────
   # Required-status aggregator, mirroring contracts-ci.yml's all-tests-pass.

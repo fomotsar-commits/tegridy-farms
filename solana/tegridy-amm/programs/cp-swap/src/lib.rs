@@ -44,6 +44,11 @@ solana_security_txt::security_txt! {
 //     still holds it, and can never point it anywhere else after that.
 //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
 //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
+//   - 2026-11-10, the swap guard: on a tier the admin has switched it on for, a swap that
+//     another program calls is refused unless the tier's keeper signs it; a wallet's own
+//     swap never is. Off on every tier until then (states/config.rs `swap_guard`, `keeper`
+//     and `refuses_swap`; checked first in swap_base_input.rs and swap_base_output.rs; set
+//     by update_config.rs params 8 and 9; error.rs `SwapNotDirect`).
 // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
 // swap/curve/fee arithmetic is byte-identical to the audited upstream. The per-swap
 // PROTOCOL fee is NOT here: it accrues per `amm_config.protocol_fee_rate` and is
@@ -165,6 +170,9 @@ pub mod raydium_cp_swap {
     /// * `new_owner`- The config's new owner, be set when `param` is 3
     /// * `new_fund_owner`- The config's new fund owner, be set when `param` is 4
     /// * `param`- The value can be 0 | 1 | 2 | 3 | 4, otherwise will report a error
+    /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
+    ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
+    ///   remaining account (the System Program's address clears it)
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)
