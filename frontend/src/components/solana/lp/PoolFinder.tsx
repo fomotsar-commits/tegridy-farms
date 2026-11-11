@@ -8,7 +8,7 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearch, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
-import { BUNGALOWS } from '../../../lib/bungalows';
+import { siteTokens } from '../../../lib/solana/lp/siteTokens';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
@@ -117,17 +117,6 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
     : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
-}
-
-/**
- * The tokens with a room on this site whose mint is on Solana, by the addresses in the
- * site's own registry (lib/bungalows.ts). A phone has no token address to paste: these
- * are picked by a press, and what is looked up is the address, never the name.
- */
-function siteTokens(roomId: string | null): { id: string; symbol: string; mint: string }[] {
-  const all = BUNGALOWS.flatMap((b) => (b.chain === 'solana' && b.address ? [{ id: b.id, symbol: b.symbol, mint: b.address }] : []));
-  // The visitor's own room first.
-  return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
 }
 
 // "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.

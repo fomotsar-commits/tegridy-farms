@@ -791,3 +791,74 @@ describe('which coins a token pairs with', () => {
     expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
   });
 });
+
+describe('picking the token (owner, 2026-11-11: the page was BAYLA only, with no way to pick another coin)', () => {
+  const tokenGroup = async () => screen.findByRole('group', { name: 'Token' });
+  const pairedWith = async () =>
+    within(await screen.findByRole('group', { name: 'Paired with' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+  const askedPair = (r: RangeReaders, mint: string) => (r.pairPools as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === mint);
+
+  it('offers the island’s Solana coins by name, by a press, BAYLA lit by default', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }));
+    const chips = within(await tokenGroup()).getAllByRole('button');
+    expect(chips.map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    expect(chips.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)).toEqual(['BAYLA']);
+  });
+
+  it('a press reads that coin’s pools and pairs it as a link would, starting on SOL', async () => {
+    const r = readers({ pools: { kind: 'ok', value: [] } });
+    show(r);
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Paired with' })).getByRole('button', { name: 'With USDC' }));
+    fireEvent.click(within(await tokenGroup()).getByRole('button', { name: 'BRAINLET' }));
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+    await waitFor(() => expect(askedPair(r, BRAINLET_QUOTE.mint)).toBe(true));
+    expect(within(await screen.findByRole('group', { name: 'Paired with' })).getByRole('button', { name: 'With SOL' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(await tokenGroup()).getByRole('button', { name: 'BRAINLET' })).toHaveAttribute('aria-pressed', 'true');
+    expect(r.freezeAuthority).toHaveBeenCalledWith(BRAINLET_QUOTE.mint);
+  });
+
+  it('from a link to another coin, the BAYLA button goes back to BAYLA', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+    fireEvent.click(within(await tokenGroup()).getByRole('button', { name: 'BAYLA' }));
+    await waitFor(async () => expect(await pairedWith()).toEqual(['With SOL', 'With USDC']));
+  });
+
+  it('any other coin by its mint address: read and named by its own ticker, with its whole address', async () => {
+    const other = key(72).toBase58();
+    const r = readers({ pools: { kind: 'ok', value: [] }, checks: [claims(other, 'CRYING')] });
+    show(r);
+    fireEvent.change(await screen.findByLabelText('Or any token’s mint address'), { target: { value: ` ${other} ` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    await waitFor(() => expect(askedPair(r, other)).toBe(true));
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card).toHaveTextContent('CRYING'));
+    expect(card).toHaveTextContent(other);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY', 'With BRAINLET', 'With RIZZ']);
+    expect(within(await tokenGroup()).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true')).toEqual([]);
+  });
+
+  it('a name, or SOL itself, is refused in words at the box and nothing is read for it', async () => {
+    const r = readers({ pools: { kind: 'ok', value: [] } });
+    show(r);
+    const box = await screen.findByLabelText('Or any token’s mint address');
+    fireEvent.change(box, { target: { value: 'BOBO' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    expect(await screen.findByText('That does not look like a Solana address.')).toBeInTheDocument();
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(box, { target: { value: SOL_QUOTE.mint } });
+    expect(screen.queryByText('That does not look like a Solana address.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    expect(await screen.findByText(/That is SOL itself\./)).toBeInTheDocument();
+    expect((r.pairPools as ReturnType<typeof vi.fn>).mock.calls.every((c) => c[0] === BAYLA_MINT)).toBe(true);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
+  });
+
+  it('the old "Back to BAYLA" link is gone: the BAYLA button does it', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    await tokenGroup();
+    expect(screen.queryByRole('button', { name: 'Back to BAYLA' })).toBeNull();
+  });
+});
