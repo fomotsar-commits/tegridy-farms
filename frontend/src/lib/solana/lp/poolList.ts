@@ -6,9 +6,9 @@ import { chargedCreatorFeeRate } from '../cpswap/venue';
 import { quoteText } from './format';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
-import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
+import { PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
-import { poolFeesOf } from './liquidityMath';
+import { poolFeesOf, tooFewShares } from './liquidityMath';
 import { lastTrade } from './poolPast';
 import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
@@ -69,10 +69,10 @@ export async function listPools(rpc: SolanaRpc, opts: ReadPoolsOptions & { fetch
 
 /**
  * A short tag on a row of the list, from what the list already read: the pool's own
- * switches, its vaults, its coin side, its open time and its trade record, and its price
- * against Jupiter's market price (`marketGap`). Warnings only: a fact that was not read
- * gives no tag, and no tag ever says a pool is fine. The pool's full price check is on its
- * card, one View away.
+ * switches, its vaults, its shares, its coin side, its open time and its trade record,
+ * and its price against Jupiter's market price (`marketGap`). Warnings only: a fact that
+ * was not read gives no tag, and no tag ever says a pool is fine. The pool's full price
+ * check is on its card, one View away.
  */
 export interface PoolTag {
   text: string;
@@ -80,9 +80,9 @@ export interface PoolTag {
 }
 
 /**
- * Under this much on its coin side, a pool is "Little money in pool". BAYLA has no fixed
- * worth to measure a pool by, so a pool priced in BAYLA is never tagged this way. BAYLA /
- * SOL is priced in SOL, and is measured like any SOL pool.
+ * Under this much on its coin side, a pool is "Little money in pool". An island coin (BAYLA,
+ * BOBO, SOY, BRAINLET, RIZZ) has no fixed worth to measure a pool by, so a pool priced in one
+ * is never tagged this way. BAYLA / SOL is priced in SOL, and is measured like any SOL pool.
  */
 export const LITTLE_MONEY: readonly { quote: QuoteCoin; under: bigint }[] = [
   { quote: SOL_QUOTE, under: 1_000_000_000n },
@@ -107,14 +107,26 @@ export function poolTags(view: PoolView, chainNow: bigint | null, priceGap: numb
   if (!depositEnabled(pool)) tags.push({ text: 'Adding off', tone: 'bad' });
   if (!withdrawEnabled(pool)) tags.push({ text: 'Removing off', tone: 'bad' });
   if (view.vaultsFrozen) tags.push({ text: 'Frozen', tone: 'bad' });
+  // Takes no deposit (poolHealth.ts NEARLY_EMPTY), and says more than "Little money in pool".
+  const nearlyEmpty = tooFewShares(pool.lpSupply);
+  if (nearlyEmpty) tags.push({ text: 'Almost empty', tone: 'bad' });
   if (priceGap !== null) tags.push({ text: `Price over ${PRICE_TOLERANCE * 100}% ${priceGap >= 0 ? 'above' : 'below'} Jupiter`, tone: 'bad' });
   if (swapEnabled(pool) && chainNow !== null && chainNow < pool.openTime) tags.push({ text: 'Trading not open yet', tone: 'warn' });
   const little = LITTLE_MONEY.find((l) => l.quote.mint === view.quote.mint);
-  if (little && view.quoteReserve < little.under) tags.push({ text: 'Little money in pool', tone: 'warn' });
+  if (!nearlyEmpty && little && view.quoteReserve < little.under) tags.push({ text: 'Little money in pool', tone: 'warn' });
   const last = lastTrade(view);
   if (last.kind === 'none') tags.push({ text: 'No trades yet', tone: 'warn' });
   else if (last.kind === 'at' && chainNow !== null && chainNow - last.time >= QUIET_SECS) tags.push({ text: 'No trades in 7 days', tone: 'warn' });
   return tags;
+}
+
+/**
+ * Does the pool's card refuse a deposit? Its own verdict (poolHealth.ts `assessPool`), from
+ * what the list read; no refusal rests on an outside price, so none is asked. A row's Add
+ * then looks off and still opens the card, which says why.
+ */
+export function refusesDeposits(view: PoolView, chainNow: bigint | null, safety: TokenSafety | null): boolean {
+  return assessPool({ view, tokenDecimals: tokenDecimalsOf(view), chainNow, outside: null, safety }).deposits.verdict === 'refused';
 }
 
 /**

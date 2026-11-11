@@ -15,7 +15,7 @@ import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { prepareLpCreate } from './createPool';
 import { CREATE_FAILURE_COPY } from './errors';
 import { recheckOutcome, submitPrepared } from './submit';
-import { CPSWAP, FakeChain, TIER1_VALUES, cfgLocal, createSimulator } from './testkit.fixture';
+import { CPSWAP, FakeChain, TIER1_VALUES, cfgLocal, createSimulator, legacyTx } from './testkit.fixture';
 import type { LpCreateSummary, LpOpenGate, PreparedTx, TxSigner, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -134,7 +134,7 @@ describe('an opening at a one-off address through the shared send path', () => {
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
     if (o.status === 'not-sent') expect(o.message).toMatch(reason);
     expect(chain.calls).not.toContain('sendRawTransaction');
-    expect(openingIx(p.tx).keys[12]!.pubkey.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
+    expect(openingIx(legacyTx(p)).keys[12]!.pubkey.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
   });
 
   it('a wallet that drops the pool’s own signature: refused as a change of who signs, nothing sent', async () => {

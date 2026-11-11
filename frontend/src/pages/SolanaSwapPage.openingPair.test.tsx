@@ -9,9 +9,10 @@ import type { SolToken } from '../lib/solanaTokenList';
  *
  * /solana used to open SOL to USDC. It opens SOL to $BAYLA now, and in a Solana room,
  * SOL to that room's coin. A link's own ?out= still wins. $BAYLA asks for no tick box
- * (the owner, 2026-10-08: none for the venue's own coins); a room's coin that is not
- * the venue's still gets one. lib/solanaOpeningPair.test.ts pins the choice; this file
- * pins that the page makes it.
+ * (the owner, 2026-10-08: none for the venue's own coins), and an island room's coin is
+ * vouched for too (the owner, 2026-11-01), so none of them gets one; a copy of a room's
+ * ticker at another mint still does.
+ * lib/solanaOpeningPair.test.ts pins the choice; this file pins that the page makes it.
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -129,14 +130,24 @@ describe('/solana in a room', () => {
     expect(paying()).toBe('SOL');
   });
 
-  it('keeps the tick box, unticked, for a room’s coin that is not the venue’s own', async () => {
+  // The owner, 2026-11-01: the island's coins are verified here ("these are the tokens we want
+  // to be always showcasing for swaps"), so a room's coin asks for no tick box either.
+  it('asks for no tick box for a room’s coin: the venue vouches for every island coin', async () => {
     h.resolveMint.mockResolvedValue(BOBO);
     open('/solana', 'bobo');
     await waitFor(() => expect(buying()).toBe('BOBO'));
-    const box = tickBox();
-    expect(box, 'the risk tick box is on the form').not.toBeNull();
-    expect(box!.checked).toBe(false);
-    expect(box!.closest('label')?.textContent).toContain('an unverified token');
+    expect(tickBox(), 'no risk tick box on the form').toBeNull();
+    expect(document.body.textContent).not.toContain('an unverified token');
+  });
+
+  it('keeps the tick box, unticked, for a coin that copies a room’s ticker at another mint', async () => {
+    const copy: SolToken = { ...BOBO, mint: `${BOBO_MINT.slice(0, 20)}k${BOBO_MINT.slice(21)}` };
+    h.resolveMint.mockResolvedValue(copy);
+    open(`/solana?out=${copy.mint}`);
+    await waitFor(() => expect(h.resolveMint).toHaveBeenCalled());
+    await waitFor(() => expect(tickBox(), 'the risk tick box is on the form').not.toBeNull());
+    expect(tickBox()!.checked).toBe(false);
+    expect(tickBox()!.closest('label')?.textContent).toContain('an unverified token');
   });
 
   it('stays on $BAYLA when the room’s coin could not be looked up', async () => {

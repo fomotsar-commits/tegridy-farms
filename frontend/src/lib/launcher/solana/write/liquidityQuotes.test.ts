@@ -14,7 +14,7 @@ import { IX_DEPOSIT, IX_WITHDRAW, decodePoolState } from '../../../solana/cpswap
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 import { decodeIntent } from './intent';
 import {
   LP_COPY,
@@ -339,11 +339,12 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
   // UNREAD IS STILL REFUSED (owner: "every unread state is still refused"). A read of the
   // coin's own price that FAILED builds nothing. The mutation "treat every coin that is
   // not ok as no-route" fails here: it would build this deposit.
-  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, quote) => {
+  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: one row, never a gate (answer twenty-seven), never a warning', async (_n, quote) => {
     const w = world(quote);
-    const msg = refused(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } })));
-    expect(msg).toBe(`We did not build this deposit: We could not check its price against an outside price (the price of ${quote.symbol} could not be read (HTTP 502)).`);
-    expect(msg).not.toMatch(/this token/);
+    const s = prepared(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
   });
 
   // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin
@@ -507,7 +508,7 @@ describe('prepareLpWithdraw: a pool paired with USDC or BAYLA', () => {
   it('a coin that is not on the list cannot be built for, and the message says the shares are safe', async () => {
     const w = holding(USDC_QUOTE);
     const msg = refused(await withdraw(w, { quoteMint: Keypair.generate().publicKey }));
-    expect(msg).toMatch(/This site cannot build a withdrawal for this token yet \(its pool is not paired with SOL, USDC or BAYLA\)/);
+    expect(msg).toContain(`This site cannot build a withdrawal for this token yet (its pool is not paired with ${QUOTE_COINS_OR})`);
     expect(msg).toMatch(/Your pool shares stay in your wallet\./);
   });
 });

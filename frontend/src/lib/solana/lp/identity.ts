@@ -54,6 +54,15 @@ export function claimedTicker(mint: string, symbol: string | null | undefined): 
   return copiedWellKnownName(mint, [symbol, shown]) ? `fake ${shown}` : shown;
 }
 
+/**
+ * A coin by its ticker and its whole address, for a range pool's coins: "BAYLA · 7hmV…pump" in
+ * full. `ticker` is the name its check gave (tokenTicker with the check, "fake X" for a copy);
+ * without one, the site's own name, else "Unknown token".
+ */
+export function tickerAndAddress(mint: string, ticker?: string | null): string {
+  return `${ticker ?? tokenTicker(mint) ?? 'Unknown token'} · ${mint}`;
+}
+
 /** The ticker (tokenTicker), else the short address. */
 export function tokenSymbol(mint: string, safety?: TokenSafety | null): string {
   return tokenTicker(mint, safety) ?? shortAddress(mint);

@@ -5,7 +5,7 @@ pub mod states;
 pub mod utils;
 use crate::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
 use crate::error::ErrorCode;
-use crate::states::PoolState;
+use crate::states::{PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE};
 use anchor_lang::prelude::*;
 use anchor_spl::metadata::{
     create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
@@ -34,11 +34,25 @@ solana_security_txt::security_txt! {
 // identity constants (3 here + create_support_mint_associated_owner in
 // instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
 // added instruction: `create_lp_metadata`, which gives a pool's lp token a name
-// record (the "TEGRIDY FORK ADDITION" at the bottom of this file). The security.txt
-// above is ours too, on our own domain since 2026-10-06. Every line of swap/curve/
-// fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
-// NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
-// `amm_config.protocol_owner` (which create_config sets = the admin caller).
+// record (the "TEGRIDY FORK ADDITION" at the bottom of this file), plus these rules:
+//   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
+//   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
+//     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
+//     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
+//     (here and update_config.rs; constants in states/config.rs).
+//   - 2026-11-03, update_config.rs: the admin hands a tier's fund fee over once, while it
+//     still holds it, and can never point it anywhere else after that.
+//   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
+//     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
+//   - 2026-11-10, the swap guard: on a tier the admin has switched it on for, a swap that
+//     another program calls is refused unless the tier's keeper signs it; a wallet's own
+//     swap never is. Off on every tier until then (states/config.rs `swap_guard`, `keeper`
+//     and `refuses_swap`; checked first in swap_base_input.rs and swap_base_output.rs; set
+//     by update_config.rs params 8 and 9; error.rs `SwapNotDirect`).
+// The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
+// swap/curve/fee arithmetic is byte-identical to the audited upstream. The per-swap
+// PROTOCOL fee is NOT here: it accrues per `amm_config.protocol_fee_rate` and is
+// collected by `amm_config.protocol_owner` (which create_config sets = the admin caller).
 //
 // (Two header paragraphs deleted 2026-08-24: one claimed the non-devnet authority
 // constants were fail-closed all-1s sentinels — false, the real values below are
@@ -54,8 +68,10 @@ declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
 pub mod admin {
     use super::{pubkey, Pubkey};
     // Admin authority: create_config / update_config / update_pool_status AND a
-    // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
-    // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
+    // fallback collector on collect_protocol_fee (can sweep accrued protocol fees to any
+    // recipient) — a fund-touching, top-tier key. Since 2026-11-03 it is not one on
+    // collect_fund_fee: only the tier's fund owner collects the fund fee, and the admin
+    // hands that role over only once (update_config.rs).
     //
     // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
     // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
@@ -78,7 +94,9 @@ pub mod admin {
     // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
     // lamports — so fund it before `create_amm_config`. Every admin action is now a
     // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
-    // it is resolved at compile time.
+    // it is resolved at compile time. Before moving it, hand over every tier whose fund
+    // owner is still this key: update_config.rs lets only the running build's admin hand
+    // a fund fee over, so a tier left on the old key could not be handed over again.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
@@ -122,10 +140,13 @@ pub mod raydium_cp_swap {
         create_pool_fee: u64,
         creator_fee_rate: u64,
     ) -> Result<()> {
-        assert!(trade_fee_rate + creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+        // memetics.finance: a trade fee of 0 makes every swap into a public pool revert
+        // (split_creator_fee divides by the two rates' sum), so it is refused.
+        assert!(trade_fee_rate > 0);
+        assert!(trade_fee_rate + creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
         assert!(protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
         assert!(fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
-        assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+        assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
         instructions::create_amm_config(
             ctx,
             index,
@@ -149,6 +170,9 @@ pub mod raydium_cp_swap {
     /// * `new_owner`- The config's new owner, be set when `param` is 3
     /// * `new_fund_owner`- The config's new fund owner, be set when `param` is 4
     /// * `param`- The value can be 0 | 1 | 2 | 3 | 4, otherwise will report a error
+    /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
+    ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
+    ///   remaining account (the System Program's address clears it)
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)

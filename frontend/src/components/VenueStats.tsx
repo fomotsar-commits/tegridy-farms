@@ -101,14 +101,15 @@ export function VenueStats() {
               <p data-testid="venue-tvl-chains">Pools: {byChain(tvlRead.chains)}</p>
               <p data-testid="venue-tvl-staking">Staked: {byChain(tvlRead.staking)}</p>
               {tvlRead.chains.some((c) => c.read && c.unvalued > 0) && (
-                <p>Pools paired with BAYLA are left out while none of our pools gives BAYLA a price.</p>
+                <p>Pools paired with an island coin are left out while none of our pools gives that coin a price.</p>
               )}
               {tvlRead.staking.some((c) => c.read && c.unvalued > 0) && <p>A staked coin with no market price just now is left out.</p>}
               <p>
                 TVL is what our pools hold plus what is staked in our staking pools, read from each chain every minute.
-                A pool counts at twice its SOL, USDC, BAYLA or ETH; a range pool counts only those coins; other tokens in
-                a pool never add to it. A staked coin counts at its market price: Jupiter's on Solana, DefiLlama's on
-                Ethereum and Base.
+                A pool counts at twice its SOL, USDC or ETH, or twice the island coin it is paired with (BAYLA, BOBO, SOY,
+                BRAINLET or RIZZ, each priced from our deepest pool of it against SOL or USDC); a range pool counts only
+                those coins; other tokens in a pool never add to it. A staked coin counts at its market price: Jupiter's on
+                Solana, DefiLlama's on Ethereum and Base.
               </p>
             </>
           )}

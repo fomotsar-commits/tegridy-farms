@@ -118,7 +118,8 @@ test('a clean pool: token ok, pool read from chain, deposits pass the checks, fe
   await expect(card).toContainText('At the standard address for its fee tier');
   await expect(card).toContainText('Fee tier 1');
   await expect(card).toContainText('Traders pay 1% a trade');
-  await expect(card).toContainText('2 SOL and 2,000,000 tokens');
+  // Every coin is named by its own ticker (owner, 2026-10-22).
+  await expect(card).toContainText('2 SOL and 2,000,000 ECLEAN');
   await expect(ui.lp.status(p)).toHaveText('One pool found for this token.');
   // Both fee tiers are read from the chain.
   await expect(ui.lp.feeTiers(p)).toHaveCount(2);
@@ -229,9 +230,8 @@ test('your positions: the wallet’s own pool share, read from its token account
   const pct = ((Number(lpHeld) / Number(pool.lpSupply)) * 100).toFixed(4);
   await expect(row).toContainText(`${pct}%`);
   await expect(row).toContainText('no problems found');
-  // The row prints addresses short, with the whole one a press away: a token the site has no room for heads it by its short address.
-  const mint = clean.toBase58();
-  await expect(row).toContainText(`${mint.slice(0, 4)}…${mint.slice(-4)} / SOL`);
+  // Every coin is named by its own ticker (owner, 2026-10-22), a token the site has no room for too.
+  await expect(row.getByRole('heading', { level: 3 })).toHaveText('ECLEAN / SOL · 1% tier');
   expect(a.wallet!.records, 'reading positions put nothing in front of the wallet').toEqual([]);
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();

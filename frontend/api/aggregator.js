@@ -329,6 +329,12 @@ export default async function handler(req, res) {
     const { handlePoolIndex } = await import("./_lib/pool-index.js");
     return handlePoolIndex(req, res);
   }
+  // `?resource=gt&endpoint=…`: GeckoTerminal's four indexer endpoints for our pool program,
+  // behind the /api/gt/:endpoint rewrite (api/_lib/geckoterminal.js). Above `const provider`.
+  if (req.query.resource === "gt") {
+    const { handleGeckoTerminal } = await import("./_lib/geckoterminal.js");
+    return handleGeckoTerminal(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);
@@ -417,6 +423,13 @@ export default async function handler(req, res) {
   if (req.query.resource === "flames") {
     const { handleFlames } = await import("./_lib/flames.js");
     return handleFlames(req, res);
+  }
+
+  // `?resource=fire`: the island's fire this week, for Bayla's intel line (answer twenty-four,
+  // build 4). Same CORS lock as heat and flames; the totals only. See _lib/fire.js.
+  if (req.query.resource === "fire") {
+    const { handleFire } = await import("./_lib/fire.js");
+    return handleFire(req, res);
   }
 
   // `?resource=torches` reads the island's torches, season, fire and flame count in one
@@ -534,6 +547,11 @@ export default async function handler(req, res) {
   if (req.query.resource === "venue-tvl") {
     const { handleVenueTvl } = await import("./_lib/venueTvl.js");
     return handleVenueTvl(req, res);
+  }
+  // `?resource=wallet-coins`: which ERC-20s a wallet holds on Ethereum or Base, and their prices.
+  if (req.query.resource === "wallet-coins") {
+    const { handleWalletCoins } = await import("./_lib/walletCoins.js");
+    return handleWalletCoins(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

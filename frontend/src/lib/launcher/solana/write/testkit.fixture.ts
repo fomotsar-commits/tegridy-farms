@@ -3,7 +3,7 @@
 // makes. Imported by *.test.ts only; nothing in the app imports it.
 
 import { Buffer } from 'buffer';
-import { ComputeBudgetProgram, Keypair, PublicKey, type VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Keypair, PublicKey, type Transaction, type VersionedTransaction } from '@solana/web3.js';
 import {
   ACCOUNT_DISCRIMINATOR,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -50,6 +50,7 @@ import { epochFee, feeOf, type TransferFee } from '../../../solana/lp/transferFe
 import { associatedTokenAddress } from '../curve/ix';
 import { priorityLamports } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
+import type { PreparedTx } from './types';
 import {
   BAYLA_MINT,
   PLANT_BURN_RAW,
@@ -1037,4 +1038,10 @@ export function tokenFeeOnChain(chain: FakeChain, mint: PublicKey): TransferFee 
 export function tokenFeeTaken(chain: FakeChain, mint: PublicKey, amount: bigint): bigint {
   const f = tokenFeeOnChain(chain, mint);
   return f ? feeOf(f, amount) : 0n;
+}
+
+/** The legacy transaction a prepared result carries. Throws for a version 1 one: these tests build it on purpose. */
+export function legacyTx(p: PreparedTx): Transaction {
+  if (p.wire.version !== 'legacy') throw new Error('expected a legacy transaction');
+  return p.wire.tx;
 }

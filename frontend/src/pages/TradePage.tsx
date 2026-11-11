@@ -12,7 +12,7 @@ import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
 import { useSwapChainId } from '../hooks/useSwapChainId';
 import { CHAIN_ID } from '../lib/constants';
-import { defaultTokensFor } from '../lib/tokenList';
+import { swapTokensFor } from '../lib/tokenList';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
@@ -25,8 +25,10 @@ import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
+import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
 import { evmBasketFor } from '../lib/islandBasket';
+import { universalRouterOn } from '../lib/evm/universalRouter';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
@@ -262,13 +264,24 @@ export default function TradePage() {
             an ETH swap that could not touch its token. */}
         <ChainSwitch />
 
-        {/* Why this form is empty, when the wallet is on a chain we serve but
-            cannot swap on. Renders nothing on Ethereum and nothing on an
+        {/* Why this form is empty, when the network picked (else the wallet's) is
+            one we serve but cannot swap on. Renders nothing on Ethereum and nothing on an
             unconfigured chain — the app-wide wrong-network banner owns that one.
             Placed ABOVE the tab strip on purpose: every tab under it (Liquidity,
             DCA, Limit, TWAP, Trigger) is pinned to mainnet by the same gate, so
             the explanation belongs to the surface, not to the swap tab. */}
         <ChainSwapAvailability chainId={swapChainId} swapTab={tab === 'swap'} />
+
+        {/* The page follows the network picked; a wallet left on another one is told here.
+            Swap signs on the page's network, and the other tabs on Ethereum only, so off
+            Ethereum those tabs are ChainSwapAvailability's to explain, not this banner's. */}
+        {(tab === 'swap' || swapChainId === CHAIN_ID) && (
+          <WrongChainBanner
+            requiredChainId={swapChainId}
+            message="Your wallet is on another network. Switch it to trade here."
+            className="mb-4"
+          />
+        )}
 
         {/* Tab Toggle */}
         <div
@@ -752,7 +765,7 @@ export default function TradePage() {
                 every trade — a checkable on-chain number, not a superlative
                 (the honesty-vocabulary bar). Both claims link to their
                 checkable surfaces. */}
-            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} />}
+            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} islandV3={universalRouterOn(swap.swapChainId) !== null} />}
             <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
               <CardArt pageId="trade" idx={4} />
               <p className="text-[13px] text-text-secondary leading-relaxed">
@@ -813,7 +826,7 @@ export default function TradePage() {
             stop-loss, from a Safe, on a pair with configured feeds has a real executor
             (CoW's watchtower). Everything else needs the venue keeper, which is not
             built, so `triggerArmState` reports "Not armed" with the reason and the
-            submit button reads "Cannot be armed". Mounting it does not arm anything. */}
+            submit button reads "Not armed yet". Mounting it does not arm anything. */}
         {tab === 'trigger' && (
           <m.div role="tabpanel" id="trade-panel-trigger" aria-labelledby="trade-tab-trigger" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
@@ -834,7 +847,7 @@ export default function TradePage() {
           onClose={() => setShowTokenSelect(null)}
           disabledAddress={showTokenSelect === 'from' ? swap.toToken?.address : swap.fromToken?.address}
           customTokens={swap.customTokens}
-          tokens={defaultTokensFor(swap.swapChainId)}
+          tokens={swapTokensFor(swap.swapChainId)}
           chainId={swap.swapChainId}
           onAddCustomToken={swap.addCustomToken}
         />
@@ -846,16 +859,17 @@ export default function TradePage() {
 /**
  * The Swap tab's money line off Ethereum, where RealYieldProof (fees paid to stakers)
  * would not be true: on Base and Robinhood Chain the venue fee lands in the fee Safe on
- * that chain (registry feeSink 'remittance'), and a swap routed to Uniswap pays the venue
- * nothing (useSwap.ts sends it straight to Uniswap's router).
+ * that chain (registry feeSink 'remittance'). Where Uniswap's Universal Router carries an
+ * island coin's own V3 pool (Base), that route pays the same fee to the same Safe; a swap
+ * routed to Uniswap V2 pays the venue nothing (useSwap.ts sends it straight to V2's router).
  */
-function L2FeeLine({ name }: { name: string }) {
+function L2FeeLine({ name, islandV3 }: { name: string; islandV3: boolean }) {
   return (
     <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
       <CardArt pageId="trade" idx={6} />
       <p className="text-[13px] text-text-secondary leading-relaxed">
         <span className="text-text-primary font-medium">Where the fee goes on {name}.</span>{' '}
-        A swap through our pools pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap pays the venue nothing.
+        A swap through our pools{islandV3 ? <>, or through an island coin&apos;s own Uniswap V3 pool,</> : null} pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap{islandV3 ? ' V2' : ''} pays the venue nothing.
       </p>
     </div>
   );

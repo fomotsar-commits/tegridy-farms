@@ -5,10 +5,22 @@ import { CardArt } from '../components/ui/CardArt';
 import {
   SWAP_FEE_BPS,
   isDeployed,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   SOURCE_URL,
 } from '../lib/constants';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
+
+// Island answer twenty-six: no token launch is live on the venue until the island says so, on any
+// rail (lib/launcher/door.ts). While the door is closed this risk says so first, in the venue's
+// plain words, and the owner's legal copy under it stays word for word; once the door opens the
+// owner's heading reads as written.
+const LAUNCH_RISK = isLaunchDoorOpen()
+  ? { title: 'Anyone can launch a token, and a launch is permanent', lead: '' }
+  : {
+      title: 'Launching a new token here is not switched on yet; once it is, anyone can, and a launch is permanent',
+      lead: 'Launching a new token here is not switched on yet, on any rail. What follows describes the launcher once it opens. ',
+    };
 
 /**
  * HONESTY 2026-07-24: these statuses were hardcoded 'Not yet deployed' and went
@@ -45,7 +57,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Owner can cancel approved community-grant proposals',
     status: 'Active',
-    body: 'After a CommunityGrants proposal passes its veTOWELI vote and reaches Approved status, the owner has a 3-day permissionless-execution window during which they can call cancelProposal instantly with no timelock. This effectively converts approved community votes from binding to advisory until the permissionless window opens. The owner cannot redirect funds — cancellation refunds the proposer deposit and releases the reserved budget — but the owner can veto. Recovery path: a proposer can re-submit, or any signer can execute the proposal once the 3-day owner-only window elapses.',
+    body: 'After a CommunityGrants proposal passes its veTOWELI vote and reaches Approved status, the owner has a 3-day permissionless-execution window during which they can call cancelProposal instantly with no timelock. This effectively converts approved community votes from binding to advisory until the permissionless window opens. The owner has no way to redirect funds — cancellation refunds the proposer deposit and releases the reserved budget — but the owner can veto. Recovery path: a proposer can re-submit, or any signer can execute the proposal once the 3-day owner-only window elapses.',
   },
   {
     title: 'No paid human audit by a recognised firm',
@@ -78,9 +90,9 @@ const PROTOCOL_RISKS: Array<{
     body: 'The protocol is maintained by one developer. Response to incidents, emergency pauses, and bug-bounty triage is bounded by that person being online. SECURITY.md documents the disclosure channel; realistic expectations on turnaround should reflect the maintainer count.',
   },
   {
-    title: 'Anyone can launch a token, and a launch cannot be undone',
+    title: LAUNCH_RISK.title,
     status: 'Active',
-    body: 'The token launcher is permissionless: there is no application, no human approval and no allowlist, so any member of the public can deploy an ERC-20 through it on Ethereum mainnet. Nothing about a token appearing here is an endorsement — the Fact Sheet and its gate tier are automated structural disclosures (template, mint/pause/blacklist/upgrade powers, LP lock, insider vesting, fee split) read at one moment in time, not a security audit, a valuation or a safety warranty, and a token that clears a tier can still go to zero. For creators the exposure runs the other way: the launch transaction is irreversible and the fee constitution is fixed on-chain at creation, so a mistyped supply, market-cap band or beneficiary address is permanent, and the person who launches is the issuer for every legal purpose in their own jurisdiction. We can decline to surface a token in this app; we cannot alter or remove it on-chain.',
+    body: LAUNCH_RISK.lead + 'The token launcher is permissionless: there is no application, no human approval and no allowlist, so any member of the public can deploy an ERC-20 through it on Ethereum mainnet. Nothing about a token appearing here is an endorsement — the Fact Sheet and its gate tier are automated structural disclosures (template, mint/pause/blacklist/upgrade powers, LP lock, insider vesting, fee split) read at one moment in time, not a security audit, a valuation or a safety warranty, and a token that clears a tier can still go to zero. For creators the exposure runs the other way: the launch transaction is irreversible and the fee constitution is fixed on-chain at creation, so a mistyped supply, market-cap band or beneficiary address is permanent, and the person who launches is the issuer for every legal purpose in their own jurisdiction. We can decline to surface a token in this app; we have no power to alter or remove it on-chain.',
   },
   {
     title: 'NFT collateral concentration',
@@ -96,7 +108,7 @@ const PROTOCOL_RISKS: Array<{
 const VENUE_RISK_TITLES: ReadonlySet<string> = new Set([
   'No paid human audit by a recognised firm',
   'Single maintainer',
-  'Anyone can launch a token, and a launch cannot be undone',
+  LAUNCH_RISK.title,
 ]);
 const VENUE_RISKS = PROTOCOL_RISKS.filter((r) => VENUE_RISK_TITLES.has(r.title));
 const TOWELI_RISKS = PROTOCOL_RISKS.filter((r) => !VENUE_RISK_TITLES.has(r.title));
@@ -141,10 +153,12 @@ const PROTOCOL_LIMITS: Array<{
   },
   {
     feature: 'NFT Lending',
-    status: deployStatus(TEGRIDY_NFT_LENDING_ADDRESS),
+    status: deployStatus(GONDI_LOAN_ADDRESS),
     items: [
-      { label: 'Loan duration', value: '1 – 365 days', why: 'Sane loan-term bounds' },
-      { label: 'Minimum offer', value: '~0.001 ETH', why: 'Blocks dust offers' },
+      { label: 'Contract', value: "Gondi's v3.2, unchanged", why: "Byte for byte the code of Gondi's own loan contract on mainnet" },
+      { label: 'Venue fee', value: '5% of the interest', why: "Taken from the lender's interest, to the venue's treasury. The borrower pays only the agreed interest" },
+      { label: 'Interest', value: 'For the days used', why: 'Repay early and the interest stops that day' },
+      { label: 'Missed due date', value: 'No grace period', why: 'The moment a loan is due and unpaid, one lender can take the NFT; with several lenders it goes to a 3-day auction' },
     ],
   },
   {
@@ -161,7 +175,7 @@ const PROTOCOL_LIMITS: Array<{
 const RISKS = [
   {
     title: '1. Smart Contract Risk',
-    body: 'The memetics.finance protocol relies on smart contracts deployed on the Ethereum blockchain. While these contracts have undergone testing and auditing, no audit can guarantee the absence of all vulnerabilities. Undiscovered bugs, logic errors, or exploits in the smart contract code could result in partial or total loss of funds deposited into the Protocol. Smart contract risk is inherent to all DeFi protocols and cannot be fully eliminated.',
+    body: 'The memetics.finance protocol relies on smart contracts deployed on the Ethereum blockchain. While these contracts have undergone testing and auditing, no audit can guarantee the absence of all vulnerabilities. Undiscovered bugs, logic errors, or exploits in the smart contract code could result in partial or total loss of funds deposited into the Protocol. Smart contract risk is inherent to all DeFi protocols and never goes away entirely.',
   },
   {
     title: '2. Market Risk',
@@ -173,11 +187,11 @@ const RISKS = [
   },
   {
     title: '4. Staking Lock Risk',
-    body: 'Staked TOWELI tokens are subject to lock periods chosen by the user. During the lock period, your tokens cannot be withdrawn without incurring a 25% early withdrawal penalty. If market conditions change unfavorably during your lock period, you will be unable to access your full staked amount without accepting this penalty. Locked funds are governed entirely by the smart contract and cannot be released early by any party, including the Protocol developers.',
+    body: 'Staked TOWELI tokens are subject to lock periods chosen by the user. During the lock period, withdrawing your tokens costs a 25% early withdrawal penalty. If market conditions change unfavorably during your lock period, you will be unable to access your full staked amount without accepting this penalty. Locked funds are governed entirely by the smart contract, and no party can release them early, including the Protocol developers.',
   },
   {
     title: '5. Liquidation Risk (NFT Lending)',
-    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan by the agreed-upon deadline will result in the lender claiming your NFT collateral. This process is automatic and enforced by the smart contract. Once liquidation occurs, it cannot be reversed. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment.',
+    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan by the agreed-upon deadline will result in the lender claiming your NFT collateral. This process is automatic and enforced by the smart contract. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment.',
   },
   {
     title: '6. Oracle Risk',

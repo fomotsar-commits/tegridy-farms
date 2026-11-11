@@ -8,7 +8,7 @@ import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type C
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
 import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
-import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, lowerCoins, orList, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { afterFee, feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -18,6 +18,7 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
@@ -55,7 +56,7 @@ const cannotLeave = (what: string) =>
   `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
 
 /** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
-const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
+const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, taken: null, standard: 'empty' };
 
 /**
  * Why an open panel's Review is off when its card no longer offers an opening. 'held'
@@ -72,8 +73,8 @@ function offerOffLine(offer: CreateOffer): string | null {
 }
 
 /**
- * What an opening here adds to, said next to Review while the card offers one. A pool
- * that already exists never switches Review off: the opener is told, and chooses.
+ * What an opening here adds to, said next to Review while the card offers one, for a pair
+ * that is not taken (a taken pair has its own line instead, and Review is off).
  *
  * It follows the CHOSEN coin: a pool paired with SOL is not a pool to add to for someone
  * opening the first USDC pool, so it is not said to them. `named` puts the coin in the
@@ -83,14 +84,12 @@ function offerOffLine(offer: CreateOffer): string | null {
 function adviceLine(pair: PairFacts, named: boolean): string | null {
   const a = named ? `a ${pair.coin.symbol} pool` : 'a pool';
   switch (pair.advice.kind) {
+    // 'exists' names the pool that takes the pair (offers.ts `pairTaken`): its own line says so.
     case 'none':
+    case 'exists':
       return null;
     case 'opened-here':
       return `You opened ${a} for this token just now. Opening again makes a second, separate pool and pays the fee to open again.`;
-    case 'exists':
-      // The card's own words for it: a pool that carries any warning, about its price or
-      // about its token, is never said to pass the checks (offers.ts `depositWarned`).
-      return `This token already has ${a} that ${pair.warned ? 'takes deposits, with a warning' : 'passes the checks'} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
   }
 }
 
@@ -175,9 +174,9 @@ export function CreatePoolPanel(p: {
   tier: TierState | null;
   /**
    * One entry per coin this token can be paired with, SOL first (offers.ts `pairFacts`):
-   * that pair's own pool to add to first, and whether its standard address is free.
-   * Neither ever switches Review off. The pool to add to is said next to Review instead,
-   * for the coin that is chosen.
+   * that pair's own pool to add to first, whether its standard address is free, and the
+   * pool that already takes the pair (`taken`): that one switches Review off for its coin
+   * (one pool per pair and fee tier). The rest is said next to Review, for the coin chosen.
    */
   pairs: readonly PairFacts[];
   /** The pool index cut its list: a new pool is then never called "the first". */
@@ -220,8 +219,11 @@ function CreateInner({
   if (readyConfig && readyConfig !== shownConfig) setShownConfig(readyConfig);
   const config = readyConfig ?? shownConfig;
 
-  // The coin the pool is paired with. It starts on SOL, the first in rank order.
-  const [picked, setPicked] = useState<string | null>(null);
+  // The coin the pool is paired with. It starts on the first in rank order (SOL first)
+  // whose pair is not taken (offers.ts `pairTaken`), else on the first. Chosen once, as the
+  // form opens: a pair taken while the form is open (a stranger's pool lands) keeps the
+  // form on that coin, where it says so, instead of moving it under the opener.
+  const [picked, setPicked] = useState<string | null>(() => (pairs.find((x) => x.taken === null) ?? pairs[0])?.coin.mint ?? null);
   const pair = pairs.find((x) => x.coin.mint === picked) ?? pairs[0] ?? NO_PAIR;
   const coin = pair.coin;
 
@@ -515,6 +517,7 @@ function CreateInner({
     both &&
     !!planned &&
     !problem &&
+    pair.taken === null &&
     check.verdict === 'allowed' &&
     !solShort &&
     !held &&
@@ -527,6 +530,7 @@ function CreateInner({
     const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
+        txVersion: txVersionOf(signer),
         tokenMint: new PublicKey(mint),
         // The chosen coin, and its amount in that coin's own base units.
         quoteMint: new PublicKey(coin.mint),
@@ -630,8 +634,8 @@ function CreateInner({
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
   // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
   const own = quoteCoin(mint);
-  const lower = lowerCoins(mint).map((q) => q.symbol);
-  const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
+  const lower = orList(lowerCoins(mint).map((q) => q.symbol));
+  const otherSide = own && lower ? `. A pool of ${own.symbol} and ${lower} is opened from the other side: look up ${lower} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
@@ -644,6 +648,7 @@ function CreateInner({
   const named = !coin.native || pairs.filter((x) => x.advice.kind !== 'none').length > 1;
   const advice = adviceLine(pair, named);
   const first = firstLine(pair, cut);
+  const freeCoins = pairs.filter((x) => x.taken === null).map((x) => x.coin.symbol);
 
   return (
     <PanelFrame testId="lp-create-panel" title="Open a pool for this token" headingRef={headingRef}>
@@ -684,8 +689,8 @@ function CreateInner({
                 Pair with
               </span>
               {/* Real radio buttons: one Tab stop, and the arrow keys move the choice. The
-                  whole label is the 44px target. `relative` keeps the input inside it. Three
-                  choices fit one row from 360 wide; narrower, the row wraps instead of spilling. */}
+                  whole label is the 44px target. `relative` keeps the input inside it. The seven
+                  choices wrap over two or three rows on a phone, each chip whole; none spills. */}
               <div className="flex flex-wrap gap-2">
                 {pairs.map(({ coin: q }) => (
                   <label
@@ -704,7 +709,19 @@ function CreateInner({
             <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
           )}
           <CoinRiskNotice coin={coin} id={coinRiskId} />
-          {readyConfig !== null && offer === 'offer' && advice && (
+          {/* One pool per pair and fee tier (offers.ts `pairTaken`, owner ruling 2026-11-01):
+              the pool is named in the card's own words for it, and Review is off. */}
+          {readyConfig !== null && offer === 'offer' && pair.taken && (
+            <div data-testid="lp-create-taken" data-coin={coin.symbol}>
+              <Notice tone="warn">
+                This token already has a {coin.symbol} pool on the public fee tier that {pair.taken.warned ? 'takes deposits, with a warning' : 'passes the checks'}:{' '}
+                <span className="font-mono break-all">{pair.taken.pool.address}</span>. One pool per pair and fee tier, so a second is not opened here: add to
+                that pool instead, from its card above.
+                {freeCoins.length > 0 && ` You can still open one paired with ${orList(freeCoins)}.`}
+              </Notice>
+            </div>
+          )}
+          {readyConfig !== null && offer === 'offer' && !pair.taken && advice && (
             <div data-testid="lp-create-advice">
               <Notice tone="warn">{advice}</Notice>
             </div>
@@ -921,7 +938,8 @@ function CreateInner({
             </div>
           )}
           <p className="text-white/60">{NOTES_BELOW}</p>
-          {!canReview && reviewWhy && (
+          {/* A taken pair says why above; typing amounts would not switch Review on. */}
+          {!canReview && reviewWhy && !pair.taken && (
             <p className="text-amber-300/90 text-[12px]" data-testid="lp-review-why">
               {reviewWhy}
             </p>

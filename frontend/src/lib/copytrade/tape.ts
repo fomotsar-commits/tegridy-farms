@@ -356,8 +356,35 @@ export interface ReadIslandTapeOptions {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** When this tab last asked for each pool's trades, whatever the answer. */
+const lastAsked = new Map<string, number>();
+const tapeKey = (p: IslandPool) => `${p.network}:${p.pool}`;
+/** Tests only. */
+export function __resetTapeTurns(): void {
+  lastAsked.clear();
+}
+
 /**
- * Read every island pool, ONE AT A TIME.
+ * The order one walk asks in, as indexes into `pools`. The pools this tab asked about
+ * longest ago go first, a pool never asked counting as longest ago, so the pools a 429
+ * left unasked in one walk are asked first in the next. Before this the walk always
+ * went in registry order, and the same tail was never read: the walk of 2026-11-05 read
+ * 4 of 12. Ties keep the registry order turned to start at a place that moves each
+ * minute, so fresh tabs, which all tie, do not starve the same tail either.
+ */
+export function walkOrder(pools: readonly IslandPool[], asked: ReadonlyMap<string, number>, nowMs: number): number[] {
+  const n = pools.length;
+  if (n === 0) return [];
+  const turn = Math.floor(nowMs / 60_000) % n;
+  const at = (i: number) => asked.get(tapeKey(pools[i]!)) ?? -Infinity;
+  return Array.from({ length: n }, (_, k) => (k + turn) % n)
+    .map((i, pos) => ({ i, pos }))
+    .sort((a, b) => (at(a.i) === at(b.i) ? a.pos - b.pos : at(a.i) < at(b.i) ? -1 : 1))
+    .map((x) => x.i);
+}
+
+/**
+ * Read every island pool, ONE AT A TIME, in `walkOrder`; the reads come back in the pools' own order.
  *
  * Sequential and spaced, following the pattern useSourceVerification already
  * uses against a keyless upstream: twelve parallel requests is the fastest way
@@ -373,23 +400,26 @@ export async function readIslandTape(
   const sleep = opts.sleep ?? defaultSleep;
   const spacing = opts.spacingMs ?? REQUEST_SPACING_MS;
 
-  const reads: PoolTapeRead[] = [];
+  const reads: PoolTapeRead[] = new Array(pools.length);
   let stoppedEarly = false;
+  const order = walkOrder(pools, lastAsked, clock());
 
-  for (let i = 0; i < pools.length; i++) {
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k]!;
     const pool = pools[i]!;
 
     if (stoppedEarly || opts.signal?.aborted) {
-      reads.push({ status: 'unread', pool, reason: 'not-attempted', detail: NOT_ATTEMPTED_DETAIL });
+      reads[i] = { status: 'unread', pool, reason: 'not-attempted', detail: NOT_ATTEMPTED_DETAIL };
       continue;
     }
 
+    lastAsked.set(tapeKey(pool), clock());
     const read = await readPoolTrades(pool.network, pool.pool, {
       signal: opts.signal,
       fetchImpl: opts.fetchImpl,
       now: clock,
     });
-    reads.push(toTapeFills(pool, read));
+    reads[i] = toTapeFills(pool, read);
 
     if (read.status === 'unread' && read.reason === 'rate-limited') {
       // Throttled, not flaky. Burning the rest of the queue converts one 429
@@ -397,7 +427,7 @@ export async function readIslandTape(
       stoppedEarly = true;
       continue;
     }
-    if (i < pools.length - 1) await sleep(spacing);
+    if (k < order.length - 1) await sleep(spacing);
   }
 
   return { reads, fetchedAt: clock(), stoppedEarly };

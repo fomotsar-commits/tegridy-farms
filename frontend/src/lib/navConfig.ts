@@ -1,18 +1,18 @@
 import {
   isDeployed,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
+import { GONDI_LOAN_ADDRESS } from './gondi/loanOffer.js';
 import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
+import { roomSheetHref, sheetHref, sheetRoom, type SheetKind } from './sheet';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
-import { isLauncherEnabled } from './launcher/config';
-import { curveChainNames, isCurveLive } from './launcher/curveChains';
+import { curveChainNames, isCurveLaunchOpen } from './launcher/curveChains';
 // Web3-free on purpose: this module is in the main bundle.
 import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
 // String-only, for the same reason: the range program's id and whether its tab shows.
@@ -38,7 +38,7 @@ export interface NavItem {
 
 /** The NFT-finance entry lists on the strength of its own addresses. */
 export const NFT_FINANCE_LIVE = [
-  TEGRIDY_NFT_LENDING_ADDRESS,
+  GONDI_LOAN_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);
@@ -49,13 +49,14 @@ export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 export const SOLANA_LIVE = isSolanaSwapLive();
 
 /**
- * Where "Swap" goes: the Solana swap inside a Solana room, else the Ethereum
- * swap. Read at render, because a door switches the room in place; ChainSwitch
- * keeps the other chain one click away.
+ * Where "Swap" goes: the Solana swap, with no room and in a Solana room (build 2, 2026-11-01:
+ * the island's traffic is Solana); the EVM swap in an EVM room (TOWELI, PEPE, the Base rooms).
+ * Read at render, because a door switches the room in place; ChainSwitch keeps the other chain
+ * one click away.
  */
 export function tradeRoute(): string {
   const active = getActiveBungalow();
-  return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
+  return isSolanaSwapLive() && (!active || active.chain === 'solana') ? '/solana' : '/swap';
 }
 
 /**
@@ -80,7 +81,7 @@ export function lockRoute(): string {
 
 
 export interface NavSection {
-  /** The section's word, on the bar or as its drawer row: one string, so they cannot drift. */
+  /** The section's word in the menu's index, and on the bar or as its drawer row (on the bar, Pools is Add). */
   heading: string;
 
   /** The host's landing tab. MUST equal `items[0].to` (navConfig.test.ts). */
@@ -89,11 +90,14 @@ export interface NavSection {
   /** The section's destinations in tab order, the hub first: its host's tab strip. */
   items: NavItem[];
 
-  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Venue AMM. */
+  /**
+   * Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens
+   * Venue AMM, Launch its first tab that is on.
+   */
   primaryTo?: string;
 }
 
-/** Every tabbed section. Four are bar words (BAR_NAV) and two are drawer rows (DRAWER_SECTIONS). */
+/** Every tabbed section. Five are bar words (BAR_NAV) and one, Check, is the drawer's row (DRAWER_SECTIONS). */
 export const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Swap',
@@ -113,7 +117,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, the venue's own Solana AMM, range pools, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Venue AMM tab,
+    // Owner, 2026-10-03: "pools land on solana lp". The bar's Add opens the Venue AMM tab,
     // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
     // form is the tab to its left.
     get primaryTo() {
@@ -148,20 +152,27 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Launch',
-    hub: '/launch',
+    // The word opens the launch door, /launch: the countdown for every wallet (island answer
+    // twenty-six, 2026-11-03). No token launch is live on the venue until the island says so, on
+    // any rail, and law 23 does not reach the door: its state, not open yet, is the page. Each
+    // rail keeps its own switch and is left out of the strip while it is off.
+    hub: '/curve-launch',
+    primaryTo: '/launch',
     items: [
-      { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
       // The venue's own Solana curve. Off whenever launching and trading cannot load:
       // in a production build that is ONLY the committed CURVE_WRITES_ENABLED, which
       // website release 2 turns on together with the program ids (curveWriteFlag.ts).
       { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: !isCurveWriteEnabled() },
-      // The EVM curve on every chain it is deployed to: the label names them and the Live mark reads them all.
+      // The launch door (pages/LaunchDoorPage.tsx), never off, named as the island names it.
+      { to: '/launch',      label: 'Launch', tabLabel: 'Launch door' },
+      // The EVM curve on every chain it is deployed to, once its own switch opens it (curveChains.ts
+      // CURVE_LAUNCH_OPEN): the label names them and the Live mark reads them all.
       {
         to: '/eth-curve',
-        label: isCurveLive() ? `Memetics Curve (${curveChainNames()})` : 'Memetics Curve (EVM)',
+        label: isCurveLaunchOpen() ? `Memetics Curve (${curveChainNames()})` : 'Memetics Curve (EVM)',
         tabLabel: 'Memetics Curve',
-        soon: !isCurveLive(),
-        live: isCurveLive(),
+        soon: !isCurveLaunchOpen(),
+        live: isCurveLaunchOpen(),
       },
       { to: '/launch-simulator', label: 'Launch Simulator', tabLabel: 'Simulator' },
     ],
@@ -176,7 +187,7 @@ export const NAV_SECTIONS: NavSection[] = [
       return lockRoute();
     },
     items: [
-      // "Staking", not "Pools": Pools is the drawer row for providing liquidity.
+      // "Staking", not "Pools": Pools (the bar's Add) is for providing liquidity.
       { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       // Off only while no venue carries an on-chain-verified deposit target.
@@ -258,9 +269,9 @@ export function islandRoute(): string {
   return door && isRoomDoor(door) ? door : '/';
 }
 
-function sectionWord(section: NavSection): BarWord {
+function sectionWord(section: NavSection, label = section.heading): BarWord {
   return {
-    label: section.heading,
+    label,
     get to() {
       return section.primaryTo ?? section.hub;
     },
@@ -269,10 +280,25 @@ function sectionWord(section: NavSection): BarWord {
 }
 
 /**
- * The bar, phone and wide screen alike. Island is the home, with its read field and its hall of
- * doors, or inside a room that room's own page (owner, 2026-10-18: Heat and Rooms "are the same";
- * one word stays, named Island, and the drawer's Island row moves up into it). Five is the
- * ceiling: a 44px tab and a 10px label at 390px.
+ * In a room whose coin has its SOL pool on the venue, the bar's Swap and Add open that room's
+ * sheet over it, Buy and Add (island answer twenty-five, build 3). With no room, Swap opens the
+ * Buy sheet over the home, on its bungalow row with nothing lit (answer twenty-seven: the room
+ * only lights a chip); Add stays `fallback`, the pools list. Anywhere else, `fallback`.
+ * Read only inside the bar words' getters, so it follows the room on every access.
+ */
+function sheetOr(kind: SheetKind, fallback: string): string {
+  const active = getActiveBungalow();
+  const room = sheetRoom(active?.id);
+  if (room) return roomSheetHref(room, kind);
+  return kind === 'buy' && !active && isSolanaSwapLive() ? sheetHref('/', '', 'buy') : fallback;
+}
+
+/**
+ * The bar, phone and wide screen alike: Island · Swap · Add · Lock · Launch (build 2,
+ * 2026-11-01). Island is the home, with its read field and its hall of doors, or inside a room
+ * that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
+ * Island, and the drawer's Island row moves up into it). Add is the Pools section, named for what
+ * is done there. Five is the ceiling: a 44px tab and a 10px label at 390px.
  */
 export const BAR_NAV: readonly BarWord[] = [
   // Owns the home with or without its hall, every room's door, and the island's own pages
@@ -284,9 +310,22 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => pathname === '/' || isRoomDoor(pathname) || sectionIsActive(ISLAND_SECTION, pathname),
   },
+  {
+    label: SWAP_SECTION.heading,
+    get to() {
+      return sheetOr('buy', SWAP_SECTION.primaryTo ?? SWAP_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(SWAP_SECTION, pathname),
+  },
+  {
+    label: 'Add',
+    get to() {
+      return sheetOr('add', POOLS_SECTION.primaryTo ?? POOLS_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(POOLS_SECTION, pathname),
+  },
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
-  sectionWord(SWAP_SECTION),
 ];
 
 /** The word that owns this page, if any. */
@@ -294,8 +333,11 @@ export function litWord(pathname: string, hash = ''): BarWord | null {
   return BAR_NAV.find((w) => w.lit(pathname, hash)) ?? null;
 }
 
-/** The drawer's big rows, one per section, at every width. Pools leads, on the Venue AMM tab. */
-export const DRAWER_SECTIONS: readonly NavSection[] = [POOLS_SECTION, CHECK_SECTION];
+/**
+ * The drawer's big row. Empty since the owner took Check off the menu (2026-11-10); Pools is
+ * on the bar, as Add.
+ */
+export const DRAWER_SECTIONS: readonly NavSection[] = [];
 
 /** Not on the bar and not in the footer since 2026-10-15: the records and the developer API. */
 export const DRAWER_LINKS: readonly NavItem[] = [
@@ -346,13 +388,41 @@ export function indexName(group: IndexGroup, item: NavItem): string {
   return item.tabLabel && item.tabLabel !== group.heading ? item.tabLabel : item.label;
 }
 
+/**
+ * Off the menu (owner, 2026-11-10: "we are just cleaning up the menu a bit"). Each page still
+ * opens by its address; a page on a tab strip keeps its tab there (Lock's, Launch's, Check's),
+ * and the island lobby, /island, keeps its doors. To put a page back in the menu, delete its
+ * line here. Check and Launch are off as whole groups: see INDEX_GROUPS.
+ */
+export const MENU_PARKED: ReadonlySet<string> = new Set([
+  // Under Island, everything but Lore.
+  '/island',
+  '/gallery',
+  '/community',
+  '/tokenomics',
+  '/premium',
+  '/history',
+  // Under Lock.
+  '/yield',
+  '/copy-trading',
+  '/checkout',
+]);
+
+/** Under Island: the launch door, the one launch page the menu keeps (owner, 2026-11-10). */
+export const MENU_LAUNCH: NavItem = { to: '/launch', label: 'Launch' };
+
+/** What the menu lists of a group's pages: those on today, less the parked ones. */
+export function menuItems(items: readonly NavItem[]): NavItem[] {
+  return items.filter((i) => !i.soon && !MENU_PARKED.has(i.to));
+}
+
 function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] = []): IndexGroup {
   return {
     heading: section.heading,
     get to() {
       return section.primaryTo ?? section.hub;
     },
-    items: [...section.items, ...extra].filter((i) => !i.soon),
+    items: menuItems([...section.items, ...extra]),
     art,
   };
 }
@@ -362,17 +432,17 @@ function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] 
  * organize them better"; 2026-10-19: organise them, on the desktop too). Every section with its
  * pages, in the order a visitor moves: find the island, trade, pool, lock, launch, check; then
  * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
- * /vesting stay out: their rails are undeployed (navConfig.test.ts). Dashboard joins once a
- * wallet connects (NavDrawer.tsx).
+ * /vesting stay out: their rails are undeployed (navConfig.test.ts). Owner, 2026-11-10: the
+ * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, and Dashboard once a
+ * wallet connects (NavDrawer.tsx); Launch and Check leave the menu as groups. Their pictures,
+ * `nav-drawer:7` and `:2`, stay in the studio for when they come back.
  */
 export const INDEX_GROUPS: readonly IndexGroup[] = [
   // The venue's own pages no section claims (the Gold Card, History, Lore) are the island's.
-  indexGroup(ISLAND_SECTION, 3, UNSECTIONED_PAGES),
+  indexGroup(ISLAND_SECTION, 3, [...UNSECTIONED_PAGES, MENU_LAUNCH]),
   indexGroup(SWAP_SECTION, 5),
   indexGroup(POOLS_SECTION, 1),
   indexGroup(LOCK_SECTION, 6),
-  indexGroup(LAUNCH_SECTION, 7),
-  indexGroup(CHECK_SECTION, 2),
   { heading: 'Records', items: DRAWER_LINKS, art: 0 },
 ];
 

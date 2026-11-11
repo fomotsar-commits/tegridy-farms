@@ -249,12 +249,35 @@ export interface WithdrawPlan {
 
 /** A withdrawal of `pctBps` (1 to 10000) of `held`. 10000 is exactly `held`. */
 export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint; bps: bigint; fees?: PoolFees }): WithdrawPlan | PlanProblem {
-  const fees = a.fees ?? NO_FEES;
   // 1. Inputs.
   if (a.pctBps < 1n || a.pctBps > BPS) return { problem: 'bad-percent' };
   if (a.held < 1n) return { problem: 'nothing-held' };
   // 2. The shares.
   const lp = a.pctBps === BPS ? a.held : (a.held * a.pctBps) / BPS;
+  return planWithdrawShares(s, { held: a.held, lp, bps: a.bps, fees: a.fees });
+}
+
+/**
+ * The shares of a position that are fee growth alone (a claim): what `provenShares` hold
+ * beyond `basis`, the liquidity its deposits still have in the pool (ledger.ts). A share
+ * holds isqrt(reserve0 · reserve1) / supply of liquidity, which trades only ever raise, so
+ * the shares kept are rounded UP and what was put in never leaves on a claim. 0 when the
+ * shares hold no more than their basis (deposits round a few units in the pool's favour).
+ */
+export function claimableShares(s: PoolSnapshot, a: { basis: bigint; provenShares: bigint }): bigint {
+  const S = s.pool.lpSupply;
+  const L = isqrt(s.reserve0 * s.reserve1);
+  if (S <= 0n || L <= 0n || a.provenShares <= 0n || a.basis < 0n) return 0n;
+  const keep = (a.basis * S + L - 1n) / L;
+  return a.provenShares > keep ? a.provenShares - keep : 0n;
+}
+
+/** A withdrawal of exactly `lp` of `held` shares: Remove's percent, or a claim's fee shares. */
+export function planWithdrawShares(s: PoolSnapshot, a: { held: bigint; lp: bigint; bps: bigint; fees?: PoolFees }): WithdrawPlan | PlanProblem {
+  const fees = a.fees ?? NO_FEES;
+  if (a.held < 1n) return { problem: 'nothing-held' };
+  const lp = a.lp;
+  if (lp > a.held) return { problem: 'nothing-held' };
   const minLp = minLpForBothSides(s, fees);
   if (lp < 1n) return { problem: 'too-small', minLp };
   // 3. What they pay, the program's way, and what reaches the wallet of it: withdraw.rs
@@ -307,6 +330,16 @@ export const LOCKED_LP = 100n;
 export const LOCKED_SHARES_TEXT = `${(Number(LOCKED_LP) / 1e9).toFixed(9).replace(/0+$/, '')} pool shares (${LOCKED_LP.toString()} of the smallest unit)`;
 /** The locked 100 may be at most this many basis points of the pool: 0.1%. */
 export const MAX_LOCK_BPS = 10n;
+
+/**
+ * A pool of `supply` shares in which the locked 100 are more than 0.1%. No opening that
+ * small is built (`openingProblem`), and no deposit goes into a pool that small
+ * (poolHealth.ts): at exactly 100 everyone has taken their share out, and what is left can
+ * be re-priced for a few lamports (audit CM-2, 2026-11-03).
+ */
+export function tooFewShares(supply: bigint): boolean {
+  return LOCKED_LP * BPS > supply * MAX_LOCK_BPS;
+}
 
 /** Floor square root, exact for any size (Newton's method on bigint). RangeError below 0. */
 export function isqrt(n: bigint): bigint {
@@ -362,7 +395,7 @@ export function openingProblem(amount0: bigint, amount1: bigint, fees: PoolFees 
   const vault1 = afterFee(fees[1], amount1);
   const supply = isqrt(vault0 * vault1);
   if (supply <= LOCKED_LP) return { problem: 'too-small', supply };
-  if (LOCKED_LP * BPS > supply * MAX_LOCK_BPS) return { problem: 'lock-too-large', supply };
+  if (tooFewShares(supply)) return { problem: 'lock-too-large', supply };
   const mine = lpTokensToTradingTokens(supply - LOCKED_LP, supply, vault0, vault1, 'floor');
   if (!mine) return { problem: 'overflow' };
   if (afterFee(fees[0], mine.token0Amount) < 1n) return { problem: 'cannot-leave', supply, short: 0 };

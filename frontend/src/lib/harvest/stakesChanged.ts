@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { forgetHeldReads } from '../wallet/heldReads';
 
 /**
  * One page can show the same reward twice: Harvest, and the pool's own card or the room's
@@ -13,6 +14,8 @@ const STAKES_CHANGED = 'tegridy:stakes-changed';
 
 /** A staking write landed, or a harvest ran. `from` is the writer, which skips its own note. */
 export function noteStakesChanged(from: object): void {
+  // Before anyone reads again: a pool read held from before the write is not the pool now.
+  forgetHeldReads();
   window.dispatchEvent(new CustomEvent(STAKES_CHANGED, { detail: from }));
 }
 

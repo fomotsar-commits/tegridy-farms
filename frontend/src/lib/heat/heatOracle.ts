@@ -6,6 +6,7 @@
 // No curve, formula, averaging window or decay schedule lives here (islandClaims.test.ts).
 
 import { servedCount } from './roomRank';
+import { COUNTDOWN_WORDS } from '../arrival';
 
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
@@ -21,6 +22,23 @@ export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
   { tier: 'Observer', floor: 30 },
   { tier: 'Drifter',  floor: 0 },
 ] as const;
+
+/**
+ * The tier word the venue prints beside a wallet: the served one, except under Observer (island
+ * answer twenty-six, §2.8). The island serves Drifter under 30, and the gate and the bands keep it
+ * (law 3), but the venue never prints it: a reading there shows its degrees alone. Null where no
+ * word is printed.
+ */
+export function printedTier(tier: string | null | undefined): string | null {
+  if (!tier || tier.toLowerCase() === 'drifter') return null;
+  return tier;
+}
+
+/** The tier word in brackets after a reading's degrees, or nothing where none is printed. */
+function tierAside(tier: string): string {
+  const word = printedTier(tier);
+  return word ? ` (${word})` : '';
+}
 
 /** The launch floor in degrees: 80, the Resident band. Residents may plant.
  *  A degrees floor, never a tenure rule. heatLaunchFloor() reads it; only a dev server may override. */
@@ -70,6 +88,9 @@ export interface HeatReading {
    *  launch floor. Null until the island serves them (it does not yet). Never computed here. */
   daysToNextTier: number | null;
   daysToPlant: number | null;
+  /** The island's percentile beside held_since_unix: how many of the coin's holders today
+   *  came later. Absent until the island serves it (it does not yet). Never computed here. */
+  earlierThanPct?: number | null;
 }
 
 const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
@@ -77,6 +98,11 @@ const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 
 /** A served number of days: a whole number of zero or more, or null. */
 function servedDays(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** A served percentile: a number from 0 to 100, or null. */
+function servedPct(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
 /** A real answer, or an outage wearing a 200? A reason string, or null when trustworthy.
@@ -131,6 +157,7 @@ export function parseHeatReading(payload: unknown): HeatReading {
     xHandle: normalizeXHandle(p.x_handle),
     daysToNextTier: servedDays(p.days_to_next_tier),
     daysToPlant: servedDays(p.days_to_plant),
+    earlierThanPct: servedPct(p.earlier_than_pct),
     breakdown: rows.map((b) => ({
       tokenAddress: String(b.token_address ?? ''),
       chain: String(b.chain ?? ''),
@@ -204,7 +231,7 @@ export function gateDecision(
       degrees: null,
       tier: null,
       asOfUnix: null,
-      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided. Try again in a moment.',
+      detail: 'The island’s instrument is unreachable, so the door has no reading of you yet. Nothing has been decided. Try again in a moment.',
     };
   }
 
@@ -217,7 +244,7 @@ export function gateDecision(
       state: 'STALE',
       reason: 'stale-reading',
       qualified: false,
-      detail: `This reading was reckoned more than ${maxAgeDays} days ago, so it cannot pass or fail anyone. Try again once the island has re-measured.`,
+      detail: `This reading was reckoned more than ${maxAgeDays} days ago, so it passes and fails no one. Try again once the island has re-measured.`,
     };
   }
 
@@ -229,18 +256,39 @@ export function gateDecision(
       reason: 'qualified',
       qualified: true,
       // The wallet's own tier word, never the floor's.
-      detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The launch lane is open.`,
+      detail: `This wallet reads ${reading.degrees.toFixed(2)}°${tierAside(reading.tier)}. The launch lane is open.`,
     };
   }
 
+  // The countdown's words (island answer twenty-four, build 5): a wallet under the floor is
+  // told its own reading, the time to the door when there is a true one to tell, and the
+  // island's line. The line is said at the island's floor, 80 and Residents; a dev server's
+  // other floor still decides on its own number.
+  const timer = countdownTimer(reading);
+  const until =
+    timer === null
+      ? '.'
+      : `: ${'days' in timer ? `${timer.days} ${COUNTDOWN_WORDS.days(timer.days)}` : COUNTDOWN_WORDS.unserved} ${COUNTDOWN_WORDS.under}`;
   return {
     ...base,
     ...measured,
     state: 'COLD',
     reason: 'below-floor',
     qualified: false,
-    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
+    detail: `This wallet reads ${reading.degrees.toFixed(2)}°${tierAside(reading.tier)}${until} ${COUNTDOWN_WORDS.line}`,
   };
+}
+
+/**
+ * The countdown's timer for a wallet under the floor (island answer twenty-five, screen 2): the
+ * island's served days to the launch floor. Until it serves them, the law's half a year, which
+ * is true only from a standing start: a cold wallet, or one at zero degrees. A warm wallet with
+ * no served days gets no timer, because the venue never works the days out.
+ */
+export function countdownTimer(reading: HeatReading): { days: number } | { unserved: true } | null {
+  if (reading.daysToPlant !== null) return { days: reading.daysToPlant };
+  if (reading.isCold || !(reading.degrees > 0)) return { unserved: true };
+  return null;
 }
 
 /** The ladder rung a number sits on. Never the word beside a wallet: that is served. */

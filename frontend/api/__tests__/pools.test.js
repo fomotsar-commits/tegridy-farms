@@ -1,5 +1,5 @@
 // The pool index (api/_lib/pool-index.js, ?resource=pools behind the /api/pools rewrite):
-// a token's pools with each pairing coin (SOL, USDC, BAYLA), ranked within a coin by how
+// a token's pools with each pairing coin (SOL, USDC and the island's five coins), ranked within a coin by how
 // much of that coin each holds, addresses only, never an empty or partial list on
 // failure, strict input, a token-mint check before any scan, cached, rate-limited on misses.
 //
@@ -292,13 +292,19 @@ describe("api/pools", () => {
   });
 });
 
-// ── The pairing coins: SOL, USDC, BAYLA ────────────────────────────────────────────
+// ── The pairing coins: SOL, USDC and the island's five ─────────────────────────────
 const USDC = MINT;
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+const SOY = "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump";
+const BRAINLET = "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump";
+const RIZZ = "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k";
 /** In rank order, each with the token program its vaults are under. */
-const COINS = [WSOL, USDC, BAYLA];
-const COIN_PROGRAM = { [WSOL]: TOKEN, [USDC]: TOKEN, [BAYLA]: TOKEN22 };
-/** An ordinary token: not a pairing coin, so it is searched with all three. */
+const COINS = [WSOL, USDC, BAYLA, BOBO, SOY, BRAINLET, RIZZ];
+const COIN_PROGRAM = { [WSOL]: TOKEN, [USDC]: TOKEN, [BAYLA]: TOKEN22, [BOBO]: TOKEN, [SOY]: TOKEN, [BRAINLET]: TOKEN, [RIZZ]: TOKEN };
+/** What each coin is promised of the list when every coin is scanned (pool-index.js: floor(MAX_POOLS / coins)). */
+const promiseOf = (M) => Math.floor(M / COINS.length);
+/** An ordinary token: not a pairing coin, so it is searched with all seven. */
 const TOKEN_X = k(1, 77);
 /** Some other token nobody pairs with on this site. */
 const JUNK = k(1, 99);
@@ -360,7 +366,7 @@ const budgetCharges = () => rate.checkGlobalLimit.mock.calls.map(([, o]) => o.id
 const addresses = (list) => list.map((p) => p.address);
 
 describe("api/pools: the pairing coins", () => {
-  it("finds a token's pools with all three coins: SOL's first, then USDC's, then BAYLA's, deepest first within each", async () => {
+  it("finds a token's pools with every coin: SOL's first, then USDC's, then BAYLA's (then each other island coin's), deepest first within each", async () => {
     const sol = [{ address: k(1, 10), quote: WSOL, vault: k(1, 11), amount: 5 }, { address: k(2, 10), quote: WSOL, vault: k(2, 11), amount: 9 }];
     // The USDC pools hold far bigger numbers than any SOL pool and still come second:
     // amounts of different coins are never compared.
@@ -375,14 +381,14 @@ describe("api/pools: the pairing coins", () => {
     expect(res.body.truncated).toBe(false);
     // One scan per coin, each on BOTH mint slots, in byte order (the pair has only one).
     const want = COINS.map((coin) => { const [a, b] = byteOrder(TOKEN_X, coin); return [{ offset: 168, bytes: a }, { offset: 200, bytes: b }]; });
-    expect(scannedPairs(f)).toHaveLength(3);
+    expect(scannedPairs(f)).toHaveLength(COINS.length);
     expect(scannedPairs(f)).toEqual(expect.arrayContaining(want));
     for (const scan of calls(f, "getProgramAccounts")) {
       expect(scan.params[0]).toBe(mod.CP_SWAP_PROGRAM);
       expect(scan.params[1].filters).toContainEqual({ dataSize: 637 });
       expect(scan.params[1].filters).toContainEqual({ memcmp: { offset: 0, bytes: mod.POOL_DISCRIMINATOR_B58 } });
     }
-    // A small answer is ranked by one vault read for all three coins.
+    // A small answer is ranked by one vault read for all the coins.
     expect(calls(f, "getMultipleAccounts")).toHaveLength(1);
   });
 
@@ -449,13 +455,13 @@ describe("api/pools: the pairing coins", () => {
 
   // The flood, one way: junk paired with a LOWER coin, holding "more" in raw numbers.
   it("hundreds of junk USDC pools leave every real SOL pool that fits SOL's promise in the list", async () => {
-    const promise = Math.floor(mod.MAX_POOLS / 3);
+    const promise = promiseOf(mod.MAX_POOLS);
     const real = poolsOf(WSOL, promise, (i) => 1_000 + i, 250);
     const junk = poolsOf(USDC, 300, (i) => 10n ** 15n + BigInt(i), 1);
     const res = await ask({ mint: TOKEN_X }, pairChain({ pools: [...junk, ...real] }));
     expect(res.body.pools).toHaveLength(mod.MAX_POOLS);
     expect(res.body.pools.slice(0, promise)).toEqual(addresses(real).reverse());
-    // The junk gets what is left, BAYLA's unused share included: its own deepest, in order.
+    // The junk gets what is left, the island coins' unused shares included: its own deepest, in order.
     expect(res.body.pools.slice(promise)).toEqual(addresses(junk).reverse().slice(0, mod.MAX_POOLS - promise));
     expect(res.body.truncated).toBe(true);
   });
@@ -473,20 +479,23 @@ describe("api/pools: the pairing coins", () => {
   });
 
   it("when every coin is flooded, each coin's deepest pool still leads its own share", async () => {
-    const promise = Math.floor(mod.MAX_POOLS / 3);
+    const M = mod.MAX_POOLS;
+    const promise = promiseOf(M);
     const flood = COINS.flatMap((coin, c) => poolsOf(coin, 300, (i) => 1 + i, 1 + 2 * c));
     const real = COINS.map((coin, c) => ({ address: k(c, 250), quote: coin, vault: k(c, 251), amount: 10n ** 12n }));
     const res = await ask({ mint: TOKEN_X }, pairChain({ pools: [...flood, ...real] }));
-    expect(res.body.pools).toHaveLength(mod.MAX_POOLS);
-    // SOL's share starts the list, BAYLA's ends it, USDC's sits between.
-    expect([0, mod.MAX_POOLS - 2 * promise, mod.MAX_POOLS - promise].map((at) => res.body.pools[at])).toEqual(addresses(real));
+    expect(res.body.pools).toHaveLength(M);
+    // SOL's share starts the list (with the slots the division left over), the last coin's
+    // ends it, and each other coin's sits in rank order between, each exactly its promise.
+    const starts = COINS.map((_, c) => (c === 0 ? 0 : M - (COINS.length - c) * promise));
+    expect(starts.map((at) => res.body.pools[at])).toEqual(addresses(real));
     expect(res.body.truncated).toBe(true);
   });
 
   it("slots one coin does not use go to the coin above it first", async () => {
     const M = mod.MAX_POOLS;
-    // SOL has eight pools more than its promise, USDC is flooded, BAYLA has five.
-    const sol = poolsOf(WSOL, Math.floor(M / 3) + 8, (i) => 1 + i, 10);
+    // SOL has eight pools more than its promise, USDC is flooded, BAYLA has five, the other island coins none.
+    const sol = poolsOf(WSOL, promiseOf(M) + 8, (i) => 1 + i, 10);
     const usdc = poolsOf(USDC, 300, (i) => 1 + i, 20);
     const bayla = poolsOf(BAYLA, 5, (i) => 1 + i, 30);
     const res = await ask({ mint: TOKEN_X }, pairChain({ pools: [...bayla, ...usdc, ...sol] }));
@@ -511,17 +520,21 @@ describe("api/pools: the pairing coins", () => {
 
   it("says truncated exactly when a coin had more pools than it was given", async () => {
     const M = mod.MAX_POOLS;
-    const third = Math.floor(M / 3);
+    const share = promiseOf(M);
+    const n = COINS.length;
+    /** Pool counts per coin in rank order: `at` sets one coin's, the rest hold `rest`. */
+    const counts = (rest, at = {}) => COINS.map((_, c) => at[c] ?? rest);
     const cases = [
-      // [SOL, USDC, BAYLA pools] → addresses listed, truncated
-      [[2, 2, 2], 6, false],
-      [[third, third, third], 3 * third, false],
-      [[M - 2 * third + 1, third, third], M, true],
-      [[0, M, 0], M, false],
-      [[0, M + 1, 0], M, true],
-      [[0, 0, M + 1], M, true],
-      [[1, 1, M], M, true],
-      [[0, 0, 0], 0, false],
+      // [pools per coin, SOL first] → addresses listed, truncated
+      [counts(2), 2 * n, false],
+      [counts(share), n * share, false],
+      // Every coin at its promise and SOL one over what the division left it: one too many.
+      [counts(share, { 0: M - (n - 1) * share + 1 }), M, true],
+      [counts(0, { 1: M }), M, false],
+      [counts(0, { 1: M + 1 }), M, true],
+      [counts(0, { [n - 1]: M + 1 }), M, true],
+      [counts(1, { [n - 1]: M }), M, true],
+      [counts(0), 0, false],
     ];
     for (const [counts, listed, truncated] of cases) {
       mod.__resetPoolIndexCache();
@@ -589,7 +602,7 @@ describe("api/pools: the pairing coins", () => {
     const f = pairChain({ pools });
     const res = await ask({ mint: TOKEN_X }, f);
     expect(res.statusCode).toBe(200);
-    expect(budgetCharges()).toEqual(["pools-precheck", "pools", "pools", "pools"]);
+    expect(budgetCharges()).toEqual(["pools-precheck", ...COINS.map(() => "pools")]);
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
 
     // A repeat question is a cache hit: no upstream call and no charge, however many coins.
@@ -597,7 +610,7 @@ describe("api/pools: the pairing coins", () => {
     const again = await ask({ mint: TOKEN_X }, f);
     expect(again.body.pools).toEqual(res.body.pools);
     expect(f.mock.calls.length).toBe(n);
-    expect(budgetCharges()).toHaveLength(4);
+    expect(budgetCharges()).toHaveLength(COINS.length + 1);
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
 
     // An LP-mint lookup is one scan: one charge.
@@ -672,7 +685,7 @@ function allChain({ pools = [], failScan = null, failRank = null } = {}) {
 const pairPool = (token, coin, amount, i, first) => ({ address: k(i, first), mints: [token, coin], vaults: [k(i, first + 1), k(i, first + 2)], amounts: [1, amount] });
 
 describe("api/pools?all=1: every pool, before a token is picked", () => {
-  it("lists every pool paired with a coin, SOL's first, then USDC's, then BAYLA's, deepest first in each, each pool once", async () => {
+  it("lists every pool paired with a coin, SOL's first, then USDC's, then BAYLA's (then each other island coin's), deepest first in each, each pool once", async () => {
     const solShallow = pairPool(TOKEN_X, WSOL, 5, 1, 10);
     const solDeep = pairPool(JUNK, WSOL, 9, 2, 10);
     // BAYLA/SOL is a SOL pool (BAYLA is its token), and USDC/SOL is too: listed once, under SOL.
@@ -690,7 +703,7 @@ describe("api/pools?all=1: every pool, before a token is picked", () => {
     expect(res.body.truncated).toBe(false);
     // Two scans per coin, one per mint slot, every one filtered to pool accounts.
     const scans = calls(f, "getProgramAccounts");
-    expect(scans).toHaveLength(6);
+    expect(scans).toHaveLength(2 * COINS.length);
     expect(scans.map((s) => s.params[1].filters.find((x) => x.memcmp && x.memcmp.offset !== 0).memcmp).sort((a, b) => (a.bytes + a.offset < b.bytes + b.offset ? -1 : 1))).toEqual(
       COINS.flatMap((bytes) => [{ offset: 168, bytes }, { offset: 200, bytes }]).sort((a, b) => (a.bytes + a.offset < b.bytes + b.offset ? -1 : 1)),
     );
@@ -730,7 +743,8 @@ describe("api/pools?all=1: every pool, before a token is picked", () => {
   });
 
   it("any scan or vault read failing is a 502, never a short list, and is not remembered", async () => {
-    const pools = [pairPool(TOKEN_X, WSOL, 1, 1, 10), pairPool(TOKEN_X, USDC, 1, 1, 20), pairPool(TOKEN_X, BAYLA, 1, 1, 30)];
+    // One pool per coin, so a failing vault read for ANY coin is a read this answer needs.
+    const pools = COINS.map((coin, c) => pairPool(TOKEN_X, coin, 1, 1, 10 + 10 * c));
     for (const what of ["failScan", "failRank"]) {
       for (const coin of COINS) {
         mod.__resetPoolIndexCache();
@@ -747,7 +761,8 @@ describe("api/pools?all=1: every pool, before a token is picked", () => {
   it("is cached for everyone, charges the scan budget once per scan before any scan, and the visitor once", async () => {
     const f = allChain({ pools: [pairPool(TOKEN_X, WSOL, 1, 1, 10)] });
     const res = await ask({ all: "1" }, f);
-    expect(budgetCharges()).toEqual(["pools", "pools", "pools", "pools", "pools", "pools"]);
+    // Two scans per coin (one per mint slot), each charged.
+    expect(budgetCharges()).toEqual(COINS.flatMap(() => ["pools", "pools"]));
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
     const n = f.mock.calls.length;
     const again = await ask({ all: "1" }, f);

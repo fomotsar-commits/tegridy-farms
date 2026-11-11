@@ -5,10 +5,10 @@ import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearch, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
-import { BUNGALOWS } from '../../../lib/bungalows';
+import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
+import { siteTokens } from '../../../lib/solana/lp/siteTokens';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
@@ -22,6 +22,7 @@ import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -111,22 +112,11 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
   if (door) {
     return pools.kind !== 'ok'
       ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
-      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place.`;
+      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place.`;
   }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
-    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
-}
-
-/**
- * The tokens with a room on this site whose mint is on Solana, by the addresses in the
- * site's own registry (lib/bungalows.ts). A phone has no token address to paste: these
- * are picked by a press, and what is looked up is the address, never the name.
- */
-function siteTokens(roomId: string | null): { id: string; symbol: string; mint: string }[] {
-  const all = BUNGALOWS.flatMap((b) => (b.chain === 'solana' && b.address ? [{ id: b.id, symbol: b.symbol, mint: b.address }] : []));
-  // The visitor's own room first.
-  return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
+    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
 }
 
 // "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
@@ -179,7 +169,7 @@ type Done = Extract<SearchState, { status: 'done' }>;
  *
  * `also`: a pool address to read whatever the index says (a position's own pool).
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null): SearchState {
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null, freshRead = false): SearchState {
   const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}#${also ?? ''}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
@@ -202,9 +192,9 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
       const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
       const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
-      // A visitor's own Read again (`nonce`) asks Jupiter itself; the first look may take
-      // the copy the edge shares for 30 seconds (outsidePrice.ts).
-      const price = (m: string, d: number) => (nonce > 0 ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
+      // A visitor's own Read again (`freshRead`) asks Jupiter itself; every other look, a link's
+      // wish and a retry included, takes the shared list (outsidePrice.ts; answer twenty-four).
+      const price = (m: string, d: number) => (freshRead ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
       const [outside, ...coinPrices] = await Promise.all([ask ? price(mint, decimals) : null, ...wanted.map((q) => price(q.mint, q.decimals))]);
       const coins: Record<string, OutsidePrice> = {};
       wanted.forEach((q, i) => {
@@ -218,7 +208,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
     return () => {
       live = false;
     };
-  }, [readers, mint, key, nonce, wantOutside, also]);
+  }, [readers, mint, key, nonce, wantOutside, also, freshRead]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
@@ -277,29 +267,45 @@ export function PoolFinder({
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
+  // True while the last re-read was the visitor's own "Read again": that one asks Jupiter itself.
+  const [freshRead, setFreshRead] = useState(false);
+  const again = useCallback((fresh: boolean) => {
+    setFreshRead(fresh);
+    setNonce((n) => n + 1);
+  }, []);
   // A position's own pool, read with every lookup of its token from the press on (the
   // lookup otherwise reads only what the index and the worked-out addresses name). It is
   // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
   // on, and it is only ever read with its own token's lookups.
   const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
   // The home card's pool is read with every lookup, as a position's pool is from its press on.
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null);
-  const reread = useCallback(() => setNonce((n) => n + 1), []);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null, freshRead);
+  const reread = useCallback(() => again(true), [again]);
   // The home card reads again by itself when a read failed, a few times and spaced out: a busy
   // RPC answers a later ask more often than not, and the card has no field to press Find in.
   // Each try is a fresh lookup. After the last, Read again and the Venue AMM tab stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
-    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!) || state.outside?.kind === 'unread');
+    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!));
   useEffect(() => {
     if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
     const t = setTimeout(() => {
       autoTries.current += 1;
-      setNonce((n) => n + 1);
+      again(false);
     }, ONLY_RETRY_MS[autoTries.current]);
     return () => clearTimeout(t);
-  }, [onlyFailed, state]);
+  }, [onlyFailed, state, again]);
+  // A pool opened here opens one second after it lands, and the page reads it the moment
+  // the opening confirms. Read in that second it is "not open yet": it takes no deposits,
+  // so its pair reads as free and the card offered a second pool for it. One more read
+  // when such a pool opens, with nothing pressed (`opensIn`; a far-off open time is not waited for).
+  const opensIn = state.status === 'done' && !state.refreshing && state.pools.kind === 'ok' ? opensInSeconds(state.pools.search) : null;
+  useEffect(() => {
+    if (opensIn === null) return;
+    const t = setTimeout(() => again(false), Number(opensIn) * 1000);
+    return () => clearTimeout(t);
+  }, [opensIn, again]);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -376,10 +382,10 @@ export function PoolFinder({
           ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}), ...(ask.door ? { door: true as const } : {}), ...(ask.top ? { top: true as const } : {}) }
           : null,
       );
-      if (next === mint) setNonce((n) => n + 1);
+      if (next === mint) again(false);
       else onMint(next);
     },
-    [mint, onMint],
+    [mint, onMint, again],
   );
   // "Add more liquidity" on a position (the section passes it on). The token goes into
   // the box and is looked up like a picked one, so the holder sees which token and which
@@ -478,9 +484,12 @@ export function PoolFinder({
   const doorWaits = (doorAsked || wish?.top === true) && writes !== null && writes.status !== 'load-failed';
   const doorFrame = (doorWaits || doorHeld > 0) && doorMint ? <LpDoorFrame mint={doorMint} waiting={doorHeld === 0} slotRef={setDoorSlot} /> : null;
 
-  const finder = (
-    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
-      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+  // In the sheet (island answer twenty-five, build 3) the door is the form, or why it did not
+  // open; under it only what the read says while it reads or when it fails. The pool's card
+  // the form rides on is not drawn (SearchResults).
+  const sheet = useSheet() !== null;
+  const rest = (
+    <>
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
@@ -566,7 +575,7 @@ export function PoolFinder({
               Find pools
             </button>
             {state.status === 'done' && (
-              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setNonce((n) => n + 1)}>
+              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => again(true)}>
                 Read again
               </button>
             )}
@@ -610,6 +619,13 @@ export function PoolFinder({
           onRetry={reread}
         />
       )}
+    </>
+  );
+  const finder = (
+    // In the sheet the door is all that is drawn: no gap is kept for the finder under it.
+    <section data-testid="lp-finder" aria-label="Find pools for a token" className={sheet ? undefined : 'space-y-4'}>
+      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+      {rest}
     </section>
   );
   return <LpDoorContext.Provider value={doorPlace}>{finder}</LpDoorContext.Provider>;
@@ -671,6 +687,7 @@ function SearchResults({
 }) {
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
+  const sheet = useSheet() !== null;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
@@ -781,7 +798,9 @@ function SearchResults({
               )}
             </Card>
           ) : (
-            <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+            // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
+            <div hidden={sheet || undefined}>
+            <ul className="space-y-3" aria-label={only ? 'The pool' : `Pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
@@ -804,10 +823,8 @@ function SearchResults({
                 ),
               )}
             </ul>
+            </div>
           )}
-          {/* The home card: an outside price that could not be read leaves deposits unchecked
-              and adding off. The pool's card says why; this is the way on from it. */}
-          {only && listed.length > 0 && outside?.kind === 'unread' && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}
@@ -844,6 +861,25 @@ function SearchResults({
 
 /** How long the home card waits before each read it tries again by itself (PoolFinder `only`). */
 const ONLY_RETRY_MS = [2_000, 6_000, 15_000] as const;
+
+/** A pool opening within this many seconds of the read is read again when it opens; one opening later is a blocked pool, not a wait. */
+const OPENS_SOON_SECS = 120n;
+
+/**
+ * Seconds from the search's chain clock to one past the soonest open time among its pools
+ * that are not open yet and open within OPENS_SOON_SECS; null when there is none (or no clock).
+ */
+function opensInSeconds(search: PoolSearch): bigint | null {
+  const now = search.chainNow;
+  if (now === null) return null;
+  let soonest: bigint | null = null;
+  for (const e of search.pools) {
+    if (e.kind !== 'pool') continue;
+    const at = e.view.snapshot.pool.openTime;
+    if (at > now && at - now <= OPENS_SOON_SECS && (soonest === null || at < soonest)) soonest = at;
+  }
+  return soonest === null ? null : soonest - now + 1n;
+}
 
 /**
  * The home card's way on when a read failed: read again here, or add on the Venue AMM tab,

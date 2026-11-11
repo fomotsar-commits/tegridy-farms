@@ -78,8 +78,17 @@ import {
 } from './metaplex';
 import { isLpKind } from './lpKinds';
 import { isRangeKind } from './rangeKinds';
-import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
-import { IX_CLOSE_POSITION, IX_DECREASE_LIQUIDITY_V2, IX_OPEN_POSITION_WITH_TOKEN22_NFT, IX_SWAP_V2, type RewardInfoView } from '../../../solana/clmm/program';
+import { closePositionIx, createPoolIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
+import {
+  IX_CLOSE_POSITION,
+  IX_CREATE_POOL,
+  IX_DECREASE_LIQUIDITY_V2,
+  IX_OPEN_POSITION_WITH_TOKEN22_NFT,
+  IX_SWAP_V2,
+  deriveAmmConfig as deriveRangeTier,
+  derivePool as deriveRangePool,
+  type RewardInfoView,
+} from '../../../solana/clmm/program';
 import { usableTickBounds } from '../../../solana/clmm/math';
 import {
   BAYLA_DECIMALS,
@@ -91,7 +100,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxConfig, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -137,10 +146,10 @@ function asCurve(c: IntentContext): CurveIntent {
   return c;
 }
 
-/** A range opening in a SOL pool, or a range swap paying in SOL: the only range transactions that wrap SOL. */
+/** A range opening (in a pool or a new one) in SOL, or a range swap paying in SOL: the only range transactions that wrap SOL. */
 function rangePutsSolIn(ctx: RangeIntent): boolean {
   if (!pinnedQuote(ctx).native) return false;
-  return ctx.kind === 'range-open' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
+  return ctx.kind === 'range-open' || ctx.kind === 'range-create' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
 }
 
 /** Does this swap pay in SOL? Only then may it move SOL into the signer's wrapped-SOL account. */
@@ -838,8 +847,33 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   const same = (ref: TransactionInstruction, what: string) => {
     if (!sameKeys(ix, ref) || !sameBytes(d, ref.data)) refuse(`${what} names accounts or amounts this site did not check (such as someone else’s account)`);
   };
+  if (startsWith(d, IX_CREATE_POOL)) {
+    if (ctx.kind !== 'range-create' || !ctx.create) return refuse('it opens a new range pool, and this transaction is not for that');
+    if (d.length !== 8 + 16 + 8) refuse('a pool opening of the wrong size');
+    // Fee tier 0, the 1% tier, only: the site never opens a pool on any other tier.
+    if (!p.ammConfig.equals(deriveRangeTier(p.program, 0))) refuse('it opens a pool on a fee tier this site does not offer');
+    if (!p.address.equals(deriveRangePool(p.program, p.ammConfig, p.token0Mint, p.token1Mint))) refuse('the pool it opens is not the one its first position goes into');
+    const sqrtPriceX64 = u128(d, 8);
+    if (sqrtPriceX64 !== ctx.create.sqrtPriceX64) refuse('the pool would open at a price this site did not check');
+    if (u64(d, 24) !== 0n) refuse('the pool would open for trading later, not now');
+    // Rebuilt with the site's builder, which names the vault as the fee's only receiver.
+    same(
+      createPoolIx({
+        programId: p.program,
+        poolCreator: ctx.signer,
+        ammConfig: p.ammConfig,
+        mint0: p.token0Mint,
+        mint1: p.token1Mint,
+        tokenProgram0: p.token0Program,
+        tokenProgram1: p.token1Program,
+        sqrtPriceX64,
+      }),
+      'the pool opening',
+    );
+    return { kind: 'range-create-pool', pool: p.address, ammConfig: p.ammConfig, sqrtPriceX64 };
+  }
   if (startsWith(d, IX_OPEN_POSITION_WITH_TOKEN22_NFT)) {
-    if (ctx.kind !== 'range-open' || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
+    if ((ctx.kind !== 'range-open' && ctx.kind !== 'range-create') || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
     // A fixed liquidity and no base side (its option byte None: 58 bytes). With a base side the
     // program works the liquidity out at the price the opening lands at, a sandwich's price.
     if (d.length !== 8 + 16 + 16 + 16 + 1 + 1) refuse('an opening of the wrong size');
@@ -876,7 +910,7 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
     return { kind: 'range-open', pool: p.address, nftMint: ctx.nftMint, tickLower, tickUpper, liquidity, max0, max1 };
   }
   if (startsWith(d, IX_DECREASE_LIQUIDITY_V2)) {
-    if (ctx.kind === 'range-open' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');
+    if (ctx.kind === 'range-open' || ctx.kind === 'range-create' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');
     if (d.length !== 8 + 16 + 8 + 8) refuse('a withdrawal of the wrong size');
     const liquidity = u128(d, 8);
     const min0 = u64(d, 24);
@@ -971,6 +1005,9 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // A range opening wraps SOL for a SOL pool; taking out and closing only unwrap. The
   // position's NFT is made by the range program itself, so Token-2022 is never called here.
   'range-open': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
+  // A new pool and its first position: the same as an opening. The range program makes the
+  // pool's own accounts and pays the opening fee to the vault itself.
+  'range-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
   'range-remove': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
   'range-close': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
   // The swap page's swap in a range pool: as a swap in our other pools, in the range program.
@@ -1009,12 +1046,19 @@ export interface DecodeOptions {
    * for the transaction a wallet HANDS BACK; never for one we built.
    */
   allowWalletGuards?: boolean;
+  /**
+   * A version 1 message's config (SIMD-0385). With it the fee cap reads the config, its
+   * limits must be ones the network runs, and a ComputeBudget instruction in the body is
+   * refused: the runtime ignores one there.
+   */
+  config?: TxConfig;
 }
 
 /**
  * Decode every instruction into a step, or refuse the transaction with a reason a
  * person can read. Also enforces: at most one unit limit and one unit price, and
- * the priority fee they imply is within `ctx.maxPriorityLamports`.
+ * the priority fee they imply (or the one a version 1 config carries) is within
+ * `ctx.maxPriorityLamports`.
  */
 export function decodeIntent(
   instructions: readonly TransactionInstruction[],
@@ -1033,6 +1077,7 @@ export function decodeIntent(
         refuse(`it calls a program this page never uses (${p.toBase58()})`);
       }
       if (!allowed.has(family!)) refuse(`it calls a program this kind of transaction never uses (${p.toBase58()})`);
+      if (family === 'compute' && opts.config) refuse('it sets its budget in an instruction a version 1 transaction ignores');
       if (family === 'compute') steps.push(computeBudget(ix));
       else if (family === 'system') steps.push(system(ix, ctx));
       else if (family === 'token') steps.push(token(ix, ctx));
@@ -1061,9 +1106,25 @@ export function decodeIntent(
     // A range transaction holds its own steps once each, and nothing of the others'.
     if (isRangeIntent(ctx)) {
       const count = (k: IntentStep['kind']) => steps.filter((s) => s.kind === k).length;
-      const want = { 'range-open': [1, 0, 0, 0], 'range-remove': [0, 1, 0, 0], 'range-close': [0, 1, 1, 0], 'range-swap': [0, 0, 0, 1] }[ctx.kind];
-      if (count('range-open') !== want[0] || count('range-decrease') !== want[1] || count('range-close') !== want[2] || count('range-swap') !== want[3]) {
+      const want = {
+        'range-open': [1, 0, 0, 0, 0],
+        'range-remove': [0, 1, 0, 0, 0],
+        'range-close': [0, 1, 1, 0, 0],
+        'range-create': [1, 0, 0, 0, 1],
+        'range-swap': [0, 0, 0, 1, 0],
+      }[ctx.kind];
+      if (
+        count('range-open') !== want[0] ||
+        count('range-decrease') !== want[1] ||
+        count('range-close') !== want[2] ||
+        count('range-swap') !== want[3] ||
+        count('range-create-pool') !== want[4]
+      ) {
         refuse('it does not hold exactly the range-position steps it is for');
+      }
+      // The pool first, then its first position, in the order the review says them.
+      if (ctx.kind === 'range-create' && steps.findIndex((s) => s.kind === 'range-create-pool') > steps.findIndex((s) => s.kind === 'range-open')) {
+        refuse('it puts the first position in before the pool is opened');
       }
       const dec = steps.find((s) => s.kind === 'range-decrease');
       if (ctx.kind === 'range-close' && dec?.kind === 'range-decrease' && dec.liquidity !== ctx.position?.liquidity) {
@@ -1078,9 +1139,18 @@ export function decodeIntent(
     const burns = steps.filter((s) => s.kind === 'plant-burn');
     const gives = steps.filter((s) => s.kind === 'plant-transfer');
     if (burns.length > 1 || gives.length > 1) refuse('it plants more than once');
-    const limit = computeUnitLimit(instructions, steps);
-    const price = prices[0]?.kind === 'compute-price' ? prices[0].microLamports : 0n;
-    if (priorityLamports(price, limit) > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    if (opts.config) {
+      const c = opts.config;
+      if (!Number.isInteger(c.computeUnitLimit) || c.computeUnitLimit <= 0 || c.computeUnitLimit > MAX_UNITS_PER_TRANSACTION) {
+        refuse('its compute budget is outside what the network runs');
+      }
+      if (!Number.isInteger(c.loadedAccountsDataSizeLimit) || c.loadedAccountsDataSizeLimit <= 0) refuse('it would load no account data, so it could not run');
+      if (c.priorityFeeLamports > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    } else {
+      const limit = computeUnitLimit(instructions, steps);
+      const price = prices[0]?.kind === 'compute-price' ? prices[0].microLamports : 0n;
+      if (priorityLamports(price, limit) > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');
+    }
     return { ok: true, steps };
   } catch (e) {
     if (e instanceof Refuse) return { ok: false, reason: `This transaction was blocked because ${e.message}.` };

@@ -70,11 +70,14 @@ names its sources. This crate is Apache-2.0 (`../LICENSE`).
 
 ## What Jupiter still needs
 
-- **A security audit of the program.** It has none (`../README.md`, `../AUDIT_RFQ.md`). Jupiter
-  asks for the report with the submission. This is the owner's step.
+- **A security audit of the program.** It has none (`../README.md`, `../AUDIT_RFQ.md`, which
+  asks for this program's review first, on its own). Jupiter asks for the report with the
+  submission. This is the owner's step.
 - Jupiter forks the SDK's repository. To hand them this folder on its own, move
   `tests/layout.rs`'s check into a copy of the program's two state files, or keep it in the
   monorepo.
 - The submission itself, through Jupiter's AMM integrators form: this folder, the audit, usage
   numbers and who is behind the venue. Jupiter also lists markets only above its liquidity bar.
 - The label Jupiter shows for these pools is `Memetics` (`src/lib.rs`), which is the owner's call.
+
+`SUBMISSION.md` has the form's answers and what to do before sending it.

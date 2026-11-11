@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { formatListingPrice } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
@@ -522,7 +523,7 @@ export default function RaritySniper({
                     )}
                     <td style={s.td}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                        <Eth size={11} /> {item.price.toFixed(4)}
+                        <Eth size={11} /> {formatListingPrice(item.listing ?? item)}
                       </span>
                     </td>
                     <td style={s.td}>

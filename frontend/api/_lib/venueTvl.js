@@ -4,19 +4,24 @@
 // answer and left out of the total, which then says it is partial: never a zero.
 //
 // WHAT IS COUNTED, AND AT WHAT VALUE
-//   - Solana, our pool program: every pool holding SOL, USDC or BAYLA, at twice that coin
-//     (the highest-ranked one it holds, pool-index.js's rule). The two sides of a
-//     constant-product pool are worth the same at its price.
-//   - Solana, our range-pool program: the SOL, USDC and BAYLA it holds, and nothing for any
-//     other coin. A range pool's price is whatever its depositors set, so valuing its other
-//     side at that price would let anyone make the total say anything.
+//   - Solana, our pool program: every pool holding SOL, USDC or an island coin (BAYLA, BOBO,
+//     SOY, BRAINLET, RIZZ: the pairing coins, pool-index.js), at twice that coin (the
+//     highest-ranked one it holds, pool-index.js's rule). The two sides of a constant-product
+//     pool are worth the same at its price.
+//   - Solana, our range-pool program: the SOL, USDC and island coins it holds, and nothing for
+//     any other coin. A range pool's price is whatever its depositors set, so valuing its
+//     other side at that price would let anyone make the total say anything.
 //   - Ethereum, Base and Robinhood: every pair our factory made that holds WETH, at twice it.
 // Only those coins add dollars, so pools of worthless tokens add nothing: the figure moves
-// only when SOL, USDC, BAYLA or ETH really sit in our pools.
+// only when SOL, USDC, an island coin or ETH really sit in our pools.
+//
+// THE COINS WITH A $200 POOL (`poolCoins`, POOL_COIN_USD): each Solana pool's other coin, with
+// the worth of its deepest pool here, for the swap's list of the venue's own coins. Read from the
+// same vaults as the total, so it costs no call of its own.
 //
 // PRICES: SOL and ETH from Coinbase, then CoinGecko (the volume counter's spotPrice). USDC is
-// a dollar. BAYLA is valued at its price in our deepest BAYLA/SOL pool, else BAYLA/USDC; with
-// neither, the pools it would value are left out and the answer says so.
+// a dollar. An island coin is valued at its price in our deepest pool of it against SOL, else
+// against USDC; with neither, the pools it would value are left out and the answer says so.
 //
 // WHAT IS STAKED, AND AT WHAT VALUE (owner 2026-10-30: the total left out the staking pools)
 //   - Every staking pool we run, live or retired (a retired pool keeps what people staked until
@@ -86,6 +91,10 @@ export const SOLANA_STAKE_POOLS = Object.freeze(
     ["5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj", "streamflow", "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"], // SOY
     ["2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR", "streamflow", "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump"], // BRAINLET
     ["BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c", "streamflow", "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k"], // RIZZ
+    ["CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT", "ladder", "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump"], // BOBO lock ladder
+    ["3woT5BZgznYQGvemUQmaKesbUmXJRWxaGUxAYkudSYBn", "ladder", "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"], // SOY lock ladder
+    ["9LunTnw1r4Xtjb86Cf9UeMTQMREmx3yc61CqzVLyBdGG", "ladder", "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump"], // BRAINLET lock ladder
+    ["AenisnJhCvL7cPz49T7UHhePvBi1bjhJAfY4bV2t1Hgw", "ladder", "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k"], // RIZZ lock ladder
   ].map(([pool, kind, mint]) => Object.freeze({ pool, kind, mint })),
 );
 
@@ -131,6 +140,16 @@ export const STAKE_CHAINS = Object.freeze(["solana", ...Object.keys(EVM_STAKE_PO
 /** More pools than this on one program, or pairs on one factory, reads as "could not read". */
 export const MAX_POOLS = 5000;
 export const MAX_PAIRS = 1000;
+
+/**
+ * A coin with at least this much in one of our Solana pools, at this file's value of that pool,
+ * is in the answer's `poolCoins`: the swap lists it as a coin of ours (owner, 2026-11-01: "add
+ * the tokens of the pairs above 200$ in liquidity in our pools as the verified token"). One pool
+ * of that size, never pools added together: twenty $10 pools are not a $200 pair.
+ */
+export const POOL_COIN_USD = 200;
+/** At most this many in the answer, deepest first. */
+export const MAX_POOL_COINS = 100;
 const SCAN_CAP_BYTES = 8 * 1024 * 1024;
 const RPC_TIMEOUT_MS = 8000;
 const VAULT_CHUNK = 100;
@@ -140,7 +159,9 @@ const RATE = { limit: 30, windowSec: 60, identifier: "venue-tvl" };
 const GLOBAL = { limit: 60, windowSec: 60, identifier: "venue-tvl" };
 
 const COIN_BY_MINT = new Map(QUOTE_COINS.map((c, rank) => [c.mint, { ...c, rank }]));
-const [SOL, USDC, BAYLA] = QUOTE_COINS;
+const [SOL, USDC] = QUOTE_COINS;
+/** The island's coins: every pairing coin after SOL and USDC, each priced from our own pools (`islandUsd`). */
+const ISLAND_COINS = QUOTE_COINS.slice(2);
 
 let cached = null; // { at, body }
 let inflight = null;
@@ -235,7 +256,7 @@ async function readVaults(wanted, fetchImpl) {
 
 /**
  * The Solana side: both programs, valued. `{ usd, pools, unvalued }`, where `unvalued`
- * counts pools left out because BAYLA had no price. Throws when any read failed.
+ * counts pools left out because an island coin had no price. Throws when any read failed.
  */
 export async function readSolana({ fetchImpl, priceOf }) {
   const programs = await Promise.all(SOLANA_PROGRAMS.map((layout) => scanPrograms(layout, fetchImpl)));
@@ -248,41 +269,54 @@ export async function readSolana({ fetchImpl, priceOf }) {
       const coinSides = pool.sides.filter((s) => COIN_BY_MINT.has(s.mint));
       if (!coinSides.length) continue;
       const sides = doubled ? [coinSides.reduce((a, b) => (COIN_BY_MINT.get(a.mint).rank <= COIN_BY_MINT.get(b.mint).rank ? a : b))] : coinSides;
-      counted.push({ sides, factor: doubled ? 2 : 1, both: doubled && coinSides.length === 2 ? coinSides : null });
-      // Both coin vaults of a coin/coin pool: BAYLA's price is read from them.
+      // The pool's other coin, when it is not a pairing coin (SOL, USDC or an island coin): what `poolCoins` names.
+      const token = pool.sides.find((s) => !COIN_BY_MINT.has(s.mint))?.mint ?? null;
+      counted.push({ sides, factor: doubled ? 2 : 1, both: doubled && coinSides.length === 2 ? coinSides : null, token });
+      // Both coin vaults of a coin/coin pool: an island coin's price is read from them.
       for (const s of doubled ? coinSides : sides) wanted.set(s.vault, COIN_BY_MINT.get(s.mint));
     }
   });
   const held = wanted.size ? await readVaults(wanted, fetchImpl) : new Map();
 
-  if (!counted.length) return { usd: 0, pools: 0, unvalued: 0 };
-  const usd = { [SOL.mint]: await priceOf("SOL"), [USDC.mint]: 1, [BAYLA.mint]: null };
-  usd[BAYLA.mint] = baylaUsd(counted, held, usd);
+  if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [] };
+  const usd = { [SOL.mint]: await priceOf("SOL"), [USDC.mint]: 1 };
+  for (const coin of ISLAND_COINS) usd[coin.mint] = islandUsd(coin, counted, held, usd);
 
   let total = 0;
   let unvalued = 0;
+  const deepest = new Map(); // a pool's other coin -> its deepest pool's worth
   for (const c of counted) {
     const prices = c.sides.map((s) => usd[s.mint]);
     if (prices.some((v) => v === null)) {
       unvalued++;
       continue;
     }
-    total += c.factor * c.sides.reduce((sum, s, i) => sum + held.get(s.vault) * prices[i], 0);
+    const worth = c.factor * c.sides.reduce((sum, s, i) => sum + held.get(s.vault) * prices[i], 0);
+    total += worth;
+    if (c.token && worth >= POOL_COIN_USD && worth > (deepest.get(c.token) ?? 0)) deepest.set(c.token, worth);
   }
-  return { usd: total, pools: counted.length - unvalued, unvalued };
+  const poolCoins = [...deepest]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, MAX_POOL_COINS)
+    .map(([mint, worth]) => ({ mint, usd: Math.round(worth * 100) / 100 }));
+  return { usd: total, pools: counted.length - unvalued, unvalued, poolCoins };
 }
 
-/** BAYLA in dollars from our deepest BAYLA/SOL pool, else BAYLA/USDC; null with neither. */
-function baylaUsd(counted, held, usd) {
-  for (const coin of [SOL, USDC]) {
+/**
+ * An island coin in dollars from our deepest pool of it against SOL, else against USDC;
+ * null with neither. A pool of two island coins prices neither: only SOL and USDC have a
+ * price of their own to lean on.
+ */
+function islandUsd(coin, counted, held, usd) {
+  for (const money of [SOL, USDC]) {
     let best = null;
     for (const c of counted) {
-      const other = c.both?.find((s) => s.mint === coin.mint);
-      const bayla = c.both?.find((s) => s.mint === BAYLA.mint);
-      if (!other || !bayla || !(held.get(bayla.vault) > 0)) continue;
-      if (!best || held.get(other.vault) > held.get(best.other.vault)) best = { other, bayla };
+      const other = c.both?.find((s) => s.mint === money.mint);
+      const own = c.both?.find((s) => s.mint === coin.mint);
+      if (!other || !own || !(held.get(own.vault) > 0)) continue;
+      if (!best || held.get(other.vault) > held.get(best.other.vault)) best = { other, own };
     }
-    if (best) return (held.get(best.other.vault) * usd[coin.mint]) / held.get(best.bayla.vault);
+    if (best) return (held.get(best.other.vault) * usd[money.mint]) / held.get(best.own.vault);
   }
   return null;
 }
@@ -467,15 +501,29 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
         }
       }),
     );
+  // The coins with a $200 pool, beside the total: unset while Solana's pools are not read.
+  let poolCoins = null;
+  const solana = async () => {
+    const r = await readSolana({ fetchImpl, priceOf });
+    poolCoins = r.poolCoins;
+    return r;
+  };
   const [results, staking] = await Promise.all([
-    settle("pools", [["solana", () => readSolana({ fetchImpl, priceOf })], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])], "pools"),
+    settle("pools", [["solana", solana], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])], "pools"),
     settle("staking", [["solana", () => readSolanaStaking({ fetchImpl, marketPrices })], ...STAKE_CHAINS.slice(1).map((name) => [name, () => readEvmStaking(name, { fetchImpl, marketPrices })])], "vaults"),
   ]);
   const parts = [...results, ...staking];
   if (!parts.some((r) => r.read)) return { state: "unread" };
   const whole = parts.every((r) => r.read && r.unvalued === 0);
   const usd = parts.reduce((sum, r) => sum + (r.read ? r.usd : 0), 0);
-  return { state: whole ? "current" : "partial", usd: Math.round(usd * 100) / 100, chains: results, staking, readAt: new Date(now).toISOString() };
+  return {
+    state: whole ? "current" : "partial",
+    usd: Math.round(usd * 100) / 100,
+    chains: results,
+    staking,
+    ...(poolCoins ? { poolCoins } : {}),
+    readAt: new Date(now).toISOString(),
+  };
 }
 
 function setCors(req, res) {

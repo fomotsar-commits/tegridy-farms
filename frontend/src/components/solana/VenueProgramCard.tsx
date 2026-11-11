@@ -13,8 +13,8 @@ export function VenueProgramCard() {
     <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
       <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-      {/* True of the program running today and of the source: both carry our authority constants. The
-          additions are the source's alone until the upgrade, so the small print names them. */}
+      {/* True of the program running since its upgrade and of the source: both carry our authority
+          constants. The small print names what else the fork adds. */}
       <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with our keys</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-1">
         A pinned fork of <strong>raydium-cp-swap</strong>; the trading maths are Raydium&rsquo;s.
@@ -27,7 +27,7 @@ export function VenueProgramCard() {
           the program&rsquo;s own name and contact text, comments, one added instruction and
           one added check. The instruction lets a pool&rsquo;s share token carry a name and a
           picture in wallets. Its caller chooses nothing: the name and the link are fixed in
-          the program. It cannot move pool funds. Whoever calls it pays a small one-time fee
+          the program. It has no way to move pool funds. Whoever calls it pays a small one-time fee
           for the record. The check keeps the launch fee tier for launches: opening a pool
           there the public way is refused, and a launch&rsquo;s graduation still opens its
           pool there.
@@ -35,15 +35,12 @@ export function VenueProgramCard() {
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.
         </p>
-        {/* True while mainnet runs the build from before the additions (again since the roll-back of
-            2026-10-24). Delete it in the release that ships with the re-upgrade:
-            src/test/poolProgramCopy.test.ts fails that release until you do. */}
+        {/* Until the pool program's upgrade, and again during each roll-back (2026-10-24 to 11-03,
+            2026-11-04 to 11-06), a paragraph here said the program on Solana was built before that instruction
+            was added. It went out with each upgrade, and src/test/poolProgramCopy.test.ts keeps it
+            out for as long as the harness pins that build. */}
         <p>
-          The program on Solana today was built before that instruction and that check were added. It
-          gets them only through a program upgrade.
-        </p>
-        <p>
-          A browser cannot list pools itself: <code className="font-mono">getProgramAccounts</code> stays
+          A browser has no way to list pools itself: <code className="font-mono">getProgramAccounts</code> stays
           off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
           filtered to pools holding the token you look up, and returns addresses only; this page
           then reads and checks every one of those pools on chain itself.

@@ -84,7 +84,7 @@ import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf
 import { LP_COPY, accountCheck, coinAccount, feeLine, rentOf, toRaw, tokenFeeAt, type LpPrepareReads } from './liquidity';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
-import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, TxVersion, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (SPEC_S2_CREATE 3.5) ────────────────────────────────────────────────
@@ -355,6 +355,8 @@ export function createStepsProblem(
 
 export interface LpCreateArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   tokenMint: PublicKey;
   /** The coin the pool pairs the token with: wrapped SOL's mint, USDC's or BAYLA's. */
   quoteMint: PublicKey;
@@ -691,6 +693,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   const maxSolOut = (plan ? a.quote : 0n) + createFee + neverRefunded + namePaid + lpAccountRent;
   const r = await buildAndSimulate(rpc, {
     kind: 'lp-create',
+    version: a.txVersion,
     body,
     extraSigners,
     intent: { kind: 'lp-create', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },

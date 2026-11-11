@@ -1,8 +1,8 @@
-// The top bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18), and everything
-// else is one drawer that opens at every width. navReach.test.tsx proves no page is stranded;
-// SectionHost.test.tsx that every section item survives as a tab on its host.
+// The top bar reads Island · Swap · Add · Lock · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// 2026-11-01), and everything else is one drawer that opens at every width. navReach.test.tsx
+// proves no page is stranded; SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
 vi.mock('@rainbow-me/rainbowkit', () => ({
@@ -34,7 +34,7 @@ import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
-const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
+const WORDS = ['Island', 'Swap', 'Add', 'Lock', 'Launch'];
 
 /** Where the router is: what "Jump to" opened. */
 function Where() {
@@ -66,7 +66,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Island · Lock · Launch · Swap, and nothing else', () => {
+  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -99,6 +99,8 @@ describe('TopNav: the bar', () => {
     ['/nft-finance', 'Lock'],
     ['/eth-curve', 'Launch'],
     ['/solana', 'Swap'],
+    ['/pools', 'Add'],
+    ['/liquidity', 'Add'],
   ])('lights exactly one word on %s: %s', (path, word) => {
     mount(path);
     const lit = within(bar())
@@ -108,7 +110,7 @@ describe('TopNav: the bar', () => {
     expect(lit[0]).toHaveAttribute('aria-current', 'page');
   });
 
-  it.each(['/pools', '/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
+  it.each(['/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
     mount(path);
     const lit = within(bar())
       .getAllByRole('link')
@@ -128,15 +130,27 @@ describe('TopNav: the menu', () => {
 
   // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
   // direct access on the app"; 2026-10-19: organise them, on the desktop as on a phone.
-  it("is the site's index: one group per section, in the order a visitor moves, then the records", () => {
+  // Owner, 2026-11-10: the menu cut down; Launch and Check left as groups.
+  it("is the site's index: Island, Swap, Pools, Lock, then the records", () => {
     const drawer = openDrawer();
     const index = within(drawer).getByRole('navigation', { name: 'Site index' });
     expect(within(index).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(
-      ['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records'],
+      ['Island', 'Swap', 'Pools', 'Lock', 'Records'],
     );
   });
 
-  it("lists every page under its group's word, named as its tab is; Pools lands on Venue AMM, Check on the overview", () => {
+  it('lists Lore and Launch under Island, and Dashboard after them once a wallet connects', () => {
+    const pages = (connected: boolean) => {
+      const region = within(openDrawer('/', connected)).getByRole('region', { name: 'Island' });
+      return within(region).getAllByRole('link').filter((l) => l.textContent !== 'Island')
+        .map((l) => [l.textContent, l.getAttribute('href')]);
+    };
+    expect(pages(false)).toEqual([['Lore', '/lore'], ['Launch', '/launch']]);
+    cleanup();
+    expect(pages(true)).toEqual([['Lore', '/lore'], ['Launch', '/launch'], ['Dashboard', '/dashboard']]);
+  });
+
+  it("lists every page under its group's word, named as its tab is; Pools lands on Venue AMM", () => {
     const drawer = openDrawer();
     for (const group of INDEX_GROUPS) {
       const region = within(drawer).getByRole('region', { name: group.heading });
@@ -148,7 +162,9 @@ describe('TopNav: the menu', () => {
         .toEqual(group.items.map((i) => [indexName(group, i), i.to]));
     }
     expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/pools');
-    expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('href', '/trust');
+    for (const gone of ['Check', 'Scanner', 'Yield', 'Copy Trading', 'Checkout', 'Gallery', 'Gold Card']) {
+      expect(within(drawer).queryByRole('link', { name: gone }), gone).toBeNull();
+    }
   });
 
   it('carries the records and the developer API', () => {
@@ -167,11 +183,11 @@ describe('TopNav: the menu', () => {
   });
 
   it('marks the group and the page you are on', () => {
-    const drawer = openDrawer('/scan');
-    expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Scanner' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Pools' })).not.toHaveAttribute('aria-current');
-    expect(within(drawer).getByRole('link', { name: 'Gallery' })).not.toHaveAttribute('aria-current');
+    const drawer = openDrawer('/zap');
+    expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Zap' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Lock' })).not.toHaveAttribute('aria-current');
+    expect(within(drawer).getByRole('link', { name: 'Lore' })).not.toHaveAttribute('aria-current');
   });
 
   // The framer-motion stand-in above hands out a new component on every `m.div` read, so a
@@ -181,11 +197,11 @@ describe('TopNav: the menu', () => {
 
   it('Jump to narrows the index to the pages called that, and Enter opens the first', () => {
     openDrawer();
-    fireEvent.change(field(), { target: { value: 'chart' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Check', 'Charting']);
+    fireEvent.change(field(), { target: { value: 'zap' } });
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Zap']);
     fireEvent.keyDown(field(), { key: 'Enter' });
     expect(screen.queryByRole('dialog', { name: 'Navigation menu' })).toBeNull();
-    expect(screen.getByTestId('where').textContent).toBe('/chart');
+    expect(screen.getByTestId('where').textContent).toBe('/zap');
   });
 
   it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {

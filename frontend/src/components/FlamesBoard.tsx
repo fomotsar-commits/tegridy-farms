@@ -20,6 +20,8 @@ import { useEffect, useState } from 'react';
 import { fetchFlames, type Flame } from '../lib/heat/flamesClient';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
+import { HEAT_WORDS } from '../lib/arrival';
+import { printedTier } from '../lib/heat/heatOracle';
 
 const TIER_COLOR: Record<string, string> = {
   Elder: '#f5e4b8',
@@ -133,12 +135,14 @@ export function FlamesBoard({ limit, claimed = true }: FlamesBoardProps) {
               <span className="stat-value" style={{ color: TIER_COLOR[f.tier] ?? '#f5e4b8' }}>
                 {f.degrees.toFixed(1)}°
               </span>
-              <span
-                className="text-[11px] uppercase tracking-[0.14em]"
-                style={{ color: TIER_COLOR[f.tier] ?? '#f5e4b8' }}
-              >
-                {f.tier}
-              </span>
+              {/* Never the word Drifter (island answer twenty-six): under Observer, where the clock starts. */}
+              {printedTier(f.tier) ? (
+                <span className="text-[11px] uppercase tracking-[0.14em]" style={{ color: TIER_COLOR[f.tier] ?? '#f5e4b8' }}>
+                  {printedTier(f.tier)}
+                </span>
+              ) : (
+                <span className="text-[11px] text-white/60">{HEAT_WORDS.noTier}</span>
+              )}
 
               {f.heldSinceUnix !== null && (
                 <span className="text-white/45">since {sinceLabel(f.heldSinceUnix)}</span>

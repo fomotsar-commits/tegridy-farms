@@ -1,6 +1,6 @@
 // ?resource=venue-tvl: what our pools hold and what is staked with us on every chain, for the
-// home page. The rules under test are the ones a visitor relies on: only SOL, USDC, BAYLA and
-// ETH add dollars in a pool (so a pile of worthless pools adds nothing), a range pool's own price
+// home page. The rules under test are the ones a visitor relies on: only SOL, USDC, the island's
+// coins and ETH add dollars in a pool (so a pile of worthless pools adds nothing), a range pool's own price
 // is never trusted, a staking pool counts at its own count of what is staked and its coin at the
 // market's price, a chain that cannot be read is named and left out instead of counted as zero,
 // and a good answer is cached so a visitor costs the chains nothing.
@@ -14,7 +14,7 @@ import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN } from "../pool-index.js";
 import { RANGE_PROGRAM_ADDRESS } from "../../../src/lib/solana/clmm/programId.ts";
 import { ACCOUNT_POOL_STATE, POOL_STATE_LEN as RANGE_LEN_TS, POOL_STATE_OFFSETS } from "../../../src/lib/solana/clmm/program.ts";
 import { ACCOUNT_DISCRIMINATOR, POOL_SIZE as LADDER_POOL_SIZE, decodeLadderPool } from "../../../src/lib/ladder/program.ts";
-import { BUNGALOWS, ISLAND_READ_POOLS, RETIRED_STAKE_POOLS } from "../../../src/lib/bungalows.ts";
+import { BUNGALOWS, ISLAND_READ_POOLS, RETIRED_STAKE_POOLS, ROOM_LADDER_POOLS } from "../../../src/lib/bungalows.ts";
 
 vi.mock("../ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -39,6 +39,7 @@ const {
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const key = (n) => base58.encode(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 7)));
@@ -177,7 +178,7 @@ describe("the range-pool program, as copied from src/lib/solana/clmm", () => {
   });
 });
 
-describe("Solana: only SOL, USDC and BAYLA add dollars", () => {
+describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
   it("values a pool at twice its top coin, and BAYLA at its price in our deepest BAYLA/SOL pool", async () => {
     const w = world();
     w.pool(CP, [SOL, 2], [MEME, 1_000_000]); // 2 SOL: $400
@@ -187,6 +188,50 @@ describe("Solana: only SOL, USDC and BAYLA add dollars", () => {
     w.pool(CP, [BAYLA, 30], [MEME, 5]); // 30 BAYLA: $60
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2760, pools: 5, unvalued: 0 });
+  });
+
+  it("values every other island coin the same way: BOBO at its price in our deepest BOBO/SOL pool, and a pool of two island coins at twice its higher-ranked one", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // BAYLA = $1; the pool itself $2,000
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // a USDC pool: $40. Not BOBO's price: a SOL pool of it exists
+    w.pool(CP, [SOL, 1], [BOBO, 4_000]); // the deepest BOBO/SOL: BOBO = $0.025; the pool itself $200
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $50
+    w.pool(CP, [BAYLA, 10], [BOBO, 100]); // two island coins: twice its BAYLA, $20; its BOBO side counts nothing
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2310, pools: 5, unvalued: 0 });
+  });
+
+  it("prices an island coin from its USDC pool when it has no SOL pool, and leaves its pools out with neither", async () => {
+    const w = world();
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // BOBO = $0.05; the pool itself $40
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $100
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA has no SOL or USDC pool here: left out
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 140, pools: 2, unvalued: 1 });
+    expect(body.state).toBe("partial");
+  });
+
+  it("names each coin with one pool worth $200 or more, at its deepest pool, deepest first", async () => {
+    const w = world();
+    const BIG = key(3);
+    const SMALL = key(4);
+    w.pool(CP, [SOL, 2], [MEME, 1_000_000]); // $400
+    w.pool(CP, [SOL, 3], [MEME, 1]); // $600: MEME's deepest
+    w.pool(CP, [USDC, 99], [SMALL, 5]); // $198: under the line
+    w.pool(CP, [USDC, 99], [SMALL, 5]); // two small pools are not one $200 pool
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // a coin/coin pool names no coin
+    w.pool(RANGE, [SOL, 5], [BIG, 1e9]); // a range pool at its SOL only: $500
+    w.pool(CP, [JUNK, 1e12], [MEME, 1e12]); // no coin: worth nothing here
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.poolCoins).toEqual([{ mint: MEME, usd: 600 }, { mint: BIG, usd: 500 }]);
+  });
+
+  it("names no coin while Solana's pools are not read", async () => {
+    const w = world();
+    const { vault0 } = w.pool(CP, [SOL, 5], [MEME, 5]);
+    w.vaults.set(vault0, { ...w.vaults.get(vault0), mint: JUNK });
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.poolCoins).toBeUndefined();
   });
 
   it("adds nothing for a pool that holds no coin, and does not read its vaults", async () => {
@@ -278,12 +323,16 @@ describe("the staking pools, as their programs and the site name them", () => {
       ...RETIRED_STAKE_POOLS.map((r) => [r.pool, BUNGALOWS.find((b) => b.id === r.bungalow).address]),
       ...REGISTRY.solana.filter((r) => /^lighthouse-[a-z]+$/.test(r.id)).map((r) => [r.address, BUNGALOWS.find((b) => b.id === r.id.slice(11)).address]),
       [REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address, BAYLA],
+      ...Object.entries(ROOM_LADDER_POOLS).map(([id, pool]) => [pool, BUNGALOWS.find((b) => b.id === id).address]),
       ...ISLAND_READ_POOLS.filter((r) => r.chain === "solana").map((r) => [r.pool, BAYLA]),
     ];
     const listed = new Map(SOLANA_STAKE_POOLS.map((p) => [p.pool, p.mint]));
     for (const [pool, mint] of named) expect([pool, listed.get(pool)]).toEqual([pool, mint]);
     expect(listed.size).toBe(new Set(named.map(([pool]) => pool)).size);
-    expect(SOLANA_STAKE_POOLS.find((p) => p.kind === "ladder").pool).toBe(REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address);
+    expect(SOLANA_STAKE_POOLS.filter((p) => p.kind === "ladder").map((p) => p.pool)).toEqual([
+      REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address,
+      ...Object.keys(ROOM_LADDER_POOLS).map((id) => REGISTRY.solana.find((r) => r.id === `ladder-pool-${id}`).address),
+    ]);
   });
 
   it("lists every EVM staking contract in the registry, each with its room's coin", () => {

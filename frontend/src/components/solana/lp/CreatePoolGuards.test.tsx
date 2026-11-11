@@ -4,9 +4,9 @@
 // - An open "Open a pool" panel obeys the card: Review is off whenever the card does not
 //   say `offer` (pools unread, a held opening…), and while the search is being read
 //   again. After its own confirmed opening its boxes are emptied.
-// - A pool that already exists is NOT one of those stops (owner ruling 2026-10-03: a
-//   token may have as many pools as people open). The panel says so next to Review, in
-//   words, and a second opening takes typing the amounts again and a new Review.
+// - A pool on the public tier that takes deposits stops its own PAIR (owner ruling
+//   2026-11-01, replacing 2026-10-03's "as many pools as people open"): the panel names
+//   it and Review stays off for that coin, whatever is typed.
 // - The liquidity notes hold in THIS tab at once (sent, unknown), not only after a reload,
 //   on every token, and the "may still be landing" card shows them.
 //
@@ -168,7 +168,7 @@ beforeEach(() => {
 });
 
 describe('an open panel obeys the card', () => {
-  it("after its own confirmed opening and the outcome's Close: the boxes are empty, the panel says a second pool is separate, and nothing opens without typing again", async () => {
+  it("after its own confirmed opening and the outcome's Close: the boxes are empty, the pair is taken, and no second pool opens even with amounts typed again", async () => {
     const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpCreateSummary(STANDARD, MINT)) }));
     const r = readers();
     mount(r, { prepareLpCreate, submitPrepared: sends(() => ({ status: 'confirmed', signature: SIG, slot: 7 })) });
@@ -186,25 +186,23 @@ describe('an open panel obeys the card', () => {
     expect(reviewButton(still)).toBeDisabled();
     fireEvent.click(reviewButton(still));
     expect(prepareLpCreate).toHaveBeenCalledTimes(1);
-    expect(within(still).getByTestId('lp-create-advice')).toHaveTextContent(
-      'You opened a pool for this token just now. Opening again makes a second, separate pool and pays the fee to open again.',
+    // One pool per pair and fee tier (owner ruling 2026-11-01): the pool just opened takes
+    // the SOL pair. The form stays on SOL and says so, instead of offering a second.
+    expect(within(still).getByTestId('lp-create-taken')).toHaveTextContent(
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${STANDARD}. One pool per pair and fee tier, so a second is not opened here`,
     );
+    expect(within(still).queryByTestId('lp-create-advice')).toBeNull();
     expect(still).not.toHaveTextContent('Review is off here');
-    // A second pool is the opener's choice: with the amounts typed again, Review builds
-    // one at an address of its own (the standard address now holds the first).
+    // Amounts typed again do not switch Review on.
     fireEvent.change(sol(still), { target: { value: '1' } });
     fireEvent.click(matchButton(still));
-    await waitFor(() => expect(reviewButton(still)).toBeEnabled());
-    await act(async () => fireEvent.click(reviewButton(still)));
-    expect(prepareLpCreate).toHaveBeenCalledTimes(2);
-    expect(prepareLpCreate).toHaveBeenLastCalledWith(
-      expect.anything(), expect.anything(), expect.anything(),
-      expect.objectContaining({ shown: expect.objectContaining({ standard: 'taken' }) }),
-    );
-    // Two whole flows (sign, close, type again, review): 0.9 s alone, past the default 5 s on a loaded machine.
+    expect(reviewButton(still)).toBeDisabled();
+    fireEvent.click(reviewButton(still));
+    expect(prepareLpCreate).toHaveBeenCalledTimes(1);
+    // A whole flow (sign, close, type again): past the default 5 s on a loaded machine.
   }, 20_000);
 
-  it('a stranger opens a passing tier-1 pool first: after Start over the panel points to it, and Review stays on', async () => {
+  it('a stranger opens a passing tier-1 pool first: after Start over the panel names it and the pair is taken, so Review is off', async () => {
     const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpCreateSummary(STANDARD, MINT)) }));
     const r = readers();
     mount(r, {
@@ -221,14 +219,15 @@ describe('an open panel obeys the card', () => {
     expect(createCard()).toHaveAttribute('data-create', 'offer');
     expect(within(createCard()).getByTestId('lp-create-refer')).toHaveTextContent(`The biggest is ${theirs.address}, holding 10 SOL.`);
     const still = screen.getByTestId('lp-create-panel');
-    // The boxes are kept (nothing was opened). The panel says a pool is already there,
-    // next to Review, and Review stays on: opening a separate pool is the opener's choice.
+    // The boxes are kept (nothing was opened). The form stays on SOL and names the
+    // stranger's pool, which takes the pair (owner ruling 2026-11-01): Review is off.
     expect(sol(still)).toHaveValue('1');
-    expect(within(still).getByTestId('lp-create-advice')).toHaveTextContent(
-      'This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    expect(within(still).getByTestId('lp-create-taken')).toHaveTextContent(
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${theirs.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above.`,
     );
+    expect(within(still).queryByTestId('lp-create-advice')).toBeNull();
     expect(still).not.toHaveTextContent('Review is off here');
-    await waitFor(() => expect(reviewButton(still)).toBeEnabled());
+    expect(reviewButton(still)).toBeDisabled();
     expect(prepareLpCreate).toHaveBeenCalledTimes(1);
   });
 

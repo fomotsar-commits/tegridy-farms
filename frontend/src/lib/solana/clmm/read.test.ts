@@ -247,9 +247,9 @@ describe("a token's freeze authority, where it is picked", () => {
   it('a mint: its freeze authority, or null for none', async () => {
     const auth = Keypair.generate().publicKey;
     const frozen = new Chain().set(MINT, { owner: TOKEN_PROGRAM_ID, data: encodeMint({ decimals: 6, freezeAuthority: auth }) });
-    expect(await readFreezeAuthority(frozen.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: auth.toBase58() } });
+    expect(await readFreezeAuthority(frozen.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: auth.toBase58(), decimals: 6 } });
     const clean = new Chain().set(MINT, { owner: TOKEN_PROGRAM_ID, data: encodeMint({ decimals: 6 }) });
-    expect(await readFreezeAuthority(clean.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: null } });
+    expect(await readFreezeAuthority(clean.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: null, decimals: 6 } });
   });
 
   it('no account, or one that is not a mint, is not-a-mint; a read that failed is unread: never "cannot be frozen"', async () => {

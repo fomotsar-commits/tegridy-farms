@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { m } from "framer-motion";
 import NftImage from "./NftImage";
 import { Eth } from "./Icons";
-import { formatPrice } from "../lib/formatPrice";
+import { formatPrice, formatListingPrice } from "../lib/formatPrice";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 
@@ -329,7 +329,7 @@ const VirtualCard = memo(function VirtualCard({
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={`${nft.name || `#${nft.id}`}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatPrice(nft.price)} ETH` : ""}`}
+      aria-label={`${nft.name || `#${nft.id}`}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatListingPrice(nft)} ETH` : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -510,7 +510,7 @@ const VirtualCard = memo(function VirtualCard({
                   style={{ fontSize: isGallery ? 14 : 12 }}
                 >
                   <Eth />
-                  {formatPrice(nft.price)}
+                  {formatListingPrice(nft)}
                 </div>
                 {nft.lastSale != null && (
                   <div

@@ -114,12 +114,12 @@ export default function PoolsPage() {
           <h2 className="heading-luxury text-lg text-white mb-3">
             {venueIsOpen ? 'Deposit a pair, hold your share' : 'How it works: deposit a pair, hold your share'}
           </h2>
-          {/* "Nothing to claim" is the section's own first line, above; here only what the vault can do. */}
+          {/* How fees reach a share is the section's own first line, above; here only what the vault can do. */}
           <p className="text-white/80 text-[13px] leading-relaxed">
             No lock, but the team&apos;s vault can pause removing.
           </p>
           <FinePrint summary="How it works" className="mt-2">
-            <p>Fees grow your share as the pool trades. Nothing to claim.</p>
+            <p>Fees grow your share as the pool trades.</p>
             {!venueIsOpen && (
               <p>
                 Depositing from this page waits on a live read of the venue. The status card
@@ -128,7 +128,7 @@ export default function PoolsPage() {
             )}
             <ul className="space-y-2 list-disc pl-4">
               <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
-              <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
+              <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.</li>
               <li>
                 Burning the LP token returns your share of both sides. Pools have no lock, but the
                 team&apos;s vault can switch removing off on a pool, and then no one can take money out
@@ -137,7 +137,7 @@ export default function PoolsPage() {
               <li>
                 Impermanent loss is real: a constant-product pool rebalances against you when
                 the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it cannot read.
+                quote you an APY it did not read.
               </li>
             </ul>
           </FinePrint>

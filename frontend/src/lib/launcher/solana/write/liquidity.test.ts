@@ -19,6 +19,7 @@ import {
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
+import { forgetClaimsSent, noteClaimSent } from '../../../solana/lp/claimed';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
 import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
@@ -37,6 +38,7 @@ import {
   readPoolForWrite,
   tokenAccountSize,
   withdrawStepsProblem,
+  type LpClaimBasis,
   type LpPrepareReads,
   type WriteSnapshot,
 } from './liquidity';
@@ -396,6 +398,25 @@ describe('poolPins', () => {
 
 // ── deposit ──────────────────────────────────────────────────────────────────
 
+// Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+// The pool here is the live one everyone had left that day: the locked 100 shares over 5
+// lamports and 2,138 token units.
+describe('a pool too empty to hold its price', () => {
+  const live = (o: Parameters<typeof world>[0] = {}) => world({ sol: 5n, tokens: 2_138n, lpSupply: 100n, ...o });
+
+  it('builds no deposit on the fresh read, even one that fits the wallet at the price the pool agrees with', async () => {
+    expect(refused(await deposit(live(), { maxIn: 1_000n }, priced(5 / 1e9 / (2_138 / 1e6))))).toBe(
+      'We did not build this deposit: This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
+    );
+  });
+
+  it('still builds the withdrawal of whoever holds its last shares', async () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units; the wallet holds the other 1,000.
+    const p = ok(await withdraw(world({ sol: 3_480n, tokens: 348n, lpSupply: 1_100n, heldLp: 1_000n })));
+    expect(p.kind).toBe('lp-withdraw');
+  });
+});
+
 describe('prepareLpDeposit', () => {
   it('a clean pool: one deposit, bounded on both sides, every number from the transaction', async () => {
     const w = world();
@@ -504,11 +525,15 @@ describe('prepareLpDeposit', () => {
     expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
-    const w = world();
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
+  // Answer twenty-seven withdrew twenty-four's hold: the pool's own price is the truth of a
+  // deposit, and an outside price not read is one row, never a gate and never a warning.
+  it('builds when the outside price cannot be read at prepare, or the read throws: one row, never a gate, never a warning', async () => {
+    const s = ok(await deposit(world(), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
-    expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
+    expect((ok(await deposit(world(), {}, throwing)).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
@@ -733,13 +758,14 @@ describe('prepareLpDeposit', () => {
     expect((plain.summary as LpDepositSummary).enableCreatorFee).toBe(false);
   });
 
-  it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {
+  it('a never-traded launch pool prepares when Jupiter answers no route, and when Jupiter is down (answer twenty-seven)', async () => {
     const w = world({ launch: true });
     const p = ok(await deposit(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
     expect((p.summary as LpDepositSummary).origin).toBe('launch-pool');
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
-    // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // At prepare Jupiter is down: the outside price is one row, never a gate.
+    const down = ok(await deposit(world({ launch: true }), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })));
+    expect((down.summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // A launch pool with no route keeps its own-average check. Off that average it builds
@@ -876,10 +902,10 @@ describe('prepareLpDeposit', () => {
       expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
       expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
 
-      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      // Jupiter is down: one row (answer twenty-seven), and the launch pool does not stand in.
       const down = besideLaunch();
       const downReads = reads(down.w);
-      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect((await summaryOf(down.w, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).price).toMatchObject({ state: 'unread', outside: true });
       expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
 
       // A deposit into the launch pool itself reads it once, as the pool it writes to.
@@ -935,9 +961,10 @@ describe('prepareLpDeposit', () => {
       expect((ok(await deposit(tradedFor(1_440n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
     });
 
-    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
-    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
-      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // UNREAD IS STILL REFUSED for the pool's own reads: the same brand-new pool builds nothing
+    // when its clock or its price record was not read. Jupiter not answering is one row (answer twenty-seven).
+    it('nothing is built when the clock was not read, or when its price record is missing; Jupiter failing to answer is no gate', async () => {
+      expect((ok(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
       const noClock = tradedFor(120n);
       setClock(noClock.chain, null);
       expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);
@@ -1594,5 +1621,68 @@ describe('a credit between the balance read and the test run does not block; a s
     const short = world();
     skewTestRun(short.chain, short.lpAta, -1n);
     expect(outcome(await deposit(short))).toMatchObject(BLOCKED);
+  });
+});
+
+describe('prepareLpWithdraw: a claim (Claim fees)', () => {
+  // The test pool's liquidity, isqrt(SOL_RESERVE x TOKEN_RESERVE), over its LP_SUPPLY shares.
+  const L = isqrt(SOL_RESERVE * TOKEN_RESERVE);
+  const HELD = LP_SUPPLY / 10n;
+  /** The liquidity `shares` hold, rounded down. */
+  const liq = (shares: bigint) => (shares * L) / LP_SUPPLY;
+  // Deposits that bought 99% of the liquidity the shares hold now: 1% of the shares are growth.
+  const basisOf = (o: Partial<LpClaimBasis> = {}): LpClaimBasis => ({ basis: (liq(HELD) * 99n) / 100n, provenShares: HELD, heldAtRead: HELD, ...o });
+
+  it('takes out exactly the shares that are growth at the fresh read, and what was put in stays', async () => {
+    const w = holding();
+    const p = ok(await withdraw(w, { pctBps: undefined, claim: basisOf() }));
+    const s = p.summary as LpWithdrawSummary;
+    expect(s.claim).toBe(true);
+    expect(s.lpAmount + s.keep).toBe(HELD);
+    expect(s.lpAmount >= HELD / 100n - 1n && s.lpAmount <= HELD / 100n).toBe(true);
+    expect(s.all).toBe(false);
+    // The shares kept hold at least the liquidity the deposits bought, and one share fewer would not.
+    expect((s.keep * L) / LP_SUPPLY + 1n > basisOf().basis && ((s.keep - 1n) * L) / LP_SUPPLY < basisOf().basis).toBe(true);
+    expect(s.keep * L >= basisOf().basis * LP_SUPPLY).toBe(true);
+    expect(p.steps.filter((x) => x.kind === 'pool-withdraw')).toHaveLength(1);
+    // Remove's percent is not read on a claim.
+    const withPct = ok(await withdraw(holding(), { pctBps: 10_000n, claim: basisOf() })).summary as LpWithdrawSummary;
+    expect(withPct.lpAmount).toBe(s.lpAmount);
+    // Remove is not a claim.
+    expect((ok(await withdraw(holding())).summary as LpWithdrawSummary).claim).toBeUndefined();
+  });
+
+  it('refuses a claim on a balance a claim was already sent on: once it lands, a node behind it still answers that balance', async () => {
+    const w = holding();
+    noteClaimSent(w.lpAta.toBase58(), HELD);
+    try {
+      expect(refused(await withdraw(w, { claim: basisOf() }))).toBe(LP_COPY.claimSharesChanged);
+    } finally {
+      forgetClaimsSent();
+    }
+    // Remove is not a claim, and another balance is not the one it landed on.
+    ok(await withdraw(holding()));
+  });
+
+  it('refuses shares that changed since the figures were worked out, either way', async () => {
+    expect(refused(await withdraw(holding(), { claim: basisOf({ heldAtRead: HELD + 1n }) }))).toBe(LP_COPY.claimSharesChanged);
+    expect(refused(await withdraw(holding({ heldLp: HELD + 1n }), { claim: basisOf() }))).toBe(LP_COPY.claimSharesChanged);
+    expect(refused(await withdraw(holding(), { claim: basisOf({ provenShares: HELD + 1n, heldAtRead: HELD }) }))).toBe(LP_COPY.claimSharesChanged);
+  });
+
+  it('says there is nothing to take out when the shares hold no more than what was put in', async () => {
+    // The basis exactly what the shares hold (rounded up to whole liquidity).
+    expect(refused(await withdraw(holding(), { claim: basisOf({ basis: (HELD * L + LP_SUPPLY - 1n) / LP_SUPPLY }) }))).toBe(LP_COPY.nothingToClaim);
+    // Deposits round a few units in the pool's favour: a basis just above the shares is nothing, never a negative claim.
+    expect(refused(await withdraw(holding(), { claim: basisOf({ basis: liq(HELD) + 7n }) }))).toBe(LP_COPY.nothingToClaim);
+  });
+
+  it('growth too small to pay both sides says so in its own words', async () => {
+    // 1,000 lamports over 10^9 shares: a side pays 1 only from 10^6 shares, and the claim here is ten.
+    const thinHeld = 1_500_000n;
+    const thin = world({ sol: 1_000n, tokens: 10n ** 12n, heldLp: thinHeld });
+    const thinL = isqrt(1_000n * 10n ** 12n);
+    const basis = ((thinHeld - 10n) * thinL) / LP_SUPPLY;
+    expect(refused(await withdraw(thin, { claim: { basis, provenShares: thinHeld, heldAtRead: thinHeld } }))).toBe(LP_COPY.claimTooSmall);
   });
 });

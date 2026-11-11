@@ -49,6 +49,7 @@ import {
   skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
+  legacyTx,
 } from './testkit.fixture';
 import type { IntentStep, LpCreateSummary, LpOpenGate, PreparedTx, TierTerms, WriteRpc } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
@@ -303,7 +304,7 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
 
   it('the bytes: open time 0, slot 1 is tier 1, slot 12 is the pool program’s fee account', async () => {
     const p = ok(await create(world()));
-    const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+    const ix = legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
     expect(ix.data.readBigUInt64LE(24)).toBe(0n);
     expect(ix.keys[1]!.pubkey.equals(TIER1)).toBe(true);
     expect(ix.keys[12]!.pubkey.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
@@ -332,7 +333,7 @@ describe('where the pool goes', () => {
     expect(s.pool.equals(w.standard)).toBe(false);
     expect(extraKeys(p)).toEqual([pinsOf(p)!.address.toBase58()]);
     expect(extraKeys(p)).toEqual([s.pool.toBase58()]);
-    const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+    const ix = legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
     expect(ix.keys[3]!.pubkey.equals(s.pool) && ix.keys[3]!.isSigner).toBe(true);
   });
 
@@ -1059,7 +1060,7 @@ describe('size', () => {
     const p = ok(await create(w));
     process.stdout.write(`[size] worst-case opening: ${p.sizeBytes} of ${TX_SIZE_LIMIT} bytes\n`);
     expect(summaryOf(p).origin).toBe('other');
-    expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(2);
+    expect(legacyTx(p).compileMessage().header.numRequiredSignatures).toBe(2);
     expect(p.steps.filter((s) => s.kind === 'create-token-account')).toHaveLength(1);
     expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
     expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT - 150);

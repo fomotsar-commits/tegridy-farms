@@ -32,13 +32,13 @@ fails the deploy with:
 The *build* succeeds (vite/tsc compile fine); only the *deploy* step trips the cap. So a code-clean
 PR can still show a Vercel `Error` purely from function count.
 
-## Current state (counted in the tree, 2026-10-25): 15 functions
+## Current state (counted in the tree, 2026-11-01): 16 functions
 
 Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__tests__/`, or
 `_`-prefixed files). There is no cap any more (see the banner). This list is kept so that a new
 route is a decision someone wrote down: `commerce-surface-parity` and `alerts-surface-parity`
 fail when the tree has a function this list does not name. Add a new route here in the same
-change. The 15:
+change. The 16:
 
 1. `api/alchemy.js`
 2. `api/etherscan.js`
@@ -55,6 +55,7 @@ change. The 15:
 13. `api/errors.js` (the client error-report sink, #466; stores nothing before 2026-10-16)
 14. `api/cardano.js` (the Cardano chain reader: named Koios reads only, the key server-side, 2026-10-24)
 15. `api/venue-volume-count.js` (the all-time volume count every five minutes, Vercel cron only; its own function for its 120-second limit, 2026-10-25)
+16. `api/outside-prices.js` (every listed pool's outside price, read once for everyone and kept at the edge; its own function for its paced Jupiter loop and 60-second limit, island answer twenty-four, 2026-11-01)
 
 ## The catchall is load-bearing — do not split it
 
@@ -99,7 +100,7 @@ into the 404.
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
 | `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
-| `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
+| `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC and the island's five coins: seven for an ordinary token) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 | `venue-volume` | `_lib/venueVolume.js` | The home page's all-time volume: the `venue_volume` rows (migration 028) that `.github/workflows/venue-volume.yml` adds to every hour, summed. Exists for its `s-maxage`: the edge answers, so a visitor costs nothing. Says "unread" for a source never counted and "behind" for a late or failing one, never a partial sum as current |
 

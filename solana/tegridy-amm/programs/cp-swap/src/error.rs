@@ -40,4 +40,8 @@ pub enum ErrorCode {
     InvalidFeeModel,
     #[msg("Fee is zero")]
     NoFeeCollect,
+    /// memetics.finance: the tier's swap guard is on and another program called the swap
+    /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
+    #[msg("This pool's swaps must be sent directly, not called by another program")]
+    SwapNotDirect,
 }

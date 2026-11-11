@@ -2,6 +2,7 @@ import { encodeFunctionData } from 'viem';
 import { SWAP_FEE_ROUTER_ABI, TEGRIDY_FACTORY_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../contracts';
 import type { SwapVenue } from '../chains/swapVenue';
 import { minOut, type EvmBasketCoin, type EvmPool } from '../islandBasket';
+import { UNIVERSAL_ROUTER_ABI, buyManyWithEth, portion, universalRouterOn } from './universalRouter';
 
 /**
  * The island order on Ethereum and Base: quote every pool each coin has, take the one
@@ -21,8 +22,14 @@ import { minOut, type EvmBasketCoin, type EvmPool } from '../islandBasket';
  * QuoterV2 (same reads: its factory() is Uniswap V3's on both) prices the V3 legs.
  *
  * A leg our own pool wins goes through SwapFeeRouter, the swap's own path, as its own
- * transaction: the venue fee is taken there and nowhere else. Uniswap legs pay the venue
- * nothing, exactly like a Uniswap-routed swap on the form.
+ * transaction, which takes the venue fee.
+ *
+ * ON BASE, UNISWAP'S UNIVERSAL ROUTER CARRIES THE V3 LEGS INSTEAD, and pays the venue its fee
+ * on each in the same transaction, as the swap does since 2026-11-03 (lib/evm/universalRouter.ts):
+ * SwapFeeRouter's own rate, to the address SwapFeeRouter pays, both read live. A V3 leg there
+ * is quoted on its ETH less that fee, so the route is chosen on what the buyer really gets. A
+ * Base V2 leg still goes alone through Uniswap's V2 router and pays the venue nothing, like a
+ * V2-routed swap. On Ethereum, Uniswap legs pay the venue nothing.
  */
 
 const UNISWAP: Readonly<Record<number, { swapRouter02: `0x${string}`; quoterV2: `0x${string}`; v2InBatch: boolean }>> = {
@@ -70,6 +77,28 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 /** SwapFeeRouter refuses a fee above this, as the swap form sends it. */
 export const MAX_FEE_BPS = 100n;
 
+/** Where SwapFeeRouter sends the venue fee; the Universal Router legs pay the same address. */
+export const REVENUE_DISTRIBUTOR_ABI = [
+  { type: 'function', name: 'revenueDistributor', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
+] as const;
+
+/** The venue's fee on a Universal Router leg: SwapFeeRouter's rate and payee, read live. */
+export interface VenueFee {
+  bps: bigint;
+  recipient: `0x${string}`;
+}
+
+/** Both reads, or a throw: a fee outside 0–10%, or no payee, is no reading. */
+async function readVenueFee(client: QuoteClient, venue: SwapVenue): Promise<VenueFee> {
+  const [bps, recipient] = await Promise.all([
+    client.readContract({ address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' }),
+    client.readContract({ address: venue.swapFeeRouter, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'revenueDistributor' }),
+  ]);
+  if (typeof bps !== 'bigint' || bps < 0n || bps > 1000n) throw new Error('fee unread');
+  if (typeof recipient !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(recipient) || recipient.toLowerCase() === ZERO) throw new Error('payee unread');
+  return { bps, recipient: recipient as `0x${string}` };
+}
+
 /** The reads the quote needs, so a test can hand in its own. */
 export interface QuoteClient {
   readContract(args: { address: `0x${string}`; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown>;
@@ -84,6 +113,8 @@ export interface EvmLegQuote {
   outside: { pool: EvmPool; out: bigint }[];
   /** Our pool, NET of the venue fee (`feeBps`, read live); null when we have no pair for the coin. */
   ours: { out: bigint; feeBps: bigint } | null;
+  /** Where the Universal Router carries the V3 legs (Base): their venue fee, and their `out` is already net of it. Null elsewhere. */
+  venueFee: VenueFee | null;
   /** A read that was asked did not come back: the leg cannot be decided, so the order waits. */
   unread: boolean;
 }
@@ -95,16 +126,18 @@ export type EvmLegRoute =
   | { via: 'ours'; out: bigint }
   | { via: 'none'; why: 'unread' | 'no-pool' };
 
-async function quoteOutside(client: QuoteClient, venue: SwapVenue, quoter: `0x${string}`, coin: EvmBasketCoin, pool: EvmPool, amountIn: bigint): Promise<bigint> {
+async function quoteOutside(client: QuoteClient, venue: SwapVenue, quoter: `0x${string}`, coin: EvmBasketCoin, pool: EvmPool, amountIn: bigint, venueFee: VenueFee | null): Promise<bigint> {
   if (pool.dex === 'uniswap-v2') {
     const amounts = (await client.readContract({
       address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'getAmountsOut', args: [amountIn, [venue.weth, coin.token]],
     })) as readonly bigint[];
     return amounts[amounts.length - 1] ?? 0n;
   }
+  // The ETH that reaches the pool: the venue's fee leaves first (buyManyWithEth).
+  const swapped = venueFee ? amountIn - portion(amountIn, venueFee.bps) : amountIn;
   const { result } = await client.simulateContract({
     address: quoter, abi: QUOTER_V2_ABI, functionName: 'quoteExactInputSingle',
-    args: [{ tokenIn: venue.weth, tokenOut: coin.token, amountIn, fee: pool.fee, sqrtPriceLimitX96: 0n }],
+    args: [{ tokenIn: venue.weth, tokenOut: coin.token, amountIn: swapped, fee: pool.fee, sqrtPriceLimitX96: 0n }],
   });
   return (result as readonly [bigint, ...unknown[]])[0];
 }
@@ -144,13 +177,24 @@ export async function quoteEvmLegs(
   timeoutMs: number = QUOTE_TIMEOUT_MS,
 ): Promise<EvmLegQuote[]> {
   const uni = uniswapOn(venue.chainId);
-  if (!uni) return legs.map((l) => ({ ...l, outside: [], ours: null, unread: true }));
+  const nothing = () => legs.map((l) => ({ ...l, outside: [], ours: null, venueFee: null, unread: true }));
+  if (!uni) return nothing();
+  // Where the Universal Router carries the V3 legs, their fee is read first: without it no
+  // V3 pool can be priced for the buyer, and no fee is ever sent to an address nobody read.
+  let venueFee: VenueFee | null = null;
+  if (universalRouterOn(venue.chainId)) {
+    try {
+      venueFee = await timed(readVenueFee(client, venue), timeoutMs);
+    } catch {
+      return nothing();
+    }
+  }
   return Promise.all(legs.map(async ({ coin, amountIn }) => {
     let unread = false;
     const outside: EvmLegQuote['outside'] = [];
     await Promise.all(coin.pools.map(async (pool) => {
       try {
-        const out = await timed(quoteOutside(client, venue, uni.quoterV2, coin, pool, amountIn), timeoutMs);
+        const out = await timed(quoteOutside(client, venue, uni.quoterV2, coin, pool, amountIn, venueFee), timeoutMs);
         if (out > 0n) outside.push({ pool, out });
       } catch {
         unread = true;
@@ -164,7 +208,7 @@ export async function quoteEvmLegs(
     }
     // Registry order, whatever order the reads answered in.
     outside.sort((a, b) => coin.pools.indexOf(a.pool) - coin.pools.indexOf(b.pool));
-    return { coin, amountIn, outside, ours, unread };
+    return { coin, amountIn, outside, ours, venueFee, unread };
   }));
 }
 
@@ -205,7 +249,10 @@ export function buildEvmOrder(a: {
 }): EvmOrderTx[] | null {
   const uni = uniswapOn(a.venue.chainId);
   if (!uni || a.quotes.length === 0 || a.quotes.length !== a.routes.length) return null;
+  const universal = universalRouterOn(a.venue.chainId);
   const calls: `0x${string}`[] = [];
+  const feeLegs: Parameters<typeof buyManyWithEth>[0]['legs'][number][] = [];
+  let venueFee: VenueFee | null = null;
   const batchLegs: number[] = [];
   let batchValue = 0n;
   const singles: EvmOrderTx[] = [];
@@ -226,6 +273,13 @@ export function buildEvmOrder(a: {
         kind: 'v2-router', to: a.venue.uniswapV2Router, value: q.amountIn, legs: [i],
         data: encodeFunctionData({ abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [floor, [...path], a.recipient, a.deadline] }),
       });
+    } else if (universal) {
+      // Only V3 legs ride this batch (a Base V2 leg is its own transaction), each with the fee its quote was net of.
+      if (r.pool.dex !== 'uniswap-v3' || !q.venueFee || (venueFee && (venueFee.bps !== q.venueFee.bps || venueFee.recipient !== q.venueFee.recipient))) return null;
+      venueFee = q.venueFee;
+      feeLegs.push({ coin: q.coin.token, poolFee: r.pool.fee, amountIn: q.amountIn, minOut: floor });
+      batchLegs.push(i);
+      batchValue += q.amountIn;
     } else {
       calls.push(r.pool.dex === 'uniswap-v3'
         ? encodeFunctionData({
@@ -238,6 +292,13 @@ export function buildEvmOrder(a: {
     }
   }
   const txs: EvmOrderTx[] = [];
+  if (universal && venueFee && feeLegs.length > 0) {
+    const { commands, inputs } = buyManyWithEth({ weth: a.venue.weth, legs: feeLegs, feeBips: venueFee.bps, feeRecipient: venueFee.recipient });
+    txs.push({
+      kind: 'batch', to: universal, value: batchValue, legs: batchLegs,
+      data: encodeFunctionData({ abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [commands, inputs, a.deadline] }),
+    });
+  }
   if (calls.length > 0) {
     calls.push(encodeFunctionData({ abi: SWAP_ROUTER02_ABI, functionName: 'refundETH' }));
     txs.push({

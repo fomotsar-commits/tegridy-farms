@@ -37,6 +37,7 @@
 // be computed and shown. An earlier version of the CLI and the runbook both said
 // "no penalty"; a review caught it before anyone lost money to it.
 import { PublicKey } from '@solana/web3.js';
+import { curveWriteEnvOverridesAllowed } from '../launcher/solana/curveWriteFlag';
 
 /* ─────────────────────────── identity ─────────────────────────── */
 
@@ -53,8 +54,26 @@ import { PublicKey } from '@solana/web3.js';
  * id have to agree, so the env var is the switch. `isLadderConfigured()` is the gate
  * every caller must pass before deriving anything.
  */
-export const LADDER_PROGRAM_ID: string =
-  (import.meta.env.VITE_BAYLA_LADDER_PROGRAM as string | undefined)?.trim() ?? '';
+export const MAINNET_LADDER_PROGRAM_ID = 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ';
+
+/**
+ * The env var stays the go-live SWITCH, but in a production build it can only switch
+ * on the committed program: every stake signs with the staker's BAYLA account
+ * writable, so a wrong id (a hosting-dashboard edit, a mistaken paste) would hand
+ * that program the BAYLA. Any other value leaves the ladder off, the same rule the
+ * launcher applies to its own ids (launcher/solana/write/config.ts). A dev server or
+ * the named e2e build may point at a devnet deployment.
+ */
+export function resolveLadderProgramId(raw: string | undefined, envOverridesAllowed: boolean): string {
+  const id = raw?.trim() ?? '';
+  if (id === '' || envOverridesAllowed) return id;
+  return id === MAINNET_LADDER_PROGRAM_ID ? id : '';
+}
+
+export const LADDER_PROGRAM_ID: string = resolveLadderProgramId(
+  import.meta.env.VITE_BAYLA_LADDER_PROGRAM as string | undefined,
+  curveWriteEnvOverridesAllowed(),
+);
 
 /** True once an operator has pointed the app at a deployed ladder program. */
 export function isLadderConfigured(): boolean {
@@ -117,6 +136,8 @@ export const IX_DISCRIMINATOR = {
   emergencyWithdraw: Uint8Array.from([239, 45, 203, 64, 150, 73, 218, 92]),
   claimCarried: Uint8Array.from([173, 173, 45, 126, 170, 32, 215, 248]),
   notifyReward: Uint8Array.from([252, 51, 75, 132, 223, 48, 177, 213]),
+  // Added 2026-10-29. Live only once the vault upgrade that carries it has executed.
+  extendLock: Uint8Array.from([68, 151, 140, 144, 139, 122, 118, 170]),
 } as const;
 
 export const ACCOUNT_DISCRIMINATOR = {
@@ -437,6 +458,33 @@ export function penaltyFor(amountRaw: bigint, lockEnd: bigint, nowSecs: bigint):
  * printed without trailing zeros ("75%", "25%", "0.47%"). Never rounds UP, so a card never
  * shows a price above the one the program charges.
  */
+/**
+ * `extend_lock`, decided LOCALLY by the program's own rules (math.rs `extended_lock`,
+ * plus lib.rs's degraded check first), so a rung the program would refuse is never
+ * offered. The new lock counts from `nowSecs` and is priced like a fresh stake on that
+ * rung. Returns null when the program would refuse it.
+ *
+ * `raises` is the card's own, stricter filter: the program also accepts an EQUAL
+ * weight (a re-lock at the four-year top), but that only lengthens the lock for
+ * nothing, so the card does not offer it.
+ */
+export function quoteExtend(
+  position: Pick<LadderPositionView, 'amountRaw' | 'lockEnd' | 'weight'>,
+  pool: Pick<LadderPoolView, 'degraded'>,
+  lockSecs: number,
+  nowSecs: number,
+): { lockEnd: bigint; weight: bigint; boostBps: number; raises: boolean } | null {
+  if (pool.degraded) return null;
+  if (lockSecs < MIN_LOCK_SECS || lockSecs > MAX_LOCK_SECS) return null;
+  const now = BigInt(Math.floor(nowSecs));
+  if (now >= position.lockEnd) return null;
+  const lockEnd = now + BigInt(Math.trunc(lockSecs));
+  if (lockEnd <= position.lockEnd) return null;
+  const weight = weightForStake(position.amountRaw, lockSecs);
+  if (weight < position.weight) return null;
+  return { lockEnd, weight, boostBps: boostBpsForLock(lockSecs), raises: weight > position.weight };
+}
+
 export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
   if (amountRaw <= 0n) return '0%';
   const hundredths = (penaltyRaw * 10_000n) / amountRaw;

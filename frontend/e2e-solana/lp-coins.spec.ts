@@ -1,9 +1,11 @@
 // Pairing coins and "any token" on /pools, end to end, against the mainnet cp-swap binary
 // on the local validator.
 //
-// A pool pairs a token with SOL, USDC or BAYLA (owner ruling 2026-10-03), and any token
-// may have a pool: a token its creator can freeze, and an opening price away from the
-// market, are warnings now, not refusals (owner ruling 2026-10-04). Every step here goes
+// A pool pairs a token with SOL, USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ (owner rulings
+// 2026-10-03 and 2026-11-07; the local validator seeds only the first three, so the pools
+// opened here pair with those), and any token may have a pool: a token its creator can
+// freeze, and an opening price away from the market, are warnings now, not refusals (owner
+// ruling 2026-10-04). Every step here goes
 // through the site's own forms with the test wallet, and every step is then checked ON
 // CHAIN.
 //
@@ -308,7 +310,9 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     // that was not looked for is not said to have none).
     await expect(ui.lp.create.card(p)).toContainText('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
     await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
-    await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found.');
+    // Its pools with the island coins ranked below it are found from their side, and the
+    // sentence says so.
+    await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found. A pool of BAYLA and BOBO, SOY, BRAINLET or RIZZ is found and opened from the other side: look up BOBO, SOY, BRAINLET or RIZZ and pair it with BAYLA.');
 
     const panel = await openCreateForm(p, USDC_COIN);
     // BAYLA is priced in the coins that outrank it: SOL and USDC, never itself.
@@ -652,8 +656,8 @@ test.describe('one opening each (chromium only)', () => {
     await openPools(p, T.t5);
     await connect(p);
     const panel = await openCreateForm(p, BAYLA_COIN);
-    // An ordinary token can be paired with all three.
-    await expect(ui.lp.create.pair(p).getByRole('radio')).toHaveCount(3);
+    // An ordinary token can be paired with all seven.
+    await expect(ui.lp.create.pair(p).getByRole('radio')).toHaveCount(7);
     const market = marketIn(BAYLA_COIN, { solPerToken: FAIR, decimals: DEC }, COIN_SOL_PRICE.BAYLA);
     await expect(ui.lp.create.market(p)).toContainText(`1 token = ${formatSolPrice(market)} BAYLA.`, { timeout: 60_000 });
     await expect(panel.getByTestId('lp-create-first')).toHaveText('No pool pairs this token with BAYLA yet. Yours would be the first.');

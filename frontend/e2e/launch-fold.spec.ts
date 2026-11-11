@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
+import { LAUNCH_DOOR_OPEN } from '../src/lib/launcher/door';
 
 // ELEMENT F — THE LAUNCH PAGE FOLDS.
 //
@@ -56,6 +57,7 @@ function wordsAboveTheFold(): number {
 }
 
 test.describe('element F: the launch page folds', () => {
+  test.skip(!LAUNCH_DOOR_OPEN, 'the launch door is closed (island answer twenty-six): /launch is the countdown, and what this walks waits behind the door');
   test.skip(({ browserName }) => browserName !== 'chromium', 'a word count is not engine-dependent');
 
   test('opens in under 120 words', async ({ page }) => {
