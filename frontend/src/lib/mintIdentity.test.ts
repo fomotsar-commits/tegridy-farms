@@ -379,17 +379,23 @@ describe('vercel.json keeps /mint/ answering what a wallet can use', () => {
     expect(maxAge(header(aPicture, 'Cache-Control'))).toBeGreaterThanOrEqual(31_536_000);
   });
 
-  it('answers a mint with no file with the default file, never the app page', () => {
+  it('answers a mint with no file from chain, and any other path with the default file, never the app page', () => {
     const fallback = config.rewrites.findIndex((r) => r.destination === '/index.html');
     const ours = config.rewrites.findIndex((r) => r.source === `${MINT_PATH}/(.*)`);
+    // A share's link with no committed file: built from chain, and the default file for
+    // anything that is not one of our shares (api/__tests__/share-name.test.js).
+    const fromChain = config.rewrites.findIndex((r) => r.source === `${MINT_PATH}/:mint.json`);
     expect(fallback).toBeGreaterThanOrEqual(0);
     expect(ours, 'no /mint/(.*) rewrite').toBeGreaterThanOrEqual(0);
+    expect(fromChain, 'no /mint/:mint.json rewrite').toBeGreaterThanOrEqual(0);
     expect(config.rewrites[ours].destination).toBe(`${MINT_PATH}/${DEFAULT_FILE}`);
+    expect(config.rewrites[fromChain].destination).toBe('/api/aggregator?resource=mint&mint=:mint');
     // ORDER IS THE TEST. The first match wins, and the app fallback matches every path.
+    expect(fromChain).toBeLessThan(ours);
     expect(ours).toBeLessThan(fallback);
-    for (const path of [noSuchMint, `${MINT_IMG_PATH}/no-such-picture.png`, `${MINT_PATH}/`]) {
+    for (const [path, want] of [[noSuchMint, fromChain], [`${MINT_IMG_PATH}/no-such-picture.png`, ours], [`${MINT_PATH}/`, ours]] as const) {
       expect(matches(config.rewrites[fallback].source, path), 'the app fallback would have taken this path').toBe(true);
-      expect(config.rewrites.findIndex((r) => matches(r.source, path)), path).toBe(ours);
+      expect(config.rewrites.findIndex((r) => matches(r.source, path)), path).toBe(want);
     }
     expect(filesIn(MINT_DIR)).toContain(DEFAULT_FILE);
   });
