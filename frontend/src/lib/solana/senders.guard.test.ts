@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { code } from '../../test/sourceCode';
 import type { ConfirmOutcome } from './confirm';
 import type { SendThrow } from './walletThrow';
 import type { TxOutcome } from '../launcher/solana/write/types';
@@ -36,44 +37,8 @@ function walk(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-/**
- * Source with comments removed, read once from the top: a `//` line that carries `/*`
- * (41 files open with one: "any @solana/* import") is a line comment and nothing more,
- * and `//` inside a string stays in the string.
- */
-export function code(s: string): string {
-  let out = '';
-  let i = 0;
-  const n = s.length;
-  while (i < n) {
-    const c = s[i]!;
-    const d = s[i + 1];
-    if (c === '/' && d === '/') {
-      while (i < n && s[i] !== '\n') i++;
-      continue;
-    }
-    if (c === '/' && d === '*') {
-      i += 2;
-      while (i < n && !(s[i] === '*' && s[i + 1] === '/')) i++;
-      i += 2;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      out += c;
-      i++;
-      while (i < n && s[i] !== c) {
-        if (s[i] === '\\') out += s[i++];
-        if (c !== '`' && s[i] === '\n') break;
-        out += s[i++];
-      }
-      if (i < n) out += s[i++];
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
+// The one-pass reader, shared with the EVM guard (hooks/receiptConsumers.guard.test.ts).
+export { code };
 
 // A call only Solana has, or one both rails have in a file that imports a Solana package.
 const SOLANA_ONLY = /\.signAllTransactions\(|\.signAndSendTransaction\(|\.sendRawTransaction\(|\bsignV1\(|\bsubmitPrepared\(|\bsendSigned\(/;
