@@ -28,6 +28,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { PoolTradeDialWhenOpen } from './PoolTradeDial';
 import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
@@ -569,6 +570,7 @@ export function PoolCard({
         <details data-testid="lp-pool-more" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75 text-[12px]">More about this pool</summary>
           <div className="space-y-2 px-3 pb-3">
+            <PoolTradeDialWhenOpen view={view} creatorFeeRate={creatorRate} />
             <div className="space-y-3 pb-1">
               {address}
               {facts}

@@ -16,11 +16,21 @@ import { formatEther } from 'viem';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { exitCheck, underFloorPct, useLendingMarket } from '../../lib/gondi/lenderPitch';
-import { CARD_BG, CARD_BORDER, LABEL_STYLE, LENDING_LIVE } from './nftLendingShared';
+import { CARD_BG, CARD_BORDER, LABEL_STYLE, LENDING_LIVE, collectionSymbol } from './nftLendingShared';
+import { FloorBar } from './FloorBar';
 
 const eth = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 4 });
 
-export function LenderMarketPanel({ collection, principalWei }: { collection: string; principalWei: bigint | null }) {
+export function LenderMarketPanel({
+  collection,
+  principalWei,
+  setPrincipal,
+}: {
+  collection: string;
+  principalWei: bigint | null;
+  /** Given by the Lend form: lets the floor bar's handle write the amount box. */
+  setPrincipal?: (text: string) => void;
+}) {
   const market = useLendingMarket(collection, LENDING_LIVE);
   const m = market.data;
   const bids = m?.bids ?? null;
@@ -53,6 +63,9 @@ export function LenderMarketPanel({ collection, principalWei }: { collection: st
           </div>
         ))}
       </div>
+      {setPrincipal && (
+        <FloorBar symbol={collectionSymbol(collection)} principal={principal} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
+      )}
       {check && principal !== null && (
         <p
           className={`text-[12px] ${check.kind === 'covered' ? 'text-emerald-300' : 'text-amber-300'}`}
