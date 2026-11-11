@@ -6,6 +6,63 @@ first. The site's Changelog tab shows this file under that one. When a day leave
 
 ## Days
 
+### 2026-10-10
+
+- Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
+- Every page now opens at the top before it is drawn, in the marketplace and across the venue. Before, a page you moved to could show part-way down for a moment and then jump to the top, and on Safari a collection page could pull you back to the top if you began scrolling in its first half second.
+- Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
+- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA is marked as this venue's own coin and asks for no tick box, as it has since 2026-10-08.
+- Home: the chain pills read Solana, Ethereum, Base.
+- After a visit to the TOWELI bungalow, the venue's own pages keep the venue's footer and words, and Towelie stays on the farm's pages. The same goes for every bungalow's footer card. The art and the Swap link still follow the bungalow you opened last, and so does the dashboard.
+- Phones whose browser draws the page under the status bar (such as a Galaxy S25 in the Phantom app): the tab row and the bottom bar's icons stay in place, and on narrow phones the big headline no longer runs to the edge.
+- On those same phones, a button or field you move to with the keyboard, and a section a link jumps to, now stops clear of the header, the row of tabs and the bottom bar. With the bars drawn taller there, it used to stop partly behind them.
+- NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
+- Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
+- Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
+- Solana LP, swaps in our own pools and launch trades: when a wallet fails to sign without ever opening its prompt, the card now says what the wallet said, or that this page is no longer connected to it, instead of "You cancelled in your wallet". A real cancel still reads as a cancel.
+- Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
+- Liquidity page: "How do I get paid?" now says liquidity providers keep the whole 0.3% pool fee (the venue's one-sixth cut had never been switched on), and that the venue earns a separate fee on swaps sent through this site's own router.
+- TOWELI room, Tokenomics and the assistant no longer say stakers' ETH waits for "when the native pool launches": a payout round waits on 1 ETH of fees reaching the distributor, and the venue's swap fee went 20% to referrals and 80% toward stakers.
+- Solana swap: the four staking tokens under "Earn SOL staking yield" no longer show a rate. The four figures (7.5%, 7.2%, 7.0% and 8.0%) were typed into the code and read from nowhere. Each card now names its token, and the note says the page reads no staking rate and what the venue takes on the buy.
+- Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
+- Solana LP: a read that never answers now ends after 20 seconds and says so.
+- Solana swap: when Jupiter quotes more but its transaction fails its test run, the page offers the trade in our pool, saying how much higher Jupiter's quote was, with a review before you sign.
+- Solana swap: if the trade on the form changes while a swap through Jupiter is being checked (a token from a link that loads late), nothing is sent and the page says so. Before, your wallet could be asked for the pair the form no longer showed.
+- Solana swap: a read that fails or is slow no longer decides where your trade goes. When our pools or Jupiter could not be read, the page says so instead of "No route" or "cannot be traded".
+- Solana swap: while a swap through Jupiter is on its way to your wallet, the form, the tabs and the token rails are held and the page describes that trade, not our pool's. A swap is kept in your activity under the wallet that signed it, even if you switch accounts before it lands, and your balance is read again after any swap.
+- Site wording now says a Solana swap goes to our own pools or through Jupiter, whichever pays you more, and that a swap in our pool pays that pool's fee inside the quote (1% on a public pool, 0.16% of the trade to the venue).
+- Solana LP, Add liquidity: each amount box has 25%, 50% and 75% buttons beside Max. For SOL the percent is of what can go in after fees and account deposits, not of your whole balance, and the other amount follows the pool as before.
+- Solana LP, Add liquidity: a short "What if the price moves" table under Review says how a position compares with just holding both tokens: the same if the price ends where it was, about 5.7% less if it doubles or halves, 20% less at 4 times or a quarter. Fees are not counted in it, and it is arithmetic, not a forecast.
+- Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
+- Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
+- Solana swap and launch pages: a read the network never answers is given up after 10 seconds and shown as a read that failed. It used to be waited on for the whole visit. The Solana LP page keeps its own 20 seconds, so each read is timed once and the message names the wait that applied.
+- Ethereum, Base and Robinhood Chain reads: a host that starts its answer and then stops is given up after 10 seconds and the next host is asked, so a bungalow's burn card no longer says "Reading" for good.
+- An answer that starts and then stops is now given up at its time limit, the same as one that never comes, on heat readings, payment links, uploads, NFT listings and the other reads that waited with no limit.
+- Pools, in the top bar, the menu and the phone's bottom bar, now opens the Solana LP tab. The Ethereum form is the tab to its left, Add / Remove.
+- NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
+- TOWELI: on the narrowest phones (320 to 360 wide) the "Fixed supply" figure no longer runs under the green tick. A value too wide to sit beside its label drops onto the line below it.
+- In the marketplace, a purchase, accepted offer, trade, cancel or approval you sped up in your wallet counts as done, under the transaction that confirmed, instead of being called failed or waiting forever.
+- In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
+- In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
+- The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
+- On every page with a row of section tabs under the top bar (Pools, Earn, Launch, Stats, Trust & Safety and the rest), a button or field you move to with the keyboard, and a section a link jumps to, now stops below the tabs. It used to stop behind them, where it could not be seen or pressed.
+
+### 2026-10-08
+
+- Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
+- Solana swap: fewer steps and less to read. A swap in our own pool goes straight to your wallet when nothing needs a second look, and the risk tick-box is gone for SOL, USDC and BAYLA and asked once per token for the rest.
+- Solana LP: a pool priced in a coin Jupiter has no price for (in practice only BAYLA) can be opened and added to, with a warning before you sign. A price that could not be read still switches both off.
+- Solana LP: when Jupiter has no price for a token with a launch pool, its other pools are checked against the launch pool's price. No token has a launch pool yet, so nothing reads differently today.
+
+### 2026-10-07
+
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
+
+### 2026-10-06
+
+- Solana swap: a trade now goes to our own pool when it pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and a swap in our pool opens a review first.
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.

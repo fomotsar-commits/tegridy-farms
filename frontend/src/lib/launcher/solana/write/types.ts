@@ -628,6 +628,8 @@ export interface LpWithdrawSummary {
    */
   quoteAccount: { address: PublicKey; rent: bigint } | null;
   unwrapsWsol: boolean;
+  /** A claim (Claim fees): the shares given back are the position's fee growth alone. */
+  claim?: true;
   notices: string[];
 }
 

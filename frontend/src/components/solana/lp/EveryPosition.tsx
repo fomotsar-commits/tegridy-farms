@@ -50,7 +50,7 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
           </p>
           <p>
             A share pays out its part of both coins when it is taken out. The liquidity providers’ part of each swap fee stays in the pool and
-            grows every share: there is nothing to claim. The venue’s and the island’s parts of the fee are kept apart and are in no share.
+            grows every share. The venue’s and the island’s parts of the fee are kept apart and are in no share.
           </p>
         </FinePrint>
       </Card>

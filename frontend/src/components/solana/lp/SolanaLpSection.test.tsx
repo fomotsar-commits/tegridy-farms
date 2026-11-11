@@ -483,7 +483,7 @@ describe('the order of the section', () => {
     expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('fee-tiers'));
     expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     const line = screen.getByTestId('lp-earn-line');
-    expect(line.textContent).toBe('Fees grow your pool shares. Nothing to claim.');
+    expect(line.textContent).toBe('Fees grow your pool shares.');
     // Drawn first, heard first: no CSS order moves it (e2e/tab-target-size.spec.ts holds the first screen).
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
     expect(screen.getByTestId('lp-section').firstElementChild).toBe(line);
@@ -592,7 +592,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     const sentence = within(rates).getByText('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
     expect(sentence.closest('details')).not.toBeNull();
     expect(rates).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
-    expect(rates).toHaveTextContent('Nothing to claim: you receive it when you remove liquidity.');
+    expect(rates).toHaveTextContent('You receive it when you remove liquidity.');
     expect(rates).toHaveTextContent('Few trades means small fees.');
     const sources = within(rates).getByTestId('lp-venue-sources');
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);

@@ -207,12 +207,13 @@ describe('ledgerFigures: the figures, worked by hand', () => {
 
   // Economics 8.6. From 8.1's post-swap state, withdraw 5e9 shares: payout t' = floor(5e9 * Rt / S) = 45,871,559,633,
   // c' = floor(5e9 * Rc / S) = 545,381,818. Reserves after: Rt = 963,302,752,294, Rc = 11,453,018,182, S = 105e9.
-  // Basis split: held 10e9 with B = 10e9, removed floor(B * 5e9 / 10e9) = 5e9; f = isqrt(t' * c') - 5e9 = 1,751,152; B = 5e9.
+  // Basis split, growth first: w = isqrt(t' * c') = 5,001,751,152, room for the floors (t' + c') / w + 2 = 11; held then
+  // ceil((w + 11) * 10e9 / 5e9) = 10,003,502,326, so 3,502,326 of growth leaves first and 4,998,248,826 of the basis:
+  // B = 5,001,751,174, f = 3,502,326. -B + f moves by w either way, so G is the split's to keep: no unit is lost to it.
   // Remaining 5e9 shares: b_t = 45,871,559,633, b_c = 545,381,818; V_pos = 545,381,818 + floor(b_t * Rc / Rt) = 1,090,763,636.
   // V_out = val(t', c') = 1,090,763,636. V_hold = 1e9 + floor(1e11 * Rc / Rt) = 2,188,932,363. N = -7,405,091 (the withdrawal was at ratio).
-  // V_nf = 2 * isqrt(B^2 * Rc * Rt) / Rt = 1,090,381,751, so V_pos - V_nf = 381,885; G_r = 2 * isqrt(f^2 * Rc * Rt) / Rt = 381,884.
-  // G = 763,769 (one unit under 8.1's, from the floor in the basis split). I = N - G = -8,168,860.
-  it('8.6: a 50% withdrawal: realised 381,884 plus unrealised 381,885 = 763,769; versus holding unchanged', () => {
+  // G = 763,770, 8.1's own figure. I = N - G = -8,168,861.
+  it('8.6: a 50% withdrawal takes the fees first: earned 763,770 as before it, versus holding unchanged, nothing left to claim', () => {
     const view = poolAt({ Rc: 11_453_018_182n, Rt: 963_302_752_294n, S: 105_000_000_000n });
     const entries = [withdrawal({ lp: 5_000_000_000n, token: 45_871_559_633n, coin: 545_381_818n, lpBefore: 10_000_000_000n }), deposit(DEPOSIT_81)];
     const r = okRead(ledgerFigures(entries, view, 5_000_000_000n));
@@ -220,9 +221,83 @@ describe('ledgerFigures: the figures, worked by hand', () => {
     expect(r.figures.takenOut).toEqual({ token: 45_871_559_633n, coin: 545_381_818n, count: 1 });
     expect(r.figures.worthNow).toEqual({ token: 45_871_559_633n, coin: 545_381_818n });
     expect(r.figures.nowAndOutWorth).toBe(2_181_527_272n);
-    expect(r.figures.growth).toEqual({ kind: 'amount', coin: 763_769n });
+    expect(r.figures.growth).toEqual({ kind: 'amount', coin: 763_770n });
     expect(r.figures.versusHolding).toEqual({ kind: 'amount', coin: -7_405_091n });
-    expect(r.figures.priceEffect).toEqual({ kind: 'amount', coin: -8_168_860n });
+    expect(r.figures.priceEffect).toEqual({ kind: 'amount', coin: -8_168_861n });
+    expect([r.figures.basis, r.figures.claimShares]).toEqual([5_001_751_174n, 0n]);
+  });
+
+  // Claim fees (liquidityMath.ts `claimableShares`): the shares kept are ceil(B * S / L), L = isqrt(Rc * Rt).
+  // 8.1: L = 110,038,525,363, kept 9,996,498,921 of 10e9, so 3,501,079 shares are growth: they pay 381,884
+  // lamports and 32,119,990 T, worth 763,768 (G is 763,770: two units of floors). 8.2, no trade: 0.
+  it('the basis and the shares Claim fees takes out: the growth alone, worth what Fees earned says to within rounding', () => {
+    const one = okRead(ledgerFigures([deposit(DEPOSIT_81)], poolAt(AFTER_SWAP), 10_000_000_000n)).figures;
+    expect([one.basis, one.claimShares]).toEqual([10_000_000_000n, 3_501_079n]);
+    const none = okRead(ledgerFigures([deposit(DEPOSIT_81)], poolAt({ Rc: 11_333_333_334n, Rt: 1_133_333_333_330n, S: 113_333_333_333n }), 10_000_000_000n)).figures;
+    expect([none.basis, none.claimShares]).toEqual([10_000_000_000n, 0n]);
+  });
+
+  // The claim lands: 3,501,079 shares out for 381,884 lamports and 32,119,990 T. w = isqrt(32,119,990 * 381,884) =
+  // 3,502,300, room 11, held then ceil(3,502,311 * 10e9 / 3,501,079) = 10,003,518,916 > B: it is all growth, and the
+  // basis stays 10e9 whole. Read again at the pool after it: one share is growth, the pool's own floor on the payout.
+  it('a claim leaves the basis whole: read again after it, nothing of what was put in is offered', () => {
+    const c = 3_501_079n;
+    const { Rc, Rt, S } = AFTER_SWAP;
+    const [pc, pt] = [(c * Rc) / S, (c * Rt) / S];
+    expect([pc, pt]).toEqual([381_884n, 32_119_990n]);
+    const after = poolAt({ Rc: Rc - pc, Rt: Rt - pt, S: S - c });
+    const entries = [withdrawal({ lp: c, token: pt, coin: pc, lpBefore: 10_000_000_000n }), deposit(DEPOSIT_81)];
+    const r = okRead(ledgerFigures(entries, after, 10_000_000_000n - c));
+    expect([r.figures.basis, r.figures.claimShares]).toEqual([10_000_000_000n, 1n]);
+    // Fees earned stays: realised now, not gone (763,770 less the 2 units the payout's floors left in the pool).
+    expect(r.figures.growth).toEqual({ kind: 'amount', coin: 763_768n });
+  });
+
+  it('fuzzed: claim after claim, at any growth and any price, the shares kept always hold what the deposit bought', () => {
+    let seed = 11n;
+    const next = (mod: bigint) => {
+      seed = (seed * 6364136223846793005n + 1442695040888963407n) % 2n ** 64n;
+      return (seed >> 16n) % mod;
+    };
+    const ceil = (a: bigint, b: bigint) => (a + b - 1n) / b;
+    let claims = 0;
+    for (let run = 0; run < 40; run++) {
+      let Rc = 10n ** 9n + next(10n ** 12n);
+      let Rt = 10n ** 9n + next(10n ** 15n);
+      let S = isqrt(Rc * Rt);
+      // The deposit, priced as deposit.rs prices it (rounded up).
+      const P = 1_000n + next(S / 2n);
+      const [dc, dt] = [ceil(P * Rc, S), ceil(P * Rt, S)];
+      Rc += dc;
+      Rt += dt;
+      S += P;
+      const bought = isqrt(dc * dt);
+      const entries: LedgerEntry[] = [deposit({ lp: P, token: dt, coin: dc })];
+      let held = P;
+      for (let k = 0; k < 5; k++) {
+        // Trading: k grows by up to 3% on each side, so the price moves too.
+        Rc += (Rc * next(300n)) / 10_000n;
+        Rt += (Rt * next(300n)) / 10_000n;
+        const r = okRead(ledgerFigures(entries, poolAt({ Rc, Rt, S }), held));
+        const c = r.figures.claimShares;
+        const [pc, pt] = [(c * Rc) / S, (c * Rt) / S];
+        if (c === 0n || pc === 0n || pt === 0n) continue;
+        claims += 1;
+        entries.unshift(withdrawal({ lp: c, token: pt, coin: pc, lpBefore: held }));
+        Rc -= pc;
+        Rt -= pt;
+        S -= c;
+        held -= c;
+        expect(held * isqrt(Rc * Rt) >= bought * S, `run ${run}, claim ${k}`).toBe(true);
+      }
+    }
+    expect(claims).toBeGreaterThan(100);
+  });
+
+  it('the opener: the basis is the shares minted, and with no trade nothing is claimable', () => {
+    const L0 = 2_236_067_877n;
+    const r = okRead(ledgerFigures([opening({ lp: L0, token: 5_000_000_000n, coin: 1_000_000_000n })], poolAt({ Rc: 1_000_000_000n, Rt: 5_000_000_000n, S: 2_236_067_977n }), L0));
+    expect([r.figures.basis, r.figures.claimShares]).toEqual([L0, 0n]);
   });
 
   // Economics 8.7, auditor F6. A transfer in is `other`: the figures stand on the proven 10e9 shares (8.1's), and
@@ -574,6 +649,6 @@ describe('ledgerText: the sentences, verbatim', () => {
     expect(LEDGER_COPY.again).toBe('Work it out again');
     for (const line of lines) expect(line).not.toMatch(/share account/);
     // Said with no press on every placed share: one sentence, with the claim step named as absent and when the fees are received.
-    expect(LEDGER_COPY.feesInShares).toBe('Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.');
+    expect(LEDGER_COPY.feesInShares).toBe('Fees you earn are added to your shares, and you receive them when you remove liquidity.');
   });
 });

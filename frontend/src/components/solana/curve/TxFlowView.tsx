@@ -509,6 +509,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       <LpPoolRows summary={s} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} mono={false} />
+      {s.claim && <Notice>Just enough of your shares to pay out the fees they earned. The rest stay in the pool.</Notice>}
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
       <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} mono={false} />
@@ -1019,7 +1020,7 @@ export function TxReview({
   return (
     <div className="space-y-2" data-testid="tx-review">
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
-        {TITLES[prepared.kind]}
+        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim ? 'Review: claim fees' : TITLES[prepared.kind]}
       </h3>
       {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}

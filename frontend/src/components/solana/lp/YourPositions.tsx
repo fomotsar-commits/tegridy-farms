@@ -11,6 +11,9 @@ import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { LEDGER_COPY, LEDGER_LABELS, ledgerFigures, ledgerText, ledgerUnits, type LedgerEntry, type LedgerLine, type LedgerRead } from '../../../lib/solana/lp/ledger';
+import { claimSentOn } from '../../../lib/solana/lp/claimed';
+import { isPlanProblem, planWithdrawShares, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import { DEFAULT_SLIPPAGE_BPS } from '../curve/uiFormat';
 import { poolDays } from '../../../lib/solana/lp/poolDays';
 import { TRENCHER_WORDS } from '../../../lib/arrival';
 import { bungalowByAddress } from '../../../lib/bungalows';
@@ -29,6 +32,7 @@ import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
 import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import type { LpClaimBasis } from '../curve/ports';
 import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
@@ -382,6 +386,15 @@ function PositionRow({
     tokenFee: feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null),
   });
   const units = view ? ledgerUnits(view, safety) : null;
+  // Claim fees, offered by the ledger block: the figures from the press are kept here, so an open panel
+  // and its outcome stay whatever the ledger's answer turns into meanwhile (a row that moves between the
+  // main and set-aside lists is drawn afresh, as Remove's panel is).
+  const claimKey = `claim:${p.lpAccount}`;
+  const claimOpen = writes?.active?.key === claimKey;
+  const [claimFor, setClaimFor] = useState<ClaimPress | null>(null);
+  const onClaim = (c: ClaimPress, from: HTMLButtonElement, fallback: HTMLElement | null) => {
+    if (writes?.open('remove', claimKey, from, fallback)) setClaimFor(c);
+  };
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
   const [locked, setLocked] = useState<string | null>(null);
   // DOUBLE DAYS (island answer twenty-four, build 7): the share's age, once its history proves it. Said only
@@ -476,9 +489,36 @@ function PositionRow({
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} onDays={setDays} />
+            <LedgerBlock
+              p={p}
+              owner={owner}
+              view={view}
+              safety={safety}
+              readers={readers}
+              auto={autoLedger}
+              chainNow={chainNow}
+              worth={worth}
+              canClaim={offer === 'offer'}
+              claimOpen={claimOpen}
+              onClaim={onClaim}
+              onLocked={setLocked}
+              onDays={setDays}
+            />
           ) : (
             worth
+          )}
+          {claimOpen && claimFor && writes && (
+            <RemoveLiquidityPanel
+              position={p}
+              view={view}
+              safety={safety}
+              tokenDecimals={decimals}
+              chainNow={chainNow}
+              setAside={setAside !== null}
+              onClose={writes.close}
+              claim={claimFor.basis}
+              claimAfterWithdrawal={claimFor.afterWithdrawal}
+            />
           )}
           <Row
             label="Pool swaps"
@@ -550,6 +590,12 @@ function LedgerLineRow({ label, line, pace = null }: { label: string; line: Ledg
   );
 }
 
+/** What Claim fees was pressed with: the ledger's basis, and whether Fees earned also counts fees a withdrawal already took out. */
+interface ClaimPress {
+  basis: LpClaimBasis;
+  afterWithdrawal: boolean;
+}
+
 interface LedgerAnswer {
   read: LedgerRead;
   /** Every entry read so far, newest first (`unread` and `paused` carry none). */
@@ -569,6 +615,14 @@ const LEDGER_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13
  * kept transactions are valued at the pool as just read. Read 20 more joins older pages,
  * up to HISTORY_PAGES_MAX. `worth` needs no history: always printed. The button and the
  * status line stay mounted, so a press keeps focus and each answer is read out.
+ *
+ * CLAIM FEES. Under Fees earned, once the figures balance for every share held (`ok`,
+ * case A), the pool has a trade on its record (so the growth is fees), and the shares that
+ * are growth alone (`claimShares`) pay out on both sides at the pool as read: the pool
+ * program's own withdraw of just those shares (RemoveLiquidityPanel's `claim`, opened by the
+ * row). Offered only where Remove would be (`canClaim`: withdrawOffer's 'offer'), and never
+ * again on a balance a claim was already sent on (claimed.ts). Case B is left out: a claim
+ * there leaves a withdrawal the books cannot balance, and its figures would be gone.
  */
 function LedgerBlock({
   p,
@@ -579,6 +633,9 @@ function LedgerBlock({
   auto,
   chainNow,
   worth,
+  canClaim,
+  claimOpen,
+  onClaim,
   onLocked,
   onDays,
 }: {
@@ -591,6 +648,12 @@ function LedgerBlock({
   auto: boolean;
   chainNow: bigint | null;
   worth: ReactNode;
+  /** Remove is offered on this share (withdrawOffer 'offer'): Claim fees may be too. */
+  canClaim: boolean;
+  /** This row's claim panel is open. */
+  claimOpen: boolean;
+  /** Opens the row's claim panel with these figures; `fallback` takes focus back if the button is gone by then. */
+  onClaim: (c: ClaimPress, from: HTMLButtonElement, fallback: HTMLElement | null) => void;
   /** Told what the opener's locked share units are worth, or null: the row prints it in its fold. */
   onLocked: (text: string | null) => void;
   /** Told the shares' age in whole days, or null when the history read does not prove it: the row says it under its heading. */
@@ -676,6 +739,17 @@ function LedgerBlock({
 
   const working = busy || (auto && !shown);
   const trade = lastTrade(view);
+  const writes = useLpWrites();
+  // Fees to claim: figures that balance for every share, a trade on the pool's record, shares that are
+  // growth alone and pay out on both sides, and no claim already sent on this balance.
+  const claimable = (() => {
+    if (!canClaim || !writes || r?.kind !== 'ok' || r.case !== 'A' || trade.kind === 'none') return null;
+    const f = r.figures;
+    if (f.growth.kind !== 'amount' || f.growth.coin <= 0n || f.claimShares <= 0n || claimSentOn(p.lpAccount, p.lpAmount)) return null;
+    const fee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
+    const plan = planWithdrawShares(view.snapshot, { held: p.lpAmount, lp: f.claimShares, bps: DEFAULT_SLIPPAGE_BPS, fees: poolFeesOf(view.quoteIsToken0, fee) });
+    return isPlanProblem(plan) ? null : f;
+  })();
   // A deposit or withdrawal the chain has not finalized yet is said so on its own line.
   const notFinal = (line: LedgerLine, kinds: LedgerEntry['kind'][]): LedgerLine =>
     shown?.entries.some((e) => kinds.includes(e.kind) && 'final' in e && !e.final) ? { ...line, note: `${line.note} ${LEDGER_COPY.notFinal}` } : line;
@@ -691,6 +765,22 @@ function LedgerBlock({
           {takenOut && <LedgerLineRow label={LEDGER_LABELS.takenOut} line={notFinal(takenOut, ['withdrawal'])} />}
           {worth}
           <LedgerLineRow label={LEDGER_LABELS.growth} line={ledgerText.growth(r.figures, u, trade)} pace={ledgerText.pace(r.figures, trade, chainNow, tradesExplain(view))} />
+          {(claimable || claimOpen) && writes && (
+            <button
+              type="button"
+              className={LEDGER_BUTTON}
+              data-testid="lp-claim-fees"
+              disabled={!claimable || writes.busy}
+              aria-expanded={claimOpen}
+              onClick={(e) => {
+                if (!claimable) return;
+                const basis = { basis: claimable.basis, provenShares: claimable.provenShares, heldAtRead: p.lpAmount };
+                onClaim({ basis, afterWithdrawal: claimable.takenOut !== null }, e.currentTarget, againButton.current);
+              }}
+            >
+              {LEDGER_COPY.claim}
+            </button>
+          )}
           <LedgerLineRow label={LEDGER_LABELS.versusHolding} line={ledgerText.versusHolding(r.figures, u)} />
           <LedgerLineRow label={LEDGER_LABELS.priceEffect} line={ledgerText.priceEffect(r.figures, u)} />
           {r.figures.otherShares && <Notice>{ledgerText.otherShares(r.figures, u)}</Notice>}
