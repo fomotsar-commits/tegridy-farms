@@ -61,7 +61,7 @@ afterAll(() => {
  * markers and one static dependency (invariants A and B), a lazy Solana page
  * holding the adapter's marker, and a chunk holding sign-client's.
  */
-function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy' } = {}) {
+function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy', wagmi = 'lean' } = {}) {
   const SIGN = markerFromGate('SIGN_CLIENT_MARKER');
   const SOLANA = markerFromGate('SOLANA_WALLETCONNECT_MARKER');
   const dir = mkdtempSync(join(tmpdir(), 'dist-graph-'));
@@ -86,6 +86,9 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
   );
   if (signClient) chunk('sign-client-c.js', `console.info("${SIGN}");export const S=1;`);
   if (cardano !== 'missing') chunk('vendor-cardano-k.js', 'export const C=1;');
+  // The EVM wallet chunk (invariant F): lean as the real one is, or with RainbowKit's
+  // on-demand modules welded in, which is about 1.9 MB of language files and icons.
+  if (wagmi !== 'missing') chunk('vendor-wagmi-w.js', `export const W=1;${wagmi === 'welded' ? `/*${'x'.repeat(701 * 1024)}*/` : ''}`);
   writeFileSync(
     join(dir, 'index.html'),
     '<!doctype html><html><head>' +
@@ -201,6 +204,29 @@ describe('check-dist-graph invariant E: the Cardano library stays lazy', () => {
     const run = gate(fixture({ cardano: 'missing' }));
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('invariant E checked nothing');
+  });
+});
+
+describe('check-dist-graph invariant F: the EVM wallet chunk stays lean', () => {
+  it('a lean vendor-wagmi passes, and the pass says how big it was', () => {
+    const run = gate(fixture());
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toMatch(/vendor-wagmi \d+ KB\./);
+  });
+
+  it("RainbowKit's on-demand modules welded in (over 700 KB) fails, and names the rule to look at", () => {
+    const run = gate(fixture({ wagmi: 'welded' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('vendor-wagmi-w.js');
+    expect(run.stderr).toContain('over the 700 KB ceiling');
+    expect(run.stderr).toContain('manualChunks');
+  });
+
+  it('no vendor-wagmi chunk at all fails: F checked nothing', () => {
+    const run = gate(fixture({ wagmi: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant F checked nothing');
   });
 });
 

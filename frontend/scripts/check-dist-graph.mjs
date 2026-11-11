@@ -240,9 +240,33 @@ if (preloadedCardano.length) {
   die(`index.html preloads ${preloadedCardano.join(', ')} — the Cardano library must stay lazy`);
 }
 
+// F. THE EVM WALLET CHUNK CARRIES ONLY WHAT IT LOADS UP FRONT.
+//
+// vendor-wagmi rides in the entry's static closure: every page, on every chain, downloads
+// and parses it. RainbowKit ships 18 language files (1.8 MB unpacked), every wallet's and
+// chain's icon and its install illustrations as modules it imports ON DEMAND. A manualChunks
+// rule that named the whole package 'vendor-wagmi' welded all of them into this chunk:
+// 1,874 KB unpacked (291 KB gzipped), measured on the live site 2026-11-11. With only its
+// statically imported files pinned it is about 340 KB. The ceiling sits well above that and
+// far below the welded size, so the weld cannot come back unseen.
+const WAGMI_CHUNK_CEILING = 700 * 1024;
+const wagmiChunks = chunkFiles.filter((f) => f.startsWith('vendor-wagmi'));
+if (wagmiChunks.length === 0) die('no vendor-wagmi chunk in dist/assets — invariant F checked nothing');
+for (const f of wagmiChunks) {
+  const bytes = Buffer.byteLength(read(f), 'utf8');
+  if (bytes > WAGMI_CHUNK_CEILING) {
+    die(
+      `${f} is ${Math.round(bytes / 1024)} KB unpacked, over the ${WAGMI_CHUNK_CEILING / 1024} KB ceiling — ` +
+        "RainbowKit's on-demand modules (language files, wallet icons) have been welded into the chunk every page loads; " +
+        'see the @rainbow-me rule in vite.config.ts manualChunks',
+    );
+  }
+}
+const wagmiKb = wagmiChunks.map((f) => `${Math.round(Buffer.byteLength(read(f), 'utf8') / 1024)} KB`).join(', ');
+
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
     `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
     `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}; ` +
-    `Cardano library lazy (${cardanoChunks.join(', ')}).`,
+    `Cardano library lazy (${cardanoChunks.join(', ')}); vendor-wagmi ${wagmiKb}.`,
 );
