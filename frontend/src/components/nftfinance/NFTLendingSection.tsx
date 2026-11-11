@@ -54,6 +54,7 @@ import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
 import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
 import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
+import { LoanTimeline } from './LoanTimeline';
 import { LenderMarketPanel } from './LenderMarketPanel';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
@@ -298,6 +299,8 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const [openFor, setOpenFor] = useState(OPEN_PRESETS[2]!.seconds); // 7d
   const [loanCount, setLoanCount] = useState('1');
   const [signing, setSigning] = useState(false);
+  // "Now" for the offer's preview timeline, fixed for the visit so a scrub does not slide.
+  const [previewStart] = useState(() => Number(nowSeconds()));
   const selectedSymbol = collectionSymbol(selectedCollection);
 
   const principalWei = parseAmount(principal);
@@ -521,7 +524,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
         </div>
       </div>
 
-      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} />
+      <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} setPrincipal={setPrincipal} />
 
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
@@ -665,6 +668,24 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           <p className="text-amber-300 text-[12px] mt-2" data-testid="lend-default-outcome">
             Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWeth(principalWei)} WETH, and no interest.
           </p>
+          {/* The offer as a loan you can drag through. Only with the fee read: without it
+              "you keep" would be a guess. */}
+          {aprValue !== null && feeBps !== null && (
+            <div className="mt-2">
+              <LoanTimeline
+                side="lender"
+                exact={false}
+                start={previewStart}
+                duration={duration}
+                nft={anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`}
+                costAt={(at) => {
+                  const interest = interestFor(principalWei, aprValue, BigInt(Math.max(0, at - previewStart)));
+                  const toVenue = (interest * BigInt(feeBps) + 9_999n) / 10_000n;
+                  return { total: principalWei + interest, interest, toVenue, toLenders: principalWei + interest - toVenue };
+                }}
+              />
+            </div>
+          )}
           {rank !== null && (
             <p className="text-white/80 text-[12px] mt-1" data-testid="lend-rate-rank">
               {rank.of === 1
@@ -915,6 +936,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   // The token to lock: the borrower's pick on a whole-collection offer, the lender's on a
   // one-NFT offer.
   const [pickedId, setPickedId] = useState('');
+  const [previewStart] = useState(() => Number(nowSeconds()));
   const pledgedId = anyToken ? parseTokenId(pickedId) : BigInt(offer.nftCollateralTokenId);
   const takesIt = pledgedId !== null && acceptsToken(offer, pledgedId);
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
@@ -1163,6 +1185,18 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="text-white font-semibold">{formatDue(nowSeconds() + duration)}</span>.
                 <span className="block text-[11px] text-white/70 mt-1">Repay early to pay less: interest counts only the days you borrow.</span>
               </TxSummary>
+
+              <LoanTimeline
+                side="borrower"
+                exact={false}
+                start={previewStart}
+                duration={Number(duration)}
+                nft={collateralLabel}
+                costAt={(at) => {
+                  const interest = interestFor(principal, apr, BigInt(Math.max(0, at - previewStart)));
+                  return { total: principal + interest, interest, toVenue: 0n, toLenders: principal + interest };
+                }}
+              />
 
               <RiskBanner variant="warning">
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>

@@ -217,6 +217,7 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
         p={pick}
         busy={busy}
         at="the opening price"
+        liquidity={plan?.liquidity ?? null}
         strip={{ now: p.start, nowName: 'The opening price', nowMark: 'opening price', market: p.market }}
       />
       {plan && (

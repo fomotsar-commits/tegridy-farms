@@ -109,6 +109,7 @@ export function RangeOpenCard(p: {
         p={pick}
         busy={busy}
         at="this pool’s price"
+        liquidity={plan?.liquidity ?? null}
         strip={{ now, nowName: 'This pool’s price', nowMark: 'this pool', market: gap && (gap.state === 'agrees' || gap.state === 'disagrees') ? gap.reference : null }}
       />
       {plan && (

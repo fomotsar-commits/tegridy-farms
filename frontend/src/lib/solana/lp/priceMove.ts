@@ -24,6 +24,51 @@ function lessText(v: number): string {
   return `${Math.abs(pct - shown) < 1e-9 ? '' : 'about '}${shown}% less`;
 }
 
+/** How far the dial reaches each way: the price at an eighth, and at 8 times. */
+export const DIAL_MAX_TIMES = 8;
+
+/** "the same", "2 times", "half", "a quarter", "1.5 times", "0.67 times". */
+function timesText(r: number): string {
+  if (Math.abs(r - 1) < 1e-9) return 'the same';
+  if (Math.abs(r - 0.5) < 1e-9) return 'half';
+  if (Math.abs(r - 0.25) < 1e-9) return 'a quarter';
+  const shown = r >= 10 ? r.toFixed(0) : Number.isInteger(Math.round(r * 100) / 100) ? String(Math.round(r)) : r.toFixed(2).replace(/0$/, '');
+  return `${shown} times`;
+}
+
+/** "41% more", "29% fewer", "the same": whole percents, for how a side's AMOUNT changes. */
+function amountText(times: number, fewer: string): string {
+  const pct = Math.round((times - 1) * 100);
+  if (pct === 0) return 'the same';
+  return pct > 0 ? `${pct}% more` : `${-pct}% ${fewer}`;
+}
+
+/**
+ * One point on the dial: the token's price at `r` times what it was at the deposit.
+ * A constant-product position then holds 1/sqrt(r) of the tokens and sqrt(r) of the pairing
+ * coin it started with; `vsHolding` is what that mix is worth against never having added.
+ * Arithmetic for x*y=k: no price is predicted and no fee is counted. Null for an r that is
+ * not a positive, finite number.
+ */
+export interface PriceMovePoint {
+  vs: number;
+  /** "2 times", "half", "the same". */
+  price: string;
+  /** "about 5.7% less", "the same". */
+  position: string;
+  /** "29% fewer", for the token side. */
+  tokens: string;
+  /** "41% more", for the pairing coin's side. */
+  quote: string;
+}
+
+export function priceMovePoint(r: number): PriceMovePoint | null {
+  const vs = vsHolding(r);
+  if (vs === null) return null;
+  const root = Math.sqrt(r);
+  return { vs, price: timesText(r), position: lessText(vs), tokens: amountText(1 / root, 'fewer'), quote: amountText(root, 'less') };
+}
+
 /** The moves the Add form shows. A move and its inverse cost the same, so each row names both. */
 const MOVES: readonly { times: number; price: string }[] = [
   { times: 1, price: 'the same' },
