@@ -9,6 +9,7 @@ import {
   MORE_NAV,
   NAV_SECTIONS,
   POOLS_SECTION,
+  YIELD_SECTION,
   NFT_FINANCE_LIVE,
   tradeRoute,
   yieldRoute,
@@ -670,7 +671,7 @@ describe("the menu's index", () => {
 
   it("carries every page that is on and not parked under its section's word, in tab order", () => {
     for (const s of NAV_SECTIONS.filter((sec) => sec.heading !== 'Launch' && sec.heading !== 'Check')) {
-      const own = s.items.filter((i) => !i.soon && !MENU_PARKED.has(i.to)).map((i) => i.to);
+      const own = s.items.filter((i) => !i.soon && !i.unlisted && !MENU_PARKED.has(i.to)).map((i) => i.to);
       expect(group(s.heading).items.map((i) => i.to).filter((to) => own.includes(to)), s.heading).toEqual(own);
     }
   });
@@ -688,6 +689,19 @@ describe("the menu's index", () => {
     const yieldPages = group('Yield').items.map((i) => i.to);
     for (const p of ['/yield', '/copy-trading', '/checkout']) expect(yieldPages, p).not.toContain(p);
     expect(yieldPages[0]).toBe('/earn');
+  });
+
+  // Owner, 2026-11-11, of the strip then named Lock: "remove yield copy trading and checkout". Each stays in
+  // the section, so Yield lights on its page and its own tab shows there (RouteTabs.tsx), and routed.
+  it("takes Yield, Copy Trading and Checkout off Yield's strip, still Yield's and still routed", () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    expect(YIELD_SECTION.items.filter((i) => !i.unlisted).map((i) => i.to)).toEqual(['/earn', '/nft-finance']);
+    for (const p of ['/yield', '/copy-trading', '/checkout']) {
+      expect(YIELD_SECTION.items.find((i) => i.to === p)?.unlisted, p).toBe(true);
+      expect(litWord(p)?.label, p).toBe('Yield');
+      expect(routed, `${p} is off the strip but no route draws it`).toContain(p);
+    }
+    expect(ALL_NAV.filter((n) => n.unlisted).map((n) => n.to), 'only Yield has unlisted tabs').toEqual(['/yield', '/copy-trading', '/checkout']);
   });
 
   it('keeps every parked page routed, so it still opens by its address', () => {
@@ -737,10 +751,12 @@ describe("the menu's index", () => {
     for (const to of pages()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
   });
 
-  // Every page that can be off today is parked, so the guard above cannot fail on its own: the
-  // filter itself drops an off page and a parked one, and keeps the rest.
-  it('drops a page the moment it is off, as its strip does, and every parked page', () => {
+  // Every page that can be off today is parked or unlisted, so the guard above cannot fail on its
+  // own: the filter itself drops an off page, an unlisted one and a parked one, and keeps the rest.
+  it('drops a page the moment it is off, as its strip does, and every unlisted and parked page', () => {
     const on = { to: '/lore', label: 'Lore' };
-    expect(menuItems([on, { to: '/zap', label: 'Zap', soon: true }, { to: '/yield', label: 'Yield' }])).toEqual([on]);
+    const off = { to: '/zap', label: 'Zap', soon: true };
+    const unlisted = { to: '/zap', label: 'Zap', unlisted: true };
+    expect(menuItems([on, off, unlisted, { to: '/gallery', label: 'Gallery' }])).toEqual([on]);
   });
 });
