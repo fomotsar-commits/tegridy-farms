@@ -10,11 +10,23 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { base58, hex } from '@scure/base';
 import { ExtensionType, NATIVE_MINT_2022, getAccountLen } from '@solana/spl-token';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
-import { deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
+import {
+  IX_CREATE_LP_METADATA,
+  LP_NAME_EDITOR,
+  deriveAuthority,
+  deriveLpMint,
+  deriveObservation,
+  derivePool,
+  deriveVault,
+  publicTierConfig,
+  sortMints,
+} from '../../../solana/cpswap/program';
+import { decodeIntent } from './intent';
+import { V1_TX_SIZE_LIMIT, decodeV1 } from './v1';
 import { feeReserveFor, isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
@@ -1064,6 +1076,33 @@ describe('size', () => {
     expect(p.steps.filter((s) => s.kind === 'create-token-account')).toHaveLength(1);
     expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
     expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT - 150);
+  });
+
+  // Phantom signs version 1 (txVersion.ts), so most openings go out in this format.
+  it('the same worst case as version 1: the opening and its share’s name, the budget in the config, the checker passing the bytes tested', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID });
+    w.chain.fund(deriveVault(CPSWAP, w.standard, WSOL_MINT), 10_000_000);
+    const p = ok(await create(w, { txVersion: 1 }));
+    expect(p.wire.version).toBe(1);
+    if (p.wire.version !== 1) return;
+    process.stdout.write(`[size] worst-case opening, version 1: ${p.sizeBytes} of ${V1_TX_SIZE_LIMIT} bytes\n`);
+    const s = summaryOf(p);
+    expect(s.origin).toBe('other');
+    expect(p.sizeBytes).toBe(p.wire.bytes.length);
+    expect(p.sizeBytes).toBeLessThanOrEqual(V1_TX_SIZE_LIMIT);
+    expect(p.steps.map((x) => x.kind)).toEqual(['create-token-account', 'wrap-sol', 'sync-wsol', 'pool-create', 'pool-name', 'close-wsol']);
+    const v = decodeV1(p.wire.bytes);
+    expect(v.signers.map((k) => k.toBase58())).toEqual([ME.toBase58(), s.pool.toBase58()]);
+    const share = deriveLpMint(CPSWAP, s.pool);
+    const name = v.instructions.find((ix) => ix.programId.equals(CPSWAP) && Buffer.from(ix.data).equals(Buffer.from(IX_CREATE_LP_METADATA)))!;
+    expect(name.data).toHaveLength(8);
+    expect(name.keys.map((k) => k.pubkey.toBase58())).toEqual(
+      [ME, deriveAuthority(CPSWAP), s.pool, share, metadataPda(share), LP_NAME_EDITOR, METAPLEX_TOKEN_METADATA_ID, SYSTEM_PROGRAM_ID, SYSVAR_RENT_PUBKEY].map((k) => k.toBase58()),
+    );
+    expect(decodeIntent(v.instructions, p.check.intent, { config: p.wire.config }).ok).toBe(true);
+    // The final test run was of these very bytes, and the opener paid for the name record in it.
+    expect(Buffer.from(w.chain.simulateCalls.at(-1)!.vtx.serialize())).toEqual(Buffer.from(p.wire.bytes));
+    expect(p.simulated.signerLamportsDelta).toBe(-(SOL + FEE + NEVER_REFUNDED + NAME + R(165)));
   });
 });
 

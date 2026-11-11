@@ -461,7 +461,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
   it('nothing is wrapped, and the review says the costs are still paid in SOL', async () => {
     await review(create(coin, { unwrapsWsol: true, wsolHeldBefore: 500_000_000n }));
     expect(
-      screen.getByText(`Your ${C} is spent straight from your own ${C} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`),
+      screen.getByText(`Your ${C} is spent straight from your own ${C} account. Nothing is wrapped. The fee to open, the account deposits and the name record are paid in SOL.`),
     ).toBeInTheDocument();
     expect(reviewText()).not.toMatch(/wrapped into a token account|wrapped SOL|plain SOL/);
   });

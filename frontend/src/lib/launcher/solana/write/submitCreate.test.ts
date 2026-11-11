@@ -6,17 +6,28 @@
 // review, or drops the pool's own signature, is refused before anything is sent; and a
 // refused opening found on Check again is said in the opening's own words.
 import { afterEach, describe, it, expect, vi } from 'vitest';
+import { ed25519 } from '@noble/curves/ed25519';
+import {
+  address,
+  compileTransaction,
+  decompileTransactionMessage,
+  getCompiledTransactionMessageDecoder,
+  getTransactionDecoder,
+  getTransactionEncoder,
+  type TransactionMessageWithBlockhashLifetime,
+} from '@solana/kit';
 import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
 import { Keypair, Transaction } from '@solana/web3.js';
 import { WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
-import { deriveAmmConfig, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
+import { IX_CREATE_LP_METADATA, LP_NAME_EDITOR, deriveAmmConfig, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { prepareLpCreate } from './createPool';
 import { CREATE_FAILURE_COPY } from './errors';
 import { recheckOutcome, submitPrepared } from './submit';
 import { CPSWAP, FakeChain, TIER1_VALUES, cfgLocal, createSimulator, legacyTx } from './testkit.fixture';
-import type { LpCreateSummary, LpOpenGate, PreparedTx, TxSigner, WriteRpc } from './types';
+import type { LpCreateSummary, LpOpenGate, PreparedTx, TxSigner, TxVersion, WriteRpc } from './types';
+import { decodeV1, verifyV1Signatures } from './v1';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const WALLET = Keypair.generate();
@@ -32,7 +43,7 @@ const TERMS = {
 const deps = { sleep: async () => {}, intervalMs: 1 };
 
 /** An opening prepared on the ONE-OFF path: a lamport gift sits at the standard address's wrapped-SOL vault. */
-async function preparedOneOff(): Promise<{ chain: FakeChain; p: PreparedTx }> {
+async function preparedOneOff(o: { txVersion?: TxVersion } = {}): Promise<{ chain: FakeChain; p: PreparedTx }> {
   const chain = FakeChain.healthy().addTier1().addFeeReceiver();
   chain.simulate = createSimulator();
   const mint = Keypair.generate().publicKey;
@@ -48,6 +59,7 @@ async function preparedOneOff(): Promise<{ chain: FakeChain; p: PreparedTx }> {
     quote: 1_000_000_000n,
     token: 100_000_000n,
     shown: { terms: TERMS, standard: 'empty' },
+    ...o,
   });
   if (!r.ok) throw new Error(r.outcome.message);
   expect((r.prepared.summary as LpCreateSummary).origin).toBe('other');
@@ -156,6 +168,83 @@ describe('an opening at a one-off address through the shared send path', () => {
       deps,
     );
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: 'Your wallet changed who has to sign this transaction, so nothing was sent.' });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+});
+
+// ── version 1 (SIMD-0385): Phantom's format ─────────────────────────────────────
+
+const isName = (data: Uint8Array) => data.length >= 8 && IX_CREATE_LP_METADATA.every((b, i) => data[i] === b);
+const decodeMessage = (bytes: Uint8Array) => {
+  const compiled = getCompiledTransactionMessageDecoder().decode(bytes);
+  if (compiled.version !== 1) throw new Error('not a version 1 message');
+  const m = decompileTransactionMessage(compiled);
+  if (!('blockhash' in m.lifetimeConstraint)) throw new Error('not a blockhash lifetime');
+  return m as Extract<typeof m, TransactionMessageWithBlockhashLifetime>;
+};
+type V1Message = ReturnType<typeof decodeMessage>;
+
+/** A version 1 wallet: it may rewrite the message (`edit`), then signs what it hands back. */
+const v1Wallet = (edit?: (m: V1Message) => V1Message): TxSigner => ({
+  publicKey: ME,
+  signTransaction: async () => {
+    throw new Error('a version 1 wallet is handed bytes, never a Transaction');
+  },
+  async signV1(bytes) {
+    events.push('wallet:start');
+    const given = getTransactionDecoder().decode(bytes);
+    const base = edit ? compileTransaction(edit(decodeMessage(new Uint8Array(given.messageBytes)))) : given;
+    const sig = ed25519.sign(new Uint8Array(base.messageBytes), WALLET.secretKey.slice(0, 32));
+    events.push('wallet:end');
+    return new Uint8Array(getTransactionEncoder().encode({ messageBytes: base.messageBytes, signatures: { ...base.signatures, [ME.toBase58()]: sig } }));
+  },
+});
+
+describe('an opening at a one-off address as version 1', () => {
+  it('the wallet signs first, then the pool’s own key; what is sent opens the pool and names its share, and both signatures check out', async () => {
+    const { chain, p } = await preparedOneOff({ txVersion: 1 });
+    expect(p.wire.version).toBe(1);
+    const pool = (p.summary as LpCreateSummary).pool;
+    let sent: Uint8Array | null = null;
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      events.push('send');
+      sent = raw;
+      return 'sent';
+    };
+    const wallet = v1Wallet();
+    const sign = wallet.signV1!;
+    let handed: Uint8Array | null = null;
+    wallet.signV1 = async (bytes, c) => {
+      handed = bytes;
+      return sign(bytes, c);
+    };
+    const o = await submitPrepared(W(chain), wallet, p, deps);
+    expect(o.status).toBe('confirmed');
+    expect(events).toEqual(['wallet:start', 'wallet:end', 'send']);
+    // The wallet is handed the message with no signature on it; the pool's own key signs after.
+    expect([...decodeV1(handed!).signatures.values()].every((s) => s === null)).toBe(true);
+    const v = decodeV1(sent!);
+    expect(verifyV1Signatures(v)).toBe(true);
+    expect(v.signers.map((k) => k.toBase58())).toEqual([ME.toBase58(), pool.toBase58()]);
+    const names = v.instructions.filter((ix) => ix.programId.equals(CPSWAP) && isName(ix.data));
+    expect(names).toHaveLength(1);
+    expect(names[0]!.keys[2]!.pubkey.equals(pool)).toBe(true);
+    expect(names[0]!.keys[5]!.pubkey.equals(LP_NAME_EDITOR)).toBe(true);
+  });
+
+  it.each([
+    ['drops the call that names the share', (ixs: V1Message['instructions']) => ixs.filter((ix) => !(ix.programAddress === CPSWAP.toBase58() && isName(ix.data ?? new Uint8Array()))), /does not name the new pool share exactly once/],
+    [
+      'makes a stranger the editor of the share’s name',
+      (ixs: V1Message['instructions']) =>
+        ixs.map((ix) => (ix.programAddress === CPSWAP.toBase58() && isName(ix.data ?? new Uint8Array()) ? { ...ix, accounts: (ix.accounts ?? []).map((a, i) => (i === 5 ? { ...a, address: address(Keypair.generate().publicKey.toBase58()) } : a)) } : ix)),
+      /editable by someone other than the team's vault/,
+    ],
+  ])('a version 1 wallet that %s after the review: refused, nothing sent', async (_name, edit, reason) => {
+    const { chain, p } = await preparedOneOff({ txVersion: 1 });
+    const o = await submitPrepared(W(chain), v1Wallet((m) => ({ ...m, instructions: edit(m.instructions) })), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).toMatch(reason);
     expect(chain.calls).not.toContain('sendRawTransaction');
   });
 });

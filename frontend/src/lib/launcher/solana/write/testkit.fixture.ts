@@ -51,6 +51,7 @@ import { associatedTokenAddress } from '../curve/ix';
 import { priorityLamports } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import type { PreparedTx } from './types';
+import { decodeV1 } from './v1';
 import {
   BAYLA_MINT,
   PLANT_BURN_RAW,
@@ -755,8 +756,22 @@ export function openAccount(chain: FakeChain, address: PublicKey, size = 165): {
   return { paid: Math.max(0, rent(size) - a.lamports), lamports: Math.max(a.lamports, rent(size)) };
 }
 
-/** The fee a cluster takes from the fee payer before anything runs: 5,000 a signature, plus the priority fee. */
+/**
+ * The instructions a simulation was handed. A version 1 message reaches the node as its
+ * wire bytes alone (prepare.ts asWire), so it is read with kit.
+ */
+export function simInstructions(vtx: VersionedTransaction): Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }> {
+  if (!vtx.message) return decodeV1(vtx.serialize()).instructions.map((ix) => ({ program: ix.programId, accounts: ix.keys.map((k) => k.pubkey), data: new Uint8Array(ix.data) }));
+  const keys = vtx.message.staticAccountKeys;
+  return vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+}
+
+/** The fee a cluster takes from the fee payer before anything runs: 5,000 a signature, plus the priority fee (a version 1 config's, or the budget instructions'). */
 export function networkFeeOf(vtx: VersionedTransaction): number {
+  if (!vtx.message) {
+    const v = decodeV1(vtx.serialize());
+    return v.signers.length * 5_000 + Number(v.config.priorityFeeLamports);
+  }
   const keys = vtx.message.staticAccountKeys;
   let limit = 0;
   let price = 0n;
@@ -831,8 +846,7 @@ function storedReserve(data: Uint8Array): bigint | null {
  */
 export function createSimulator(o: CreateSimOptions = {}): SimHandler {
   return (vtx, config, chain) => {
-    const keys = vtx.message.staticAccountKeys;
-    const ixs = vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+    const ixs = simInstructions(vtx);
     const open = ixs.find((i) => i.program.equals(CPSWAP) && IX_INITIALIZE.every((b, j) => i.data[j] === b));
     if (!open) return { err: 'no initialize', logs: [], unitsConsumed: 1 };
     const d = open.data;

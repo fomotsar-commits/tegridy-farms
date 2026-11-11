@@ -654,7 +654,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       ))}
       <Notice>
         {!q.native
-          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`
+          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open, the account deposits and the name record are paid in SOL.`
           : s.unwrapsWsol
             ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
             : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
