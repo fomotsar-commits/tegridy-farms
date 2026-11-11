@@ -5,15 +5,15 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import { LOCK_SECTION, type NavItem } from '../../lib/navConfig';
+import { YIELD_SECTION, type NavItem } from '../../lib/navConfig';
 import { RouteTabs } from './RouteTabs';
 
 const strip = (items: readonly NavItem[], active = items[0].to) =>
   render(<RouteTabs idPrefix="t" ariaLabel="Test sections" items={items} active={active} onSelect={() => {}} />);
 
 describe('RouteTabs compact labels', () => {
-  it('shows the Lock strip’s Copy Trading tab as CT while its accessible name stays Copy Trading', () => {
-    strip(LOCK_SECTION.items);
+  it('shows the Yield strip’s Copy Trading tab as CT while its accessible name stays Copy Trading', () => {
+    strip(YIELD_SECTION.items);
     const tab = screen.getByRole('tab', { name: 'Copy Trading' });
     expect(within(tab).getByText('CT')).toHaveAttribute('aria-hidden', 'true');
     // The name comes from the tab's own text. A title would repeat it as the
