@@ -62,13 +62,8 @@ export function tradeRoute(): string {
 }
 
 /**
- * Where "Lock" goes: the active room's own pool (owner, 2026-10-15: "only show the bungalow
- * selected", BAYLA's pool in BAYLA's room), else the list of every pool. Read at render, like
- * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
- */
-/**
- * Where Pools opens: in a Solana room with a coin, the Venue AMM tab already on that coin
- * (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
+ * Where Pools opens: in a Solana room with a coin, the Add / Remove tab (/pools) already on that
+ * coin (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
  * room, the tab as it opens for anyone.
  */
 export function poolsRoute(): string {
@@ -76,7 +71,12 @@ export function poolsRoute(): string {
   return active && active.chain === 'solana' && active.address ? `/pools?mint=${active.address}` : '/pools';
 }
 
-export function lockRoute(): string {
+/**
+ * Where "Yield" goes: the active room's own pool (owner, 2026-10-15: "only show the bungalow
+ * selected", BAYLA's pool in BAYLA's room), else the list of every pool. Read at render, like
+ * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
+ */
+export function yieldRoute(): string {
   const active = getActiveBungalow();
   return active && isEarnPoolId(active.id) ? earnPoolPath(active.id) : EARN_PATH;
 }
@@ -94,7 +94,7 @@ export interface NavSection {
 
   /**
    * Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens
-   * Venue AMM, Launch its first tab that is on.
+   * the Solana Add / Remove tab, Launch its first tab that is on.
    */
   primaryTo?: string;
 }
@@ -119,9 +119,9 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, the venue's own Solana AMM, range pools, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The bar's Add opens the Venue AMM tab,
-    // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
-    // form is the tab to its left.
+    // Owner, 2026-10-03: "pools land on solana lp". The bar's Add opens /pools, on the room's
+    // coin inside a Solana room; the strip keeps its order, so the Ethereum form is the tab to
+    // its left on an EVM network.
     get primaryTo() {
       return poolsRoute();
     },
@@ -130,7 +130,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // Ungated: a live probe of the venue's AMM that states when it is undeployed, and its LP
       // section once it reads live. The Solana LP tab was the same section (owner, 2026-10-24:
       // "remove solana lp keep venue amm"); /solana-lp now forwards here (App.tsx).
-      { to: '/pools', label: 'Venue AMM' },
+      // Named Add / Remove on its tab and in the menu (owner, 2026-11-11: "we need that page with
+      // just the name of add/remove"); the two Add / Remove tabs never share a strip, as /pools
+      // is Solana's and /liquidity the EVM networks' (sectionChains.ts).
+      { to: '/pools', label: 'Venue AMM', tabLabel: 'Add / Remove' },
       // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
@@ -182,18 +185,19 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     // /earn is the list of every pool and one pool is /earn/<id> (App.tsx). The word and the
     // Staking tab open the room's own pool (owner, 2026-10-15), the list with no room; each
-    // pool's "Back to Earn" leads to the list (owner, 2026-09-30).
-    heading: 'Lock',
+    // pool's "Back to Earn" leads to the list (owner, 2026-09-30). Named Lock until 2026-11-11
+    // (owner: "rename the lock tab to yield").
+    heading: 'Yield',
     hub: '/earn',
     get primaryTo() {
-      return lockRoute();
+      return yieldRoute();
     },
     items: [
       // "Staking", not "Pools": Pools (the bar's Add) is for providing liquidity.
       { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       // Owner, 2026-11-11: the strip is Staking and NFT Loans. The three below are unlisted:
-      // each still opens by its address, lights Lock there and shows its own tab, lit.
+      // each still opens by its address, lights Yield there and shows its own tab, lit.
       // Off only while no venue carries an on-chain-verified deposit target.
       { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue(), unlisted: true },
       // Reads the island tape; on when a readable pool is registered, never on a live
@@ -244,7 +248,7 @@ export const SWAP_SECTION = requireSection('Swap');
 export const POOLS_SECTION = requireSection('Pools');
 export const ISLAND_SECTION = requireSection('Island');
 export const LAUNCH_SECTION = requireSection('Launch');
-export const LOCK_SECTION = requireSection('Lock');
+export const YIELD_SECTION = requireSection('Yield');
 export const CHECK_SECTION = requireSection('Check');
 
 /** A word on the bar. `to` is read at render, so Swap follows the room. */
@@ -264,7 +268,7 @@ export function isRoomDoor(pathname: string): boolean {
 /**
  * Where Island opens (owner, 2026-10-17, of the word it replaced: "inside a room, Heat should
  * open that room's own page, like /bayla, instead of leaving for the venue home"): the room's
- * door while a room is entered, the venue home otherwise. Read at render, as Lock's and Swap's
+ * door while a room is entered, the venue home otherwise. Read at render, as Yield's and Swap's
  * are, so a skin switch moves it.
  */
 export function islandRoute(): string {
@@ -298,9 +302,9 @@ function sheetOr(kind: SheetKind, fallback: string): string {
 }
 
 /**
- * The bar, phone and wide screen alike: Island · Swap · Add · Lock · Launch (build 2,
- * 2026-11-01). Island is the home, with its read field and its hall of doors, or inside a room
- * that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
+ * The bar, phone and wide screen alike: Island · Swap · Add · Yield · Launch (build 2,
+ * 2026-11-01; Lock became Yield 2026-11-11). Island is the home, with its read field and its
+ * hall of doors, or inside a room that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
  * Island, and the drawer's Island row moves up into it). Add is the Pools section, named for what
  * is done there. Five is the ceiling: a 44px tab and a 10px label at 390px.
  */
@@ -328,7 +332,7 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => sectionIsActive(POOLS_SECTION, pathname),
   },
-  sectionWord(LOCK_SECTION),
+  sectionWord(YIELD_SECTION),
   sectionWord(LAUNCH_SECTION),
 ];
 
@@ -385,7 +389,7 @@ export interface IndexGroup {
 
 /**
  * What the index calls a page: its tab label, which reads under the group's word ("Ethereum"
- * under Swap, "NFT Loans" under Lock), unless that only repeats the word, then its own name
+ * under Swap, "NFT Loans" under Yield), unless that only repeats the word, then its own name
  * ("The island" under Island). `label` stays the canonical, pinned name.
  */
 export function indexName(group: IndexGroup, item: NavItem): string {
@@ -394,10 +398,10 @@ export function indexName(group: IndexGroup, item: NavItem): string {
 
 /**
  * Off the menu (owner, 2026-11-10: "we are just cleaning up the menu a bit"). Each page still
- * opens by its address; a page on a tab strip keeps its tab there (Launch's, Check's), and the
- * island lobby, /island, keeps its doors. To put a page back in the menu, delete its line here.
- * Check and Launch are off as whole groups: see INDEX_GROUPS. An `unlisted` page (Lock's Yield,
- * Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
+ * opens by its address; a page on a tab strip keeps its tab there (Pools', Launch's, Check's),
+ * and the island lobby, /island, keeps its doors. To put a page back in the menu, delete its
+ * line here. Check and Launch are off as whole groups: see INDEX_GROUPS. An `unlisted` page
+ * (Yield's Yield, Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
  */
 export const MENU_PARKED: ReadonlySet<string> = new Set([
   // Under Island, everything but Lore.
@@ -407,6 +411,10 @@ export const MENU_PARKED: ReadonlySet<string> = new Set([
   '/tokenomics',
   '/premium',
   '/history',
+  // Under Pools (owner, 2026-11-11: "remove zap", and one Add / Remove, the Venue AMM page's).
+  // The Ethereum form and Zap keep their tabs on the strip's EVM networks.
+  '/liquidity',
+  '/zap',
 ]);
 
 /** Under Island: the launch door, the one launch page the menu keeps (owner, 2026-11-10). */
@@ -443,7 +451,7 @@ export const INDEX_GROUPS: readonly IndexGroup[] = [
   indexGroup(ISLAND_SECTION, 3, [...UNSECTIONED_PAGES, MENU_LAUNCH]),
   indexGroup(SWAP_SECTION, 5),
   indexGroup(POOLS_SECTION, 1),
-  indexGroup(LOCK_SECTION, 6),
+  indexGroup(YIELD_SECTION, 6),
   { heading: 'Records', items: DRAWER_LINKS, art: 0 },
 ];
 

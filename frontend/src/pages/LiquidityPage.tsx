@@ -16,11 +16,11 @@ import { FinePrint } from '../components/ui/FinePrint';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
-/** What the Venue AMM tab can do follows LP's own switch, so the pointer never promises more. */
+/** What Solana's Add / Remove tab (/pools) can do follows LP's own switch, so the pointer never promises more. */
 const SOLANA_POINTER: Record<LpWriteMode, string> = {
-  on: 'On Solana? Create, add or remove on the Venue AMM tab',
-  'withdraw-only': 'On Solana? Take liquidity out on the Venue AMM tab',
-  off: 'On Solana? Find a pool on the Venue AMM tab',
+  on: 'On Solana? Create, add or remove Solana pools',
+  'withdraw-only': 'On Solana? Take liquidity out of Solana pools',
+  off: 'On Solana? Find a Solana pool',
 };
 
 /**

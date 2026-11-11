@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
-import { LOCK_SECTION, type NavItem } from '../../lib/navConfig';
+import { YIELD_SECTION, type NavItem } from '../../lib/navConfig';
 import { RouteTabs } from './RouteTabs';
 import { tabDomId } from './routeTabId';
 
@@ -13,9 +13,9 @@ const strip = (items: readonly NavItem[], active = items[0].to) =>
   render(<RouteTabs idPrefix="t" ariaLabel="Test sections" items={items} active={active} onSelect={() => {}} />);
 
 describe('RouteTabs compact labels', () => {
-  it('shows the Lock strip’s Copy Trading tab as CT while its accessible name stays Copy Trading', () => {
+  it('shows the Yield strip’s Copy Trading tab as CT while its accessible name stays Copy Trading', () => {
     // Unlisted since 2026-11-11, so the strip shows it only on its own page.
-    strip(LOCK_SECTION.items, '/copy-trading');
+    strip(YIELD_SECTION.items, '/copy-trading');
     const tab = screen.getByRole('tab', { name: 'Copy Trading' });
     expect(within(tab).getByText('CT')).toHaveAttribute('aria-hidden', 'true');
     // The name comes from the tab's own text. A title would repeat it as the
@@ -73,18 +73,18 @@ describe('RouteTabs: off is not listed', () => {
   });
 });
 
-// Owner, 2026-11-11: Lock's strip is Staking and NFT Loans. An entry taken off its strip, though
+// Owner, 2026-11-11: Yield's strip is Staking and NFT Loans. An entry taken off its strip, though
 // it is on, is shown as an off one is: not listed, and on its own page listed and lit.
 describe('RouteTabs: unlisted is not listed', () => {
-  it("lists Lock's Staking and NFT Loans only, and an unlisted tab only on its own page, lit", () => {
-    strip(LOCK_SECTION.items, '/earn');
-    const lockIds = (...tos: string[]) => tos.map((to) => tabDomId('t', to));
-    expect(screen.getAllByRole('tab').map((t) => t.getAttribute('id'))).toEqual(lockIds('/earn', '/nft-finance'));
+  it("lists Yield's Staking and NFT Loans only, and an unlisted tab only on its own page, lit", () => {
+    strip(YIELD_SECTION.items, '/earn');
+    const yieldIds = (...tos: string[]) => tos.map((to) => tabDomId('t', to));
+    expect(screen.getAllByRole('tab').map((t) => t.getAttribute('id'))).toEqual(yieldIds('/earn', '/nft-finance'));
     cleanup();
     for (const to of ['/yield', '/copy-trading', '/checkout']) {
-      strip(LOCK_SECTION.items, to);
+      strip(YIELD_SECTION.items, to);
       const ids = screen.getAllByRole('tab').map((t) => t.getAttribute('id'));
-      expect(ids, to).toEqual(lockIds('/earn', '/nft-finance', to));
+      expect(ids, to).toEqual(yieldIds('/earn', '/nft-finance', to));
       expect(screen.getAllByRole('tab')[2], to).toHaveAttribute('aria-selected', 'true');
       cleanup();
     }

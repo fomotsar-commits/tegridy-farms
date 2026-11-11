@@ -9,7 +9,9 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-11
 
-- Lock: its tab row is Staking and NFT Loans. Yield, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
+- Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
+- Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.
+- Solana pools: the site serves a name and a picture for 15 more pool shares (GRR/SOL LP, BRAINLET/SOY LP, USDT/SOL LP and the rest), and the two BAYLA shares take their pair names, "BAYLA/SOL LP" and "BAYLA/USDC LP". A wallet shows them once the share's name record is written on chain; until then it may call the share "Unknown".
 - Every page loads less wallet code up front: the Ethereum connect window's language files, wallet icons and install pictures now load only when the window asks for them, which takes about 230 KB off each first visit.
 - Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
 - Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
