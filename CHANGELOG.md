@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-11
+
+- Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
+
 ### 2026-11-10
 
 - NFT lending and pools: drag a loan through its days to see what repaying costs, or what a lender keeps, on any of them; amounts at 60, 75 or 90% of the floor, and a bar that draws your amount against the floor and the best bid; where your rate ranks; a link a borrower can send a lender; and on Add liquidity, drag the price to see your position against just holding; on range pools, drag the two edges of your range, then drag the price to see what the position would hold there; and under "More about this pool", drag the size of one buy to see how far it moves the price and who it pays.
