@@ -15,6 +15,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { openseaGet } from '../../nakamigos/lib/proxy';
 import { buysAnyTokenOrder } from '../../nakamigos/lib/offerScope.js';
+import { normalizeCollectionOffer } from '../../nakamigos/lib/offerNormalize.js';
 
 export { buysAnyTokenOrder };
 
@@ -179,18 +180,17 @@ export async function fetchLendingMarket(collection: string): Promise<LendingMar
   if (!slug) return { floor: null, sales30d: null, bids: null };
   // `offers/collection/{slug}` = collection-wide offers, best per item first (the `/all`
   // route mixes in single-token offers: see buysAnyTokenOrder). The marketplace's own
-  // normalizer (price per item) is loaded only when this panel asks.
-  const [statsRes, offersRes, offersLib] = await Promise.allSettled([
+  // normalizer (price per item) comes from its own small file, not the marketplace's whole client.
+  const [statsRes, offersRes] = await Promise.allSettled([
     openseaGet(`collections/${slug}/stats`),
     openseaGet(`offers/collection/${slug}`),
-    import('../../nakamigos/api-offers.js'),
   ]);
   const stats = statsRes.status === 'fulfilled' ? readStats(statsRes.value) : { floor: null, sales30d: null };
   let bids: BidBook | null = null;
-  if (offersRes.status === 'fulfilled' && offersLib.status === 'fulfilled') {
+  if (offersRes.status === 'fulfilled') {
     const raw = (offersRes.value as { offers?: unknown }).offers;
     if (Array.isArray(raw)) {
-      const normalize = offersLib.value.normalizeCollectionOffer as (o: unknown) => CollectionBidLike;
+      const normalize = normalizeCollectionOffer as (o: unknown) => CollectionBidLike;
       const usable = raw.filter(buysAnyTokenOrder).map((o) => {
         const b = normalize(o);
         // A part-filled bid buys only what is left of it.

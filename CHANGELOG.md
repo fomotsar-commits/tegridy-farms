@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-11
 
+- Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
 - Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
 
 ### 2026-11-10
