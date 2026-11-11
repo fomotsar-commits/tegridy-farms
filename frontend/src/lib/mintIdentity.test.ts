@@ -15,6 +15,7 @@ import { PublicKey } from '@solana/web3.js';
 import { SITE_URL } from './constants';
 import { BUNGALOWS } from './bungalows';
 import { REGISTERED_PROGRAM_ID, deriveAuthority, deriveLpMint } from './solana/cpswap/program';
+import { QUOTE_COINS, readPair } from './solana/lp/quotes';
 import {
   COINS,
   DEFAULT_FILE,
@@ -63,11 +64,12 @@ const pictureOf = (file: string) => String(readMetadata(file).json.image).split(
 
 /** The ticker each coin in our pools reads by, from the list's own COINS table. */
 const TICKER = new Map(Object.entries(COINS).map(([ticker, mint]) => [mint, ticker]));
-const PAIRING_COINS = [COINS.SOL, COINS.USDC];
+/** The coins a pool is paired with, in the site's rank order (quotes.ts). */
+const PAIRING_COINS = QUOTE_COINS.map((q) => q.mint);
 
 describe('the one list of tokens', () => {
-  it('lists the eight pool shares, the staking receipt and a default, each once', () => {
-    expect(MINT_TOKENS.map((t) => t.kind).sort()).toEqual([...Array(8).fill('pool-share'), 'staking-receipt']);
+  it('lists the 23 pool shares, the staking receipt and a default, each once', () => {
+    expect(MINT_TOKENS.map((t) => t.kind).sort()).toEqual([...Array(23).fill('pool-share'), 'staking-receipt']);
     const all = [...MINT_TOKENS, DEFAULT_TOKEN];
     expect(new Set(MINT_TOKENS.map((t) => t.mint)).size).toBe(MINT_TOKENS.length);
     for (const key of ['name', 'symbol'] as const) {
@@ -87,7 +89,8 @@ describe('the one list of tokens', () => {
     // Written out here on purpose. Every other check compares the files with the list, so
     // a name changed in the list and regenerated would pass them all.
     // 2026-10-08: the receipt. 2026-10-24: every pool share "<first coin>/<second coin> LP",
-    // and BRAINLET's symbol "use brain instead drop the L".
+    // and BRAINLET's symbol "use brain instead drop the L" (the five symbols past 10 bytes
+    // from 2026-11-11 on are shortened the same way).
     expect(MINT_TOKENS.map((t) => [t.mint, t.name, t.symbol])).toEqual([
       ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'BAYLA/SOL LP', 'BAYLA-SOL'],
       ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'BAYLA/USDC LP', 'BAYLA-USDC'],
@@ -97,6 +100,21 @@ describe('the one list of tokens', () => {
       ['AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4', 'BRAINLET/SOL LP', 'BRAIN-SOL'],
       ['4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh', 'CRYING/SOL LP', 'CRYING-SOL'],
       ['45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC', 'SOL/USDC LP', 'SOL-USDC'],
+      ['tCzVHDSMxQ1ANFZZ2bA3JnxYXRws9uj84GdrbejLTWQ', 'GRR/SOL LP', 'GRR-SOL'],
+      ['5uicWVk3D85RLjNmcexohqCDyuZjyHnpzd1aWiUMBQ29', 'MROCKS/SOL LP', 'MROCKS-SOL'],
+      ['85PrZH8qw15Yq22P2jhhBUWSFZzsC1XSdarmeaEq7q5j', 'BIG BRAIN/SOL LP', 'BIGB-SOL'],
+      ['GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx', 'STORMIE/SOL LP', 'STORM-SOL'],
+      ['F793raKNWfn11PmqWdwMNp7A6kkfFqFjGG199M2CfGPj', 'APE/SOL LP', 'APE-SOL'],
+      ['BTHYKjLHCJtBaKWVvBeqAgBF6aU7fwCYheoPH8ztpJr3', 'TBB/SOL LP', 'TBB-SOL'],
+      ['7P5oYhpAhnssPasq6iedy5ebVP279CHJJXotwZ4qgP4W', 'BRAINLET/SOY LP', 'BRAIN-SOY'],
+      ['BibsjCKijbUYmDJwKWVH9Qsvn4Dq1hUrczynKxRvQj2x', 'OGDOGE/SOL LP', 'OGDOGE-SOL'],
+      ['J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj', 'SHOCKER/SOL LP', 'SHOCK-SOL'],
+      ['A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE', 'GROYPER/SOL LP', 'GROYP-SOL'],
+      ['CK4s5DWKVwBpvBmW3isKTNv2YiPTuvtwQZ6NUCsh9rCc', 'BIG BRAIN/BRAINLET LP', 'BIGB-BRAIN'],
+      ['AZbCsNo77ETPa2E2bER8pF65GbS9r9Lhkt1mwNEgJWKf', 'USDT/USDC LP', 'USDT-USDC'],
+      ['EJpDTWGtM43uih26eBM7tSG7AJuMGQgfjMY2Sdq92hBo', 'ZBCN/SOL LP', 'ZBCN-SOL'],
+      ['FnqVeoNc95YDpfo8WGboFjujxWzxuHdhafJ3i7rSziEh', 'KWIF/SOL LP', 'KWIF-SOL'],
+      ['2FKSKBGStzrTfcF8evAEQkCwA6eXnMdKdCAvNfY9c1ux', 'USDT/SOL LP', 'USDT-SOL'],
       ['g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN', 'Bayla Staking', 'sBAYLA'],
     ]);
     // The default is what the pool program writes on chain for every pool, so these two
@@ -110,8 +128,14 @@ describe('the one list of tokens', () => {
       expect(TICKER.has(first) && TICKER.has(second), `${t.name}: a coin missing from COINS`).toBe(true);
       expect(first).not.toBe(second);
       expect(PAIRING_COINS, `${t.name}: the second coin is not one a pool is paired with`).toContain(second);
-      // A pool of the two pairing coins reads SOL first, as the site shows it.
-      if (PAIRING_COINS.includes(first)) expect([first, second]).toEqual([COINS.SOL, COINS.USDC]);
+      // A pool of two pairing coins reads the lower-ranked one first (quotes.ts readPair),
+      // except SOL/USDC, which reads SOL first, as the site shows it.
+      const isSolUsdc = first === COINS.SOL && second === COINS.USDC;
+      if (PAIRING_COINS.includes(first) && !isSolUsdc) {
+        expect(PAIRING_COINS.indexOf(first), `${t.name}: its first coin outranks its second`).toBeGreaterThan(PAIRING_COINS.indexOf(second));
+        expect(readPair(first, second)?.tokenMint, t.name).toBe(first);
+      }
+      if (!PAIRING_COINS.includes(first)) expect(readPair(first, second)?.tokenMint, t.name).toBe(first);
       expect(t.description).toContain(`the ${TICKER.get(first)}/${TICKER.get(second)} pool`);
       expect(t.name).toBe(`${TICKER.get(first)}/${TICKER.get(second)} LP`);
     }
@@ -125,8 +149,10 @@ describe('the one list of tokens', () => {
       const room = rooms.get(first);
       // BAYLA's own art is the island mark the pictures without `art` are made from.
       expect(t.art, t.name).toBe(room && room !== 'bayla' ? room : undefined);
-      expect(t.ring, t.name).toBe(second === COINS.SOL ? 'sol' : 'usdc');
-      if (!t.art) expect(t.picture, t.name).toBe(`bayla-${t.ring}`);
+      // Violet SOL, blue USDC; an island coin paired with has no colour of its own: moonlight.
+      expect(t.ring, t.name).toBe(second === COINS.SOL ? 'sol' : second === COINS.USDC ? 'usdc' : 'moonlight');
+      // The island mark in a moonlight ring is the default's picture: the same file.
+      if (!t.art) expect(t.picture, t.name).toBe(t.ring === 'moonlight' ? DEFAULT_TOKEN.picture : `bayla-${t.ring}`);
     }
   });
 
