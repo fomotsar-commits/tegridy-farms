@@ -11,6 +11,7 @@ import { setSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
 import { useReceipt } from '../../lib/receipt';
 import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
+import { PoolsLeaving } from '../PoolsFrame';
 import { CoinName } from '../ui/CoinName';
 import { SHEET_WAIT } from './sheetContext';
 import { BungalowRow } from './SheetBuyRow';
@@ -171,5 +172,6 @@ function CoinRow({ room }: { room: Bungalow }) {
 export function DeepLinkSheet({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
   const to = deepLinkSheet(pathname, search);
-  return to ? <Navigate to={to} replace /> : <>{children}</>;
+  // The redirect draws nothing for one commit: /pools' own frame, if it is on screen, stays up for it.
+  return to ? <><PoolsLeaving /><Navigate to={to} replace /></> : <>{children}</>;
 }

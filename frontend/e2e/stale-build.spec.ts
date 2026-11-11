@@ -88,7 +88,10 @@ test('the tab reloads once to the address it was going to, and the page is there
 
   await tab.click();
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Liquidity pools.' })).toBeVisible({ timeout: 30_000 });
+  // The page's own heading, drawn by the app: the reloaded page's HTML already shows the same words
+  // (e2e/pools-first-frame.spec.ts), before it has finished loading and before the app has run.
+  const drawn = page.locator('main#main-content:not(:has([aria-busy="true"]))');
+  await expect(drawn.getByRole('heading', { level: 1, name: 'Liquidity pools.' })).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(/\/pools$/);
   expect(seen.loads).toBe(2);
   expect(await runningEntry(page)).toMatch(/^\/assets\/index-/);
