@@ -7,9 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-11
+
+- Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
+
 ### 2026-11-10
 
 - UNFILLED-UNTIL-THE-UPGRADE-EXECUTES (move this line under the heading of the day it reaches trunk, then delete these brackets and the word before them) Solana pools: the pool program was upgraded. Every fee tier's fees are now held inside limits: a trader pays at most 4% of a swap, and at most a fifth of that fee goes to the venue and the island together. Only the island's Workshop can collect the island's share. No coin is let in by name any more: every coin meets the same check. The program also has a swap guard our vault can switch on for a fee tier. While it is on, a pool takes a swap only when a wallet sends it directly and refuses one that another program makes, such as a router or a smart wallet. Swaps from this site are sent directly, and adding or removing liquidity is not guarded. The lines you read before adding liquidity or opening a pool, and "The program" on the Pools page, say so.
+- Home page: the all-time volume now counts swaps through this site that paid their fee in USDT (nine since Nov 2, about $625); it read only the SOL and USDC fee accounts. Trades by the venue's own price-keeping wallet are now tallied as bot trades, as an outside arbitrage wallet's already were; the figure shown still counts both.
 - Menu: cut down. Island lists Lore and Launch (the launch page), and Dashboard once a wallet connects; Swap, Pools and Lock (Staking, NFT Loans) stay. Check and the Launch group leave the menu, and so do the island's other pages, Yield, Copy Trading and Checkout. Every one still opens at its own address, and the island lobby and the Lock tabs still list theirs.
 - NFT lending and pools: drag a loan through its days to see what repaying costs, or what a lender keeps, on any of them; amounts at 60, 75 or 90% of the floor, and a bar that draws your amount against the floor and the best bid; where your rate ranks; a link a borrower can send a lender; and on Add liquidity, drag the price to see your position against just holding; on range pools, drag the two edges of your range, then drag the price to see what the position would hold there; and under "More about this pool", drag the size of one buy to see how far it moves the price and who it pays.
 - NFT lending, My Loans: repaying no longer gets stuck asking for the same WETH approval again. The approval covers what is owed 10 minutes on, and the next step now checks for 2 minutes on, not the full 10.

@@ -19,6 +19,7 @@ import {
   SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
+  USDT_MINT,
   evmRpc,
   readEvmChain,
   readJupiter,
@@ -70,10 +71,10 @@ export async function spotPrice(symbol, fetchImpl) {
   return quotes[0];
 }
 
-/** The dollars of one leg. USDC is dollars; SOL and WETH take today's price. */
+/** The dollars of one leg. USDC and USDT are dollars; SOL and WETH take today's price. */
 export function legUsd(leg, prices) {
   if (!leg) return null;
-  if (leg.mint === USDC_MINT) return Number(leg.raw) / 1e6;
+  if (leg.mint === USDC_MINT || leg.mint === USDT_MINT) return Number(leg.raw) / 1e6;
   if (leg.mint === SOL_MINT) return (Number(leg.raw) / 1e9) * prices.SOL;
   if (leg.mint === "WETH") return (Number(leg.raw) / 1e18) * prices.ETH;
   return null;
