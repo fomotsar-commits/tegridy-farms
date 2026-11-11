@@ -174,7 +174,7 @@ describe('an opening at a one-off address through the shared send path', () => {
 
 // ── version 1 (SIMD-0385): Phantom's format ─────────────────────────────────────
 
-const isName = (data: Uint8Array) => data.length >= 8 && IX_CREATE_LP_METADATA.every((b, i) => data[i] === b);
+const isName = (data: ArrayLike<number>) => data.length >= 8 && IX_CREATE_LP_METADATA.every((b, i) => data[i] === b);
 const decodeMessage = (bytes: Uint8Array) => {
   const compiled = getCompiledTransactionMessageDecoder().decode(bytes);
   if (compiled.version !== 1) throw new Error('not a version 1 message');

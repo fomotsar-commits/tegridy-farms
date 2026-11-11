@@ -5,7 +5,7 @@
 // whatever the index returns, and checks every one on chain.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { MAX_CANDIDATES, NEVER_REFUNDED_ACCOUNT_SIZES, findPools, knownPoolAddresses, readFeeTiers } from './poolFinder';
+import { MAX_CANDIDATES, NEVER_REFUNDED_ACCOUNT_SIZES, findPools, knownPoolAddresses, readFeeTiers, readNameRecordCost } from './poolFinder';
 import { POOL_INDEX_MAX } from './poolIndex';
 import { poolStatePda } from '../../launcher/solana/curve/program';
 import { deriveAmmConfig } from '../cpswap/program';
@@ -312,6 +312,12 @@ describe('readFeeTiers', () => {
     expect(expected).toBeGreaterThan(35_000_000n); // about 0.04 SOL
     const bad = await readFeeTiers(fakeRpc({}, { fail: new Set(['getMinimumBalanceForRentExemption']) }), PROGRAM);
     expect(bad.kind === 'ok' && bad.openingDeposits).toBeNull();
+  });
+
+  // An opening from this site also writes its share's name record (createPool.ts), paid by the opener.
+  it('reads what the new share’s name record costs: its 607-byte deposit and Metaplex’s fee; unread is null, never 0', async () => {
+    expect(await readNameRecordCost(fakeRpc({}))).toBe(BigInt((128 + 607) * 6960) + 10_000_000n);
+    expect(await readNameRecordCost(fakeRpc({}, { fail: new Set(['getMinimumBalanceForRentExemption']) }))).toBeNull();
   });
 
   it('a config account owned by someone else is not a fee tier', async () => {

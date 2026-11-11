@@ -850,6 +850,7 @@ function SearchResults({
         outside={outside}
         outsideAt={outsideAt}
         feeTiers={feeTiers}
+        readNameRecordCost={readers.nameRecordCost}
         onReread={onReread}
         refreshing={state.refreshing === true}
         openNow={openCreate}
