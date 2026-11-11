@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-11
+
+- Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
+
 ### 2026-11-10
 
 - Menu: cut down. Island lists Lore and Launch (the launch page), and Dashboard once a wallet connects; Swap, Pools and Lock (Staking, NFT Loans) stay. Check and the Launch group leave the menu, and so do the island's other pages, Yield, Copy Trading and Checkout. Every one still opens at its own address, and the island lobby and the Lock tabs still list theirs.
