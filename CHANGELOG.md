@@ -9,6 +9,18 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-11
 
+- Pools: on a slow connection the page's heading shows in under a second. The screen used to stay dark until the app had loaded. Opening Add from a share link no longer flashes the footer before the room opens.
+- A room's door, the open lot and the home: on a slow connection the footer no longer shows under the picture while the page loads.
+- Add and Buy from a room's link: the form's code starts loading as the page opens, so the form answers sooner on a slow connection.
+- Receipt card (Solana): after a buy or a sale of a coin with no room on the island, the shore plays as before and no line names its shore. An island coin's card keeps its line.
+- Receipt card (Solana): after an add, the coin's name in the line is bold in the coin's color, and a pool paired with USDC or an island coin pours that coin's color beside the token's.
+- Receipt card (Solana): a coin with no ticker, or a copy of a known one, is not named in the line or in the post to X, and a copy's share link shows an unnamed card on X.
+- Receipt card: on a short phone screen the top of the card stays on the screen when it opens.
+- Share card for an add: the picture on X is the island's clean painting. The first one carried X's own label. A share link typed in capitals (/lp/BAYLA) opens that room's Add.
+- Launch door: a wallet that holds nothing reads "about half a year to the door, from your first real buy."
+- Buy sheet: the picked coin's chip is filled.
+- Swaps and reads on Solana: when the network behind the site stops answering, the site gives up after 8 seconds and keeps watching your transaction. It used to wait.
+- Token scan, wallet history, NFT data and collection listings: when the source behind them stops answering, the site gives up after 8 seconds and says so (NFT data first asks its second source). It used to wait.
 - Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
 - Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
 
