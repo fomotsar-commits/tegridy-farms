@@ -460,7 +460,9 @@ async function readNew(address, h, readOne) {
   }
   for (const { signature } of sigs.reverse()) {
     if (!h.acts.has(signature) && !h.skipped.has(signature)) {
-      const tx = await rpcPatient('getTransaction', [signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+      // Version 1 too: the robot sends its own trips as version 1 (keeper/v1tx.ts), and the site's
+      // visitors do. Asked with 0, the node refuses such a transaction and the whole read stops there.
+      const tx = await rpcPatient('getTransaction', [signature, { encoding: 'json', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }]);
       if (!tx) return false;
       const a = readOne(tx);
       if (a) h.acts.set(signature, a);

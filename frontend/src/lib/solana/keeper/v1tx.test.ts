@@ -1,5 +1,7 @@
 // @vitest-environment node
 // The robot runs in Node (scripts/price-keeper.mjs), as its other tests say.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ed25519 } from '@noble/curves/ed25519';
 import { ComputeBudgetProgram, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
@@ -18,6 +20,19 @@ const decode = (wire: Uint8Array) => {
   const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
   return { tx, compiled, message: decompileTransactionMessage(compiled) };
 };
+
+// On 2026-11-10 at 14:22 UTC the robot's first version 1 trips landed, and its dashboard's
+// history stopped: scripts/price-keeper.mjs asked the node for transactions "up to version 0",
+// and the node refuses a version 1 transaction to such a reader. What the robot sends, it reads.
+describe('the robot reads back what it sends', () => {
+  it('every transaction read in the robot script accepts version 1', () => {
+    const script = readFileSync(resolve(process.cwd(), 'scripts', 'price-keeper.mjs'), 'utf8');
+    const reads = [...script.matchAll(/'getTransaction', \[[^\]]*\]/g)].map((m) => m[0]);
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) expect(read).toMatch(/maxSupportedTransactionVersion: 1\b/);
+    expect(script).not.toMatch(/maxSupportedTransactionVersion: 0\b/);
+  });
+});
 
 describe('a trip as a version 1 transaction', () => {
   it('carries the budget a legacy trip pays as its config, never 0 loaded data', () => {
