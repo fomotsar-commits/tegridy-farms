@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import {
   EVM_CHAINS,
   JUPITER_FEE_ACCOUNTS,
+  SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
   VENUE_PROGRAM,
@@ -19,6 +20,7 @@ import {
   jupiterSwap,
   poolSwap,
   readEvmChain,
+  readJupiter,
   readSolanaPools,
   base58,
   unbase58,
@@ -30,7 +32,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet.json"), "utf-8"));
 // Test runs of V2 builds (2026-10-23), shaped as transactions: no V2 swap of ours was on chain yet.
 const V2 = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "v2-simulation.json"), "utf-8"));
+// Read 2026-11-10: a price keeper trip, and two swaps whose fee was paid in USDT.
+const NOV = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet-2026-11.json"), "utf-8"));
 const [WSOL_FEE, USDC_FEE] = JUPITER_FEE_ACCOUNTS;
+const USDT_FEE = "GT8LWC8xwwXGE9FatRyMDZccSYBqYNRMZkz2SCdgV6dj";
+const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const KEEPER = "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz";
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 const SOL_BAYLA = decodePool("ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4", FX.pool_solBayla);
 const BAYLA_USDC = decodePool("J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm", FX.pool_baylaUsdc);
@@ -62,6 +69,15 @@ describe("our pools: a swap is one vault up and the other down", () => {
   it("does not count a deposit, or another pool's transaction", () => {
     expect(poolSwap(FX.poolDeposit, SOL_BAYLA)).toBeNull();
     expect(poolSwap(FX.poolUsdcIn, SOL_BAYLA)).toBeNull();
+  });
+
+  // About $2.5k of the $34k shown on 2026-11-10 was the keeper's, counted as anyone's.
+  it("counts the venue's own price keeper as a bot (its 0.055848246 SOL trip, 2026-11-09)", async () => {
+    const pool = decodePool("3YRW6wJscukRaWutB6QgPwtK1EQM9KA7CXcXTtmN3GJK", NOV.pool_keeperCoin);
+    const hit = poolSwap(NOV.keeperTrip, pool);
+    expect(hit).toEqual({ leg: { mint: SOL_MINT, raw: 55_848_246n }, payer: KEEPER });
+    const t = await addUp(null, [hit], async () => 100, SOLANA_BOTS);
+    expect(t).toEqual({ swaps: 1, usd: 5.584825, unpriced: 0, bot_swaps: 1, bot_usd: 5.584825 });
   });
 });
 
@@ -133,6 +149,56 @@ describe("Jupiter V2 builds: one SwapsEvent, no FeeEvent, the fee read from the 
       }
     }
     expect(() => jupiterSwap(cut, USDC_FEE)).toThrow(/shorter than its 2 hops/);
+  });
+});
+
+// The site takes its fee in USDT since 2026-11-02 (#1105); the counter read only the WSOL and
+// USDC accounts, so 9 swaps (about $625) by 2026-11-10 were never counted.
+describe("Jupiter, fee paid in USDT: the vault's USDT account, USDT valued as dollars", () => {
+  it("reads the vault's USDT fee account", () => {
+    expect(JUPITER_FEE_ACCOUNTS).toContain(USDT_FEE);
+  });
+
+  it("fee taken from a USDT input: the full 20 USDT (2026-11-02)", () => {
+    expect(jupiterSwap(NOV.jupUsdtInFeeIn, USDT_FEE).leg).toEqual({ mint: USDT, raw: 20_000_000n });
+  });
+
+  it("fee taken from the USDT output: the USDT out before the fee, 22.014648 (2026-11-08)", () => {
+    expect(jupiterSwap(NOV.jupUsdtOutFeeOut, USDT_FEE).leg).toEqual({ mint: USDT, raw: 22_014_648n });
+  });
+
+  it("values USDT as dollars, like USDC", () => {
+    expect(legUsd({ mint: USDT, raw: 1_000_000n }, {})).toBe(1);
+  });
+
+  it("reads a fee account the cursor has never seen from its first signature, the others from their cursor", async () => {
+    const lists = {
+      [WSOL_FEE]: ["w1"],
+      [USDC_FEE]: ["c1"],
+      [USDT_FEE]: ["u0", "u1", "u2"],
+    };
+    // u0 stands for the account's creation (2026-11-02): no swap, no fee.
+    const created = { meta: { err: null, innerInstructions: [], preTokenBalances: [], postTokenBalances: [] }, transaction: { signatures: ["u0"], message: { accountKeys: [KEEPER, USDT_FEE] } } };
+    const txs = { u0: created, u1: NOV.jupUsdtInFeeIn, u2: NOV.jupUsdtOutFeeOut };
+    const asked = {};
+    const call = async (method, params) => {
+      if (method === "getSignaturesForAddress") {
+        const [address, { until }] = params;
+        asked[address] = until ?? null;
+        const newestFirst = [...lists[address]].reverse().map((signature) => ({ signature, err: null }));
+        const cut = until ? newestFirst.findIndex((s) => s.signature === until) : -1;
+        return cut >= 0 ? newestFirst.slice(0, cut) : newestFirst;
+      }
+      if (method === "getTransaction") return txs[params[0]] ?? null;
+      throw new Error(method);
+    };
+    const got = await readJupiter(call, { [WSOL_FEE]: "w1", [USDC_FEE]: "c1" });
+    expect(asked).toEqual({ [WSOL_FEE]: "w1", [USDC_FEE]: "c1", [USDT_FEE]: null });
+    expect(got.swaps.map((s) => [s.id, s.leg])).toEqual([
+      ["u1", { mint: USDT, raw: 20_000_000n }],
+      ["u2", { mint: USDT, raw: 22_014_648n }],
+    ]);
+    expect(got.cursor).toEqual({ [WSOL_FEE]: "w1", [USDC_FEE]: "c1", [USDT_FEE]: "u2" });
   });
 });
 

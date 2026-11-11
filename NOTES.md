@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-10: the public Solana node can answer `null` for a finalized transaction it has just listed
+
+**Believed:** `getTransaction` on `api.mainnet-beta.solana.com` either returns a finalized
+transaction or errors, so a `null` for a signature that `getSignaturesForAddress` (finalized)
+just listed means something is wrong with the signature.
+
+**Measured** (three from-zero dry runs of `frontend/scripts/venue-volume.mjs` on 2026-11-10,
+about 2,160 transactions over 25 pools and 3 fee accounts): the node answered `result: null`
+three times, for `5Tw9SxuCpnWi3GdKtmquUUYEYMFBQCXkDLjbpd5U6fuycte6Uxe4uZ5wTpu6o1RR1G3q5GkieGRrxYVViuj4XnPP`
+(slot 466,192,174), `fm4ocLrrWsySscMearUJkgisMAQnqwMF6MoSyowKssqGdMaTRfz3vjZiGHwQL6eedovcB8kwnEneHSTJjywM3rn`
+(from 2026-10-03) and one more. Each came back whole when asked again seconds later.
+
+**So:** the counter's `getTx` throws on `null` on purpose (a cursor never moves past a swap it
+did not read), which costs the five-minute run nothing: the next run asks again. A read from
+zero (a dry run, a backfill) stops at the first one instead. Such a read asks again a few
+times, with a wait, before it calls a transaction missing, and never reads `null` as "no swap".
+
 ## 2026-11-08: under one pool per pair and fee tier, a front-runner's pool at ten times the market takes the pair, so Start over opens nothing
 
 **Believed:** after a front-run at the standard tier-1 address (a stranger opens the pool while
