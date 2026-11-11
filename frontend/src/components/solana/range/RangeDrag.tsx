@@ -23,12 +23,14 @@ import {
   stopTimes,
 } from '../../../lib/solana/clmm/rangeDrag';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { monoWidth, placeLabels } from '../../../lib/markLabels';
 
 const GREEN = '#22c55e';
 const W = 320;
 const H = 64;
 const PAD = 14;
 const MID = 30;
+const LABEL = 9;
 
 const x = (stop: number) => PAD + stopFraction(stop) * (W - 2 * PAD);
 
@@ -93,6 +95,17 @@ export function RangeDrag(p: {
 
   const inside = shown.lo <= 0 && shown.hi >= 0;
   const faint = !picked && !held;
+  // Each handle's multiple, left of the lowest and right of the highest; dragged to an end of
+  // the axis, it slides inward rather than off the picture.
+  const times = { lo: stopTimes(shown.lo), hi: stopTimes(shown.hi) };
+  const [loLabel, hiLabel] = placeLabels(
+    [
+      { at: x(shown.lo), width: monoWidth(times.lo, LABEL), side: 'left' },
+      { at: x(shown.hi), width: monoWidth(times.hi, LABEL), side: 'right' },
+    ],
+    W,
+  );
+  const labelAt = { lo: loLabel, hi: hiLabel };
   const slider = (which: 'lo' | 'hi') => (
     <input
       type="range"
@@ -152,8 +165,8 @@ export function RangeDrag(p: {
               strokeWidth={focused === which ? 3.5 : 2}
               style={{ transition: 'r 120ms' }}
             />
-            <text x={x(shown[which])} y={H - 3} textAnchor={which === 'lo' ? 'end' : 'start'} dx={which === 'lo' ? -4 : 4} fontSize="9" fontFamily="ui-monospace, monospace" fill="rgba(245,228,184,0.8)">
-              {stopTimes(shown[which])}
+            <text x={labelAt[which]} y={H - 3} fontSize={LABEL} fontFamily="ui-monospace, monospace" fill="rgba(245,228,184,0.8)">
+              {times[which]}
             </text>
           </g>
         ))}

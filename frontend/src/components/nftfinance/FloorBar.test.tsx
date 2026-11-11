@@ -2,6 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { FloorBar } from './FloorBar';
 import { barAmount, barMax, barStep, barZone } from '../../lib/gondi/floorBar';
+import { monoWidth } from '../../lib/markLabels';
+
+/** Where a label is drawn, whatever anchor it uses: its left and right edges. */
+const drawn = (t: Element): [number, number] => {
+  const w = monoWidth(t.textContent ?? '', Number(t.getAttribute('font-size')));
+  const at = Number(t.getAttribute('x')) + Number(t.getAttribute('dx') ?? 0);
+  const anchor = t.getAttribute('text-anchor') ?? 'start';
+  const left = anchor === 'end' ? at - w : anchor === 'middle' ? at - w / 2 : at;
+  return [left, left + w];
+};
 
 describe('the axis under the floor bar', () => {
   it('runs to a quarter over the floor, or past whatever sits further out', () => {
@@ -78,6 +88,29 @@ describe('the bar on the Lend form', () => {
     const noBid = setup(0.07, 0.08, null);
     expect(noBid.container.textContent).toContain('floor');
     expect(noBid.container.textContent).not.toContain('best bid');
+  });
+
+  it.each([
+    ['far down the bar', 0.004],
+    ['just past the floor', 0.09],
+    ['just under the floor', 0.075],
+  ])('a best bid %s keeps both labels whole, on the bar and apart', (_, bid) => {
+    const { container } = setup(0.07, 0.08, bid);
+    const width = Number(container.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[2]);
+    const labels = [...container.querySelectorAll('text')].map(drawn).sort((a, b) => a[0] - b[0]);
+    expect(labels).toHaveLength(2);
+    expect(labels[0][0]).toBeGreaterThanOrEqual(0);
+    expect(labels[1][1]).toBeLessThanOrEqual(width);
+    expect(labels[0][1]).toBeLessThanOrEqual(labels[1][0]);
+  });
+
+  it('each label sits on its own mark\'s side, even with the bid past the floor', () => {
+    const { container } = setup(0.07, 0.08, 0.085);
+    const [bidLine, floorLine] = [...container.querySelectorAll('line')].map((l) => Number(l.getAttribute('x1')));
+    const label = (word: string) => drawn([...container.querySelectorAll('text')].find((t) => t.textContent?.trim() === word)!);
+    // The floor (left) reads left of its line, the bid (right) right of its own.
+    expect(label('floor')[1]).toBeLessThanOrEqual(floorLine);
+    expect(label('best bid')[0]).toBeGreaterThanOrEqual(bidLine);
   });
 
   it('draws nothing until there is a floor and an amount to set against it', () => {
