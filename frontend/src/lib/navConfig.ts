@@ -333,8 +333,11 @@ export function litWord(pathname: string, hash = ''): BarWord | null {
   return BAR_NAV.find((w) => w.lit(pathname, hash)) ?? null;
 }
 
-/** The drawer's big row, at every width: Check. Pools is on the bar, as Add. */
-export const DRAWER_SECTIONS: readonly NavSection[] = [CHECK_SECTION];
+/**
+ * The drawer's big row. Empty since the owner took Check off the menu (2026-11-10); Pools is
+ * on the bar, as Add.
+ */
+export const DRAWER_SECTIONS: readonly NavSection[] = [];
 
 /** Not on the bar and not in the footer since 2026-10-15: the records and the developer API. */
 export const DRAWER_LINKS: readonly NavItem[] = [
@@ -385,13 +388,41 @@ export function indexName(group: IndexGroup, item: NavItem): string {
   return item.tabLabel && item.tabLabel !== group.heading ? item.tabLabel : item.label;
 }
 
+/**
+ * Off the menu (owner, 2026-11-10: "we are just cleaning up the menu a bit"). Each page still
+ * opens by its address; a page on a tab strip keeps its tab there (Lock's, Launch's, Check's),
+ * and the island lobby, /island, keeps its doors. To put a page back in the menu, delete its
+ * line here. Check and Launch are off as whole groups: see INDEX_GROUPS.
+ */
+export const MENU_PARKED: ReadonlySet<string> = new Set([
+  // Under Island, everything but Lore.
+  '/island',
+  '/gallery',
+  '/community',
+  '/tokenomics',
+  '/premium',
+  '/history',
+  // Under Lock.
+  '/yield',
+  '/copy-trading',
+  '/checkout',
+]);
+
+/** Under Island: the launch door, the one launch page the menu keeps (owner, 2026-11-10). */
+export const MENU_LAUNCH: NavItem = { to: '/launch', label: 'Launch' };
+
+/** What the menu lists of a group's pages: those on today, less the parked ones. */
+export function menuItems(items: readonly NavItem[]): NavItem[] {
+  return items.filter((i) => !i.soon && !MENU_PARKED.has(i.to));
+}
+
 function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] = []): IndexGroup {
   return {
     heading: section.heading,
     get to() {
       return section.primaryTo ?? section.hub;
     },
-    items: [...section.items, ...extra].filter((i) => !i.soon),
+    items: menuItems([...section.items, ...extra]),
     art,
   };
 }
@@ -401,17 +432,17 @@ function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] 
  * organize them better"; 2026-10-19: organise them, on the desktop too). Every section with its
  * pages, in the order a visitor moves: find the island, trade, pool, lock, launch, check; then
  * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
- * /vesting stay out: their rails are undeployed (navConfig.test.ts). Dashboard joins once a
- * wallet connects (NavDrawer.tsx).
+ * /vesting stay out: their rails are undeployed (navConfig.test.ts). Owner, 2026-11-10: the
+ * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, and Dashboard once a
+ * wallet connects (NavDrawer.tsx); Launch and Check leave the menu as groups. Their pictures,
+ * `nav-drawer:7` and `:2`, stay in the studio for when they come back.
  */
 export const INDEX_GROUPS: readonly IndexGroup[] = [
   // The venue's own pages no section claims (the Gold Card, History, Lore) are the island's.
-  indexGroup(ISLAND_SECTION, 3, UNSECTIONED_PAGES),
+  indexGroup(ISLAND_SECTION, 3, [...UNSECTIONED_PAGES, MENU_LAUNCH]),
   indexGroup(SWAP_SECTION, 5),
   indexGroup(POOLS_SECTION, 1),
   indexGroup(LOCK_SECTION, 6),
-  indexGroup(LAUNCH_SECTION, 7),
-  indexGroup(CHECK_SECTION, 2),
   { heading: 'Records', items: DRAWER_LINKS, art: 0 },
 ];
 

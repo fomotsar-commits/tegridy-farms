@@ -560,8 +560,9 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`; Dashboard's
-  // is NavDrawer.tsx DASHBOARD_ART). 0 is the menu's own, and the Records group's.
+  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`). 0 is the
+  // menu's own, and the Records group's. Off the menu since 2026-11-10, kept for their return:
+  // 2 (Check), 4 (Dashboard's own row; Dashboard is a page under Island) and 7 (Launch).
   { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu group: Pools' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu group: Check' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },

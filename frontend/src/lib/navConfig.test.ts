@@ -19,6 +19,8 @@ import {
   INDEX_PAGES,
   indexName,
   ISLAND_SECTION,
+  MENU_PARKED,
+  menuItems,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
 import { BUNGALOWS } from './bungalows';
@@ -134,13 +136,15 @@ describe('which word is lit', () => {
 });
 
 describe('the drawer', () => {
-  it('carries Check, one row, and the bar carries the rest', () => {
-    expect(DRAWER_SECTIONS.map((s) => s.heading)).toEqual(['Check']);
+  // Owner, 2026-11-10: Check left the menu ("hide it all"); its pages open by their address.
+  it('carries no section row, and the bar carries every section but Check', () => {
+    expect(DRAWER_SECTIONS).toEqual([]);
     for (const s of NAV_SECTIONS) {
       // On the bar is a word that owns the section's landing tab (Pools' word is Add).
       const onBar = BAR_NAV.filter((w) => w.lit(s.hub, '')).length;
       const places = onBar + (DRAWER_SECTIONS.includes(s) ? 1 : 0);
-      expect(places, `the ${s.heading} section is in ${places} places; it belongs in exactly one`).toBe(1);
+      const want = s.heading === 'Check' ? 0 : 1;
+      expect(places, `the ${s.heading} section is in ${places} places; it belongs in ${want}`).toBe(want);
     }
   });
 
@@ -178,10 +182,11 @@ describe('the drawer', () => {
     }
   });
 
-  it('keeps the detection tools together under Check', () => {
+  it('keeps the detection tools together under Check, off the menu', () => {
     const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
-    expect(DRAWER_SECTIONS).toContain(check);
+    expect(DRAWER_SECTIONS).not.toContain(check);
     const paths = check!.items.map((i) => i.to);
+    for (const p of paths) expect(INDEX_PAGES.map((i) => i.to), p).not.toContain(p);
     for (const p of ['/trust', '/scan', '/deployer', '/exposure']) expect(paths).toContain(p);
     expect(NAV_SECTIONS.map((sec) => sec.heading)).not.toContain('Trust & Safety');
   });
@@ -539,7 +544,8 @@ describe('the Launch word', () => {
   it('opens the launch door even while launching on Solana is on (answer twenty-six)', async () => {
     const nav = await withCurve(true);
     expect(nav.BAR_NAV.find((w) => w.label === 'Launch')?.to).toBe('/launch');
-    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+    // The menu's Launch is a page under Island (owner, 2026-11-10).
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Island')?.items.find((i) => i.label === 'Launch')?.to).toBe('/launch');
   });
 
   it('opens the launchpad while it is off, and is lit on both', async () => {
@@ -547,7 +553,7 @@ describe('the Launch word', () => {
     const word = nav.BAR_NAV.find((w) => w.label === 'Launch')!;
     expect(nav.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon, 'the precondition: the curve is off').toBe(true);
     expect(word.to).toBe('/launch');
-    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Island')?.items.find((i) => i.label === 'Launch')?.to).toBe('/launch');
     for (const path of ['/curve-launch', '/launch']) expect(word.lit(path, ''), path).toBe(true);
   });
 });
@@ -642,31 +648,47 @@ describe("the menu's index", () => {
   const pages = () => INDEX_PAGES.map((i) => i.to);
   const group = (heading: string) => INDEX_GROUPS.find((g) => g.heading === heading)!;
 
-  it('runs Island, Swap, Pools, Lock, Launch, Check, then the records: one group per section', () => {
-    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
-    for (const s of NAV_SECTIONS) expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+  // Owner, 2026-11-10: "we are just cleaning up the menu a bit". Launch and Check left as groups.
+  it('runs Island, Swap, Pools, Lock, then the records', () => {
+    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Lock', 'Records']);
+    for (const s of NAV_SECTIONS.filter((sec) => sec.heading !== 'Launch' && sec.heading !== 'Check')) {
+      expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+    }
     expect(group('Records').to).toBeUndefined();
     expect(group('Records').items).toEqual(DRAWER_LINKS);
   });
 
-  it("carries every page that is on under its section's word, in tab order", () => {
-    for (const s of NAV_SECTIONS) {
-      const own = s.items.filter((i) => !i.soon).map((i) => i.to);
+  it("carries every page that is on and not parked under its section's word, in tab order", () => {
+    for (const s of NAV_SECTIONS.filter((sec) => sec.heading !== 'Launch' && sec.heading !== 'Check')) {
+      const own = s.items.filter((i) => !i.soon && !MENU_PARKED.has(i.to)).map((i) => i.to);
       expect(group(s.heading).items.map((i) => i.to).filter((to) => own.includes(to)), s.heading).toEqual(own);
     }
   });
 
-  it("files the venue's own pages (the Gold Card, History, Lore) under Island, after the lobby's doors", () => {
-    const island = group('Island').items.map((i) => i.to);
-    const doors = ISLAND_SECTION.items.map((i) => i.to);
-    expect(island.slice(0, doors.length)).toEqual(doors);
-    for (const path of ['/premium', '/history', '/lore']) expect(island, path).toContain(path);
+  // Owner, 2026-11-10: "hide all these except lore under island", and Launch under Island, "that
+  // takes you to the launch page". Dashboard joins them once a wallet connects (NavDrawer.tsx).
+  it('lists only Lore and Launch under Island', () => {
+    expect(group('Island').items.map((i) => [i.to, indexName(group('Island'), i)])).toEqual([
+      ['/lore', 'Lore'],
+      ['/launch', 'Launch'],
+    ]);
+  });
+
+  it('lists Staking and NFT Loans under Lock, never Yield, Copy Trading or Checkout', () => {
+    const lock = group('Lock').items.map((i) => i.to);
+    for (const p of ['/yield', '/copy-trading', '/checkout']) expect(lock, p).not.toContain(p);
+    expect(lock[0]).toBe('/earn');
+  });
+
+  it('keeps every parked page routed, so it still opens by its address', () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    for (const p of MENU_PARKED) {
+      expect(routed, `${p} is parked but no route draws it`).toContain(p);
+      expect(pages(), `${p} is parked`).not.toContain(p);
+    }
   });
 
   it("names a page by its tab label under the word, unless that only repeats the word", () => {
-    const island = group('Island');
-    expect(indexName(island, island.items.find((i) => i.to === '/island')!)).toBe('The island');
-    expect(indexName(island, island.items.find((i) => i.to === '/tokenomics')!)).toBe('Numbers');
     const swap = group('Swap');
     expect(indexName(swap, swap.items.find((i) => i.to === '/swap')!)).toBe('Ethereum');
     const lock = group('Lock');
@@ -674,9 +696,8 @@ describe("the menu's index", () => {
     expect(indexName(lock, lock.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
   });
 
-  it('lands the Pools word on Venue AMM and the Check word on the overview', () => {
+  it('lands the Pools word on Venue AMM', () => {
     expect(group('Pools').to).toBe('/pools');
-    expect(group('Check').to).toBe('/trust');
   });
 
   it('gives every group a picture of its own in the menu', () => {
@@ -696,21 +717,10 @@ describe("the menu's index", () => {
     for (const to of pages()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
   });
 
-  // Every entry is on today, so the guard above cannot fail on its own: switch one off.
-  it('drops a page the moment it is off, as its strip does', async () => {
-    expect(pages(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
-    vi.resetModules();
-    vi.doMock('./copytrade/tape', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./copytrade/tape')>()),
-      hasCopyTapeSource: () => false,
-    }));
-    try {
-      const off = await import('./navConfig');
-      expect(off.ALL_NAV.find((n) => n.to === '/copy-trading')?.soon, 'Copy Trading reads as off').toBe(true);
-      expect(off.INDEX_PAGES.map((i) => i.to)).not.toContain('/copy-trading');
-    } finally {
-      vi.doUnmock('./copytrade/tape');
-      vi.resetModules();
-    }
+  // Every page that can be off today is parked, so the guard above cannot fail on its own: the
+  // filter itself drops an off page and a parked one, and keeps the rest.
+  it('drops a page the moment it is off, as its strip does, and every parked page', () => {
+    const on = { to: '/lore', label: 'Lore' };
+    expect(menuItems([on, { to: '/zap', label: 'Zap', soon: true }, { to: '/yield', label: 'Yield' }])).toEqual([on]);
   });
 });

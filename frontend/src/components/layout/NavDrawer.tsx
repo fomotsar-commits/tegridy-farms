@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m } from 'framer-motion';
 import { useEffect, useRef, useState, type Ref } from 'react';
-import { DASHBOARD_NAV, INDEX_GROUPS, indexName, type IndexGroup, type NavItem } from '../../lib/navConfig';
+import { DASHBOARD_NAV, INDEX_GROUPS, ISLAND_SECTION, indexName, type IndexGroup, type NavItem } from '../../lib/navConfig';
 import { VENUE } from '../../lib/arrival';
 import { ArtImg } from '../ArtImg';
 // The menu's own look (lib/editorial.ts), the same in both themes. A full-screen index that opens
@@ -9,8 +9,7 @@ import { ArtImg } from '../ArtImg';
 import { EDITORIAL_BG as BG, EDITORIAL_INK as INK, EDITORIAL_EASE as EASE, EDITORIAL_GRAIN as GRAIN, HEADING_FONT, pad2 as pad } from '../../lib/editorial';
 
 // Each group's picture is `nav-drawer:N` in /art-studio (artSurfaces.ts): navConfig's INDEX_GROUPS
-// carry theirs; 0 is the menu's own; Dashboard's row, once a wallet connects, is 4.
-const DASHBOARD_ART = 4;
+// carry theirs; 0 is the menu's own. Dashboard's own row (4) is retired: it is a page under Island.
 
 /** What the big frame shows: a picture and its caption. */
 interface Shown {
@@ -25,11 +24,14 @@ function groupHere(groups: readonly IndexGroup[], pathname: string): IndexGroup 
   return groups.find((g) => g.items.some((i) => isHere(i.to, pathname)) || (g.to !== undefined && isHere(g.to, pathname)));
 }
 
-/** The index's groups: navConfig's, Dashboard once a wallet connects, and Admin for its holder. */
+/**
+ * The index's groups: navConfig's, Dashboard under Island once a wallet connects (owner,
+ * 2026-11-10), and Admin for its holder.
+ */
 function groupsFor(isConnected: boolean, showAdmin: boolean): IndexGroup[] {
-  const groups = [...INDEX_GROUPS];
+  const groups = INDEX_GROUPS.map((g) =>
+    isConnected && g.heading === ISLAND_SECTION.heading ? { ...g, items: [...g.items, DASHBOARD_NAV] } : g);
   const records = groups.pop()!;
-  if (isConnected) groups.push({ heading: DASHBOARD_NAV.label, to: DASHBOARD_NAV.to, items: [], art: DASHBOARD_ART });
   groups.push(showAdmin ? { ...records, items: [...records.items, { to: '/admin', label: 'Admin' }] } : records);
   return groups;
 }
@@ -258,8 +260,9 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
               </kbd>
             </div>
 
-            {/* The index: every section with its pages, in the order a visitor moves (navConfig
-                INDEX_GROUPS); Dashboard once a wallet connects; the records last. The groups run
+            {/* The index: the sections the menu keeps, with their pages, in the order a visitor
+                moves (navConfig INDEX_GROUPS); Dashboard under Island once a wallet connects; the
+                records last. The groups run
                 in one column on a phone, two from 600px and three from 1100px. */}
             <nav aria-label="Site index" onMouseLeave={() => setHover(null)}>
               {groups.length === 0 ? (
