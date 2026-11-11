@@ -240,7 +240,7 @@ if (preloadedCardano.length) {
   die(`index.html preloads ${preloadedCardano.join(', ')} — the Cardano library must stay lazy`);
 }
 
-// 5. THE EVM WALLET CHUNK CARRIES ONLY WHAT IT LOADS UP FRONT.
+// F. THE EVM WALLET CHUNK CARRIES ONLY WHAT IT LOADS UP FRONT.
 //
 // vendor-wagmi rides in the entry's static closure: every page, on every chain, downloads
 // and parses it. RainbowKit ships 18 language files (1.8 MB unpacked), every wallet's and
@@ -251,7 +251,7 @@ if (preloadedCardano.length) {
 // far below the welded size, so the weld cannot come back unseen.
 const WAGMI_CHUNK_CEILING = 700 * 1024;
 const wagmiChunks = chunkFiles.filter((f) => f.startsWith('vendor-wagmi'));
-if (wagmiChunks.length === 0) die('no vendor-wagmi chunk: the size check below has nothing to measure');
+if (wagmiChunks.length === 0) die('no vendor-wagmi chunk in dist/assets — invariant F checked nothing');
 for (const f of wagmiChunks) {
   const bytes = Buffer.byteLength(read(f), 'utf8');
   if (bytes > WAGMI_CHUNK_CEILING) {
