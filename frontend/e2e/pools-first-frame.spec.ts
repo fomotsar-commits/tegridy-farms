@@ -280,7 +280,7 @@ async function expectHandoffHolds(page: Page, address: string) {
   releaseHost();
   const panel = 'main#main-content [role="tabpanel"] [aria-busy="true"]';
   await expect(page.locator(`${panel} h1`)).toHaveText(HEADING, { timeout: 60_000 });
-  await expect(page.getByRole('tab', { name: 'Venue AMM' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Add / Remove', exact: true })).toBeVisible();
   near(await rect(page, `${panel} h1`), heading, "the host's fallback moved the heading");
   if (line) near(await rect(page, `${panel} [role="status"]`), line, "the host's fallback moved the door's line");
 

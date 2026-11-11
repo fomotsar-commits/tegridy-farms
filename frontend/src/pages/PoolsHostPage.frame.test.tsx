@@ -41,7 +41,7 @@ describe("the pools host, while the page's chunk arrives", () => {
     const panel = await hostOpenedOn('/pools', true);
     expect(panel.querySelector('[aria-busy="true"] h1')?.textContent).toBe('Liquidity pools.');
     expect(panel.textContent).not.toMatch(/loading/i);
-    expect(screen.getByRole('tab', { name: 'Venue AMM' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Add / Remove' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('keeps the page skeleton on /pools when no frame was painted', async () => {
