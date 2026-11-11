@@ -32,6 +32,8 @@ export interface NavItem {
   compactTabLabel?: string;
   /** Off today: no strip lists it but its own page, which still opens by URL (law 23). */
   soon?: boolean;
+  /** On, but taken off its strip and the menu (owner, 2026-11-11): like an off entry, listed only on its own page, which still opens by URL. */
+  unlisted?: boolean;
   /** Green "Live" pill, opt-in, driven by the page's own live read (never a literal `true`). */
   live?: boolean;
 }
@@ -190,15 +192,17 @@ export const NAV_SECTIONS: NavSection[] = [
       // "Staking", not "Pools": Pools (the bar's Add) is for providing liquidity.
       { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
+      // Owner, 2026-11-11: the strip is Staking and NFT Loans. The three below are unlisted:
+      // each still opens by its address, lights Lock there and shows its own tab, lit.
       // Off only while no venue carries an on-chain-verified deposit target.
-      { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue() },
+      { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue(), unlisted: true },
       // Reads the island tape; on when a readable pool is registered, never on a live
       // read. It promises no execution and no payout.
       // CT on phones and iPads: "Copy Trading" is wider than its tab there.
-      { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
+      { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource(), unlisted: true },
       // Browser-only (signed invoice in the URL fragment); off only while no served
       // chain has a verified settlement asset.
-      { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },
+      { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain(), unlisted: true },
     ],
   },
   {
@@ -390,9 +394,10 @@ export function indexName(group: IndexGroup, item: NavItem): string {
 
 /**
  * Off the menu (owner, 2026-11-10: "we are just cleaning up the menu a bit"). Each page still
- * opens by its address; a page on a tab strip keeps its tab there (Lock's, Launch's, Check's),
- * and the island lobby, /island, keeps its doors. To put a page back in the menu, delete its
- * line here. Check and Launch are off as whole groups: see INDEX_GROUPS.
+ * opens by its address; a page on a tab strip keeps its tab there (Launch's, Check's), and the
+ * island lobby, /island, keeps its doors. To put a page back in the menu, delete its line here.
+ * Check and Launch are off as whole groups: see INDEX_GROUPS. An `unlisted` page (Lock's Yield,
+ * Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
  */
 export const MENU_PARKED: ReadonlySet<string> = new Set([
   // Under Island, everything but Lore.
@@ -402,18 +407,14 @@ export const MENU_PARKED: ReadonlySet<string> = new Set([
   '/tokenomics',
   '/premium',
   '/history',
-  // Under Lock.
-  '/yield',
-  '/copy-trading',
-  '/checkout',
 ]);
 
 /** Under Island: the launch door, the one launch page the menu keeps (owner, 2026-11-10). */
 export const MENU_LAUNCH: NavItem = { to: '/launch', label: 'Launch' };
 
-/** What the menu lists of a group's pages: those on today, less the parked ones. */
+/** What the menu lists of a group's pages: those its strip lists, less the parked ones. */
 export function menuItems(items: readonly NavItem[]): NavItem[] {
-  return items.filter((i) => !i.soon && !MENU_PARKED.has(i.to));
+  return items.filter((i) => !i.soon && !i.unlisted && !MENU_PARKED.has(i.to));
 }
 
 function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] = []): IndexGroup {

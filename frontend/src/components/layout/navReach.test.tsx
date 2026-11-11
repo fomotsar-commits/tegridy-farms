@@ -63,6 +63,10 @@ const URL_ONLY: Record<string, string> = {
   '/terminal': 'Check, off the menu since 2026-11-10',
   '/chart': 'Check, off the menu since 2026-11-10',
   '/alerts': 'Check, off the menu since 2026-11-10',
+  // Owner, 2026-11-11: Lock's strip is Staking and NFT Loans; these three are `unlisted`.
+  '/yield': "off Lock's strip since 2026-11-11; the swap's TWAP and DCA panels still link it",
+  '/copy-trading': "off Lock's strip since 2026-11-11",
+  '/checkout': "off Lock's strip since 2026-11-11; a merchant's payment link opens it",
 };
 
 /** Where a visitor can start: the four words, the drawer and the footer's own links. */
@@ -88,7 +92,7 @@ function starts(): string[] {
 function reachable(): Set<string> {
   // A page that is in a strip opens the whole strip; the island lobby opens its doors.
   const groups: string[][] = [
-    ...NAV_SECTIONS.filter((s) => s !== ISLAND_SECTION).map((s) => s.items.filter((i) => !i.soon).map((i) => i.to)),
+    ...NAV_SECTIONS.filter((s) => s !== ISLAND_SECTION).map((s) => s.items.filter((i) => !i.soon && !i.unlisted).map((i) => i.to)),
     NUMBERS_TABS.map((i) => i.to),
     tabsOf('pages/ActivityPage.tsx', 'ALL_TABS'),
     tabsOf('pages/InfoPage.tsx', 'TABS'),

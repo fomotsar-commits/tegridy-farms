@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-11
+
+- Lock: its tab row is Staking and NFT Loans. Yield, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
+
 ### 2026-11-10
 
 - Menu: cut down. Island lists Lore and Launch (the launch page), and Dashboard once a wallet connects; Swap, Pools and Lock (Staking, NFT Loans) stay. Check and the Launch group leave the menu, and so do the island's other pages, Yield, Copy Trading and Checkout. Every one still opens at its own address, and the island lobby and the Lock tabs still list theirs.
