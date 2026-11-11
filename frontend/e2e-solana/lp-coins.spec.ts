@@ -99,15 +99,18 @@ const coinHeld = (c: Coin, account: PublicKey) => (c.symbol === 'USDC' ? usdcAmo
 const tokenAccountOf = (t: TokenSide, owner: PublicKey) => ata(t.mint, owner, t.program);
 const tokenHeld = (t: TokenSide, account: PublicKey) => (t.mint.equals(BAYLA_MINT) ? baylaAmount(account) : tokenAmount(account));
 
-interface Rents { r165: bigint; poolAccounts: bigint }
+/** What Metaplex keeps for making a record, on top of its rent: a flat 0.01 SOL (lp-create.spec.ts holds every landed record to it). */
+const METAPLEX_CREATE_FEE = 10_000_000n;
+interface Rents { r165: bigint; poolAccounts: bigint; nameRecord: bigint }
 /**
  * Live rents. An opening pays for five accounts that can never be closed: the pool (637
  * bytes), its price record (4075), its share token (82) and its two vaults (165 each,
  * under either token program).
  */
 async function liveRents(): Promise<Rents> {
-  const [r82, r165, r637, r4075] = (await Promise.all([82, 165, 637, 4075].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint];
-  return { r165, poolAccounts: r637 + r4075 + r82 + r165 + r165 };
+  const [r82, r165, r637, r4075, r607] = (await Promise.all([82, 165, 637, 4075, 607].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint, bigint];
+  // The opening also writes the share's name record (607 bytes), paid in SOL like the rest.
+  return { r165, poolAccounts: r637 + r4075 + r82 + r165 + r165, nameRecord: r607 + METAPLEX_CREATE_FEE };
 }
 
 /** A price book a fixture can register a fresh token in before any browser exists. */
@@ -117,8 +120,8 @@ const bookOf = (prices: Prices): Pick<JupiterStub, 'setPrice'> => ({
 
 /** What the wallet signed, without the compute-budget lines every transaction carries. */
 const signedBody = (a: Actor) => a.wallet.lastSigned().instructions.filter((i) => i.program !== 'compute-budget');
-/** A SOL opening wraps the SOL, opens the pool and closes the wrapped-SOL account again. Any other coin is the pool instruction alone. */
-const SOL_OPENING = ['create-idempotent', 'wrap-sol', 'sync-native', 'initialize', 'close-wsol'];
+/** A SOL opening wraps the SOL, opens the pool, names its share and closes the wrapped-SOL account again. Any other coin is the pool's two instructions alone. */
+const SOL_OPENING = ['create-idempotent', 'wrap-sol', 'sync-native', 'initialize', 'create_lp_metadata', 'close-wsol'];
 
 // ── opening a pool through the form ────────────────────────────────────────────
 
@@ -179,6 +182,9 @@ async function checkOpeningRows(rows: Record<string, string>, o: Opening & { mar
   // The fee and the deposits are SOL, whatever the pool is paired with.
   expect(rows['Fee to open the pool']).toBe(`${solExact(FEE_TO_OPEN)}, paid to the team's vault (into ${FEE_ACCOUNT}, the account the pool program fixes); not refundable`);
   expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.poolAccounts)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
+  expect(rows['Name record of the pool share']).toBe(
+    `${solExact(rents.nameRecord)}: ${solExact(METAPLEX_CREATE_FEE)} is Metaplex's fee for making it, ${solExact(rents.nameRecord - METAPLEX_CREATE_FEE)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`,
+  );
   expect(rows['Your pool-share account']).toBe(`${solExact(rents.r165)} (it comes back if you close that account later)`);
   expect(rows['You get']).toBe(`${units(supply - LOCKED, 9)} pool shares, exactly`);
   // What stays behind on each side, by hand: what went in, less what the opener's own
@@ -251,7 +257,7 @@ async function checkOpenedOnChain(o: Opening & { pool: PublicKey; rents: Rents; 
   // the network fee, and (only for a SOL pool) what went into the pool.
   const t = await landedTx(o.signature);
   const delta = lamportDelta(t, owner);
-  expect(delta, "the opener's SOL change, worked out in Node").toBe(-((coin.native ? o.coinIn : 0n) + FEE_TO_OPEN + o.rents.poolAccounts + o.rents.r165 + BigInt(t.meta!.fee)));
+  expect(delta, "the opener's SOL change, worked out in Node").toBe(-((coin.native ? o.coinIn : 0n) + FEE_TO_OPEN + o.rents.poolAccounts + o.rents.nameRecord + o.rents.r165 + BigInt(t.meta!.fee)));
   expect(signedSol(delta), 'the SOL change is the review\'s test run line').toBe(o.reviewSolLine);
   expect(await accountOwner(ata(WSOL, owner)), 'no wrapped-SOL account after').toBeNull();
 }
@@ -322,7 +328,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     await expect(panel.getByTestId('lp-create-first')).toHaveText('No pool pairs this token with USDC yet. Yours would be the first.');
     await expect(ui.lp.create.market(p)).toContainText(`1 token = ${formatSolPrice(S.market)} USDC.`, { timeout: 60_000 });
     const paidInSol = panel.getByTestId('lp-create-paid-in-sol');
-    await expect(paidInSol).toContainText('The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with.');
+    await expect(paidInSol).toContainText('The fee to open (0.15 SOL), the account deposits, the name record and the network fee are paid in SOL, whatever the pool is paired with.');
     await expect(paidInSol).toContainText('Only your USDC and your tokens go into the pool.');
     await expect(panel).toContainText(`You have ${coinExact(usdc(1_000), USDC_COIN)}.`, { timeout: 30_000 });
 
@@ -344,7 +350,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     const rows = await reviewRows(p);
     const o: Opening = { coin: USDC_COIN, token: BAYLA_TOKEN, coinIn, tokenIn };
     const { pool, rents, supply } = await checkOpeningRows(rows, { ...o, market: S.market });
-    await expect(ui.review(p)).toContainText(`${spentFrom(USDC_COIN)} The fee to open and the account deposits are paid in SOL.`);
+    await expect(ui.review(p)).toContainText(`${spentFrom(USDC_COIN)} The fee to open, the account deposits and the name record are paid in SOL.`);
     // At the market, and BAYLA cannot be frozen and copies no name: the token and the
     // price give nothing to warn of. What USDC itself adds to the risks is the one warning,
     // first on the review with the others' lead-in, and said once: no row below repeats it.
@@ -355,9 +361,9 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     const before = await beforeOpening(S.opener.publicKey, o);
 
     const { signature } = await signConfirmed(a);
-    // What was signed: the pool instruction alone. Nothing wrapped, no account opened.
+    // What was signed: the opening and its share's name. Nothing wrapped, no account opened.
     const body = signedBody(a);
-    expect(body.map((i) => i.name)).toEqual(['initialize']);
+    expect(body.map((i) => i.name)).toEqual(['initialize', 'create_lp_metadata']);
     const init = body[0]!;
     expect(init.args).toMatchObject({ pairedWith: 'USDC', origin: 'standard', openTime: '0' });
     expect(init.accounts.pool_state).toBe(pool.toBase58());
@@ -671,7 +677,7 @@ test.describe('one opening each (chromium only)', () => {
     const rows = await reviewRows(p);
     const o: Opening = { coin: BAYLA_COIN, token: classic(T.t5), coinIn, tokenIn };
     const { pool, rents, supply } = await checkOpeningRows(rows, { ...o, market });
-    await expect(ui.review(p)).toContainText(`${spentFrom(BAYLA_COIN)} The fee to open and the account deposits are paid in SOL.`);
+    await expect(ui.review(p)).toContainText(`${spentFrom(BAYLA_COIN)} The fee to open, the account deposits and the name record are paid in SOL.`);
     // The freeze warning is USDC's own: BAYLA has no issuer who can freeze a pool's account.
     await expect(ui.review(p)).not.toContainText('Circle');
     const reviewSolLine = rows['Test run: your SOL changes by']!;
@@ -679,7 +685,7 @@ test.describe('one opening each (chromium only)', () => {
 
     const { signature } = await signConfirmed(a);
     const body = signedBody(a);
-    expect(body.map((i) => i.name)).toEqual(['initialize']);
+    expect(body.map((i) => i.name)).toEqual(['initialize', 'create_lp_metadata']);
     expect(body[0]!.args).toMatchObject({ pairedWith: 'BAYLA', origin: 'standard', openTime: '0' });
     expect(body[0]!.accounts.pool_state).toBe(pool.toBase58());
     // The BAYLA moves inside the pool instruction: the wallet is never asked for a Token-2022 instruction of its own.
