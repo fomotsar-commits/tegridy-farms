@@ -74,6 +74,12 @@ describe('the axis under the handles', () => {
     expect(stopTimes(50)).toBe('1.41 times');
     expect(stopTimes(400)).toBe('16 times');
   });
+
+  it('the far end is said in words, as half and a quarter are, not "0.063 times"', () => {
+    expect(stopTimes(-300)).toBe('an eighth');
+    expect(stopTimes(-400)).toBe('a sixteenth');
+    expect(stopTimes(-350)).toBe('0.088 times');
+  });
 });
 
 describe('dragging the range', () => {

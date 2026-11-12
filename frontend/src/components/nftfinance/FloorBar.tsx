@@ -14,7 +14,7 @@ import { useDrawWidth } from '../../hooks/useDrawWidth';
 
 // Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 58;
-const PAD = 10;
+const PAD = 12; // a handle at either end clears the edge by 3 px or more
 const LABEL = 11;
 const TRACK = 20;
 

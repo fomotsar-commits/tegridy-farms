@@ -43,8 +43,9 @@ export function PriceMoveDial({ quoteSymbol }: { quoteSymbol: string }) {
 
   return (
     <div data-testid="lp-price-dial">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className={`font-semibold font-mono ${point.vs === 0 ? 'text-emerald-300' : 'text-amber-300'}`} data-testid="lp-price-dial-headline">
+      {/* On a phone the price takes the next line, rather than the two squeezing each other. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid="lp-price-dial-top">
+        <p className={`whitespace-nowrap font-semibold font-mono ${point.vs === 0 ? 'text-emerald-300' : 'text-amber-300'}`} data-testid="lp-price-dial-headline">
           {headline}
         </p>
         <p className="text-white/75 text-right" data-testid="lp-price-dial-price">

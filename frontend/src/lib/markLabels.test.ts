@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitCentred, monoWidth, placeLabels, type MarkLabel } from './markLabels';
+import { fitCentred, monoWidth, placeLabels, sideWithRoom, type MarkLabel } from './markLabels';
 
 const SPAN = 320;
 const spans = (labels: MarkLabel[], lefts: number[]) => lefts.map((l, i) => [l, l + labels[i].width] as const);
@@ -62,5 +62,28 @@ describe('labels centred under marks that may crowd (the loan timeline reminders
     expect(fitCentred([{ at: 290, width: 40 }], SPAN, [[280, 320]])).toEqual([null]);
     expect(fitCentred([{ at: 10, width: 40 }], SPAN)).toEqual([null]);
     expect(fitCentred([{ at: 310, width: 40 }], SPAN)).toEqual([null]);
+  });
+});
+
+describe('the side of its mark a label has room on (the range strip)', () => {
+  it('the preferred side while the whole label fits there', () => {
+    expect(sideWithRoom(100, 60, SPAN)).toBe('right');
+    expect(sideWithRoom(100, 60, SPAN, 'left')).toBe('left');
+  });
+
+  it('the other side when the preferred one is too short for it', () => {
+    // 320 - 4 - 4 - 260 = 52 to the right: a 60-wide label goes left.
+    expect(sideWithRoom(260, 60, SPAN)).toBe('left');
+    expect(sideWithRoom(40, 60, SPAN, 'left')).toBe('right');
+  });
+
+  it('exactly enough room is room', () => {
+    expect(sideWithRoom(252, 60, SPAN)).toBe('right');
+    expect(sideWithRoom(253, 60, SPAN)).toBe('left');
+  });
+
+  it('room on neither side: the side with more, for placeLabels to slide on', () => {
+    expect(sideWithRoom(150, 200, SPAN)).toBe('right');
+    expect(sideWithRoom(170, 200, SPAN)).toBe('left');
   });
 });
