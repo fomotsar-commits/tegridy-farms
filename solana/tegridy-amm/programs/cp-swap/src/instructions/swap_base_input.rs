@@ -114,17 +114,23 @@ pub fn swap_base_input(ctx: Context<Swap>, amount_in: u64, minimum_amount_out: u
         .checked_mul(u128::from(total_output_token_amount))
         .unwrap();
 
-    let creator_fee_rate =
-        pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
+    // memetics.finance, 2026-11-11: the tier's keeper swaps free of the trade and creator fees
+    // (states/config.rs swap_fee_rates); everyone else pays both, as upstream.
+    let (trade_fee_rate, creator_fee_rate, creator_fee_taken_on_input) =
+        ctx.accounts.amm_config.swap_fee_rates(
+            ctx.accounts.payer.key,
+            pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
+            is_creator_fee_on_input,
+        );
     let result = CurveCalculator::swap_base_input(
         u128::from(actual_amount_in),
         u128::from(total_input_token_amount),
         u128::from(total_output_token_amount),
-        ctx.accounts.amm_config.trade_fee_rate,
+        trade_fee_rate,
         creator_fee_rate,
         ctx.accounts.amm_config.protocol_fee_rate,
         ctx.accounts.amm_config.fund_fee_rate,
-        is_creator_fee_on_input,
+        creator_fee_taken_on_input,
     )
     .ok_or(ErrorCode::ZeroTradingTokens)?;
 
