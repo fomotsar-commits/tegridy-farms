@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-12
+
+- NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
+
 ### 2026-11-11
 
 - Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
