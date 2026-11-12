@@ -7,6 +7,11 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-12
+
+- Lock ladders: a position whose lock has ended now says, beside the lock, that it keeps earning at the weight it was staked at until you withdraw, for example "still earning at 0.46× until you withdraw". That was always the rule and it stays the rule; it was only written inside the "Upgrade risk" details, so stakers took the earnings after their lock ended for a mistake. The room ladders on the other networks say the same.
+- NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
+
 ### 2026-11-11
 
 - Pools: on a slow connection the page's heading shows in under a second. The screen used to stay dark until the app had loaded. Opening Add from a share link no longer flashes the footer before the room opens.
@@ -21,11 +26,14 @@ The site's Changelog tab shows both files.
 - Buy sheet: the picked coin's chip is filled.
 - Swaps and reads on Solana: when the network behind the site stops answering, the site gives up after 8 seconds and keeps watching your transaction. It used to wait.
 - Token scan, wallet history, NFT data and collection listings: when the source behind them stops answering, the site gives up after 8 seconds and says so (NFT data first asks its second source). It used to wait.
+- Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
 - Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.
+- Solana pools: opening a pool also writes its pool share's name record in the same transaction, so a wallet shows "Memetics Pool Share" and a picture for the new share from its first block instead of "Unknown"; the pair name follows when the vault renames it. It costs the opener 0.0137 SOL more: 0.01 SOL is Metaplex's fee for making the record and the rest stays in the record. The team gets none of it. The Open a pool card, the form and the review say so.
 - Solana pools: the site serves a name and a picture for 15 more pool shares (GRR/SOL LP, BRAINLET/SOY LP, USDT/SOL LP and the rest), and the two BAYLA shares take their pair names, "BAYLA/SOL LP" and "BAYLA/USDC LP". A wallet shows them once the share's name record is written on chain; until then it may call the share "Unknown".
 - Every page loads less wallet code up front: the Ethereum connect window's language files, wallet icons and install pictures now load only when the window asks for them, which takes about 230 KB off each first visit.
 - Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
 - Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
+- Pool shares: a pool opened from now on gets its own name file without a site update. A wallet that reads it sees the pair ("PEPE/SOL LP", with the coin's whole address) and the paired coin's picture, and a copy of a well-known coin reads "fake SOY". Any other link still answers the default file.
 
 ### 2026-11-10
 

@@ -107,7 +107,7 @@ const facts = (): WalletFacts => ({
   wsol: { exists: false, amount: 0n },
   coin: null,
   lpAccountExists: false,
-  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n },
+  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, nameRecord: 13_733_800n },
 });
 
 function readers(o: Partial<LpReaders> = {}): LpReaders {
@@ -1042,7 +1042,12 @@ describe('a pool that opens moments after it was read', () => {
 describe('Open a pool: one name, and the whole cost above its button', () => {
   /** The opening's never-refunded account deposits at mainnet rent: the five accounts' sizes, (n + 128) × 6,960 each. */
   const DEPOSITS = 40_117_440n;
+  /** The new share's name record at the same rent: 607 bytes, plus Metaplex's flat 0.01 SOL for making it. */
+  const NAME = BigInt((607 + 128) * 6_960) + 10_000_000n;
   const tiers = (openingDeposits: bigint | null) => vi.fn(async () => ({ kind: 'ok' as const, openingDeposits, tiers: [] }));
+  const named = (cost: bigint | null = NAME) => ({ nameRecordCost: vi.fn(async () => cost) });
+  const READ = "Opening a pool costs 0.15 SOL to the venue plus about 0.0552 SOL you do not get back: account setup and the pool share's name record.";
+  const UNREAD = "Opening a pool costs 0.15 SOL to the venue plus account setup and the pool share's name record, which you do not get back (amount not read).";
   const cost = (c: HTMLElement) => within(c).getByTestId('lp-create-cost');
 
   it('the card is called Open a pool, as the finder button that leads to it is', async () => {
@@ -1054,9 +1059,9 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   });
 
   it('read: the fee to the venue and the setup, in one line, right above the button', async () => {
-    mount(readers({ feeTiers: tiers(DEPOSITS) }));
+    mount(readers({ feeTiers: tiers(DEPOSITS), ...named() }));
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.'));
+    await waitFor(() => expect(said(cost(c))).toBe(READ));
     expect(cost(c).nextElementSibling).toBe(within(c).getByRole('button', { name: 'Open a pool' }));
     // Said once: the line above no longer carries the fee as well.
     expect(c.textContent?.split('0.15 SOL').length).toBe(2);
@@ -1065,40 +1070,46 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   });
 
   it.each<[string, Partial<LpReaders>]>([
-    ['answered without the deposits', { feeTiers: tiers(null) }],
-    ['not read at all', { feeTiers: vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 503' })) }],
-    ['a read that threw', { feeTiers: vi.fn(async () => Promise.reject(new Error('HTTP 503'))) }],
+    ['answered without the deposits', { feeTiers: tiers(null), ...named() }],
+    ['not read at all', { feeTiers: vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 503' })), ...named() }],
+    ['a read that threw', { feeTiers: vi.fn(async () => Promise.reject(new Error('HTTP 503'))), ...named() }],
+    ['read, but not the name record', { feeTiers: tiers(DEPOSITS), ...named(null) }],
+    ['read, but the name record read threw', { feeTiers: tiers(DEPOSITS), nameRecordCost: vi.fn(async () => Promise.reject(new Error('HTTP 503'))) }],
+    ['read, with no reader for the name record', { feeTiers: tiers(DEPOSITS) }],
   ])('the setup %s: "amount not read", never 0', async (_l, over) => {
     mount(readers(over));
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus account setup you do not get back (amount not read).'));
+    await waitFor(() => expect(said(cost(c))).toBe(UNREAD));
     expect(cost(c)).not.toHaveTextContent(/\b0 SOL|about 0\b/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
-  it('while the fee tiers are still being read, it says so', async () => {
-    mount(readers({ feeTiers: vi.fn(() => new Promise<never>(() => {})) }));
+  it.each<[string, Partial<LpReaders>]>([
+    ['the fee tier read', { feeTiers: vi.fn(() => new Promise<never>(() => {})), ...named() }],
+    ['the name record', { feeTiers: tiers(DEPOSITS), nameRecordCost: vi.fn(() => new Promise<never>(() => {})) }],
+  ])('while %s is still being read, it says so', async (_l, over) => {
+    mount(readers(over));
     const c = await settled('offer');
-    expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus account setup you do not get back (reading the amount…).');
+    expect(said(cost(c))).toBe("Opening a pool costs 0.15 SOL to the venue plus account setup and the pool share's name record, which you do not get back (reading the amount…).");
   });
 
   it('a tier with no fee to open says nothing goes to the venue, and still says the setup', async () => {
-    mount(readers({ feeTiers: tiers(DEPOSITS) }), { createFacts: readyFacts({ createPoolFee: 0n }) });
+    mount(readers({ feeTiers: tiers(DEPOSITS), ...named() }), { createFacts: readyFacts({ createPoolFee: 0n }) });
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs nothing to the venue plus about 0.0401 SOL account setup you do not get back.'));
+    await waitFor(() => expect(said(cost(c))).toBe("Opening a pool costs nothing to the venue plus about 0.0552 SOL you do not get back: account setup and the pool share's name record."));
     expect(cost(c)).not.toHaveTextContent(/\b0 SOL/);
   });
 
   it('beside a pool to add to, the cost belongs to Open a pool alone: Go to that pool comes first', async () => {
     const theirs = view({ tier1: true });
-    mount(readers({ findPools: vi.fn(async () => search([theirs])), feeTiers: tiers(DEPOSITS) }));
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), feeTiers: tiers(DEPOSITS), ...named() }));
     const c = await settled('offer');
     const go = await within(c).findByRole('button', { name: 'Go to that pool' });
     const open = within(c).getByRole('button', { name: 'Open a pool' });
     expect(go.compareDocumentPosition(cost(c)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(cost(c).nextElementSibling).toBe(open);
     // Right under Go to that pool, the line names what costs: going to a pool costs nothing.
-    expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.');
+    await waitFor(() => expect(said(cost(c))).toBe(READ));
     expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
       'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at 1% a trade.',
     );

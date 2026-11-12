@@ -15,6 +15,43 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-11: a local `vite preview` of the build no longer reads /pools the way the site does, and its errors name the wrong cause
+
+**Believed:** `npm run build` then `vite preview` walks /pools against mainnet as production
+does: `vite.config.ts` proxies `/api/solrpc` to the keyless public node and `/api/jupiter` to
+Jupiter, so only the host differs.
+
+**Measured** (walking Open a pool on this branch's build at 390, 2026-11-11):
+`api.mainnet-beta.solana.com` answered every proxied call 403, "This request has a browser
+User-Agent but not the headers that a browser sends" (the proxy strips Origin and Referer, as
+production's function never sends them), so the page said "The chain could not be read".
+With the RPC hop's User-Agent set to a plain one (Playwright `page.route` on `/api/solrpc`,
+nothing else changed), all 13 load calls answered 200. Next, vite preview has no
+`/api/pools` (a Vercel function): `readPoolIndex` turns that 404 into "the pool index says
+this address is not a token mint", for a token that is one. Answering that path from
+`https://memetics.finance/api/pools` cleared it. Jupiter's keyless API then answered 429 to
+the price read twice; the card's own Refresh got a price within a minute.
+
+**Do:** in a walk script, route `/api/solrpc` with a plain User-Agent and `/api/pools` to
+production's endpoint, and say so with the result. A local "not a token mint" or "could not be
+read" is the stand-in host first: check the network tab before the code.
+
+## 2026-11-11: a cleanup trap that `cd`s first restores nothing, and `git diff --quiet` on a missing path says "clean"
+
+**Believed:** `trap restore EXIT` with `restore() { git checkout HEAD -- $(cat files); git diff
+--quiet HEAD -- frontend/src && echo RESTORED; }` puts the files back however a mutant run ends.
+
+**Measured** (a red-first run of an e2e spec on trunk's source, 2026-11-11): the script had
+`cd frontend` before the run, so at exit the repo-root paths matched nothing ("pathspec did
+not match any file(s) known to git"), and `git diff --quiet HEAD -- frontend/src` from inside
+`frontend/` asked about `frontend/frontend/src`, which does not exist, and exited 0. It printed
+RESTORED over 14 files still holding trunk's code. The same check from the repo root showed
+them.
+
+**Do:** in a restore, `cd` to the repo root first (or use `git -C <root>` and `:/`-rooted
+pathspecs), and prove it with a check that fails on a wrong path: `git diff --stat` printed,
+or a grep for a line only the restored version has.
+
 ## 2026-11-10: the public Solana node can answer `null` for a finalized transaction it has just listed
 
 **Believed:** `getTransaction` on `api.mainnet-beta.solana.com` either returns a finalized
