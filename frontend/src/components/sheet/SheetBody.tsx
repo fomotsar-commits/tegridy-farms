@@ -39,13 +39,13 @@ function SheetAdd() {
   const sheet = useSheet()!;
   const readers = useMemo(() => browserLpReaders(), []);
   const { status, retry } = useVenueStatus();
-  // Every pool: the pools section whole, as /pools draws it (the finder, your positions with Remove and Claim fees,
-  // every pool, Open a pool). Drawn outside the sheet's drawing, so each form is its page form with all its controls.
+  // Every pool: /pools' own forms (the finder with Open a pool, your positions with Remove and Claim fees), and none
+  // of its lists or reading. Drawn outside the sheet's drawing, so each form is its page form with all its controls.
   if (sheet.all && readers && status?.kind === 'live') {
     return (
       <SheetContext.Provider value={null}>
         <div data-testid="sheet-every-pool">
-          <LpInner readers={readers} />
+          <LpInner readers={readers} module />
         </div>
       </SheetContext.Provider>
     );

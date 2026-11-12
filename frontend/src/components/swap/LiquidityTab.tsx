@@ -6,7 +6,7 @@ import { formatEther, formatUnits, parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
 import { useUniswapV2MarketPrice, matchAtMarket, gapFromMarketBps, formatMarketPrice } from '../../hooks/useUniswapV2MarketPrice';
-import { DEFAULT_TOKENS, defaultTokensFor, headlineTokenFor, type TokenInfo } from '../../lib/tokenList';
+import { DEFAULT_TOKENS, defaultTokensFor, headlineTokenFor, type TokenInfo, tokenArt } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
@@ -458,7 +458,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('A')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
-                  {tokenA.logoURI && <img src={tokenA.logoURI} alt="" className="w-5 h-5 rounded-full" />}
+                  {tokenArt(tokenA) && <img src={tokenArt(tokenA)} alt="" className="w-5 h-5 rounded-full object-cover" />}
                   <span className="text-white font-medium text-[14px]">{tokenA.symbol}</span>
                   <span className="text-white/70">▾</span>
                 </button>
@@ -482,7 +482,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('B')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
-                  {tokenB?.logoURI && <img src={tokenB.logoURI} alt="" className="w-5 h-5 rounded-full" />}
+                  {tokenArt(tokenB) && <img src={tokenArt(tokenB)} alt="" className="w-5 h-5 rounded-full object-cover" />}
                   <span className="text-white font-medium text-[14px]">{tokenB?.symbol ?? 'Select'}</span>
                   <span className="text-white/70">▾</span>
                 </button>

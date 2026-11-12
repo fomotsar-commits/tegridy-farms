@@ -4,6 +4,19 @@
 import { getAddress } from 'viem';
 import { TOWELI_ADDRESS, WETH_ADDRESS, CHAIN_ID } from './constants';
 import { EVM_BASKET } from './islandBasket';
+import { BUNGALOWS } from './bungalows';
+
+/** An island coin's picture is its room's (lib/bungalows.ts thumb), found by address: a symbol can be copied. */
+export function roomArt(address: string | null | undefined): string {
+  if (!address) return '';
+  const at = address.toLowerCase();
+  return BUNGALOWS.find((b) => b.chain !== 'solana' && b.address?.toLowerCase() === at)?.thumb ?? '';
+}
+
+/** The picture a token is drawn with: its own, else its room's; '' when it has neither (the lists draw its letter). */
+export function tokenArt(token: { address: string; logoURI?: string } | null | undefined): string {
+  return token ? token.logoURI || roomArt(token.address) : '';
+}
 
 export interface TokenInfo {
   address: string;
@@ -152,7 +165,7 @@ const SWAP_TOKENS_BY_CHAIN: Readonly<Record<number, readonly TokenInfo[]>> = Obj
  */
 const BASE_SWAP_TOKENS: readonly TokenInfo[] = Object.freeze([
   ...SWAP_TOKENS_BY_CHAIN[8453]!,
-  ...EVM_BASKET.base.map((c) => ({ address: c.token, symbol: c.symbol, name: c.symbol, decimals: c.decimals, logoURI: '' })),
+  ...EVM_BASKET.base.map((c) => ({ address: c.token, symbol: c.symbol, name: c.symbol, decimals: c.decimals, logoURI: roomArt(c.token) })),
 ]);
 export function swapTokensFor(chainId: number): readonly TokenInfo[] {
   return chainId === 8453 ? BASE_SWAP_TOKENS : defaultTokensFor(chainId);

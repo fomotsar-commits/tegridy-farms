@@ -16,7 +16,7 @@ import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
 import { CoinName } from '../ui/CoinName';
 import { SHEET_WAIT } from './sheetContext';
-import { BungalowRow } from './SheetBuyRow';
+import { SheetRoomRow } from './SheetBuyRow';
 
 // The sheet's own Solana connection, for a page with none: its own chunk, as every Solana section is.
 const SheetOwnConnection = lazy(() => import('./SheetSolana'));
@@ -184,17 +184,11 @@ function OpenSheet({ ask }: { ask: SheetAsk }) {
             ))}
           </div>
           </div>
-          {/* Buy names its coin in the form's own bungalow row, which follows a pick from the You get press (SheetBuyRow);
-              its network drop-down ends that row. Add's row is here: every room, the sheet's one lit, then every pool,
-              then the network. */}
+          {/* Buy names its coin on the form's own chip (SheetBuyRow), whose press opens the swap's coin list; its network
+              drop-down ends that row. Add's chip is here: its list is the rooms and Every pool; then the network. */}
           {onSolana && kind === 'add' && (
             <>
-              <BungalowRow
-                lit={room?.address ?? null}
-                onPick={pick}
-                all={everyPool ? { on: all, onPick: () => go('add', SHEET_ALL, 'solana') } : undefined}
-                end={network}
-              />
+              <SheetRoomRow room={room} all={all} onPick={pick} onAll={everyPool ? () => go('add', SHEET_ALL, 'solana') : undefined} end={network} />
               {room && <CoinRow room={room} />}
             </>
           )}
@@ -222,23 +216,14 @@ function OpenSheet({ ask }: { ask: SheetAsk }) {
   );
 }
 
-/** The coin, a 56 px row: its art in a 40 px disc with the venue's green ring, its name as a press that copies its address, its pool. */
+/** Under the chip: the coin's whole address, a press that copies it, and its pool. The chip above carries its art. */
 function CoinRow({ room }: { room: Bungalow }) {
   return (
-    <div className="flex items-center gap-4 min-h-[56px] mt-2" data-testid="sheet-coin">
-      <span
-        aria-hidden="true"
-        className="shrink-0 rounded-full overflow-hidden"
-        style={{ width: 40, height: 40, border: '2px solid var(--color-kyle)', boxShadow: '0 0 12px rgba(76,175,80,0.45)' }}
-      >
-        <img src={room.thumb} alt="" className="w-full h-full object-cover" style={{ objectPosition: room.thumbPosition ?? '50% 30%' }} />
+    <div className="flex flex-wrap items-center gap-x-3 mt-1" data-testid="sheet-coin">
+      <CoinName name={room.symbol} address={room.address!} nameClassName="sr-only" addressClassName="text-white/55 text-[12px]" />
+      <span className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
+        {SHEET_WORDS.poolLine(room.symbol)}
       </span>
-      <div className="min-w-0">
-        <CoinName name={room.symbol} address={room.address!} className="-my-2" nameClassName="text-[18px] text-white" addressClassName="text-white/55 text-[12px]" />
-        <p className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
-          {SHEET_WORDS.poolLine(room.symbol)}
-        </p>
-      </div>
     </div>
   );
 }

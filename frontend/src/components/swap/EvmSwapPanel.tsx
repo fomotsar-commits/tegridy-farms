@@ -9,7 +9,7 @@ import { getTxUrl } from '../../lib/explorer';
 import { RealYieldProof } from '../RealYieldProof';
 import { useSwap } from '../../hooks/useSwap';
 import { CHAIN_ID } from '../../lib/constants';
-import { swapTokensFor } from '../../lib/tokenList';
+import { swapTokensFor, tokenArt } from '../../lib/tokenList';
 import { useTOWELIPriceOptional } from '../../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../../lib/routeSavings';
@@ -212,7 +212,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                       aria-haspopup="dialog"
                       className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
                     >
-                      {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
+                      {tokenArt(swap.fromToken) && <img src={tokenArt(swap.fromToken)} alt="" className="w-6 h-6 rounded-full object-cover" />}
                       <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
                       <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>
@@ -260,7 +260,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                       aria-haspopup="dialog"
                       className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
                     >
-                      {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
+                      {tokenArt(swap.toToken) && <img src={tokenArt(swap.toToken)} alt="" className="w-6 h-6 rounded-full object-cover" />}
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
                       <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>

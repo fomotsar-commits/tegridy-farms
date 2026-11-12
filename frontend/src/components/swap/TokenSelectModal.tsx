@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
 import { pageArt } from '../../lib/artConfig';
-import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
+import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo, tokenArt } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
 import { BUNGALOWS } from '../../lib/bungalows';
 
@@ -36,7 +36,7 @@ function FallbackIcon({ symbol, size, bg }: { symbol: string; size: string; bg: 
 function SafeTokenImg({ src, symbol, size, fallbackBg }: { src: string; symbol: string; size: string; fallbackBg: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <FallbackIcon symbol={symbol} size={size} bg={fallbackBg} />;
-  return <img src={src} alt="" className={`${size} rounded-full`} onError={() => setFailed(true)} />;
+  return <img src={src} alt="" className={`${size} rounded-full object-cover`} onError={() => setFailed(true)} />;
 }
 
 interface TokenSelectModalProps {
@@ -362,8 +362,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                     color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
                   }}
                 >
-                  {token.logoURI ? (
-                    <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="var(--color-purple-75)" />
+                  {tokenArt(token) ? (
+                    <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-4 h-4" fallbackBg="var(--color-purple-75)" />
                   ) : (
                     <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="var(--color-purple-75)" />
                   )}
@@ -394,8 +394,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                         color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.7)',
                       }}
                     >
-                      {token.logoURI ? (
-                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(212,160,23,0.15)" />
+                      {tokenArt(token) ? (
+                        <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(212,160,23,0.15)" />
                       ) : (
                         <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(212,160,23,0.15)" />
                       )}
@@ -442,8 +442,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   >
                     <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
                       style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                      {token.logoURI ? (
-                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
+                      {tokenArt(token) ? (
+                        <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
                       ) : (
                         <span className="text-[11px] font-bold text-white">{token.symbol.charAt(0)}</span>
                       )}

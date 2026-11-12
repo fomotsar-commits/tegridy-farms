@@ -143,10 +143,14 @@ describe('the sheet', () => {
   it('with no room, Add’s bungalow row stands in the coin’s place; a pick names the coin and the sheet reads as drawn', () => {
     mount(['/launch?sheet=add']);
     const row = screen.getByRole('group', { name: 'Pick a coin' });
-    // Every room, then every pool, then the sheet's network (owner, 2026-11-11).
-    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Every pool', 'Solana']);
+    // One chip, then the sheet's network (owner, 2026-11-11); the rooms and Every pool are the chip's list.
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['Pick a coin', 'Solana']);
     expect(screen.getByTestId('open')).toHaveTextContent('closed');
-    fireEvent.click(within(row).getByRole('button', { name: 'SOY' }));
+    fireEvent.click(screen.getByTestId('sheet-coin-chip'));
+    const list = screen.getByRole('listbox', { name: 'Pick a coin' });
+    expect(within(list).getAllByRole('option').map((o) => o.textContent?.replace(/SOL pool|yours, remove, open|∞/g, ''))).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Every pool']);
+    fireEvent.click(within(list).getByRole('button', { name: /SOY/ }));
+    expect(screen.queryByRole('listbox', { name: 'Pick a coin' }), 'a pick closes the list').toBeNull();
     expect(screen.getByTestId('where')).toHaveTextContent('/launch?sheet=add&coin=soy');
     expect(screen.getByRole('dialog', { name: 'Add SOL + SOY' })).toBeInTheDocument();
     expect(screen.getByTestId('sheet-coin')).toHaveTextContent('SOL + SOY pool · Solana');
@@ -226,11 +230,17 @@ describe('the sheet', () => {
   it('in a room, Add still offers every other room and every pool; closing every pool leaves the page’s address clean', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     mount(['/bayla?sheet=add']);
-    const row = screen.getByRole('group', { name: 'Pick a coin' });
-    expect(within(row).getByRole('button', { name: 'BAYLA' })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(within(row).getByRole('button', { name: 'RIZZ' }));
+    const openList = () => {
+      fireEvent.click(screen.getByTestId('sheet-coin-chip'));
+      return screen.getByRole('listbox', { name: 'Pick a coin' });
+    };
+    expect(screen.getByTestId('sheet-coin-chip')).toHaveTextContent(/^BAYLA$/);
+    expect(within(openList()).getByRole('option', { name: /BAYLA/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Pick a coin' })).getByRole('button', { name: /RIZZ/ }));
     expect(screen.getByTestId('open')).toHaveTextContent('add:rizz:sheet-body');
-    fireEvent.click(within(screen.getByRole('group', { name: 'Pick a coin' })).getByRole('button', { name: 'Every pool' }));
+    expect(screen.getByTestId('sheet-coin-chip')).toHaveTextContent(/^RIZZ$/);
+    fireEvent.click(within(openList()).getByRole('button', { name: /Every pool/ }));
+    expect(screen.getByTestId('sheet-coin-chip')).toHaveTextContent(/^Every pool$/);
     expect(screen.getByTestId('where')).toHaveTextContent('/bayla?sheet=add&coin=all');
     expect(screen.getByTestId('open')).toHaveTextContent('add:no coin:sheet-body');
     expect(screen.queryByTestId('sheet-coin')).toBeNull();
