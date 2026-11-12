@@ -420,6 +420,14 @@ export const MENU_PARKED: ReadonlySet<string> = new Set([
 /** Under Island: the launch door, the one launch page the menu keeps (owner, 2026-11-10). */
 export const MENU_LAUNCH: NavItem = { to: '/launch', label: 'Launch' };
 
+/**
+ * Under Island: the Nakamigos marketplace, back in the menu (owner, 2026-11-12: "the marketplace
+ * isnt visible lets add that to the remote"). The menu only: it left the home, the island lobby's
+ * doors and the venue's metadata on 2026-10-24, and none of those take it back. Mounted outside
+ * AppLayout (App.tsx), so it opens with its own header, as the bungalow rooms' Marketplace door does.
+ */
+export const MENU_MARKETPLACE: NavItem = { to: '/nakamigos', label: 'Marketplace' };
+
 /** What the menu lists of a group's pages: those its strip lists, less the parked ones. */
 export function menuItems(items: readonly NavItem[]): NavItem[] {
   return items.filter((i) => !i.soon && !i.unlisted && !MENU_PARKED.has(i.to));
@@ -442,13 +450,14 @@ function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] 
  * pages, in the order a visitor moves: find the island, trade, pool, lock, launch, check; then
  * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
  * /vesting stay out: their rails are undeployed (navConfig.test.ts). Owner, 2026-11-10: the
- * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, and Dashboard once a
- * wallet connects (NavDrawer.tsx); Launch and Check leave the menu as groups. Their pictures,
+ * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, then Marketplace
+ * (2026-11-12), and Dashboard once a wallet connects (NavDrawer.tsx); Launch and Check leave the
+ * menu as groups. Their pictures,
  * `nav-drawer:7` and `:2`, stay in the studio for when they come back.
  */
 export const INDEX_GROUPS: readonly IndexGroup[] = [
   // The venue's own pages no section claims (the Gold Card, History, Lore) are the island's.
-  indexGroup(ISLAND_SECTION, 3, [...UNSECTIONED_PAGES, MENU_LAUNCH]),
+  indexGroup(ISLAND_SECTION, 3, [...UNSECTIONED_PAGES, MENU_LAUNCH, MENU_MARKETPLACE]),
   indexGroup(SWAP_SECTION, 5),
   indexGroup(POOLS_SECTION, 1),
   indexGroup(YIELD_SECTION, 6),
@@ -458,10 +467,11 @@ export const INDEX_GROUPS: readonly IndexGroup[] = [
 /** Every page the index lists, flat, each once: what navReach.test.ts starts from. */
 export const INDEX_PAGES: readonly NavItem[] = INDEX_GROUPS.flatMap((g) => g.items);
 
-/** Every listed destination, exactly once: the sections, the drawer's own links and Dashboard. */
+/** Every listed destination, exactly once: the sections, the drawer's own links, the marketplace and Dashboard. */
 export const ALL_NAV: NavItem[] = [
   ...MORE_NAV,
   ...DRAWER_LINKS,
   ...UNSECTIONED_PAGES,
+  MENU_MARKETPLACE,
   DASHBOARD_NAV,
 ];
