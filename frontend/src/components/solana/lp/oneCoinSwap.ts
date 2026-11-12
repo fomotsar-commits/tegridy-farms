@@ -247,6 +247,12 @@ export interface StepTwoNote {
   bps: bigint;
   signature: string;
   at: number;
+  /**
+   * What was chosen for both steps, in the paid coin's base units (island answer thirty-five):
+   * step 2 says it back, so what step 1 left is never read as a wrong amount. Absent on a note
+   * written before that answer.
+   */
+  total?: bigint;
 }
 export const STEP_TWO_TTL_MS = 60 * 60_000;
 const stepTwoKey = (wallet: string) => `lp:one-coin:${wallet}`;
@@ -261,7 +267,9 @@ export function readStepTwo(wallet: string, pool: string, now: number = Date.now
       if (typeof x.kept !== 'string' || !UNITS.test(x.kept) || typeof x.got !== 'string' || !UNITS.test(x.got)) continue;
       if (typeof x.at !== 'number' || now - x.at > STEP_TWO_TTL_MS || typeof x.signature !== 'string') continue;
       const bps = typeof x.bps === 'string' && /^\d{1,4}$/.test(x.bps) && BigInt(x.bps) <= 10_000n ? BigInt(x.bps) : DEFAULT_SLIPPAGE_BPS;
-      return { pool, paid: x.paid, kept: BigInt(x.kept), got: BigInt(x.got), gotExact: x.gotExact === true, bps, signature: x.signature, at: x.at };
+      // A total is kept only when it is more than what was kept back: anything else is no total.
+      const total = typeof x.total === 'string' && UNITS.test(x.total) && BigInt(x.total) > BigInt(x.kept) ? BigInt(x.total) : null;
+      return { pool, paid: x.paid, kept: BigInt(x.kept), got: BigInt(x.got), gotExact: x.gotExact === true, bps, signature: x.signature, at: x.at, ...(total !== null ? { total } : {}) };
     }
   } catch {
     /* storage unreadable: nothing remembered */
@@ -273,7 +281,7 @@ function writeStepTwo(wallet: string, pool: string, n: StepTwoNote | null): void
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(stepTwoKey(wallet)) ?? '[]');
     const rest = (Array.isArray(raw) ? (raw as { pool?: unknown }[]) : []).filter((x) => x && x.pool !== pool).slice(0, 15);
-    const all = n ? [{ ...n, kept: n.kept.toString(), got: n.got.toString(), bps: n.bps.toString() }, ...rest] : rest;
+    const all = n ? [{ ...n, kept: n.kept.toString(), got: n.got.toString(), bps: n.bps.toString(), total: n.total?.toString() }, ...rest] : rest;
     if (all.length) localStorage.setItem(stepTwoKey(wallet), JSON.stringify(all));
     else localStorage.removeItem(stepTwoKey(wallet));
   } catch {
