@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { FloorBar } from './FloorBar';
 import { barAmount, barMax, barStep, barZone } from '../../lib/gondi/floorBar';
 import { monoWidth } from '../../lib/markLabels';
+
+afterEach(() => vi.restoreAllMocks());
 
 /** Where a label is drawn, whatever anchor it uses: its left and right edges. */
 const drawn = (t: Element): [number, number] => {
@@ -105,7 +107,12 @@ describe('the bar on the Lend form', () => {
   });
 
   it('each label sits on its own mark\'s side, even with the bid past the floor', () => {
+    // With room for it: the bar drawn at a tablet card's width. At the 320 a phone gives, an
+    // 11 px "best bid" this near the right end has no room on its own side and slides inward,
+    // below its line's end; the cases above pin that it stays whole and apart there.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 600, height: 0, x: 0, y: 0, top: 0, left: 0, right: 600, bottom: 0, toJSON: () => ({}) } as DOMRect);
     const { container } = setup(0.07, 0.08, 0.085);
+    expect(container.querySelector('svg')!.getAttribute('viewBox')).toBe('0 0 600 58');
     const [bidLine, floorLine] = [...container.querySelectorAll('line')].map((l) => Number(l.getAttribute('x1')));
     const label = (word: string) => drawn([...container.querySelectorAll('text')].find((t) => t.textContent?.trim() === word)!);
     // The floor (left) reads left of its line, the bid (right) right of its own.

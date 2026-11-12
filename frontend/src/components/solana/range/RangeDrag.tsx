@@ -24,15 +24,14 @@ import {
 } from '../../../lib/solana/clmm/rangeDrag';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { monoWidth, placeLabels } from '../../../lib/markLabels';
+import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
 const GREEN = '#22c55e';
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 64;
 const PAD = 14;
 const MID = 30;
-const LABEL = 9;
-
-const x = (stop: number) => PAD + stopFraction(stop) * (W - 2 * PAD);
+const LABEL = 11;
 
 export function RangeDrag(p: {
   /** The price the range starts from. */
@@ -48,6 +47,8 @@ export function RangeDrag(p: {
   disabled?: boolean;
 }) {
   const track = useRef<SVGSVGElement | null>(null);
+  const [box, W] = useDrawWidth();
+  const x = (stop: number) => PAD + stopFraction(stop) * (W - 2 * PAD);
   // While a handle is held, it follows the finger; let go, and it shows the range the form
   // settled on (the nearest prices a position can use).
   const [held, setHeld] = useState<{ which: 'lo' | 'hi'; lo: number; hi: number } | null>(null);
@@ -126,12 +127,12 @@ export function RangeDrag(p: {
   );
 
   return (
-    <div data-testid="range-drag" data-picked={picked ? 'yes' : 'no'}>
+    <div ref={box} data-testid="range-drag" data-picked={picked ? 'yes' : 'no'}>
       <svg
         ref={track}
         viewBox={`0 0 ${W} ${H}`}
-        className="block w-full h-auto select-none cursor-ew-resize rounded-lg border border-white/[0.14] bg-black/30"
-        style={{ touchAction: 'pan-y', minHeight: 56 }}
+        className="block w-full select-none cursor-ew-resize rounded-lg border border-white/[0.14] bg-black/30"
+        style={{ touchAction: 'pan-y', height: H }}
         aria-hidden="true"
         focusable="false"
         onPointerDown={onDown}

@@ -10,11 +10,12 @@
 // The prices are the market card's own read (lib/gondi/lenderPitch.ts). The bar adds none.
 import { barAmount, barMax, barStep, barZone } from '../../lib/gondi/floorBar';
 import { monoWidth, placeLabels, type MarkLabel } from '../../lib/markLabels';
+import { useDrawWidth } from '../../hooks/useDrawWidth';
 
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 58;
 const PAD = 10;
-const LABEL = 9;
+const LABEL = 11;
 const TRACK = 20;
 
 const COLOR = { covered: '#10b981', 'under-floor': '#f59e0b', 'over-floor': '#ef4444' } as const;
@@ -28,6 +29,7 @@ export function FloorBar(p: {
   bestBid: number | null;
   setPrincipal: (text: string) => void;
 }) {
+  const [box, W] = useDrawWidth();
   const max = barMax(p.floor, p.bestBid, p.principal);
   if (max === null || p.floor === null || p.principal === null || !(p.principal > 0)) return null;
   const floor = p.floor;
@@ -50,8 +52,8 @@ export function FloorBar(p: {
       : `${barAmount(p.principal)} WETH: over the floor`;
 
   return (
-    <div className="relative" data-testid="floor-bar" data-zone={zone} style={{ touchAction: 'pan-y' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" aria-hidden="true" focusable="false">
+    <div ref={box} className="relative" data-testid="floor-bar" data-zone={zone} style={{ touchAction: 'pan-y' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: H }} aria-hidden="true" focusable="false">
         {/* The three stretches: a buyer already pays this; under the floor; over it. */}
         {bid !== null && <rect x={x(0)} y={TRACK} width={x(Math.min(bid, floor)) - x(0)} height={10} fill="rgba(16,185,129,0.35)" />}
         <rect x={x(bid !== null ? Math.min(bid, floor) : 0)} y={TRACK} width={x(floor) - x(bid !== null ? Math.min(bid, floor) : 0)} height={10} fill="rgba(245,158,11,0.30)" />

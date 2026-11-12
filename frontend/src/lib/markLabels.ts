@@ -45,3 +45,27 @@ export function placeLabels(labels: MarkLabel[], span: number, gap = 4, edge = 4
   for (const l of row) out[l.i] = l.left;
   return out;
 }
+
+/**
+ * Labels centred under their marks, for marks that may crowd (the loan timeline's reminder
+ * ticks on a phone). Unlike placeLabels nothing slides: in the order given, a label that would
+ * run off the picture or come within `gap` of one already shown (or of a `taken` stretch) is
+ * left out. Returns each label's left edge, or null for one left out.
+ */
+export function fitCentred(
+  labels: { at: number; width: number }[],
+  span: number,
+  taken: Array<[number, number]> = [],
+  gap = 6,
+  edge = 4,
+): Array<number | null> {
+  const shown = [...taken];
+  return labels.map((l) => {
+    const left = l.at - l.width / 2;
+    const right = left + l.width;
+    if (left < edge || right > span - edge) return null;
+    if (shown.some(([a, b]) => left < b + gap && right > a - gap)) return null;
+    shown.push([left, right]);
+    return left;
+  });
+}

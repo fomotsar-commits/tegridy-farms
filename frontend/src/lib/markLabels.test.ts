@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monoWidth, placeLabels, type MarkLabel } from './markLabels';
+import { fitCentred, monoWidth, placeLabels, type MarkLabel } from './markLabels';
 
 const SPAN = 320;
 const spans = (labels: MarkLabel[], lefts: number[]) => lefts.map((l, i) => [l, l + labels[i].width] as const);
@@ -46,5 +46,21 @@ describe('labels beside moving marks', () => {
       { at: 60, width: 20, side: 'left' },
     ];
     expect(placeLabels(labels, SPAN)).toEqual([254, 36]);
+  });
+});
+
+describe('labels centred under marks that may crowd (the loan timeline reminders)', () => {
+  it('with room, each label is centred on its mark', () => {
+    expect(fitCentred([{ at: 100, width: 40 }, { at: 200, width: 40 }], SPAN)).toEqual([80, 180]);
+  });
+
+  it('a label that would come within the gap of one already shown is left out, the earlier one kept', () => {
+    expect(fitCentred([{ at: 100, width: 40 }, { at: 140, width: 40 }, { at: 190, width: 40 }], SPAN)).toEqual([80, null, 170]);
+  });
+
+  it('a stretch already taken (day 1, due) keeps a label out, and so does an edge', () => {
+    expect(fitCentred([{ at: 290, width: 40 }], SPAN, [[280, 320]])).toEqual([null]);
+    expect(fitCentred([{ at: 10, width: 40 }], SPAN)).toEqual([null]);
+    expect(fitCentred([{ at: 310, width: 40 }], SPAN)).toEqual([null]);
   });
 });
