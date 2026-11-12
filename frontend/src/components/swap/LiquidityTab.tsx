@@ -446,7 +446,20 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
         {!isConnected ? (
           <div className="text-center py-8">
             <p className="text-white/70 text-[13px] mb-4">Connect a wallet to add liquidity.</p>
-            <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
+            {/* The form's own green button (as the swap's): RainbowKit still opens its list. */}
+            <ConnectButton.Custom>
+              {({ openConnectModal, mounted }) => (
+                <button
+                  type="button"
+                  onClick={openConnectModal}
+                  disabled={!mounted}
+                  className="w-full btn-primary min-h-[56px] text-[16px] font-extrabold rounded-2xl disabled:opacity-40"
+                  style={{ boxShadow: '0 8px 24px rgba(76,175,80,0.28)' }}
+                >
+                  {CONNECT_ETHEREUM_WALLET}
+                </button>
+              )}
+            </ConnectButton.Custom>
           </div>
         ) : mode === 'add' ? (
           <>

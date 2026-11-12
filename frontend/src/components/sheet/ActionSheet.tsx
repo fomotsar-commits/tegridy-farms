@@ -121,7 +121,7 @@ function OpenSheet({ ask }: { ask: SheetAsk }) {
     navigate(sheetHref(location.pathname, location.search, kind, b.id), { replace: true, state: location.state });
   };
   const label = room && onSolana ? (kind === 'add' ? SHEET_WORDS.add(room.symbol) : SHEET_WORDS.buy(room.symbol)) : kind === 'add' ? 'Add' : 'Buy';
-  const network = <ModuleNetworkPicker section={section} align="end" />;
+  const network = <ModuleNetworkPicker section={section} align="end" compact={kind === 'buy'} />;
   // On the room's own EVM network the swap opens on the room's coin.
   const evmToken = evmRoomToken(active);
   const roomToken = evmToken && roomNet(active) === net ? evmToken : null;
@@ -150,7 +150,7 @@ function OpenSheet({ ask }: { ask: SheetAsk }) {
           boxShadow: '0 -16px 48px rgba(0,0,0,0.55)',
         }}
       >
-        <div className="overflow-y-auto overscroll-contain px-4" style={{ paddingBottom: 'max(48px, calc(16px + env(safe-area-inset-bottom, 0px)))' }}>
+        <div className="overflow-y-auto overscroll-contain px-4 has-[[role=listbox]]:min-h-[min(520px,calc(100dvh-16px))]" style={{ paddingBottom: 'max(48px, calc(16px + env(safe-area-inset-bottom, 0px)))' }}>
           <div aria-hidden="true" className="mx-auto mt-2 rounded-full" style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.22)' }} />
           <div className="flex items-center justify-between gap-3 mt-1.5">
           <button
@@ -192,14 +192,14 @@ function OpenSheet({ ask }: { ask: SheetAsk }) {
               {room && <CoinRow room={room} />}
             </>
           )}
-          {!onSolana && (
+          {!onSolana && kind === 'add' && (
             <div className="flex justify-end mt-2" data-testid="sheet-network-row">
               {network}
             </div>
           )}
           {!onSolana && (
             <div className="mt-3" data-testid="sheet-off-solana">
-              {kind === 'buy' ? <OffSolanaSwap chain={net} buy={roomToken?.address} /> : net !== 'cardano' ? <OffSolanaPools chain={net} /> : null}
+              {kind === 'buy' ? <OffSolanaSwap chain={net} buy={roomToken?.address} lead={<ModuleNetworkPicker section="swap" align="start" />} /> : net !== 'cardano' ? <OffSolanaPools chain={net} /> : null}
             </div>
           )}
           <div ref={setSlot} data-testid="sheet-body" hidden={!onSolana} className={drawn ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />

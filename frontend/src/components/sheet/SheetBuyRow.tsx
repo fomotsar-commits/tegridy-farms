@@ -173,8 +173,8 @@ export function SheetRoomRow({ room, all, onPick, onAll, end }: {
                     ∞
                   </span>
                   <span className="flex-1 whitespace-nowrap">Every pool</span>
-                  <span className="text-[11px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
-                    yours, remove, open
+                  <span className="text-[11px] font-normal whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
+                    your positions
                   </span>
                 </button>
               </li>

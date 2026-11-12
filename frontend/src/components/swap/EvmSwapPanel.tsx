@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
@@ -64,9 +64,11 @@ function CoinDisc({ token }: { token: { address: string; symbol: string; logoURI
  * place). `chainId` is the network it quotes and signs on. `page` draws what belongs to /swap
  * alone: the tab panel's ids and the venue story under the form.
  */
-export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
+export function EvmSwapPanel({ chainId: swapChainId, page = false, buy, lead }: {
   chainId: number;
   page?: boolean;
+  /** Drawn at the left of the form's first row (the sheet's network drop-down), the island basket at its right. */
+  lead?: ReactNode;
   /** The coin the form opens on, bought with the network's coin: a room's, when it is on this network's list. */
   buy?: string;
 }) {
@@ -176,9 +178,10 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
             <>
                 {/* One amount split across every island coin on this chain (owner, 2026-10-18).
                     Only where the island has coins: Ethereum and Base. */}
-                {evmBasketFor(swapChainId) && (
-                  <div className="flex justify-end mb-3">
-                    <IslandBasketEvm chainId={swapChainId} slippagePct={swap.slippage} />
+                {(lead || evmBasketFor(swapChainId)) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3" data-testid="evm-swap-lead">
+                    {lead ?? <span />}
+                    {evmBasketFor(swapChainId) && <IslandBasketEvm chainId={swapChainId} slippagePct={swap.slippage} />}
                   </div>
                 )}
                 {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
@@ -571,10 +574,19 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                     T7: gated on connect — a disconnected visitor sees the live quote above
                     and a Connect CTA here instead of the Approve/Swap actions. */}
                 {!isConnected ? (
-                  <div className="w-full flex flex-col items-center gap-2">
-                    <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
-                    <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
-                  </div>
+                  <ConnectButton.Custom>
+                    {({ openConnectModal, mounted }) => (
+                      <button
+                        type="button"
+                        onClick={openConnectModal}
+                        disabled={!mounted}
+                        className="w-full btn-primary min-h-[56px] text-[16px] font-extrabold rounded-2xl disabled:opacity-40"
+                        style={{ boxShadow: '0 8px 24px rgba(76,175,80,0.28)' }}
+                      >
+                        {CONNECT_ETHEREUM_WALLET}
+                      </button>
+                    )}
+                  </ConnectButton.Custom>
                 ) : swap.needsApproval ? (
                   // Mirror the Swap button's state machine: stay busy through the
                   // approval's CONFIRMING phase too, not just the submit (isPending).

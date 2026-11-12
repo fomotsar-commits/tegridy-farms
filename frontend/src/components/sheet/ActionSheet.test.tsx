@@ -148,7 +148,7 @@ describe('the sheet', () => {
     expect(screen.getByTestId('open')).toHaveTextContent('closed');
     fireEvent.click(screen.getByTestId('sheet-coin-chip'));
     const list = screen.getByRole('listbox', { name: 'Pick a coin' });
-    expect(within(list).getAllByRole('option').map((o) => o.textContent?.replace(/SOL pool|yours, remove, open|∞/g, ''))).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Every pool']);
+    expect(within(list).getAllByRole('option').map((o) => o.textContent?.replace(/SOL pool|your positions|∞/g, ''))).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Every pool']);
     fireEvent.click(within(list).getByRole('button', { name: /SOY/ }));
     expect(screen.queryByRole('listbox', { name: 'Pick a coin' }), 'a pick closes the list').toBeNull();
     expect(screen.getByTestId('where')).toHaveTextContent('/launch?sheet=add&coin=soy');

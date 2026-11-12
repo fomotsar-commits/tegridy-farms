@@ -27,7 +27,8 @@ export function ChainSwitch({ at, align }: { at?: string; align?: 'start' | 'end
   const active = at ?? items.find((i) => pathname === i.to || pathname.startsWith(`${i.to}/`))?.to ?? items[0]?.to ?? '/swap';
   const network = useSectionChain(items, active, { notes: NOTES, missing: 'No swap here' });
   const mod = useModuleNetwork();
-  if (at && mod) return <ModuleNetworkPicker section="swap" align={align} />;
+  // In the sheet's coin row: its mark alone on a phone, so the coin, Buy / Sell and the network share one line.
+  if (at && mod) return <ModuleNetworkPicker section="swap" align={align} compact />;
   const picker = <ChainPicker label="Swap network" active={network.active} options={network.options} onPick={network.pick} align={align} />;
   if (at) return picker;
   return <div className="relative z-30 mb-4">{picker}</div>;

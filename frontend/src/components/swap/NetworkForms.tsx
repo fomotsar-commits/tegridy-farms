@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { venueChain, type VenueChain } from '../../lib/sectionChains';
 import { CHAIN_ID } from '../../lib/constants';
 import { ChainSwapAvailability } from './ChainSwapAvailability';
@@ -21,11 +21,12 @@ const wait = (
  * on Cardano. Every quote, check and signature is that form's, unchanged. Solana's form needs a
  * Solana connection and is mounted by the module itself.
  */
-export function OffSolanaSwap({ chain, buy }: { chain: Exclude<VenueChain, 'solana'>; buy?: string }) {
+export function OffSolanaSwap({ chain, buy, lead }: { chain: Exclude<VenueChain, 'solana'>; buy?: string; lead?: ReactNode }) {
   if (chain === 'cardano') {
     return (
       <Suspense fallback={wait}>
         <div data-testid="module-swap" data-network="cardano">
+          {lead && <div className="flex justify-end mb-3">{lead}</div>}
           <CardanoSwapCard />
         </div>
       </Suspense>
@@ -37,7 +38,7 @@ export function OffSolanaSwap({ chain, buy }: { chain: Exclude<VenueChain, 'sola
       <ChainSwapAvailability chainId={chainId} swapTab />
       <WrongChainBanner requiredChainId={chainId} message="Your wallet is on another network. Switch it to trade here." className="mb-3" />
       <Suspense fallback={wait}>
-        <EvmSwapPanel key={chainId} chainId={chainId} buy={buy} />
+        <EvmSwapPanel key={chainId} chainId={chainId} buy={buy} lead={lead} />
       </Suspense>
     </div>
   );

@@ -321,7 +321,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-0">
             <h3 id="token-select-title" className="text-white text-[15px] font-semibold">Select Token</h3>
-            <button onClick={onClose} aria-label="Close token selector" className="text-white hover:text-white transition-colors p-1 cursor-pointer">
+            <button onClick={onClose} aria-label="Close token selector" className="-mr-2.5 w-11 h-11 flex items-center justify-center rounded-full text-white hover:bg-white/10 transition-colors cursor-pointer">
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
@@ -355,7 +355,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   key={token.address}
                   onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-[13px] font-semibold transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
                   style={{
                     background: 'var(--color-purple-75)',
                     border: '1px solid var(--color-purple-75)',
@@ -363,9 +363,9 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   }}
                 >
                   {tokenArt(token) ? (
-                    <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-4 h-4" fallbackBg="var(--color-purple-75)" />
+                    <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-5 h-5" fallbackBg="var(--color-purple-75)" />
                   ) : (
-                    <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="var(--color-purple-75)" />
+                    <FallbackIcon symbol={token.symbol} size="w-5 h-5" bg="var(--color-purple-75)" />
                   )}
                   {sym}
                 </button>

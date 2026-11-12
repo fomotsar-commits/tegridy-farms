@@ -55,7 +55,7 @@ export function moduleNetworkOr(section: ModuleSection, asked: VenueChain | null
  * The drop-down of a module that holds its own network. A pick changes the module in place; where
  * an EVM wallet is connected on another chain it is asked to switch, as the pages' drop-down asks.
  */
-export function ModuleNetworkPicker({ section, align }: { section: ModuleSection; align?: 'start' | 'end' }) {
+export function ModuleNetworkPicker({ section, align, compact }: { section: ModuleSection; align?: 'start' | 'end'; compact?: boolean }) {
   const mod = useModuleNetwork();
   const { isConnected } = useAccount();
   const walletChainId = useChainId();
@@ -77,5 +77,5 @@ export function ModuleNetworkPicker({ section, align }: { section: ModuleSection
       );
     }
   };
-  return <ChainPicker label={s.label} active={mod.active} options={options} onPick={onPick} align={align} />;
+  return <ChainPicker label={s.label} active={mod.active} options={options} onPick={onPick} align={align} compact={compact} />;
 }
