@@ -33,6 +33,30 @@ import { useTowelie } from '../../hooks/useTowelie';
  */
 const floor6 = (n: number): number => Math.floor(n * 1e6) / 1e6;
 
+// The form's looks (owner, 2026-11-11: the EVM swap was "poorly done" beside Solana's): one box per side with its
+// label inside and its figure large, the coin a pill with its picture, quick shares as a row of chips.
+const BOX = 'flex items-center gap-3 min-h-[76px] pl-4 pr-2.5 rounded-2xl transition-colors focus-within:border-[rgba(139,92,246,0.70)]';
+const BOX_STYLE = { background: 'rgba(8,13,28,0.88)', border: '1px solid rgba(255,255,255,0.16)' } as const;
+const LABEL = 'text-[11px] font-semibold uppercase tracking-wider text-white/60';
+const FIGURE = { fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 28, lineHeight: '34px' } as const;
+const PILL = 'shrink-0 flex items-center gap-2 pl-1.5 pr-2.5 min-h-[44px] rounded-full text-[15px] font-semibold text-white hover:bg-white/10 transition-colors';
+const PILL_STYLE = { border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)' } as const;
+const CHIP = 'h-11 rounded-xl text-[13px] font-semibold text-white/75 hover:text-white disabled:opacity-40 transition-colors';
+const CHIP_STYLE = { background: 'rgba(8,13,28,0.80)', border: '1px solid rgba(255,255,255,0.14)' } as const;
+const PANEL = 'px-3.5 rounded-2xl';
+const PANEL_STYLE = { background: 'rgba(8,13,28,0.80)', border: '1px solid rgba(255,255,255,0.12)' } as const;
+
+/** A coin's picture, or its first letter on a disc when it has none (a pasted token, USDG). */
+function CoinDisc({ token }: { token: { address: string; symbol: string; logoURI?: string } | null | undefined }) {
+  const art = tokenArt(token);
+  if (art) return <img src={art} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />;
+  return (
+    <span aria-hidden="true" className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold text-white" style={{ background: 'var(--color-purple-75)' }}>
+      {token?.symbol?.charAt(0) ?? '?'}
+    </span>
+  );
+}
+
 /**
  * The EVM swap form (Ethereum, Base, Robinhood Chain): /swap's Swap tab, moved out of its page
  * unchanged so the same form, with every check before a signature, is also the Swap sheet's and
@@ -139,11 +163,13 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
 
   return (
     <>
-          <m.div {...(page ? { role: 'tabpanel', id: 'trade-panel-swap', 'aria-labelledby': 'trade-tab-swap', tabIndex: 0 } : {})} data-testid="evm-swap-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div {...(page ? { role: 'tabpanel', id: 'trade-panel-swap', 'aria-labelledby': 'trade-tab-swap', tabIndex: 0 } : {})} data-testid="evm-swap-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={page ? 'relative glass-card rounded-2xl overflow-hidden outline-none' : 'relative outline-none'} style={page ? { border: '1px solid var(--color-purple-12)' } : undefined}>
+            {page && (
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
               <ArtImg pageId="trade" idx={1} fallbackPosition="center 15%" alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
-            <div className={page ? 'relative p-5 flex flex-col min-h-[640px]' : 'relative p-4 flex flex-col'}>
+            )}
+            <div className={page ? 'relative p-5 flex flex-col min-h-[640px]' : 'relative flex flex-col'}>
             {/* T7: the swap form (incl. live quotes) renders for everyone — every
                 quote read is public RPC, no wallet needed. Only the action button
                 gates on connect, so a visitor can price a swap before connecting. */}
@@ -177,109 +203,109 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                   </div>
                 )}
 
-                {/* From Token */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
-                    <span className="flex items-center gap-1.5 text-[10px] font-mono">
-                      <span className="text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.fromBalance)}</span>
-                      {Number(swap.fromBalance) > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            /* floor6, not toFixed: toFixed rounds HALF-UP, which for
-                               many balances produces an amount ABOVE the wallet
-                               balance and disables the Swap button. */
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(floor6(b * 0.5))); }}
-                            /* a11y 2026-08-28: 44px touch floor on mobile (~19x30 before); md keeps the compact desktop chip */
-                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
-                          >50%</button>
-                          <button
-                            type="button"
-                            /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(floor6(amt))); }}
-                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
-                          >MAX</button>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
+                {/* You pay: the amount large at the left, the coin a pill at the right; under it the balance and its shares. */}
+                <div>
+                  <div className={BOX} style={BOX_STYLE}>
+                    <label className="flex-1 min-w-0 flex flex-col justify-center">
+                      <span className={LABEL}>You Pay</span>
+                      <input
+                        type="number" inputMode="decimal" placeholder="0"
+                        aria-label={`Amount of ${swap.fromToken?.symbol ?? 'selected token'} to pay`}
+                        value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
+                        className="w-full min-w-0 bg-transparent text-white placeholder:text-white/30 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        style={FIGURE}
+                      />
+                    </label>
                     <button
                       type="button"
                       onClick={() => setShowTokenSelect('from')}
                       aria-label={`Change token to pay with (currently ${swap.fromToken?.symbol ?? 'none selected'})`}
                       aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
+                      className={PILL}
+                      style={PILL_STYLE}
                     >
-                      {tokenArt(swap.fromToken) && <img src={tokenArt(swap.fromToken)} alt="" className="w-6 h-6 rounded-full object-cover" />}
-                      <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80" aria-hidden="true">▾</span>
+                      <CoinDisc token={swap.fromToken} />
+                      <span>{swap.fromToken?.symbol ?? 'Select'}</span>
+                      <span className="text-white/70" aria-hidden="true">▾</span>
                     </button>
-                    <input
-                      type="number" inputMode="decimal" placeholder="0.0"
-                      aria-label={`Amount of ${swap.fromToken?.symbol ?? 'selected token'} to pay`}
-                      value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
-                      className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
-                    />
                   </div>
-                  {payUsd != null && (
-                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${payUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                  <div className="flex items-center justify-between gap-3 mt-1.5 px-1 text-[11px] font-mono text-white/65">
+                    <span>Balance: {formatBalance(swap.fromBalance)}</span>
+                    {payUsd != null && <span>≈ ${payUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                  </div>
+                  {Number(swap.fromBalance) > 0 && (
+                    <div role="group" aria-label={`How much ${swap.fromToken?.symbol ?? 'of it'}`} className="grid grid-cols-4 gap-2 mt-2">
+                      {([25, 50, 75] as const).map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          /* floor6, not toFixed: toFixed rounds HALF-UP, which for
+                             many balances produces an amount ABOVE the wallet
+                             balance and disables the Swap button. */
+                          onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(floor6((b * pct) / 100))); }}
+                          className={CHIP}
+                          style={CHIP_STYLE}
+                        >{pct}%</button>
+                      ))}
+                      <button
+                        type="button"
+                        /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
+                        onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(floor6(amt))); }}
+                        className={CHIP}
+                        style={CHIP_STYLE}
+                      >MAX</button>
+                    </div>
                   )}
                 </div>
 
-                {/* Flip Button — solid Stan blue + thick white ring so it pops
-                    against any art the Swap card is layered over. */}
-                <div className="flex justify-center -my-2 relative z-10">
+                {/* Flip: the two coins change places. */}
+                <div className="flex justify-center -my-1.5 relative z-10">
                   <button onClick={swap.flipDirection}
+                    type="button"
                     aria-label="Swap From/To tokens"
-                    className="w-11 h-11 rounded-full flex items-center justify-center transition-all"
-                    style={{
-                      background: 'var(--color-stan)',
-                      border: '2px solid rgba(255,255,255,0.95)',
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'rotate(180deg) scale(1.05)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'rotate(0deg) scale(1)'; }}
+                    className="w-11 h-11 rounded-full flex items-center justify-center transition-transform hover:rotate-180"
+                    style={{ background: 'rgba(13,21,48,0.98)', border: '1px solid rgba(139,92,246,0.70)', boxShadow: '0 4px 14px rgba(0,0,0,0.55)' }}
                   >
-                    <span className="text-white text-[18px] font-bold leading-none">&#8645;</span>
+                    <span className="text-white text-[16px] font-bold leading-none" aria-hidden="true">&#8645;</span>
                   </button>
                 </div>
 
-                {/* To Token */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
-                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.toBalance)}</span>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
+                {/* You receive: the quote large, its coin a pill. */}
+                <div className="mb-3">
+                  <div className={BOX} style={BOX_STYLE}>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <span className={LABEL}>You Receive</span>
+                      <div
+                        className="text-white [overflow-wrap:anywhere]"
+                        style={FIGURE}
+                        // F205: announce quote updates to assistive tech as they settle.
+                        aria-live="polite"
+                        aria-atomic="true"
+                        aria-label={`You receive ${swap.outputFormatted || '0'} ${swap.toToken?.symbol ?? ''}`}
+                      >
+                        {swap.isQuoteLoading ? (
+                          // F207: skeleton shimmer instead of a bare "..." while the quote loads.
+                          <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
+                        ) : swap.outputFormatted ? formatTokenAmountGrouped(swap.outputFormatted) : <span className="text-white/30">0</span>}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setShowTokenSelect('to')}
                       aria-label={`Change token to receive (currently ${swap.toToken?.symbol ?? 'none selected'})`}
                       aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
+                      className={PILL}
+                      style={PILL_STYLE}
                     >
-                      {tokenArt(swap.toToken) && <img src={tokenArt(swap.toToken)} alt="" className="w-6 h-6 rounded-full object-cover" />}
-                      <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80" aria-hidden="true">▾</span>
+                      <CoinDisc token={swap.toToken} />
+                      <span>{swap.toToken?.symbol ?? 'Select'}</span>
+                      <span className="text-white/70" aria-hidden="true">▾</span>
                     </button>
-                    <div
-                      className="flex-1 text-right text-white text-[20px] font-mono font-medium"
-                      // F205: announce quote updates to assistive tech as they settle.
-                      aria-live="polite"
-                      aria-atomic="true"
-                      aria-label={`You receive ${swap.outputFormatted || '0'} ${swap.toToken?.symbol ?? ''}`}
-                    >
-                      {swap.isQuoteLoading ? (
-                        // F207: skeleton shimmer instead of a bare "..." while the quote loads.
-                        <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
-                      ) : swap.outputFormatted ? formatTokenAmountGrouped(swap.outputFormatted) : '0.0'}
-                    </div>
                   </div>
-                  {receiveUsd != null && (
-                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${receiveUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                  )}
+                  <div className="flex items-center justify-between gap-3 mt-1.5 px-1 text-[11px] font-mono text-white/65">
+                    <span>Balance: {formatBalance(swap.toBalance)}</span>
+                    {receiveUsd != null && <span>≈ ${receiveUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                  </div>
                 </div>
 
                 {/* Slippage tolerance — always visible so users can see + adjust
@@ -290,7 +316,12 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                     is highlighted whenever the current value doesn't match a
                     preset, so "custom" isn't a separate mode — it's just a
                     free-form override. Clamped to 0-20% to match useSwap. */}
-                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <details className={`group mb-2 ${PANEL}`} style={PANEL_STYLE} data-testid="evm-swap-settings">
+                  <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/85 text-[12px] [&::-webkit-details-marker]:hidden">
+                    <span>Slippage {swap.slippage.toFixed(swap.slippage % 1 === 0 ? 0 : 2)}%{swap.supportsFeeOnTransfer ? ' · Fee-on-transfer on' : ''}</span>
+                    <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
+                  </summary>
+                <div className="pb-2.5">
                   <div className="flex items-center justify-between mb-1.5">
                     <label htmlFor="slippage-custom" className="text-white text-[11px] cursor-pointer" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</label>
                     <span className="text-white/80 text-[10px] font-mono">{swap.slippage.toFixed(2)}%</span>
@@ -371,7 +402,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                 {/* AUDIT M-6: Fee-on-Transfer opt-in toggle. Off by default; auto-enabled on
                     InsufficientOutput reverts via the useSwap error handler. Users can also
                     flip it manually for known FoT/reflection/deflationary tokens. */}
-                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <div className="pb-3 pt-2.5 border-t border-white/10">
                   <label className="flex items-center justify-between cursor-pointer">
                     <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
                       Fee-on-transfer support
@@ -400,6 +431,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                     </p>
                   </FinePrint>
                 </div>
+                </details>
 
                 {/* MEV protection — one-time, user-confirmed opt-in to MEV Blocker's
                     protected RPC. Additive; does not touch the audited swap path.
@@ -427,7 +459,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                     Always renders; shows placeholder text when no amount entered so the
                     card never feels empty mid-swap. */}
                 {swap.routeLabel && swap.inputAmount ? (
-                  <div className="mt-1 px-3 py-2.5 rounded-lg text-[11px]" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid var(--color-stan-40)' }}>
+                  <div className={`mt-1 py-3 text-[12px] ${PANEL}`} style={{ ...PANEL_STYLE, border: '1px solid var(--color-stan-40)' }}>
                     <div className="flex justify-between">
                       <span className="text-white">Route</span>
                       <span className="font-medium" style={{ color: 'var(--color-stan)' }}>{swap.routeLabel}</span>
@@ -516,7 +548,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                     )}
                   </div>
                 ) : (
-                  <div className="mt-1 px-3 py-2.5 rounded-lg text-[11px]" style={{ background: 'rgba(0,0,0,0.50)', border: '1px solid rgba(255,255,255,0.10)' }}>
+                  <div className={`mt-1 py-3 text-[12px] ${PANEL}`} style={PANEL_STYLE}>
                     <div className="flex justify-between text-white/70">
                       <span>Route</span>
                       <span>Enter an amount</span>
@@ -533,7 +565,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                 )}
 
                 {/* Spacer — pushes the action button to the bottom of the tall card. */}
-                <div className="flex-1 min-h-[8px]" />
+                <div className="flex-1 min-h-[16px]" />
 
                 {/* Action Button — sits directly on the art, matching the Liquidity tab's pattern.
                     T7: gated on connect — a disconnected visitor sees the live quote above
@@ -547,14 +579,16 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy }: {
                   // Mirror the Swap button's state machine: stay busy through the
                   // approval's CONFIRMING phase too, not just the submit (isPending).
                   <button onClick={swap.approve} disabled={swap.isPending || swap.isConfirming}
-                    className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl"
+                    className="w-full btn-primary min-h-[56px] text-[16px] font-extrabold rounded-2xl"
+                    style={{ boxShadow: '0 8px 24px rgba(76,175,80,0.28)' }}
                   >
                     {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Approving...' : `Approve ${swap.fromToken?.symbol}`}
                   </button>
                 ) : (
                   <button onClick={swap.executeSwap}
                     disabled={swap.isPending || swap.isConfirming || swap.insufficientBalance || swap.impactBlocked || !swap.inputAmount || swap.outputAmount === 0n}
-                    className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl disabled:opacity-40"
+                    className="w-full btn-primary min-h-[56px] text-[16px] font-extrabold rounded-2xl disabled:opacity-40"
+                    style={{ boxShadow: '0 8px 24px rgba(76,175,80,0.28)' }}
                   >
                     {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : swap.impactBlocked ? 'Price impact too high' : 'Swap'}
                   </button>
