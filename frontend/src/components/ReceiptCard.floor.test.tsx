@@ -158,7 +158,7 @@ describe('an add: the pool is the card’s head', () => {
 
   describe('a coin the venue cannot name is left unnamed', () => {
     const UNNAMED_LINE = "You're part of the floor now. Every trade in the pool pays you.";
-    const UNNAMED_POST = "Just added liquidity on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.";
+    const UNNAMED_POST = "Just added liquidity. I'm part of the floor now. Every trade in the pool pays me.";
     const posted = () => new URL(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href') ?? '').searchParams.get('text');
 
     it('a ticker that was not read (the venue’s own word for it is "tokens"): no coin in the line, none marked, none in the post', () => {
@@ -190,7 +190,7 @@ describe('an add: the pool is the card’s head', () => {
     it('a coin with a ticker of its own is named as before', () => {
       act(() => raiseReceipt(add({ coin: { symbol: 'WIF', mint: WIF }, unnamed: false })));
       expect(line()).toHaveTextContent("You're part of $WIF's floor now. Every trade in the pool pays you.");
-      expect(posted()).toBe(`Just added liquidity to $WIF on memetics.finance. I'm part of the floor now. Every trade in the pool pays me. https://memetics.finance/lp/${WIF}`);
+      expect(posted()).toBe(`Just added liquidity to $WIF. I'm part of the floor now. Every trade in the pool pays me. https://memetics.finance/lp/${WIF}`);
     });
   });
 
