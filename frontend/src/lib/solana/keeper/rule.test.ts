@@ -27,7 +27,7 @@ describe('the cap', () => {
 
 describe('the rule the robot publishes, read back by the scanner', () => {
   // The live robot of 2026-11-06: a $100 cap, a $0.002 floor, Lighthouse proven, SOL loans on.
-  const live: PublishedRule = { ...settings({ maxTradeUsd: 100, minProfitUsd: 0.002, lighthouseProven: true }), flashLoans: true };
+  const live: PublishedRule = { ...settings({ maxTradeUsd: 100, minProfitUsd: 0.002, lighthouseProven: true }), flashLoans: true, freeSwaps: false };
 
   it('gives back exactly what the robot runs with, and none of its other settings', () => {
     const robotSettings = { ...live, slippageBps: 50, jito: true, raydiumPrograms: ['x'] };
@@ -35,6 +35,14 @@ describe('the rule the robot publishes, read back by the scanner', () => {
     expect((page as { rule: unknown }).rule).toEqual(live);
     expect(robotRule(page)).toEqual(live);
     expect(robotRule({ rule: { ...live, flashLoans: false, lighthouseProven: false } })).toEqual({ ...live, flashLoans: false, lighthouseProven: false });
+  });
+
+  it('says whether the robot prices its own swaps in our pools free (KEEPER_FREE_SWAPS); a robot on an older build, no', () => {
+    const free: PublishedRule = { ...live, freeSwaps: true };
+    expect(robotRule(JSON.parse(JSON.stringify({ rule: publishedRule(free) })))).toEqual(free);
+    const { freeSwaps: _, ...older } = live;
+    expect(robotRule({ rule: older })).toEqual({ ...live, freeSwaps: false });
+    expect(robotRule({ rule: { ...live, freeSwaps: 'yes' } })).toEqual({ ...live, freeSwaps: false });
   });
 
   it('says why not when the page has no rule (a robot on an older build), or one the robot did not write', () => {

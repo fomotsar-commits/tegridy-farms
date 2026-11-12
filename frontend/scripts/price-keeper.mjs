@@ -100,6 +100,13 @@
  *                           through Jito sent with NO test run, its tip sized from the robot's own
  *                           quote; each swap's minimum and the Lighthouse floor still hold it, and
  *                           Jito never lands a bundle that fails. Needs KEEPER_JITO (default no)
+ *   KEEPER_FREE_SWAPS       yes = the robot's own swaps in our pools are priced as the pool program
+ *                           charges a tier's keeper: no fee, on each tier that names the robot's
+ *                           wallet (update_amm_config param 9). Turn on ONLY once the upgrade that
+ *                           carries the keeper's fee (PR #1198) has executed: before it, such a swap
+ *                           still pays, misses its own minimum and never lands, so nothing is lost
+ *                           and nothing is traded. The engine follows it from this robot's page
+ *                           (default no)
  *   KEEPER_V1               yes = a trip too big for a legacy transaction (1,232 bytes: three swaps
  *                           through two PumpSwap pools, as the engine hands over) is built as a
  *                           version 1 transaction (SIMD-0385, 4,096 bytes, no lookup table),
@@ -843,7 +850,7 @@ async function engineDoors() {
     page,
     events: engineEventsUrl(page),
     outcome: engineOutcomeUrl(page),
-    routeLegs: routeLegReader({ rpc, ids: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY, clmm: RAYDIUM_CLMM } }),
+    routeLegs: routeLegReader({ rpc, ids: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY, clmm: RAYDIUM_CLMM }, freeSwaps: yes('KEEPER_FREE_SWAPS') }),
   };
 }
 
@@ -938,6 +945,7 @@ async function main() {
       directIds: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY },
       v1: yes('KEEPER_V1'),
       fast: yes('KEEPER_FAST'),
+      freeSwaps: yes('KEEPER_FREE_SWAPS'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     // The fast path's blockhash: refreshed every BLOCKHASH_EVERY_MS in the background (one call each),
@@ -1195,6 +1203,7 @@ async function main() {
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    log(`  its own swaps in our pools: ${settings.freeSwaps ? 'FREE on each tier that names this wallet its keeper (KEEPER_FREE_SWAPS; needs the keeper-fee upgrade on mainnet), the fee elsewhere' : 'the tier’s fee, as anyone pays (KEEPER_FREE_SWAPS=yes once the keeper-fee upgrade executes and the vault names this wallet)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  plain SOL for fees and tips: ${gas ? `under ${fmt(gas.lowLamports, 9)} SOL, wrapped SOL is unwrapped to bring it back to ${fmt(gas.targetLamports, 9)}, checked every minute` : 'not topped up (KEEPER_GAS_LOW_SOL=off)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);

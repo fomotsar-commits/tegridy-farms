@@ -76,11 +76,16 @@ export function capUsd(s: Pick<RuleSettings, 'maxTradeUsd' | 'lighthouseProven'>
  */
 export interface PublishedRule extends RuleSettings {
   flashLoans: boolean;
+  /**
+   * Whether the robot prices its own swaps in our pools as their tier charges it (KEEPER_FREE_SWAPS,
+   * keeper/cycle.ts): free on a tier naming it keeper. A robot on an older build says nothing: no.
+   */
+  freeSwaps: boolean;
 }
 
 /** The rule's fields only, for the robot's page: none of its other settings. */
 export function publishedRule(s: PublishedRule): PublishedRule {
-  return { maxTradeUsd: s.maxTradeUsd, minProfitUsd: s.minProfitUsd, microLamports: s.microLamports, lighthouseProven: s.lighthouseProven, flashLoans: s.flashLoans };
+  return { maxTradeUsd: s.maxTradeUsd, minProfitUsd: s.minProfitUsd, microLamports: s.microLamports, lighthouseProven: s.lighthouseProven, flashLoans: s.flashLoans, freeSwaps: s.freeSwaps };
 }
 
 /** The rule block of the robot's page, read back; why not, when it is missing or not what the robot writes. */
@@ -98,7 +103,7 @@ export function robotRule(page: unknown): PublishedRule | string {
   if (maxTradeUsd === null || minProfitUsd === null || microLamports === null) return 'the robot’s page gives a cap, floor or fee that is not a positive number';
   const { lighthouseProven, flashLoans } = o;
   if (typeof lighthouseProven !== 'boolean' || typeof flashLoans !== 'boolean') return 'the robot’s page does not say yes or no to the Lighthouse check and to loans';
-  return { maxTradeUsd, minProfitUsd, microLamports, lighthouseProven, flashLoans };
+  return { maxTradeUsd, minProfitUsd, microLamports, lighthouseProven, flashLoans, freeSwaps: o.freeSwaps === true };
 }
 
 /** A trip's network fee in lamports at `units` of compute: the signature fee plus the priority fee. */

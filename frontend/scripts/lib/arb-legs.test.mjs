@@ -7,6 +7,10 @@ import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { IX_SWAP_V2 } from '../../src/lib/solana/clmm/program.ts';
 import * as V from './arb-venues.mjs';
+import { readFileSync } from 'node:fs';
+import { AMM_CONFIG_KEEPER_OFFSET, REGISTERED_PROGRAM_ID } from '../../src/lib/solana/cpswap/program.ts';
+import { buildPool, key as testKey } from '../../src/lib/solana/lp/testkit.fixture.ts';
+import { SOL_QUOTE } from '../../src/lib/solana/lp/quotes.ts';
 import { DAMM_EVENT_AUTHORITY, DAMM_POOL_AUTHORITY, DAMM_PROGRAM, DLMM_EVENT_AUTHORITY, DLMM_PROGRAM, ORCA_MAX_SQRT_PRICE, ORCA_MIN_SQRT_PRICE, TAGS, dammSwapIx, dlmmSwapArrays, dlmmSwapIx, orcaSwapArrays, orcaSwapIx, routeLegReader } from './arb-legs.mjs';
 
 const key = () => Keypair.generate().publicKey.toBase58();
@@ -194,5 +198,81 @@ describe('routeLegReader from the engine’s copy (KEEPER_FAST)', () => {
     calls.length = 0;
     expect(await read(rec('dlmm', pool.address), owner, 1)).toBe(`pool ${pool.address} not found`);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('routeLegReader: the robot’s swap in one of our pools (KEEPER_FREE_SWAPS)', () => {
+  const ids = { cpmm: key(), ammV4: key(), ammV4Authority: key(), clmm: key() };
+  const SOL = 10n ** 9n;
+  const token = testKey();
+  // One of our pools, 50 SOL against 10^12 token units, its tier's 1% fee; its tier names `keeper`.
+  const chainWith = (keeper) => {
+    const b = buildPool({ mint: token, quote: SOL_QUOTE, quoteReserve: 50n * SOL, tokenReserve: 10n ** 12n });
+    if (keeper) b.accounts[b.config.toBase58()].data.set(keeper.toBytes(), AMM_CONFIG_KEEPER_OFFSET);
+    const rpc = async (method, params) => ({
+      context: { slot: 7 },
+      value: params[0].map((k) => {
+        const a = b.accounts[k];
+        return a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null;
+      }),
+    });
+    const rec = { legs: [{ pool: b.address.toBase58(), dex: 'ours', from: SOL_QUOTE.mint, to: token.toBase58(), accounts: [] }], mints: { [SOL_QUOTE.mint]: TOKEN, [token.toBase58()]: TOKEN } };
+    return { rpc, rec };
+  };
+  const curve = (x) => (10n ** 12n * x) / (50n * SOL + x);
+  const outOf = async (keeper, freeSwaps, x) => {
+    const { rpc, rec } = chainWith(keeper);
+    const built = await routeLegReader({ rpc, ids, freeSwaps })(rec, owner, 10);
+    expect(typeof built, String(built)).toBe('object');
+    return built.legs[0].out(x);
+  };
+
+  it('prices it free on a tier naming the robot, only when asked: the bare curve', async () => {
+    expect(await outOf(owner, true, SOL)).toBe(curve(SOL));
+    const paid = await outOf(owner, false, SOL);
+    expect(paid).toBeLessThan(curve(SOL));
+    expect(paid).toBe(curve(SOL - SOL / 100n));
+  });
+
+  it('prices it with the fee on a tier naming someone else, or no one', async () => {
+    const paid = curve(SOL - SOL / 100n);
+    expect(await outOf(Keypair.generate().publicKey, true, SOL)).toBe(paid);
+    expect(await outOf(null, true, SOL)).toBe(paid);
+  });
+});
+
+describe('routeLegReader against the keeper-fee build: 18 real swaps (src/lib/solana/cpswap/keeperFeeReplay.fixture.json)', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../src/lib/solana/cpswap/keeperFeeReplay.fixture.json', import.meta.url), 'utf8'));
+  const ids = { cpmm: key(), ammV4: key(), ammV4Authority: key(), clmm: key() };
+  // The recording's program id is a throwaway: its pool and tier are served as our registered program's.
+  const servedFrom = (s) => {
+    const raw = { [fixture.tier]: s.before.tier, [fixture.pool]: s.before.pool };
+    const pool = Buffer.from(s.before.pool.data, 'base64');
+    raw[new PublicKey(pool.subarray(72, 104)).toBase58()] = s.before.vault0;
+    raw[new PublicKey(pool.subarray(104, 136)).toBase58()] = s.before.vault1;
+    return async (method, params) => ({
+      context: { slot: 9 },
+      value: params[0].map((k) => (raw[k] ? { owner: k === fixture.tier || k === fixture.pool ? REGISTERED_PROGRAM_ID.toBase58() : raw[k].owner, data: [raw[k].data, 'base64'] } : null)),
+    });
+  };
+  const outOf = async (s, freeSwaps) => {
+    const to = s.inputMint === fixture.mint0 ? fixture.mint1 : fixture.mint0;
+    const rec = { legs: [{ pool: fixture.pool, dex: 'ours', from: s.inputMint, to, accounts: [] }], mints: { [fixture.mint0]: TOKEN, [fixture.mint1]: TOKEN } };
+    const signer = new PublicKey(s.who === 'keeper' ? fixture.keeper : fixture.stranger);
+    const built = await routeLegReader({ rpc: servedFrom(s), ids, freeSwaps })(rec, signer, s.blockTime);
+    expect(typeof built, String(built)).toBe('object');
+    return built.legs[0].out(BigInt(s.amountIn));
+  };
+
+  it('with KEEPER_FREE_SWAPS, builds every leg for what the program paid, to the unit', async () => {
+    for (const s of fixture.swaps) expect(await outOf(s, true), `${s.who} ${s.named} ${s.dir} ${s.amountIn}`).toBe(BigInt(s.got));
+  });
+
+  it('without it, prices the named keeper’s swaps at the fee (under what it got) and the rest as paid', async () => {
+    for (const s of fixture.swaps) {
+      const out = await outOf(s, false);
+      if (s.who === 'keeper' && s.named) expect(out).toBeLessThan(BigInt(s.got));
+      else expect(out).toBe(BigInt(s.got));
+    }
   });
 });

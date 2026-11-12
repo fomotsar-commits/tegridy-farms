@@ -198,8 +198,14 @@ export function decodePool(dex, address, data) {
 
 /** The trade fee in a Raydium CLMM fee config, or null. */
 export const clmmConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 51 ? u32(data, 47) / 1e6 : null);
-/** The trade and creator fees in a cp-swap fee config (ours and Raydium CPMM), or null. */
-export const cpConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 116 ? { trade: Number(u64(data, 12)) / 1e6, creator: Number(u64(data, 108)) / 1e6 } : null);
+/**
+ * The trade and creator fees in a cp-swap fee config (ours and Raydium CPMM), and the keeper it names
+ * (byte 124, cpswap/program.ts AMM_CONFIG_KEEPER_OFFSET; null when none, as every Raydium config), or null.
+ */
+export const cpConfigFee = (data) =>
+  Buffer.isBuffer(data) && data.length >= 116
+    ? { trade: Number(u64(data, 12)) / 1e6, creator: Number(u64(data, 108)) / 1e6, keeper: data.length >= 156 && data.subarray(124, 156).some((b) => b !== 0) ? key(data, 124) : null }
+    : null;
 /** The pump fee program's FeeConfig: flat fees and market-cap tiers, each a fraction; null when not one. */
 export function pumpFeeConfig(data) {
   if (!Buffer.isBuffer(data) || data.length < 73 || !data.subarray(0, 8).equals(tagOf('FeeConfig'))) return null;
@@ -231,6 +237,9 @@ function pumpFee(pool, cfg, ctx) {
 /**
  * The pool with its real fee filled in from `configs` (address → decoded fee config); null when
  * unread. A PumpSwap pool's needs its depth and its token's supply (`ctx`): its tier is its market cap.
+ * One of our pools whose tier names `ctx.payer` its keeper charges that payer nothing (`free`):
+ * the keeper's fee, PR #1198; the engine names the robot only when the robot's page says
+ * KEEPER_FREE_SWAPS. Never a Raydium CPMM pool: its program has no keeper.
  */
 export function withFee(pool, configs, ctx) {
   if (pool.dex === 'clmm') {
@@ -239,7 +248,9 @@ export function withFee(pool, configs, ctx) {
   }
   if (pool.dex === 'ours' || pool.dex === 'cpmm') {
     const f = configs.get(pool.config);
-    return f ? { ...pool, fee: f.trade + (pool.creatorOn ? f.creator : 0) } : null;
+    if (!f) return null;
+    if (pool.dex === 'ours' && ctx?.payer && f.keeper === ctx.payer) return { ...pool, fee: 0, free: true };
+    return { ...pool, fee: f.trade + (pool.creatorOn ? f.creator : 0) };
   }
   if (pool.dex === 'pumpswap') {
     const cfg = configs.get(PUMP_FEE_CONFIG);

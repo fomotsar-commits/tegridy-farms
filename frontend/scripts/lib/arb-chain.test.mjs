@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, robotSettings, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, cpConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, robotSettings, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -188,7 +190,7 @@ describe('robotSettings: the rule the running robot judges with, read from its p
 
   it('gives the robot’s own settings when its page has them, asked of the page named', async () => {
     const f = page({ wallet: ROBOT.wallet, lighthouse: { proven: true }, rule });
-    expect(await robotSettings('http://127.0.0.1:8792/state.json', f)).toEqual({ rule });
+    expect(await robotSettings('http://127.0.0.1:8792/state.json', f)).toEqual({ rule: { ...rule, freeSwaps: false } });
     expect(f.asked).toEqual(['http://127.0.0.1:8792/state.json']);
   });
 
@@ -211,6 +213,41 @@ describe('withFee fills a pool’s fee from its config, never a guess', () => {
   it('returns nothing when the config was not read', () => {
     expect(withFee({ dex: 'clmm', config: key(3), fee: null }, new Map())).toBeNull();
     expect(withFee({ dex: 'clmm', config: key(3), fee: null }, new Map([[key(3), 0.0025]]))).toMatchObject({ fee: 0.0025 });
+  });
+});
+
+describe('our pools free for the robot where its tier names it keeper (KEEPER_FREE_SWAPS)', () => {
+  // A cp-swap config: a 1% trade fee, a 0.5% creator fee, and the keeper at byte 124.
+  const cfg = (keeper) => {
+    const d = Buffer.alloc(236);
+    d.writeBigUInt64LE(10_000n, 12);
+    d.writeBigUInt64LE(5_000n, 108);
+    if (keeper) Buffer.from(bs58.decode(keeper)).copy(d, 124);
+    return d;
+  };
+
+  it('reads the keeper a config names: none from zeros or from a short account', () => {
+    expect(cpConfigFee(cfg(ROBOT.wallet))).toEqual({ trade: 0.01, creator: 0.005, keeper: ROBOT.wallet });
+    expect(cpConfigFee(cfg(null)).keeper).toBeNull();
+    expect(cpConfigFee(cfg(ROBOT.wallet).subarray(0, 120)).keeper).toBeNull();
+  });
+
+  it('reads the keeper from the keeper-fee build’s own tier bytes (src/lib/solana/cpswap/keeperFeeReplay.fixture.json)', () => {
+    const fixture = JSON.parse(readFileSync(resolve(__dirname, '../../src/lib/solana/cpswap/keeperFeeReplay.fixture.json'), 'utf8'));
+    for (const s of fixture.swaps) {
+      expect(cpConfigFee(Buffer.from(s.before.tier.data, 'base64'))).toEqual({ trade: 0.01, creator: 0, keeper: s.named ? fixture.keeper : null });
+    }
+  });
+
+  it('charges the payer its tier names nothing, in our pools only; anyone else, or with no payer, the fee', () => {
+    const configs = new Map([[key(3), cpConfigFee(cfg(ROBOT.wallet))], [key(4), cpConfigFee(cfg(null))]]);
+    const ours = { dex: 'ours', config: key(3), creatorOn: true };
+    expect(withFee(ours, configs).fee).toBeCloseTo(0.015, 12);
+    expect(withFee(ours, configs, { payer: ROBOT.wallet })).toMatchObject({ fee: 0, free: true });
+    expect(withFee(ours, configs, { payer: key(9) }).fee).toBeCloseTo(0.015, 12);
+    expect(withFee({ ...ours, config: key(4) }, configs, { payer: ROBOT.wallet }).fee).toBeCloseTo(0.015, 12);
+    // Raydium's CPMM program has no keeper, whatever its config's bytes say.
+    expect(withFee({ ...ours, dex: 'cpmm' }, configs, { payer: ROBOT.wallet }).fee).toBeCloseTo(0.015, 12);
   });
 });
 

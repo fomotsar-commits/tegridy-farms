@@ -225,6 +225,10 @@ const S = {
   coinsOf: new Map(),
   settings: R.ruleSettingsFromEnv(process.env, false),
   flashLoans: false,
+  // The robot's page says KEEPER_FREE_SWAPS: its swaps in our pools are free where a tier names it.
+  freeSwaps: false,
+  // Our tiers' configs, read again with the robot's rule: a keeper the vault names is seen within it.
+  ourConfigs: new Set(),
   ruleFrom: 'not read yet',
   // A gap: a trip that pays after every cost a send pays (lib/arb-listen.mjs afterCosts).
   book: new L.GapBook({ pays: (t) => t.paysAll, net: (t) => t.netAllUsd }),
@@ -490,13 +494,25 @@ const perA = (depth) => depth.spot ?? depth.b / depth.a;
 async function readRule() {
   const { rule, why } = await C.robotSettings(ROBOT_URL, fetch);
   if (rule) {
-    const { flashLoans, ...settings } = rule;
-    Object.assign(S, { settings, flashLoans, ruleFrom: 'the running robot' });
+    const { flashLoans, freeSwaps, ...settings } = rule;
+    if (freeSwaps !== S.freeSwaps) log(`The robot's page says its swaps in our pools are ${freeSwaps ? 'FREE where a tier names it keeper' : 'charged the fee'}`);
+    Object.assign(S, { settings, flashLoans, freeSwaps, ruleFrom: 'the running robot' });
   } else S.ruleFrom = `this listener's own (${why})`;
+  if (S.ourConfigs.size) {
+    const keys = [...S.ourConfigs];
+    await readAll(keys);
+    for (const k of keys) {
+      const fee = C.cpConfigFee(S.acc.get(k)?.data);
+      if (fee) S.configs.set(k, fee);
+    }
+  }
 }
 
+/** The fee context the engine prices with: the robot as the payer while its page says KEEPER_FREE_SWAPS. */
+const feeCtx = (ctx) => (S.freeSwaps ? { ...ctx, payer: C.ROBOT.wallet } : ctx);
+
 function solPrice() {
-  const bridge = C.withFee(C.decodePool('whirlpool', BRIDGE, dataOf(BRIDGE)) ?? {}, S.configs);
+  const bridge = C.withFee(C.decodePool('whirlpool', BRIDGE, dataOf(BRIDGE)) ?? {}, S.configs, feeCtx());
   const depth = bridge && C.depthOf(bridge, new Map());
   if (depth) S.usd.set(C.SOL_MINT, (depth.b / depth.a) * 1e3);
   return depth ? { pool: { ...bridge, arrays: S.bridgePool?.arrays ?? [] }, depth } : null;
@@ -514,7 +530,9 @@ async function readConfigs(pools) {
       if (cfg) S.configs.set(k, cfg);
       continue;
     }
-    S.configs.set(k, C.dexOfProgram(a.owner) === 'clmm' ? C.clmmConfigFee(a.data) : C.cpConfigFee(a.data));
+    const dex = C.dexOfProgram(a.owner);
+    if (dex === 'ours') S.ourConfigs.add(k);
+    S.configs.set(k, dex === 'clmm' ? C.clmmConfigFee(a.data) : C.cpConfigFee(a.data));
   }
 }
 
@@ -692,7 +710,7 @@ async function linkMemeQuotes(withFees) {
     if (p && !p.stopped) decoded.set(k, p);
   }
   await readConfigs([...decoded.values()]);
-  const priced = new Map([...decoded].map(([k, p]) => [k, C.withFee(p, S.configs)]).filter(([, p]) => p));
+  const priced = new Map([...decoded].map(([k, p]) => [k, C.withFee(p, S.configs, feeCtx())]).filter(([, p]) => p));
   await readVenueAccounts([...priced.values()]);
   await readAll([...new Set([...priced.values()].flatMap(L.accountsOf))]);
   for (const [q, o] of options) {
@@ -735,7 +753,7 @@ async function discover() {
     candidates.set(m, found.map(({ k, a }) => C.decodePool(C.dexOfProgram(a.owner), k, a.data)).filter((p) => p && [p.mintA, p.mintB].includes(m) && pricedIn(quoteOf(p, m))));
   }
   await readConfigs([...candidates.values()].flat());
-  const withFees = new Map([...candidates].map(([m, ps]) => [m, ps.map((p) => C.withFee(p, S.configs)).filter(Boolean)]));
+  const withFees = new Map([...candidates].map(([m, ps]) => [m, ps.map((p) => C.withFee(p, S.configs, feeCtx())).filter(Boolean)]));
   if (MEME_PAIRS) await linkMemeQuotes(withFees);
   S.note = 'reading the band and bin pools’ arrays';
   await readVenueAccounts([...withFees.values()].flat());
@@ -790,7 +808,7 @@ function judgeNow(coin, closedBy) {
   const bridge = solPrice();
   if (!bridge) return;
   let pools = coin.pools.map((p) => {
-    const fresh = C.withFee(C.decodePool(p.dex, p.address, dataOf(p.address)) ?? {}, S.configs);
+    const fresh = C.withFee(C.decodePool(p.dex, p.address, dataOf(p.address)) ?? {}, S.configs, feeCtx());
     if (!fresh || !fresh.mintA) return null;
     // A DAMM v2 pool's fee follows its schedule: the fee now, for the screen at zero size.
     if (fresh.dex === 'damm') {
@@ -807,14 +825,14 @@ function judgeNow(coin, closedBy) {
     if (!q && p.kind !== 'pair') S.stats.unpriced++;
     return q;
   };
-  pools = pools.map((p) => (p.dex === 'pumpswap' ? C.withFee(p, S.configs, { depth: depths.get(p.address), supply: p.mintA === coin.mint ? coin.supply : null }) : p)).filter(Boolean);
+  pools = pools.map((p) => (p.dex === 'pumpswap' ? C.withFee(p, S.configs, feeCtx({ depth: depths.get(p.address), supply: p.mintA === coin.mint ? coin.supply : null })) : p)).filter(Boolean);
   const quotes = new Map();
   for (const l of coin.links) {
     // A link pairs its pricing coin with SOL or USDC.
     const q = C.COINS[l.mintA] ? l.mintB : l.mintA;
     const decoded = C.decodePool(l.dex, l.address, dataOf(l.address));
     const read = decoded && { ...decoded, arrays: l.arrays ?? [] };
-    const live = read && C.withFee(read, S.configs, read.dex === 'pumpswap' ? { depth: C.depthOf(read, amounts), supply: read.mintA === q ? supplyOf(q) : null } : undefined);
+    const live = read && C.withFee(read, S.configs, feeCtx(read.dex === 'pumpswap' ? { depth: C.depthOf(read, amounts), supply: read.mintA === q ? supplyOf(q) : null } : undefined));
     const depth = live && live.mintA && C.depthOf(live, amounts, binsOf);
     if (!depth) continue;
     const c = quoteOf(live, q);
@@ -1158,7 +1176,7 @@ function snapshot() {
   const hours = S.stats.readyAt ? (now - S.stats.readyAt) / 3_600_000 : 0;
   const openNow = [...S.book.open.values()].map((g) => ({ ...g, symbol: S.coins.get(g.coin)?.symbol, ageMs: now - g.openedAt })).sort((a, b) => b.bestNetUsd - a.bestNetUsd).slice(0, 40);
   return JSON.stringify({
-    at: now, note: S.note, listeningHours: hours, ruleFrom: S.ruleFrom, rule: { ...S.settings, capUsd: R.capUsd(S.settings), flashLoans: S.flashLoans },
+    at: now, note: S.note, listeningHours: hours, ruleFrom: S.ruleFrom, rule: { ...S.settings, capUsd: R.capUsd(S.settings), flashLoans: S.flashLoans, freeSwaps: S.freeSwaps },
     solUsd: S.usd.get(C.SOL_MINT) ?? null, coins: S.coins.size, pools: [...S.coins.values()].reduce((s, c) => s + c.pools.length, 0),
     memeQuotes: [...S.memeQuotes].map(([mint, q]) => ({ mint, symbol: q.symbol, usd: S.usd.get(mint) ?? null, link: S.quoteLinks.get(mint)?.address, venue: C.DEXES[S.quoteLinks.get(mint)?.dex]?.name, pricedIn: [...S.coins.values()].filter((c) => c.links.some((l) => l === S.quoteLinks.get(mint))).length })),
     poolsByVenue: Object.fromEntries(Object.keys(C.DEXES).map((d) => [C.DEXES[d].name, [...S.coins.values()].reduce((s, c) => s + c.pools.filter((p) => p.dex === d).length, 0)])),
@@ -1205,7 +1223,7 @@ try {
 const watched = [...new Set([BRIDGE, ...ATAS.map(([, a]) => a), ...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]).flatMap(L.watchedOf)])];
 // Nothing is handed over until its socket is listening and has read its accounts afresh.
 S.unwatched = new Set(watched);
-log(`${S.coins.size} coins with 2+ pools, ${[...S.coins.values()].reduce((s, c) => s + c.pools.length, 0)} pools, ${watched.length} accounts to watch on ${redactRpcUrl(WS)}; judging with ${S.ruleFrom}: cap $${R.capUsd(S.settings)}, floor $${S.settings.minProfitUsd} + the network fee + a Jito tip (the larger of 20,000 lamports and 30% of the gain)${S.flashLoans ? ', SOL loans on' : ''}`);
+log(`${S.coins.size} coins with 2+ pools, ${[...S.coins.values()].reduce((s, c) => s + c.pools.length, 0)} pools, ${watched.length} accounts to watch on ${redactRpcUrl(WS)}; judging with ${S.ruleFrom}: cap $${R.capUsd(S.settings)}, floor $${S.settings.minProfitUsd} + the network fee + a Jito tip (the larger of 20,000 lamports and 30% of the gain)${S.flashLoans ? ', SOL loans on' : ''}${S.freeSwaps ? ', the robot’s swaps in our pools free where a tier names it keeper' : ''}`);
 for (const k of watched) watchedAtStart.add(k);
 let sockets = 0;
 for (let i = 0; i * ACCOUNTS_PER_SOCKET < watched.length; i++) {

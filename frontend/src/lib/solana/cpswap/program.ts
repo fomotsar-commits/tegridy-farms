@@ -216,6 +216,16 @@ export const AMM_CONFIG_OFFSETS = {
 export const AMM_CONFIG_LEN = 236;
 
 /**
+ * Where a fee tier names its keeper (update_amm_config param 9, set only by the vault): the swap
+ * guard's one signer (2026-11-10) and, since the keeper's fee (2026-11-11, PR #1198), the one payer
+ * the tier charges no fee. Both fields were taken from upstream's 120 bytes of padding, which every
+ * tier and every Raydium config holds as zeros: `swap_guard: u64` at 116, then `keeper: Pubkey`
+ * here. Kept out of AMM_CONFIG_OFFSETS, which a test holds field for field to this checkout's
+ * states/config.rs: a test holds this one to that padding, or to the field once it is there.
+ */
+export const AMM_CONFIG_KEEPER_OFFSET = 124;
+
+/**
  * `PoolState` — `#[account(zero_copy(unsafe))] #[repr(C, packed)]`, so fields
  * are sequential with NO alignment padding. That `packed` is load-bearing: with
  * plain `repr(C)` every u64 after the five u8s would be padded to an 8-byte
@@ -297,6 +307,11 @@ export interface AmmConfigView {
   creatorFeeRate: bigint;
   protocolOwner: string;
   fundOwner: string;
+  /**
+   * The tier's keeper (AMM_CONFIG_KEEPER_OFFSET), null when none is named: all zeros, as every tier
+   * on mainnet holds today and every Raydium config always does. Absent on a view not decoded.
+   */
+  keeper?: string | null;
 }
 
 /** Decode an AmmConfig, or null if the bytes are not one. Never throws. */
@@ -316,6 +331,7 @@ export function decodeAmmConfig(address: string, data: Uint8Array): AmmConfigVie
       creatorFeeRate: u64At(data, o.creatorFeeRate),
       protocolOwner: pkAt(data, o.protocolOwner),
       fundOwner: pkAt(data, o.fundOwner),
+      keeper: data.subarray(AMM_CONFIG_KEEPER_OFFSET, AMM_CONFIG_KEEPER_OFFSET + 32).some((b) => b !== 0) ? pkAt(data, AMM_CONFIG_KEEPER_OFFSET) : null,
     };
   } catch {
     return null;

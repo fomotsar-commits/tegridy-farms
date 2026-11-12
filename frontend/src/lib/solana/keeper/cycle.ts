@@ -11,7 +11,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../launcher/solana/curve/program';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, swapBaseInputIx } from '../cpswap/ix';
 import { REGISTERED_PROGRAM_ID } from '../cpswap/program';
-import { quoteOwnPool } from '../cpswap/read';
+import { chargedTo, quoteOwnPool } from '../cpswap/read';
 import { decodeRpcAccount, getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import type { PoolView } from '../lp/poolFinder';
 import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee, tokenDecimalsOf, type Arbitrage } from '../lp/poolList';
@@ -153,6 +153,14 @@ export interface KeeperSettings extends KeeperLimits {
    * no test run, its tip sized from the robot's own quote (sendChecked). Needs KEEPER_JITO.
    */
   fast: boolean;
+  /**
+   * The robot's own swaps in our pools priced as the pool program charges a tier's keeper: no fee,
+   * on each tier that names the robot (cpswap/read.ts chargedTo; KEEPER_FREE_SWAPS, off by default;
+   * owner 2026-11-11, "charge 0 fees for our bot"). Only once the upgrade carrying the keeper's fee
+   * has executed: before it, a swap priced free pays the fee, falls short of its own minimum and
+   * never lands, so nothing is lost, but nothing is traded either.
+   */
+  freeSwaps: boolean;
 }
 
 /**
@@ -186,6 +194,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   directLookupTables: DIRECT_LOOKUP_TABLES,
   v1: false,
   fast: false,
+  freeSwaps: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -249,12 +258,16 @@ interface Venue {
   safety: Map<string, TokenSafety>;
 }
 
-async function readVenue(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>): Promise<Venue | string> {
+async function readVenue(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>, free: { owner: PublicKey } | null = null): Promise<Venue | string> {
   const listed = await listPools(io.rpc, { programId: REGISTERED_PROGRAM_ID, launchProgramId: LAUNCH_PROGRAM_ID, fetchImpl: io.indexFetch });
   if (listed.kind === 'unread') return listed.detail;
   // The list skips the coins the site names itself; the keeper reads every token's fee.
   const safety = await readTokenSafety(io.rpc, listed.list.pools.map((v) => v.tokenMint));
-  return { pools: listed.list.pools, chainNow: listed.list.chainNow, safety };
+  // KEEPER_FREE_SWAPS: each pool's tier as it charges the robot, so every quote, gap and loop below
+  // prices its swaps there the way the program will (free on a tier naming it, the fee elsewhere).
+  const payer = free?.owner.toBase58();
+  const pools = payer ? listed.list.pools.map((v) => (v.config ? { ...v, config: chargedTo(v.config, payer) } : v)) : listed.list.pools;
+  return { pools, chainNow: listed.list.chainNow, safety };
 }
 
 /** The token's own claim of a ticker, untrusted, or null when it makes none. */
@@ -304,7 +317,7 @@ export async function poolCoverage(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>): Pr
 export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleResult> {
   let outside: OutsidePool[] = [];
   const empty = (pools: PoolView[]): CycleResult => ({ pools: pools.length, gaps: 0, sent: 0, watch: watchOf(pools, outside), looked: [], seen: [], loops: 0 });
-  const venue = await readVenue(io);
+  const venue = await readVenue(io, s.freeSwaps ? io : null);
   if (typeof venue === 'string') {
     io.log(`Pools not read: ${venue}`);
     return empty([]);

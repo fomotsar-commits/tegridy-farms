@@ -18,6 +18,7 @@ import {
   LIVE_PROGRAM_ID,
   hasProgramId,
   AMM_CONFIG_OFFSETS,
+  AMM_CONFIG_KEEPER_OFFSET,
   AMM_CONFIG_LEN,
   POOL_STATE_OFFSETS,
   POOL_STATE_LEN,
@@ -192,6 +193,14 @@ describe('AmmConfig layout, recomputed from states/config.rs', () => {
     for (const [name, offset] of Object.entries(AMM_CONFIG_OFFSETS)) {
       expect(parsed.offsets[name], `AmmConfig.${name}`).toBe(offset);
     }
+  });
+
+  it('names the keeper where the program keeps it: after the guard’s u64, at the start of upstream’s padding', () => {
+    // This checkout's states/config.rs may predate the guard (2026-11-10): then the keeper's 32
+    // bytes are the padding's, 8 bytes in; once the fields are there, the keeper's own offset.
+    const at = parsed.offsets.keeper ?? (parsed.offsets.swapGuard ?? parsed.offsets.padding!) + 8;
+    expect(AMM_CONFIG_KEEPER_OFFSET).toBe(at);
+    expect(AMM_CONFIG_KEEPER_OFFSET + 32).toBeLessThanOrEqual(AMM_CONFIG_LEN);
   });
 
   it('is the length the program itself declares', () => {

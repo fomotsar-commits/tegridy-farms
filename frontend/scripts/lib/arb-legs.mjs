@@ -34,7 +34,7 @@ import {
 import { REGISTERED_PROGRAM_ID, decodeAmmConfig, decodePoolState } from '../../src/lib/solana/cpswap/program.ts';
 import { MEMO_PROGRAM_ID } from '../../src/lib/solana/cpswap/ix.ts';
 import { vaultAmountWithoutFee } from '../../src/lib/solana/cpswap/math.ts';
-import { quoteOwnPool } from '../../src/lib/solana/cpswap/read.ts';
+import { chargedTo, quoteOwnPool } from '../../src/lib/solana/cpswap/read.ts';
 import { swapV2Ix } from '../../src/lib/solana/clmm/ix.ts';
 import { quoteSwapAsRaydium } from '../../src/lib/solana/clmm/quote.ts';
 
@@ -169,8 +169,11 @@ export function dammSwapIx(pool, owner, aToB, amountIn, minOut, programs) {
  * the rest are read: the fast path (KEEPER_FAST), where a Jito bundle that never lands when a swap
  * fails, and each swap's minimum and the Lighthouse floor, stand in for the robot's own read and
  * test run. `reads` says how many calls it still made.
+ *
+ * `freeSwaps` (KEEPER_FREE_SWAPS): a swap in one of our pools is priced as its tier charges the
+ * robot, free where the tier names it keeper (cpswap/read.ts chargedTo), never in a Raydium pool.
  */
-export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'confirmed' }) {
+export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'confirmed', freeSwaps = false }) {
   const idOf = { ours: REGISTERED_PROGRAM_ID.toBase58(), cpmm: ids?.cpmm, ammV4: ids?.ammV4, clmm: ids?.clmm, pumpswap: C.DEXES.pumpswap.program, whirlpool: V.WHIRLPOOL_PROGRAM, dlmm: V.DLMM_PROGRAM, damm: V.DAMM_PROGRAM };
   const acc = new Map();
   let slot = null;
@@ -241,7 +244,7 @@ export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'con
       const p = pools[i];
       const [progFrom, progTo] = [programOf(rec, l.from), programOf(rec, l.to)];
       if (!progFrom || !progTo) return `the token program of a coin in ${l.pool} was not read`;
-      const built = buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf: (m) => programOf(rec, m), slot });
+      const built = buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf: (m) => programOf(rec, m), slot, freeSwaps });
       if (typeof built === 'string') return `${C.DEXES[l.dex]?.name ?? l.dex} ${l.pool}: ${built}`;
       legs.push({ pool: l.pool, dex: l.dex, venue: C.DEXES[l.dex]?.name ?? l.dex, from: l.from, to: l.to, fromProgram: progFrom, toProgram: progTo, ...built });
     }
@@ -250,7 +253,7 @@ export function routeLegReader({ rpc, ids, pick = Math.random, commitment = 'con
 }
 
 /** One leg's `out` and `ix` from the accounts read, or why it cannot be built. */
-function buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf, slot }) {
+function buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf, slot, freeSwaps = false }) {
   const aToB = p.mintA === l.from;
   const own = pk(owner);
   switch (l.dex) {
@@ -258,7 +261,8 @@ function buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf, slot }) {
     case 'cpmm': {
       const pool = decodePoolState(l.pool, acc.get(l.pool).data);
       const cfgAcc = acc.get(p.config);
-      const config = cfgAcc && decodeAmmConfig(p.config, cfgAcc.data);
+      const tier = cfgAcc && decodeAmmConfig(p.config, cfgAcc.data);
+      const config = tier && freeSwaps && l.dex === 'ours' ? chargedTo(tier, own.toBase58()) : tier;
       const vault0 = tokenAmount(acc.get(pool?.token0Vault));
       const vault1 = tokenAmount(acc.get(pool?.token1Vault));
       if (!pool || !config || vault0 === null || vault1 === null) return 'its fee settings or vaults were not read';

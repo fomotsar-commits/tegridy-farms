@@ -279,6 +279,19 @@ export interface OwnPoolQuote {
 }
 
 /**
+ * A fee tier as it charges `payer`: states/config.rs `swap_fee_rates` since the keeper's fee
+ * (PR #1198, merged 2026-11-12, mainnet with its own upgrade after #32). The keeper the vault
+ * names pays no trade fee and no creator fee, so no protocol or fund share either, and its creator
+ * fee of 0 is taken on the output: on the input, upstream's split divides by the two rates' sum,
+ * and 0 + 0 refuses the swap (6006). Anyone else, and a tier with no keeper, pays as before: the
+ * same object back. Only for a program that runs that upgrade; the robot asks with KEEPER_FREE_SWAPS.
+ */
+export function chargedTo<T extends Pick<AmmConfigView, 'tradeFeeRate' | 'creatorFeeRate' | 'keeper'>>(config: T, payer: string): T & { keeperFree?: true } {
+  if (!config.keeper || config.keeper !== payer) return config;
+  return { ...config, tradeFeeRate: 0n, creatorFeeRate: 0n, keeperFree: true };
+}
+
+/**
  * Quote a swap against one of our pools, using the program's own maths.
  *
  * Returns null — never a fabricated number — when the program would refuse:
@@ -289,10 +302,13 @@ export interface OwnPoolQuote {
  * prices only what REACHES the input vault (the amount less its fee, which must be above
  * 0), and holds the minimum to what reaches the trader (the payout less its fee, which
  * must be above 0). Leaving it out quotes a pool with no fee on either side.
+ *
+ * A `config` from `chargedTo` that let its payer off (`keeperFree`) quotes the keeper's swap:
+ * no fee, the creator's 0 on the output.
  */
 export function quoteOwnPool(
   snapshot: PoolSnapshot,
-  config: Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>,
+  config: Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'> & { keeperFree?: boolean },
   inputMint: string,
   amountIn: bigint,
   nowSecs: number = Math.floor(Date.now() / 1000),
@@ -305,8 +321,10 @@ export function quoteOwnPool(
   const inputIsToken0 = inputMint === pool.token0Mint;
   if (!inputIsToken0 && inputMint !== pool.token1Mint) return null;
 
-  const feeOnInput = isCreatorFeeOnInput(pool.creatorFeeOn, inputIsToken0);
-  if (feeOnInput === null) return null;
+  // The program reads the pool's mode first and refuses one it cannot price, keeper or not.
+  const poolFeeOnInput = isCreatorFeeOnInput(pool.creatorFeeOn, inputIsToken0);
+  if (poolFeeOnInput === null) return null;
+  const feeOnInput = config.keeperFree === true ? false : poolFeeOnInput;
 
   const reserveIn = inputIsToken0 ? snapshot.reserve0 : snapshot.reserve1;
   const reserveOut = inputIsToken0 ? snapshot.reserve1 : snapshot.reserve0;
