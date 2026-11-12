@@ -15,6 +15,7 @@ The site's Changelog tab shows both files.
 - Every page loads less wallet code up front: the Ethereum connect window's language files, wallet icons and install pictures now load only when the window asks for them, which takes about 230 KB off each first visit.
 - Pages load lighter on a phone: card backgrounds no longer download the full-size original picture (on Range pools, images went from about 1.8 MB to 0.7 MB), and the NFT lending tab no longer loads a 227 KB marketplace script it did not need.
 - Range pools: pick the coin on the page. One press for BAYLA, BOBO, SOY, BRAINLET or RIZZ, or paste any token's mint address. The page only ever showed BAYLA unless the link named another coin, so no other range pool could be opened from the site.
+- Pool shares: a pool opened from now on gets its own name file without a site update. A wallet that reads it sees the pair ("PEPE/SOL LP", with the coin's whole address) and the paired coin's picture, and a copy of a well-known coin reads "fake SOY". Any other link still answers the default file.
 
 ### 2026-11-10
 
