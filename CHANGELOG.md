@@ -9,6 +9,9 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-12
 
+- NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
+- NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
+- NFT lending, Lend: a box holding a value the offer cannot use now says which values it takes. An APR over 1000%, for one, used to hide the interest card and fade the button with no word why.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
 
 ### 2026-11-11
