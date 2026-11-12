@@ -17,7 +17,7 @@ const chipStyle = (lit: boolean) => ({ background: 'var(--color-bg-input)', bord
  * (none: nothing lit); without it the chips light nothing, as Add's row with no room. `end` is
  * drawn last, at the right end of whichever line it lands on (Buy's network drop-down).
  */
-export function BungalowRow({ lit, onPick, end }: { lit?: string | null; onPick: (b: Bungalow) => void; end?: ReactNode }) {
+export function BungalowRow({ lit, onPick, end, all }: { lit?: string | null; onPick: (b: Bungalow) => void; end?: ReactNode; all?: { on: boolean; onPick: () => void } }) {
   return (
     <div role="group" aria-label={SHEET_ROW_WORDS.group} className="flex flex-wrap gap-2 mt-2" data-testid="sheet-bungalow-row">
       {sheetRooms().map((b) => {
@@ -29,6 +29,12 @@ export function BungalowRow({ lit, onPick, end }: { lit?: string | null; onPick:
           </button>
         );
       })}
+      {/* Add's last chip: every pool on the venue, with your positions, Remove, Claim fees and Open a pool. */}
+      {all && (
+        <button type="button" aria-pressed={all.on} onClick={all.onPick} className={`${CHIP} px-3`} style={chipStyle(all.on)} data-testid="sheet-every-pool-chip">
+          Every pool
+        </button>
+      )}
       {end && (
         <div className="ml-auto" data-testid="sheet-row-end">
           {end}

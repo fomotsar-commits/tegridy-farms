@@ -164,12 +164,13 @@ describe('the sheet’s Buy', () => {
     // Both coins are presses that pick them, as on the page (owner, 2026-11-05).
     expect(within(buy).getByRole('button', { name: 'Pay with SOL' })).toHaveAttribute('aria-haspopup', 'dialog');
     expect(within(buy).getByRole('button', { name: 'Get BAYLA' })).toHaveAttribute('aria-haspopup', 'dialog');
-    // Not the page's: no heading, no tabs, no flip, no share, no slippage drawer.
+    // Not the page's frame: no heading, no tabs, no share. Its flip and its slippage and speed are here
+    // (owner, 2026-11-11: the sheet is the whole swap, not a cut of it).
     expect(screen.queryByRole('heading', { name: /Swap/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Instant swap' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Flip pay and receive tokens' })).toBeNull();
+    expect(within(buy).getByRole('button', { name: 'Flip pay and receive tokens' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Copy a link to this trade' })).toBeNull();
-    expect(screen.queryByText(/Slippage/)).toBeNull();
+    expect(within(buy).getByText(/^Slippage 0.5% · Speed /)).toBeInTheDocument();
     // The address under the sheet is the room's: its ?out= is not this form's pair.
     expect(jup.getQuote).not.toHaveBeenCalled();
   });

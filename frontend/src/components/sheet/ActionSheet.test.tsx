@@ -8,6 +8,16 @@ import { clearScreenMoves, useCurrentScreenMove } from '../../lib/screenMove';
 import { holdSheetOutlet, resetSheetStore, useSheetOpen } from '../../lib/sheetStore';
 
 // The sheet's own Solana connection is its own chunk: a stand-in here says whether it mounted.
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
+// Another network's form is its page's own, tested there: a stand-in says which one the sheet mounted.
+vi.mock('../swap/NetworkForms', () => ({
+  OffSolanaSwap: ({ chain, buy }: { chain: string; buy?: string }) => <p data-testid="off-solana-swap">{chain}:{buy ?? 'no coin'}</p>,
+  OffSolanaPools: ({ chain }: { chain: string }) => <p data-testid="off-solana-pools">{chain}</p>,
+}));
 vi.mock('./SheetSolana', () => ({ default: () => <p data-testid="own-connection">own connection</p> }));
 
 function Probe() {
@@ -133,7 +143,8 @@ describe('the sheet', () => {
   it('with no room, Add’s bungalow row stands in the coin’s place; a pick names the coin and the sheet reads as drawn', () => {
     mount(['/launch?sheet=add']);
     const row = screen.getByRole('group', { name: 'Pick a coin' });
-    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    // Every room, then every pool, then the sheet's network (owner, 2026-11-11).
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Every pool', 'Solana']);
     expect(screen.getByTestId('open')).toHaveTextContent('closed');
     fireEvent.click(within(row).getByRole('button', { name: 'SOY' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/launch?sheet=add&coin=soy');
@@ -165,15 +176,69 @@ describe('the sheet', () => {
     expect(await screen.findByTestId('own-connection')).toBeInTheDocument();
   });
 
-  it('a room the sheet cannot act on opens on no coin, never its own', () => {
+  // Owner, 2026-11-11: the sheet is the venue's, not five Solana coins'. A room on Ethereum opens it on Ethereum,
+  // on its own coin; no Solana form is asked for, and no Solana connection is brought.
+  it('a room on another network opens the sheet on that network, with that network’s form', () => {
     localStorage.setItem('tegridy-bungalow', 'pepe');
     mount(['/pepe?sheet=buy']);
-    expect(screen.getByTestId('open')).toHaveTextContent('buy:no coin:sheet-body');
-    expect(screen.queryByTestId('sheet-coin')).toBeNull();
+    expect(screen.getByTestId('action-sheet')).toHaveAttribute('data-network', 'ethereum');
+    expect(screen.getByTestId('off-solana-swap')).toHaveTextContent(/^ethereum:0x6982508145454ce325ddbe47a25d4ec3d2311933$/i);
+    expect(screen.getByTestId('open'), 'the Solana form is not asked to draw').toHaveTextContent('closed');
+    expect(screen.queryByTestId('own-connection')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Pick a coin' })).toBeNull();
     cleanup();
     mount(['/pepe?sheet=add']);
-    expect(screen.getByRole('group', { name: 'Pick a coin' })).toBeInTheDocument();
+    expect(screen.getByTestId('off-solana-pools')).toHaveTextContent('ethereum');
     expect(screen.queryByTestId('sheet-coin')).toBeNull();
+  });
+
+  it('the network drop-down changes the sheet’s form in place: the page under it never changes', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount([{ pathname: '/bayla', search: '?sheet=add', state: { sheet: true } }]);
+    const sheet = screen.getByTestId('action-sheet');
+    expect(sheet).toHaveAttribute('data-network', 'solana');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Pools network: Solana' }));
+    fireEvent.click(within(sheet).getByRole('option', { name: /Base/ }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/bayla?sheet=add&net=base');
+    expect(screen.getByTestId('off-solana-pools')).toHaveTextContent('base');
+    expect(screen.getByTestId('open')).toHaveTextContent('closed');
+    // Back to Solana: the room's own pool again, and the address names no network.
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Pools network: Base' }));
+    fireEvent.click(within(sheet).getByRole('option', { name: /Solana/ }));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/bayla\?sheet=add$/);
+    expect(screen.getByTestId('open')).toHaveTextContent('add:bayla:sheet-body');
+    // A network named in the address is where a reload opens.
+    cleanup();
+    mount(['/bayla?sheet=buy&net=ethereum']);
+    expect(screen.getByTestId('off-solana-swap')).toHaveTextContent('ethereum:no coin');
+  });
+
+  it('Swap and Add are one press apart inside the sheet, on the same coin', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy&coin=bobo']);
+    const kinds = screen.getByRole('group', { name: 'Swap or add' });
+    expect(within(kinds).getByRole('button', { name: 'Swap' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(kinds).getByRole('button', { name: 'Add' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/bayla?sheet=add&coin=bobo');
+    expect(screen.getByTestId('open')).toHaveTextContent('add:bobo:sheet-body');
+  });
+
+  it('in a room, Add still offers every other room and every pool; closing every pool leaves the page’s address clean', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=add']);
+    const row = screen.getByRole('group', { name: 'Pick a coin' });
+    expect(within(row).getByRole('button', { name: 'BAYLA' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(row).getByRole('button', { name: 'RIZZ' }));
+    expect(screen.getByTestId('open')).toHaveTextContent('add:rizz:sheet-body');
+    fireEvent.click(within(screen.getByRole('group', { name: 'Pick a coin' })).getByRole('button', { name: 'Every pool' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/bayla?sheet=add&coin=all');
+    expect(screen.getByTestId('open')).toHaveTextContent('add:no coin:sheet-body');
+    expect(screen.queryByTestId('sheet-coin')).toBeNull();
+    // The finder writes the coin looked up into the address, as on /pools: Back takes it with the sheet.
+    cleanup();
+    mount(['/bayla?sheet=add&coin=all&mint=So11111111111111111111111111111111111111112']);
+    fireEvent.click(screen.getByTestId('sheet-back'));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/bayla$/);
   });
 
   it('Escape inside a dialog over the form (the swap’s picker) closes that one, not the sheet', () => {

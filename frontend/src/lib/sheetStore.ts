@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Bungalow } from './bungalows';
-import type { SheetKind } from './sheet';
+import type { SheetKind, SheetNet } from './sheet';
 
 /**
  * The open sheet (island answer twenty-five, build 3) and who draws its form.
@@ -19,6 +19,10 @@ export interface SheetOpen {
   /** Where the form is drawn: a node inside the sheet's frame. */
   slot: HTMLElement;
   close: () => void;
+  /** Add on every pool: the whole pools section, in the sheet. */
+  all: boolean;
+  /** The sheet's network drop-down: a pick changes its form in place. */
+  pickNet: (net: SheetNet) => void;
 }
 
 let open: SheetOpen | null = null;

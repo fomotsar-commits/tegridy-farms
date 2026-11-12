@@ -2601,6 +2601,70 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     </>
   );
 
+  // Slippage and speed, the same control on the page and in the sheet (owner, 2026-11-11: the sheet is the whole swap).
+  const settings = (
+          <details className="group mb-3 px-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/80 text-[11px] [&::-webkit-details-marker]:hidden">
+              <span>Slippage {(slippageBps / 100).toFixed(slippageBps % 100 === 0 ? 0 : 1)}% · Speed {SPEED_LEVELS.find((l) => l.level === speed)?.label ?? 'Fast'}</span>
+              <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <div className="pb-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SLIPPAGE_PRESETS.map((bps) => {
+                const active = slippageBps === bps;
+                return (
+                  <button
+                    key={bps}
+                    type="button"
+                    onClick={() => setSlippageBps(bps)}
+                    aria-pressed={active}
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    style={{
+                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between mb-1.5 mt-3">
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Speed</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SPEED_LEVELS.map(({ level, label }) => {
+                const active = speed === level;
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setSpeed(level)}
+                    aria-pressed={active}
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    style={{
+                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Speed is Jupiter's: a swap in our own pool sets its own, smaller fee. */}
+            <p className="text-white/55 text-[10px] mt-1.5">
+              Speed sets the priority fee on a Jupiter swap, up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL. It helps a swap land when the network is busy.
+            </p>
+            </div>
+          </details>
+  );
+  // The other way round: what is bought becomes what is paid. A sale is this press, then an amount.
+  const flip = () => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); };
+
   // The sheet's Buy (island answer twenty-five, screen 1, Buy state): the amount is what you pay,
   // the second row is what you get with the route line under it, one green button. The review
   // and the signing are the form's own, unchanged; its notes are said whenever they apply. Above
@@ -2645,7 +2709,9 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       : quote && !ownBest
         ? feeWaived ? 'The venue takes no fee on this route.' : feeMintSymbol ? `The venue takes ${feePct}% of this trade, in ${feeMintSymbol}.` : 'The venue takes no fee on this trade.'
         : null;
-    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
+    // A coin paid for SOL is a sale, and the button says so (the flip's other side).
+    const selling = buyToken.mint === SOL_MINT && payToken.mint !== SOL_MINT;
+    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? (selling ? `Sell ${payToken.symbol}` : SHEET_WORDS.buy(buyToken.symbol));
     // The coin its row lights: none before a pick, the room's while the room's coin is still being looked up.
     const sheetCoin = unpicked
       ? null
@@ -2676,6 +2742,18 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 />
               </label>
               {coinPress('pay', payToken, 'shrink-0 text-[15px] text-[color:var(--color-text-secondary)]')}
+              {/* Sell instead: the two coins change places (the page's flip). Off before a coin is picked. */}
+              <button
+                type="button"
+                onClick={() => { tick(); flip(); }}
+                disabled={unpicked}
+                aria-label="Flip pay and receive tokens"
+                data-testid="sheet-flip"
+                className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-[16px] hover:bg-white/5 disabled:opacity-40"
+                style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+              >
+                <span aria-hidden="true">⇅</span>
+              </button>
             </div>
             {/* The chips, 12 px under the box: three in a row, a third wide each (Max keeps its place). */}
             <div role="group" aria-label={`How much ${payToken.symbol}`} className="grid grid-cols-3 gap-2 !mt-3">
@@ -2724,6 +2802,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 </div>
               )}
             </div>
+            {/* What the page says under its quote, said here too: the trade's own price impact. */}
+            {quoted && priceImpact !== null && row('Price impact', `${priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%`, 'sheet-impact')}
             {feeLine && (
               <p data-testid="sheet-fee-line" className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
                 {feeLine}
@@ -2744,6 +2824,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 <VenueSwapFlow swap={venueSwap} />
               </Suspense>
             )}
+            {!unpicked && <div data-testid="sheet-settings" className="[&>details]:mb-0">{settings}</div>}
             {unpicked ? <SheetPickLine /> : inSheet.bayla}
             {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. Off until a coin is picked. */}
             <button
@@ -2961,7 +3042,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           <div className="flex justify-center -my-1 relative z-10">
             <button
               type="button"
-              onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
+              onClick={flip}
               aria-label="Flip pay and receive tokens"
               className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
               style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
@@ -3014,64 +3095,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </div>
 
           {/* Slippage and speed: one line that says what they are set to, until it is opened. */}
-          <details className="group mb-3 px-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/80 text-[11px] [&::-webkit-details-marker]:hidden">
-              <span>Slippage {(slippageBps / 100).toFixed(slippageBps % 100 === 0 ? 0 : 1)}% · Speed {SPEED_LEVELS.find((l) => l.level === speed)?.label ?? 'Fast'}</span>
-              <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
-            </summary>
-            <div className="pb-2.5">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {SLIPPAGE_PRESETS.map((bps) => {
-                const active = slippageBps === bps;
-                return (
-                  <button
-                    key={bps}
-                    type="button"
-                    onClick={() => setSlippageBps(bps)}
-                    aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
-                    style={{
-                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between mb-1.5 mt-3">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Speed</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {SPEED_LEVELS.map(({ level, label }) => {
-                const active = speed === level;
-                return (
-                  <button
-                    key={level}
-                    type="button"
-                    onClick={() => setSpeed(level)}
-                    aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
-                    style={{
-                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Speed is Jupiter's: a swap in our own pool sets its own, smaller fee. */}
-            <p className="text-white/55 text-[10px] mt-1.5">
-              Speed sets the priority fee on a Jupiter swap, up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL. It helps a swap land when the network is busy.
-            </p>
-            </div>
-          </details>
+          {settings}
 
           {/* Where the trade goes, and why. Shown in EVERY state — including the
               ones where our own pool loses or does not exist — because a routing

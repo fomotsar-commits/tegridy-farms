@@ -9,7 +9,8 @@ import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
-import { roomSheetHref, sheetHref, sheetRoom, type SheetKind } from './sheet';
+import { sheetHref, type SheetKind } from './sheet';
+import { roomSheetOr } from './sheetRooms';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { curveChainNames, isCurveLaunchOpen } from './launcher/curveChains';
@@ -296,8 +297,9 @@ function sectionWord(section: NavSection, label = section.heading): BarWord {
  */
 function sheetOr(kind: SheetKind, fallback: string): string {
   const active = getActiveBungalow();
-  const room = sheetRoom(active?.id);
-  if (room) return roomSheetHref(room, kind);
+  // A room on any network the sheet has a form on (lib/sheetRooms.ts): Base's rooms open it on Base.
+  const room = roomSheetOr(active, kind);
+  if (room) return room;
   return kind === 'buy' && !active && isSolanaSwapLive() ? sheetHref('/', '', 'buy') : fallback;
 }
 

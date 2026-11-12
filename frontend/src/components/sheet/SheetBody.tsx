@@ -4,7 +4,7 @@ import { lazy, Suspense, useMemo } from 'react';
 import { LpInner } from '../solana/lp/SolanaLpSection';
 import { browserLpReaders } from '../solana/lp/readers';
 import { useVenueStatus } from '../../hooks/useVenueStatus';
-import { SHEET_WAIT, useSheet } from './sheetContext';
+import { SHEET_WAIT, SheetContext, useSheet } from './sheetContext';
 import type { SheetKind } from '../../lib/sheet';
 
 // The swap page's own form, in its sheet mode, as the home's card loads it.
@@ -39,10 +39,21 @@ function SheetAdd() {
   const sheet = useSheet()!;
   const readers = useMemo(() => browserLpReaders(), []);
   const { status, retry } = useVenueStatus();
+  // Every pool: the pools section whole, as /pools draws it (the finder, your positions with Remove and Claim fees,
+  // every pool, Open a pool). Drawn outside the sheet's drawing, so each form is its page form with all its controls.
+  if (sheet.all && readers && status?.kind === 'live') {
+    return (
+      <SheetContext.Provider value={null}>
+        <div data-testid="sheet-every-pool">
+          <LpInner readers={readers} />
+        </div>
+      </SheetContext.Provider>
+    );
+  }
   const mint = sheet.room?.address;
   const pool = sheet.room?.venueSolPool;
-  if (!readers || !mint || !pool) return null;
-  if (status?.kind === 'live') return <LpInner readers={readers} home={{ mint, pool }} />;
+  if (!readers || (!sheet.all && (!mint || !pool))) return null;
+  if (status?.kind === 'live' && mint && pool) return <LpInner readers={readers} home={{ mint, pool }} />;
   if (status === null) return reading('add');
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] py-3" data-testid="sheet-lp-unread">
