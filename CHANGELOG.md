@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-12
 
+- Lock ladders: a position whose lock has ended now says, beside the lock, that it keeps earning at the weight it was staked at until you withdraw, for example "still earning at 0.46× until you withdraw". That was always the rule and it stays the rule; it was only written inside the "Upgrade risk" details, so stakers took the earnings after their lock ended for a mistake. The room ladders on the other networks say the same.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
 
 ### 2026-11-11

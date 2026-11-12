@@ -458,7 +458,10 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                             <span className="text-white/45">
                               {p.amount > 0n ? `${(Number((p.boosted * 10_000n) / p.amount) / 10_000).toFixed(2)}x` : '—'}
                             </span>
-                            <span className="text-white/45">{open ? 'unlocked' : `opens in ${fmtRunway(left)}`}</span>
+                            {/* LighthouseLadder.sol keeps `_boosted` until the position closes
+                                (no relock, no decay): an opened lock earns at its weight until
+                                it is withdrawn. Said here, as on the BAYLA card (2026-11-11). */}
+                            <span className="text-white/45">{open ? 'unlocked · keeps this weight until you withdraw' : `opens in ${fmtRunway(left)}`}</span>
                             <div className="flex-1" />
                             {open ? (
                               <button type="button" disabled={busy !== null} className="btn-secondary px-3 py-1 text-[11px] disabled:opacity-50"

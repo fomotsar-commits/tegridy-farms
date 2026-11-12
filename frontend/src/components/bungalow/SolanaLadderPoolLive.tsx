@@ -1391,7 +1391,16 @@ function PositionRow({
           <div className="h-full rounded-full" style={{ width: `${matured ? 0 : Math.min(100, (secsLeft / MAX_LOCK_SECS) * 100)}%`, background: 'var(--color-purple-60)' }} />
         </div>
         <p className="text-white/70 text-[12px] m-0 mt-1.5 tabular-nums">
-          {matured ? 'unlocked' : `unlocks in ${humanDuration(secsLeft)}`}
+          {/* Owner, 2026-11-11: a matured position keeps the weight it was staked at for
+              as long as it stays (state.rs: weight is frozen at stake time, with no decay
+              or kick), and that promise is honoured, not changed. It used to be said only
+              inside "Upgrade risk", so stakers read the earnings after their lock ended as
+              a bug. It belongs where the lock is. */}
+          {matured
+            ? perDayRaw !== null
+              ? `unlocked · still earning at ${boostLabel(boost)} until you withdraw`
+              : `unlocked · keeps its ${boostLabel(boost)} weight until you withdraw`
+            : `unlocks in ${humanDuration(secsLeft)}`}
           {!matured && !pool.degraded && ` · leave now −${penaltyPct(normal.penaltyRaw, position.amountRaw)}`}
         </p>
       </div>
