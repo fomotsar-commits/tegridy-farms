@@ -79,6 +79,26 @@ describe('the dashboard page with the scanner merged in', () => {
     expect($('tRobot').textContent).toBe('Running');
   });
 
+  it('with no scanner set, hides the scanner’s half and heads the page with the robot alone', () => {
+    const unset = { set: false, page: null, view: null, readAt: null, problem: 'not set: KEEPER_SCANNER_URL names the scanner’s page on this computer' };
+    send({ robot, stopped: false, scanner: unset });
+    expect($('hlText').textContent).toBe('The robot is running.');
+    expect($('hlKick').textContent).toBe('Right now');
+    expect($('hlText').querySelector('.c')).toBeNull();
+    expect($('hlSub').textContent).toBe('Its own figures, read from its wallet, are below. No scanner is set, so the scanner’s panels are hidden.');
+    for (const id of ['scanLamp', 'spineWrap', 'market']) expect($(id).hidden, id).toBe(true);
+    expect($('tRobot').textContent).toBe('Running');
+    // A paused robot is said in the headline's warning colour.
+    send({ robot, stopped: true, scanner: unset });
+    expect($('hlText').textContent).toBe('The robot is paused.');
+    expect($('hlText').querySelector('.w').textContent).toBe('The robot is paused.');
+    // A scanner named again brings its half back.
+    send({ robot, stopped: false, scanner: live(scannerPage()) });
+    for (const id of ['scanLamp', 'spineWrap', 'market']) expect($(id).hidden, id).toBe(false);
+    expect($('hlKick').textContent).toBe('Right now · money on the table, and is the robot taking it?');
+    expect($('hlText').textContent).toBe('Nothing on the table. The robot is running and waiting.');
+  });
+
   it('shows a coin’s claimed ticker beside its whole address, as text', () => {
     const t = trip('<img src=x onerror=alert(1)>');
     send({ robot, stopped: false, scanner: live(scannerPage({ watch: [t] })) });

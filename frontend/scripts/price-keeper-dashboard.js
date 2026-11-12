@@ -178,9 +178,13 @@
   const HELD = { gap: 'the whole gap', float: 'all the robot holds', cap: 'the robot’s cap' };
   let rankBy = 'profit';
 
-  /** What the scanner's feed is: live, old (kept a short while after it stopped answering), or off. */
+  /**
+   * What the scanner's feed is: live, old (kept a short while after it stopped answering), off
+   * (named but not read), or none (no scanner is named: the page then hides the scanner's half).
+   */
   function feedOf(s) {
     const f = s.scanner;
+    if (f && f.set === false) return { kind: 'none', view: null, text: 'no scanner is set' };
     if (!f) return { kind: 'off', view: null, text: 'this dashboard does not read the scanner' };
     if (!f.view) return { kind: 'off', view: null, text: f.problem || 'not read yet' };
     const age = Date.now() - f.readAt;
@@ -194,6 +198,9 @@
   // The one sentence at the top: is there money on the table, and is the robot taking it?
   function headline(s, feed, rs) {
     const robot = rs.cls === 'good' ? 'The robot is running' : `The robot is ${rs.text.toLowerCase()}`;
+    if (feed.kind === 'none') {
+      return { parts: [[rs.cls === 'good' ? '' : rs.cls === 'warn' ? 'w' : 'c', `${robot}.`]], sub: 'Its own figures, read from its wallet, are below. No scanner is set, so the scanner’s panels are hidden.' };
+    }
     const v = feed.view;
     if (feed.kind === 'off') return { parts: [['c', 'The scanner is off.'], ['', ` ${robot}.`]], sub: `The scanner: ${feed.text}. The robot's own figures below do not depend on it.` };
     const take = ranked(v.take);
@@ -316,6 +323,9 @@
 
   function renderScanner(s, rs) {
     const feed = feedOf(s);
+    // No scanner named: its lamp, its funnel and its panels would only be empty, so they go.
+    for (const id of ['scanLamp', 'spineWrap', 'market']) $(id).hidden = feed.kind === 'none';
+    $('hlKick').textContent = feed.kind === 'none' ? 'Right now' : 'Right now · money on the table, and is the robot taking it?';
     const lamp = $('scanLamp');
     lamp.replaceChildren(el('span', { class: `dot ${feed.kind === 'live' ? 'good' : feed.kind === 'old' ? 'warn' : 'crit'}` }), `Scanner${s.scanner && s.scanner.page ? ` ${s.scanner.page}` : ''} · ${feed.kind === 'live' ? `${feed.text}${feed.view.slot ? ` · slot ${feed.view.slot.toLocaleString()}` : ''}` : feed.kind === 'old' ? 'not answering' : 'off'}`);
     const h = headline(s, feed, rs);

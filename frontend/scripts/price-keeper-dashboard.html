@@ -236,6 +236,8 @@
   ::-webkit-scrollbar-track { background: transparent; }
 
   /* ── The scanner, merged in: the headline, the funnel, the rule, the trips ── */
+  /* With no scanner set, its lamp, funnel and panels are hidden (their own display rules would keep them). */
+  #scanLamp[hidden], #spineWrap[hidden], #market[hidden] { display: none; }
   .lamp { display: inline-flex; align-items: center; gap: 8px; font: 11px/1.4 var(--mono); color: var(--muted); }
   .lamp .dot { margin-right: 0; }
   .headline { position: relative; z-index: 1; margin: 0 0 14px; padding: 4px 0 16px; border-bottom: 3px double var(--line-2); }
@@ -377,7 +379,7 @@
   <div class="banner" id="notes" hidden></div>
 
   <section class="headline" aria-live="polite">
-    <div class="k">Right now · money on the table, and is the robot taking it?</div>
+    <div class="k" id="hlKick">Right now · money on the table, and is the robot taking it?</div>
     <p class="hl" id="hlText">Reading…</p>
     <p class="hlSub" id="hlSub"></p>
   </section>

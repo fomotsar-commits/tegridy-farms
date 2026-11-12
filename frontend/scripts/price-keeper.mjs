@@ -686,7 +686,9 @@ async function dashboard() {
   const { scannerPageUrl } = await lib('solana/keeper/takes.ts');
   const scannerRaw = env.KEEPER_SCANNER_URL?.trim();
   let scannerUrl = null;
-  let scanner = { page: null, view: null, readAt: null, problem: 'not set: KEEPER_SCANNER_URL names the scanner’s page on this computer' };
+  // `set` tells the page whether a scanner is named at all: with none (it was retired on
+  // 2026-11-09, and the engine finds the robot's trips), the page hides the scanner's half.
+  let scanner = { set: Boolean(scannerRaw), page: null, view: null, readAt: null, problem: 'not set: KEEPER_SCANNER_URL names the scanner’s page on this computer' };
   if (scannerRaw) {
     try {
       scannerUrl = scannerPageUrl(scannerRaw);
