@@ -46,7 +46,7 @@ export function SheetBuyRow({ coin, art, onOpen, side, network }: {
   art: ReactNode;
   onOpen: () => void;
   side?: ReactNode;
-  network: ReactNode;
+  network?: ReactNode;
 }) {
   const room = coin ? (sheetRooms().find((b) => b.address === coin.mint) ?? null) : null;
   return (

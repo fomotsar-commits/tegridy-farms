@@ -13,6 +13,7 @@ The site's Changelog tab shows both files.
 - Swap sheet: one coin chip with the coin's picture and a drop-down in place of the row of room chips, a Buy / Sell switch (a sale offers 25%, 50%, 75% and Max of what you hold), and larger "You pay" and "You get" boxes. Coin lists show pictures for SOL, USDC and USDT on Solana and for the island coins on Base. In the Add sheet, "Every pool" keeps the pool finder and your positions and drops the long lists (All pools, Arbitrage, Every position, Rates, Swap routes, Before you provide liquidity), which stay on the Pools page.
 - Ethereum, Base and Robinhood Chain swap: the form is drawn like the Solana one. "You pay" and "You receive" are large boxes with each coin's picture, quick amounts are 25%, 50%, 75% and MAX, and slippage with fee-on-transfer folds into one line that opens. Every check, route and fee is unchanged.
 - Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
+- Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
 
 ### 2026-11-11

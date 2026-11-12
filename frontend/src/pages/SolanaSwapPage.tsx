@@ -17,8 +17,9 @@ import { CoinName } from '../components/ui/CoinName';
 import { tick } from '../lib/tick';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SheetBodyOutlet } from '../components/sheet/SheetOutlet';
-import { useSheet } from '../components/sheet/sheetContext';
+import { useSheet, type SheetPlace } from '../components/sheet/sheetContext';
 import { SheetBuyRow } from '../components/sheet/SheetBuyRow';
+import { sheetRoom } from '../lib/sheet';
 import { SheetPickLine } from '../components/sheet/SheetBaylaRow';
 import { useSolanaConnect } from '../components/solana/useSolanaConnect';
 import { SHEET_WORDS } from '../lib/arrival';
@@ -1473,6 +1474,11 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // island drew it; either coin is a press that picks another from the page's own lists (owner, 2026-11-05).
   const sheetPlace = useSheet();
   const inSheet = sheet ? sheetPlace : null;
+  // The home's card is drawn as the sheet's form (owner, 2026-11-11: bring the home card up to the sheet's look), on
+  // BAYLA's room, with no line of hers: the card's own frame carries its name. Only the drawing is the sheet's; what
+  // the form reads and signs is the home card's, as before.
+  const [homePlace] = useState<SheetPlace | null>(() => (home ? { kind: 'buy', room: sheetRoom(BAYLA.mint), bayla: null } : null));
+  const look = inSheet ?? homePlace;
   const openConnect = useSolanaConnect();
   // The address this form reads its opening pair and amount from: none on the home, none in the sheet (it is the room's).
   const [linkSearch] = useState(() => {
@@ -2669,9 +2675,9 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // the second row is what you get with the route line under it, one green button. The review
   // and the signing are the form's own, unchanged; its notes are said whenever they apply. Above
   // the amount, the bungalow row picks the coin (answer twenty-seven).
-  if (inSheet) {
+  if (look) {
     const own = ownBest && !isRangeCandidate(ownBest) ? ownBest : null;
-    const room = inSheet.room;
+    const room = look.room;
     // The drawn first row, Pool price, whichever route wins: the room's own pool, as it quoted this amount.
     // Said only while the pair IS that pool's, SOL and the room's coin either way round, in SOL per coin.
     const roomPool = room ? route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === room.venueSolPool) : undefined;
@@ -2757,7 +2763,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       setAmount(part > 0n ? fromBaseUnits(part.toString(), payToken.decimals) : '');
     };
     const go = selling ? { background: 'linear-gradient(135deg, #e5484d 0%, #b4232a 100%)', boxShadow: '0 8px 24px rgba(229,72,77,0.28)' } : { boxShadow: '0 8px 24px rgba(76,175,80,0.28)' };
-    return (
+    const form = (
       <div data-testid="sheet-buy" className="space-y-3 text-white/75 text-[12px]">
         {ownFlowOpen ? (
           <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">One moment…</p>}>
@@ -2771,7 +2777,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               art={<TokenAvatar token={chipToken} size={32} />}
               onOpen={() => setPicker(selling ? 'pay' : 'buy')}
               side={sideToggle}
-              network={<ChainSwitch at="/solana" align="end" />}
+              // On the home's card the network sits by the card's name, where a narrow card has room for it.
+              network={home ? null : <ChainSwitch at="/solana" align="end" />}
             />
             {/* The amount: what you pay (on a sale, what you sell), large, its coin at the right. On a buy that coin
                 is a press that picks what you pay with; on a sale it is the chip's coin above. */}
@@ -2782,10 +2789,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               <label className="flex-1 min-w-0 flex flex-col justify-center h-full">
                 <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>
                   {selling ? 'You sell' : 'You pay'}
-                  <span className="sr-only">{`: amount of ${payToken.symbol} to pay`}</span>
                 </span>
                 <input
                   data-testid="sheet-amount"
+                  aria-label={`Amount of ${payToken.symbol} to pay`}
                   type="text" inputMode="decimal" autoComplete="off" placeholder="0"
                   value={amount}
                   onChange={(e) => acceptAmountInput(e.target.value, setAmount)}
@@ -2894,7 +2901,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               </Suspense>
             )}
             {!unpicked && <div data-testid="sheet-settings" className="[&>details]:mb-0">{settings}</div>}
-            {unpicked ? <SheetPickLine /> : inSheet.bayla}
+            {unpicked ? <SheetPickLine /> : look.bayla}
             {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. Off until a coin is picked. */}
             <button
               ref={buyRef}
@@ -2915,6 +2922,24 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         )}
         {pickers}
       </div>
+    );
+    if (!home) return form;
+    // The home's card: its art under a dark veil (every card keeps its art), its name, the form, the commitment line.
+    return (
+      <section className="relative isolate rounded-2xl p-4" style={{ border: '1px solid var(--color-purple-25)' }} data-testid="home-swap-card">
+        <div aria-hidden="true" className="absolute inset-0 -z-10 rounded-2xl overflow-hidden">
+          <ArtImg pageId="swap" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.88)' }} />
+        </div>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <Heading ref={headingRef} tabIndex={-1} className="heading-luxury text-xl text-white outline-none">
+            Swap
+          </Heading>
+          <ChainSwitch at="/solana" align="end" />
+        </div>
+        {form}
+        <ClockLine />
+      </section>
     );
   }
   return (
