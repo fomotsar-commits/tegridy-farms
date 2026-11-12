@@ -11,12 +11,21 @@ import { setSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
 import { useReceipt } from '../../lib/receipt';
 import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
+import { PoolsLeaving } from '../PoolsFrame';
 import { CoinName } from '../ui/CoinName';
 import { SHEET_WAIT } from './sheetContext';
 import { BungalowRow } from './SheetBuyRow';
 
 // The sheet's own Solana connection, for a page with none: its own chunk, as every Solana section is.
 const SheetOwnConnection = lazy(() => import('./SheetSolana'));
+
+// An address with the sheet up (?sheet=) starts its two chunks with the app: the form's code
+// is on its way before the connection's has landed and drawn, not after. Any other address
+// starts neither, so a visitor who never asked for the sheet downloads no Solana code for it.
+if (typeof window !== 'undefined' && readSheet(window.location.search) !== null) {
+  void import('./SheetSolana').catch(() => { /* the lazy import above reports a failed load */ });
+  void import('./SheetBody').catch(() => { /* SheetOutlet's lazy import reports a failed load */ });
+}
 
 /**
  * The sheet (island answer twenty-five, screen 1, build 3): Add or Buy as one screen over the
@@ -171,5 +180,6 @@ function CoinRow({ room }: { room: Bungalow }) {
 export function DeepLinkSheet({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
   const to = deepLinkSheet(pathname, search);
-  return to ? <Navigate to={to} replace /> : <>{children}</>;
+  // The redirect draws nothing for one commit: /pools' own frame, if it is on screen, stays up for it.
+  return to ? <><PoolsLeaving /><Navigate to={to} replace /></> : <>{children}</>;
 }

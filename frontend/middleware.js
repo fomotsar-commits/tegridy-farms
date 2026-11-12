@@ -379,13 +379,15 @@ async function readCard(url) {
 // The sheet rooms by id, with the coin each one's card is titled for. KEEP IN SYNC with
 // sheetRooms() in src/lib/sheet.ts (middleware.test.js pins ids and symbols).
 export const LP_ROOMS = { bayla: "BAYLA", bobo: "BOBO", soy: "SOY", brainlet: "BRAINLET", rizz: "RIZZ" };
-const LP_CARD = `${CANONICAL_ORIGIN}/share/lp-card.jpg`;
+// The island's clean painting. A new file name, so X fetches it fresh: lp-card.jpg, cut from a mockup of
+// X, carries X's own "From memetics.finance" label and is left in place for any card already drawn from it.
+const LP_CARD = `${CANONICAL_ORIGIN}/share/lp-card-v2.jpg`;
 const LP_CARD_ALT = "Bayla lays a glowing infinity brick on the island's plinth, under memetics.finance";
 const LP_TITLE = (symbol) =>
   symbol ? `Hold $${symbol}'s floor. Every trade pays you.` : "Hold the floor. Every trade pays you.";
 const LP_DESCRIPTION = (symbol) =>
   symbol
-    ? `Add SOL + ${symbol} to its pool on memetics.finance. Every trade in the pool pays you.`
+    ? `Add liquidity to $${symbol}'s pool on memetics.finance. Every trade in the pool pays you.`
     : "Add liquidity to any pool on memetics.finance. Every trade in the pool pays you.";
 // A symbol read from outside reaches a card title only as a plain ticker: letters and digits, at most
 // 12. One "$" of its own is dropped first (GeckoTerminal reads WIF as "$WIF"): the title prints its own.
@@ -394,12 +396,47 @@ const cardSymbol = (symbol) => {
   return /^[A-Za-z0-9]{1,12}$/.test(s) ? s : null;
 };
 
+// The coins whose name belongs to ONE mint. The venue's screens show any other mint that takes one of
+// these names as "fake BAYLA" (src/lib/solana/lp/identity.ts); its card names no coin. KEEP IN SYNC with
+// WELL_KNOWN_NAMES in src/lib/solana/lp/tokenSafety.ts: middleware.test.js pins the list name for name,
+// and `lpCopy` against that file's copiedWellKnownName ticker by ticker.
+export const LP_KNOWN = [
+  { label: "SOL", mint: "So11111111111111111111111111111111111111112", names: ["SOL", "WSOL", "Wrapped SOL", "Solana", "Wrapped Solana"] },
+  { label: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", names: ["USDC", "USD Coin", "USDCoin"] },
+  { label: "USDT", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", names: ["USDT", "Tether", "Tether USD", "USDTether"] },
+  { label: "BAYLA", mint: "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump", names: ["BAYLA"] },
+  { label: "TOWELI", mint: null, names: ["TOWELI"] },
+  { label: "BOBO", mint: "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump", names: ["BOBO"] },
+  { label: "SOY", mint: "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump", names: ["SOY"] },
+  { label: "BRAINLET", mint: "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump", names: ["BRAINLET"] },
+  { label: "RIZZ", mint: "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k", names: ["RIZZ"] },
+];
+// The brand words of launchMetadata/validate.js that name a coin above: a copy anywhere in a ticker.
+const LP_BRAND_WORDS = ["TOWELI", "BAYLA"];
+const LP_LOOKALIKE = { 0: "O", 1: "I", 3: "E", 5: "S", 8: "B", L: "I" };
+// A plain ticker's skeleton, as validate.js foldForCompare makes it: upper-cased, a digit read as the
+// letter it stands in for, L as I, nothing but letters and digits kept.
+const lpFold = (s) => [...s.toUpperCase()].map((c) => LP_LOOKALIKE[c] ?? c).filter((c) => /^[A-Z0-9]$/.test(c)).join("");
+
+/** True when `ticker` (a plain one, as cardSymbol returns it) reads as a coin above and `mint` is not that coin. */
+export function lpCopy(mint, ticker) {
+  const whole = lpFold(ticker);
+  if (!whole) return false;
+  // A long brand word anywhere in the ticker, a short one at its start (validate.js containedBrands).
+  const brands = LP_BRAND_WORDS.map(lpFold).filter((b) => (b.length >= 6 ? whole.includes(b) : whole.startsWith(b)));
+  const said = [whole, ...brands];
+  const known = LP_KNOWN.find((k) => k.names.some((n) => said.includes(lpFold(n))));
+  return known ? known.mint !== mint : false;
+}
+
 async function lpLink(req) {
   const url = new URL(req.url);
   if (url.pathname !== "/lp" && !url.pathname.startsWith("/lp/")) return undefined;
-  const key = (url.pathname.split("/")[2] || "").trim();
-  const room = Object.hasOwn(LP_ROOMS, key) ? key : null;
-  const mint = !room && SOLANA_MINT_RE.test(key) ? key : null;
+  const seg = (url.pathname.split("/")[2] || "").trim();
+  // A room is its id in any case (a link typed by hand). A mint is cased, and is read as written.
+  const id = seg.toLowerCase();
+  const room = Object.hasOwn(LP_ROOMS, id) ? id : null;
+  const mint = !room && SOLANA_MINT_RE.test(seg) ? seg : null;
 
   // A person lands on the Add: the room's sheet, or the LP door on /pools. The redirect stays on
   // the deployment that served it, so a preview stays a preview.
@@ -408,8 +445,10 @@ async function lpLink(req) {
     return Response.redirect(new URL(to, url.origin).toString(), 307);
   }
 
-  // A room's card is named from the room, with nothing read; any other token's from one identity read.
-  const symbol = room ? LP_ROOMS[room] : mint ? cardSymbol((await tokenIdentity(mint))?.symbol) : null;
+  // A room's card is named from the room, with nothing read; any other token's from one identity read,
+  // unless that ticker is a well-known coin's and this mint is not that coin: a copy's card names no coin.
+  const read = mint ? cardSymbol((await tokenIdentity(mint))?.symbol) : null;
+  const symbol = room ? LP_ROOMS[room] : read && !lpCopy(mint, read) ? read : null;
   return respond(ogHtml({
     title: LP_TITLE(symbol),
     description: LP_DESCRIPTION(symbol),
@@ -417,7 +456,7 @@ async function lpLink(req) {
     imageWidth: 2048,
     imageHeight: 1024,
     imageAlt: LP_CARD_ALT,
-    url: room || mint ? `${CANONICAL_ORIGIN}/lp/${key}` : `${CANONICAL_ORIGIN}/pools`,
+    url: room || mint ? `${CANONICAL_ORIGIN}/lp/${room ?? mint}` : `${CANONICAL_ORIGIN}/pools`,
     siteName: "memetics.finance",
   }));
 }

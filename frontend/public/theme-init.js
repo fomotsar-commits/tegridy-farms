@@ -87,6 +87,24 @@
     /* No preload is a slower first paint, never a broken one. */
   }
 
+  // ─── The pools page's frame (scripts/render-pools-frame.mjs) ───────────────
+  //
+  // The address moves the page's heading: Bayla's line stands down for a coin, and for
+  // the farm's voice (BaylaLine.tsx); with a coin and task=add the LP door is drawn above
+  // the heading (PoolsPage.tsx). The static frame holds the same place, so this says
+  // which before it is painted.
+  try {
+    if (window.location.pathname === '/pools') {
+      var asked = new URLSearchParams(window.location.search);
+      var coin = asked.get('mint');
+      if (coin !== null || asked.get('bungalow') === 'toweli') {
+        document.documentElement.setAttribute('data-pools-frame', coin !== null && asked.get('task') === 'add' ? 'door' : 'noline');
+      }
+    }
+  } catch (_e4) {
+    /* The frame then pads for her line. */
+  }
+
   // ─── The first frame's field (answer ten, ruling 2) ────────────────────────
   //
   // Once the static markup exists: on `/` with the gate open, a shared read link

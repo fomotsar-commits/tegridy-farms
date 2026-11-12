@@ -26,6 +26,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     wallet: WALLET,
     action: 'bought',
     coin: { symbol: 'BAYLA', mint: BAYLA },
+    island: true,
     title: null,
     under: null,
     fee: { kind: 'reading' },
