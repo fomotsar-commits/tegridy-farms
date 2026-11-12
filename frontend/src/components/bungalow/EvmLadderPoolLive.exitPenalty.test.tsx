@@ -151,4 +151,19 @@ describe('EvmLadderPoolLive: the early-exit penalty is read from the pool', () =
     expect(wagmiState.chainIds).not.toContain(1);
     expect(screen.getByText(/The lighthouse · Robinhood Chain · lock ladder/)).toBeInTheDocument();
   });
+
+  // LighthouseLadder.sol keeps a position's `_boosted` until it closes, so an opened lock
+  // earns at its weight until withdrawn (the BAYLA card says the same, 2026-11-11). Red
+  // first: the row said only "unlocked".
+  it('an opened lock says it keeps its weight until withdrawn; a running one does not', async () => {
+    seed({ flat: 2_500n });
+    wagmiState.answers.set('positions:1', ok([USER, NOW - 86_400n, AMOUNT, 400n * E18]));
+    const { unmount } = render(<EvmLadderPoolLive bungalow={QR} />);
+    expect(await screen.findByText('unlocked · keeps this weight until you withdraw')).toBeInTheDocument();
+    unmount();
+    seed({ flat: 2_500n });
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    expect(await screen.findByText(/^opens in /)).toBeInTheDocument();
+    expect(screen.queryByText(/until you withdraw/)).toBeNull();
+  });
 });
