@@ -133,7 +133,7 @@ export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
   "bayla|lore:0": { artId: "bayla-02", objectPosition: "59% 81%" },
   "bayla|lp-farming:0": { artId: "bayla-05", objectPosition: "43% 100%" },
   "bayla|lp-farming:1": { artId: "bayla-06", objectPosition: "61% 82%" },
-  "bayla|nft-finance:0": { artId: "bayla-21", objectPosition: "46% 0%" },
+  "bayla|nft-finance:0": { artId: "card21", objectPosition: "46% 20%" },
   "bayla|nft-finance:1": { artId: "bayla-22", objectPosition: "32% 3%" },
   "bayla|nft-finance:21": { artId: "bayla-07", objectPosition: "50% 78%" },
   "bayla|nft-finance:3": { artId: "9C7B2921-F966-460D-A5BA-57FC68B1D1A6", objectPosition: "50% 58%" },
