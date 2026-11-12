@@ -73,6 +73,7 @@ const create = (coin: QuoteCoin, over: Partial<Create> = {}) =>
     createFee: 150_000_000n,
     feeReceiver: FEE_RECEIVER,
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
     price: { state: 'agrees', pool: 0.025, reference: 0.0249, against: 'outside', diff: 0.025 / 0.0249 - 1 },
     ...over,
   });
@@ -460,7 +461,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
   it('nothing is wrapped, and the review says the costs are still paid in SOL', async () => {
     await review(create(coin, { unwrapsWsol: true, wsolHeldBefore: 500_000_000n }));
     expect(
-      screen.getByText(`Your ${C} is spent straight from your own ${C} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`),
+      screen.getByText(`Your ${C} is spent straight from your own ${C} account. Nothing is wrapped. The fee to open, the account deposits and the name record are paid in SOL.`),
     ).toBeInTheDocument();
     expect(reviewText()).not.toMatch(/wrapped into a token account|wrapped SOL|plain SOL/);
   });
