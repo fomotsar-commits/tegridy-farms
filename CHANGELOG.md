@@ -9,6 +9,12 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-12
 
+- iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
+- Heat line and card: with two wallets in one wallet app (an Ethereum account and a Solana wallet), both now read the same wallet, the warmer one.
+- Heat card: with only a Solana wallet connected, the card reads it without a press.
+- Bayla's line: while the launch door is closed it offers Add or Pick a bungalow, never Launch.
+- Share on X after an add: the post names the coin and no site, so X shows the add's own card.
+- Add with one coin: after the first signature, step 2 opens on its review with nothing to type, and says the amount you chose. Cancel opens the form.
 - Lock ladders: a position whose lock has ended now says, beside the lock, that it keeps earning at the weight it was staked at until you withdraw, for example "still earning at 0.46× until you withdraw". That was always the rule and it stays the rule; it was only written inside the "Upgrade risk" details, so stakers took the earnings after their lock ended for a mistake. The room ladders on the other networks say the same.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
 

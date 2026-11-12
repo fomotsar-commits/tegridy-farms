@@ -223,4 +223,23 @@ describe('the step 2 note', () => {
     saveStepTwo(w, { pool: 'P1', paid: 'token', kept: 5n, got: 7n, gotExact: false, bps: 100n, signature: SIG, at: 0 });
     expect(readStepTwo(w, 'P1', 60 * 60_000 + 1)).toBeNull();
   });
+  // Island answer thirty-five: step 2 says the chosen amount back, so the note keeps it.
+  it('keeps the total that was chosen; a note written without one reads as it always did', () => {
+    const w = USER.toBase58();
+    saveStepTwo(w, { pool: 'P1', paid: 'quote', kept: 5n, got: 7n, gotExact: true, bps: 100n, signature: SIG, at: Date.now(), total: 12n });
+    saveStepTwo(w, { pool: 'P2', paid: 'quote', kept: 5n, got: 7n, gotExact: true, bps: 100n, signature: SIG, at: Date.now() });
+    expect(readStepTwo(w, 'P1')).toMatchObject({ kept: 5n, got: 7n, total: 12n });
+    expect(readStepTwo(w, 'P2')).toMatchObject({ kept: 5n, got: 7n });
+    expect(readStepTwo(w, 'P2')).not.toHaveProperty('total');
+  });
+  it('a total that is not a whole number above what was kept back is no total, and the note still reads', () => {
+    const w = USER.toBase58();
+    const note = (pool: string, total: unknown) => ({ pool, paid: 'quote', kept: '5', got: '7', gotExact: true, bps: '100', signature: SIG, at: Date.now(), total });
+    localStorage.setItem(`lp:one-coin:${w}`, JSON.stringify([note('P1', '5'), note('P2', '4'), note('P3', '1e9'), note('P4', 12), note('P5', '6')]));
+    for (const pool of ['P1', 'P2', 'P3', 'P4']) {
+      expect(readStepTwo(w, pool)).toMatchObject({ kept: 5n, got: 7n });
+      expect(readStepTwo(w, pool)).not.toHaveProperty('total');
+    }
+    expect(readStepTwo(w, 'P5')).toMatchObject({ total: 6n });
+  });
 });

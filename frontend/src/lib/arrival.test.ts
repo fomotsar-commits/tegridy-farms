@@ -188,7 +188,7 @@ describe('the receipt card names a coin once, or not at all', () => {
     expect(RECEIPT_WORDS.shore('BAYLA')).toBe("You're on $BAYLA's shore. Every light here holds it.");
     expect(RECEIPT_WORDS.shore('$WIF')).toContain(RECEIPT_WORDS.shoreMark('$WIF'));
     expect(RECEIPT_WORDS.floor('$WIF')).toBe("You're part of $WIF's floor now. Every trade in the pool pays you.");
-    expect(RECEIPT_WORDS.lpPost('$WIF')).toContain('to $WIF on memetics.finance');
+    expect(RECEIPT_WORDS.lpPost('$WIF')).toContain('to $WIF. ');
   });
 
   it('the floor’s mark is the coin’s floor, inside the line', () => {
@@ -199,7 +199,9 @@ describe('the receipt card names a coin once, or not at all', () => {
 
   it('with no ticker of the coin’s own, the line and the post name none', () => {
     expect(RECEIPT_WORDS.floor(null)).toBe("You're part of the floor now. Every trade in the pool pays you.");
-    expect(RECEIPT_WORDS.lpPost(null)).toBe("Just added liquidity on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.");
+    expect(RECEIPT_WORDS.lpPost(null)).toBe("Just added liquidity. I'm part of the floor now. Every trade in the pool pays me.");
+    // One link a post (island answer thirty-five): the unnamed post names no site either.
+    expect(RECEIPT_WORDS.lpPost(null)).not.toMatch(/\.\p{L}{2,}/u);
     const intent = new URL(RECEIPT_WORDS.lpIntent(null, 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'));
     expect(intent.searchParams.get('text')).toBe(`${RECEIPT_WORDS.lpPost(null)} https://memetics.finance/lp/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm`);
     for (const words of [RECEIPT_WORDS.floor(null), RECEIPT_WORDS.lpPost(null)]) {

@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { raiseAddReceipt } from './addReceipt';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { ownTicker, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -31,6 +31,10 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WhatIfPriceMoves } from './WhatIfPriceMoves';
 
 const ADD_HINT = 'If the pool’s price moves more than this before your deposit runs, it is refused and only the network fees are spent.';
+/** The words while the review is read and test-run: the form's own, and the wait before a review that opens by itself. */
+const PREPARING_TEXT = 'Reading the pool and the price again, then test-running your deposit on the network…';
+/** How long a form told to open on its review waits for this wallet's balances before it opens as a form. */
+export const OPEN_ON_REVIEW_MS = 8_000;
 
 /**
  * Add liquidity to one pool, in place inside its card. The numbers here are worked out
@@ -66,8 +70,12 @@ interface AddPanelProps {
   safety: TokenSafety | null;
   tokenDecimals: number | null;
   onClose: () => void;
-  /** Step 2 of "Add with one coin" (AddOneCoinPanel.tsx): the amount and slippage it opens with, its title, the line above it, and its answers. */
-  initial?: { side: LpSide; text: string; bps?: bigint };
+  /**
+   * Step 2 of "Add with one coin" (AddOneCoinPanel.tsx): the amount and slippage it opens with, its title, the line above it, and its answers.
+   * `review`: it opens ON its review (island answer thirty-five). Review is pressed once on the visitor's behalf, when this
+   * wallet's balances are read and the amounts stand; Cancel on that review is this form.
+   */
+  initial?: { side: LpSide; text: string; bps?: bigint; review?: boolean };
   title?: string;
   lead?: ReactNode;
   onSettled?: OnSettled;
@@ -358,6 +366,33 @@ function AddInner({
     void flow.prepare(build, { repeatable: true });
   };
 
+  // THE SECOND SIGNATURE IS THE SECOND TAP (island answer thirty-five; `initial.review`). Step 2 of an add
+  // made with one coin opened this form on what step 1 left, as two boxes to type in, and a person who had
+  // chosen 0.1 SOL read 0.0498 as the wrong amount, typed 0.1 again and added double. Now Review is pressed
+  // once on their behalf: the same press, asking for the same build, when this wallet's balances are read
+  // and the amounts stand. Until then the form is not drawn, so its boxes never flash by. When it cannot be
+  // asked for (no wallet, balances not read in OPEN_ON_REVIEW_MS, a problem with the amounts, a deposit
+  // still pending), the form opens at once with its own words for why. It never opens a review by itself twice.
+  const [opening, setOpening] = useState(initial?.review === true);
+  const balancesRead = facts?.kind === 'ok';
+  const cannotOpen = !signer || facts?.kind === 'unread' || (balancesRead && !canReview);
+  // Over for good the moment it cannot be asked for, and once it was (the flow has left the form).
+  if (opening && (cannotOpen || flow.state.step !== 'idle')) setOpening(false);
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!opening || asked.current || !balancesRead || !canReview) return;
+    asked.current = true;
+    review();
+    // `review` reads this render's amounts; it runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opening, balancesRead, canReview]);
+  useEffect(() => {
+    if (!opening) return;
+    const t = setTimeout(() => setOpening(false), OPEN_ON_REVIEW_MS);
+    return () => clearTimeout(t);
+  }, [opening]);
+  const waitsForReview = opening && !cannotOpen;
+
   const warnings = safety?.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
   const walletReady = writes.signerState.kind === 'ready';
   const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotAdd !== null, hasAmounts: !!typed && typed.text.trim() !== '', amountsWord: 'an amount' });
@@ -381,8 +416,12 @@ function AddInner({
           decimals={decimals}
           signer={signer}
           extraReview={<LpReviewDisclosure kind="add" origin={view.origin} />}
-          preparingText="Reading the pool and the price again, then test-running your deposit on the network…"
+          preparingText={PREPARING_TEXT}
         />
+      ) : waitsForReview ? (
+        <p role="status" data-testid="lp-add-opening" className="text-white/55">
+          {PREPARING_TEXT}
+        </p>
       ) : (
         <>
           {warnings.length > 0 && (

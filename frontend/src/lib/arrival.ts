@@ -203,11 +203,14 @@ export const HEAT_WORDS = {
  *  (GeckoTerminal reads WIF as "$WIF"). */
 const bare = (coin: string) => coin.replace(/^\$/, '');
 /** The add's post (island answer thirty-one): what they did, what they are now, what it pays. `null`: the
- *  venue read no ticker of the coin's own (none at all, or a copy's), and the post names no coin (answer thirty-four). */
+ *  venue read no ticker of the coin's own (none at all, or a copy's), and the post names no coin (answer thirty-four).
+ *  ONE LINK A POST (island answer thirty-five): the sentence names no site. X draws one card a post, the
+ *  FIRST link's, and links a bare "memetics.finance" by itself: with the site named here, every posted add
+ *  drew the front page's card and never the add's own. The link below and its card name the site. */
 const LP_POST = (coin: string | null) =>
   coin === null
-    ? "Just added liquidity on memetics.finance. I'm part of the floor now. Every trade in the pool pays me."
-    : `Just added liquidity to $${bare(coin)} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+    ? "Just added liquidity. I'm part of the floor now. Every trade in the pool pays me."
+    : `Just added liquidity to $${bare(coin)}. I'm part of the floor now. Every trade in the pool pays me.`;
 /** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
 const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
 
