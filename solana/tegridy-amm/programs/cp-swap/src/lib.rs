@@ -38,8 +38,9 @@ solana_security_txt::security_txt! {
 //   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
 //   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
 //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
-//     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
-//     (here and update_config.rs; constants in states/config.rs).
+//     4% (its keeper apart, since 2026-11-11: below), and keeps at most 20% of its trade fee
+//     for the protocol and fund owners together (here and update_config.rs; constants in
+//     states/config.rs).
 //   - 2026-11-03, update_config.rs: the admin hands a tier's fund fee over once, while it
 //     still holds it, and can never point it anywhere else after that.
 //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
@@ -49,8 +50,14 @@ solana_security_txt::security_txt! {
 //     swap never is. Off on every tier until then (states/config.rs `swap_guard`, `keeper`
 //     and `refuses_swap`; checked first in swap_base_input.rs and swap_base_output.rs; set
 //     by update_config.rs params 8 and 9; error.rs `SwapNotDirect`).
+//   - 2026-11-11, the keeper's fee: a tier's keeper (param 9 above) swaps on that tier free
+//     of the trade fee and the creator fee, so it pays no protocol or fund share either.
+//     Everyone else pays as upstream. With no keeper named, nobody is free. The rates are
+//     chosen in states/config.rs `swap_fee_rates`, used in swap_base_input.rs and
+//     swap_base_output.rs; the curve and fee arithmetic is not touched.
 // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
-// swap/curve/fee arithmetic is byte-identical to the audited upstream. The per-swap
+// swap/curve/fee arithmetic is byte-identical to the audited upstream; since 2026-11-11 the
+// swaps hand it rates of 0 when a tier's keeper signs. The per-swap
 // PROTOCOL fee is NOT here: it accrues per `amm_config.protocol_fee_rate` and is
 // collected by `amm_config.protocol_owner` (which create_config sets = the admin caller).
 //
@@ -172,7 +179,8 @@ pub mod raydium_cp_swap {
     /// * `param`- The value can be 0 | 1 | 2 | 3 | 4, otherwise will report a error
     /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
     ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
-    ///   remaining account (the System Program's address clears it)
+    ///   remaining account (the System Program's address clears it). Since 2026-11-11 the
+    ///   keeper also swaps on the tier free of the trade and creator fees
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)
