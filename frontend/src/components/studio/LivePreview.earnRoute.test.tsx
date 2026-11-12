@@ -6,9 +6,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LivePreview } from './LivePreview';
 
-// jsdom has none; the preview only measures its pane with it.
+// jsdom has none; the preview only measures its pane with it. It takes the callback a real
+// one takes: CodeQL resolves every `new ResizeObserver(cb)` in src to this class, and with no
+// constructor it flagged each call's argument as superfluous (js/superfluous-trailing-arguments).
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
+    constructor(_callback: ResizeObserverCallback) {}
     observe() {}
     unobserve() {}
     disconnect() {}

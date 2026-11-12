@@ -15,6 +15,9 @@ The site's Changelog tab shows both files.
 - Bayla's line: while the launch door is closed it offers Add or Pick a bungalow, never Launch.
 - Share on X after an add: the post names the coin and no site, so X shows the add's own card.
 - Add with one coin: after the first signature, step 2 opens on its review with nothing to type, and says the amount you chose. Cancel opens the form.
+- NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
+- NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
+- NFT lending, Lend: a box holding a value the offer cannot use now says which values it takes. An APR over 1000%, for one, used to hide the interest card and fade the button with no word why.
 - Lock ladders: a position whose lock has ended now says, beside the lock, that it keeps earning at the weight it was staked at until you withdraw, for example "still earning at 0.46× until you withdraw". That was always the rule and it stays the rule; it was only written inside the "Upgrade risk" details, so stakers took the earnings after their lock ended for a mistake. The room ladders on the other networks say the same.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
 

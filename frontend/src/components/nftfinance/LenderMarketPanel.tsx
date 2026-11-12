@@ -77,7 +77,7 @@ export function LenderMarketPanel({
             : check.kind === 'short'
             ? `Your ${eth(principal)} WETH is ${eth(check.gap)} over the best bid: unrepaid, selling today loses that.`
             : 'No open bids right now: unrepaid, you may have to hold the NFT or list it.'}
-          {under !== null && under > 0 ? ` ${under}% under the floor.` : under !== null && under < 0 ? ` ${-under}% over the floor.` : ''}
+          {under !== null && under > 0 ? ` ${under}% under the floor.` : under !== null && under < 0 ? ` ${(-under).toLocaleString('en-US')}% over the floor.` : ''}
         </p>
       )}
       <FinePrint summary="Why" testId="lender-market-why">
