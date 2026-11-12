@@ -103,13 +103,13 @@ describe('the one list of tokens', () => {
       ['tCzVHDSMxQ1ANFZZ2bA3JnxYXRws9uj84GdrbejLTWQ', 'GRR/SOL LP', 'GRR-SOL'],
       ['5uicWVk3D85RLjNmcexohqCDyuZjyHnpzd1aWiUMBQ29', 'MROCKS/SOL LP', 'MROCKS-SOL'],
       ['85PrZH8qw15Yq22P2jhhBUWSFZzsC1XSdarmeaEq7q5j', 'BIG BRAIN/SOL LP', 'BIGB-SOL'],
-      ['GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx', 'STORMIE/SOL LP', 'STORM-SOL'],
+      ['GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx', 'STORMIE/SOL LP', 'STRMIE-SOL'],
       ['F793raKNWfn11PmqWdwMNp7A6kkfFqFjGG199M2CfGPj', 'APE/SOL LP', 'APE-SOL'],
       ['BTHYKjLHCJtBaKWVvBeqAgBF6aU7fwCYheoPH8ztpJr3', 'TBB/SOL LP', 'TBB-SOL'],
       ['7P5oYhpAhnssPasq6iedy5ebVP279CHJJXotwZ4qgP4W', 'BRAINLET/SOY LP', 'BRAIN-SOY'],
       ['BibsjCKijbUYmDJwKWVH9Qsvn4Dq1hUrczynKxRvQj2x', 'OGDOGE/SOL LP', 'OGDOGE-SOL'],
-      ['J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj', 'SHOCKER/SOL LP', 'SHOCK-SOL'],
-      ['A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE', 'GROYPER/SOL LP', 'GROYP-SOL'],
+      ['J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj', 'SHOCKER/SOL LP', 'SHOCKR-SOL'],
+      ['A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE', 'GROYPER/SOL LP', 'GROYPR-SOL'],
       ['CK4s5DWKVwBpvBmW3isKTNv2YiPTuvtwQZ6NUCsh9rCc', 'BIG BRAIN/BRAINLET LP', 'BIGB-BRAIN'],
       ['AZbCsNo77ETPa2E2bER8pF65GbS9r9Lhkt1mwNEgJWKf', 'USDT/USDC LP', 'USDT-USDC'],
       ['EJpDTWGtM43uih26eBM7tSG7AJuMGQgfjMY2Sdq92hBo', 'ZBCN/SOL LP', 'ZBCN-SOL'],
@@ -379,17 +379,23 @@ describe('vercel.json keeps /mint/ answering what a wallet can use', () => {
     expect(maxAge(header(aPicture, 'Cache-Control'))).toBeGreaterThanOrEqual(31_536_000);
   });
 
-  it('answers a mint with no file with the default file, never the app page', () => {
+  it('answers a mint with no file from chain, and any other path with the default file, never the app page', () => {
     const fallback = config.rewrites.findIndex((r) => r.destination === '/index.html');
     const ours = config.rewrites.findIndex((r) => r.source === `${MINT_PATH}/(.*)`);
+    // A share's link with no committed file: built from chain, and the default file for
+    // anything that is not one of our shares (api/__tests__/share-name.test.js).
+    const fromChain = config.rewrites.findIndex((r) => r.source === `${MINT_PATH}/:mint.json`);
     expect(fallback).toBeGreaterThanOrEqual(0);
     expect(ours, 'no /mint/(.*) rewrite').toBeGreaterThanOrEqual(0);
+    expect(fromChain, 'no /mint/:mint.json rewrite').toBeGreaterThanOrEqual(0);
     expect(config.rewrites[ours].destination).toBe(`${MINT_PATH}/${DEFAULT_FILE}`);
+    expect(config.rewrites[fromChain].destination).toBe('/api/aggregator?resource=mint&mint=:mint');
     // ORDER IS THE TEST. The first match wins, and the app fallback matches every path.
+    expect(fromChain).toBeLessThan(ours);
     expect(ours).toBeLessThan(fallback);
-    for (const path of [noSuchMint, `${MINT_IMG_PATH}/no-such-picture.png`, `${MINT_PATH}/`]) {
+    for (const [path, want] of [[noSuchMint, fromChain], [`${MINT_IMG_PATH}/no-such-picture.png`, ours], [`${MINT_PATH}/`, ours]] as const) {
       expect(matches(config.rewrites[fallback].source, path), 'the app fallback would have taken this path').toBe(true);
-      expect(config.rewrites.findIndex((r) => matches(r.source, path)), path).toBe(ours);
+      expect(config.rewrites.findIndex((r) => matches(r.source, path)), path).toBe(want);
     }
     expect(filesIn(MINT_DIR)).toContain(DEFAULT_FILE);
   });

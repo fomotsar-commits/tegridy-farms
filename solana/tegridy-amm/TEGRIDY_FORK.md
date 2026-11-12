@@ -2,7 +2,8 @@
 
 Tegridy Farms' own Solana AMM, so the protocol earns a **protocol fee on every swap
 across every pool it hosts** (the "own the venue" model), with an external-routing
-fallback for pairs we don't host well.
+fallback for pairs we don't host well. Since 2026-11-11 a fee tier's keeper, once the vault
+names one, is the one exception: see "The keeper's fee".
 
 - **Fork base:** [`raydium-io/raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap) — Raydium's CPMM (constant-product), **Apache-2.0**, audited, running billions in TVL.
 - **Strategy:** copy the audited program **verbatim**; change the absolute minimum. Small diff = small re-audit = small new attack surface. (Consistent with the protocol's minimal-attack-surface mandate.)
@@ -85,12 +86,20 @@ fallback for pairs we don't host well.
 > upgrade built from this source, which also carries the fee rules of 2026-11-03.
 > `diff-guard` was re-pinned for it.
 
+> **2026-11-11: the keeper's fee, in source.** A fee tier's keeper, the one signer the swap
+> guard already names, swaps on that tier free of the trade fee and the creator fee. Everyone
+> else pays as before. Nobody is free until the vault names a keeper. See "The keeper's fee"
+> below. The upgrade proposed on 2026-11-11 (proposal #32, build `01fe923b…`) was built from
+> the source before this and does not carry it: it needs a cp-swap upgrade of its own after
+> that one. `diff-guard` was re-pinned for it.
+
 > **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
 > vault's proposal #32 upgraded the program to the build made from this source at the merge of
 > pull request #1177 (sha256 `01fe923b…`, 714,776 bytes). The build before it, `1e55bcdc…`, is
 > the roll-back build now. The guard was off on every tier at the upgrade; the vault's proposal
-> #33, approved in the same sitting, switches it on for both tiers. The day, the slot and the
-> transaction are recorded in `MAINNET_RUNBOOK.md`, section 4b. Neither the fee rules nor the
+> #33, approved in the same sitting, switches it on for both tiers. That build does not carry
+> the keeper's fee of 2026-11-11 (above), which needs an upgrade of its own. The day, the slot and
+> the transaction are recorded in `MAINNET_RUNBOOK.md`, section 4b. Neither the fee rules nor the
 > guard has been audited.
 
 ---
@@ -106,10 +115,13 @@ Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 `create_amm_config` checks in `lib.rs`; see "The fee rules and the coin check" below),
 **plus the swap guard** of 2026-11-10 (one refusal at the top of `swap_base_input.rs` and of
 `swap_base_output.rs`, two fields of `states/config.rs` taken from upstream's padding, two
-settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" below).
+settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" below),
+**plus the keeper's fee** of 2026-11-11 (the rates `swap_base_input.rs` and
+`swap_base_output.rs` hand to the fee arithmetic, chosen by `swap_fee_rates` in
+`states/config.rs`; see "The keeper's fee" below).
 **No other code**: all swap, curve, and fee math is byte-identical to upstream (the guard
-refuses a swap before any of it runs, or leaves it alone), and no other upstream instruction
-is changed. After the fork,
+refuses a swap before any of it runs, or leaves it alone; for the keeper, the same arithmetic
+is handed a rate of 0), and no other upstream instruction is changed. After the fork,
 **no external party retains any authority on this program**; every authority is the Tegridy
 admin/treasury.
 
@@ -358,7 +370,7 @@ program's copy follows in its own round).
 |---|---|---|
 | Only the tier's fund owner collects the fund fee (the island's Workshop on both live tiers). | `collect_fund_fee.rs`: upstream's `\|\| owner == admin::ID` deleted | the vault could collect the island's share directly, to any account |
 | The vault hands a tier's fund fee over once, while it still holds it (`create_config` makes the vault the fund owner). After that it can never point it anywhere else, itself included; only a program upgrade can move it. The owner's words, 2026-11-03: "no we should ask the island for an address to route their share". | `update_config.rs` param 4 (`set_new_fund_owner`) | the vault could point a tier's fund fee at itself by proposal, collect, and point it back |
-| A tier charges a trader at most 4% of a swap, its trade and creator fees together, and its trade fee is never 0. Two exceptions, as on range pools: a fee is rounded up to the coin's smallest unit, so a very small swap can pay more than 4%, and a Token-2022 coin's own transfer fee comes on top. | `create_amm_config` (`lib.rs`) and `update_config.rs` params 0 and 7; `MAX_FEE_RATE_NUMERATOR` in `states/config.rs` | up to 99.9999%; a 0 fee made every swap into a public pool revert (`split_creator_fee` divides by the two rates' sum) |
+| A tier charges a trader at most 4% of a swap, its trade and creator fees together, and its trade fee is never 0 (what the tier is set to; since 2026-11-11 its keeper pays none, see "The keeper's fee"). Two exceptions, as on range pools: a fee is rounded up to the coin's smallest unit, so a very small swap can pay more than 4%, and a Token-2022 coin's own transfer fee comes on top. | `create_amm_config` (`lib.rs`) and `update_config.rs` params 0 and 7; `MAX_FEE_RATE_NUMERATOR` in `states/config.rs` | up to 99.9999%; a 0 fee made every swap into a public pool revert (`split_creator_fee` divides by the two rates' sum) |
 | A tier keeps at most 20% of its trade fee for the protocol and fund owners together; the creator fee is the creator's alone. Range pools keep at most 16%; here it is 20% because the launch tier's split, set by the island split's proposal (`frontend/scripts/addresses.json`, fee settings 0), is 130,000 + 70,000. The 1% tier's is 104,000 + 56,000. | the same places; `MAX_PROTOCOL_AND_FUND_FEE_RATE` | up to 100% |
 | The four Token-2022 stablecoins in upstream's `MINT_WHITELIST` (USDP, GYEN, ZUSD, PYUSD, each with a permanent delegate their issuer controls) meet the same extension check as every coin. Upstream deleted the list itself (raydium-cp-swap `59fb845`); this is that deletion. | `utils/token.rs` | let in by name, whatever their extensions |
 | A support-mint record no longer lets a coin skip that check. The record and its two instructions stay, so the interface is upstream's, but `is_supported_mint` ignores it. The range-pool program's copy changed the same day. | `utils/token.rs` | the vault could let any Token-2022 coin in, a permanent delegate or a transfer hook included |
@@ -471,6 +483,78 @@ Anchor 0.32.1; CI runs them on 2.3.0.
 | the same file against the same build with `refuses_swap` made always false | the three refusals fail (the called swap goes through); the six controls pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
 
+### The keeper's fee (2026-11-11)
+
+Owner, 2026-11-11: "charge 0 fees for our bot". The bot is the venue's own price robot, which
+closes the gaps between these pools and the outside market. At the tier's 1% fee it can take
+only gaps wider than that fee plus the outside pool's; the rival bots of 2026-11-10 (see "The
+swap guard") pay the same fee and reach a gap first. Free of the fee, the robot can close
+every gap down to the outside pool's own fee, and takes what a faster bot leaves behind.
+
+| Rule | Where | Before |
+|---|---|---|
+| A swap the tier's keeper signs pays no trade fee and no creator fee, so no protocol or fund share either (both are parts of the trade fee). The pool moves along its curve and nothing is set aside. `swap_base_input` and `swap_base_output` alike. | `AmmConfig::swap_fee_rates` (and `is_keeper`, which `refuses_swap` now uses too) in `states/config.rs`, called in both swap files | the keeper was let through the guard and paid like anyone |
+| Everyone else pays the tier's trade fee and the pool's creator fee, as upstream. With no keeper named (the all-zero key every tier starts with), nobody is free. | the same | |
+| The keeper is the one the swap guard reads: `update_amm_config` param 9, the vault's alone. The System Program's address clears it. No new setting, field or error. | `update_config.rs`, unchanged | |
+
+**Why the keeper's creator fee is taken on the output.** A public pool takes its creator fee on
+both tokens, so on the input (`CreatorFeeOn::BothToken`). On the input, upstream's arithmetic
+splits the fee by the sum of the two rates (`curve/fees.rs` `split_creator_fee`), and with
+both at 0 that divides by 0: every swap of the keeper's would fail with 6006
+`ZeroTradingTokens`, on every one of these pools. On the output, a rate of 0 takes 0. So the
+keeper's rates are (0, 0, on the output), and no line of the fee arithmetic changes. The
+swap's event still names the pool's own setting.
+
+**Who it costs.** The keeper's swaps pay the pool nothing, so those swaps earn its liquidity
+providers nothing, the venue (protocol share) nothing and the island (fund share) nothing.
+On a launch-tier pool, its coin's creator gets no creator fee from them either, if the vault
+names the keeper there too. On 2026-11-10 the main liquidity provider was the venue's own
+wallet `6JMP6…` in most pools (GRR/SOL 100%, BOBO 93%, GROYPER 88%), but not in BIG BRAIN/SOL
+(9%): there, most of what the robot no longer pays came to other people's liquidity.
+
+**The key it rests on.** The keeper is a hot key: the robot signs with it from the computer it
+runs on. Whoever holds that key also trades free of the fee, and can call the pool from a
+program of its own while the guard is on. Free of the fee, wrapping a visitor's swap between
+two trades of its own costs it nothing. Until the vault names another keeper or clears it
+(a proposal, and the multisig's 48 hours), that stays open. The tier's other settings do not
+depend on the key. Free of the fee, the key can also move a pool's price and back inside one
+transaction for rounding dust, where anyone else pays about 2% for the round trip: nothing
+should take these pools' spot price or their observations as a price feed.
+
+**Name only the robot's own wallet, never a program's address.** Param 9 takes any address
+and checks nothing about it. A program-derived address that a shared program signs with (an
+aggregator's routing authority, say) would make every swap through that program free and let
+it through the guard. Before the proposal, check that the key is an ordinary wallet's (on the
+ed25519 curve, as no program-derived address is) and that it is the robot's. The robot signs
+only its own transactions; a program it calls in one of them gets its signature for that
+call, as with any signer, so the robot calls only programs it already trusts with its funds.
+
+**What it changes on chain, once upgraded.** Nothing, until the vault names a keeper on a tier
+(`update_amm_config(9)` with the robot's wallet, a proposal of its own, per tier). Then, on
+that tier's pools, the robot's swaps are free and nobody else's change. To end it, the vault
+names the System Program's address.
+
+**With that upgrade, not before:** the committed IDL and its hash (the keeper's doc line and
+`update_amm_config`'s change); the lines a visitor reads before adding liquidity or opening a
+pool and "The program" (`LpDisclosures.tsx`, `SolanaLpSection.tsx`,
+`VenueProgramCard.tsx`, tied by `src/test/poolProgramCopy.test.ts`), which must say that the
+venue's robot pays no fee where the vault has named it; and the robot itself, which prices a
+trip with our pools' fee and must read the keeper to price its own swaps at 0 (until then it
+only skips trips that would now pay). The Jupiter SDK quotes routers, never the keeper:
+nothing changes there.
+
+**How it was proved, 2026-11-11.** The same way as the swap guard's (Agave 3.1.11, Anchor
+0.32.1, the test wallet as admin, a throwaway program id).
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): five on `swap_fee_rates` in `states/config.rs`, among them that upstream's arithmetic with both rates at 0 on the input fails, and that the keeper's swap of either kind is the bare curve step with no fee | 39 of 39 with the 34 before |
+| `tests/cp-swap-keeper-fee.test.ts` on a local validator, a public pool on a 1% tier: with no keeper, the would-be keeper pays the fee and its shares; only the admin names it; then its swaps, both kinds and both directions, are checked to the unit against the curve with nothing set aside, while a stranger's pay the fee and its shares; on the same pair's pool on another tier the keeper still pays; the same with the guard on; the System Program's address ends it | 8 of 8 |
+| `tests/cp-swap-fee-rules.test.ts` and `tests/cp-swap-swap-guard.test.ts` against the same build | 8 of 8 and 9 of 9 |
+| the keeper file against the same build with the keeper's creator fee left on the input | the two keeper-free tests fail, with 6006 `ZeroTradingTokens`; the controls pass |
+| the keeper file against the same build with the exemption undone | the two keeper-free tests fail; the controls pass |
+| `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
+
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)
@@ -485,7 +569,7 @@ So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`*
 admin caller`** (the `admin::ID` key) — there is no treasury parameter; to hand collection authority to
 a *distinct* treasury, call `update_config` (param 3 / 4) afterward (param 4 only once, while
 the admin still holds it, since 2026-11-03 in source). Either way, **every swap on
-every pool using that config** accrues a protocol cut (per `protocol_fee_rate`) the treasury
+every pool using that config** (its keeper's apart, since 2026-11-11) accrues a protocol cut (per `protocol_fee_rate`) the treasury
 receives at collection time — regardless of who provides the liquidity. That is the venue
 economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fee out of
 1_000_000 (e.g. 120000 = 12% of the trade fee), bounded by `protocol_fee_rate + fund_fee_rate ≤
