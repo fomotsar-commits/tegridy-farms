@@ -213,6 +213,7 @@
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
     { "source": "/position/:id.json", "destination": "/api/aggregator?resource=position&id=:id" },
     { "source": "/position/:path*", "destination": "/api/aggregator?resource=position&path=:path*" },
+    { "source": "/mint/:mint.json", "destination": "/api/aggregator?resource=mint&mint=:mint" },
     { "source": "/mint/(.*)", "destination": "/mint/default.json" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

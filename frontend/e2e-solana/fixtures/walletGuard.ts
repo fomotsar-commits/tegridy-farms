@@ -402,6 +402,10 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
         out.push(await checkInitialize(ix, acc, d, wallet, otherSigners, mintOwner));
         continue;
       }
+      if (ix.name === 'create_lp_metadata') {
+        out.push(checkLpMetadata(ix, acc, d, wallet, out));
+        continue;
+      }
       if (ix.name !== 'swap_base_input') refuse(`cp-swap ${ix.name} is never sent from the site`);
       const { m, need } = named(ix);
       const amountIn = u64(d, 8); const minOut = u64(d, 16);
@@ -634,6 +638,33 @@ async function checkInitialize(
     args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer', pairedWith: pair.coin.symbol },
     accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])),
   };
+}
+
+/**
+ * cp-swap `create_lp_metadata`: only right after this transaction's own `initialize`, once,
+ * for that pool's share mint. Every account is held to the program's seeds and the IDL's
+ * fixed addresses (the editor is the one the program compiles in), the wallet pays, and the
+ * call carries no data beyond its discriminator.
+ */
+function checkLpMetadata(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet: PublicKey, before: SignedIx[]): SignedIx {
+  if (acc.length !== ix.accounts.length) refuse(`create_lp_metadata: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length}`);
+  if (d.length !== 8) refuse(`create_lp_metadata: ${d.length} bytes of data, expected 8 (it takes no arguments)`);
+  const { m, need } = accountsByName(ix, acc);
+  for (const a of ix.accounts) {
+    if (a.address && !need(a.name).equals(new PublicKey(a.address))) refuse(`create_lp_metadata: ${a.name} is ${need(a.name).toBase58()}, not ${a.address}`);
+  }
+  if (before.some((i) => i.name === 'create_lp_metadata')) refuse('create_lp_metadata: a second name record in one transaction');
+  const opened = before.filter((i) => i.name === 'initialize');
+  if (opened.length !== 1) refuse('create_lp_metadata: it does not follow the opening of a pool in this transaction');
+  const pool = need('pool_state');
+  if (!pool.equals(new PublicKey(opened[0]!.accounts.pool_state!))) refuse('create_lp_metadata: it names the share of a pool this transaction does not open');
+  if (!need('payer').equals(wallet)) refuse('create_lp_metadata: the name record is paid for by someone else');
+  if (!need('authority').equals(CP_AUTHORITY)) refuse('create_lp_metadata: the authority is not the pool program\'s own');
+  const lpMint = cpPda(Buffer.from('pool_lp_mint'), pool.toBuffer());
+  if (!need('lp_mint').equals(lpMint)) refuse('create_lp_metadata: the mint is not the pool\'s own share mint');
+  const record = PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), lpMint.toBuffer()], METAPLEX)[0];
+  if (!need('metadata').equals(record)) refuse('create_lp_metadata: the record is not Metaplex\'s address for the share mint');
+  return { program: 'cp-swap', name: 'create_lp_metadata', args: {}, accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])) };
 }
 
 /** Base58, for signatures (bs58 is only a transitive dependency here). */
