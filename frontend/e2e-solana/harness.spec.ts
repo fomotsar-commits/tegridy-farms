@@ -11,7 +11,7 @@ import {
 } from '@solana/spl-token';
 import {
   CP_SWAP_PROGRAM, LAUNCH_PROGRAM, METAPLEX, WSOL, ata, chain, globalConfig, metadataAddress, expectedOpeningBuy, sol, fundedKeypair,
-  poolFacts, tokenAmount, wrapSol, type PoolFacts, CREATE_POOL_FEE_RECEIVER, poolsFor, poolProgramBuild,
+  poolFacts, tokenAmount, wrapSol, type PoolFacts, CREATE_POOL_FEE_RECEIVER, poolsFor, poolProgramBuild, metadataFacts,
 } from './fixtures/chain';
 import { BAYLA_MINT, PLANT_HALF, WORKSHOP_BAYLA_ACCOUNT, baylaAccount } from './fixtures/bayla';
 import { checkTransaction, LAUNCH_INDEX } from './fixtures/walletGuard';
@@ -21,7 +21,7 @@ import { createClassicToken, createSolPool, createToken2022MetadataOnly, transfe
 import { installHeatStub } from './fixtures/heatStub';
 import { buyIx, createLaunchIx } from '../src/lib/launcher/solana/curve/ix';
 import { poolStatePda, TOKEN_PROGRAM_ID, cpAmmAuthorityPda, cpAmmConfigPda, cpObservationPda, cpPoolVaultPda } from '../src/lib/launcher/solana/curve/program';
-import { depositIx, initializeIx, swapBaseInputIx, withdrawIx, type DepositArgs, type SwapBaseInputArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
+import { createLpMetadataIx, depositIx, initializeIx, swapBaseInputIx, withdrawIx, type DepositArgs, type SwapBaseInputArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../src/lib/solana/cpswap/program';
 import { USDC_MINT, giveUsdc, usdc, usdcAmount } from './fixtures/usdc';
 import { closeWsolIxs, openWsolIx, wrapIxs } from '../src/lib/launcher/solana/write/wsol';
@@ -206,6 +206,8 @@ test.describe('the test wallet guard', () => {
 
 const U64_MAX = (1n << 64n) - 1n;
 const UNIT = 10n ** 6n;
+/** The name record's editor the pool program compiles in: the Squads vault. */
+const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const sides = (f: PoolFacts) => {
   const p = f.pool;
   return {
@@ -216,9 +218,10 @@ const sides = (f: PoolFacts) => {
   };
 };
 
-async function finish(ixs: TransactionInstruction[], payer: PublicKey): Promise<Uint8Array> {
+/** `units`: the compute limit. The site sizes its own from a test run; these are fixed. */
+async function finish(ixs: TransactionInstruction[], payer: PublicKey, units = 200_000): Promise<Uint8Array> {
   const tx = new Transaction().add(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
     ...ixs,
   );
@@ -544,6 +547,11 @@ interface OpenOpts {
   /** Change the instruction after it is built (accounts the builder derives). */
   mutate?: (ix: TransactionInstruction) => void;
   extra?: TransactionInstruction[];
+  /**
+   * The share's name record right after the opening, as the site sends it (createPool.ts).
+   * `false` leaves it out; `mutate` changes it after it is built; `pool` names another pool's share.
+   */
+  name?: false | { mutate?: (ix: TransactionInstruction) => void; pool?: PublicKey };
 }
 
 async function openingTx(owner: PublicKey, mint: PublicKey, o: OpenOpts = {}): Promise<{ bytes: Uint8Array; pool: PublicKey; lpMint: PublicKey }> {
@@ -565,14 +573,22 @@ async function openingTx(owner: PublicKey, mint: PublicKey, o: OpenOpts = {}): P
     ...o.over,
   });
   o.mutate?.(init);
-  const ixs = [openWsolIx(owner), ...wrapIxs(owner, amountSol), init, ...closeWsolIxs({ ata: wsolAcc, closeAfter: true, heldBefore: 0n }, owner), ...(o.extra ?? [])];
-  return { bytes: await finish(ixs, owner), pool, lpMint };
+  const named: TransactionInstruction[] = [];
+  if (o.name !== false) {
+    const of = o.name?.pool ?? pool;
+    const ix = createLpMetadataIx({ programId: CP_SWAP_PROGRAM, payer: owner, pool: of, record: metadataAddress(deriveLpMint(CP_SWAP_PROGRAM, of)), metadataProgram: METAPLEX });
+    o.name?.mutate?.(ix);
+    named.push(ix);
+  }
+  const ixs = [openWsolIx(owner), ...wrapIxs(owner, amountSol), init, ...named, ...closeWsolIxs({ ata: wsolAcc, closeAfter: true, heldBefore: 0n }, owner), ...(o.extra ?? [])];
+  // Naming the share in the same transaction took 217,066 units on this validator in all (mainnet: 170,033).
+  return { bytes: await finish(ixs, owner, 400_000), pool, lpMint };
 }
 
 test.describe('the test wallet guard: opening a pool', () => {
   let opener: Keypair;
   let mint: PublicKey;
-  const OPENING = ['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'wrap-sol', 'sync-native', 'initialize', 'close-wsol'];
+  const OPENING = ['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'wrap-sol', 'sync-native', 'initialize', 'create_lp_metadata', 'close-wsol'];
 
   test.beforeAll(async () => {
     test.setTimeout(4 * 60_000);
@@ -591,6 +607,29 @@ test.describe('the test wallet guard: opening a pool', () => {
     await land(bytes, opener);
     expect((await poolsFor(mint, opener.publicKey)).map((k) => k.toBase58())).toEqual([pool.toBase58()]);
     expect((await tokenAmount(ata(lpMint, opener.publicKey)) ?? 0n) > 0n).toBe(true);
+    // The same transaction named the share: the program's own words, the vault as editor.
+    const m = await metadataFacts(lpMint);
+    expect([m?.name, m?.symbol, m?.uri, m?.updateAuthority.toBase58()]).toEqual(['Memetics Pool Share', 'MEM-LP', `https://memetics.finance/mint/${lpMint.toBase58()}.json`, VAULT]);
+  });
+
+  test("H24: the share's name is signed only right after this transaction's own opening, for that pool's share, paid by you, with the vault as editor", async () => {
+    const fresh = Keypair.generate();
+    const stranger = Keypair.generate().publicKey;
+    const other = Keypair.generate().publicKey;
+    const alone = createLpMetadataIx({ programId: CP_SWAP_PROGRAM, payer: opener.publicKey, pool: other, record: metadataAddress(deriveLpMint(CP_SWAP_PROGRAM, other)), metadataProgram: METAPLEX });
+    const cases: [string, Promise<Uint8Array>, RegExp][] = [
+      ['with no opening', finish([alone], opener.publicKey), /create_lp_metadata: it does not follow the opening of a pool/],
+      ["another pool's share", openingTx(opener.publicKey, mint, { fresh, name: { pool: other } }).then((x) => x.bytes), /names the share of a pool this transaction does not open/],
+      ['a stranger as editor', openingTx(opener.publicKey, mint, { fresh, name: { mutate: (ix) => patchKey(ix, 5, { pubkey: stranger }) } }).then((x) => x.bytes), /update_authority is .*, not GRMtSxgs/],
+      ['a stranger pays', openingTx(opener.publicKey, mint, { fresh, name: { mutate: (ix) => patchKey(ix, 0, { pubkey: stranger, isSigner: false }) } }).then((x) => x.bytes), /the name record is paid for by someone else/],
+      ["a record not at Metaplex's address", openingTx(opener.publicKey, mint, { fresh, name: { mutate: (ix) => patchKey(ix, 4, { pubkey: stranger }) } }).then((x) => x.bytes), /the record is not Metaplex's address for the share mint/],
+      ['data it never takes', openingTx(opener.publicKey, mint, { fresh, name: { mutate: (ix) => { ix.data = Buffer.concat([ix.data, Buffer.from([1])]); } } }).then((x) => x.bytes), /9 bytes of data, expected 8/],
+      ['a tenth account', openingTx(opener.publicKey, mint, { fresh, name: { mutate: (ix) => { ix.keys.push({ pubkey: stranger, isSigner: false, isWritable: false }); } } }).then((x) => x.bytes), /10 accounts, the pinned IDL has 9/],
+      ['twice', openingTx(opener.publicKey, mint, { fresh, extra: [createLpMetadataIx({ programId: CP_SWAP_PROGRAM, payer: opener.publicKey, pool: fresh.publicKey, record: metadataAddress(deriveLpMint(CP_SWAP_PROGRAM, fresh.publicKey)), metadataProgram: METAPLEX })] }).then((x) => x.bytes), /a second name record in one transaction/],
+    ];
+    for (const [what, build, why] of cases) {
+      await expect(checkTransaction(await build, opener.publicKey), what).rejects.toThrow(why);
+    }
   });
 
   test('H12: signs the site\'s one-off opening (a fresh key that co-signs), and the chain opens it at that key', async () => {

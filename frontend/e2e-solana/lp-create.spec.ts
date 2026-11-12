@@ -22,8 +22,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
-  wrapSol, CP_SWAP_PROGRAM,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, metadataFacts, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
+  wrapSol, CP_SWAP_PROGRAM, METAPLEX,
 } from './fixtures/chain';
 import {
   CREATE_POOL_FEE_RECEIVER, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
@@ -84,11 +84,23 @@ const tierText = (c: AmmConfigView) =>
   // A pool this site opens goes through `initialize`, which switches its creator fee off.
   `${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
 
-interface Rents { r0: bigint; r165: bigint; neverRefunded: bigint }
-/** Live rents: the pool (637), its price record (4075), its share mint (82) and its two 165-byte vaults never come back. */
+/**
+ * What Metaplex keeps for making a record, on top of its rent: a flat 0.01 SOL, measured on
+ * mainnet by simulation and on the validator's clone of it (NOTES 2026-10-06). Every landed
+ * record below is held to its rent plus exactly this.
+ */
+const METAPLEX_CREATE_FEE = 10_000_000n;
+/** The share's name record as the pool program writes it: Metaplex MetadataV1, padded to 607 bytes. */
+const NAME_RECORD_BYTES = 607;
+const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+interface Rents { r0: bigint; r165: bigint; neverRefunded: bigint; nameRecord: bigint }
+/**
+ * Live rents: the pool (637), its price record (4075), its share mint (82) and its two 165-byte
+ * vaults never come back; nor does the share's name record (607 bytes, plus Metaplex's fee).
+ */
 async function liveRents(): Promise<Rents> {
-  const [r0, r82, r165, r637, r4075] = (await Promise.all([0, 82, 165, 637, 4075].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint, bigint];
-  return { r0, r165, neverRefunded: r637 + r4075 + r82 + r165 + r165 };
+  const [r0, r82, r165, r637, r4075, r607] = (await Promise.all([0, 82, 165, 637, 4075, NAME_RECORD_BYTES].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint, bigint, bigint];
+  return { r0, r165, neverRefunded: r637 + r4075 + r82 + r165 + r165, nameRecord: r607 + METAPLEX_CREATE_FEE };
 }
 
 const standardOf = (mint: PublicKey) => {
@@ -149,6 +161,9 @@ async function checkCreateReview(
   expect(rows['Opens for trading']).toBe('At once (one second after it lands)');
   expect(rows['Fee to open the pool']).toBe(`${solExact(tier.createPoolFee)}, paid to the team's vault (into ${CREATE_POOL_FEE_RECEIVER.toBase58()}, the account the pool program fixes); not refundable`);
   expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
+  expect(rows['Name record of the pool share']).toBe(
+    `${solExact(rents.nameRecord)}: ${solExact(METAPLEX_CREATE_FEE)} is Metaplex's fee for making it, ${solExact(rents.nameRecord - METAPLEX_CREATE_FEE)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`,
+  );
   expect(rows['Your pool-share account']).toBe(`${solExact(rents.r165)} (it comes back if you close that account later)`);
   expect(rows['You get']).toBe(`${units(plan.lp, 9)} pool shares, exactly`);
   expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(plan.locked.quote)} and ${tok(plan.locked.token, d)} tokens at these amounts`);
@@ -225,6 +240,25 @@ async function checkOpenedPool(o: {
   expect(await tokenAmount(lpAccount)).toBe(supply - 100n);
   expect(o.tokenBefore - ((await tokenAmount(ata(o.mint, o.owner, tokenProgram))) ?? 0n), 'the tokens left by exactly the typed amount').toBe(o.token);
   expect((await tokenAmount(CREATE_POOL_FEE_RECEIVER))! - o.feeBefore, 'the fee account received exactly the fee').toBe(o.fee);
+  await checkShareNamed(o.pool);
+}
+
+/**
+ * The opening named its share in the same transaction: Metaplex's record for the share mint
+ * holds the pool program's own words and link, the vault as its editor, and exactly its rent
+ * plus Metaplex's fee (read here from the chain, never from the site).
+ */
+async function checkShareNamed(pool: PublicKey): Promise<void> {
+  const lpMint = deriveLpMint(CP_SWAP_PROGRAM, pool);
+  const m = await metadataFacts(lpMint);
+  expect(m, 'the share has its name record').not.toBeNull();
+  expect(m!.owner.equals(METAPLEX), "the record is Metaplex's").toBe(true);
+  expect(m!.mint.equals(lpMint), 'the record is for the share mint').toBe(true);
+  expect([m!.name, m!.symbol, m!.uri]).toEqual(['Memetics Pool Share', 'MEM-LP', `https://memetics.finance/mint/${lpMint.toBase58()}.json`]);
+  expect(m!.updateAuthority.toBase58(), 'the vault edits the name').toBe(VAULT);
+  expect(m!.isMutable, 'the vault can give it the pair name later').toBe(true);
+  expect(m!.size).toBe(NAME_RECORD_BYTES);
+  expect(m!.lamports, "its rent plus Metaplex's fee").toBe(BigInt(await chain().getMinimumBalanceForRentExemption(NAME_RECORD_BYTES)) + METAPLEX_CREATE_FEE);
 }
 
 /**
@@ -241,14 +275,16 @@ async function checkOpenerSol(t: Awaited<ReturnType<typeof landedTx>>, owner: Pu
   // `emptyWsolClosed`: the lamports of a wrapped-SOL account the opener already had,
   // empty, before the opening. The opening closes it (wsol.ts) and those come back.
   expect(lamportDelta(t, owner), "the opener's SOL change, worked out in Node").toBe(
-    -(solIn + tier.createPoolFee + rents.neverRefunded + rents.r165 + networkFee) + emptyWsolClosed,
+    -(solIn + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165 + networkFee) + emptyWsolClosed,
   );
 }
 
-/** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots. */
+/** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots, then the share's name. */
 function checkSignedOpening(a: Actor, pool: PublicKey, origin: 'standard' | 'co-signer') {
   const opens = a.wallet.lastSigned().instructions.filter((i) => i.program === 'cp-swap');
-  expect(opens.map((i) => i.name)).toEqual(['initialize']);
+  expect(opens.map((i) => i.name)).toEqual(['initialize', 'create_lp_metadata']);
+  expect(opens[1]!.accounts.pool_state).toBe(pool.toBase58());
+  expect(opens[1]!.accounts.update_authority).toBe(VAULT);
   const init = opens[0]!;
   expect(init.args.openTime).toBe('0');
   expect(init.args.origin).toBe(origin);
@@ -571,7 +607,7 @@ test.describe('group B (chromium only)', () => {
         // Wallet R: funded to the lamport, so that what it can put in is exactly R13_SPENDABLE.
         const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
         const hold = rents.r165 > rents.r0 ? rents.r165 : rents.r0;
-        const need = R13_SPENDABLE + feeReserveFor(2) + rents.r165 + tier.createPoolFee + rents.neverRefunded + hold;
+        const need = R13_SPENDABLE + feeReserveFor(2) + rents.r165 + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + hold;
         B.r13 = await fundedKeypair(Number(need) / 1e9);
         await transferTokens(B.c13, B.r13.publicKey, B.t13, 1_000_000n * UNIT);
       })(),
@@ -1078,7 +1114,7 @@ test.describe('group B (chromium only)', () => {
     const have = await lamports(B.r13.publicKey);
     const spendable = spendableSol({
       lamports: have, walletFloor: rents.r0, feeReserve: feeReserveFor(2), lpAccountRent: rents.r165, wsolCreateRent: rents.r165,
-      alsoPaid: tier.createPoolFee + rents.neverRefunded,
+      alsoPaid: tier.createPoolFee + rents.neverRefunded + rents.nameRecord,
     });
     expect(spendable).toBe(R13_SPENDABLE);
     expect(await tokenAmount(ata(WSOL, B.r13.publicKey)), 'wallet R holds no wrapped-SOL account').toBeNull();
@@ -1092,7 +1128,7 @@ test.describe('group B (chromium only)', () => {
     // 0.001 SOL more: the rent-band line, and no Review.
     await ui.lp.create.solToPut(p).fill(formatSol(spendable + sol(0.001), 9));
     await expect(ui.lp.create.panel(p).getByRole('alert')).toContainText(
-      `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${solExact(spendable)}.`,
+      `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and the share's name record, and stay open on the network. The most you can put in from this wallet is ${solExact(spendable)}.`,
     );
     await expect(ui.lp.create.review(p)).toBeDisabled();
     // Max again, Match, and it lands.
@@ -1400,7 +1436,7 @@ test.describe('group B (chromium only)', () => {
     await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
     // And what leaves the wallet in all names the tokens too, not the SOL alone.
     const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
-    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
     expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);

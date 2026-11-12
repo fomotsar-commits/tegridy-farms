@@ -586,8 +586,15 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(cells(pub)).toEqual(['1%', '0.84%', '0.16%']);
     expect(pub.closest('details')).toBeNull();
     const open = within(rates).getByTestId('lp-open-cost');
-    expect(open.textContent).toMatch(/^Open a pool: 0\.15 SOL \+ [\d.]+ SOL setup, not refunded\.$/);
+    // An opening from this site also writes the new share's name record (createPool.ts), never refunded either.
+    expect(open.textContent).toMatch(/^Open a pool: 0\.15 SOL \+ [\d.]+ SOL setup \+ the share's name record, not refunded\.$/);
     expect(open.closest('details')).toBeNull();
+    // One press away, for the public tier only (a graduation's pool names nothing at opening): what that record costs.
+    const detail = (i: number) => within(rates).getAllByTestId('fee-tier-detail').find((d) => d.dataset.index === String(i))!;
+    expect(detail(1)).toHaveTextContent(
+      /To open a pool0\.15 SOL fee, plus about [\d.]+ SOL of account deposits that are never refunded, and the new pool share's name record: Metaplex's 0\.01 SOL fee and the record's own deposit$/,
+    );
+    expect(detail(0)).not.toHaveTextContent(/name record/);
     // What How you earn and How the venue earns said, word for word, one press away.
     const sentence = within(rates).getByText('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
     expect(sentence.closest('details')).not.toBeNull();

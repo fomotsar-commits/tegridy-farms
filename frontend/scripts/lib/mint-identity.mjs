@@ -18,6 +18,8 @@ export const LIMITS = { name: 32, symbol: 10, uri: 200 };
 
 const share = (pair, a, b) =>
   `A share of the ${pair} pool on ${HOST}. Remove liquidity there and it comes back as ${a} and ${b}. Do not burn it.`;
+/** The same words for a share with no file of its own (api/_lib/share-name.js builds those). */
+export const shareDescription = share;
 
 /** The coins in our pools, by mint, as each share's `coins` names them. */
 export const COINS = {
@@ -192,8 +194,8 @@ export const MINT_TOKENS = [
     pool: '3sw9bPyEk29AMkwr2fHeQiyKiptNkUgfvtY8u5QrJdWh',
     coins: [COINS.STORMIE, COINS.SOL],
     name: 'STORMIE/SOL LP',
-    // "STORMIE-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'STORM-SOL',
+    // "STORMIE-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'STRMIE-SOL',
     description: share('STORMIE/SOL', `STORMIE (${COINS.STORMIE})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',
@@ -250,8 +252,8 @@ export const MINT_TOKENS = [
     pool: '9P1KhvycWZiEb2hYidGoc5U9Lji8mgjZHRn4CdGcFkVy',
     coins: [COINS.SHOCKER, COINS.SOL],
     name: 'SHOCKER/SOL LP',
-    // "SHOCKER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'SHOCK-SOL',
+    // "SHOCKER-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'SHOCKR-SOL',
     description: share('SHOCKER/SOL', `SHOCKER (${COINS.SHOCKER})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',
@@ -262,8 +264,8 @@ export const MINT_TOKENS = [
     pool: '9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ',
     coins: [COINS.GROYPER, COINS.SOL],
     name: 'GROYPER/SOL LP',
-    // "GROYPER-SOL" is past the 10 bytes a symbol may hold: shortened the way the owner shortened BRAINLET.
-    symbol: 'GROYP-SOL',
+    // "GROYPER-SOL" is past the 10 bytes a symbol may hold: the owner chose dropping a vowel (2026-11-11).
+    symbol: 'GROYPR-SOL',
     description: share('GROYPER/SOL', `GROYPER (${COINS.GROYPER})`, 'SOL'),
     picture: 'bayla-sol',
     ring: 'sol',
@@ -348,6 +350,18 @@ export const DEFAULT_TOKEN = {
   picture: 'pool-share',
   ring: 'moonlight',
 };
+
+/**
+ * The picture of a pool share with no file of its own, by the ring of the coin it is
+ * paired with: SOL's violet, USDC's blue, and the default share picture for an island
+ * coin. These are files the generator already writes, named by the hash of their bytes;
+ * api/__tests__/share-name.test.js holds each name to its file in public/mint/img.
+ */
+export const GENERIC_PICTURES = Object.freeze({
+  sol: 'bayla-sol-3635e93e.png',
+  usdc: 'bayla-usdc-54b66a97.png',
+  moonlight: 'pool-share-93eea003.png',
+});
 
 /** The link written on chain for a mint: fixed prefix, the mint address, `.json`. */
 export const metadataPath = (mint) => `${MINT_PATH}/${mint}.json`;
