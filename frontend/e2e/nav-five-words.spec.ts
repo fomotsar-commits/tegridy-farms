@@ -79,7 +79,7 @@ for (const size of SIZES) {
         await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
       // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
-      for (const [word, name] of [['Yield', 'NFT Loans'], ['Island', 'Lore'], ['Island', 'Launch']] as const) {
+      for (const [word, name] of [['Yield', 'NFT Loans'], ['Island', 'Lore'], ['Island', 'Launch'], ['Island', 'Marketplace']] as const) {
         await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
       for (const name of ['Charting', 'Copy Trading', 'Gallery']) await expect(index.getByRole('link', { name, exact: true }), name).toHaveCount(0);
@@ -87,8 +87,9 @@ for (const size of SIZES) {
       const pools = index.getByRole('region', { name: 'Pools' });
       await expect(pools.getByRole('link', { name: 'Add / Remove', exact: true })).toHaveAttribute('href', '/pools');
       for (const name of ['Venue AMM', 'Zap']) await expect(pools.getByRole('link', { name, exact: true }), name).toHaveCount(0);
-      // Owner, 2026-10-24: the Nakamigos marketplace is no longer in the index.
-      await expect(index.getByRole('link', { name: 'Marketplace', exact: true })).toHaveCount(0);
+      // Owner, 2026-11-12: the Nakamigos marketplace is back in the index (out since 2026-10-24),
+      // once, under Island.
+      await expect(index.getByRole('link', { name: 'Marketplace', exact: true })).toHaveAttribute('href', '/nakamigos');
       // The groups run in one, two or three columns, never more; no word is cut short, and the
       // index runs off the screen neither sideways nor under the picture.
       const lefts = await index.getByRole('heading', { level: 2 }).evaluateAll((hs) => hs.map((h) => Math.round(h.getBoundingClientRect().left)));

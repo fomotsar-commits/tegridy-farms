@@ -321,7 +321,8 @@ Get-Content $env:LOCALAPPDATA\git-hosting\backup.log -Tail 20
 ```
 
 - The installer says `ALARM NOT SET` until that line exists. The log's last line after each run
-  says whether it pinged.
+  says whether it pinged. `alarm: the ping was answered "OK (not found)"` means the URL names no
+  check, so nothing is watching.
 - It copies the script to `%LOCALAPPDATA%\git-hosting\`, so deleting a worktree cannot break it.
   Re-run the installer after the script changes. Re-running is safe.
 - It runs daily at 03:30 while you are logged on. A missed run starts at the next chance.
@@ -381,8 +382,9 @@ was forced or deleted in any case.
   the deploy key.
 - *... failed*, or *could not read the standby.* GitLab did not answer, or the key is gone. If it
   lasts, see 5B.
-- *Only the ping job is red* (daily and manual runs): healthchecks.io did not take the ping, or
-  `HC_PING_URL_GITLAB_STANDBY` is not a plain https URL. The mirror job's own result stands.
+- *Only the ping job is red* (daily and manual runs): healthchecks.io did not take the ping (an
+  answer of "OK (not found)" means the secret names no check), or `HC_PING_URL_GITLAB_STANDBY` is
+  not a plain https URL. The mirror job's own result stands.
 
 A **warning** on a feature branch means GitLab keeps an older version of a branch that was
 force-pushed on GitHub. That is expected. The clone that force-pushed usually sent the new version

@@ -52,6 +52,84 @@ them.
 pathspecs), and prove it with a check that fails on a wrong path: `git diff --stat` printed,
 or a grep for a line only the restored version has.
 
+---
+
+## 2026-11-11: a shared test chain hides a bug that depends on the clock
+
+**Believed:** the Anvil money-path job proves a borrow-and-repay flow works, so a green run
+means a borrower can repay.
+
+**Measured:** `e2e/lending.spec.ts` passed in CI for days while the live repay button could
+never get past "Approve WETH to repay". Run ALONE on a fresh fork it stuck at that step
+every time; in CI it passed every time. The CI job runs five specs on one fork, and an
+earlier one calls `evm_increaseTime`. After that the chain's clock is ahead of the browser's,
+a loan's start is "in the future" to the page, and the interest it computes is zero. The bug
+needed interest that grows every second.
+
+**So:** a spec about anything time-dependent is only proven when it is run alone on a fresh
+fork, where chain time is wall time as it is on mainnet:
+`E2E_REQUIRE_ANVIL=1 ANVIL_FORK_URL=https://eth.drpc.org npm run e2e -- --project=chromium e2e/<spec>`.
+
+### The bug itself: one moving figure sized the action and checked it
+
+The approval was sized to "what is owed 10 minutes from now", and the next step was offered
+only when the allowance covered "what is owed 10 minutes from now", recomputed each second.
+The figure had moved by the time the approval confirmed, so the same approval was asked for
+again, without end. A figure that grows needs two numbers: aim the ACTION well ahead, CHECK
+against something nearer (10 minutes and 2 here), and the gap is how long the action stays
+good.
+
+## 2026-11-11: a `manualChunks` rule naming a whole package welds in what it loads on demand
+
+**Believed:** grouping a vendor package into one named chunk only decides which file its
+code lands in.
+
+**Measured:** `id.includes('node_modules/@rainbow-me') => 'vendor-wagmi'` produced a 1,931 KB
+chunk (291 KB gzipped) in the entry's static closure. RainbowKit's `index.js` has 77
+`import()` calls: 18 language files (1.8 MB unpacked), each wallet's and chain's icon, its
+install illustrations. Naming the modules assigned every one of them to the eager chunk.
+Pinning only what the package imports statically (`index.js`, `chunk-*.js`, its css) gave
+340 KB (87 KB gzipped) and left the rest as chunks fetched when asked for.
+
+**So:** a `manualChunks` rule should match the files a package imports statically, never the
+package. Check any such rule by counting `import(` in the package's entry file.
+
+## 2026-11-11: the widest `srcset` candidate just under slot times density fetches the original
+
+**Believed:** with 128, 480 and 960 pixel derivatives and `sizes="auto"`, a phone gets a
+derivative.
+
+**Measured** (live site, 390px viewport, 3 device pixels per CSS pixel): a 356px-wide card
+wants 1,068 pixels. 960 is under that, so the browser skipped it and took the next candidate,
+the original: 590, 481 and 372 KB for three cards whose 960 webps are 134, 98 and 149 KB.
+Images on that page went from 1,839 KB to 740 KB once the original was left out of the
+candidates for scrimmed card backgrounds on phone-width viewports.
+
+**So:** the widest derivative has to clear slot width times the highest density you serve, or
+the original must not be a candidate where full resolution cannot be seen.
+
+## 2026-11-11: asking whether an account exists does not need the account
+
+**Believed:** `getAccountInfo` is a cheap read.
+
+**Measured:** the check that a Solana program is still deployed reads its ProgramData
+account's lamports. That account is the program's bytecode: 223 KB of base64, fetched twice
+on every pools visit. `getAccountInfo(address, { encoding: 'base64', dataSlice: { offset: 0,
+length: 0 } })` returns lamports, owner and the executable flag with empty data: under 1 KB.
+
+## 2026-11-11: a test double that builds a component per property access remounts the tree
+
+**Believed:** `new Proxy({}, { get: () => (props) => <div {...props} /> })` is a harmless
+stand-in for `framer-motion`'s `m`.
+
+**Measured:** every access to `m.div` returns a NEW function, so React sees a different
+component type on each parent render and remounts everything under it. A form's state
+vanished between `findByRole` resolving and the click that followed, in the full file only
+(alone, the parent did not re-render in between). Cache the stand-in per key, or re-query and
+act inside `waitFor`.
+
+---
+
 ## 2026-11-10: the public Solana node can answer `null` for a finalized transaction it has just listed
 
 **Believed:** `getTransaction` on `api.mainnet-beta.solana.com` either returns a finalized

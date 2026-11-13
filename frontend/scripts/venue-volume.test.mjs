@@ -970,7 +970,7 @@ describe("swaps counted with no dollars are priced once when their pair's WETH s
     const db = fakeDb([{ source: "robinhood", swaps: 2, usd: 0, unpriced: 2, bot_swaps: 0, bot_usd: 0, cursor: savedCursor, version: 7 }]);
     const deps = { evm: () => rh().call };
     const quotes = async (url) => new Response(JSON.stringify(url.includes("coinbase") ? { data: { amount: "2000" } } : { ethereum: { usd: 2000 } }));
-    const fetchImpl = async (url, init) => (String(url).startsWith("https://db.test") ? db.fetchImpl(url, init) : quotes(String(url)));
+    const fetchImpl = async (url, init) => (new URL(String(url)).host === "db.test" ? db.fetchImpl(url, init) : quotes(String(url)));
     expect(await main({ env, fetchImpl, deps, sources: ["robinhood"], ...quiet })).toBe(0);
     const written = db.rows.get("robinhood");
     expect(written).toMatchObject({ swaps: 3, unpriced: 0, version: 8 });
