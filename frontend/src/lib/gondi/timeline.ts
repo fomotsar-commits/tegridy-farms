@@ -9,13 +9,22 @@ export function lifeFraction(start: number, duration: number, at: number): numbe
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
-/** Where the calendar file's reminders fall on the loan's life. A reminder longer than the
- *  loan itself (a week's notice on a 3 day loan) does not fit and is left out. */
-export function reminderFractions(duration: number): number[] {
+/** The calendar file's reminders that fit in the loan, earliest first: where each falls on the
+ *  loan's life, and how long before the deadline it rings, as "7d" or "2h". A reminder longer
+ *  than the loan itself (a week's notice on a 3 day loan) does not fit and is left out. */
+export function reminderMarks(duration: number): { fraction: number; before: string }[] {
   if (!(duration > 0)) return [];
   return DUE_ALARMS_MINUTES.map((minutes) => minutes * 60)
     .filter((before) => before < duration)
-    .map((before) => 1 - before / duration);
+    .map((before) => ({
+      fraction: 1 - before / duration,
+      before: before % 86_400 === 0 ? `${before / 86_400}d` : `${Math.round(before / 3_600)}h`,
+    }));
+}
+
+/** Where the calendar file's reminders fall on the loan's life (reminderMarks, positions only). */
+export function reminderFractions(duration: number): number[] {
+  return reminderMarks(duration).map((m) => m.fraction);
 }
 
 /** The scrub's step in seconds: an hour for loans up to a week, a quarter day up to 90 days,

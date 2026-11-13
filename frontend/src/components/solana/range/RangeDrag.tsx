@@ -23,14 +23,15 @@ import {
   stopTimes,
 } from '../../../lib/solana/clmm/rangeDrag';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { monoWidth, placeLabels } from '../../../lib/markLabels';
+import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
 const GREEN = '#22c55e';
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 64;
 const PAD = 14;
 const MID = 30;
-
-const x = (stop: number) => PAD + stopFraction(stop) * (W - 2 * PAD);
+const LABEL = 11;
 
 export function RangeDrag(p: {
   /** The price the range starts from. */
@@ -46,6 +47,8 @@ export function RangeDrag(p: {
   disabled?: boolean;
 }) {
   const track = useRef<SVGSVGElement | null>(null);
+  const [box, W] = useDrawWidth();
+  const x = (stop: number) => PAD + stopFraction(stop) * (W - 2 * PAD);
   // While a handle is held, it follows the finger; let go, and it shows the range the form
   // settled on (the nearest prices a position can use).
   const [held, setHeld] = useState<{ which: 'lo' | 'hi'; lo: number; hi: number } | null>(null);
@@ -93,6 +96,17 @@ export function RangeDrag(p: {
 
   const inside = shown.lo <= 0 && shown.hi >= 0;
   const faint = !picked && !held;
+  // Each handle's multiple, left of the lowest and right of the highest; dragged to an end of
+  // the axis, it slides inward rather than off the picture.
+  const times = { lo: stopTimes(shown.lo), hi: stopTimes(shown.hi) };
+  const [loLabel, hiLabel] = placeLabels(
+    [
+      { at: x(shown.lo), width: monoWidth(times.lo, LABEL), side: 'left' },
+      { at: x(shown.hi), width: monoWidth(times.hi, LABEL), side: 'right' },
+    ],
+    W,
+  );
+  const labelAt = { lo: loLabel, hi: hiLabel };
   const slider = (which: 'lo' | 'hi') => (
     <input
       type="range"
@@ -113,12 +127,12 @@ export function RangeDrag(p: {
   );
 
   return (
-    <div data-testid="range-drag" data-picked={picked ? 'yes' : 'no'}>
+    <div ref={box} data-testid="range-drag" data-picked={picked ? 'yes' : 'no'}>
       <svg
         ref={track}
         viewBox={`0 0 ${W} ${H}`}
-        className="block w-full h-auto select-none cursor-ew-resize rounded-lg border border-white/[0.14] bg-black/30"
-        style={{ touchAction: 'pan-y', minHeight: 56 }}
+        className="block w-full select-none cursor-ew-resize rounded-lg border border-white/[0.14] bg-black/30"
+        style={{ touchAction: 'pan-y', height: H }}
         aria-hidden="true"
         focusable="false"
         onPointerDown={onDown}
@@ -152,8 +166,8 @@ export function RangeDrag(p: {
               strokeWidth={focused === which ? 3.5 : 2}
               style={{ transition: 'r 120ms' }}
             />
-            <text x={x(shown[which])} y={H - 3} textAnchor={which === 'lo' ? 'end' : 'start'} dx={which === 'lo' ? -4 : 4} fontSize="9" fontFamily="ui-monospace, monospace" fill="rgba(245,228,184,0.8)">
-              {stopTimes(shown[which])}
+            <text x={labelAt[which]} y={H - 3} fontSize={LABEL} fontFamily="ui-monospace, monospace" fill="rgba(245,228,184,0.8)">
+              {times[which]}
             </text>
           </g>
         ))}

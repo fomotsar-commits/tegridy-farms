@@ -41,7 +41,9 @@ beforeEach(() => {
     matches: /hover: none/.test(q), media: q, onchange: null,
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
   });
-  globalThis.ResizeObserver = globalThis.ResizeObserver || class { observe() {} unobserve() {} disconnect() {} };
+  // Takes the callback a real one takes, so CodeQL stops reading `new ResizeObserver(cb)` as
+  // an extra argument (js/superfluous-trailing-arguments).
+  globalThis.ResizeObserver = globalThis.ResizeObserver || class { constructor(_callback) {} observe() {} unobserve() {} disconnect() {} };
 });
 
 afterEach(() => {

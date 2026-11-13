@@ -13,8 +13,9 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { quoteText } from '../../../lib/solana/lp/format';
 import { DEPTH_STOPS, depthPoint, moveText, sizeAtStop } from '../../../lib/solana/lp/tradeDepth';
+import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 84;
 const PAD = 12;
 const TOP = 12;
@@ -49,6 +50,7 @@ export function PoolTradeDialWhenOpen(props: { view: PoolView; creatorFeeRate: b
 export function PoolTradeDial({ view, creatorFeeRate }: { view: PoolView; creatorFeeRate: bigint }) {
   const id = useId();
   const [stop, setStop] = useState(50);
+  const [box, W] = useDrawWidth();
   const cfg = view.config;
   if (!cfg || view.quoteReserve <= 0n || view.tokenReserve <= 0n) return null;
   const at = (s: number) => depthPoint(view.quoteReserve, sizeAtStop(view.quoteReserve, s), cfg, creatorFeeRate);
@@ -73,8 +75,8 @@ export function PoolTradeDial({ view, creatorFeeRate }: { view: PoolView; creato
       <p className="text-emerald-300 font-mono" data-testid="lp-trade-dial-headline">
         {headline}
       </p>
-      <div className="relative" style={{ touchAction: 'pan-y' }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" aria-hidden="true" focusable="false">
+      <div ref={box} className="relative" style={{ touchAction: 'pan-y' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: H }} aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id={`${id}-fill`} x1="0" x2="1" y1="0" y2="0">
               <stop offset="0" stopColor="#34d399" stopOpacity="0.08" />
