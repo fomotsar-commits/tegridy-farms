@@ -6,8 +6,8 @@
 // out, so the box's width is stubbed here; with nothing measured an instrument keeps the 320 it
 // was designed at.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { useState, type ReactElement } from 'react';
 import { parseEther } from 'viem';
 import { PriceMoveDial } from './PriceMoveDial';
 import { PoolTradeDial } from './PoolTradeDial';
@@ -56,5 +56,68 @@ describe('instruments draw at their box’s width, never stretched', () => {
   it.each(INSTRUMENTS)('%s, before anything is measured: the 320 it was designed at', (_name, element, height) => {
     const { container } = render(element);
     expect(container.querySelector('svg')!.getAttribute('viewBox')).toBe(`0 0 320 ${height}`);
+  });
+});
+
+// A handle dragged to either end stays whole and off the edge: at least 3 px from every side of
+// its picture, stroke and all. The floor bar's sat 2 px from the edge, and the range holdings
+// dial's 2.5 px, on its border.
+const ROOM = 3;
+
+/** The least room any handle (a circle bigger than a reminder's dot) leaves to an edge. */
+function handleRoom(svg: SVGSVGElement): number {
+  const [, , w, h] = (svg.getAttribute('viewBox') ?? '').split(' ').map(Number);
+  let room = Infinity;
+  for (const c of svg.querySelectorAll('circle')) {
+    const r = Number(c.getAttribute('r'));
+    if (!(r > 3)) continue;
+    const half = Number(c.getAttribute('stroke-width') ?? 0) / 2;
+    const cx = Number(c.getAttribute('cx'));
+    const cy = Number(c.getAttribute('cy'));
+    room = Math.min(room, cx - r - half, w - cx - r - half, cy - r - half, h - cy - r - half);
+  }
+  return room;
+}
+
+function Floor({ principal }: { principal: number }) {
+  const [v, setV] = useState<number | null>(principal);
+  return <FloorBar symbol="NAKA" principal={v} floor={0.08} bestBid={0.075} setPrincipal={(t) => setV(Number(t))} />;
+}
+const now = 0.0004;
+const SLID: [string, () => ReactElement][] = [
+  ['PriceMoveDial', () => <PriceMoveDial quoteSymbol="SOL" />],
+  ['PoolTradeDial', () => <PoolTradeDial view={view} creatorFeeRate={0n} />],
+  ['RangeHoldingsDial', () => <RangeHoldingsDial pair={pair} r={range} liquidity={liquidity} now={0.0003} />],
+  ['LoanTimeline', () => <LoanTimeline side="borrower" start={1_800_000_000} duration={30 * 86_400} costAt={cost} nft="NAKA #1" />],
+  ['FloorBar', () => <Floor principal={0.07} />],
+];
+
+describe('a handle at either end stays clear of the edge', () => {
+  it.each([320, 1718])('%s px: each dial, slid all the way down and all the way up', (width) => {
+    for (const [name, make] of SLID) {
+      boxesAre(width);
+      const { container, unmount } = render(make());
+      const input = container.querySelector('input[type=range]') as HTMLInputElement;
+      for (const end of [input.min, input.max]) {
+        fireEvent.change(input, { target: { value: end } });
+        expect(handleRoom(container.querySelector('svg')!), `${name} at ${end}`).toBeGreaterThanOrEqual(ROOM);
+      }
+      unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it.each([320, 1718])('%s px: the floor bar at its least amount, one step', (width) => {
+    boxesAre(width);
+    const { container } = render(<Floor principal={0.0001} />);
+    expect(handleRoom(container.querySelector('svg')!)).toBeGreaterThanOrEqual(ROOM);
+  });
+
+  it.each([320, 1718])('%s px: the range drag’s two handles at the axis’s two ends, held large by the keyboard', (width) => {
+    boxesAre(width);
+    const { container } = render(<RangeDrag now={now} lo={now / 16} hi={now * 16} at="this pool’s price" setMin={() => {}} setMax={() => {}} />);
+    expect(handleRoom(container.querySelector('svg')!)).toBeGreaterThanOrEqual(ROOM);
+    fireEvent.focus(screen.getByTestId('range-drag-lo'));
+    expect(handleRoom(container.querySelector('svg')!)).toBeGreaterThanOrEqual(ROOM);
   });
 });

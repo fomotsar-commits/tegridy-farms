@@ -1,5 +1,5 @@
-// Text beside a mark that moves along an SVG instrument (components/solana/range/RangeDrag.tsx,
-// components/nftfinance/FloorBar.tsx).
+// Text beside a mark that moves along an instrument (components/solana/range/RangeDrag.tsx,
+// RangeStrip.tsx, components/nftfinance/FloorBar.tsx, LoanTimeline.tsx).
 //
 // Each label sits on its own side of its mark, as before. Near an edge of the picture it slides
 // inward instead of running off it, and two labels that meet push apart, so a mark dragged all
@@ -44,6 +44,25 @@ export function placeLabels(labels: MarkLabel[], span: number, gap = 4, edge = 4
   const out: number[] = [];
   for (const l of row) out[l.i] = l.left;
   return out;
+}
+
+/**
+ * Which side of its mark a label has room on: the preferred side if the whole label fits there,
+ * else the other side, else whichever side has more room (placeLabels then slides it on).
+ */
+export function sideWithRoom(
+  at: number,
+  width: number,
+  span: number,
+  prefer: 'left' | 'right' = 'right',
+  gap = 4,
+  edge = 4,
+): 'left' | 'right' {
+  const room = { left: at - gap - edge, right: span - edge - gap - at };
+  const other = prefer === 'right' ? 'left' : 'right';
+  if (room[prefer] >= width) return prefer;
+  if (room[other] >= width) return other;
+  return room[prefer] >= room[other] ? prefer : other;
 }
 
 /**

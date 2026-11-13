@@ -15,6 +15,7 @@ The site's Changelog tab shows both files.
 - Bayla's line: while the launch door is closed it offers Add or Pick a bungalow, never Launch.
 - Share on X after an add: the post names the coin and no site, so X shows the add's own card.
 - Add with one coin: after the first signature, step 2 opens on its review with nothing to type, and says the amount you chose. Cancel opens the form.
+- Range pools, pools and NFT lending, the drag pictures on a phone: the range strip's "OPENING PRICE" no longer runs off the strip's right edge, and the loan timeline and the price picture keep their headline on one line with the date or price under it. The ends of the range drag and the price picture read "a sixteenth" and "an eighth", not "0.063 times" and "0.13 times", and a handle dragged to an end stays clear of the picture's edge.
 - NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
 - NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
 - NFT lending, Lend: a box holding a value the offer cannot use now says which values it takes. An APR over 1000%, for one, used to hide the interest card and fade the button with no word why.
@@ -36,6 +37,7 @@ The site's Changelog tab shows both files.
 - Buy sheet: the picked coin's chip is filled.
 - Swaps and reads on Solana: when the network behind the site stops answering, the site gives up after 8 seconds and keeps watching your transaction. It used to wait.
 - Token scan, wallet history, NFT data and collection listings: when the source behind them stops answering, the site gives up after 8 seconds and says so (NFT data first asks its second source). It used to wait.
+- Pools and swap on Solana: checking that the venue's program is still deployed no longer downloads the whole program. The pools page fetched it twice on every visit, about 450 KB; it now asks only whether the program is there.
 - Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
 - Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.
 - Solana pools: opening a pool also writes its pool share's name record in the same transaction, so a wallet shows "Memetics Pool Share" and a picture for the new share from its first block instead of "Unknown"; the pair name follows when the vault renames it. It costs the opener 0.0137 SOL more: 0.01 SOL is Metaplex's fee for making the record and the rest stays in the record. The team gets none of it. The Open a pool card, the form and the review say so.

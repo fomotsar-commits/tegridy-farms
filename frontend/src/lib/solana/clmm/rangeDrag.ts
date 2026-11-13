@@ -62,6 +62,8 @@ export function stopTimes(stop: number): string {
   const r = 2 ** (stop / 100);
   if (stop === -100) return 'half';
   if (stop === -200) return 'a quarter';
+  if (stop === -300) return 'an eighth';
+  if (stop === -400) return 'a sixteenth';
   const text = r >= 10 ? r.toFixed(0) : r >= 1 ? r.toFixed(2).replace(/\.?0+$/, '') : r.toFixed(3).replace(/0+$/, '');
   return `${text} times`;
 }
