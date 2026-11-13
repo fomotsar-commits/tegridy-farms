@@ -88,6 +88,13 @@ describe('the row under the axis: day 1, the reminders, due (owner 2026-11-12: t
       vi.restoreAllMocks();
     }
   });
+
+  it('on a phone the headline keeps one line and the date takes the next, rather than both squeezing', () => {
+    // At 306 px "Repay 0.070805" and "WETH" broke apart, beside a date in two lines.
+    render(<LoanTimeline side="borrower" start={START} duration={30 * DAY} costAt={costAt} nft="NAKA #1" />);
+    expect(screen.getByTestId('loan-timeline-top').className).toMatch(/\bflex-wrap\b/);
+    expect(screen.getByTestId('loan-timeline-headline').className).toMatch(/\bwhitespace-nowrap\b/);
+  });
 });
 
 describe('borrower: what repaying on a given day costs', () => {

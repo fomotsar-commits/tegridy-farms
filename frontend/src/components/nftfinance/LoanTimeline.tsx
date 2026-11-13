@@ -40,7 +40,7 @@ interface Props {
 
 // Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 92;
-const PAD = 10;
+const PAD = 12; // a handle at either end clears the edge by 3 px or more
 const BASE = 62; // the debt's floor line
 const TOP = 16; // the wedge's height at the deadline
 const LABEL = 11;
@@ -90,8 +90,9 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
 
   return (
     <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className={`text-[15px] font-semibold font-mono ${atWall ? 'text-amber-300' : 'text-emerald-300'}`} data-testid="loan-timeline-headline">
+      {/* On a phone the date takes the next line, rather than the two squeezing each other. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid="loan-timeline-top">
+        <p className={`whitespace-nowrap text-[15px] font-semibold font-mono ${atWall ? 'text-amber-300' : 'text-emerald-300'}`} data-testid="loan-timeline-headline">
           {headline}
         </p>
         <p className="text-white/80 text-[11px] text-right" data-testid="loan-timeline-when">
