@@ -470,7 +470,8 @@ describe('tradeRoute', () => {
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
-    expect(swapWord()).toBe('/swap');
+    // Owner, 2026-11-11: a room on Ethereum opens the sheet too, on Ethereum, on its own coin.
+    expect(swapWord()).toBe('/toweli?sheet=buy');
     expect(swapSection().primaryTo).toBe('/swap');
 
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
@@ -487,9 +488,14 @@ describe('tradeRoute', () => {
       expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
       expect(addWord(), id).toBe(`/${id}?sheet=add`);
     }
+    // Owner, 2026-11-11: not only Solana's rooms. A room on Ethereum or Base raises the sheet on its own network:
+    // Swap where that network's swap lists its coin, Add where the venue's add / remove form runs there.
+    // (Add used to send an Ethereum room to /pools, the Solana list.)
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
-    expect(swapWord()).toBe('/swap');
-    expect(addWord()).toBe('/pools');
+    expect(swapWord()).toBe('/pepe?sheet=buy');
+    expect(addWord()).toBe('/pepe?sheet=add');
+    window.localStorage.setItem('tegridy-bungalow', 'qr');
+    expect(addWord()).toBe('/qr?sheet=add');
     window.localStorage.clear();
     expect(swapWord()).toBe('/?sheet=buy');
     expect(addWord()).toBe('/pools');
@@ -502,7 +508,7 @@ describe('tradeRoute', () => {
     const word = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
     expect(word('Swap')).toBe('/?sheet=buy');
     expect(opensSheet(word('Swap')!), 'a press on it is the sheet’s, so its Back pops back').toBe(true);
-    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null });
+    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null, net: null, all: false });
     expect(word('Add')).toBe('/pools');
     expect(word('Island')).toBe('/');
   });

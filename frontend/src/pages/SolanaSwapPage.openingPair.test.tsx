@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup, configure } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, configure, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
 import type { SolToken } from '../lib/solanaTokenList';
@@ -261,8 +262,10 @@ describe('the home card (SolanaSwapInner home)', () => {
   function openHome(url: string, storedRoom?: string) {
     window.history.replaceState(null, '', url);
     if (storedRoom) localStorage.setItem('tegridy-bungalow', storedRoom);
-    return render(<SolanaSwapInner home />);
+    return render(<MemoryRouter initialEntries={['/']}><SolanaSwapInner home /></MemoryRouter>);
   }
+  // Drawn as the sheet's form (owner, 2026-11-11): the coin bought is the coin chip's.
+  const buying = () => screen.queryByTestId('sheet-coin-chip')?.getAttribute('aria-label')?.replace(/^Coin: (.+)\. Pick another$/, '$1') ?? null;
 
   it('opens SOL to BAYLA, and reads no coin or amount from the address', async () => {
     openHome(`/?out=${USDC_MINT}&in=${BOBO_MINT}&amt=5`);
@@ -277,12 +280,17 @@ describe('the home card (SolanaSwapInner home)', () => {
     await waitFor(() => expect(buying()).toBe('BAYLA'));
   });
 
-  it('is a short card: a second-level heading, the instant swap only, no rails', async () => {
+  it('is a short card drawn as the sheet’s form: a second-level heading, the coin chip, Buy / Sell, the instant swap only, no rails', async () => {
     openHome('/');
     await waitFor(() => expect(buying()).toBe('BAYLA'));
-    expect(screen.getByRole('heading', { level: 2, name: 'Swap' })).toBeInTheDocument();
+    const card = screen.getByTestId('home-swap-card');
+    expect(within(card).getByRole('heading', { level: 2, name: 'Swap' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(within(card).getByTestId('sheet-buy')).toBeInTheDocument();
+    expect(within(card).getByRole('group', { name: 'Buy or sell' })).toBeInTheDocument();
     for (const tab of ['Instant swap', 'Limit order', 'DCA']) expect(screen.queryByRole('button', { name: tab })).toBeNull();
-    expect(screen.getByTestId('swap-footer')).toBeInTheDocument();
+    // No line of hers on the home's card: the card's name stands where her line stands in the sheet.
+    expect(screen.queryByTestId('her-line')).toBeNull();
+    expect(screen.getByTestId('sheet-go')).toHaveTextContent(/^Buy BAYLA$/);
   });
 });
