@@ -7,13 +7,17 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-12
+### 2026-11-13
 
 - Swap and Add sheets, and the home's swap and pools cards: the network drop-down changes the form where it stands instead of opening another page. Ethereum, Base, Robinhood Chain and Cardano each show their own swap form there, and Ethereum, Base and Robinhood Chain their add / remove form. A room on Ethereum or Base opens the sheet on its own network and coin. The Solana swap sheet gains the flip (so you can sell), slippage, speed and price impact. The Add sheet lets you pick another room's coin, or "Every pool" for the whole pools list with your positions, Remove, Claim fees and Open a pool. Swap and Add are one press apart. On a tablet or wider the sheet sits in the middle of the screen.
 - Swap sheet: one coin chip with the coin's picture and a drop-down in place of the row of room chips, a Buy / Sell switch (a sale offers 25%, 50%, 75% and Max of what you hold), and larger "You pay" and "You get" boxes. Coin lists show pictures for SOL, USDC and USDT on Solana and for the island coins on Base. In the Add sheet, "Every pool" keeps the pool finder and your positions and drops the long lists (All pools, Arbitrage, Every position, Rates, Swap routes, Before you provide liquidity), which stay on the Pools page.
 - Ethereum, Base and Robinhood Chain swap: the form is drawn like the Solana one. "You pay" and "You receive" are large boxes with each coin's picture, quick amounts are 25%, 50%, 75% and MAX, and slippage with fee-on-transfer folds into one line that opens. Every check, route and fee is unchanged.
 - Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
 - Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
+- Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
+
+### 2026-11-12
+
 - iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
 - Heat line and card: with two wallets in one wallet app (an Ethereum account and a Solana wallet), both now read the same wallet, the warmer one.
 - Heat card: with only a Solana wallet connected, the card reads it without a press.

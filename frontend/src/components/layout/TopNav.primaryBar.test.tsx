@@ -139,15 +139,17 @@ describe('TopNav: the menu', () => {
     );
   });
 
-  it('lists Lore and Launch under Island, and Dashboard after them once a wallet connects', () => {
+  // Owner, 2026-11-12: the marketplace, back in the menu after Launch.
+  it('lists Lore, Launch and Marketplace under Island, and Dashboard after them once a wallet connects', () => {
     const pages = (connected: boolean) => {
       const region = within(openDrawer('/', connected)).getByRole('region', { name: 'Island' });
       return within(region).getAllByRole('link').filter((l) => l.textContent !== 'Island')
         .map((l) => [l.textContent, l.getAttribute('href')]);
     };
-    expect(pages(false)).toEqual([['Lore', '/lore'], ['Launch', '/launch']]);
+    const shown = [['Lore', '/lore'], ['Launch', '/launch'], ['Marketplace', '/nakamigos']];
+    expect(pages(false)).toEqual(shown);
     cleanup();
-    expect(pages(true)).toEqual([['Lore', '/lore'], ['Launch', '/launch'], ['Dashboard', '/dashboard']]);
+    expect(pages(true)).toEqual([...shown, ['Dashboard', '/dashboard']]);
   });
 
   it("lists every page under its group's word, named as its tab is; Pools lands on /pools", () => {
