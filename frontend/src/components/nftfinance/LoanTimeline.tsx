@@ -9,8 +9,10 @@
 // It adds no promise of its own: every figure comes from `costAt`, which the caller builds
 // from Gondi's own arithmetic (lib/gondi/loanMath.ts).
 import { useId, useState } from 'react';
-import { dayOf, lifeFraction, reminderFractions, scrubStep } from '../../lib/gondi/timeline';
+import { dayOf, lifeFraction, reminderMarks, scrubStep } from '../../lib/gondi/timeline';
 import { fmtWeth, formatDue } from './nftLendingShared';
+import { useDrawWidth } from '../../hooks/useDrawWidth';
+import { fitCentred, monoWidth } from '../../lib/markLabels';
 
 export interface TimelineCost {
   /** What the borrower pays to close the loan at that moment. */
@@ -36,14 +38,18 @@ interface Props {
   exact?: boolean;
 }
 
-const W = 320;
-const H = 84;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
+const H = 92;
 const PAD = 10;
 const BASE = 62; // the debt's floor line
 const TOP = 16; // the wedge's height at the deadline
+const LABEL = 11;
+const LABEL_Y = H - 5; // the row under the axis: day 1, the reminders, due
+const MONO = 'ui-monospace, monospace';
 
 export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = true }: Props) {
   const id = useId();
+  const [box, W] = useDrawWidth();
   const end = start + duration;
   const min = now !== undefined ? Math.min(Math.max(now, start), end) : start;
   const step = scrubStep(duration);
@@ -67,6 +73,21 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
   const when = `${exact ? '' : 'about '}${formatDue(at)}`;
   const valueText = `Day ${day} of ${of}, ${when}: ${headline}`;
 
+  // The row under the axis. "day 1" and "due" always show; each reminder is named by how long
+  // before the deadline it rings, the week's notice first, and one that would crowd another
+  // (as the last day's do on a phone) is left out rather than squeezed.
+  const startW = monoWidth('day 1', LABEL);
+  const dueW = monoWidth('due', LABEL);
+  const reminders = reminderMarks(duration).map((r) => ({ ...r, text: `${r.before} left` }));
+  const reminderLeft = fitCentred(
+    reminders.map((r) => ({ at: x(r.fraction), width: monoWidth(r.text, LABEL) })),
+    W,
+    [
+      [x(0), x(0) + startW],
+      [x(1) - dueW, W],
+    ],
+  );
+
   return (
     <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline">
       <div className="flex items-baseline justify-between gap-3">
@@ -78,8 +99,8 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
         </p>
       </div>
 
-      <div className="relative mt-1" style={{ touchAction: 'pan-y' }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" aria-hidden="true" focusable="false">
+      <div ref={box} className="relative mt-1" style={{ touchAction: 'pan-y' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: H }} aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id={`${id}-debt`} x1="0" x2="1" y1="0" y2="0">
               <stop offset="0" stopColor="#10b981" stopOpacity="0.15" />
@@ -102,12 +123,23 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
           )}
 
           {/* The moments the calendar file rings. */}
-          {reminderFractions(duration).map((f) => (
-            <g key={f}>
-              <line x1={x(f)} y1={BASE} x2={x(f)} y2={BASE + 6} stroke="#fbbf24" strokeWidth="1.5" />
-              <circle cx={x(f)} cy={BASE + 9} r="1.8" fill="#fbbf24" />
+          {reminders.map((r, i) => (
+            <g key={r.before}>
+              <line x1={x(r.fraction)} y1={BASE} x2={x(r.fraction)} y2={BASE + 6} stroke="#fbbf24" strokeWidth="1.5" />
+              <circle cx={x(r.fraction)} cy={BASE + 9} r="1.8" fill="#fbbf24" />
+              {reminderLeft[i] !== null && (
+                <text x={reminderLeft[i]!} y={LABEL_Y} fontSize={LABEL} fontFamily={MONO} fill="rgba(251,191,36,0.9)" data-testid="loan-timeline-reminder">
+                  {r.text}
+                </text>
+              )}
             </g>
           ))}
+          <text x={x(0)} y={LABEL_Y} fontSize={LABEL} fontFamily={MONO} fill="rgba(255,255,255,0.7)">
+            day 1
+          </text>
+          <text x={x(1) - dueW} y={LABEL_Y} fontSize={LABEL} fontFamily={MONO} fill="#fca5a5">
+            due
+          </text>
 
           {/* The wall: past the deadline the NFT is the lender's. */}
           <rect x={x(1)} y={TOP - 8} width={PAD} height={BASE - TOP + 16} fill={`url(#${id}-lost)`} />
