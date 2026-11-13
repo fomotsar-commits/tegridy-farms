@@ -1075,6 +1075,12 @@ nothing is lost.
   `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
   run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
   the job counts nothing and stays green, and the home page says the volume could not be read.
+- ⬜ **Migration 031, BEFORE the "TVL and volume count everything" PR merges** (free). Paste
+  `frontend/supabase/migrations/031_venue_volume_nft_sources.sql` in the SQL editor (it needs
+  028 only). It lets the volume counter write two more rows: new loans on NFT Lending and sales
+  on our own NFT order book. Merged before 031, the home page's volume line reads "could not be
+  read" until 031 is in. After the merge, the next five-minute count writes both rows; check
+  with `select source, swaps, usd, unpriced, last_error from venue_volume order by source;`.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568

@@ -7,6 +7,11 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-13
+
+- Home, TVL: now counts the NFTs our contracts hold (each NFT lent against on NFT Lending, one in a liquidation auction, and JBAC in the staking vault) at its collection's OpenSea floor, the Robinhood pool (it counted $0 because the site did not know Robinhood's WETH), and pools opened on the new pool-opening factories on Ethereum, Base and Robinhood.
+- Home, all-time volume: now counts new loans on NFT Lending (the WETH lent), sales on our own NFT order book, Robinhood's swaps (381 of them counted at $0 until now, priced once at today's ETH price), swaps in pools opened on the new factories, and swaps in pools of two island coins (at the coin's Jupiter price).
+
 ### 2026-11-12
 
 - iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
