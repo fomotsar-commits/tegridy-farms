@@ -15,6 +15,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-11
 
+- Pools and swap on Solana: checking that the venue's program is still deployed no longer downloads the whole program. The pools page fetched it twice on every visit, about 450 KB; it now asks only whether the program is there.
 - Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
 - Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.
 - Solana pools: opening a pool also writes its pool share's name record in the same transaction, so a wallet shows "Memetics Pool Share" and a picture for the new share from its first block instead of "Unknown"; the pair name follows when the vault renames it. It costs the opener 0.0137 SOL more: 0.01 SOL is Metaplex's fee for making the record and the rest stays in the record. The team gets none of it. The Open a pool card, the form and the review say so.
