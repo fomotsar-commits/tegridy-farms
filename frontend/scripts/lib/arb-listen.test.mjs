@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SNAPSHOT_MAX_ACCOUNTS, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, snapshotOf, stage0Report, throughOurs, watchedOf } from './arb-listen.mjs';
+import { DelayBook, GapBook, HANDOVER_TTL_MS, Outcomes, SNAPSHOT_MAX_ACCOUNTS, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, ourPoolCoins, outcomeOf, outcomesFromLog, quotesToLink, repeats, secondFeedAccounts, snapshotOf, stage0Report, throughOurs, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -312,5 +312,49 @@ describe('outcomesFromLog: the robot’s answers in the gap log', () => {
     expect(r).toMatchObject({ total: 3, byOutcome: { stale: 1, 'test-checks': 1, 'not-sent': 1 }, medianActMs: 400, died: 2, wouldLand: 1 });
     expect(r.diedShare).toBeCloseTo(2 / 3, 6);
     expect(outcomesFromLog([]).diedShare).toBeNull();
+  });
+});
+
+describe('DelayBook: from the first word of a change to its handover', () => {
+  it('splits handovers by whether they waited on a verify read, the median and 90th of each', () => {
+    const d = new DelayBook();
+    for (const ms of [100, 200, 300, 400, 500]) d.add(ms, true);
+    for (const ms of [10, 20, 30]) d.add(ms, false);
+    expect(d.summary()).toEqual({
+      heardToHandoverMs: { n: 8, median: 200, p90: 500 },
+      afterAVerifyRead: { n: 5, median: 300, p90: 500 },
+      withNoVerifyRead: { n: 3, median: 20, p90: 30 },
+    });
+  });
+
+  it('keeps the last few only, and nothing that is not a time', () => {
+    const d = new DelayBook(3);
+    for (const ms of [1, 2, 3, 4, NaN, -5]) d.add(ms, false);
+    expect(d.all).toEqual([2, 3, 4]);
+    expect(new DelayBook().summary().heardToHandoverMs).toEqual({ n: 0, median: null, p90: null });
+  });
+});
+
+describe('repeats: a change already held', () => {
+  const held = { slot: 7, data: Buffer.from([1, 2, 3]) };
+  it('is the same slot and the same bytes, or both gone', () => {
+    expect(repeats(held, 7, Buffer.from([1, 2, 3]))).toBe(true);
+    expect(repeats({ slot: 7, data: null }, 7, null)).toBe(true);
+  });
+  it('is not a newer slot, other bytes, an account newly gone, or one never held', () => {
+    expect(repeats(held, 8, Buffer.from([1, 2, 3]))).toBe(false);
+    expect(repeats(held, 7, Buffer.from([1, 2, 4]))).toBe(false);
+    expect(repeats(held, 7, null)).toBe(false);
+    expect(repeats(undefined, 7, Buffer.from([1]))).toBe(false);
+  });
+});
+
+describe('secondFeedAccounts: what the second feed watches', () => {
+  it('takes our pools first, then the rest in order, up to the most it may', () => {
+    const watched = ['a', 'b', 'ours1', 'c', 'ours2'];
+    const ours = (k) => k.startsWith('ours');
+    expect(secondFeedAccounts(watched, ours, 3)).toEqual(['ours1', 'ours2', 'a']);
+    expect(secondFeedAccounts(watched, ours, 60)).toEqual(['ours1', 'ours2', 'a', 'b', 'c']);
+    expect(secondFeedAccounts(watched, ours, 0)).toEqual([]);
   });
 });

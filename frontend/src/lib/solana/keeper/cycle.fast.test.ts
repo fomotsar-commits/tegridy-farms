@@ -59,8 +59,9 @@ function record(legs: RouteLeg[], over: Partial<EngineRecord> = {}): EngineRecor
   };
 }
 
-function rig(legs: RouteLeg[], gain: bigint) {
+function rig(legs: RouteLeg[], gain: bigint, alongside?: { err: unknown; logs?: string[] } | Error) {
   const calls: string[] = [];
+  const commitments: string[] = [];
   const rpc = vi.fn(async (method: string, params: unknown[]) => {
     calls.push(method);
     if (method === 'getLatestBlockhash') return { value: { blockhash: Keypair.generate().publicKey.toBase58() } };
@@ -69,7 +70,12 @@ function rig(legs: RouteLeg[], gain: bigint) {
       calls.push('balances');
       return { value: [token(HELD), null, token(0n), wallet] };
     }
-    if (method === 'simulateTransaction') return { value: { err: null, unitsConsumed: 150_000, accounts: [token(HELD + gain), token(0n), token(0n), wallet] } };
+    if (method === 'simulateTransaction') {
+      commitments.push(String((params[1] as { commitment?: string }).commitment));
+      if (alongside instanceof Error) throw alongside;
+      if (alongside) return { value: { err: alongside.err, logs: alongside.logs ?? [], unitsConsumed: 40_000, accounts: [token(HELD), token(0n), token(0n), wallet] } };
+      return { value: { err: null, unitsConsumed: 150_000, accounts: [token(HELD + gain), token(0n), token(0n), wallet] } };
+    }
     throw new Error(`unexpected ${method}`);
   });
   const toJito: VersionedTransaction[] = [];
@@ -77,11 +83,11 @@ function rig(legs: RouteLeg[], gain: bigint) {
   const io = {
     rpc, owner: Keypair.generate().publicKey, log: vi.fn(), routeLegs,
     send: vi.fn(async () => ({ signature: 'S', outcome: 'confirmed' as const })),
-    sendJito: vi.fn(async (tx: VersionedTransaction) => (toJito.push(tx), { signature: 'J', outcome: 'confirmed' as const })),
+    sendJito: vi.fn(async (tx: VersionedTransaction) => (calls.push('jito'), toJito.push(tx), { signature: 'J', outcome: 'confirmed' as const, note: "Jito's last word: Landed" })),
     recentBlockhash: vi.fn(async () => ({ blockhash: Keypair.generate().publicKey.toBase58() })),
   } as unknown as KeeperIo;
   const said = () => (io.log as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0])).join('\n');
-  return { io, calls, toJito, routeLegs, said };
+  return { io, calls, commitments, toJito, routeLegs, said };
 }
 const GAIN = 1_000_000n;
 
@@ -93,7 +99,10 @@ describe('the fast path (KEEPER_FAST)', () => {
     expect(await engineTrip(r.io, base, rec, 'T')).toBe('sent');
     // Built from the engine's copy, at the slot it judged at.
     expect(r.routeLegs.mock.calls[0]![3]).toEqual({ snapshot: rec.snapshot, slot: 100 });
-    expect(r.calls).not.toContain('simulateTransaction');
+    // No test run BEFORE the send: the one test run comes after it, alongside, at 'processed'.
+    expect(r.calls.indexOf('simulateTransaction')).toBeGreaterThan(r.calls.indexOf('jito'));
+    expect(r.calls.filter((c) => c === 'simulateTransaction')).toHaveLength(1);
+    expect(r.commitments).toEqual(['processed']);
     expect(r.calls).not.toContain('getLatestBlockhash');
     // One balance read before the trip (the floor counts from it); one after, for the log.
     expect(r.calls.filter((c) => c === 'balances')).toHaveLength(2);
@@ -111,6 +120,23 @@ describe('the fast path (KEEPER_FAST)', () => {
     const check = floorOfCheck(ixs.at(-1)!)!;
     expect(check.min - HELD - tip).toBeGreaterThanOrEqual(FLOOR);
     expect(r.said()).toMatch(/fast, no test run/);
+    expect(r.said()).toContain(": sent J: confirmed (Jito's last word: Landed)");
+    expect(r.said()).toMatch(/its test run alongside the send: ran clean, the SOL account grows 0\.001000 SOL \(in 150000 units of \d+\)/);
+  });
+
+  it('says why the chain would refuse a fast trip, from its test run alongside, and still sends it first', async () => {
+    const legs = legsFor(GAIN);
+    const r = rig(legs, GAIN, { err: { InstructionError: [3, { Custom: 6005 }] }, logs: ['Program log: x', 'Program EKS4 failed: custom program error: 0x1775'] });
+    expect(await engineTrip(r.io, base, record(legs), 'T')).toBe('sent');
+    expect(r.toJito).toHaveLength(1);
+    expect(r.said()).toContain('its test run alongside the send: refused ({"InstructionError":[3,{"Custom":6005}]}): Program EKS4 failed: custom program error: 0x1775');
+  });
+
+  it('sends a fast trip all the same when its test run alongside cannot be read', async () => {
+    const legs = legsFor(GAIN);
+    const r = rig(legs, GAIN, new Error('RPC simulateTransaction answered 429'));
+    expect(await engineTrip(r.io, base, record(legs), 'T')).toBe('sent');
+    expect(r.said()).toContain('its test run alongside the send: not run (RPC simulateTransaction answered 429)');
   });
 
   it.each([

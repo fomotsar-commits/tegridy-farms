@@ -150,6 +150,61 @@ export class Outcomes {
 }
 
 /**
+ * How long the engine takes to hand a trip over, from the first word of the change it follows (a
+ * websocket notification, or the HTTP read that found it) to the handover written to /events, in
+ * ms; split by whether it waited on a verify read first (ARB_VERIFY_MS). The last `max` of each.
+ */
+export class DelayBook {
+  constructor(max = 500) {
+    this.max = max;
+    this.all = [];
+    this.verified = [];
+    this.direct = [];
+  }
+
+  add(ms, waitedOnVerify) {
+    if (!Number.isFinite(ms) || ms < 0) return;
+    for (const list of [this.all, waitedOnVerify ? this.verified : this.direct]) {
+      list.push(ms);
+      if (list.length > this.max) list.shift();
+    }
+  }
+
+  /** The median and the 90th of each, rounded to the ms; null where there are none. */
+  summary() {
+    const of = (xs) => ({ n: xs.length, median: quantile(xs, 0.5), p90: quantile(xs, 0.9) });
+    return { heardToHandoverMs: of(this.all), afterAVerifyRead: of(this.verified), withNoVerifyRead: of(this.direct) };
+  }
+}
+
+function quantile(xs, p) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return Math.round(s[Math.min(s.length - 1, Math.floor(p * s.length))]);
+}
+
+/**
+ * Whether a notification only repeats what is held: the same slot and the same bytes (a second
+ * feed telling what the first already did, ARB_WS2_URL). A repeat is kept, but nothing is judged again.
+ */
+export function repeats(was, slot, data) {
+  if (!was || was.slot !== slot) return false;
+  if (was.data === null || data === null) return was.data === data;
+  return Buffer.compare(Buffer.from(was.data), Buffer.from(data)) === 0;
+}
+
+/**
+ * The accounts a second feed watches (ARB_WS2_URL), `max` at most: those of our own pools first
+ * (every trip the robot takes passes through one), then the rest of the watched list in its order.
+ * `ours(address)`: whether a watched account belongs to one of our pools.
+ */
+export function secondFeedAccounts(watched, ours, max) {
+  const first = watched.filter((a) => ours(a));
+  const rest = watched.filter((a) => !ours(a));
+  return [...first, ...rest].slice(0, Math.max(0, max));
+}
+
+/**
  * The accounts that move a pool's price: a band pool's own account and its tick arrays; a pair or
  * bin pool's and its two vaults, and a bin pool's bin arrays. `arrays` are the array accounts the
  * listener read for the pool (lib/arb-venues.mjs), none until it has.

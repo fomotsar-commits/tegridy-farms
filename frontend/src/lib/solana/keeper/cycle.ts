@@ -75,8 +75,11 @@ export interface KeeperIo {
   indexFetch: typeof fetch;
   /** Signs and sends, a v0 or a version 1 trip (keeper/v1tx.ts); absent on a dry run, which stops after the test run. */
   send?: (tx: TripTx) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
-  /** Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO. 'lost': it never landed. */
-  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome }>;
+  /**
+   * Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO.
+   * 'lost': it never landed. `note`: how many regions took it and Jito's last word on it (jitoNote).
+   */
+  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome; note?: string }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
   record?: (r: TripRecord) => void;
   /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
@@ -1530,7 +1533,17 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
       if (!isV1(final)) {
         const amt = amountText(t.coin);
         io.log(`${t.name}: fast, no test run: ${amt(t.coinIn)} in, the robot's own quote gains ${amt(t.fast.gain)} (floor ${amt(t.floor)}); through Jito with a tip of ${tipLamports} lamports, added to the floor`);
-        return sendAndRecord(io, t, pools, keys, t.before, final, tip);
+        const sending = sendAndRecord(io, t, pools, keys, t.before, final, tip);
+        // The same transaction test-run ALONGSIDE the send (2026-11-13: 2 of 4 fast trips that did
+        // not land met no rival in their pools for 96 and 169 slots, and nothing said why). The send
+        // goes first and never waits on it; it only says what the chain made of the trip just then.
+        const alongside = simulate(io.rpc, final, keys, 'processed').then(
+          (sim) => (sim.err ? `refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}` : `ran clean, the ${t.coin.symbol} account grows ${amt(sim.after.coin - t.before.coin)} (in ${sim.units} units of ${units})`),
+          (e) => `not run (${e instanceof Error ? e.message : String(e)})`,
+        ).then((said) => io.log(`${t.name}: its test run alongside the send: ${said}`));
+        const tried = await sending;
+        await alongside;
+        return tried;
       }
       io.log(`${t.name}: too big for a legacy transaction, so not fast: the usual test run`);
     } else io.log(`${t.name}: its quoted gain leaves no Jito tip, so not fast: the usual test run`);
@@ -1591,7 +1604,8 @@ async function sendAndRecord(io: KeeperIo, t: Trip, pools: string[], keys: Publi
   const r = tip && io.sendJito && !isV1(final) ? await io.sendJito(final) : await io.send(final);
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());
-  io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
+  const note = 'note' in r && typeof r.note === 'string' && r.note ? ` (${r.note})` : '';
+  io.log(`${t.name}: sent ${r.signature}: ${r.outcome}${note}`);
   if (r.outcome === 'lost') {
     // Jito never put it in a block: no fee, no tip, nothing moved. Logged, at no cost to the day's cap.
     try {
@@ -1760,7 +1774,8 @@ interface Simulated {
   after: Balances;
 }
 
-async function simulate(rpc: SolanaRpc, tx: TripTx, keys: PublicKey[]): Promise<Simulated> {
+/** A trip's test run at 'confirmed' (what its balances are read at), or at `commitment`: the fast path's run alongside its send reads 'processed', the chain as the leader sees it. */
+async function simulate(rpc: SolanaRpc, tx: TripTx, keys: PublicKey[], commitment: 'confirmed' | 'processed' = 'confirmed'): Promise<Simulated> {
   let bytes: Uint8Array;
   try {
     bytes = isV1(tx) ? tx.wire : tx.serialize();
@@ -1775,7 +1790,7 @@ async function simulate(rpc: SolanaRpc, tx: TripTx, keys: PublicKey[]): Promise<
       encoding: 'base64',
       sigVerify: false,
       replaceRecentBlockhash: true,
-      commitment: 'confirmed',
+      commitment,
       accounts: { encoding: 'base64', addresses: keys.map((k) => k.toBase58()) },
     },
   ])) as { value: { err: unknown; logs?: string[] | null; unitsConsumed?: number; loadedAccountsDataSize?: number; accounts?: ({ data: [string, string]; lamports: number } | null)[] | null } };

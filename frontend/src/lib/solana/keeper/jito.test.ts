@@ -9,14 +9,18 @@ import { SOL_QUOTE } from '../lp/quotes';
 import { tripInstructions } from './cycle';
 import { floorOfCheck } from './lighthouse';
 import {
+  JITO_BLOCK_ENGINE,
   JITO_GIVE_UP_MS,
+  JITO_REGIONS,
   JITO_KEEP_LAMPORTS,
   JITO_LANDING_TIP_LAMPORTS,
   JITO_MIN_TIP_LAMPORTS,
   JITO_TIP_ACCOUNTS,
   JITO_WATCH_MS,
+  jitoNote,
   jitoSender,
   jitoTip,
+  jitoUrls,
   jitoTipIx,
   pickTipAccount,
 } from './jito';
@@ -160,14 +164,26 @@ describe('jitoSender', () => {
 
   it('sends the signed transaction as a one-transaction bundle, and is confirmed once the chain says so', async () => {
     const r = rig({}, [null, { err: null, confirmationStatus: 'confirmed' }]);
-    expect(await r.send(signed)).toEqual({ signature: SIG, outcome: 'confirmed', bundle: 'bundle-1' });
+    expect(await r.send(signed)).toEqual({ signature: SIG, outcome: 'confirmed', bundle: 'bundle-1', took: 1, asked: 1, jitoSaid: 'Pending' });
     expect(r.calls[0]).toMatchObject({ method: 'sendBundle', params: [['AQID'], { encoding: 'base64' }] });
     expect((await rig({}, [{ err: { InstructionError: [3, 'Custom'] }, confirmationStatus: 'finalized' }]).send(signed)).outcome).toBe('reverted');
   });
 
   it('calls a bundle every region failed lost: it never lands, nothing is paid', async () => {
     const r = rig({ inflight: ['Pending', 'Failed'] });
-    expect((await r.send(signed)).outcome).toBe('lost');
+    expect(await r.send(signed)).toMatchObject({ outcome: 'lost', jitoSaid: 'Failed' });
+  });
+
+  it('keeps Jito’s last word on a bundle it never failed, for the log', async () => {
+    expect(await rig({ inflight: ['Pending', 'Pending', 'Invalid'] }).send(signed)).toMatchObject({ outcome: 'unknown', jitoSaid: 'Pending' });
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      if (body.method === 'sendBundle') return new Response(JSON.stringify({ result: 'bundle-1' }));
+      return new Response('not json', { status: 500 });
+    }) as unknown as typeof fetch;
+    let clock = 0;
+    const never = jitoSender({ fetchImpl, status: async () => null, sleep: async (ms) => void (clock += ms), now: () => clock });
+    expect(await never(signed)).toMatchObject({ outcome: 'unknown', jitoSaid: null });
   });
 
   it('calls a bundle neither landed nor failed unknown once its watch runs out, never lost', async () => {
@@ -179,6 +195,47 @@ describe('jitoSender', () => {
   it('throws when Jito refuses the bundle: nothing was sent', async () => {
     await expect(rig({ send: { error: { message: 'bundle tip too low' } } }).send(signed)).rejects.toThrow(/tip too low/);
     await expect(rig({ status: 429, send: {} }).send(signed)).rejects.toThrow(/429/);
+  });
+
+  describe('to several regions at once (KEEPER_JITO_REGIONS)', () => {
+    function regions(answer: (url: string) => Response | Error, inflight = 'Failed') {
+      const sends: string[] = [];
+      const asks: string[] = [];
+      const fetchImpl = (async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        if (body.method !== 'sendBundle') {
+          asks.push(url);
+          return new Response(JSON.stringify({ result: { value: [{ status: inflight }] } }));
+        }
+        sends.push(url);
+        const a = answer(url);
+        if (a instanceof Error) throw a;
+        return a;
+      }) as unknown as typeof fetch;
+      let clock = 0;
+      const urls = [JITO_REGIONS.ny!, JITO_REGIONS.frankfurt!, JITO_REGIONS.tokyo!];
+      const send = jitoSender({ fetchImpl, urls, status: async () => null, sleep: async (ms) => void (clock += ms), now: () => clock });
+      return { send: () => send(signed), sends, asks, urls };
+    }
+    const ok = () => new Response(JSON.stringify({ result: 'bundle-1' }));
+
+    it('sends the same bundle to every one, once each, and asks the first that took it how it fares', async () => {
+      const r = regions(ok);
+      expect(await r.send()).toMatchObject({ outcome: 'lost', took: 3, asked: 3, bundle: 'bundle-1' });
+      expect(r.sends.map((u) => u.replace('/api/v1/bundles', ''))).toEqual(r.urls);
+      expect(new Set(r.asks)).toEqual(new Set([`${JITO_REGIONS.ny}/api/v1/bundles`]));
+    });
+
+    it('is sent when some refuse it (one too busy, one unreachable): the first that took it is asked', async () => {
+      const r = regions((u) => (u.includes('ny.') ? new Response('{}', { status: 429 }) : u.includes('frankfurt.') ? new Error('fetch failed') : ok()));
+      expect(await r.send()).toMatchObject({ took: 1, asked: 3 });
+      expect(new Set(r.asks)).toEqual(new Set([`${JITO_REGIONS.tokyo}/api/v1/bundles`]));
+    });
+
+    it('throws when none takes it: nothing was sent', async () => {
+      await expect(regions(() => new Response(JSON.stringify({ error: { message: 'bundle tip too low' } }))).send()).rejects.toThrow(/tip too low/);
+      await expect(regions(() => new Error('fetch failed')).send()).rejects.toThrow(/fetch failed/);
+    });
   });
 
   describe('watched until its blockhash runs out', () => {
@@ -253,5 +310,34 @@ describe('jitoSender', () => {
       expect((await r.send()).outcome).toBe('confirmed');
       expect(r.clock()).toBeGreaterThanOrEqual(90_000);
     });
+  });
+});
+
+describe('jitoUrls: where KEEPER_JITO_REGIONS sends a bundle', () => {
+  it('is the one endpoint unset or blank, as before', () => {
+    expect(jitoUrls(undefined)).toEqual([JITO_BLOCK_ENGINE]);
+    expect(jitoUrls('  ')).toEqual([JITO_BLOCK_ENGINE]);
+    expect(jitoUrls(' , ')).toEqual([JITO_BLOCK_ENGINE]);
+  });
+
+  it('is every region for "all", eight of them, each Jito’s own host', () => {
+    const all = jitoUrls('ALL');
+    expect(all).toHaveLength(8);
+    for (const u of all) expect(u).toMatch(/^https:\/\/[a-z]+\.mainnet\.block-engine\.jito\.wtf$/);
+  });
+
+  it('takes region names joined by commas, "mainnet" for the one endpoint, each once', () => {
+    expect(jitoUrls('ny, tokyo,ny,mainnet')).toEqual([JITO_REGIONS.ny, JITO_REGIONS.tokyo, JITO_BLOCK_ENGINE]);
+  });
+
+  it('refuses a name Jito does not list: a typo is never a silent default', () => {
+    expect(() => jitoUrls('ny,newyork')).toThrow(/"newyork" is not one of Jito's regions/);
+  });
+});
+
+describe('jitoNote', () => {
+  it('says how many regions took a bundle sent to several, and Jito’s last word', () => {
+    expect(jitoNote({ took: 7, asked: 8, jitoSaid: 'Pending' })).toBe("7 of 8 regions took it; Jito's last word: Pending");
+    expect(jitoNote({ took: 1, asked: 1, jitoSaid: null })).toBe("Jito's last word: none");
   });
 });

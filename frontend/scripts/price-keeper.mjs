@@ -73,6 +73,18 @@
  *                           A tip under 20,000 lamports (those never landed) and a pool whose
  *                           last bundle did not land in 10 min go the usual way, as do USDC
  *                           trips (default no)
+ *   KEEPER_JITO_REGIONS     where a bundle goes: "all" = every one of Jito's regional block engines
+ *                           at once (Amsterdam, Dublin, Frankfurt, London, New York, Salt Lake City,
+ *                           Singapore, Tokyo), or region names joined by commas ("mainnet" = the
+ *                           one endpoint); the same signed transaction, so it lands once at most.
+ *                           Each sent line says how many took it and Jito's last word on it
+ *                           (default: the one endpoint, mainnet.block-engine.jito.wtf)
+ *   KEEPER_JITO_WARM        yes = the robot's connection to each block engine is kept open, and
+ *                           warm with a cheap call (getTipAccounts) once idle 2 min, so a bundle
+ *                           goes out on a connection already made: measured 2026-11-13, 61 ms to
+ *                           the nearby endpoint on one, 267 ms on a new one (Europe and Asia 140 ms
+ *                           against 520). A bundle never shares a second with a warming call
+ *                           (Jito takes 1 call a second an IP, a region; default no)
  *   KEEPER_DIRECT           yes = before asking Jupiter, each of our SOL pools is weighed against
  *                           its coin's outside pools on PumpSwap (and Raydium CPMM / AMM v4 when
  *                           KEEPER_ALLOW_RAYDIUM=yes), both swaps built by the robot with each
@@ -140,6 +152,7 @@ import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CLMM, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
+import { JITO_WARM_EVERY_MS, jitoLine } from './lib/jito-line.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -186,7 +199,7 @@ const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
 const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
-const { jitoSender } = await lib('solana/keeper/jito.ts');
+const { jitoSender, jitoUrls, jitoNote, JITO_BLOCK_ENGINE } = await lib('solana/keeper/jito.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 const { DEFAULT_GAS, GAS_TOPUP_UNITS, gasTopUp, gasTopUpIxs } = await lib('solana/keeper/gas.ts');
 const { isV1, signV1 } = await lib('solana/keeper/v1tx.ts');
@@ -1029,8 +1042,16 @@ async function main() {
       spent.sol += (5_000 + Math.ceil((GAS_TOPUP_UNITS * settings.microLamports) / 1e6)) / 1e9;
       log(`Plain SOL ${fmt(h.sol, 9)} was under ${fmt(gas.lowLamports, 9)}: unwrapped ${fmt(unwrap, 9)} of ${fmt(h.wsol, 9)} wrapped SOL, sent ${r.signature}: ${r.outcome}`);
     };
+    const jitoAt = jitoUrls(env.KEEPER_JITO_REGIONS);
+    // KEEPER_JITO_WARM: Jito's block engines over connections kept open and kept warm (lib/jito-line.mjs).
+    const jitoWarm = settings.jito && yes('KEEPER_JITO_WARM') ? jitoLine() : null;
+    if (jitoWarm) {
+      await jitoWarm.warm(jitoAt);
+      setInterval(() => jitoWarm.warm(jitoAt).catch(() => {}), 5_000).unref();
+    }
     const jito = jitoSender({
-      fetchImpl: fetch,
+      urls: jitoAt,
+      fetchImpl: jitoWarm ? jitoWarm.fetch : fetch,
       status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null,
       blockhashValid: async (blockhash) => (await conn.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value,
     });
@@ -1040,7 +1061,8 @@ async function main() {
       // cycle.ts never hands Jito a version 1 trip; this says so if it ever did.
       if (isV1(tx)) throw new Error('a version 1 transaction is not sent through Jito');
       tx.sign([key]);
-      return jito(tx);
+      const r = await jito(tx);
+      return { ...r, note: jitoNote(r) };
     };
     const record = (r) => {
       spentToday();
@@ -1203,6 +1225,8 @@ async function main() {
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    if (settings.jito) log(`  Jito's line: ${jitoWarm ? `kept open and warm (a call once idle ${JITO_WARM_EVERY_MS / 60_000} min)` : 'a new connection for each bundle (KEEPER_JITO_WARM=yes keeps it open)'}`);
+    if (settings.jito) log(`  Jito bundles go to: ${jitoAt.length === 1 && jitoAt[0] === JITO_BLOCK_ENGINE ? 'the one endpoint (KEEPER_JITO_REGIONS=all sends each to every region at once)' : `${jitoAt.length} block engines at once (${jitoAt.map((u) => new URL(u).hostname.split('.')[0]).join(', ')})`}`);
     log(`  its own swaps in our pools: ${settings.freeSwaps ? 'FREE on each tier that names this wallet its keeper (KEEPER_FREE_SWAPS; needs the keeper-fee upgrade on mainnet), the fee elsewhere' : 'the tier’s fee, as anyone pays (KEEPER_FREE_SWAPS=yes once the keeper-fee upgrade executes and the vault names this wallet)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  plain SOL for fees and tips: ${gas ? `under ${fmt(gas.lowLamports, 9)} SOL, wrapped SOL is unwrapped to bring it back to ${fmt(gas.targetLamports, 9)}, checked every minute` : 'not topped up (KEEPER_GAS_LOW_SOL=off)'}`);

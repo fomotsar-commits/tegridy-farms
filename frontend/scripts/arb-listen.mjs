@@ -58,7 +58,16 @@
  * that memecoin's deepest SOL or USDC pool, SOL → BOBO → GRR → SOL; "off" leaves them out),
  * ARB_MEME_QUOTES (80: the most memecoins linked so), ARB_VERIFY_MS (1500: a paying trip counts,
  * and is handed over, only once every account of its pools was read over HTTP this recently;
- * ARB_VERIFY_RPC_URL, the public mainnet RPC by default, reads them in one call).
+ * ARB_VERIFY_RPC_URL, the public mainnet RPC by default, reads them in one call),
+ * ARB_JUDGE_AFTER_MS (250: how long after a change its coin is judged, so a swap's other updates
+ * are in), ARB_WS2_URL (off: a second feed, e.g. wss://api.mainnet-beta.solana.com, watching
+ * ARB_WS2_ACCOUNTS (60) of the watched accounts, our pools' first; it only adds news: a change it
+ * tells first is judged at once, one it repeats is not judged again, and it never marks an account
+ * watched or unwatched. Measured 11-13 over 20 min: publicnode dropped its socket and sent 46 of
+ * 1,694 changes only Solana's own feed told, against 2 the other way).
+ *
+ * state.json's `delay`: how long each handover took from the first word of its change, split by
+ * whether it waited on a verify read; `stats.secondFirst` / `firstFirst`, which feed told first.
  *
  * The public mainnet websocket gives ~4 sockets × 80 accounts an IP and the robot uses it: point
  * ARB_RPC_URL and ARB_WS_URL at publicnode (measured 11-07: ~300 subscriptions a socket, updates
@@ -147,7 +156,10 @@ const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
 // it. Read once at the start, so a handover's snapshot carries it (keeper/directLegs.ts PUMP_GLOBAL_CONFIG).
 const PUMP_GLOBAL_CONFIG = PublicKey.findProgramAddressSync([Buffer.from('global_config')], new PublicKey(C.DEXES.pumpswap.program))[0].toBase58();
 // One swap moves two vaults in one slot; their updates arrive apart. A coin is judged once both are in.
-const JUDGE_AFTER_MS = 250;
+const JUDGE_AFTER_MS = numEnv('ARB_JUDGE_AFTER_MS', 250);
+// A second feed (ARB_WS2_URL; off by default): the same accounts' changes from another host.
+const WS2 = /^(off|no|false|0|)$/i.test(process.env.ARB_WS2_URL?.trim() ?? '') ? null : process.env.ARB_WS2_URL.trim();
+const WS2_ACCOUNTS = numEnv('ARB_WS2_ACCOUNTS', 60);
 // The public websocket closes a socket (1013, "try again later") that asks for ~100 accounts in
 // 6 s (walked 11-06: 446 asked at 25 a second, closed at 99 every time). Each socket takes fewer,
 // slower. It also refused a 5th socket from this IP (1006 at once): 4 × 80 accounts is what it gave.
@@ -243,7 +255,10 @@ const S = {
   live: new Set(),
   // address → when it was last read over HTTP (ms): what a paying trip is verified by.
   readAt: new Map(),
-  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0, verifyReads: 0, unverified: 0, verifiedPaying: 0 },
+  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0, verifyReads: 0, unverified: 0, verifiedPaying: 0, firstFirst: 0, secondFirst: 0, secondNotes: 0, repeats: 0 },
+  // From the first word of a change to its handover (lib/arb-listen.mjs DelayBook); coin → when its change was first heard.
+  delays: new L.DelayBook(),
+  heardAt: new Map(),
   bridgePool: null,
   note: 'starting…',
 };
@@ -263,6 +278,8 @@ async function readAll(keys) {
 function keep(k, data, slot, owner) {
   const was = S.acc.get(k);
   if (was && was.slot > slot) return false;
+  // The same slot and bytes again (the other feed, or a read of what a notification told): nothing new.
+  if (L.repeats(was, slot, data)) return false;
   S.acc.set(k, { data, slot, owner: owner ?? was?.owner });
   S.stats.slot = Math.max(S.stats.slot, slot);
   return true;
@@ -879,7 +896,12 @@ function judgeNow(coin, closedBy) {
   const openHere = new Set([...S.book.open.values()].filter((g) => g.coin === coin.mint).map((g) => g.route));
   const forBook = trips.filter((t) => !(t.unverified && !openHere.has(L.routeOf(t))));
   const { opened, closed } = S.book.seen(coin.mint, forBook, slot, now);
-  handOver(coin, trips.filter((t) => !t.unverified), judgedPools, slot, now);
+  const handed = handOver(coin, trips.filter((t) => !t.unverified), judgedPools, slot, now);
+  // The delay: from the first word of this change to its handover. A coin waiting on a verify read
+  // keeps its first word, so the handover after the read counts the wait; any other judgement ends it.
+  const heard = S.heardAt.get(coin.mint);
+  if (handed && heard !== undefined) S.delays.add(Date.now() - heard, closedBy === 'a verify read');
+  if (handed || !toVerify.size) S.heardAt.delete(coin.mint);
   for (const g of opened) {
     S.stats.opens++;
     g.symbol = coin.symbol;
@@ -905,7 +927,8 @@ const standingHandovers = (now) => [...S.handover.values()].filter((r) => L.hand
 /**
  * Every trip of this judgement that pays after every cost, handed to the robot: a record kept
  * here (the newest a route, for /handover.json) and written to every open /events stream at
- * once. `pools` are the coin's pools as judged (with the arrays each exact quote read).
+ * once. `pools` are the coin's pools as judged (with the arrays each exact quote read). True when
+ * any trip was handed over.
  */
 function handOver(coin, trips, pools, slot, now) {
   const byAddress = new Map(pools.map((p) => [p.address, p]));
@@ -932,6 +955,7 @@ function handOver(coin, trips, pools, slot, now) {
     for (const res of sseListeners) res.write(body);
   }
   if (any && S.handover.size > 500) for (const [route, r] of S.handover) if (!L.handoverStands(r, now)) S.handover.delete(route);
+  return any;
 }
 
 /**
@@ -1036,20 +1060,25 @@ async function rereadPools() {
  * One websocket watching `accounts` (an array that `add` may grow later): subscribed one by one,
  * read afresh once all are taken, and only then live (S.live) and handed over; reopened 5 s after
  * it closes, every account unwatched (and not live) until it is listening again.
+ *
+ * `second` (ARB_WS2_URL, at `url`): the second feed. It only adds news: a change it tells first is
+ * kept and its coins judged, as from the first feed; it never marks an account watched, unwatched
+ * or live, and reads nothing when it opens or closes (the first feed's sockets decide all that).
  */
-function listen(accounts, n) {
+function listen(accounts, n, { url = WS, second = false } = {}) {
   let socket = null;
   let ready = false;
   let asked = new Map();
+  const name = second ? `the second feed's websocket ${n}` : `websocket ${n}`;
   const open = () => {
-    const s = new WebSocket(WS);
+    const s = new WebSocket(url);
     socket = s;
     ready = false;
     asked = new Map();
     const subs = new Map();
     let beat = null;
     s.onopen = async () => {
-      log(`websocket ${n} open: subscribing to ${accounts.length} accounts`);
+      log(`${name} open: subscribing to ${accounts.length} accounts`);
       for (const [i, a] of accounts.entries()) {
         if (socket !== s) return;
         asked.set(i + 1, a);
@@ -1057,6 +1086,11 @@ function listen(accounts, n) {
         await sleep(SUBSCRIBE_GAP_MS);
       }
       beat = setInterval(() => socket === s && s.send(JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'ping' })), KEEP_ALIVE_MS);
+      if (second) {
+        ready = socket === s;
+        log(`${name} listening: ${subs.size} of ${accounts.length} subscriptions taken`);
+        return;
+      }
       await sleep(3_000);
       // Anything that changed while subscribing: read once more, then judge every coin.
       S.note = 'reading every watched account once more';
@@ -1088,15 +1122,27 @@ function listen(accounts, n) {
         const a = subs.get(m.params?.subscription);
         const v = m.params?.result;
         if (!a || !v) return;
-        S.stats.notes++;
-        if (!keep(a, v.value ? Buffer.from(v.value.data[0], 'base64') : null, v.context.slot, v.value?.owner)) return;
-        for (const c of S.coinsOf.get(a) ?? []) judgeSoon(c);
+        S.stats[second ? 'secondNotes' : 'notes']++;
+        const data = v.value ? Buffer.from(v.value.data[0], 'base64') : null;
+        // Told already (the other feed, or a read): kept as it is, and nothing judged again.
+        if (L.repeats(S.acc.get(a), v.context.slot, data)) {
+          S.stats.repeats++;
+          return;
+        }
+        if (!keep(a, data, v.context.slot, v.value?.owner)) return;
+        S.stats[second ? 'secondFirst' : 'firstFirst']++;
+        const at = Date.now();
+        for (const c of S.coinsOf.get(a) ?? []) {
+          if (!S.heardAt.has(c)) S.heardAt.set(c, at);
+          judgeSoon(c);
+        }
         return;
       }
       if (typeof m.id === 'number' && m.id > 0 && asked.has(m.id)) {
         if (typeof m.result === 'number') {
           const a = asked.get(m.id);
           subs.set(m.result, a);
+          if (second) return;
           S.stats.subscribed++;
           // Taken after the socket was listening (an array found later): live once read afresh.
           if (ready) {
@@ -1107,6 +1153,7 @@ function listen(accounts, n) {
               .catch((e) => log(`reading ${a} after subscribing: ${said(e)}`));
           }
         } else if (m.error) {
+          if (second) return;
           S.stats.refusedSubs++;
           S.unwatched.add(asked.get(m.id));
           if (S.stats.refusedSubs <= 3) log(`subscription refused: ${String(m.error.message ?? m.error.code).slice(0, 120)}`);
@@ -1117,6 +1164,12 @@ function listen(accounts, n) {
     s.onclose = (ev) => {
       if (beat) clearInterval(beat);
       if (socket !== s) return;
+      if (second) {
+        ready = false;
+        log(`${name} closed (${ev?.code ?? '?'}) with ${subs.size} subscriptions: opening again in 5 s`);
+        setTimeout(open, 5_000);
+        return;
+      }
       S.stats.reconnects++;
       S.stats.subscribed -= subs.size;
       ready = false;
@@ -1182,6 +1235,7 @@ function snapshot() {
     poolsByVenue: Object.fromEntries(Object.keys(C.DEXES).map((d) => [C.DEXES[d].name, [...S.coins.values()].reduce((s, c) => s + c.pools.filter((p) => p.dex === d).length, 0)])),
     venues: venuesNow(),
     stats: S.stats, gaps: S.book.done.length + S.book.open.size, unwatched: S.unwatched.size,
+    delay: { ...S.delays.summary(), judgeAfterMs: JUDGE_AFTER_MS, commitment: COMMITMENT }, secondFeed: WS2 ? redactRpcUrl(WS2) : null,
     handover: standingHandovers(now), outcomes: S.outcomes.counts(), robotSaid: S.outcomes.latest.slice(0, 20),
     stage0: L.stage0Report([...S.book.done, ...S.book.open.values()], now),
     transferFeeCoins: [...S.coins.values()].filter((c) => c.cut > 0).map((c) => ({ mint: c.mint, symbol: c.symbol, pct: c.cut * 100 })),
@@ -1231,6 +1285,13 @@ for (let i = 0; i * ACCOUNTS_PER_SOCKET < watched.length; i++) {
   await sleep(ACCOUNTS_PER_SOCKET * SUBSCRIBE_GAP_MS + 2_000);
 }
 spare = listen(later, ++sockets);
+if (WS2) {
+  // The second feed: our pools' accounts first, then the rest, as many as ARB_WS2_ACCOUNTS (one socket).
+  const ours = new Set([...S.coins.values()].flatMap((c) => c.pools.filter((p) => p.dex === 'ours').flatMap(L.watchedOf)));
+  const both = L.secondFeedAccounts(watched, (a) => ours.has(a), WS2_ACCOUNTS);
+  log(`second feed on ${redactRpcUrl(WS2)}: ${both.length} of the ${watched.length} watched accounts (${both.filter((a) => ours.has(a)).length} of them our pools')`);
+  listen(both, 1, { url: WS2, second: true });
+}
 setInterval(() => readRule().catch(() => {}), RULE_EVERY_MS);
 setInterval(() => recheckOpenGaps().catch((e) => log(`fresh reads: ${said(e)}`)), 1_000);
 setInterval(() => rereadPools().catch((e) => log(`pool re-read: ${said(e)}`)), POOL_REREAD_MS);

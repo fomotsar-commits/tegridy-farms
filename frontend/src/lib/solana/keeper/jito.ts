@@ -23,6 +23,41 @@ export const JITO_TIP_ACCOUNTS: readonly string[] = [
   '3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT',
 ];
 export const JITO_BLOCK_ENGINE = 'https://mainnet.block-engine.jito.wtf';
+/**
+ * Jito's block engine in each region, as its docs list them (docs.jito.wtf/lowlatencytxnsend, read
+ * 2026-11-13). The docs say neither that a bundle sent to one region reaches a leader connected to
+ * another nor that it does not; KEEPER_JITO_REGIONS sends each bundle to several at once (the
+ * same signed transaction: it lands once at most). Each takes 1 request a second from an IP.
+ */
+export const JITO_REGIONS: Readonly<Record<string, string>> = {
+  amsterdam: 'https://amsterdam.mainnet.block-engine.jito.wtf',
+  dublin: 'https://dublin.mainnet.block-engine.jito.wtf',
+  frankfurt: 'https://frankfurt.mainnet.block-engine.jito.wtf',
+  london: 'https://london.mainnet.block-engine.jito.wtf',
+  ny: 'https://ny.mainnet.block-engine.jito.wtf',
+  slc: 'https://slc.mainnet.block-engine.jito.wtf',
+  singapore: 'https://singapore.mainnet.block-engine.jito.wtf',
+  tokyo: 'https://tokyo.mainnet.block-engine.jito.wtf',
+};
+
+/**
+ * The block engines a bundle goes to, from KEEPER_JITO_REGIONS: unset (or blank), the one endpoint
+ * (JITO_BLOCK_ENGINE), as before; "all", every region; else region names joined by commas, the one
+ * endpoint among them as "mainnet". A name Jito does not list throws: a typo is never a silent default.
+ */
+export function jitoUrls(raw: string | undefined): string[] {
+  const text = raw?.trim().toLowerCase() ?? '';
+  if (!text) return [JITO_BLOCK_ENGINE];
+  if (text === 'all') return Object.values(JITO_REGIONS);
+  const names = [...new Set(text.split(',').map((x) => x.trim()).filter(Boolean))];
+  if (!names.length) return [JITO_BLOCK_ENGINE];
+  return names.map((n) => {
+    if (n === 'mainnet') return JITO_BLOCK_ENGINE;
+    const url = JITO_REGIONS[n];
+    if (!url) throw new Error(`KEEPER_JITO_REGIONS: "${n}" is not one of Jito's regions (${['all', 'mainnet', ...Object.keys(JITO_REGIONS)].join(', ')})`);
+    return url;
+  });
+}
 /** Jito's least tip. */
 export const JITO_MIN_TIP_LAMPORTS = 1_000n;
 /**
@@ -73,13 +108,38 @@ export const pickTipAccount = (byte: () => number = randomByte) => JITO_TIP_ACCO
 export type JitoOutcome = 'confirmed' | 'reverted' | 'unknown' | 'lost';
 type Status = { err: unknown; confirmationStatus?: string | null } | null;
 
+/** A sent bundle's ending, and what Jito said of it on the way. */
+export interface JitoSent {
+  signature: string;
+  outcome: JitoOutcome;
+  bundle: string;
+  /** How many of the block engines asked took the bundle, of how many. */
+  took: number;
+  asked: number;
+  /**
+   * The last status getInflightBundleStatuses gave (Pending, Failed, Landed, Invalid), or null when
+   * it never answered. A bundle that did not land says why as far as Jito says: Failed, every
+   * region that had it failed it (its auction, or its own test run); Pending to the end, no
+   * leader took it; Invalid, Jito did not know it.
+   */
+  jitoSaid: string | null;
+}
+
+/** A sent bundle in a few words for the robot's log: how many regions took it, and Jito's last word on it. */
+export function jitoNote(r: Pick<JitoSent, 'took' | 'asked' | 'jitoSaid'>): string {
+  const regions = r.asked > 1 ? `${r.took} of ${r.asked} regions took it; ` : '';
+  return `${regions}Jito's last word: ${r.jitoSaid ?? 'none'}`;
+}
+
 /**
- * Sends a signed transaction to Jito as a one-transaction bundle, then watches it: 'confirmed' once
+ * Sends a signed transaction to Jito as a one-transaction bundle, to every block engine in `urls`
+ * at once (KEEPER_JITO_REGIONS; the one endpoint by default), then watches it: 'confirmed' once
  * the chain says so, 'lost' once Jito says every region failed it, or once the chain is past the
  * transaction's blockhash and still does not know it (either way it never lands, nothing is paid),
  * 'unknown' when none of that is said within JITO_WATCH_MS, or JITO_GIVE_UP_MS when
- * `blockhashValid` is given (counted as the most a trip may cost). A bundle Jito refuses throws:
- * nothing was sent.
+ * `blockhashValid` is given (counted as the most a trip may cost). A bundle no block engine takes
+ * throws: nothing was sent. One that some take is sent, and the first in `urls` to take it is the
+ * one asked how it fares (Failed is every region's word, per Jito's docs).
  */
 export function jitoSender(opts: {
   fetchImpl: typeof fetch;
@@ -87,22 +147,35 @@ export function jitoSender(opts: {
   /** Whether the chain (confirmed) would still take a transaction with this blockhash. */
   blockhashValid?: (blockhash: string) => Promise<boolean>;
   url?: string;
+  urls?: readonly string[];
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
 }) {
-  const url = opts.url ?? JITO_BLOCK_ENGINE;
+  const urls = opts.urls?.length ? [...new Set(opts.urls)] : [opts.url ?? JITO_BLOCK_ENGINE];
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = opts.now ?? Date.now;
-  const call = async (method: string, params: unknown[]) => {
+  const call = async (url: string, method: string, params: unknown[]) => {
     const res = await opts.fetchImpl(`${url}/api/v1/bundles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     const j = (await res.json().catch(() => null)) as { result?: unknown; error?: { message?: string } } | null;
     if (!res.ok || !j || j.error) throw new Error(`Jito ${method}: ${j?.error?.message ?? `answered ${res.status}`}`);
     return j.result;
   };
-  return async (tx: VersionedTransaction): Promise<{ signature: string; outcome: JitoOutcome; bundle: string }> => {
+  return async (tx: VersionedTransaction): Promise<JitoSent> => {
     const signature = base58.encode(tx.signatures[0]!);
-    const bundle = await call('sendBundle', [[base64.encode(tx.serialize())], { encoding: 'base64' }]);
-    if (typeof bundle !== 'string') throw new Error('Jito sendBundle: no bundle id');
+    const wire = [[base64.encode(tx.serialize())], { encoding: 'base64' }];
+    const sent = await Promise.allSettled(urls.map((u) => call(u, 'sendBundle', wire)));
+    const ids = sent.map((x) => (x.status === 'fulfilled' && typeof x.value === 'string' ? x.value : null));
+    const first = ids.findIndex((x) => x !== null);
+    if (first < 0) {
+      // No block engine took it: the first one's refusal says why (as with one endpoint).
+      const why = sent.find((x) => x.status === 'rejected') as PromiseRejectedResult | undefined;
+      throw why ? why.reason : new Error('Jito sendBundle: no bundle id');
+    }
+    const bundle = ids[first]!;
+    const took = ids.filter((x) => x !== null).length;
+    const asked = urls.length;
+    let jitoSaid: string | null = null;
+    const done = (outcome: JitoOutcome): JitoSent => ({ signature, outcome, bundle, took, asked, jitoSaid });
     const start = now();
     const landed = (s: Status) => !!s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
     const giveUp = opts.blockhashValid ? JITO_GIVE_UP_MS : JITO_WATCH_MS;
@@ -110,9 +183,11 @@ export function jitoSender(opts: {
       const late = now() - start >= JITO_WATCH_MS;
       await sleep(late ? 3_000 : 1_000);
       const s = await opts.status(signature).catch(() => null);
-      if (landed(s)) return { signature, outcome: s!.err ? 'reverted' : 'confirmed', bundle };
-      const inflight = (await call('getInflightBundleStatuses', [[bundle]]).catch(() => null)) as { value?: { status?: string }[] } | null;
-      if (inflight?.value?.[0]?.status === 'Failed') return { signature, outcome: 'lost', bundle };
+      if (landed(s)) return done(s!.err ? 'reverted' : 'confirmed');
+      const inflight = (await call(urls[first]!, 'getInflightBundleStatuses', [[bundle]]).catch(() => null)) as { value?: { status?: unknown }[] } | null;
+      const said = inflight?.value?.[0]?.status;
+      if (typeof said === 'string' && said) jitoSaid = said.slice(0, 24);
+      if (said === 'Failed') return done('lost');
       // Past the watch: once the chain is past the transaction's blockhash, it can never land, so
       // a signature the chain still does not know then was never paid for. Unread: unknown.
       if (late && opts.blockhashValid && (await opts.blockhashValid(tx.message.recentBlockhash).catch(() => null)) === false) {
@@ -121,11 +196,11 @@ export function jitoSender(opts: {
           () => null,
         );
         if (!last) break;
-        if (last.x === null) return { signature, outcome: 'lost', bundle };
-        if (landed(last.x)) return { signature, outcome: last.x!.err ? 'reverted' : 'confirmed', bundle };
+        if (last.x === null) return done('lost');
+        if (landed(last.x)) return done(last.x!.err ? 'reverted' : 'confirmed');
         // Seen in a block not yet confirmed: watched on.
       }
     }
-    return { signature, outcome: 'unknown', bundle };
+    return done('unknown');
   };
 }
