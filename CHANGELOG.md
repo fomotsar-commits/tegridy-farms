@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-12
 
+- Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
 - iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
 - Heat line and card: with two wallets in one wallet app (an Ethereum account and a Solana wallet), both now read the same wallet, the warmer one.
 - Heat card: with only a Solana wallet connected, the card reads it without a press.
