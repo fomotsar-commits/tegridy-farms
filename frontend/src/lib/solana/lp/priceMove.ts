@@ -27,11 +27,12 @@ function lessText(v: number): string {
 /** How far the dial reaches each way: the price at an eighth, and at 8 times. */
 export const DIAL_MAX_TIMES = 8;
 
-/** "the same", "2 times", "half", "a quarter", "1.5 times", "0.67 times". */
+/** "the same", "2 times", "half", "a quarter", "an eighth", "1.5 times", "0.67 times". */
 function timesText(r: number): string {
   if (Math.abs(r - 1) < 1e-9) return 'the same';
   if (Math.abs(r - 0.5) < 1e-9) return 'half';
   if (Math.abs(r - 0.25) < 1e-9) return 'a quarter';
+  if (Math.abs(r - 0.125) < 1e-9) return 'an eighth';
   const shown = r >= 10 ? r.toFixed(0) : Number.isInteger(Math.round(r * 100) / 100) ? String(Math.round(r)) : r.toFixed(2).replace(/0$/, '');
   return `${shown} times`;
 }

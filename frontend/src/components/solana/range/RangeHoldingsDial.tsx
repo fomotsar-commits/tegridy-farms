@@ -17,8 +17,9 @@ import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
 // Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 78;
-const PAD = 10;
-const TOP = 10;
+// A handle at either end, or at the top, clears the picture's border by 3 px or more.
+const PAD = 12;
+const TOP = 12;
 const BASE = 62;
 
 export function RangeHoldingsDial({ pair, r, liquidity, now }: { pair: Pair; r: TickRange; liquidity: bigint | null; now: number }) {

@@ -61,6 +61,16 @@ describe('the dial on the Add form', () => {
     drag(300);
     expect(text('lp-price-dial-price')).toBe('price: 8 times');
     expect(text('lp-price-dial-headline')).toBe('About 37.1% less than holding');
+    // The low end in words, as half and a quarter are: it read "0.13 times".
+    drag(-300);
+    expect(text('lp-price-dial-price')).toBe('price: an eighth');
+    expect(slider().getAttribute('aria-valuetext')).toBe('Price an eighth: About 37.1% less than holding');
+  });
+
+  it('on a phone the headline keeps one line and the price takes the next, rather than both squeezing', () => {
+    render(<PriceMoveDial quoteSymbol="SOL" />);
+    expect(screen.getByTestId('lp-price-dial-top').className).toMatch(/\bflex-wrap\b/);
+    expect(screen.getByTestId('lp-price-dial-headline').className).toMatch(/\bwhitespace-nowrap\b/);
   });
 
   it('never uses a forecast word, at any stop', () => {

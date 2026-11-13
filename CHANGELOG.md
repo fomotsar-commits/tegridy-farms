@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-12
 
 - Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
+- Range pools, pools and NFT lending, the drag pictures on a phone: the range strip's "OPENING PRICE" no longer runs off the strip's right edge, and the loan timeline and the price picture keep their headline on one line with the date or price under it. The ends of the range drag and the price picture read "a sixteenth" and "an eighth", not "0.063 times" and "0.13 times", and a handle dragged to an end stays clear of the picture's edge.
 - NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
 - NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
 - NFT lending, Lend: a box holding a value the offer cannot use now says which values it takes. An APR over 1000%, for one, used to hide the interest card and fade the button with no word why.
