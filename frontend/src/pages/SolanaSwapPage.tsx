@@ -303,6 +303,7 @@ function raiseSwapReceipt(
     wallet: a.wallet,
     action,
     coin: { symbol: coin.symbol, mint: coin.mint },
+    island,
     title: null,
     under: null,
     fee: { kind: 'reading' },

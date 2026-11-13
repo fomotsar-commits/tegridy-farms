@@ -114,7 +114,9 @@ export function SheetRoomRow({ room, all, onPick, onAll, end }: {
     setOpen(false);
     go();
   };
-  const item = 'flex items-center gap-3 w-full min-h-[48px] px-3 rounded-xl text-left text-[14px] font-semibold text-white hover:bg-white/5';
+  // The picked coin is filled with a bright edge, so at a phone's width it reads as the choice (island answer thirty-four).
+  const picked = { background: 'rgba(139,92,246,0.24)', border: '1px solid rgba(167,139,250,0.95)', fontWeight: 700 } as const;
+  const item = 'flex items-center gap-3 w-full min-h-[48px] px-3 rounded-xl border border-transparent text-left text-[14px] font-semibold text-white hover:bg-white/5';
   return (
     <Row end={end}>
       <div ref={rootRef} className="relative">
@@ -156,7 +158,7 @@ export function SheetRoomRow({ room, all, onPick, onAll, end }: {
               const on = !all && b.id === room?.id;
               return (
                 <li key={b.id} role="option" aria-selected={on}>
-                  <button type="button" className={item} style={on ? { background: 'rgba(139,92,246,0.22)' } : undefined} onClick={() => pick(() => onPick(b))}>
+                  <button type="button" className={item} style={on ? picked : undefined} onClick={() => pick(() => onPick(b))}>
                     {roomArt(b, 28)}
                     <span className="flex-1">{b.symbol}</span>
                     <span className="text-[11px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
@@ -168,7 +170,7 @@ export function SheetRoomRow({ room, all, onPick, onAll, end }: {
             })}
             {onAll && (
               <li role="option" aria-selected={all}>
-                <button type="button" className={item} style={all ? { background: 'rgba(139,92,246,0.22)' } : undefined} onClick={() => pick(onAll)} data-testid="sheet-every-pool-chip">
+                <button type="button" className={item} style={all ? picked : undefined} onClick={() => pick(onAll)} data-testid="sheet-every-pool-chip">
                   <span aria-hidden="true" className="w-7 h-7 rounded-full flex items-center justify-center text-[13px]" style={{ background: 'rgba(49,208,170,0.18)', color: '#31d0aa' }}>
                     ∞
                   </span>

@@ -14,6 +14,12 @@ The site's Changelog tab shows both files.
 - Ethereum, Base and Robinhood Chain swap: the form is drawn like the Solana one. "You pay" and "You receive" are large boxes with each coin's picture, quick amounts are 25%, 50%, 75% and MAX, and slippage with fee-on-transfer folds into one line that opens. Every check, route and fee is unchanged.
 - Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
 - Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
+- iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
+- Heat line and card: with two wallets in one wallet app (an Ethereum account and a Solana wallet), both now read the same wallet, the warmer one.
+- Heat card: with only a Solana wallet connected, the card reads it without a press.
+- Bayla's line: while the launch door is closed it offers Add or Pick a bungalow, never Launch.
+- Share on X after an add: the post names the coin and no site, so X shows the add's own card.
+- Add with one coin: after the first signature, step 2 opens on its review with nothing to type, and says the amount you chose. Cancel opens the form.
 - Range pools, pools and NFT lending, the drag pictures on a phone: the range strip's "OPENING PRICE" no longer runs off the strip's right edge, and the loan timeline and the price picture keep their headline on one line with the date or price under it. The ends of the range drag and the price picture read "a sixteenth" and "an eighth", not "0.063 times" and "0.13 times", and a handle dragged to an end stays clear of the picture's edge.
 - NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
 - NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
@@ -24,6 +30,18 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-11
 
+- Pools: on a slow connection the page's heading shows in under a second. The screen used to stay dark until the app had loaded. Opening Add from a share link no longer flashes the footer before the room opens.
+- A room's door, the open lot and the home: on a slow connection the footer no longer shows under the picture while the page loads.
+- Add and Buy from a room's link: the form's code starts loading as the page opens, so the form answers sooner on a slow connection.
+- Receipt card (Solana): after a buy or a sale of a coin with no room on the island, the shore plays as before and no line names its shore. An island coin's card keeps its line.
+- Receipt card (Solana): after an add, the coin's name in the line is bold in the coin's color, and a pool paired with USDC or an island coin pours that coin's color beside the token's.
+- Receipt card (Solana): a coin with no ticker, or a copy of a known one, is not named in the line or in the post to X, and a copy's share link shows an unnamed card on X.
+- Receipt card: on a short phone screen the top of the card stays on the screen when it opens.
+- Share card for an add: the picture on X is the island's clean painting. The first one carried X's own label. A share link typed in capitals (/lp/BAYLA) opens that room's Add.
+- Launch door: a wallet that holds nothing reads "about half a year to the door, from your first real buy."
+- Buy sheet: the picked coin's chip is filled.
+- Swaps and reads on Solana: when the network behind the site stops answering, the site gives up after 8 seconds and keeps watching your transaction. It used to wait.
+- Token scan, wallet history, NFT data and collection listings: when the source behind them stops answering, the site gives up after 8 seconds and says so (NFT data first asks its second source). It used to wait.
 - Pools and swap on Solana: checking that the venue's program is still deployed no longer downloads the whole program. The pools page fetched it twice on every visit, about 450 KB; it now asks only whether the program is there.
 - Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
 - Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.

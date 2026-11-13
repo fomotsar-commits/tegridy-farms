@@ -16,6 +16,9 @@ export interface BaylaInputs {
   room: { coin: string; solanaPool: boolean } | null;
   /** The launch floor in degrees (heatLaunchFloor). */
   floor: number;
+  /** Whether the launch door is open (lib/launcher/door.ts isLaunchDoorOpen). Closed, her line never
+   *  speaks of the door or says Launch off the door's own screen (the owner, 2026-11-11). */
+  doorOpen: boolean;
   /** A swap or an add that landed in the last minute (lib/landed.ts). */
   landed: 'trade' | 'add' | null;
   /** The room pool's own price and the age of its outside price, when the shared list is behind (readers in BaylaLine.tsx). */
@@ -69,11 +72,15 @@ function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
         : { label: L.buttons.pick, to: i.to.pools, move: 'pick' as const };
     return { text: atFloor ? L.open(d, tier) : served ? L.doorDays(d, days) : L.doorWarming(d), button };
   }
-  if (atFloor) {
+  // Launch is her move only while the door is open. Closed, a wallet at the floor reads the line of
+  // the move that is live, as a wallet under it does: the room's Add, or a pick (the owner, 2026-11-11:
+  // nothing at the top prompts a launch while no launch is live). The door's own screen, above, keeps
+  // twenty-six's words.
+  if (atFloor && i.doorOpen) {
     return { text: L.open(d, tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
   }
   if (inRoom) return { text: L.warmInRoom(d, tier), button: add(i.room!.coin) };
-  return { text: served ? L.warmDays(d, tier, days) : L.warmPick(d, tier), button: pick };
+  return { text: served && !atFloor ? L.warmDays(d, tier, days) : L.warmPick(d, tier), button: pick };
 }
 
 export function baylaLine(i: BaylaInputs): BaylaLine {

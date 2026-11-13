@@ -2,7 +2,8 @@
  * THE FLASH (island answer thirty-two, the owner's word 11-07): the seconds after an add of liquidity, any token.
  *
  * Adding liquidity is pouring two liquids into one pool, so the card's head becomes the pool itself, seen from
- * just under its surface. Your SOL pours in from one side, the token from the other, in its own hue. The two
+ * just under its surface. The pool's pairing coin pours in from one side in its own color (SOL's green, USDC's blue,
+ * an island coin's hue: `pourOf`), the token from the other, in its own hue. The two
  * colors wind into each other in the water. Where they meet a bubble forms, iridescent, and the pool's tone
  * holds it: it breathes faster and faster (ticks quickening), the pool darkens around it and swallows its
  * colors, it collapses to a point, and the point is a star inside the water: the flash, a streak across the
@@ -32,6 +33,8 @@ export interface FloorMomentOptions {
   wallet: string;
   /** The token's symbol as the venue prints it: its hue comes from it ($BAYLA keeps Bayla's green). */
   symbol: string;
+  /** The pool's pairing coin by its ticker, as the receipt names it (SOL, USDC or an island coin): the pour's other stream takes its color (`pourOf`). Absent: SOL. */
+  pairing?: string | null;
   /** How many wallets hold a share of this pool (holders.ts), when known: that many bricks are laid on the floor besides yours. Null: the floor is bedrock and yours. */
   lps: number | null;
   /** prefers-reduced-motion: no screen-wide wash, a shorter pour, fewer bubbles, and once the third beat settles the loop stops; the rest is a still. */
@@ -64,7 +67,13 @@ const T = { pour: 0, hit: 0.42, bubble: 0.95, collapse: 2.35, flash: 2.5, brick:
 const SURF = 30, FLOOR_Y = 118, CX = 179, BUB = { x: 179, y: 90 };
 // The floor seen from above: the back row small and far, the front row large and near (a pool's bottom, not a wall).
 const ROWSPEC = [{ y: 118, h: 9, w: 27, m: 2 }, { y: 129, h: 12, w: 34, m: 2.5 }, { y: 143.5, h: 16, w: 43, m: 3 }, { y: 162.5, h: 21, w: 54, m: 3.5 }, { y: 187, h: 27, w: 67, m: 4 }];
-const SOL = { rgb: [20, 241, 149] as RGB, mid: [90, 200, 230] as RGB, heart: [220, 255, 245] as RGB };
+/** The pairing coin's stream: its light, the lighter `mid` of its stream, the `deep` of its blobs in the water, and its point of light (`heart`, `pointMid`). */
+interface Pour { rgb: RGB; mid: RGB; heart: RGB; deep: RGB; pointMid: RGB }
+const SOL: Pour = { rgb: [20, 241, 149], mid: [90, 200, 230], heart: [220, 255, 245], deep: [58, 123, 213], pointMid: [90, 230, 200] };
+const DOLLARS: Record<string, { rgb: RGB; mid: RGB; heart: RGB }> = {
+  USDC: { rgb: [39, 117, 202], mid: [96, 165, 250], heart: [226, 240, 255] },
+  USDT: { rgb: [38, 161, 123], mid: [80, 200, 160], heart: [225, 250, 240] },
+};
 function hash(s: string): number { let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
 function clamp(x: number, a: number, b: number): number { return Math.max(a, Math.min(b, x)); }
 function easeOut(x: number): number { x = clamp(x, 0, 1); return 1 - Math.pow(1 - x, 3); }
@@ -82,6 +91,17 @@ export function hueOf(symbol: string): Hue {
   if (sym === 'BAYLA') return { h: 113, rgb: [130, 255, 120], mid: [150, 255, 140], heart: [234, 255, 230] };
   let h = hash('hue-' + sym) % 360; if (h > 95 && h < 135) h += 60;
   return { h, rgb: hsl(h, 92, 64), mid: hsl(h, 95, 74), heart: hsl(h, 100, 93) };
+}
+/**
+ * The pour is what went in (island answer thirty-four): beside the token's stream, the pool's pairing coin in its own
+ * color. No pairing named, or SOL: Solana's green, drawn as it always was. USDC and USDT: their own. Any other pairing
+ * coin (an island coin): its hue as `hueOf` gives it, so a $BAYLA pairing pours Bayla's green.
+ */
+export function pourOf(pairing?: string | null): Pour {
+  const sym = (pairing ?? 'SOL').toUpperCase();
+  if (sym === 'SOL') return SOL;
+  const c = DOLLARS[sym] ?? hueOf(sym);
+  return { rgb: c.rgb, mid: c.mid, heart: c.heart, deep: [Math.round(c.rgb[0] * 0.6), Math.round(c.rgb[1] * 0.6), Math.round(c.rgb[2] * 0.6)], pointMid: c.mid };
 }
 function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
@@ -107,13 +127,13 @@ export function startFloorMoment(o: FloorMomentOptions): FloorMoment {
   const hctx = o.head.getContext('2d'), fctx = o.fx.getContext('2d');
   if (!hctx || !fctx) return { stop: () => undefined, setLps: () => undefined }; // jsdom and the like: nothing to draw on
   const DPR = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
-  const HUE = hueOf(o.symbol);
+  const HUE = hueOf(o.symbol), POUR = pourOf(o.pairing);
   let seed = 1;
   const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   const SP = {
     flash: sprite(128, [[0, 'rgba(255,255,255,1)'], [0.12, 'rgba(235,245,255,.95)'], [0.3, 'rgba(190,220,255,.55)'], [0.6, 'rgba(140,190,255,.16)'], [1, 'rgba(120,170,255,0)']]),
     white: sprite(32, [[0, 'rgba(255,255,255,1)'], [0.3, 'rgba(240,248,255,.85)'], [1, 'rgba(230,240,255,0)']]),
-    blue: soft([120, 170, 255]), solSoft: soft(SOL.rgb), solDeep: soft([58, 123, 213]), solPt: point(SOL.heart, [90, 230, 200], SOL.rgb),
+    blue: soft([120, 170, 255]), solSoft: soft(POUR.rgb), solDeep: soft(POUR.deep), solPt: point(POUR.heart, POUR.pointMid, POUR.rgb),
     tok: soft(HUE.rgb), tokPt: point(HUE.heart, HUE.mid, HUE.rgb),
     tokHalo: sprite(64, [[0, `rgba(${HUE.rgb},.5)`], [0.4, `rgba(${HUE.rgb},.12)`], [1, `rgba(${HUE.rgb},0)`]]),
   };
@@ -242,7 +262,7 @@ export function startFloorMoment(o: FloorMomentOptions): FloorMoment {
       if (landed) { px2 = ox; py2 = oy + (sinceLand < 0.25 ? Math.sin(sinceLand / 0.25 * Math.PI) * 1.8 : 0); rot = 0; sc = 1; }
       const hot = landed ? 1 - clamp(sinceLand / 2.6, 0, 1) : 1;
       c.save(); c.translate(px2, py2); c.rotate(rot); c.scale(sc, sc); c.globalCompositeOperation = 'source-over';
-      const bg = c.createLinearGradient(-BW / 2, 0, BW / 2, 0); bg.addColorStop(0, `rgba(${SOL.rgb},.95)`); bg.addColorStop(0.5, 'rgba(255,255,255,.95)'); bg.addColorStop(1, `rgba(${T0.rgb},.95)`); c.fillStyle = bg; rrect(c, -BW / 2, -BH / 2, BW, BH, 2.5); c.fill();
+      const bg = c.createLinearGradient(-BW / 2, 0, BW / 2, 0); bg.addColorStop(0, `rgba(${POUR.rgb},.95)`); bg.addColorStop(0.5, 'rgba(255,255,255,.95)'); bg.addColorStop(1, `rgba(${T0.rgb},.95)`); c.fillStyle = bg; rrect(c, -BW / 2, -BH / 2, BW, BH, 2.5); c.fill();
       const ig2 = c.createLinearGradient(0, -BH / 2, 0, BH / 2); ig2.addColorStop(0, `rgba(255,255,255,${(0.6 * hot + 0.25).toFixed(3)})`); ig2.addColorStop(0.5, 'rgba(255,255,255,0)'); ig2.addColorStop(1, 'rgba(0,0,0,.35)'); c.fillStyle = ig2; rrect(c, -BW / 2, -BH / 2, BW, BH, 2.5); c.fill();
       const sw = (S.t * 0.9) % 1, sg2 = c.createLinearGradient(-BW / 2, -BH / 2, BW / 2, BH / 2); sg2.addColorStop(Math.max(0, sw - 0.14), 'rgba(255,255,255,0)'); sg2.addColorStop(sw, `rgba(255,255,255,${(0.55 + 0.35 * hot).toFixed(3)})`); sg2.addColorStop(Math.min(1, sw + 0.14), 'rgba(255,255,255,0)');
       c.globalCompositeOperation = 'lighter'; c.fillStyle = sg2; rrect(c, -BW / 2, -BH / 2, BW, BH, 2.5); c.fill();
@@ -271,7 +291,7 @@ export function startFloorMoment(o: FloorMomentOptions): FloorMoment {
   function drawFx(s: number): void {
     const c = fctx!; c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, W, H); c.globalCompositeOperation = 'lighter';
     const cr = o.head.getBoundingClientRect();
-    ([[0, 118, SP.solPt, SP.solSoft, SOL], [0.1, 240, SP.tokPt, SP.tok, HUE]] as Array<[number, number, HTMLCanvasElement, HTMLCanvasElement, { rgb: RGB; mid: RGB }]>).forEach((st) => {
+    ([[0, 118, SP.solPt, SP.solSoft, POUR], [0.1, 240, SP.tokPt, SP.tok, HUE]] as Array<[number, number, HTMLCanvasElement, HTMLCanvasElement, { rgb: RGB; mid: RGB }]>).forEach((st) => {
       const t0 = st[0], x0 = st[1], f = s - T.pour - t0; if (f < 0 || f > T.hit + 0.55 - t0) return;
       const top = { x: cr.left + x0 + (x0 < 179 ? -70 : 70), y: cr.top - (o.reduced ? 40 : 60) }, hit = headXY({ x: x0, y: surfY(x0, S.t) });
       const prog = clamp(f / (T.hit - t0), 0, 1), tail = clamp((f - (T.hit - t0)) / 0.5, 0, 1); seed = 17 + Math.floor(x0);

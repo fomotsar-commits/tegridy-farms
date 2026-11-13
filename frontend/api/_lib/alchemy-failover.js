@@ -22,6 +22,13 @@
 // secondary on error), reduced to a single-retry fetch wrapper because the
 // Alchemy NFT API is plain REST, not JSON-RPC.
 
+// A hang is neither a throw nor a retryable status, so a stalled first key was awaited to
+// the platform's limit and the fallback never tried. A request that arrives WITHOUT a
+// `signal` gets this clock, fresh per attempt; a call site's own `signal` is kept. 8 s is
+// the house value, not a measured one, and a function's own time limit decides how much
+// of the second attempt the fallback gets. Pinned in __tests__/alchemy-failover.stall.test.js.
+export const ATTEMPT_TIMEOUT_MS = 8000;
+
 /** Upstream statuses worth one retry with the fallback key. */
 export function isRetryableAlchemyStatus(status) {
   return status === 401 || status === 403 || status === 429 || status >= 500;
@@ -70,7 +77,7 @@ export async function fetchAlchemyWithFailover(buildRequest) {
     const { url, opts } = buildRequest(keys[i]);
     let res;
     try {
-      res = await fetch(url, opts);
+      res = await fetch(url, opts?.signal ? opts : { ...opts, signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) });
     } catch (err) {
       lastErr = err;
       if (isLast) throw err;
