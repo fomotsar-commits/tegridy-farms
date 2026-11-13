@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -32,7 +32,10 @@ import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
 import { NO_SITE_FEE_ROUTE_COPY } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { JupiterBusyError } from '../../../lib/solana/swap/jupiterBusy';
 import type { PendingTrade } from '../curve/pendingTrade';
-import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { fakeLpApi, LP_PROGRAM, lpDepositSummary, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { prepared } from '../curve/fakeWriteApi.fixture';
+import type { LpWriteApi, Prepared } from '../curve/ports';
+import { OPEN_ON_REVIEW_MS } from './AddLiquidityPanel';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
 import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
 import { reloadHeld } from '../../../lib/reloadHold';
@@ -709,5 +712,159 @@ describe('Add with one coin, in the sheet', () => {
     expect(screen.queryByRole('button', { name: 'Connect Solana Wallet' })).toBeNull();
     fireEvent.click(go);
     expect(connect.open).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Island answer thirty-five: THE SECOND SIGNATURE IS THE SECOND TAP. Step 2 opened as the Add
+// liquidity form on what step 1 left, two boxes to type in. The owner, who had chosen 0.1 SOL,
+// read 0.0498 SOL as the wrong amount, typed 0.1 again and added double (2026-11-11, his
+// frames and the chain). Pinned here: step 2 opens ON its review, asked for once from exactly
+// what step 1 left; the line above says the amount chosen and where each part went; Cancel is
+// the form, as it always was; and what cannot be reviewed opens the form with its own words.
+describe('Add with one coin: step 2 opens on its review', () => {
+  /** An API whose deposit builds: the review a real builder would hand back. */
+  const reviewing = (v: PoolView) =>
+    fakeLpApi({ prepareLpDeposit: vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpDepositSummary(new PublicKey(v.address), MINT)) })) });
+  /** The pool's card with this API and these readers, its "Add with one coin" pressed. */
+  async function openWith(api: LpWriteApi, v: PoolView, r: LpReaders = readers(v)) {
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => api), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+        <LpInner readers={r} writes={writes} />
+      </MemoryRouter>,
+    );
+    const card = await screen.findByTestId('lp-pool');
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add with one coin' }));
+  }
+  /** Step 1 reviewed for 1 SOL, signed and landed: it swapped 0.505050505 SOL and paid 48.7 CORN. */
+  async function stepOneLands(api: LpWriteApi, v: PoolView) {
+    await openWith(api, v);
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    leg.received = vi.fn(async () => 48_700_000n);
+    fireEvent.click(within(review).getByRole('button', { name: 'Sign in wallet' }));
+    return screen.findByTestId('lp-one-step2');
+  }
+  const boxes = () => [screen.queryByLabelText('SOL to add'), screen.queryByLabelText('Tokens to add'), screen.queryByRole('button', { name: 'Review: add liquidity' })];
+
+  it('after step 1 lands there is nothing to type: the deposit is asked for once, from what step 1 left, and Sign in wallet is on the screen', async () => {
+    const v = view();
+    const api = reviewing(v);
+    await stepOneLands(api, v);
+    const add = screen.getByTestId('lp-add-panel');
+    expect(await within(add).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(add).toHaveTextContent('Step 2: add both coins');
+    for (const el of boxes()) expect(el).toBeNull();
+    // 1 SOL chosen, 0.505050505 swapped: 0.494949495 SOL kept, 48.7 CORN got. At this pool's 0.01 SOL a
+    // token the SOL kept would need more CORN than step 1 paid, so the CORN drives, at all of it.
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+    expect(api.prepareLpDeposit).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), expect.anything(), expect.objectContaining({ driving: 'token', maxIn: 48_700_000n, slippageBps: 100n }));
+    // Nothing reached the wallet for step 2: the review is read first, and signed by a press.
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('the line above it says the amount chosen, what step 1 swapped of it, and what that left', async () => {
+    const v = view();
+    const step2 = await stepOneLands(reviewing(v), v);
+    // 0.505050505 + 0.494949495 = 1: the two parts of the paid coin are exact and add up to the amount chosen.
+    expect(step2).toHaveTextContent('You chose 1 SOL. Step 1 (555555…5555) swapped 0.505050505 SOL of it for 48.7 CORN. That left 0.494949495 SOL and that CORN for step 2: one more signature.');
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ total: SOL, kept: 494_949_495n, got: 48_700_000n });
+  });
+
+  it('Cancel on that review is the form, filled with what step 1 left, and no review opens by itself again', async () => {
+    const v = view();
+    const api = reviewing(v);
+    await stepOneLands(api, v);
+    const add = screen.getByTestId('lp-add-panel');
+    fireEvent.click(await within(add).findByRole('button', { name: 'Cancel' }));
+    expect(await within(add).findByLabelText('Tokens to add')).toHaveValue('48.7');
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeEnabled();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+    expect(within(add).queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    // The form is the ordinary one from here: its own Review asks again.
+    fireEvent.click(within(add).getByRole('button', { name: 'Review: add liquidity' }));
+    expect(await within(add).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(2);
+  });
+
+  it('a step 2 owed from before (a reload, another tab) opens on its review too, and a note with no total keeps the sentence it had', async () => {
+    const v = view();
+    const api = reviewing(v);
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v);
+    const step2 = await screen.findByTestId('lp-one-step2');
+    expect(step2).toHaveTextContent('Step 1 is done (444444…4444). It left you 0.5 SOL and 49 CORN to add.');
+    expect(step2).not.toHaveTextContent('You chose');
+    expect(await within(screen.getByTestId('lp-add-panel')).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    for (const el of boxes()) expect(el).toBeNull();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a review the builder refuses is said as any refusal is, and Start over is the form', async () => {
+    const v = view();
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'the price moved' } })) });
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByText(/the price moved/)).toBeInTheDocument();
+    fireEvent.click(within(add).getByRole('button', { name: 'Start over' }));
+    // Asked for again on each look: the box is drawn anew when the wallet is read again after an outcome.
+    await waitFor(() => expect(within(add).getByLabelText('SOL to add')).toBeInTheDocument());
+    expect(within(add).queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  });
+
+  it('balances that cannot be read open the form at once, as before, and nothing is asked for', async () => {
+    const v = view();
+    const api = reviewing(v);
+    const r = readers(v);
+    r.wallet = vi.fn(async () => ({ kind: 'unread' as const, detail: 'the network did not answer' }));
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v, r);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByLabelText('SOL to add')).toBeInTheDocument();
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeInTheDocument();
+    expect(within(add).queryByTestId('lp-add-opening')).toBeNull();
+    expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+  });
+
+  it('amounts this wallet cannot fund open the form with its own words for why, and nothing is asked for', async () => {
+    const v = view();
+    const api = reviewing(v);
+    const r = readers(v);
+    // The wallet no longer holds the CORN step 1 paid.
+    r.wallet = vi.fn(async () => ({ ...facts, token: { address: key().toBase58(), amount: 1n } }));
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v, r);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByLabelText('Tokens to add')).toBeInTheDocument();
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
+    expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+  });
+
+  it('while the balances are read the form’s boxes are never drawn; past the wait, the form opens', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const v = view();
+      const api = reviewing(v);
+      const r = readers(v);
+      r.wallet = vi.fn(() => new Promise<WalletFacts>(() => {}));
+      saveStepTwo(OWNER.toBase58(), otherTab(v));
+      await openWith(api, v, r);
+      const add = await screen.findByTestId('lp-add-panel');
+      expect(within(add).getByTestId('lp-add-opening')).toHaveTextContent('Reading the pool and the price again');
+      for (const el of boxes()) expect(el).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(OPEN_ON_REVIEW_MS + 50); });
+      expect(within(add).queryByTestId('lp-add-opening')).toBeNull();
+      expect(within(add).getByLabelText('SOL to add')).toBeInTheDocument();
+      expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

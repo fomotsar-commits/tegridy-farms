@@ -61,7 +61,7 @@ afterAll(() => {
  * markers and one static dependency (invariants A and B), a lazy Solana page
  * holding the adapter's marker, and a chunk holding sign-client's.
  */
-function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy', wagmi = 'lean' } = {}) {
+function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy', wagmi = 'lean', css = 'linked' } = {}) {
   const SIGN = markerFromGate('SIGN_CLIENT_MARKER');
   const SOLANA = markerFromGate('SOLANA_WALLETCONNECT_MARKER');
   const dir = mkdtempSync(join(tmpdir(), 'dist-graph-'));
@@ -89,6 +89,10 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
   // The EVM wallet chunk (invariant F): lean as the real one is, or with RainbowKit's
   // on-demand modules welded in, which is about 1.9 MB of language files and icons.
   if (wagmi !== 'missing') chunk('vendor-wagmi-w.js', `export const W=1;${wagmi === 'welded' ? `/*${'x'.repeat(701 * 1024)}*/` : ''}`);
+  // The stylesheets (invariant G): the entry's, which the HTML links as the real build's does, and,
+  // for 'lazy', one that came with the lazy Solana page and that no HTML links.
+  if (css !== 'missing') chunk('index-e.css', 'body{margin:0}');
+  if (css === 'lazy') chunk('SolanaPage-s.css', '.wallet-adapter-button{display:flex}');
   writeFileSync(
     join(dir, 'index.html'),
     '<!doctype html><html><head>' +
@@ -96,7 +100,9 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
       (preload ? '<link rel="modulepreload" crossorigin href="/assets/sign-client-c.js">' : '') +
       (cardano === 'preload' ? '<link rel="modulepreload" crossorigin href="/assets/vendor-cardano-k.js">' : '') +
       (cardano === 'preload-wasm' ? '<link rel="preload" as="fetch" crossorigin href="/assets/csl-w.wasm">' : '') +
-      '</head><body></body></html>',
+      '<link rel="stylesheet" href="/fonts/fonts.css">' +
+      // After #root, where vite.config.ts firstFrameStylesheetsPlugin moves the built links.
+      `</head><body><div id="root"></div>${css !== 'missing' ? '<link rel="stylesheet" crossorigin href="/assets/index-e.css">' : ''}</body></html>`,
   );
   return dir;
 }
@@ -227,6 +233,30 @@ describe('check-dist-graph invariant F: the EVM wallet chunk stays lean', () => 
     const run = gate(fixture({ wagmi: 'missing' }));
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('invariant F checked nothing');
+  });
+});
+
+describe('check-dist-graph invariant G: no stylesheet arrives with a lazy chunk', () => {
+  it('a build whose every stylesheet is in the first HTML passes, and the pass names them', () => {
+    const run = gate(fixture());
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('Every stylesheet is in the first HTML (index-e.css).');
+  });
+
+  it('a stylesheet that came with a lazy chunk fails, names the file, and says where its CSS goes', () => {
+    const run = gate(fixture({ css: 'lazy' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('SolanaPage-s.css');
+    expect(run.stderr).not.toContain('index-e.css');
+    expect(run.stderr).toContain('src/main.tsx');
+    expect(run.stderr).toMatch(/Safari/);
+  });
+
+  it('no stylesheet at all fails: G checked nothing', () => {
+    const run = gate(fixture({ css: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant G checked nothing');
   });
 });
 

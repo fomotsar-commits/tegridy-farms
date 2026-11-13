@@ -2,8 +2,14 @@
 // thirty-two, §3: "the e2e at 390"). A real signature on the local validator raises the card,
 // the island's engine plays its moment, and the card is read where the moment ends, at rest:
 //
-//   a buy:  the shore. The ring is struck lit, the shore line is on, and neither leaves.
-//   a sale: the shore, never struck. The ember stays and the cooling line is on at once.
+//   a buy:  the shore. The ring is struck lit and stays lit.
+//   a sale: the shore, never struck. The ember stays.
+//           The test's coin (MOMENT) has no room on the island, so the island reads nothing of
+//           its shore and the line under the title is not said, for a buy or a sale (island
+//           answer thirty-four). The moment itself is every swap's.
+//   a buy of an island coin: $BAYLA, bought through its room's Buy sheet. The line under the
+//           title IS said ("You're on $BAYLA's shore..."), and the clock line under the rows.
+//           The cooling line of an island coin's sale is pinned by FlameCatch.test.tsx.
 //   an add: the pool. The ring and the card hold the pool's light (data-floor="lit"), the
 //           floor line is on, the head is in view, and the one green button is Share on X.
 //
@@ -24,9 +30,13 @@ import { expect, test, type Browser, type Page, type Route } from '@playwright/t
 import { PublicKey, type Keypair } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { RECEIPT_WORDS } from '../src/lib/arrival';
-import { fundedKeypair, sol } from './fixtures/chain';
+import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
+import { BAYLA_MINT, bayla, giveBayla } from './fixtures/bayla';
+import { CP_SWAP_PROGRAM, WSOL, accountOwner, fundedKeypair, poolFacts, sol } from './fixtures/chain';
+import { installHeatStub } from './fixtures/heatStub';
 import { createSolPool, createToken2022MetadataOnly, transferTokens, type CreatedPool } from './fixtures/lp';
 import { actor, addAndReview, connect, openPools, press, type Actor } from './fixtures/lpPage';
+import { TEST_WALLET_NAME } from './fixtures/testWallet';
 import { ui, clickReal, connectWallet } from './fixtures/ui';
 
 const UNIT = 1_000_000n;
@@ -125,7 +135,7 @@ test.beforeAll(async () => {
 });
 
 for (const motion of MOTIONS) {
-  test(`a buy at 390, Reduce Motion ${motion}: the shore. The ring is struck lit, the shore line lands and stays, and Back takes the fire's canvas with it`, async ({ browser }) => {
+  test(`a buy at 390, Reduce Motion ${motion}: the shore. The ring is struck lit and stays lit, no line is said of a coin the island does not read, and Back takes the fire's canvas with it`, async ({ browser }) => {
     test.setTimeout(5 * 60_000);
     const a = await person(browser, await fundedKeypair(3), motion);
     const p = a.page;
@@ -137,14 +147,18 @@ for (const motion of MOTIONS) {
     await expect(card(p).getByTestId('floor-head')).toHaveCount(0);
     await expect(floorLine(p)).toHaveCount(0);
 
-    // The strike lights the ring; the light lands and the line comes on.
+    // The strike lights the ring, on the shore's own canvas, with the fire's canvas over the page.
     await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit', { timeout: 15_000 });
-    await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore(SYMBOL), { timeout: 15_000 });
+    await expect(card(p).locator('canvas.receipt-shore')).toHaveCount(1);
+    await expect(bodyCanvases(p)).toHaveCount(1);
+    // This coin has no room on the island: no slot is kept for a line, and none is said.
+    await expect(card(p).getByTestId('receipt-shore-slot')).toHaveCount(0);
 
-    // At rest, after the beats: still lit, the line still on, the share button the island's card.
-    await p.waitForTimeout(AFTER_THE_BEATS_MS);
+    // At rest, after the beats: still lit, still no line, the share button the island's card.
+    await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
     await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit');
-    await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore(SYMBOL));
+    await expect(shoreLine(p)).toHaveCount(0);
+    await expect(card(p)).not.toContainText(RECEIPT_WORDS.shoreMark(SYMBOL));
     await expect(card(p).getByTestId('receipt-share')).toHaveText(RECEIPT_WORDS.share);
     await expect(card(p).getByTestId('receipt-title')).toHaveText(new RegExp(`^Bought (.+ )?${SYMBOL}$`));
     await headOnScreen(p);
@@ -155,7 +169,7 @@ for (const motion of MOTIONS) {
   });
 }
 
-test('a sale at 390: the shore, never struck. The ember stays in the ring and the cooling line is on at once', async ({ browser }) => {
+test('a sale at 390: the shore, never struck. The ember stays in the ring, and no line says the island remembers a coin it does not read', async ({ browser }) => {
   test.setTimeout(5 * 60_000);
   const me = await fundedKeypair(3);
   await transferTokens(creator, me.publicKey, mint, 20_000n * UNIT);
@@ -166,15 +180,88 @@ test('a sale at 390: the shore, never struck. The ember stays in the ring and th
 
   await expect(card(p)).toHaveAttribute('data-flame', 'ember');
   await expect(card(p).getByTestId('floor-head')).toHaveCount(0);
-  // The cooling line needs no landing: it is on as the card rises.
-  await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shoreCooling, { timeout: 5_000 });
+  // The shore is drawn, cooling. Its line is the island's, and this coin has no room there.
+  await expect(card(p).locator('canvas.receipt-shore')).toHaveCount(1);
+  await expect(shoreLine(p)).toHaveCount(0);
 
   // Past the moment a buy's strike would have come, and its beats: never struck.
   await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
   await expect(flameRing(p)).toHaveAttribute('data-flame', 'ember');
   await expect(flameRing(p)).not.toHaveAttribute('data-shore', /.*/);
-  await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shoreCooling);
+  await expect(shoreLine(p)).toHaveCount(0);
+  await expect(card(p)).not.toContainText(RECEIPT_WORDS.shoreCooling);
   await expect(card(p).getByTestId('receipt-title')).toHaveText(new RegExp(`^Sold (.+ )?${SYMBOL}$`));
+  await headOnScreen(p);
+
+  await back(p);
+  expect(a.rpc.violations).toEqual([]);
+  await a.ctx.close();
+});
+
+// An island coin, the one place the line under the title is said. $BAYLA has a room, so its buy
+// link opens the room's Buy sheet (lib/sheet.ts deepLinkSheet) with the swap page's form in it.
+// The stand-in $BAYLA trades in a pool opened here at the standard address, which exists once
+// a chain: a second run on the same ledger buys from the pool the first one opened.
+test("a buy of an island coin at 390, through its room's Buy sheet: the shore, the line that names its shore, and the clock line", async ({ browser }) => {
+  test.setTimeout(6 * 60_000);
+  const { token0, token1 } = sortMints(WSOL, BAYLA_MINT);
+  const standard = derivePool(CP_SWAP_PROGRAM, deriveAmmConfig(CP_SWAP_PROGRAM, 1), token0, token1);
+  if (!(await accountOwner(standard))) {
+    const opener = await fundedKeypair(15);
+    await giveBayla(opener, bayla(1_000_000));
+    await createSolPool(opener, BAYLA_MINT, { configIndex: 1, sol: sol(10), tokens: bayla(1_000_000), at: 'standard', tokenProgram: TOKEN_2022_PROGRAM_ID });
+  }
+  // Jupiter asks 20% more than the pool does NOW, so the buy is ours whatever was bought here before.
+  const { snapshot, pool: state } = await poolFacts(standard);
+  const [solIn, baylaIn] = state.token0Mint === WSOL.toBase58() ? [snapshot.reserve0, snapshot.reserve1] : [snapshot.reserve1, snapshot.reserve0];
+  const poolPrice = Number(solIn) / 1e9 / (Number(baylaIn) / 1e6);
+
+  const me = await fundedKeypair(3);
+  const a = await actor(browser, me, { prices: new Map([[BAYLA_MINT.toBase58(), { solPerToken: poolPrice * 1.2, decimals: 6 }]]) });
+  // The island's reading of this wallet already holds $BAYLA: the clock line is said from it.
+  const heat = await installHeatStub(a.ctx);
+  const p = a.page;
+  await p.setViewportSize(PHONE);
+  await p.emulateMedia({ reducedMotion: 'no-preference' });
+
+  // The buy link lands in the room, its sheet up; nothing of /solana's own page is drawn.
+  await p.goto(`/solana?out=${BAYLA_MINT.toBase58()}`);
+  const sheet = p.getByRole('dialog', { name: 'Buy BAYLA' });
+  await expect(sheet).toBeVisible({ timeout: 60_000 });
+  await expect(p).toHaveURL(/\/bayla\?sheet=buy$/);
+  // With no wallet the sheet's green button connects. The wallet list is a second dialog, over the sheet.
+  const go = sheet.getByTestId('sheet-go');
+  await clickReal(go, 'Buy BAYLA, before a wallet');
+  const walletRow = p.getByRole('button', { name: new RegExp(TEST_WALLET_NAME) });
+  const wallets = p.getByRole('dialog').filter({ has: walletRow });
+  await clickReal(walletRow, `the "${TEST_WALLET_NAME}" row`);
+  await expect(wallets).toBeHidden({ timeout: 15_000 });
+  // Her line reads a connected wallet's heat once (BaylaLine.tsx): wait for that read.
+  await expect.poll(() => heat.asked, { timeout: 30_000 }).toContain(me.publicKey.toBase58());
+
+  // Every control is the sheet's own: the room behind it has a field of the same name.
+  await sheet.getByLabel('Amount of SOL to pay').fill('0.05');
+  await expect(sheet.getByTestId('solana-route-line')).toContainText('Our pool pays', { timeout: 60_000 });
+  await clickReal(go, 'Buy BAYLA');
+  await signAndRaise(a);
+
+  // A buy's head is the shore, struck lit, with the fire's canvas over the page.
+  await expect(card(p)).toHaveAttribute('data-flame', 'catching');
+  await expect(card(p).getByTestId('floor-head')).toHaveCount(0);
+  await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit', { timeout: 15_000 });
+  await expect(bodyCanvases(p)).toHaveCount(1);
+  // An island coin keeps the line's two-line slot from the start; the line is said once the light lands.
+  await expect(card(p).getByTestId('receipt-shore-slot')).toHaveCount(1);
+  await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'), { timeout: 15_000 });
+
+  // At rest, after the beats: still lit, the line and its marked words, the clock line, the island's card.
+  await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
+  await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit');
+  await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'));
+  await expect(shoreLine(p).locator('strong')).toHaveText(RECEIPT_WORDS.shoreMark('BAYLA'));
+  await expect(card(p).getByTestId('receipt-clock')).toHaveText(RECEIPT_WORDS.kept('BAYLA'));
+  await expect(card(p).getByTestId('receipt-share')).toHaveText(RECEIPT_WORDS.share);
+  await expect(card(p).getByTestId('receipt-title')).toHaveText(/^Bought (.+ )?BAYLA$/);
   await headOnScreen(p);
 
   await back(p);

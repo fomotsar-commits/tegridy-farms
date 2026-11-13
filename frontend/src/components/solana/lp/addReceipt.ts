@@ -19,7 +19,8 @@ export function raiseAddReceipt(
   rpc: Pick<Connection, 'getTransaction'>,
   signature: string,
   // `holders` is always passed, the reader's own or undefined: a call that forgets it is a type error.
-  a: { view: PoolView; wallet: string; ticker: string; decimals: number; leg?: { signature: string; paid: 'quote' | 'token' }; holders: LpReaders['holders'] },
+  // `named`: `ticker` is a ticker of the coin's own (identity.ts ownTicker), not "tokens" or a copy's "fake X".
+  a: { view: PoolView; wallet: string; ticker: string; named: boolean; decimals: number; leg?: { signature: string; paid: 'quote' | 'token' }; holders: LpReaders['holders'] },
 ): void {
   const { view } = a;
   const island = bungalowByAddress('solana', view.tokenMint) !== null;
@@ -29,7 +30,9 @@ export function raiseAddReceipt(
     wallet: a.wallet,
     action: 'added',
     coin: { symbol: a.ticker, mint: view.tokenMint },
+    island,
     pairing: view.quote.symbol,
+    unnamed: !a.named,
     title: null,
     under: RECEIPT_WORDS.addedTo(view.quote.symbol, a.ticker),
     fee: { kind: 'reading' },

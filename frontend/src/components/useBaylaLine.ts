@@ -4,6 +4,7 @@ import { getActiveBungalow } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { useLastReading } from '../lib/heat/heatStore';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 import { useLanded } from '../lib/landed';
 import { LAUNCH_SECTION, poolsRoute } from '../lib/navConfig';
 import { isSolanaSwapLive } from '../lib/solana';
@@ -32,6 +33,7 @@ export function useBaylaLine(): Line {
     reading,
     room: room ? { coin: room.symbol, solanaPool } : null,
     floor: heatLaunchFloor(),
+    doorOpen: isLaunchDoorOpen(),
     landed: landed?.kind ?? null,
     slow,
     screenMove,

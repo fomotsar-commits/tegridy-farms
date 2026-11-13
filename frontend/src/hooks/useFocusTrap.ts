@@ -90,6 +90,9 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(
       if (!containerRef.current) return;
       const focusables = getFocusableDescendants(containerRef.current);
       if (focusables.length > 0 && !focusContainer) focusables[0]!.focus();
+      // A dialog asked to hold the focus itself is already in place, and may be taller than the
+      // screen: a plain focus() scrolls its layer to it (the receipt card's head left the top).
+      else if (focusContainer) containerRef.current.focus({ preventScroll: true });
       else containerRef.current.focus();
     });
     return () => {
