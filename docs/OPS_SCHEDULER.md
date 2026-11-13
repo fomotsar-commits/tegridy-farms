@@ -64,6 +64,13 @@ without repo activity stops them all at once, so the heartbeat catches that.
    - `backup-pull`: `ops.env` (section 3), as `HC_PING_URL_BACKUP_PULL`.
    - `gitlab-standby`: the GitHub secret `HC_PING_URL_GITLAB_STANDBY`; `git-vault-backup`:
      `ops.env`, as `HC_PING_URL_GIT_VAULT_BACKUP` (`docs/GIT_HOSTING.md` 2E and 2G).
+
+   A URL that names no check (a typo, or a check since deleted) still gets HTTP 200 from
+   healthchecks.io, with the answer "OK (not found)", and the check you meant stays grey and
+   silent. The jobs `scripts/ops/run-job.mjs` runs read that answer: anything but "OK" is a
+   ping NOT delivered, printed in the run's output, and a job that passed exits 3. The two
+   GitHub pings and the `git-vault-backup` task do not read the answer yet, so for those the
+   only proof is the first ping showing up in healthchecks.io.
 5. Create the six failover checks now too (section 5 lists them). A check that has never been
    pinged stays grey and sends nothing, and having them ready saves time in a failover.
 
