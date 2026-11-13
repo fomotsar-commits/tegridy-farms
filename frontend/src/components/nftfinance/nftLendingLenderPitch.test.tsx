@@ -119,6 +119,13 @@ describe('idea 4: who buys it', () => {
     );
   });
 
+  it('far over the floor: the percent reads with thousands separators (owner 2026-11-12 saw "1114877%")', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    fillLend('3000');
+    expect(screen.getByTestId('lender-exit-check').textContent).toContain(' 999,900% over the floor.');
+  });
+
   it('no open bids is said plainly', async () => {
     market.offers = { offers: [] };
     renderWithProviders(<NFTLendingSection />);

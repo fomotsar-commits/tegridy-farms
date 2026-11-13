@@ -577,3 +577,35 @@ describe('readMint', () => {
     expect(r.kind === 'unreadable' && r.detail).toMatch(/503/);
   });
 });
+
+describe('browserCurveRpc.getAccountMeta — the account without its bytes', () => {
+  // A program's ProgramData is its whole bytecode: 223 KB of base64 for the venue's AMM,
+  // which the deployment probe downloaded twice on every /pools visit to read one number.
+  const account = { data: ['', 'base64'], lamports: 1_169_280, owner: '11111111111111111111111111111111', executable: false };
+
+  it('asks the node for a zero-length slice of the data, and nothing else changes', async () => {
+    const calls: Array<[string, unknown[]]> = [];
+    const rpc = browserCurveRpc(async (method, params) => {
+      calls.push([method, params]);
+      return { context: { slot: 1 }, value: account };
+    });
+    const meta = await rpc.getAccountMeta!(PROGRAM_ID);
+    expect(calls).toEqual([['getAccountInfo', [PROGRAM_ID.toBase58(), { encoding: 'base64', dataSlice: { offset: 0, length: 0 } }]]]);
+    expect(meta).toMatchObject({ lamports: 1_169_280, executable: false });
+    expect(meta!.data).toHaveLength(0);
+    // The ordinary read still asks for the whole account.
+    await rpc.getAccountInfo(PROGRAM_ID);
+    expect(calls[1]).toEqual(['getAccountInfo', [PROGRAM_ID.toBase58(), { encoding: 'base64' }]]);
+  });
+
+  it('keeps every check the full read makes: absent is null, a malformed payload throws', async () => {
+    expect(await browserCurveRpc(async () => ({ value: null })).getAccountMeta!(PROGRAM_ID)).toBeNull();
+    await expect(browserCurveRpc(async () => ({ context: { slot: 1 } })).getAccountMeta!(PROGRAM_ID)).rejects.toThrow(/no `value`/);
+    await expect(
+      browserCurveRpc(async () => ({ value: { ...account, lamports: '1' } })).getAccountMeta!(PROGRAM_ID),
+    ).rejects.toThrow(/no lamport balance/);
+    await expect(
+      browserCurveRpc(async () => ({ value: { ...account, executable: 'yes' } })).getAccountMeta!(PROGRAM_ID),
+    ).rejects.toThrow(/non-boolean executable/);
+  });
+});

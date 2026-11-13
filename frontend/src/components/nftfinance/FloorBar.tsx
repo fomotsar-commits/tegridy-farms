@@ -9,10 +9,13 @@
 //
 // The prices are the market card's own read (lib/gondi/lenderPitch.ts). The bar adds none.
 import { barAmount, barMax, barStep, barZone } from '../../lib/gondi/floorBar';
+import { monoWidth, placeLabels, type MarkLabel } from '../../lib/markLabels';
+import { useDrawWidth } from '../../hooks/useDrawWidth';
 
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 58;
 const PAD = 10;
+const LABEL = 11;
 const TRACK = 20;
 
 const COLOR = { covered: '#10b981', 'under-floor': '#f59e0b', 'over-floor': '#ef4444' } as const;
@@ -26,6 +29,7 @@ export function FloorBar(p: {
   bestBid: number | null;
   setPrincipal: (text: string) => void;
 }) {
+  const [box, W] = useDrawWidth();
   const max = barMax(p.floor, p.bestBid, p.principal);
   if (max === null || p.floor === null || p.principal === null || !(p.principal > 0)) return null;
   const floor = p.floor;
@@ -33,6 +37,13 @@ export function FloorBar(p: {
   const zone = barZone(p.principal, floor, p.bestBid);
   const bid = p.bestBid !== null && p.bestBid > 0 ? p.bestBid : null;
   const step = barStep(floor);
+  // "best bid" on the outer side of its mark, "floor" on the outer side of its own (a bid that
+  // reads past the floor swaps them). A bid far down the bar slides its label inward rather
+  // than off the bar.
+  const bidPastFloor = bid !== null && bid > floor;
+  const marks: MarkLabel[] = [{ at: x(floor), width: monoWidth('floor', LABEL), side: bidPastFloor ? 'left' : 'right' }];
+  if (bid !== null) marks.push({ at: x(bid), width: monoWidth('best bid', LABEL), side: bidPastFloor ? 'right' : 'left' });
+  const [floorLabel, bidLabel] = placeLabels(marks, W, 3);
   const valueText =
     zone === 'covered'
       ? `${barAmount(p.principal)} WETH: at or under the best bid`
@@ -41,8 +52,8 @@ export function FloorBar(p: {
       : `${barAmount(p.principal)} WETH: over the floor`;
 
   return (
-    <div className="relative" data-testid="floor-bar" data-zone={zone} style={{ touchAction: 'pan-y' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" aria-hidden="true" focusable="false">
+    <div ref={box} className="relative" data-testid="floor-bar" data-zone={zone} style={{ touchAction: 'pan-y' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: H }} aria-hidden="true" focusable="false">
         {/* The three stretches: a buyer already pays this; under the floor; over it. */}
         {bid !== null && <rect x={x(0)} y={TRACK} width={x(Math.min(bid, floor)) - x(0)} height={10} fill="rgba(16,185,129,0.35)" />}
         <rect x={x(bid !== null ? Math.min(bid, floor) : 0)} y={TRACK} width={x(floor) - x(bid !== null ? Math.min(bid, floor) : 0)} height={10} fill="rgba(245,158,11,0.30)" />
@@ -51,13 +62,13 @@ export function FloorBar(p: {
         {bid !== null && (
           <g>
             <line x1={x(bid)} y1={TRACK - 6} x2={x(bid)} y2={TRACK + 16} stroke="#34d399" strokeWidth="1.5" />
-            <text x={x(bid)} y={H - 4} textAnchor="end" dx={-3} fontSize="9" fontFamily="ui-monospace, monospace" fill="#6ee7b7">
+            <text x={bidLabel} y={H - 4} fontSize={LABEL} fontFamily="ui-monospace, monospace" fill="#6ee7b7">
               best bid
             </text>
           </g>
         )}
         <line x1={x(floor)} y1={TRACK - 6} x2={x(floor)} y2={TRACK + 16} stroke="#f5e4b8" strokeWidth="1.5" />
-        <text x={x(floor)} y={H - 4} textAnchor="start" dx={3} fontSize="9" fontFamily="ui-monospace, monospace" fill="#f5e4b8">
+        <text x={floorLabel} y={H - 4} fontSize={LABEL} fontFamily="ui-monospace, monospace" fill="#f5e4b8">
           floor
         </text>
 

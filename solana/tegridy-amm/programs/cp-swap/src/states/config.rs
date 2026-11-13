@@ -41,7 +41,8 @@ pub struct AmmConfig {
     /// Taken from upstream's padding, which every tier holds as zeros: off until the admin sets it.
     pub swap_guard: u64,
     /// memetics.finance: the one signer whose swaps another program may still call while the
-    /// guard is on. The all-zero key, which every tier starts with, is nobody.
+    /// guard is on, and who, since 2026-11-11, swaps on this tier free of the trade and creator
+    /// fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody.
     pub keeper: Pubkey,
     /// padding
     pub padding: [u64; 10],
@@ -54,9 +55,38 @@ impl AmmConfig {
     /// memetics.finance: whether this tier refuses a swap that `payer` signs at `stack_height`:
     /// 1 for an instruction of the transaction itself, more for one another program calls.
     pub fn refuses_swap(&self, stack_height: usize, payer: &Pubkey) -> bool {
-        self.swap_guard != 0
-            && stack_height > TRANSACTION_LEVEL_STACK_HEIGHT
-            && (self.keeper == Pubkey::default() || self.keeper != *payer)
+        self.swap_guard != 0 && stack_height > TRANSACTION_LEVEL_STACK_HEIGHT && !self.is_keeper(payer)
+    }
+
+    /// memetics.finance: whether `payer` is this tier's keeper. With no keeper named (the
+    /// all-zero key) nobody is, not even the all-zero key.
+    pub fn is_keeper(&self, payer: &Pubkey) -> bool {
+        self.keeper != Pubkey::default() && self.keeper == *payer
+    }
+
+    /// memetics.finance, 2026-11-11: the trade fee rate, the creator fee rate, and whether the
+    /// creator fee is taken on the input, for a swap `payer` signs on a pool whose own creator
+    /// fee rate is `pool_creator_fee_rate` and whose creator fee is on the input when
+    /// `creator_fee_on_input`. Everyone pays the tier's trade fee and the pool's creator fee,
+    /// as upstream, except the tier's keeper, who pays neither (and so no protocol or fund
+    /// share, which are parts of the trade fee).
+    ///
+    /// The keeper's (zero) creator fee is taken on the output. Upstream's on-input path splits
+    /// the fee by the sum of the two rates (curve/fees.rs split_creator_fee), so with both at 0
+    /// it divides by 0 and every swap would fail, on every public pool (their creator fee is on
+    /// both tokens, so on the input). On the output, a rate of 0 takes 0. No line of the fee
+    /// arithmetic changes.
+    pub fn swap_fee_rates(
+        &self,
+        payer: &Pubkey,
+        pool_creator_fee_rate: u64,
+        creator_fee_on_input: bool,
+    ) -> (u64, u64, bool) {
+        if self.is_keeper(payer) {
+            (0, 0, false)
+        } else {
+            (self.trade_fee_rate, pool_creator_fee_rate, creator_fee_on_input)
+        }
     }
 }
 
@@ -126,6 +156,86 @@ mod swap_guard_test {
         // The guard sits where the padding began (byte 116), the keeper right after it (124).
         assert_eq!(data[116..124], 1u64.to_le_bytes());
         assert!(data[156..].iter().all(|b| *b == 0));
+    }
+}
+
+#[cfg(test)]
+mod keeper_fee_test {
+    use super::*;
+    use crate::curve::CurveCalculator;
+
+    // The 1% tier's shape (fee setting 1 on mainnet), and the launch tier's creator fee.
+    fn tier(keeper: Pubkey) -> AmmConfig {
+        AmmConfig {
+            trade_fee_rate: 10_000,
+            protocol_fee_rate: 104_000,
+            fund_fee_rate: 56_000,
+            creator_fee_rate: 5_000,
+            keeper,
+            ..Default::default()
+        }
+    }
+
+    const X: u128 = 1_000_000_000_000;
+    const Y: u128 = 2_000_000_000_000;
+
+    #[test]
+    fn with_no_keeper_named_everyone_pays_as_upstream_even_the_all_zero_key() {
+        let t = tier(Pubkey::default());
+        for who in [Pubkey::new_unique(), Pubkey::default()] {
+            assert!(!t.is_keeper(&who));
+            assert_eq!(t.swap_fee_rates(&who, 5_000, true), (10_000, 5_000, true));
+            assert_eq!(t.swap_fee_rates(&who, 0, false), (10_000, 0, false));
+        }
+    }
+
+    #[test]
+    fn the_keeper_alone_pays_no_trade_fee_and_no_creator_fee() {
+        let keeper = Pubkey::new_unique();
+        let t = tier(keeper);
+        assert!(t.is_keeper(&keeper));
+        assert_eq!(t.swap_fee_rates(&keeper, 5_000, true), (0, 0, false));
+        assert_eq!(t.swap_fee_rates(&keeper, 0, false), (0, 0, false));
+        let anyone = Pubkey::new_unique();
+        assert!(!t.is_keeper(&anyone));
+        assert_eq!(t.swap_fee_rates(&anyone, 5_000, true), (10_000, 5_000, true));
+    }
+
+    // Why the keeper's creator fee is taken on the output: on the input, both rates at 0 make
+    // upstream's split divide by 0, and the swap fails (the program answers ZeroTradingTokens).
+    #[test]
+    fn both_rates_at_0_on_the_input_fail_in_upstream_arithmetic_so_the_keeper_never_goes_there() {
+        assert!(CurveCalculator::swap_base_input(1_000_000, X, Y, 0, 0, 104_000, 56_000, true).is_none());
+        assert!(CurveCalculator::swap_base_output(1_000_000, X, Y, 0, 0, 104_000, 56_000, true).is_none());
+    }
+
+    #[test]
+    fn a_keeper_swap_of_either_kind_moves_the_pool_along_its_curve_with_no_fee_at_all() {
+        let keeper = Pubkey::new_unique();
+        let t = tier(keeper);
+        let (trade, creator, on_input) = t.swap_fee_rates(&keeper, t.creator_fee_rate, true);
+
+        let r = CurveCalculator::swap_base_input(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+        assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (0, 0, 0, 0));
+        assert_eq!(r.output_amount, 1_000_000_000 * Y / (X + 1_000_000_000));
+        assert_eq!(r.new_input_vault_amount, X + 1_000_000_000);
+        assert!(r.new_input_vault_amount * r.new_output_vault_amount >= X * Y);
+
+        let r = CurveCalculator::swap_base_output(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+        assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (0, 0, 0, 0));
+        assert_eq!(r.input_amount, (X * 1_000_000_000).div_ceil(Y - 1_000_000_000));
+        assert_eq!(r.output_amount, 1_000_000_000);
+        assert!(r.new_input_vault_amount * r.new_output_vault_amount >= X * Y);
+    }
+
+    // The control: the same swap by anyone else still pays the 1% fee and its shares.
+    #[test]
+    fn anyone_elses_swap_still_pays_the_tier_its_fee_and_its_shares() {
+        let t = tier(Pubkey::new_unique());
+        let (trade, creator, on_input) = t.swap_fee_rates(&Pubkey::new_unique(), 0, true);
+        let r = CurveCalculator::swap_base_input(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+        assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (10_000_000, 1_040_000, 560_000, 0));
+        assert!(r.output_amount < 1_000_000_000 * Y / (X + 1_000_000_000));
     }
 }
 

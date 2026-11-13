@@ -170,6 +170,35 @@ describe('TopNav: the menu', () => {
     }
   });
 
+  // Owner, 2026-11-12: the phone's and the iPad's menu is the desktop's. One list (INDEX_GROUPS),
+  // no width branch: a second list, or a filter read off the screen's width, fails here.
+  it('lists the same groups and pages at 390, 430, 820, 1180 and 1440 px', () => {
+    const listed = (width: number) => {
+      const was = window.innerWidth;
+      const mm = window.matchMedia;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      window.matchMedia = ((q: string) => {
+        const min = /min-width:\s*(\d+)/.exec(q);
+        const max = /max-width:\s*(\d+)/.exec(q);
+        const matches = (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]));
+        return { matches, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false };
+      }) as typeof window.matchMedia;
+      window.dispatchEvent(new Event('resize'));
+      try {
+        const index = within(openDrawer()).getByRole('navigation', { name: 'Site index' });
+        return within(index).getAllByRole('region').map((r) =>
+          [r.getAttribute('aria-labelledby'), within(r).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])]);
+      } finally {
+        cleanup();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: was });
+        window.matchMedia = mm;
+      }
+    };
+    const desktop = listed(1440);
+    expect(desktop.map(([id]) => id)).toEqual(INDEX_GROUPS.map((g) => `nav-index-${g.heading.toLowerCase()}`));
+    for (const width of [390, 430, 820, 1180]) expect(listed(width), `${width}px`).toEqual(desktop);
+  });
+
   it('carries the records and the developer API', () => {
     const drawer = openDrawer();
     expect(within(drawer).getByRole('link', { name: 'Changelog' })).toHaveAttribute('href', '/changelog');

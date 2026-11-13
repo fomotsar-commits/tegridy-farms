@@ -175,36 +175,39 @@ function accountData(method: string, account: RpcAccount): Uint8Array {
  * is exactly one reader and one classifier in this directory rather than two.
  */
 export function browserCurveRpc(rpc: SolanaRpc = browserRpc()): CurveRpc {
+  async function readAccount(address: PublicKey, config: Record<string, unknown>): Promise<AccountSnapshot | null> {
+    const payload = await rpc('getAccountInfo', [address.toBase58(), config]);
+    const account = expectAccountValue('getAccountInfo', payload);
+    if (account === null) return null;
+    if (typeof account.owner !== 'string') {
+      throw new Error('getAccountInfo: the account carried no owner');
+    }
+    if (typeof account.lamports !== 'number') {
+      throw new Error('getAccountInfo: the account carried no lamport balance');
+    }
+    // `executable` is the field the whole deployment probe gates on, so it gets the
+    // same runtime check as `owner` and `lamports` rather than being trusted because
+    // the interface says `boolean`. TypeScript does not check a JSON payload, so a
+    // proxy returning a string, a number, or null would otherwise flow straight into
+    // `AccountSnapshot.executable` and be compared with `=== undefined` — which it is
+    // not — landing on the "exists but is not a program" branch off a value nobody
+    // validated. ABSENT stays `undefined` deliberately: `readDeployment` turns that
+    // into `unreadable`, whereas defaulting to `false` would report a real program as
+    // a squatting account.
+    if (account.executable !== undefined && typeof account.executable !== 'boolean') {
+      throw new Error('getAccountInfo: the account carried a non-boolean executable flag');
+    }
+    return {
+      data: accountData('getAccountInfo', account),
+      lamports: account.lamports,
+      owner: new PublicKey(account.owner),
+      executable: account.executable,
+    };
+  }
   return {
-    async getAccountInfo(address: PublicKey): Promise<AccountSnapshot | null> {
-      const payload = await rpc('getAccountInfo', [address.toBase58(), { encoding: 'base64' }]);
-      const account = expectAccountValue('getAccountInfo', payload);
-      if (account === null) return null;
-      if (typeof account.owner !== 'string') {
-        throw new Error('getAccountInfo: the account carried no owner');
-      }
-      if (typeof account.lamports !== 'number') {
-        throw new Error('getAccountInfo: the account carried no lamport balance');
-      }
-      // `executable` is the field the whole deployment probe gates on, so it gets the
-      // same runtime check as `owner` and `lamports` rather than being trusted because
-      // the interface says `boolean`. TypeScript does not check a JSON payload, so a
-      // proxy returning a string, a number, or null would otherwise flow straight into
-      // `AccountSnapshot.executable` and be compared with `=== undefined` — which it is
-      // not — landing on the "exists but is not a program" branch off a value nobody
-      // validated. ABSENT stays `undefined` deliberately: `readDeployment` turns that
-      // into `unreadable`, whereas defaulting to `false` would report a real program as
-      // a squatting account.
-      if (account.executable !== undefined && typeof account.executable !== 'boolean') {
-        throw new Error('getAccountInfo: the account carried a non-boolean executable flag');
-      }
-      return {
-        data: accountData('getAccountInfo', account),
-        lamports: account.lamports,
-        owner: new PublicKey(account.owner),
-        executable: account.executable,
-      };
-    },
+    getAccountInfo: (address: PublicKey) => readAccount(address, { encoding: 'base64' }),
+    // The same read and the same checks, asking the node for none of the account's bytes.
+    getAccountMeta: (address: PublicKey) => readAccount(address, { encoding: 'base64', dataSlice: { offset: 0, length: 0 } }),
 
     async getMinimumBalanceForRentExemption(dataLength: number): Promise<number> {
       const v = await rpc('getMinimumBalanceForRentExemption', [dataLength]);

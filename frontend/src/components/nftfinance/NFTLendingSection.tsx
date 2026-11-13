@@ -6,7 +6,7 @@
 // keeps the protocol fee (5% at deploy) of the interest, the lender the rest. Unpaid at the
 // deadline, the lender takes the NFT. Offers live in the offer book (lib/gondi/offerBook.ts);
 // every screen re-checks them on chain before it offers a button.
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useId } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import {
   useAccount,
@@ -307,6 +307,12 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const aprValue = parseAprPercent(aprPct);
   const loansN = /^\d{1,3}$/.test(loanCount) && Number(loanCount) >= 1 && Number(loanCount) <= 100 ? BigInt(loanCount) : null;
   const needed = principalWei !== null && loansN !== null ? principalWei * loansN : null;
+  // A box holding text the offer cannot use says so under it. Without this the form went quiet:
+  // an APR of 33343 (over the 1000% cap) hid the interest card and kept the button faded, and
+  // the faded button never runs the toast that names the problem (owner, 2026-11-12).
+  const hint = useId();
+  const typedBad = { amount: principal.trim() !== '' && principalWei === null, apr: aprPct.trim() !== '' && aprValue === null, loans: loanCount.trim() !== '' && loansN === null };
+  const tokenBad = !anyToken && tokenId.trim() !== '' && !((parseTokenId(tokenId) ?? 0n) > 0n);
 
   const { data: wethBalance, refetch: refetchWeth } = useReadContract({
     address: WETH_ADDRESS,
@@ -559,12 +565,15 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             inputMode="numeric"
             placeholder="Token ID, e.g. 1234"
             aria-label="Token ID"
+            aria-invalid={tokenBad || undefined}
+            aria-describedby={tokenBad ? `${hint}-token` : undefined}
             value={tokenId}
             onChange={(e) => setTokenId(e.target.value)}
             className="mt-2 w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
         )}
+        {tokenBad && <BoxHint id={`${hint}-token`} testId="lend-hint-token" text="The NFT's number: a whole number above 0, like 1234." />}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -576,11 +585,14 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             min="0"
             placeholder="0.00"
             aria-label="Loan amount (WETH)"
+            aria-invalid={typedBad.amount || undefined}
+            aria-describedby={typedBad.amount ? `${hint}-amount` : undefined}
             value={principal}
             onChange={(e) => setPrincipal(e.target.value)}
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
+          {typedBad.amount && <BoxHint id={`${hint}-amount`} testId="lend-hint-amount" text="An amount of WETH above 0, like 0.02." />}
           {shares.length > 0 && (
             <div role="group" aria-label="Share of the floor" className="flex gap-2 mt-2">
               {shares.map(({ pct, amount }) => (
@@ -614,11 +626,16 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             inputMode="decimal"
             placeholder="e.g. 14"
             aria-label="APR (%)"
+            aria-invalid={typedBad.apr || undefined}
+            aria-describedby={typedBad.apr ? `${hint}-apr` : undefined}
             value={aprPct}
             onChange={(e) => setAprPct(e.target.value)}
             className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
+          {typedBad.apr && (
+            <BoxHint id={`${hint}-apr`} testId="lend-hint-apr" text="A yearly rate from 0.01 to 1000, at most two decimals: 14 means 14% a year." />
+          )}
         </div>
       </div>
 
@@ -642,11 +659,14 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           min="1"
           max="100"
           aria-label="Loans this offer can fund"
+          aria-invalid={typedBad.loans || undefined}
+          aria-describedby={typedBad.loans ? `${hint}-loans` : undefined}
           value={loanCount}
           onChange={(e) => setLoanCount(e.target.value)}
           className="w-full sm:w-40 min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50"
           style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
         />
+        {typedBad.loans && <BoxHint id={`${hint}-loans`} testId="lend-hint-loans" text="A whole number from 1 to 100." />}
       </div>
 
       {interestPerLoan !== null && principalWei !== null && (
@@ -728,6 +748,15 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
         </p>
       </FinePrint>
     </div>
+  );
+}
+
+/** Under a box whose text the offer cannot use: the values it takes. */
+function BoxHint({ id, testId, text }: { id: string; testId: string; text: string }) {
+  return (
+    <p id={id} className="text-amber-300 text-[11px] mt-1" style={LABEL_STYLE} data-testid={testId}>
+      {text}
+    </p>
   );
 }
 
