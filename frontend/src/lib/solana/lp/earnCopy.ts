@@ -40,7 +40,7 @@ export function howYouEarn(tier: AmmConfigView | null): string[] {
   const first = tier
     ? `Each trade in a public pool pays a ${feeRateText(tier.tradeFeeRate)} fee. ${pctText(feeSplit(tier).lpKeepsPct)} of the trade stays in the pool, and your part is added to your position automatically.`
     : 'Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.';
-  return [first, 'Nothing to claim: you receive it when you remove liquidity.', 'Few trades means small fees.'];
+  return [first, 'You receive it when you remove liquidity.', 'Few trades means small fees.'];
 }
 
 /**

@@ -32,7 +32,7 @@ const TRUE_ONLY_BEFORE_THE_UPGRADE = [
   },
   {
     file: 'src/components/solana/VenueProgramCard.tsx',
-    says: 'The program on Solana today was built before that instruction was added.',
+    says: 'The program on Solana today was built before that instruction and that check were added.',
     after: ['one added check'],
   },
 ] as const;
@@ -80,7 +80,7 @@ function problems(deployedBinary: string, source: (file: string) => string): str
 const BEFORE_UPGRADE: Record<string, string> = {
   'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's, with only its admin keys changed.",
   'src/components/solana/lp/SolanaLpSection.tsx': 'Our pool program is Raydium’s constant-product pool; we changed only its admin keys',
-  'src/components/solana/VenueProgramCard.tsx': 'The program on Solana today was built before that instruction was added. It gets it only through a program upgrade.',
+  'src/components/solana/VenueProgramCard.tsx': 'The program on Solana today was built before that instruction and that check were added. It gets them only through a program upgrade.',
 };
 const AFTER_UPGRADE: Record<string, string> = {
   'src/components/solana/lp/LpDisclosures.tsx':

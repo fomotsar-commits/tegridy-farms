@@ -35,6 +35,11 @@ const SETTLED_LINE = 'Settled on Jungle Bay Island.';
 // nav's 3.5rem, then pt-10) across the whole column, under an eyebrow line (16.5 px, then
 // mb-2), over a veil. Its frame holds the same, so the heading does not move. Measured in
 // a production build; LotFrame in DoorFrame.tsx carries the same four.
+// The venue's .ff-wrap pads 177px: the nav's 3.5rem, Bayla's 65px line (components/BaylaLine.tsx
+// BAYLA_LINE_HEIGHT) and the hero's 56px of air. The farm's door shows no line (law 21), so its
+// wrap carries the ff-farm class (index.html: the bar alone, 112px); a class, not a style, so
+// every door's frame keeps the hero's place as DoorFrame.test.tsx pins.
+export const FARM_DOORS = new Set(['toweli']);
 export const LOT_FRAME = {
   wrap: 'padding-top:6rem',
   col: 'max-width:none',
@@ -284,8 +289,8 @@ function doorFrame(door, manifest) {
   const f = door.frame;
   const styled = (style) => (style ? ` style="${esc(style)}"` : '');
   return (
-    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}>${f ? `<div${styled(f.veil)}></div>` : ''}</div>` +
-    `<div class="ff-wrap"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
+    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}>${f?.veil ? `<div${styled(f.veil)}></div>` : ''}</div>` +
+    `<div class="ff-wrap${FARM_DOORS.has(door.path) ? ' ff-farm' : ''}"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
     `<h1 class="ff-h1" elementtiming="first-frame-h1" style="${HEADING_STYLE}">${headingHtml(door)}</h1></div></div></div><!-- /first-frame -->`
   );
 }

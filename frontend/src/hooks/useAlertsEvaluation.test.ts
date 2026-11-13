@@ -18,6 +18,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { COVERAGE_STATEMENT, PRIORS_STORAGE_KEY, useAlertsEvaluation } from './useAlertsEvaluation';
 import type { AlertRule } from '../lib/alerts/rules';
+import type { Loan } from '../lib/gondi/loanMath';
+import { buildSnapshot } from '../lib/shield/positions';
+import { snapshotLoanReader } from '../lib/shield/alertReader';
+
+// The REAL venue-lending gate runs: it opens on a deployed Gondi loan contract
+// (lib/shield/venues.ts). GONDI_LOAN_ADDRESS is zero until the deploy, so a stand-in is set.
+const GONDI = '0x5555555555555555555555555555555555555555' as const;
+vi.mock('../lib/gondi/loanOffer.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  GONDI_LOAN_ADDRESS: '0x5555555555555555555555555555555555555555',
+}));
 
 const SUBJECT = '0x420698cfdeddea6bc78d59bc17798113ad278f9d' as const;
 
@@ -131,6 +142,41 @@ describe('injected reader capabilities reach the pass without driving it', () =>
     await waitFor(() => expect(result.current.lastRunAt).not.toBeNull());
     expect(loanDeadlineReader).toHaveBeenCalled();
     expect(result.current.counts.quiet).toBe(1);
+  });
+
+  it('a Gondi borrower’s loan inside the warning window FIRES, carrying the chain’s deadline', async () => {
+    // The whole path the shield panel runs: a hash-checked Gondi loan becomes a position
+    // (deadline = startTime + duration), the snapshot reader hands it to the rule, and the
+    // rule fires. Due in 2 hours, warned 24 hours ahead.
+    const now = Math.floor(Date.now() / 1000);
+    const start = BigInt(now - 86_400);
+    const loan: Loan = {
+      borrower: '0x1111111111111111111111111111111111111111',
+      nftCollateralTokenId: 7n,
+      nftCollateralAddress: '0x4444444444444444444444444444444444444444',
+      principalAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+      principalAmount: 10n ** 18n,
+      startTime: start,
+      duration: 86_400n + 7_200n,
+      tranche: [{ loanId: 9n, floor: 0n, principalAmount: 10n ** 18n, lender: '0x2222222222222222222222222222222222222222', accruedInterest: 0n, startTime: start, aprBps: 1000n }],
+      protocolFee: 500n,
+      lenderRefinanceDisabled: false,
+    };
+    const snapshot = buildSnapshot([{ loanId: 9, venue: 'tegridy-nft-lending', lendingContract: GONDI, loan }], now);
+    const loanDeadlineReader = snapshotLoanReader(snapshot);
+    const { result } = renderHook(() =>
+      useAlertsEvaluation([rule({ id: 'loan-9', kind: 'loan-deadline', subject: GONDI, threshold: 24 })], {
+        intervalMs: 0,
+        readerDeps: { loanDeadlineReader },
+      }),
+    );
+    await waitFor(() => expect(result.current.lastRunAt).not.toBeNull());
+    expect(result.current.counts.fired).toBe(1);
+    const [evaluation] = result.current.evaluations;
+    expect(evaluation!.verdict).toBe('fired');
+    expect(evaluation!.events).toHaveLength(1);
+    expect(evaluation!.events[0]!.idempotencyKey).toContain(`:9:${now + 7_200}:urgent`);
+    expect(evaluation!.events[0]!.body).toMatch(/no grace period/i);
   });
 
   it('without one, the rule is cannot-evaluate — never quiet', async () => {

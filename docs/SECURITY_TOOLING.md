@@ -43,7 +43,8 @@ issue via `https://memetics.finance/source-issues` that asks for a contact), nev
 own URL. GitHub's private advisories went dark with the account from 2026-09-24 until it came
 back on 2026-09-29, and any host can go the same way. The pool program's source lists the email
 first and this file second since 2026-10-06, and the program on mainnet has carried both since
-its first upgrade (TODO_OPERATOR O-0929-10).
+its third upgrade, 2026-11-06 (and from its first upgrade, 2026-10-23, until its roll-back on
+2026-10-24, and from 2026-11-03 until the roll-back of 2026-11-04; TODO_OPERATOR O-0929-10).
 Save the **SEAL 911** break-glass contact NOW (before you need it): <https://securityalliance.org/our-work/seal-911>
 
 ### 4. Free CI trio — **FREE** (add the YAML below)

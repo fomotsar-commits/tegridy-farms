@@ -45,7 +45,8 @@ import { vi } from 'vitest';
 export type Address = `0x${string}`;
 
 interface ReadStub {
-  match: (spec: { functionName?: string; address?: string }) => boolean;
+  /** `args` is passed for useReadContract, so a predicate can answer one call's arguments. */
+  match: (spec: { functionName?: string; address?: string; args?: readonly unknown[] }) => boolean;
   result: unknown;
   status?: 'success' | 'failure';
 }
@@ -89,6 +90,9 @@ interface WagmiMockState {
   chainId: number;
   answerDisabledReads: boolean;
   publicClient: unknown;
+  /** What useBalance() reports as the native balance (wei), or undefined (unread). */
+  nativeBalance: bigint | undefined;
+  signTypedDataMock: ReturnType<typeof vi.fn>;
 }
 
 function defaultWriteStatus(): WriteStatus {
@@ -104,6 +108,8 @@ function defaultState(): WagmiMockState {
     chainId: 1,
     answerDisabledReads: false,
     publicClient: undefined,
+    nativeBalance: undefined,
+    signTypedDataMock: vi.fn(),
   };
 }
 
@@ -119,6 +125,8 @@ export const wagmiMock = {
     state.chainId = next.chainId;
     state.answerDisabledReads = next.answerDisabledReads;
     state.publicClient = next.publicClient;
+    state.nativeBalance = next.nativeBalance;
+    state.signTypedDataMock.mockReset();
   },
   setAccount(partial: Partial<AccountState>) {
     state.account = { ...state.account, ...partial };
@@ -161,11 +169,17 @@ export const wagmiMock = {
   setWriteStatus(partial: Partial<WriteStatus>) {
     state.writeStatus = { ...state.writeStatus, ...partial };
   },
+  /** What useBalance() reports (wei); undefined reads as not loaded. */
+  setNativeBalance(wei: bigint | undefined) {
+    state.nativeBalance = wei;
+  },
+  /** The Vitest mock behind useSignTypedData().signTypedDataAsync. */
+  signTypedData: () => state.signTypedDataMock,
   /** Get the Vitest mock for the `writeContract` callback — assert args against it. */
   writeContract: () => state.writeContractMock,
 };
 
-function findRead(spec: { functionName?: string; address?: string }): ReadStub | undefined {
+function findRead(spec: { functionName?: string; address?: string; args?: readonly unknown[] }): ReadStub | undefined {
   // Last match wins — tests can stack overrides.
   for (let i = state.reads.length - 1; i >= 0; i--) {
     if (state.reads[i]!.match(spec)) return state.reads[i];
@@ -206,7 +220,7 @@ vi.mock('wagmi', () => {
 
   const useReadContract = (opts: { address?: string; functionName?: string; args?: unknown[]; query?: { enabled?: boolean } }) => {
     if (opts?.query?.enabled === false && !state.answerDisabledReads) return disabledRead();
-    const stub = findRead({ address: opts?.address, functionName: opts?.functionName });
+    const stub = findRead({ address: opts?.address, functionName: opts?.functionName, args: opts?.args });
     if (!stub) {
       return { data: undefined, error: undefined, isLoading: false, isError: false, refetch: vi.fn() };
     }
@@ -270,6 +284,14 @@ vi.mock('wagmi', () => {
 
   const usePublicClient = (_opts?: unknown) => state.publicClient;
 
+  const useBalance = (_opts?: unknown) => ({
+    data: state.nativeBalance === undefined ? undefined : { value: state.nativeBalance, decimals: 18, symbol: 'ETH' },
+    isLoading: false,
+    refetch: vi.fn(),
+  });
+
+  const useSignTypedData = () => ({ signTypedDataAsync: state.signTypedDataMock, isPending: false });
+
   return {
     useAccount,
     useChainId,
@@ -279,6 +301,8 @@ vi.mock('wagmi', () => {
     useWriteContract,
     useWaitForTransactionReceipt,
     useWatchContractEvent,
+    useBalance,
+    useSignTypedData,
   };
 });
 

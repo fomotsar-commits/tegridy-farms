@@ -211,6 +211,20 @@ describe("validateBody — user_favorites", () => {
     const r = validateBody("user_favorites", "INSERT", rows, CLAIMS_A);
     expect(r.ok).toBe(false);
   });
+
+  // The 200 cap must refuse a batch before reading any row: zod below 4.6.6
+  // parsed every row first, so a huge body ran the function out of memory
+  // (GHSA-mrhx-c7xc-m3w5).
+  it("array: rejects a batch of >200 rows without reading any row", () => {
+    let reads = 0;
+    const rows = Array.from({ length: 201 }, (_, i) => ({
+      get wallet() { reads++; return WALLET_A; },
+      token_id: String(i),
+    }));
+    const r = validateBody("user_favorites", "INSERT", rows, CLAIMS_A);
+    expect(r.ok).toBe(false);
+    expect(reads).toBe(0);
+  });
 });
 
 describe("validateBody — user_watchlist", () => {

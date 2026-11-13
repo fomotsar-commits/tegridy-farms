@@ -3,8 +3,8 @@
 // of its own; see api/SERVERLESS_BUDGET.md).
 //
 //   GET /api/pools?mint=<token mint>     → this token's pools with each pairing coin: SOL's
-//                                           first, then USDC's, then BAYLA's, deepest first
-//                                           within a coin
+//                                           first, then USDC's, then each island coin's in
+//                                           rank, deepest first within a coin
 //   GET /api/pools?lpMint=<LP mint>      → the address of the pool whose share this is
 //   GET /api/pools?all=1                 → every pool on the program paired with a coin,
 //                                           for the list shown before a token is picked:
@@ -18,11 +18,13 @@
 // all, one per pairing coin, each filtered so the RPC only walks pool accounts of that
 // exact pair, and caches the answer.
 //
-// WHICH COINS. A pool on this site pairs a token with SOL, USDC or BAYLA (owner ruling
-// 2026-10-03; `QUOTE_COINS` below, in rank order). `?mint=X` scans X with every coin.
+// WHICH COINS. A pool on this site pairs a token with SOL, USDC or one of the island's
+// five coins, BAYLA, BOBO, SOY, BRAINLET and RIZZ (owner rulings 2026-10-03 and
+// 2026-11-07; `QUOTE_COINS` below, in rank order). `?mint=X` scans X with every coin.
 // When X is itself a coin, only with the coins that outrank it: a BAYLA/SOL pool is
-// BAYLA's pool and never SOL's, so BAYLA is searched with SOL and USDC, USDC with SOL,
-// and SOL itself is a 400. The same rule as the browser's `quotesFor`.
+// BAYLA's pool and never SOL's, so BAYLA is searched with SOL and USDC, BOBO with SOL,
+// USDC and BAYLA, USDC with SOL, and SOL itself is a 400. The same rule as the browser's
+// `quotesFor`.
 //
 // WHAT IT RETURNS: ADDRESSES ONLY. The browser reads every address itself and checks it
 // (owned by the program, decodes as a pool, holds the token). So this function is never
@@ -45,7 +47,7 @@
 //     addresses, and what a coin does not use goes to the others, highest rank first. So
 //     junk pools paired with one coin can never push a real pool paired with ANOTHER coin
 //     below that coin's promise. To push a real pool off the list an attacker must put
-//     more of its own coin than it holds into each of at least that many pools (32 for
+//     more of its own coin than it holds into each of at least that many pools (13 for
 //     an ordinary token, and all MAX_POOLS when the other coins have no pools);
 //   - more than MAX_SCANNED pools with any one coin is a 502 ("could not read"), never a
 //     cut list;
@@ -59,11 +61,11 @@
 // RATE LIMITS, on cache MISSES only (a cache hit costs the upstream nothing):
 //   - per IP, counted per REQUEST: a visitor asked one question, whatever it costs us;
 //   - the global scan budget (POOLS_GLOBAL_RPM), counted per SCAN: a `?mint=` miss is
-//     charged once for each coin it scans (three for an ordinary token), all of them
+//     charged once for each coin it scans (seven for an ordinary token), all of them
 //     before the first scan is sent. The budget exists to cap what the keyed RPC is
 //     asked for, and the scan is the costly call. Counted per request, the same number
-//     would let three times the scans through that it was set to allow. The price: 600
-//     a minute now covers 200 ordinary-token misses, not 600. Raise the env if real
+//     would let seven times the scans through that it was set to allow. The price: 600
+//     a minute now covers about 85 ordinary-token misses, not 600. Raise the env if real
 //     traffic needs more.
 //
 // Hardening: GET only; the shared request-origin gate; the query must be exactly one
@@ -83,6 +85,10 @@ export const CP_SWAP_PROGRAM = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT";
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const BAYLA_MINT = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+export const BOBO_MINT = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+export const SOY_MINT = "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump";
+export const BRAINLET_MINT = "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump";
+export const RIZZ_MINT = "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k";
 export const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 /**
@@ -97,6 +103,10 @@ export const QUOTE_COINS = Object.freeze([
   Object.freeze({ symbol: "SOL", mint: WSOL_MINT, program: TOKEN_PROGRAM }),
   Object.freeze({ symbol: "USDC", mint: USDC_MINT, program: TOKEN_PROGRAM }),
   Object.freeze({ symbol: "BAYLA", mint: BAYLA_MINT, program: TOKEN_2022_PROGRAM }),
+  Object.freeze({ symbol: "BOBO", mint: BOBO_MINT, program: TOKEN_PROGRAM }),
+  Object.freeze({ symbol: "SOY", mint: SOY_MINT, program: TOKEN_PROGRAM }),
+  Object.freeze({ symbol: "BRAINLET", mint: BRAINLET_MINT, program: TOKEN_PROGRAM }),
+  Object.freeze({ symbol: "RIZZ", mint: RIZZ_MINT, program: TOKEN_PROGRAM }),
 ]);
 /** PoolState: `#[repr(C, packed)]`, 637 bytes with the discriminator (frontend program.ts). */
 export const POOL_STATE_LEN = 637;
@@ -105,13 +115,13 @@ export const OFFSETS = Object.freeze({ token0Vault: 72, lpMint: 136, token0Mint:
 /**
  * Addresses returned per answer. The browser refuses a longer list (poolIndex.ts
  * `POOL_INDEX_MAX`, pinned to this by a test). It reads these plus the few it works out
- * itself: the launch pool, and two standard addresses for each coin.
+ * itself: the launch pool, and the public tier's standard address for each coin.
  */
 export const MAX_POOLS = 96;
 /**
  * More pools than this for one token with ONE coin is answered as a 502, not ranked:
  * about 300 SOL of never-refunded rent to reach, and 100 vault reads (8 at a time) to
- * rank. Per coin, so three coins at the limit is 300 reads.
+ * rank. Per coin, so seven coins at the limit is 700 reads.
  */
 export const MAX_SCANNED = 10_000;
 const RANK_CHUNK = 100;

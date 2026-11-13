@@ -13,7 +13,7 @@ import { field } from './fixtures/walletGuard';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng } from './fixtures/uploadStub';
 import { installHeatStub } from './fixtures/heatStub';
-import { ui, checkAtSizes, clickReal, connectWallet, expectConnected } from './fixtures/ui';
+import { ui, checkAtSizes, clickReal, connectWallet, expectConnected, expectNoWord } from './fixtures/ui';
 
 async function trader(browser: Browser, kp: Keypair) {
   const ctx = await browser.newContext();
@@ -82,8 +82,8 @@ test('a confirmation we could not read is "sent, not confirmed yet", never "fail
   await expect(out).toContainText('Sent, not confirmed yet');
   const signature = t.wallet.lastSigned().signature!;
   await expect(out).toContainText(signature);
-  await expect(out).not.toContainText(/fail/i);
-  await expect(ui.tradePanel(t.page)).not.toContainText(/fail/i);
+  await expectNoWord(out, /fail/i);
+  await expectNoWord(ui.tradePanel(t.page), /fail/i);
   expect(t.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
 
   // The chain says it landed: the tokens are in the buyer's account (a fresh wallet, which
@@ -129,7 +129,7 @@ test('sent, not confirmed, then a reload: no trade form until the chain answers'
     await expect(card, hop).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText('Sent, not confirmed yet');
     await expect(card).toContainText(signature);
-    await expect(card).not.toContainText(/fail/i);
+    await expectNoWord(card, /fail/i);
     await expect(card.getByRole('button', { name: 'Check again' })).toBeEnabled({ timeout: 60_000 });
     await expect(ui.tradePanel(t.page)).toHaveCount(0);
   }

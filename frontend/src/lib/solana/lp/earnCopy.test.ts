@@ -22,7 +22,7 @@ const tier1 = (): AmmConfigView => recordedTier(1);
 /** Tier 1 as mainnet holds it since the split (2026-10-19). */
 const split1 = (): AmmConfigView => splitTier(1);
 const jupiter: JupiterFee = { bps: 50, wallet: VAULT, majorBps: 5 };
-const NOTHING_TO_CLAIM = 'Nothing to claim: you receive it when you remove liquidity.';
+const NOTHING_TO_CLAIM = 'You receive it when you remove liquidity.';
 const FEW_TRADES = 'Few trades means small fees.';
 const VAULT_ROW = { label: 'Team’s shared wallet', address: VAULT };
 const WORKSHOP_ROW = { label: 'Island’s Workshop', address: WORKSHOP };

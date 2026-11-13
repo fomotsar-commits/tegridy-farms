@@ -8,12 +8,19 @@
 //   GET  /api/orderbook?action=query&tokenId=123&contract= → orders for token
 //   POST /api/orderbook  body: { action: "create", order } → submit signed order
 //   POST /api/orderbook  body: { action: "cancel", hash }  → cancel order
+//
+// NFT loan offers (signed Gondi v3.2 offers; api/_lib/loanOffers.js):
+//   GET  ?action=loan-offers[&collection=0x..][&lender=0x..]  → open offers
+//   GET  ?action=loans&wallet=0x..                            → a wallet's loans
+//   POST { action: "loan-offer-create", offer, signature }    → store a signed offer
+//   POST { action: "loan-offer-sync", lender, offerId }       → re-read it on chain
+//   POST { action: "loan-record", txHash }                    → record a tx's loans
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
-import { VENUE_CONTRACTS } from "./_lib/venue-registry.js";
+import { VENUE_CONTRACTS, bookChainId, bookContractsOn } from "./_lib/venue-registry.js";
 import { platformFeeError } from "./_lib/platform-fee.js";
 import { verifySeaportSignature, verifyNftOwnership, verifyBundleOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
@@ -23,10 +30,15 @@ import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaport
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failover.js";
 import { sendPushToWallet } from "./_lib/push.js";
+// The NFT loan offer book (signed Gondi offers) shares this route's perimeter.
+import { LOAN_GET_ACTIONS, LOAN_POST_ACTIONS, handleLoanAction } from "./_lib/loanOffers.js";
 
-// The venue's collections (lowercase): the only contracts the book stores,
-// serves or trades.
+// The venue's Ethereum collections (lowercase): the only contracts a bundle or
+// a P2P trade may carry. A single listing, its query, cancel and fill also take
+// the Base collections, each on its own chain (bookChainId).
 export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
+// The chains a signed cancel or fill may name.
+const BOOK_CHAIN_IDS = new Set([1, 8453]);
 
 // Max NFTs in one bundle listing. Bounds the per-item ownership RPC fan-out (one
 // ownerOf call each) and the signed-message size.
@@ -252,8 +264,15 @@ const ALLOWED_PROTOCOL_ADDRESSES = new Set([
 ]);
 const DEFAULT_PROTOCOL_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 
+const SEAPORT_16 = "0x0000000000000068f116a894984e2db1123eb395";
+
 /** Returns the address to store, or null if the caller named a foreign target. */
-function validatedProtocolAddress(protocolAddress) {
+function validatedProtocolAddress(protocolAddress, chainId = 1) {
+  // A Base order is signed for Seaport 1.6 on Base, so it is filled and
+  // cancelled there and nowhere else.
+  if (chainId === 8453) {
+    return String(protocolAddress || "").toLowerCase() === SEAPORT_16 ? protocolAddress : null;
+  }
   if (!protocolAddress) return DEFAULT_PROTOCOL_ADDRESS;
   return ALLOWED_PROTOCOL_ADDRESSES.has(String(protocolAddress).toLowerCase())
     ? protocolAddress
@@ -407,6 +426,11 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { action, contract, maker, tokenId, status = "active", limit = "50", sort = "price_eth" } = req.query;
 
+    if (LOAN_GET_ACTIONS.has(action)) {
+      await handleLoanAction(req, res, { supabase });
+      return;
+    }
+
     // ── P2P trades inbox/outbox ──
     // Trades are signed Seaport swap offers on public NFTs (same privacy
     // class as listings), so reads are open; writes are verified below.
@@ -543,7 +567,7 @@ export default async function handler(req, res) {
     if (!contract) return res.status(400).json({ error: "contract parameter is required" });
     if (!isValidAddress(contract)) return res.status(400).json({ error: "Invalid contract address format" });
     const lc = contract.toLowerCase();
-    if (!ALLOWED_CONTRACTS.has(lc)) return res.status(403).json({ error: "Contract not supported" });
+    if (bookChainId(lc) == null) return res.status(403).json({ error: "Contract not supported" });
     query = query.eq("contract_address", lc);
 
     if (maker) {
@@ -613,6 +637,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing or malformed JSON body" });
     }
     const { action } = req.body;
+
+    if (LOAN_POST_ACTIONS.has(action)) {
+      await handleLoanAction(req, res, { supabase });
+      return;
+    }
 
     if (action === "create") {
       const { order } = req.body;
@@ -786,9 +815,11 @@ export default async function handler(req, res) {
       if (isListing && currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
       }
-      // The venue's 1% is a consideration item only the client adds. See platform-fee.js.
+      // The venue's 0.5% is a consideration item only the client adds, paid to the
+      // treasury of the chain the NFT lives on. See platform-fee.js.
       if (isListing) {
-        const feeError = platformFeeError(params.consideration, priceWeiBig);
+        const feeChainId = bookChainId(offerItem?.token) ?? 1;
+        const feeError = platformFeeError(params.consideration, priceWeiBig, feeChainId);
         if (feeError) return res.status(400).json({ error: feeError });
       }
       const decimals = TOKEN_DECIMALS[currencyAddr];
@@ -812,8 +843,10 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Invalid tokenId" });
       }
 
-      // Validate contract belongs to an allowed collection
-      if (!contract || !ALLOWED_CONTRACTS.has(contract)) {
+      // Validate contract belongs to an allowed collection. Its chain comes from
+      // the registry, and every check below reads it from there.
+      const chainId = bookChainId(contract);
+      if (!contract || chainId == null) {
         return res.status(403).json({ error: "Contract not supported" });
       }
 
@@ -838,7 +871,7 @@ export default async function handler(req, res) {
       // personal_sign check above only binds offerer + contract + price + times;
       // every other field of the Seaport order was unauthenticated before.
       const seaportSig = order.seaportSignature || order.signature;
-      const sigCheck = await verifySeaportSignature({ parameters: params, signature: seaportSig });
+      const sigCheck = await verifySeaportSignature({ parameters: params, signature: seaportSig, chainId });
       if (!sigCheck.ok) {
         // rpc-unavailable → 503 (caller should retry); everything else (signature-mismatch,
         // bad-signature, bad-parameters) is a client-side problem → 403.
@@ -851,7 +884,7 @@ export default async function handler(req, res) {
       // ERC1155 is no longer a hole here: listings are pinned to itemType 2 above, and
       // verifyNftOwnership now refuses non-ERC721 instead of reporting ok:true.
       if (isListing) {
-        const ownerCheck = await verifyNftOwnership({ parameters: params });
+        const ownerCheck = await verifyNftOwnership({ parameters: params, chainId });
         if (!ownerCheck.ok) {
           // Map error → status:
           //   rpc-unavailable                                       → 503
@@ -1028,7 +1061,7 @@ export default async function handler(req, res) {
       }
 
       // Reject a foreign fulfillment target before it is ever persisted.
-      const protocolAddress = validatedProtocolAddress(order.protocol_address);
+      const protocolAddress = validatedProtocolAddress(order.protocol_address, chainId);
       if (!protocolAddress) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
@@ -1450,8 +1483,9 @@ export default async function handler(req, res) {
       // bounds same-environment replay to a 5-minute window. Mirrors the
       // SIWE auth pattern (chainId + nonce + expiresAt). Server compares
       // against the canonical mainnet chain (Seaport orders are mainnet-only
-      // per SEAPORT_DOMAIN.chainId = 1 in the listing flow).
-      if (typeof chainId !== "number" || chainId !== 1) {
+      // per SEAPORT_DOMAIN.chainId = 1 in the listing flow). A Base order is
+      // cancelled with chainId 8453, checked against its row below.
+      if (typeof chainId !== "number" || !BOOK_CHAIN_IDS.has(chainId)) {
         return res.status(400).json({ error: "Invalid or missing chainId" });
       }
       if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
@@ -1474,7 +1508,7 @@ export default async function handler(req, res) {
       // Verify the recovered signer owns this order
       const { data: existing, error: lookupError } = await supabase
         .from("native_orders")
-        .select("maker, status")
+        .select("maker, status, contract_address")
         .eq("order_hash", orderHash)
         .single();
 
@@ -1482,6 +1516,10 @@ export default async function handler(req, res) {
       if (!existing) return res.status(404).json({ error: "Order not found" });
       if (existing.maker !== recoveredAddress) {
         return res.status(403).json({ error: "Signer is not the order maker" });
+      }
+      // The signed chain must be the order's own (registry, by its contract).
+      if ((bookChainId(existing.contract_address) ?? 1) !== chainId) {
+        return res.status(400).json({ error: "This order is on another chain" });
       }
       if (existing.status !== "active") {
         return res.status(409).json({ error: `Order is already ${existing.status}` });
@@ -1508,7 +1546,7 @@ export default async function handler(req, res) {
       const { maker, signature, chainId, timestamp } = req.body;
       if (!maker || !signature) return res.status(400).json({ error: "Missing maker or signature" });
       if (!isValidAddress(maker)) return res.status(400).json({ error: "Invalid maker address" });
-      if (typeof chainId !== "number" || chainId !== 1) {
+      if (typeof chainId !== "number" || !BOOK_CHAIN_IDS.has(chainId)) {
         return res.status(400).json({ error: "Invalid or missing chainId" });
       }
       if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
@@ -1530,12 +1568,19 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: "Signer is not the maker" });
       }
 
-      const { data: cancelled, error } = await supabase
+      // A counter bump cancels on ONE chain's Seaport. The other chain's orders
+      // stay fillable, so their rows stay active: chain 1 takes every row but the
+      // Base ones (as before Base was listed), chain 8453 only the Base ones.
+      const baseList = `(${bookContractsOn(8453).join(",")})`;
+      let cancelAll = supabase
         .from("native_orders")
         .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
         .eq("maker", recoveredAddress)
-        .eq("status", "active")
-        .select("order_hash");
+        .eq("status", "active");
+      cancelAll = chainId === 8453
+        ? cancelAll.in("contract_address", bookContractsOn(8453))
+        : cancelAll.not("contract_address", "in", baseList);
+      const { data: cancelled, error } = await cancelAll.select("order_hash");
 
       if (error) { console.error("Orderbook cancel-all error:", error.message); return res.status(500).json({ error: "Internal error" }); }
       return res.json({ success: true, cancelled: cancelled?.length ?? 0 });
@@ -1556,7 +1601,7 @@ export default async function handler(req, res) {
       // cancel path. Without these fields a captured fill signature could be
       // replayed against a staging orderbook with the same orderHash + txHash
       // pair, marking the wrong environment's record as filled.
-      if (typeof chainId !== "number" || chainId !== 1) {
+      if (typeof chainId !== "number" || !BOOK_CHAIN_IDS.has(chainId)) {
         return res.status(400).json({ error: "Invalid or missing chainId" });
       }
       if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
@@ -1609,19 +1654,26 @@ export default async function handler(req, res) {
       // the column read outlived it. Do NOT re-introduce a maker comparison
       // here — the canonical bytes32 orderHash check below is the whole check.
       let storedSeaportHash = null;
+      // The chain the receipt is read on: the row's, by its contract (registry).
+      let rowChainId = 1;
       {
         const { data: rowForVerify } = await supabase
           .from("native_orders")
-          .select("seaport_order_hash")
+          .select("seaport_order_hash, contract_address")
           .eq("order_hash", orderHash)
           .maybeSingle();
         if (rowForVerify) {
           storedSeaportHash = rowForVerify.seaport_order_hash || null;
+          rowChainId = bookChainId(rowForVerify.contract_address) ?? 1;
         }
         // Don't 404 here — the atomic update below handles missing rows
         // with a single race-free path. If the row doesn't exist it'll
         // fail at the `update().eq("status","active")` step.
       }
+      if (rowChainId !== chainId) {
+        return res.status(400).json({ error: "This order is on another chain" });
+      }
+      const alchemyNetwork = rowChainId === 8453 ? "base-mainnet" : "eth-mainnet";
 
       if (hasAlchemy) {
         try {
@@ -1630,7 +1682,7 @@ export default async function handler(req, res) {
           // still pinned to the primary key, so a single-key outage 502'd exactly
           // the requests that settle trades.
           const rpcRes = await fetchAlchemyWithFailover((key) => ({
-            url: `https://eth-mainnet.g.alchemy.com/v2/${key}`,
+            url: `https://${alchemyNetwork}.g.alchemy.com/v2/${key}`,
             opts: {
               method: "POST",
               headers: { "Content-Type": "application/json" },

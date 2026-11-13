@@ -25,7 +25,7 @@ import { clipDetail, readCurve, type CurveAccount } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { describeQuoteError } from './errors';
 import { bodySteps, buildAndSimulate, confirmedReads, notSent } from './prepare';
-import type { FeeSplitView, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
+import type { FeeSplitView, OpenGate, Prepared, TxSummary, TxVersion, WriteRpc } from './types';
 
 /** 1%. */
 export const SLIPPAGE_DEFAULT_BPS = 100n;
@@ -110,7 +110,7 @@ async function rereadCurve(rpc: WriteRpc, gate: OpenGate, page: CurveAccount, mi
 export async function prepareCurveBuy(
   rpc: WriteRpc,
   gate: OpenGate,
-  a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint },
+  a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint; txVersion?: TxVersion },
 ): Promise<Prepared> {
   if (gate.paused) return notSent('build', 'Buys are paused right now. Selling still works.');
   if (!curveMatches(a.curve, a.mint)) return notSent('build', 'The curve read does not belong to this token.');
@@ -144,6 +144,7 @@ export async function prepareCurveBuy(
 
   return buildAndSimulate(rpc, {
     kind: 'buy',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: ctxFor('buy', gate, a.trader, a.mint, curve),
@@ -186,6 +187,7 @@ export async function prepareCurveSell(
     curveRentFloor: bigint;
     tokensIn: bigint;
     slippageBps: bigint;
+    txVersion?: TxVersion;
   },
 ): Promise<Prepared> {
   // No pause check: selling is never paused.
@@ -217,6 +219,7 @@ export async function prepareCurveSell(
 
   return buildAndSimulate(rpc, {
     kind: 'sell',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: ctxFor('sell', gate, a.trader, a.mint, curve),

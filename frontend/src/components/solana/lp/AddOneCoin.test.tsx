@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -32,11 +32,16 @@ import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
 import { NO_SITE_FEE_ROUTE_COPY } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { JupiterBusyError } from '../../../lib/solana/swap/jupiterBusy';
 import type { PendingTrade } from '../curve/pendingTrade';
-import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { fakeLpApi, LP_PROGRAM, lpDepositSummary, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { prepared } from '../curve/fakeWriteApi.fixture';
+import type { LpWriteApi, Prepared } from '../curve/ports';
+import { OPEN_ON_REVIEW_MS } from './AddLiquidityPanel';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
 import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
 import { reloadHeld } from '../../../lib/reloadHold';
 import { ONE_COIN_LINE } from './AddOneCoinPanel';
+import { SheetContext, type SheetPlace } from '../../sheet/sheetContext';
+import type { Bungalow } from '../../../lib/bungalows';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -50,6 +55,9 @@ const wallet = vi.hoisted(() => ({
 const conn = vi.hoisted(() => ({ connection: { rpcEndpoint: 'fake' } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => conn }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
+// The sheet's green button connects a wallet when none is: the press is seen here.
+const connect = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('../useSolanaConnect', () => ({ useSolanaConnect: () => connect.open }));
 
 // Jupiter's quotes, set in beforeEach. The send path's build and test run are the real ones
 // unless a test sets its own; the pair carries the site fee only where a test says so.
@@ -133,6 +141,7 @@ function view(): PoolView {
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -151,6 +160,7 @@ function search(v: PoolView): PoolSearchRead {
       index: { kind: 'ok', pools: [v.address], truncated: false },
       pools: [{ kind: 'pool' as const, view: v }],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -548,5 +558,313 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
     const review = screen.getByTestId('lp-one-review');
     expect(within(review).getByText('Site fee').nextElementSibling).toHaveTextContent(/^none on this pair$/);
     expect(within(review).queryByTestId('lp-one-no-fee')).toBeNull();
+  });
+});
+
+// Island answer twenty-four: the amount's chips, and the coin's name as a press that copies its address.
+describe('Add with one coin: the amount’s chips and the coin’s name', () => {
+  const writeText = vi.fn(async () => {});
+  const vibrate = vi.fn(() => true);
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+  });
+
+  it('paying SOL: 0.05 SOL, 0.5 SOL and Max, each 44px and a tick; Max keeps both steps’ fees back', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    const hint = await within(panel).findByText(/after both steps/);
+    const most = hint.textContent!.match(/Up to ([\d.,]+) SOL/)![1]!.replace(/,/g, '');
+    const box = within(panel).getByLabelText('SOL to put in') as HTMLInputElement;
+    const chips = ['0.05 SOL', '0.5 SOL', 'Max SOL'].map((name) => within(panel).getByRole('button', { name }));
+    for (const c of chips) expect(c.className).toContain('min-h-[44px]');
+    // In the box's own row, after it: the door's first screen gets no new line (e2e/door-lands.spec.ts),
+    // and the field's label still names the box.
+    for (const c of chips) expect(c.parentElement).toBe(box.parentElement);
+    expect(box.compareDocumentPosition(chips[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(chips[0]!);
+    expect(box.value).toBe('0.05');
+    fireEvent.click(chips[1]!);
+    expect(box.value).toBe('0.5');
+    fireEvent.click(chips[2]!);
+    expect(Number(box.value)).toBe(Number(most));
+    expect(vibrate).toHaveBeenCalledTimes(3);
+  });
+
+  it('paying the token: Max alone, the whole balance, and no SOL amounts', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'Pay with' })).getByRole('button', { name: 'CORN' }));
+    expect(within(panel).queryByRole('button', { name: '0.05 SOL' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: '0.5 SOL' })).toBeNull();
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Max CORN' }));
+    expect(Number((within(panel).getByLabelText('CORN to put in') as HTMLInputElement).value)).toBe(500);
+  });
+
+  it('names the token as a 44px press that copies its whole address', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    const name = within(panel).getByTestId('coin-name');
+    expect(name).toHaveAccessibleName(`CORN: copy its address ${M}`);
+    expect(name.className).toContain('min-h-[44px]');
+    // On the heading's line, its reach taken back, so the door's first screen gets no new line.
+    expect(name.parentElement).toBe(within(panel).getByRole('heading', { name: 'Add with one coin' }).parentElement);
+    expect(name.className).toContain('-my-3');
+    await act(async () => {
+      fireEvent.click(name);
+    });
+    expect(writeText).toHaveBeenCalledWith(M);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Island answer twenty-five, screen 1: the sheet hosts this form, drawn as the island drew it.
+describe('Add with one coin, in the sheet', () => {
+  function inSheet(v: PoolView = view(), rs: LpReaders = readers(v)) {
+    const room = { id: 'corn', name: 'Corn', symbol: 'CORN', chain: 'solana', address: M, venueSolPool: v.address, live: true } as unknown as Bungalow;
+    const place: SheetPlace = { kind: 'add', room, bayla: <p data-testid="her-line">12.34° Observer. Every day in this pool counts double.</p> };
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={['/corn?sheet=add']}>
+        <SheetContext.Provider value={place}>
+          <LpInner readers={rs} writes={writes} home={{ mint: M, pool: v.address }} />
+        </SheetContext.Provider>
+      </MemoryRouter>,
+    );
+    return v;
+  }
+
+  it('opens by itself and holds only what was drawn: the amount, three chips, two rows, the fee line, her line, one green button', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const panel = screen.getByTestId('lp-one-coin-panel');
+    expect(amount).toHaveAttribute('placeholder', '0');
+    expect(within(panel).getByRole('group', { name: 'How much SOL' }).querySelectorAll('button')).toHaveLength(3);
+    for (const chip of ['0.05 SOL', '0.5 SOL', 'Max SOL']) expect(within(panel).getByRole('button', { name: chip })).toBeInTheDocument();
+    const facts = within(panel).getByTestId('lp-door-facts');
+    expect(facts).toHaveTextContent('Pool price1 CORN = 0.01 SOL');
+    expect(facts).toHaveTextContent('Outside price0.01 SOL');
+    expect(within(facts).getByTestId('sheet-fee-line').textContent).toMatch(/^LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%\.$/);
+    expect(within(panel).getByTestId('her-line')).toBeInTheDocument();
+    // One green button on the sheet, and it says the island's words.
+    expect(panel.querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(within(panel).getByRole('button', { name: 'Add SOL + CORN' })).toHaveClass('btn-primary');
+    // Nothing else: no pay-with toggle, no paragraph, no how-it-works, no second button, no slippage.
+    expect(within(panel).queryByRole('group', { name: 'Pay with' })).toBeNull();
+    expect(within(panel).queryByTestId('lp-one-what')).toBeNull();
+    expect(within(panel).queryByTestId('lp-one-line')).toBeNull();
+    expect(within(panel).queryByText('How it works')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'I have both coins' })).toBeNull();
+    expect(within(panel).queryByText(/Slippage/)).toBeNull();
+    // The card the form rides on is not seen: only the door's slot is.
+    expect(screen.getByTestId('lp-pool').closest('[hidden]')).not.toBeNull();
+  });
+
+  it('a chip fills the amount and is the chosen one until a key is typed', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const half = screen.getByRole('button', { name: '0.5 SOL' });
+    fireEvent.click(half);
+    expect(amount).toHaveValue('0.5');
+    expect(half).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.change(amount, { target: { value: '0.3' } });
+    expect(half).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('the green button asks the same review Review asked, inside the sheet', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const panel = screen.getByTestId('lp-one-coin-panel');
+    await within(panel).findByText('Max SOL');
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Max SOL' })).toBeEnabled());
+    fireEvent.change(amount, { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Add SOL + CORN' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    expect(review).toHaveTextContent('Step 1: swap, through Jupiter');
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a pool that could not be read says so, with its way on: never an empty sheet', async () => {
+    const v = view();
+    const rs = { ...readers(v), findPools: vi.fn(async () => ({ kind: 'unread', detail: 'the RPC refused' }) as PoolSearchRead) };
+    inSheet(v, rs);
+    expect(await screen.findByText('The pool could not be read just now.')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Read again/ })).toBeVisible();
+    expect(screen.queryByTestId('sheet-amount')).toBeNull();
+  });
+
+  it('while the pool is read, the sheet says so', async () => {
+    const v = view();
+    const rs = { ...readers(v), findPools: vi.fn(() => new Promise<PoolSearchRead>(() => {})) };
+    inSheet(v, rs);
+    expect(await screen.findByText('Reading the token and its pools from the chain…')).toBeVisible();
+  });
+
+  it('with no wallet the green button connects one, never a second button', async () => {
+    wallet.publicKey = null;
+    connect.open.mockClear();
+    inSheet();
+    await screen.findByTestId('sheet-amount');
+    const go = screen.getByRole('button', { name: 'Add SOL + CORN' });
+    expect(go).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Connect Solana Wallet' })).toBeNull();
+    fireEvent.click(go);
+    expect(connect.open).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Island answer thirty-five: THE SECOND SIGNATURE IS THE SECOND TAP. Step 2 opened as the Add
+// liquidity form on what step 1 left, two boxes to type in. The owner, who had chosen 0.1 SOL,
+// read 0.0498 SOL as the wrong amount, typed 0.1 again and added double (2026-11-11, his
+// frames and the chain). Pinned here: step 2 opens ON its review, asked for once from exactly
+// what step 1 left; the line above says the amount chosen and where each part went; Cancel is
+// the form, as it always was; and what cannot be reviewed opens the form with its own words.
+describe('Add with one coin: step 2 opens on its review', () => {
+  /** An API whose deposit builds: the review a real builder would hand back. */
+  const reviewing = (v: PoolView) =>
+    fakeLpApi({ prepareLpDeposit: vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpDepositSummary(new PublicKey(v.address), MINT)) })) });
+  /** The pool's card with this API and these readers, its "Add with one coin" pressed. */
+  async function openWith(api: LpWriteApi, v: PoolView, r: LpReaders = readers(v)) {
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => api), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+        <LpInner readers={r} writes={writes} />
+      </MemoryRouter>,
+    );
+    const card = await screen.findByTestId('lp-pool');
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add with one coin' }));
+  }
+  /** Step 1 reviewed for 1 SOL, signed and landed: it swapped 0.505050505 SOL and paid 48.7 CORN. */
+  async function stepOneLands(api: LpWriteApi, v: PoolView) {
+    await openWith(api, v);
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    leg.received = vi.fn(async () => 48_700_000n);
+    fireEvent.click(within(review).getByRole('button', { name: 'Sign in wallet' }));
+    return screen.findByTestId('lp-one-step2');
+  }
+  const boxes = () => [screen.queryByLabelText('SOL to add'), screen.queryByLabelText('Tokens to add'), screen.queryByRole('button', { name: 'Review: add liquidity' })];
+
+  it('after step 1 lands there is nothing to type: the deposit is asked for once, from what step 1 left, and Sign in wallet is on the screen', async () => {
+    const v = view();
+    const api = reviewing(v);
+    await stepOneLands(api, v);
+    const add = screen.getByTestId('lp-add-panel');
+    expect(await within(add).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(add).toHaveTextContent('Step 2: add both coins');
+    for (const el of boxes()) expect(el).toBeNull();
+    // 1 SOL chosen, 0.505050505 swapped: 0.494949495 SOL kept, 48.7 CORN got. At this pool's 0.01 SOL a
+    // token the SOL kept would need more CORN than step 1 paid, so the CORN drives, at all of it.
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+    expect(api.prepareLpDeposit).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), expect.anything(), expect.objectContaining({ driving: 'token', maxIn: 48_700_000n, slippageBps: 100n }));
+    // Nothing reached the wallet for step 2: the review is read first, and signed by a press.
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('the line above it says the amount chosen, what step 1 swapped of it, and what that left', async () => {
+    const v = view();
+    const step2 = await stepOneLands(reviewing(v), v);
+    // 0.505050505 + 0.494949495 = 1: the two parts of the paid coin are exact and add up to the amount chosen.
+    expect(step2).toHaveTextContent('You chose 1 SOL. Step 1 (555555…5555) swapped 0.505050505 SOL of it for 48.7 CORN. That left 0.494949495 SOL and that CORN for step 2: one more signature.');
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ total: SOL, kept: 494_949_495n, got: 48_700_000n });
+  });
+
+  it('Cancel on that review is the form, filled with what step 1 left, and no review opens by itself again', async () => {
+    const v = view();
+    const api = reviewing(v);
+    await stepOneLands(api, v);
+    const add = screen.getByTestId('lp-add-panel');
+    fireEvent.click(await within(add).findByRole('button', { name: 'Cancel' }));
+    expect(await within(add).findByLabelText('Tokens to add')).toHaveValue('48.7');
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeEnabled();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+    expect(within(add).queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    // The form is the ordinary one from here: its own Review asks again.
+    fireEvent.click(within(add).getByRole('button', { name: 'Review: add liquidity' }));
+    expect(await within(add).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(2);
+  });
+
+  it('a step 2 owed from before (a reload, another tab) opens on its review too, and a note with no total keeps the sentence it had', async () => {
+    const v = view();
+    const api = reviewing(v);
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v);
+    const step2 = await screen.findByTestId('lp-one-step2');
+    expect(step2).toHaveTextContent('Step 1 is done (444444…4444). It left you 0.5 SOL and 49 CORN to add.');
+    expect(step2).not.toHaveTextContent('You chose');
+    expect(await within(screen.getByTestId('lp-add-panel')).findByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    for (const el of boxes()) expect(el).toBeNull();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a review the builder refuses is said as any refusal is, and Start over is the form', async () => {
+    const v = view();
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'the price moved' } })) });
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByText(/the price moved/)).toBeInTheDocument();
+    fireEvent.click(within(add).getByRole('button', { name: 'Start over' }));
+    // Asked for again on each look: the box is drawn anew when the wallet is read again after an outcome.
+    await waitFor(() => expect(within(add).getByLabelText('SOL to add')).toBeInTheDocument());
+    expect(within(add).queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  });
+
+  it('balances that cannot be read open the form at once, as before, and nothing is asked for', async () => {
+    const v = view();
+    const api = reviewing(v);
+    const r = readers(v);
+    r.wallet = vi.fn(async () => ({ kind: 'unread' as const, detail: 'the network did not answer' }));
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v, r);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByLabelText('SOL to add')).toBeInTheDocument();
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeInTheDocument();
+    expect(within(add).queryByTestId('lp-add-opening')).toBeNull();
+    expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+  });
+
+  it('amounts this wallet cannot fund open the form with its own words for why, and nothing is asked for', async () => {
+    const v = view();
+    const api = reviewing(v);
+    const r = readers(v);
+    // The wallet no longer holds the CORN step 1 paid.
+    r.wallet = vi.fn(async () => ({ ...facts, token: { address: key().toBase58(), amount: 1n } }));
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    await openWith(api, v, r);
+    const add = await screen.findByTestId('lp-add-panel');
+    expect(await within(add).findByLabelText('Tokens to add')).toBeInTheDocument();
+    expect(within(add).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
+    expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+  });
+
+  it('while the balances are read the form’s boxes are never drawn; past the wait, the form opens', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const v = view();
+      const api = reviewing(v);
+      const r = readers(v);
+      r.wallet = vi.fn(() => new Promise<WalletFacts>(() => {}));
+      saveStepTwo(OWNER.toBase58(), otherTab(v));
+      await openWith(api, v, r);
+      const add = await screen.findByTestId('lp-add-panel');
+      expect(within(add).getByTestId('lp-add-opening')).toHaveTextContent('Reading the pool and the price again');
+      for (const el of boxes()) expect(el).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(OPEN_ON_REVIEW_MS + 50); });
+      expect(within(add).queryByTestId('lp-add-opening')).toBeNull();
+      expect(within(add).getByLabelText('SOL to add')).toBeInTheDocument();
+      expect(api.prepareLpDeposit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

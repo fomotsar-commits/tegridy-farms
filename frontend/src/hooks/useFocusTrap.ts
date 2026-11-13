@@ -44,7 +44,10 @@ function getFocusableDescendants(root: HTMLElement): HTMLElement[] {
 
 export function useFocusTrap<T extends HTMLElement = HTMLElement>(
   active: boolean,
+  /** Focus the dialog itself on open (it carries tabIndex -1), not its first control. */
+  opts: { focusContainer?: boolean } = {},
 ): RefObject<T | null> {
+  const { focusContainer = false } = opts;
   const containerRef = useRef<T>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
@@ -86,14 +89,17 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(
     requestAnimationFrame(() => {
       if (!containerRef.current) return;
       const focusables = getFocusableDescendants(containerRef.current);
-      if (focusables.length > 0) focusables[0]!.focus();
+      if (focusables.length > 0 && !focusContainer) focusables[0]!.focus();
+      // A dialog asked to hold the focus itself is already in place, and may be taller than the
+      // screen: a plain focus() scrolls its layer to it (the receipt card's head left the top).
+      else if (focusContainer) containerRef.current.focus({ preventScroll: true });
       else containerRef.current.focus();
     });
     return () => {
       const prev = previouslyFocusedRef.current;
       if (prev && typeof prev.focus === 'function') prev.focus();
     };
-  }, [active]);
+  }, [active, focusContainer]);
 
   return containerRef;
 }

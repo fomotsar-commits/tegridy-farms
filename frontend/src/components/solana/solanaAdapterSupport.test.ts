@@ -10,7 +10,7 @@ import {
   SolflareWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
-import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
+import { TangemWalletAdapter, WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 import type { Adapter } from '@solana/wallet-adapter-base';
 
 /**
@@ -59,6 +59,7 @@ const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adap
   ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
   ['Solflare', () => new SolflareWalletAdapter() as unknown as Adapter],
   ['Backpack', () => new BackpackWalletAdapter() as unknown as Adapter],
+  ['Tangem', () => new TangemWalletAdapter({ projectId: 'test' }) as unknown as Adapter],
   ['WalletConnect', () => new WalletConnectWalletAdapter({ projectId: 'test' }) as unknown as Adapter],
 ];
 
@@ -101,6 +102,7 @@ describe('Solana legacy adapters can send what this venue sends', () => {
         'CoinbaseWalletAdapter',
         'SolflareWalletAdapter',
         'BackpackWalletAdapter',
+        'TangemWalletAdapter',
         'WalletConnectWalletAdapter',
       ]),
     );
@@ -124,5 +126,70 @@ describe('Solana legacy adapters can send what this venue sends', () => {
         expect((versions as ReadonlySet<unknown>).has(0)).toBe(true);
       }).toThrow();
     }
+  });
+});
+
+// ── version 1 signing (SIMD-0385), 2026-11-07 ──────────────────────────────────
+// Phantom asked for version 1 transactions (ticket #455104). The write path builds one
+// only for a wallet whose wallet-standard `solana:signTransaction` feature lists 1 for
+// the connected account; every other wallet keeps the legacy path. The detection reads
+// the standard wallet behind wallet-adapter's StandardWalletAdapter, never the adapter's
+// own `supportedTransactionVersions` (the Set above, which never says 1).
+import { PublicKey } from '@solana/web3.js';
+import { v1SignerOf } from '../../lib/solana/v1Signer';
+
+describe('v1SignerOf: which wallets are handed version 1 bytes', () => {
+  const ME = new PublicKey(new Uint8Array(32).fill(7));
+  const signed = new Uint8Array([129, 9, 9]);
+  function standardAdapter(versions: ReadonlyArray<'legacy' | 0 | 1>, o: { accountLists?: boolean; address?: string } = {}) {
+    const calls: unknown[] = [];
+    const account = {
+      address: o.address ?? ME.toBase58(),
+      publicKey: ME.toBytes(),
+      chains: ['solana:mainnet', 'solana:devnet'],
+      features: o.accountLists === false ? [] : ['solana:signTransaction'],
+    };
+    const wallet = {
+      name: 'Phantom',
+      version: '1.0.0',
+      icon: 'data:image/png;base64,',
+      chains: ['solana:mainnet'],
+      accounts: [account],
+      features: {
+        'solana:signTransaction': {
+          version: '1.0.0',
+          supportedTransactionVersions: versions,
+          signTransaction: async (...inputs: unknown[]) => {
+            calls.push(inputs);
+            return inputs.map(() => ({ signedTransaction: signed }));
+          },
+        },
+      },
+    };
+    return { adapter: { standard: true as const, wallet }, calls, account };
+  }
+
+  it('Phantom-shaped: the feature lists 1 for the account, so the signer hands bytes over on the chain asked for', async () => {
+    const { adapter, calls, account } = standardAdapter(['legacy', 0, 1]);
+    const sign = v1SignerOf(adapter, ME);
+    expect(sign).not.toBeNull();
+    const bytes = new Uint8Array([129, 1, 2, 3]);
+    expect(await sign!(bytes, 'solana:mainnet')).toEqual(signed);
+    expect(calls).toEqual([[{ account, chain: 'solana:mainnet', transaction: bytes }]]);
+  });
+
+  it.each([
+    ['MetaMask-shaped: legacy and 0 only', () => standardAdapter(['legacy', 0]).adapter],
+    ['an account that does not list the feature', () => standardAdapter(['legacy', 0, 1], { accountLists: false }).adapter],
+    ['a wallet whose account is another address', () => standardAdapter(['legacy', 0, 1], { address: new PublicKey(new Uint8Array(32).fill(8)).toBase58() }).adapter],
+    ['a legacy adapter with no standard wallet behind it', () => new IPadAwarePhantomWalletAdapter()],
+  ])('%s keeps the legacy path', (_what, make) => {
+    expect(v1SignerOf(make(), ME)).toBeNull();
+  });
+
+  it('a wallet that returns nothing is an error, never an empty transaction', async () => {
+    const { adapter } = standardAdapter(['legacy', 0, 1]);
+    (adapter.wallet.features['solana:signTransaction'] as { signTransaction: unknown }).signTransaction = async () => [];
+    await expect(v1SignerOf(adapter, ME)!(new Uint8Array([129]), 'solana:mainnet')).rejects.toThrow(/did not return/);
   });
 });

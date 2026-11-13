@@ -301,6 +301,90 @@ for (const width of [360, 412]) {
   });
 }
 
+// THE FOOTER NEVER FLASHES UNDER THE FRAME (island answer thirty-four; the owner's word, 11-06: a glitch
+// flash on his phone). While the page's chunk is still on the wire, React's fallback is the frame alone,
+// and the layout's footer was the next thing in the page: painted under the art, 446 px down a phone's
+// screen, where the room's buttons belong, for as long as the chunk took (2.3 s on the island's phone
+// throttle), then gone. The frame holds the screen, as the page that replaces it does.
+
+interface FooterWatch { above: string[]; frames: number; done: boolean }
+
+/** From before any page script: every frame in which the footer is on the first screen before the page has landed. */
+function watchFooter() {
+  const w: FooterWatch = { above: [], frames: 0, done: false };
+  (window as unknown as { __footer: FooterWatch }).__footer = w;
+  const check = () => {
+    if (w.done) return;
+    const main = document.querySelector('main#main-content');
+    const landed = !!main?.querySelector('h1') && !main.querySelector('[aria-busy="true"]');
+    const footer = document.querySelector('footer');
+    if (footer && window.scrollY === 0) {
+      const top = Math.round(footer.getBoundingClientRect().top);
+      if (top < window.innerHeight) w.above.push(`${Math.round(performance.now())} ms: footer at ${top} px of ${window.innerHeight}`);
+    }
+    if (landed) w.done = true;
+  };
+  const frame = () => {
+    w.frames += 1;
+    check();
+    if (!w.done) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  new MutationObserver(check).observe(document, { childList: true, subtree: true });
+}
+
+const readFooterWatch = (page: Page) => page.evaluate(() => (window as unknown as { __footer: FooterWatch }).__footer);
+
+// Every in-layout frame: the rooms, the TOWELI room, the open lot, and the venue's own home.
+for (const [route, chunk] of [
+  ['/bayla', 'HomePage'],
+  ['/pepe', 'HomePage'],
+  ['/toweli', 'HomePage'],
+  ['/nb1', 'BungalowDoorLanding'],
+  ['/', 'HomePage'],
+] as const) {
+  test(`${route}: the footer is never on the first screen while the page is still arriving`, async ({ page }) => {
+    test.slow();
+    const heading = route === '/' ? 'MEMETICS.FINANCE Held time counts here.' : doorHeading(route);
+    await page.addInitScript(watchFooter);
+    const releasePage = await hold(page, `**/assets/${chunk}-*.js`);
+    await page.goto(route, { waitUntil: 'commit' });
+    // React's fallback is up and the page's chunk is held: what a slow line shows, at rest.
+    const fallback = page.locator('main#main-content [aria-busy="true"] h1');
+    await expect(fallback).toHaveText(heading, { timeout: 60_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const footer = page.locator('footer').first();
+    await expect(footer).toHaveCount(1);
+    const fold = await page.evaluate(() => window.innerHeight);
+    const top = await footer.evaluate((el) => Math.round(el.getBoundingClientRect().top));
+    console.log(`[door-first-frame] ${test.info().project.name} ${route}: under the fallback the footer is at ${top} px, the fold at ${fold}`);
+    expect(top, `${route}: the footer is on the first screen under the frame (at ${top} px of ${fold})`).toBeGreaterThanOrEqual(fold);
+    const headingTop = await fallback.evaluate((el) => el.getBoundingClientRect().top);
+
+    releasePage();
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
+    const hero = page.locator('main#main-content h1').first();
+    await expect(hero).toHaveText(heading);
+    // Holding the screen moved nothing: the heading is where the fallback had it.
+    expect(Math.abs((await hero.evaluate((el) => el.getBoundingClientRect().top)) - headingTop), `${route}: the heading moved when the page landed`).toBeLessThanOrEqual(1);
+    await expect.poll(async () => (await readFooterWatch(page)).done, { timeout: 15_000 }).toBe(true);
+    const w = await readFooterWatch(page);
+    expect(w.frames, 'the watch saw no frame').toBeGreaterThan(0);
+    expect(w.above, `${route}: frames with the footer on the first screen before the page landed`).toEqual([]);
+  });
+}
+
+test('on the phone throttle, /bayla never paints its footer on the first screen before the room lands', async ({ page }) => {
+  test.slow();
+  await page.addInitScript(watchFooter);
+  await phoneThrottle(page);
+  await page.goto('/bayla', { waitUntil: 'commit' });
+  await expect.poll(async () => (await readFooterWatch(page).catch(() => null))?.done ?? false, { timeout: 150_000 }).toBe(true);
+  const w = await readFooterWatch(page);
+  console.log(`[door-first-frame] ${test.info().project.name} /bayla on the phone throttle: ${w.frames} frames, ${w.above.length} with the footer on the first screen`);
+  expect(w.above, 'frames with the footer on the first screen before the room landed').toEqual([]);
+});
+
 /** In the page: the lines under the heading (none since 2026-10-16), then the field and the button beside it. */
 const readLines = (root: Element) => {
   const box = (el: Element | null | undefined) => {

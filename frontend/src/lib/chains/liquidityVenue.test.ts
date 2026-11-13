@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { liquidityVenueOn } from './liquidityVenue';
+import { liquidityVenueOn, openingVenueOn } from './liquidityVenue';
 import { CHAINS, CONFIGURED_CHAIN_IDS } from './registry';
 import {
   TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
+  TEGRIDY_OPENING_FACTORY_ADDRESS,
+  TEGRIDY_OPENING_ROUTER_ADDRESS,
+  TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS,
   WETH_ADDRESS,
   CHAIN_ID,
+  isDeployed,
 } from '../constants';
 
 /**
@@ -77,5 +81,35 @@ describe('liquidityVenueOn', () => {
     expect(liquidityVenueOn(999_999)).toBeNull();
     expect(liquidityVenueOn(undefined)).toBeNull();
     expect(liquidityVenueOn(null)).toBeNull();
+  });
+});
+
+describe('openingVenueOn — where NEW pools open (0.006 ETH, owner ruling 2026-10-25)', () => {
+  it('is null on every chain while no fee factory is deployed, so nothing changes', () => {
+    for (const id of CONFIGURED_CHAIN_IDS) {
+      const own = CHAINS[id]!.contracts;
+      if (own.openingFactory && own.openingRouter && own.openingSwapFeeRouter) continue;
+      expect(openingVenueOn(id), `${CHAINS[id]!.name} resolved an opening venue it does not have`).toBeNull();
+    }
+  });
+
+  it('mainnet resolves to EXACTLY what the constants say, and never to the old pair of contracts', () => {
+    const venue = openingVenueOn(CHAIN_ID);
+    if (!isDeployed(TEGRIDY_OPENING_FACTORY_ADDRESS) || !isDeployed(TEGRIDY_OPENING_ROUTER_ADDRESS)
+      || !isDeployed(TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS)) {
+      expect(venue).toBeNull();
+      return;
+    }
+    expect(venue!.factory).toBe(TEGRIDY_OPENING_FACTORY_ADDRESS);
+    expect(venue!.router).toBe(TEGRIDY_OPENING_ROUTER_ADDRESS);
+    expect(venue!.weth).toBe(WETH_ADDRESS);
+    expect(venue!.factory.toLowerCase()).not.toBe(TEGRIDY_FACTORY_ADDRESS.toLowerCase());
+    expect(venue!.router.toLowerCase()).not.toBe(TEGRIDY_ROUTER_ADDRESS.toLowerCase());
+  });
+
+  it('refuses rather than defaulting, where we cannot serve a venue', () => {
+    expect(openingVenueOn(999_999)).toBeNull();
+    expect(openingVenueOn(undefined)).toBeNull();
+    expect(openingVenueOn(null)).toBeNull();
   });
 });

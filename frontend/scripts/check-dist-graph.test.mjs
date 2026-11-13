@@ -61,7 +61,7 @@ afterAll(() => {
  * markers and one static dependency (invariants A and B), a lazy Solana page
  * holding the adapter's marker, and a chunk holding sign-client's.
  */
-function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false } = {}) {
+function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy', wagmi = 'lean', css = 'linked' } = {}) {
   const SIGN = markerFromGate('SIGN_CLIENT_MARKER');
   const SOLANA = markerFromGate('SOLANA_WALLETCONNECT_MARKER');
   const dir = mkdtempSync(join(tmpdir(), 'dist-graph-'));
@@ -72,6 +72,7 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
     'index-e.js',
     'import"./vendor-react-r.js";globalThis.Buffer=1;globalThis.global=globalThis;' +
       (fromEntry ? 'import{S as c}from"./sign-client-c.js";' : '') +
+      (cardano === 'eager' ? 'import"./vendor-cardano-k.js";' : 'const csl=()=>import(`./vendor-cardano-k.js`);') +
       'const page=()=>import(`./SolanaPage-s.js`);export{page};',
   );
   chunk('vendor-react-r.js', 'export const r=1;');
@@ -84,12 +85,24 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
       'export{};',
   );
   if (signClient) chunk('sign-client-c.js', `console.info("${SIGN}");export const S=1;`);
+  if (cardano !== 'missing') chunk('vendor-cardano-k.js', 'export const C=1;');
+  // The EVM wallet chunk (invariant F): lean as the real one is, or with RainbowKit's
+  // on-demand modules welded in, which is about 1.9 MB of language files and icons.
+  if (wagmi !== 'missing') chunk('vendor-wagmi-w.js', `export const W=1;${wagmi === 'welded' ? `/*${'x'.repeat(701 * 1024)}*/` : ''}`);
+  // The stylesheets (invariant G): the entry's, which the HTML links as the real build's does, and,
+  // for 'lazy', one that came with the lazy Solana page and that no HTML links.
+  if (css !== 'missing') chunk('index-e.css', 'body{margin:0}');
+  if (css === 'lazy') chunk('SolanaPage-s.css', '.wallet-adapter-button{display:flex}');
   writeFileSync(
     join(dir, 'index.html'),
     '<!doctype html><html><head>' +
       '<script type="module" crossorigin src="/assets/index-e.js"></script>' +
       (preload ? '<link rel="modulepreload" crossorigin href="/assets/sign-client-c.js">' : '') +
-      '</head><body></body></html>',
+      (cardano === 'preload' ? '<link rel="modulepreload" crossorigin href="/assets/vendor-cardano-k.js">' : '') +
+      (cardano === 'preload-wasm' ? '<link rel="preload" as="fetch" crossorigin href="/assets/csl-w.wasm">' : '') +
+      '<link rel="stylesheet" href="/fonts/fonts.css">' +
+      // After #root, where vite.config.ts firstFrameStylesheetsPlugin moves the built links.
+      `</head><body><div id="root"></div>${css !== 'missing' ? '<link rel="stylesheet" crossorigin href="/assets/index-e.css">' : ''}</body></html>`,
   );
   return dir;
 }
@@ -169,6 +182,81 @@ describe('check-dist-graph invariant D, for a build WITHOUT a project id', () =>
     const run = gate(fixture({ signClient: false }), WITH_ID);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(markerFromGate('SIGN_CLIENT_MARKER'));
+  });
+});
+
+describe('check-dist-graph invariant E: the Cardano library stays lazy', () => {
+  it('a lazy vendor-cardano chunk passes, and the pass names it', () => {
+    const run = gate(fixture());
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('Cardano library lazy (vendor-cardano-k.js)');
+  });
+
+  it("vendor-cardano in the entry's static closure fails", () => {
+    const run = gate(fixture({ cardano: 'eager' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('vendor-cardano-k.js');
+  });
+
+  it('index.html preloading the chunk or a .wasm fails', () => {
+    for (const cardano of ['preload', 'preload-wasm']) {
+      const run = gate(fixture({ cardano }));
+      expect(run.status).toBe(1);
+      expect(run.stderr).toMatch(/Cardano library must stay lazy/);
+    }
+  });
+
+  it('no vendor-cardano chunk at all fails: E checked nothing', () => {
+    const run = gate(fixture({ cardano: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant E checked nothing');
+  });
+});
+
+describe('check-dist-graph invariant F: the EVM wallet chunk stays lean', () => {
+  it('a lean vendor-wagmi passes, and the pass says how big it was', () => {
+    const run = gate(fixture());
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toMatch(/vendor-wagmi \d+ KB\./);
+  });
+
+  it("RainbowKit's on-demand modules welded in (over 700 KB) fails, and names the rule to look at", () => {
+    const run = gate(fixture({ wagmi: 'welded' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('vendor-wagmi-w.js');
+    expect(run.stderr).toContain('over the 700 KB ceiling');
+    expect(run.stderr).toContain('manualChunks');
+  });
+
+  it('no vendor-wagmi chunk at all fails: F checked nothing', () => {
+    const run = gate(fixture({ wagmi: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant F checked nothing');
+  });
+});
+
+describe('check-dist-graph invariant G: no stylesheet arrives with a lazy chunk', () => {
+  it('a build whose every stylesheet is in the first HTML passes, and the pass names them', () => {
+    const run = gate(fixture());
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('Every stylesheet is in the first HTML (index-e.css).');
+  });
+
+  it('a stylesheet that came with a lazy chunk fails, names the file, and says where its CSS goes', () => {
+    const run = gate(fixture({ css: 'lazy' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('SolanaPage-s.css');
+    expect(run.stderr).not.toContain('index-e.css');
+    expect(run.stderr).toContain('src/main.tsx');
+    expect(run.stderr).toMatch(/Safari/);
+  });
+
+  it('no stylesheet at all fails: G checked nothing', () => {
+    const run = gate(fixture({ css: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant G checked nothing');
   });
 });
 

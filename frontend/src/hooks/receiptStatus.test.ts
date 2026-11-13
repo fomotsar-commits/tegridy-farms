@@ -82,6 +82,8 @@ vi.mock('wagmi', async () => {
       readContract: vitest.fn().mockResolvedValue(0n),
       multicall: vitest.fn().mockResolvedValue([]),
     }),
+    // useSwap signs a Permit2 allowance on Base's V3 route; nothing here reaches it.
+    useSignTypedData: () => ({ signTypedDataAsync: vitest.fn() }),
     useWriteContract: () => ({
       writeContract: wagmiState.writeContractMock,
       data: wagmiState.hash,
@@ -179,10 +181,8 @@ import { useFarmActions } from './useFarmActions';
 import { useLPFarming } from './useLPFarming';
 import { useSwap } from './useSwap';
 import { useAddLiquidity } from './useAddLiquidity';
-import { useBribes } from './useBribes';
 import { useRevenueStats } from './useRevenueStats';
 import { useNFTDropV2 } from './useNFTDropV2';
-import { useRestaking } from './useRestaking';
 import { usePremiumAccess } from './usePremiumAccess';
 import { DEFAULT_TOKENS } from '../lib/tokenList';
 import { toast } from 'sonner';
@@ -273,10 +273,8 @@ const HOOKS: Array<{ name: string; use: () => { isSuccess: boolean } }> = [
 const ALL_HOOKS: Array<{ name: string; use: () => { isSuccess: boolean } }> = [
   ...HOOKS,
   { name: 'useAddLiquidity', use: () => useAddLiquidity(DEFAULT_TOKENS[0], DEFAULT_TOKENS[1]) },
-  { name: 'useBribes', use: () => useBribes() },
   { name: 'useRevenueStats', use: () => useRevenueStats() },
   { name: 'useNFTDropV2', use: () => useNFTDropV2('0x00000000000000000000000000000000000d7009') },
-  { name: 'useRestaking', use: () => useRestaking() },
   { name: 'usePremiumAccess', use: () => usePremiumAccess() },
 ];
 

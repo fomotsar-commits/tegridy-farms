@@ -24,6 +24,9 @@ import {
   WETH_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
+  TEGRIDY_OPENING_FACTORY_ADDRESS,
+  TEGRIDY_OPENING_ROUTER_ADDRESS,
+  TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS,
   TEGRIDY_TWAP_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS,
   SWAP_FEE_ROUTER_ADMIN_ADDRESS,
@@ -75,6 +78,9 @@ const MAINNET: ChainConfig = {
     weth: WETH_ADDRESS,
     factory: TEGRIDY_FACTORY_ADDRESS,
     router: TEGRIDY_ROUTER_ADDRESS,
+    openingFactory: orNull(TEGRIDY_OPENING_FACTORY_ADDRESS),
+    openingRouter: orNull(TEGRIDY_OPENING_ROUTER_ADDRESS),
+    openingSwapFeeRouter: orNull(TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS),
     twap: TEGRIDY_TWAP_ADDRESS,
     swapFeeRouter: SWAP_FEE_ROUTER_ADDRESS,
     swapFeeRouterAdmin: SWAP_FEE_ROUTER_ADMIN_ADDRESS,
@@ -128,6 +134,12 @@ const BASE: ChainConfig = {
     // pending the 2-of-2 accept ceremony; the curve is MULTISIG-owned from birth.
     factory: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC',
     router: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
+    // The factory above is the same free code as Ethereum's old one. These charge 0.006 ETH to
+    // open a pool, paid to the treasury Safe 0x796c… (owner 2026-11-07); deployed by the owner
+    // 2026-11-08 (contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/), owned by the multisig.
+    openingFactory: '0x09E1B43f90cb6488063BB91310FD40c4339027e6',
+    openingRouter: '0x7D7DA5d6335efdCdd510C439cB7948b31562847f',
+    openingSwapFeeRouter: '0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd',
     twap: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
     swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouterAdmin: '0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2',
@@ -179,6 +191,12 @@ const ROBINHOOD: ChainConfig = {
     // The AttestedSequencerUptimeFeed is the sequencerUptimeFeed above (deployed first).
     factory: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
     router: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
+    // The factory above is the same free code as Ethereum's old one. These charge 0.006 ETH to
+    // open a pool, paid to the treasury Safe 0x796c… (owner 2026-11-07); deployed by the owner
+    // 2026-11-08 by cast replay of the dry run (nonces 25-35), owned by the multisig.
+    openingFactory: '0xB62BaD165997E95C503044787b2Dcc85DC6D83F1',
+    openingRouter: '0xA0D43eF39C4940e68b2f81d51E6316a45C136D93',
+    openingSwapFeeRouter: '0x85AB297793e14283b54347C92C6AEFBaa20d1492',
     twap: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouter: '0xE9F83A07b071748E795d2489651d5310fA098Db8',
     swapFeeRouterAdmin: '0xdFdd6D72539A425dC917F49FB834901105cA98c9',
@@ -288,7 +306,7 @@ export function feesBecomeStakerYieldOn(chainId: number | undefined | null): boo
 export function launchWrongChainMessage(chainId: number | undefined | null): string {
   const config = getChainConfig(chainId);
   if (config && config.id !== DEFAULT_CHAIN_ID) {
-    return `Token launches run on Ethereum today — ${config.name} is supported by the app, but its launch rail isn't deployed there yet. Switch to Ethereum to launch.`;
+    return `Token launches run on Ethereum today. ${config.name} is supported by the app, but its launch rail isn't deployed there yet. Switch to Ethereum to launch.`;
   }
   if (!config && chainId != null) {
     return `This app doesn't serve ${unconfiguredChainLabel(chainId)}. Switch to Ethereum to launch.`;

@@ -14,7 +14,6 @@ import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 interface IVotingEscrow {
     function votingPowerOf(address user) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
-    function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     /// @notice AUDIT REV-M-01 (MEDIUM, 2026-04-28): historical totalBoostedStake at `ts`.
     ///         Used by `_distribute` to pin the epoch denominator at `block.timestamp - 1`

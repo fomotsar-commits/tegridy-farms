@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
+import { METAPLEX_CREATE_FEE_LAMPORTS, PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, pctText, solText, tradeCostText } from '../../../lib/solana/lp/format';
 import { SOLANA_FEE_ACCOUNT, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
@@ -123,7 +123,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
                   )}
                   <Row
                     label="To open a pool"
-                    value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}
+                    value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits, t.index === PUBLIC_TIER_INDEX)}
                     mono={false}
                   />
                 </div>
@@ -207,11 +207,12 @@ function tierName(index: number): string {
 }
 
 /** What opening a pool on the public tier costs, in one line: the fee and the setup, neither refunded. */
+/** The public tier's opening, which from this site also writes the new share's name record (createPool.ts). */
 function openLine(config: AmmConfigView, deposits: bigint | null): string {
   if (config.disableCreatePool) return 'Opening a pool: switched off.';
   const fee = config.createPoolFee > 0n ? solText(config.createPoolFee) : 'no fee';
   const setup = deposits === null ? 'setup (not read)' : `${solText(deposits)} setup`;
-  return `Open a pool: ${fee} + ${setup}, not refunded.`;
+  return `Open a pool: ${fee} + ${setup} + the share's name record, not refunded.`;
 }
 
 /** The split as a sentence, in the small print. */
@@ -225,11 +226,14 @@ function earnSentence(tier: AmmConfigView): string {
  * program takes for the pool, its price record, its LP mint and its vaults, which are
  * never refunded. "No fee" is never "free".
  */
-function openingCost(fee: bigint, deposits: bigint | null): string {
+/** `named`: an opening on this tier from this site also writes the share's name record (the public tier only). */
+function openingCost(fee: bigint, deposits: bigint | null, named: boolean): string {
   const feeText = fee > 0n ? `${solOf(fee)} SOL fee` : 'No fee';
-  return deposits === null
-    ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
-    : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
+  const base =
+    deposits === null
+      ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
+      : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
+  return named ? `${base}, and the new pool share's name record: Metaplex's ${solOf(METAPLEX_CREATE_FEE_LAMPORTS)} SOL fee and the record's own deposit` : base;
 }
 
 /**

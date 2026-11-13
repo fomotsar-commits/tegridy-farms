@@ -11,6 +11,7 @@ import {
 } from '../../lib/launcher/birthPlates';
 import { getTxUrl } from '../../lib/explorer';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import {
   ALLOCATION_READING,
   ALLOCATION_UNREADABLE,
@@ -46,6 +47,15 @@ function useRetry(onRetry?: () => void) {
       }
     : undefined;
   return { status, retry };
+}
+
+/** The visible line is ours; what failed, in a developer's words, waits in here (as on the attestation card). */
+function WhatFailed({ detail, testId }: { detail: string; testId: string }) {
+  return (
+    <FinePrint testId={testId}>
+      <p className="break-words">What failed: {detail}</p>
+    </FinePrint>
+  );
 }
 
 function TxLink({ chainId, tx }: { chainId: number; tx: string }) {
@@ -84,7 +94,7 @@ export function CurveMakerCreateBuyView({
         {read?.kind === 'unreadable' && (
           <>
             <p className="text-white/75">{CREATE_BUY_UNREADABLE}</p>
-            <p className="text-white/40 text-[10px] break-words">{read.detail}</p>
+            <WhatFailed detail={read.detail} testId="curve-maker-create-buy-failure" />
             {retry && (
               <button type="button" onClick={retry} className="btn-secondary px-3 py-1.5 text-[12px]">
                 Read again
@@ -155,7 +165,7 @@ export function MakerPlatesView({ plates, onRetry }: { plates: DopplerPlates | n
         {plates?.kind === 'unreadable' && (
           <>
             <p>{ALLOCATION_UNREADABLE}</p>
-            <p className="text-[11px] text-text-muted break-words">{plates.detail}</p>
+            <WhatFailed detail={plates.detail} testId="maker-plates-failure" />
             {retry && (
               <button type="button" onClick={retry} className="btn-secondary text-[12px] px-3 py-1.5">
                 Read again

@@ -99,7 +99,7 @@ are marked in the sections below.
 | D2 | **Reload rate guard.** While `now < period_finish`, `notify_reward` refuses a reload whose new rate is below the current `reward_rate`: error **6028 `RewardRateWouldDecrease`** (`math::rate_change_allowed(now, period_finish, old_rate, new_rate) = now >= period_finish \|\| new_rate >= old_rate`). At or after `period_finish` any rate is allowed. | §4 top-ups |
 | D3 | **Key rotation — option (A)** (§1). A fresh deployer, generated outside any cloud-synced folder, is compiled into the rebuild. | §1, §5 |
 | D4 | **The pool authority is a multisig before any funds.** The deployer creates the pool, hands the authority to the multisig, and only then is anything funded. | §5 |
-| D5 | **Matured positions keep full boost indefinitely — disclosed, not changed.** Weight is frozen at stake time (`Position.weight` in `state.rs`) with no forced maturity, decay or kick (the `Pool.max_wallet_principal` doc in `state.rs`). A future upgrade MAY reset matured weight to 0.40x. | disclosure |
+| D5 | **Matured positions keep full boost indefinitely — disclosed, not changed.** Weight is frozen at stake time (`Position.weight` in `state.rs`) with no forced maturity, decay or kick (the `Pool.max_wallet_principal` doc in `state.rs`). A future upgrade MAY reset matured weight to 0.40x. **2026-11-11, owner: HONOURED, not changed** ("keep it, show it"), after stakers reported post-lock earnings as a bug; a reset to zero was planned and dropped. Each opened position now says it on its own row ("unlocked · still earning at 0.46× until you withdraw"), not only inside "Upgrade risk". | disclosure |
 | D6 | **The program is upgradeable, and that is stated.** Upgrade authority: the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (runbook §3). Its **member set and time lock are unconfirmed** (runbook §3). A penalty change by upgrade would apply to every open position, because no account stores the schedule. | disclosure |
 | D7 | **Reward funding never stops.** No sunset, no wind-down: every window is reloaded before its `period_finish` (§4 reload policy). | §4 |
 | D8 | **The Streamflow lighthouse pool and the ladder are separate products.** No migration, no integration. The Streamflow pool still needs its own funding through its last lock. | §4, §7 |
@@ -498,8 +498,9 @@ returns the accumulator unchanged), and the CLI's replay does the same.
 setter-less values. `deposit_cap` HAS a raise path — `propose_cap_raise` / `execute_cap_raise`,
 both in `lib.rs` — and the `math.rs` constant is only the penalty.)
 
-- **`min_stake` and `max_wallet_principal` have no setter** (runbook §6): written once in
-  `initialize_pool`, never changed.
+- **`min_stake` has no setter** (runbook §6): written once in `initialize_pool`, never
+  changed. `max_wallet_principal` had none either until the 2026-10-27 build added the
+  raise-only `raise_wallet_cap` (never above `deposit_cap`).
 - **The early-exit penalty is compiled in, with no setter: veYFI's schedule,
   `amount × min(time_left / 4 years, 75%)`** (`math::penalty_for`, capped by
   `MAX_EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, branch
@@ -657,8 +658,9 @@ this box silently — it is a promise to a third party, not an internal preferen
 
 - **BAYLA in the reward vault.** No clawback, ever.
 - **`pool.authority`**, until a two-step propose/accept completes. Loss is final.
-- **`min_stake`, `max_wallet_principal`, and the early-exit penalty schedule,
-  `min(time_left / 4 years, 75%)`** — no setter. (`deposit_cap` can only go up. The
+- **`min_stake` and the early-exit penalty schedule,
+  `min(time_left / 4 years, 75%)`** — no setter. (`deposit_cap` and, from the 2026-10-27
+  build, `max_wallet_principal` can only go up. The
   penalty could change only by a program upgrade, and that would reach every open
   position.)
 - **The reward-sizing bound the schedule leaves.** Frozen weights plus a time-left penalty

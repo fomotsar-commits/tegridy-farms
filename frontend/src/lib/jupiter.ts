@@ -3,10 +3,11 @@
 // All calls go to our same-origin hardened proxy (/api/jupiter/*), which
 // forwards to lite-api.jup.ag server-side. Supports ANY pair. The platform fee
 // is attached ONLY when a leg of the pair is in our pre-created fee-ATA set
-// {wSOL, USDC}: Jupiter requires the fee account to already exist, and for
+// {wSOL, USDC, USDT}: Jupiter requires the fee account to already exist, and for
 // ExactIn the fee mint may be the input OR output side — so that one set covers
-// both directions of any pair touching SOL/USDC. For any other pair the swap
-// runs fee-free, so an arbitrary pair can never break. No own program.
+// both directions of any pair touching SOL, USDC or USDT. For any other pair the
+// swap runs fee-free, so an arbitrary pair can never break. No own program.
+import { listedUsdPrices } from './solana/lp/sharedPrices';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
@@ -18,9 +19,18 @@ import {
   SOLANA_PLATFORM_FEE_BPS,
   SOL_MINT,
   USDC_MINT,
+  USDT_MINT,
 } from './solana';
 import { LST_TOKENS, SOL, USDC, USDT } from './solanaTokenList';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
+import { JupiterTxRefused, jupiterTxRefusal, type JupiterTxExpectation } from './solana/swap/jupiterTxGuard';
+
+/** Every transaction Jupiter returns is read against the trade on screen before any caller can sign it. */
+function checked(b64: string, expect: JupiterTxExpectation): string {
+  const why = jupiterTxRefusal(b64, expect);
+  if (why) throw new JupiterTxRefused(why);
+  return b64;
+}
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -41,11 +51,10 @@ export interface JupiterQuote {
 
 /**
  * Pick the fee mint for a pair, or null for no fee. We can only collect a fee in
- * a mint whose ATA the fee wallet has pre-created — that set is {wSOL, USDC}
- * (both legacy SPL). For ExactIn the fee mint may be either leg, so this one set
- * covers both directions of any pair touching SOL or USDC; ExactOut allows the
- * input mint only. Prefer USDC (stable, no wSOL dust). Pure / env-independent so
- * it's unit-testable; the configured-and-enabled gating lives at the call sites.
+ * a mint whose ATA the fee wallet has pre-created (create-fee-atas.mjs): the set is
+ * {wSOL, USDC, USDT}, all legacy SPL. For ExactIn the fee mint may be either leg;
+ * ExactOut allows the input mint only. Stable coins first (USDC, then USDT: no wSOL
+ * dust), SOL last. Pure, so it's unit-testable; the enabled gating is at the call sites.
  */
 export function pickFeeMint(
   inputMint: string,
@@ -54,6 +63,7 @@ export function pickFeeMint(
 ): string | null {
   const candidates = swapMode === 'ExactOut' ? [inputMint] : [inputMint, outputMint];
   if (candidates.includes(USDC_MINT)) return USDC_MINT;
+  if (candidates.includes(USDT_MINT)) return USDT_MINT;
   if (candidates.includes(SOL_MINT)) return SOL_MINT;
   return null;
 }
@@ -75,8 +85,8 @@ function feeEnabled(): boolean {
 
 /**
  * Derive the fee token account (ATA of `feeMint` owned by the fee wallet).
- * `feeMint` is always legacy SPL {wSOL, USDC}, so the default token program is
- * correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
+ * `feeMint` is always legacy SPL {wSOL, USDC, USDT}, so the default token program
+ * is correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
  */
 function feeAccountFor(feeMint: string): string | null {
   if (!SOLANA_FEE_ACCOUNT) return null;
@@ -248,7 +258,14 @@ export async function buildSwapTransaction(params: {
   }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
-  return json.swapTransaction;
+  return checked(json.swapTransaction, {
+    kind: 'swap',
+    user: params.userPublicKey,
+    quote: params.quote,
+    feeBps: feeAccount ? SOLANA_PLATFORM_FEE_BPS : 0,
+    feeAccount,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /** Convert a human decimal string to an integer base-unit string (no floats). */
@@ -308,20 +325,31 @@ export function fromBaseUnits(raw: string, decimals: number): string {
 // ─── Conversion polish: USD prices + route transparency ─────────────────────
 
 /**
- * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: a fixed
- * list every visitor asks for alike, which the proxy keeps at the edge for 30 s
- * (`priceCheck`, api/aggregator.js); never for a pair a visitor picked.
+ * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: the read
+ * the proxy keeps at the edge for 30 s (`priceCheck`, api/aggregator.js), so every visitor
+ * asking for the same list shares one Jupiter call; never where the price sizes a trade.
  */
 export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
-  const ids = [...new Set(mints.filter(Boolean))];
+  let ids = [...new Set(mints.filter(Boolean))];
   if (ids.length === 0) return {};
+  // A shared read takes the venue's list first (one price/v3 call for everyone, api/outside-prices.js;
+  // island answer twenty-four): price/v3 is asked only about mints the loop never asked about.
+  let listed: Record<string, number> = {};
+  if (opts.shared) {
+    const l = await listedUsdPrices(ids);
+    if (l) {
+      listed = l.prices;
+      ids = l.unknown;
+      if (ids.length === 0) return listed;
+    }
+  }
   const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}${opts.shared ? '&priceCheck=1' : ''}`, {
     headers: { Accept: 'application/json' },
     signal,
   });
   if (!res.ok) throw new Error(`Price fetch failed (${res.status})`);
   const json = (await res.json()) as Record<string, { usdPrice?: number } | null>;
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = { ...listed };
   for (const [mint, v] of Object.entries(json)) {
     if (v && typeof v.usdPrice === 'number') out[mint] = v.usdPrice;
   }
@@ -547,7 +575,15 @@ export async function createTriggerOrder(params: {
   if (!res.ok) throw new Error(`Could not create order (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No order transaction returned');
-  return json.transaction;
+  return checked(json.transaction, {
+    kind: 'trigger-create',
+    user: params.maker,
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    makingAmount: params.makingAmount,
+    takingAmount: params.takingAmount,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /** A wallet's active (unfilled) limit orders. */
@@ -571,7 +607,7 @@ export async function cancelTriggerOrder(maker: string, order: string): Promise<
   if (!res.ok) throw new Error(`Could not cancel order (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No cancel transaction returned');
-  return json.transaction;
+  return checked(json.transaction, { kind: 'trigger-cancel', user: maker, order, maxPriorityLamports: MAX_PRIORITY_LAMPORTS });
 }
 
 /** Best-effort extraction of an order's pubkey (the field name varies). */
@@ -647,7 +683,16 @@ export async function createRecurringOrder(params: {
   if (!res.ok) throw new Error(`Could not create DCA (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No DCA transaction returned');
-  return json.transaction;
+  return checked(json.transaction, {
+    kind: 'recurring-create',
+    user: params.user,
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    inAmount: params.inAmount,
+    numberOfOrders: params.numberOfOrders,
+    intervalSeconds: params.intervalSeconds,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /**
@@ -675,7 +720,7 @@ export async function cancelRecurringOrder(user: string, order: string): Promise
   if (!res.ok) throw new Error(`Could not cancel DCA (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No cancel transaction returned');
-  return json.transaction;
+  return checked(json.transaction, { kind: 'recurring-cancel', user, order, maxPriorityLamports: MAX_PRIORITY_LAMPORTS });
 }
 
 /** Best-effort extraction of a DCA order's pubkey (the field name varies). */

@@ -1,5 +1,5 @@
 /**
- * The network drop-down: all four networks listed, the lit one marked, a network the section
+ * The network drop-down: all five networks listed, the lit one marked, a network the section
  * has nothing on greyed with its reason and never picked, and a keyboard way in and out.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -11,6 +11,7 @@ const OPTIONS: ChainPickerOption[] = [
   { chain: 'base', enabled: false, note: 'No swap here' },
   { chain: 'robinhood', enabled: false, note: 'No swap here' },
   { chain: 'solana', enabled: true, note: 'Our pools + Jupiter' },
+  { chain: 'cardano', enabled: true, note: 'Minswap pools' },
 ];
 
 const mount = (onPick = vi.fn()) => {
@@ -21,18 +22,20 @@ const mount = (onPick = vi.fn()) => {
 const button = () => screen.getByRole('button', { name: 'Swap network: Ethereum' });
 
 describe('ChainPicker', () => {
-  it('is closed until pressed, then lists all four networks with the lit one selected', () => {
+  it('is closed until pressed, then lists all five networks with the lit one selected', () => {
     mount();
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(button());
     expect(button()).toHaveAttribute('aria-expanded', 'true');
+    // In the venue's order (lib/sectionChains.ts), Solana first, whatever order the section passes.
     const options = screen.getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
-      'EthereumUniswap / CoW',
+      'SolanaOur pools + Jupiter',
       'BaseNo swap here',
       'Robinhood ChainNo swap here',
-      'SolanaOur pools + Jupiter',
+      'EthereumUniswap / CoW',
+      'CardanoMinswap pools',
     ]);
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: /Base/ })).toHaveAttribute('aria-disabled', 'true');
@@ -60,11 +63,32 @@ describe('ChainPicker', () => {
     mount();
     fireEvent.keyDown(button(), { key: 'ArrowDown' });
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveFocus();
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowUp' });
+    // Down from Ethereum, the fourth, reaches the last, Cardano, then wraps to the first, Solana;
+    // up from the first wraps back to the last.
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /Cardano/ })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
     expect(screen.getByRole('option', { name: /Solana/ })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowUp' });
+    expect(screen.getByRole('option', { name: /Cardano/ })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveFocus();
+  });
+
+  // In the Buy sheet's coin row, the sheet's own Escape is a window listener: it must not hear the list's.
+  it('Escape in the list stops there: a window listener under it never hears it', () => {
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    try {
+      mount();
+      fireEvent.click(button());
+      fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', heard);
+    }
   });
 
   it('closes on a press outside it', () => {

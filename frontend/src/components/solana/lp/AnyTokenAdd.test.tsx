@@ -73,6 +73,7 @@ function view(coin: QuoteCoin, o: { frozen?: boolean; origin?: PoolView['origin'
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: o.frozen ?? false,
+    launchTierWithoutLaunch: false,
     history: o.history ?? { kind: 'not-read' },
   };
 }
@@ -106,6 +107,7 @@ function search(v: PoolView): PoolSearchRead {
       index: { kind: 'ok', pools: [v.address], truncated: false },
       pools: [{ kind: 'pool' as const, view: v }],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -380,26 +382,27 @@ describe.each([
     expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
   }, 20_000);
 
-  // UNREAD IS STILL REFUSED: a read of the coin's price that FAILED is not an answer.
-  it('is NOT open when the read of the coin’s price failed: not checked, no warning in its place, and no Add button', async () => {
+  // A read of the coin's price that FAILED is not an answer, so never "no market"; and the
+  // outside price is intel, one row, never a gate (answer twenty-seven).
+  it('is open when the read of the coin’s price failed: one row "not read yet", no warning in its place, and the Add button', async () => {
     mount(readers(view(coin), { coin: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } }));
-    const c = await cardWith('checks');
-    expect(c).toHaveAttribute('data-deposits', 'unchecked');
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
     expect(c).toHaveAttribute('data-price', 'unread');
-    expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
+    expect(within(c).getByText('Outside price', { exact: true }).nextElementSibling).toHaveTextContent('not read yet');
     expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
-    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
-    expect(c).toHaveTextContent(`the price of ${symbol} could not be read (Jupiter did not give a price (HTTP 502))`);
+    expect(within(c).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
+    expect(c).not.toHaveTextContent('Deposits: not checked');
   });
 });
 
 // Owner ruling 2026-10-07: a brand-new launch pool takes deposits. Jupiter has no route for
-// its token, and its own price record is under 10 minutes long, so its price was checked
+// its token, and its own price record is under 24 minutes long, so its price was checked
 // against nothing: a warning on the card, on the form, and Review is on. It was "not
 // checked" with no Add button before.
-describe('a launch pool Jupiter has no route for, with under 10 minutes of trading', () => {
+describe('a launch pool Jupiter has no route for, with under 24 minutes of trading', () => {
   const TOO_NEW =
-    'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
   /** A price record whose first trade was `age` seconds before the search's clock (1,000). */
   const record = (v: PoolView, age: bigint): PoolView['history'] => ({
     kind: 'ok',
@@ -420,7 +423,7 @@ describe('a launch pool Jupiter has no route for, with under 10 minutes of tradi
     expect(within(c).queryByText('Deposits: the checks pass')).toBeNull();
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(TOO_NEW);
     expect(cardRow(c, 'Price here')).toBe('1 CORN = 0.01 SOL');
-    expect(cardRow(c, 'Checked against')).toBe('Nothing: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(cardRow(c, 'Checked against')).toBe('Nothing: this pool has traded for under 24 minutes and Jupiter has no price for this token');
     expect(c).not.toHaveTextContent('Deposits: not checked');
     expect(c).not.toHaveTextContent('could not be run');
     // A SOL pool says what it is paired with, like every other pool (owner ruling 2026-10-07).
@@ -437,10 +440,17 @@ describe('a launch pool Jupiter has no route for, with under 10 minutes of tradi
     expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
   }, 20_000);
 
-  // UNREAD IS STILL REFUSED: the same pool with its record not read, or Jupiter not answering.
+  // Jupiter not answering is the outside price not read: one row, never a gate (answer twenty-seven).
+  it('is open when Jupiter failed to answer: the outside price is one row', async () => {
+    mount(readers(launch(100n), { token: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } }));
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).toHaveAttribute('data-price', 'unread');
+  });
+
+  // UNREAD IS STILL REFUSED: the same pool with its own record not read.
   it.each([
     ['its price record could not be read', (): PoolView => ({ ...view(SOL_QUOTE, { origin: 'launch-pool' }), history: { kind: 'unread', detail: 'its price record account is missing' } }), NO_ROUTE],
-    ['Jupiter failed to answer', () => launch(100n), { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } as OutsidePrice],
   ] as const)('is NOT open when %s: not checked, and no Add button', async (_n, pool, token) => {
     mount(readers(pool(), { token }));
     const c = await cardWith('checks');
@@ -449,6 +459,40 @@ describe('a launch pool Jupiter has no route for, with under 10 minutes of tradi
     expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
   });
+});
+
+// M-1009-6: the deposit check of closed #737, rebuilt to warn. A launch pool nobody has
+// traded that holds more than its shares account for: someone may have moved its price by
+// sending tokens straight into it. It read "the checks pass", with nothing to warn of.
+describe('a launch pool Jupiter has no route for, topped up by a plain transfer before anyone traded', () => {
+  const RESERVES_MOVED =
+    'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+  /** Opened at 10 SOL and 500 tokens (isqrt(10e9 x 500e6) shares); 500 more tokens were then sent straight into its vault. */
+  const toppedUp = (): PoolView => {
+    const v = view(SOL_QUOTE, { origin: 'launch-pool' });
+    const history: PoolView['history'] = { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: new PublicKey(v.address), initialized: false }))! };
+    return { ...v, history, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, lpSupply: 2_236_067_977n } } };
+  };
+
+  it('is open with a warning: the card says what its price was not checked against, and the form says the warning above Review', async () => {
+    const api = mount(readers(toppedUp(), { token: NO_ROUTE }));
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).toHaveAttribute('data-price', 'reserves-moved');
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(RESERVES_MOVED);
+    expect(cardRow(c, 'Price here')).toBe('1 CORN = 0.01 SOL');
+    expect(cardRow(c, 'Checked against')).toBe('Nothing: nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token');
+
+    const { type, review, said } = await openAdd(c, SOL_QUOTE);
+    type('1');
+    expect(said()).toEqual([RESERVES_MOVED]);
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });
 
 describe('a USDC pool 10% off the market whose token is a freezable copy', () => {
@@ -537,22 +581,20 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
   });
 
-  it('with the coin’s own price unread it is NOT CHECKED: never open, and the token’s warnings are still shown', async () => {
+  it('with the coin’s own price unread it is open with the token’s warnings, and nothing is said of a gap (answer twenty-seven)', async () => {
     const v = view(USDC_QUOTE);
     const r = readers(v, o);
-    // Jupiter fails for USDC itself. That is a read that failed, never "no market".
+    // Jupiter fails for USDC itself. That is a read that failed, never "no market", and never a gate.
     r.outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => (mint === M ? o.token : { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }));
     mount(r);
-    const c = await cardWith('checks');
-    expect(c).toHaveAttribute('data-deposits', 'unchecked');
-    expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
-    expect(c).not.toHaveTextContent('with warnings');
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).not.toHaveTextContent('Deposits: not checked');
     const warnings = within(c).getByTestId('lp-pool-warnings');
-    expect(warnings).toHaveTextContent('Warnings about this pool, apart from that:');
     // The copy and the freeze are known; the price is not, so nothing is said of a gap.
-    expect(warnings.querySelectorAll('p')).toHaveLength(3);
+    expect(warnings.querySelectorAll('p')).toHaveLength(2);
     expect(warnings).not.toHaveTextContent('outside price');
-    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    expect(within(c).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
   });
 });
 
@@ -572,11 +614,14 @@ describe('a launch pool whose price is off its own average', () => {
     };
     const r = readers(v);
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider readers={r} mode="on" load={vi.fn(async () => fakeLpApi({ prepareLpDeposit: notSent() }))} gateRpc={unusedGateRpc}>
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
@@ -612,6 +657,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
       priceGap: { diff: 0.25, lossQuote: 11_035_165n },
     });
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider
         readers={readers(v, { token: NO_ROUTE })}
         mode="on"
@@ -621,7 +668,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
@@ -649,6 +697,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
     expect(health.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     const summary = lpDepositSummary(new PublicKey(v.address), MINT, { price: health.price });
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider
         readers={readers(v, { token: NO_ROUTE })}
         mode="on"
@@ -658,7 +708,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass')).toBeInTheDocument();
@@ -686,15 +737,12 @@ const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.
 // So it can sit under a card that now says "refused" or "not checked", and there "You can
 // still add" was false: it is said only while the pool's check says a deposit is allowed.
 describe('an Add form left open while its pool stops taking deposits', () => {
-  it('Jupiter fails on a re-read: the card says "not checked", and the form no longer says "You can still add"', async () => {
+  it('its fee settings unread on a re-read: the card says a check did not run, and the form no longer says "You can still add"', async () => {
     const v = view(USDC_QUOTE);
     const o = { safety: freezableCopy };
-    let jupiterDown = false;
+    let configUnread = false;
     const r = readers(v, o);
-    r.outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => {
-      if (jupiterDown) return { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
-      return mint === M ? tokenAt(USDC_QUOTE, 1) : { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' };
-    });
+    r.findPools = vi.fn(async () => search(configUnread ? { ...v, config: null } : v));
     mount(r);
     const c = await cardWith('offer');
     await openAdd(c, USDC_QUOTE);
@@ -703,18 +751,18 @@ describe('an Add form left open while its pool stops taking deposits', () => {
     expect(tokenWarnings).toHaveLength(2);
     expect(formLines()).toEqual([HEAD, ...tokenWarnings]);
 
-    jupiterDown = true;
+    configUnread = true;
     readAgain();
     await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'unchecked'));
     expect(c).toHaveAttribute('data-add', 'checks');
-    expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
+    expect(within(c).getByText('Deposits: a check did not run')).toBeInTheDocument();
     // The form is still open, under that card, and its warnings are still said.
     expect(c).toContainElement(form());
     expect(formLines()).toEqual([NOT_NOW_HEAD, ...tokenWarnings]);
     expect(form()).not.toHaveTextContent('You can still add');
 
-    // Jupiter answers again: the pool takes deposits again, and the form says so again.
-    jupiterDown = false;
+    // The settings read again: the pool takes deposits again, and the form says so again.
+    configUnread = false;
     readAgain();
     await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'allowed'));
     expect(formLines()).toEqual([HEAD, ...tokenWarnings]);
@@ -750,12 +798,9 @@ describe('an Add form left open while its pool stops taking deposits', () => {
 
   it('a clean pool, with no warning at all, left "not checked" by a re-read: the form says so, and Review is described by it', async () => {
     const v = view(USDC_QUOTE);
-    let jupiterDown = false;
+    let configUnread = false;
     const r = readers(v);
-    r.outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => {
-      if (jupiterDown) return { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
-      return mint === M ? tokenAt(USDC_QUOTE, 1) : { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' };
-    });
+    r.findPools = vi.fn(async () => search(configUnread ? { ...v, config: null } : v));
     mount(r);
     const c = await cardWith('offer');
     const { type, review } = await openAdd(c, USDC_QUOTE);
@@ -764,7 +809,7 @@ describe('an Add form left open while its pool stops taking deposits', () => {
     type('100');
     expect(review()).toBeEnabled();
 
-    jupiterDown = true;
+    configUnread = true;
     readAgain();
     await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'unchecked'));
     expect(c).toContainElement(form());
@@ -774,8 +819,8 @@ describe('an Add form left open while its pool stops taking deposits', () => {
     // Review itself is as it was: pressing it builds from fresh reads, and the builder refuses.
     expect(review()).toBeEnabled();
 
-    // Jupiter answers again: the pool takes deposits again, and the notice goes.
-    jupiterDown = false;
+    // The settings read again: the pool takes deposits again, and the notice goes.
+    configUnread = false;
     readAgain();
     await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'allowed'));
     expect(within(form()).queryByTestId('lp-add-warnings')).toBeNull();

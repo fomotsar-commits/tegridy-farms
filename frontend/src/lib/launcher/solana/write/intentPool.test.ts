@@ -16,9 +16,9 @@ import {
   createSyncNativeInstruction,
   createTransferCheckedInstruction,
 } from '@solana/spl-token';
-import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
-import { deriveLpMint, deriveObservation, deriveVault, sortMints } from '../../../solana/cpswap/program';
+import { deriveLpMint, deriveObservation, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
 import { depositIx, swapBaseInputIx, withdrawIx } from '../../../solana/cpswap/ix';
 import { LIGHTHOUSE_PROGRAM_ID, PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } from './intent';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
@@ -29,18 +29,18 @@ const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
 const fresh = () => Keypair.generate().publicKey;
 
-/** A pool's pins, derived the way poolPins() derives them. */
-function pinsFor(o: { tokenProgram?: PublicKey; lpAccount?: PublicKey } = {}): PoolPins {
-  const address = fresh();
+/** A pool's pins, derived the way poolPins() derives them. `launchPool`: at the launch program's address. */
+function pinsFor(o: { tokenProgram?: PublicKey; lpAccount?: PublicKey; ammConfig?: PublicKey; launchPool?: boolean } = {}): PoolPins {
   const tokenMint = fresh();
+  const address = o.launchPool ? poolStatePda(tokenMint, cfgLocal.programId) : fresh();
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const { token0, token1 } = sortMints(WSOL_MINT, tokenMint);
   const quoteIsToken0 = token0.equals(WSOL_MINT);
   const lpMint = deriveLpMint(CPSWAP, address);
   return {
     address,
-    ammConfig: AMM_CONFIG,
-    origin: 'standard',
+    ammConfig: o.ammConfig ?? (o.launchPool ? AMM_CONFIG : publicTierConfig(CPSWAP)),
+    origin: o.launchPool ? 'launch-pool' : 'standard',
     token0Mint: token0,
     token1Mint: token1,
     token0Program: quoteIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram,
@@ -187,6 +187,23 @@ describe('what this site builds for liquidity decodes into one readable step', (
     expect(
       isPoolIntent({ kind: 'pool-buy', signer: ME, cfg: cfgLocal, feeRecipient: VAULT, ammConfig: AMM_CONFIG, mint: fresh(), maxPriorityLamports: 1n }),
     ).toBe(false);
+  });
+});
+
+describe('the launch tier (fee tier 0): only the launch pool on it takes a deposit', () => {
+  it('refuses a deposit into a pool on the launch tier that is not the launch pool', () => {
+    const p = pinsFor({ ammConfig: AMM_CONFIG });
+    refused([deposit(p)], /launch tier \(fee tier 0\) without a launch/, ctxFor('lp-deposit', p));
+  });
+
+  it('still lets a holder take their liquidity out of one', () => {
+    const p = pinsFor({ ammConfig: AMM_CONFIG });
+    ok([withdraw(p)], ctxFor('lp-withdraw', p));
+  });
+
+  it('accepts a deposit into the launch pool on the launch tier', () => {
+    const p = pinsFor({ ammConfig: AMM_CONFIG, launchPool: true });
+    ok([deposit(p)], ctxFor('lp-deposit', p));
   });
 });
 

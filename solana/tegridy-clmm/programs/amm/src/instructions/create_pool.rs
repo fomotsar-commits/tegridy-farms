@@ -100,6 +100,13 @@ pub struct CreatePool<'info> {
     pub system_program: Program<'info, System>,
     /// Sysvar for program account
     pub rent: Sysvar<'info, Rent>,
+
+    /// memetics.finance: the vault, which the pool-opening fee pays (lib.rs).
+    #[account(
+        mut,
+        address = crate::create_pool_fee_reveiver::ID,
+    )]
+    pub create_pool_fee: SystemAccount<'info>,
     // remaining account
     // #[account(
     //     seeds = [
@@ -136,6 +143,11 @@ pub fn create_pool(ctx: Context<CreatePool>, sqrt_price_x64: u128, open_time: u6
     }
     let block_timestamp = solana_program::clock::Clock::get()?.unix_timestamp as u64;
     require_gt!(block_timestamp, open_time);
+    util::charge_create_pool_fee(
+        ctx.accounts.pool_creator.to_account_info(),
+        ctx.accounts.create_pool_fee.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+    )?;
     let pool_id = ctx.accounts.pool_state.key();
     let mut pool_state = ctx.accounts.pool_state.load_init()?;
 

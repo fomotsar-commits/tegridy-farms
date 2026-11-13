@@ -23,7 +23,8 @@ const TOLERANCE_PX = 0.5;
 // One route per RouteTabs host. /swap has none: its chain switch is the one in the page (TradeHostPage.tsx).
 const STRIPS = [
   { path: '/liquidity', strip: 'Liquidity sections' },
-  { path: '/launch', strip: 'Launch sections' },
+  // The launch door (/launch) has no strip (island answer twenty-six): the section's is on its rails.
+  { path: '/launch-simulator', strip: 'Launch sections' },
   { path: '/earn', strip: 'Earn sections' },
   { path: '/trust', strip: 'Token-checking tools' },
   { path: '/tokenomics', strip: 'Treasury and numbers sections' },
@@ -102,7 +103,8 @@ for (const { name, use, reads } of [
 ]) {
   test.describe(`Earn strip at ${name}`, () => {
     test.use(use);
-    for (const path of ['/copy-trading', '/earn']) {
+    // Only on its own page since 2026-11-11: /earn's strip no longer lists it (navConfig unlisted).
+    for (const path of ['/copy-trading']) {
       test(`${path}: the Copy Trading tab reads ${reads} and no Earn tab paints past its own edge`, async ({
         page,
         walletMock: _w,

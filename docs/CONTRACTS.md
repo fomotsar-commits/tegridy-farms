@@ -45,7 +45,6 @@ so an old reference can be traced, never mixed into the live set.
 | **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`](https://etherscan.io/address/0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3) | `contracts/src/TegridyStakingAdmin.sol` | Live (relaunch 2026-06-06) |
 | **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0x28317bF362d43B40fcECebF2390C43dB558c3F14`](https://etherscan.io/address/0x28317bF362d43B40fcECebF2390C43dB558c3F14) | `contracts/src/TegridyStakingJbacVault.sol` | Live (relaunch 2026-06-06) |
 | **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) | `contracts/src/StakingMonitorView.sol` | Live (relaunch 2026-06-06). ⚠️ Deployed before the 2026-09-17 pause fix: while staking is paused, its `earned` keeps adding emission that `getReward` never pays. Redeploy pending ([TODO_OPERATOR O-0917-1](TODO_OPERATOR.md)) |
-| **TegridyRestaking** — Auto-compounding restake wrapper. | _not deployed_ | `contracts/src/TegridyRestaking.sol` | Deferred — `TEGRIDY_RESTAKING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
 
 > 🔴 **The live TOWELI is not this repo's `Toweli.sol`.** Selector scan of `cast code` plus live
 > `cast call`, 2026-08-12. The deployed contract names itself **`Towelie`** (symbol `Toweli`) and is a
@@ -83,6 +82,10 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0xdFdd6D72539A425dC917F49FB834901105cA98c9`](https://etherscan.io/address/0xdFdd6D72539A425dC917F49FB834901105cA98c9) | `contracts/src/TegridyTWAP.sol` | Live (relaunch 2026-06-06) — needs 4× `update()` bootstrap after LP seed (audit H-18) |
 | **TegridyFeeHook** — Per-pair dynamic fee hook; address ends `0x0044` encoding `AFTER_SWAP`+`AFTER_SWAP_RETURNS_DELTA` V4 permissions. | [`0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044) | not in this repo (source removed after deploy, in 10e1dcc0) | On chain since 2026-04-18 — **owner stranded**: `owner()` reads `0x4e59b448…` (the Arachnid CREATE2 proxy), so every admin function is unreachable. |
 | **TegridyLPFarming** — Boosted LP farming rewards vault. | [`0x1171268AE5B69791c47Fd589b7825932c957e149`](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) | `contracts/src/TegridyLPFarming.sol` | Live (2026-06-08, `DeployTegridyLPFarming`) — `stakingToken()` = `0x5587…a481`, `rewardToken()` = TOWELI, `MAX_BOOST_BPS_CEILING() == 45000` |
+| **TegridyFactory (opening fee)** — new coin pools open here for 0.006 ETH, paid to the treasury Safe in the same transaction (owner ruling 2026-10-25). | [`0xf73C993A1303Fe3612c5F878783CEf63D080834E`](https://etherscan.io/address/0xf73C993A1303Fe3612c5F878783CEf63D080834E) | `contracts/src/TegridyFactory.sol` | Live (2026-11-08, `DeployPoolOpeningFeeAMM`) — `POOL_OPENING_FEE() == 6e15`, `feeTo()` = `feeToSetter()` = treasury Safe `0x7D26…Bd7d`, `guardian()` = pause-guardian Safe `0xCDCA…F354` |
+| **TegridyRouter (opening fee)** — bound to the factory above; pays the opening fee out of `msg.value` when an add opens a pool. | [`0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22`](https://etherscan.io/address/0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22) | `contracts/src/TegridyRouter.sol` | Live (2026-11-08) |
+| **SwapFeeRouter (opening-fee pools)** — the venue's 0.5% on site swaps through pools on the factory above. | [`0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4`](https://etherscan.io/address/0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4) | `contracts/src/SwapFeeRouter.sol` | Live (2026-11-08) — `feeBps() == 50`, same treasury, RevenueDistributor, ReferralSplitter and pause guardian as the one above; offered to the treasury Safe (accept by 2026-11-22) |
+| **SwapFeeRouterAdmin (opening-fee pools)** | [`0x5c109a51B786473DCDE2De41a133d42515f60590`](https://etherscan.io/address/0x5c109a51B786473DCDE2De41a133d42515f60590) | `contracts/src/SwapFeeRouterAdmin.sol` | Live (2026-11-08) — offered to the treasury Safe (accept by 2026-11-22) |
 
 ---
 
@@ -104,11 +107,11 @@ code, so it is not a Safe).
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation. | [`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) | `contracts/src/GaugeController.sol` | Live — `gaugeCount() == 0` (no gauge registered yet); `pairToGauge(address)` answers normally |
-| **VoteIncentives** — Bribes market for gauge voters. | [`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF`](https://etherscan.io/address/0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF) | `contracts/src/VoteIncentives.sol` | Live — `gaugeController()` is still `0x0…0`. **`setGaugeController` is one-shot: the only correct argument is `0x6c79522D…1054`.** |
-| **VoteIncentivesAdmin** — EIP-170 admin sister of VoteIncentives. | [`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`](https://etherscan.io/address/0xf87Ec231BA7FA3975619309bc16C698B2ea3B300) | `contracts/src/VoteIncentivesAdmin.sol` | Live — wired via `setVoteIncentivesAdmin` in the same broadcast |
-| **CommunityGrants** — Grant disbursement with milestone gating. | [`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471`](https://etherscan.io/address/0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471) | `contracts/src/CommunityGrants.sol` | Live |
-| **MemeBountyBoard** — On-chain bounties for meme submissions, voted by veTOWELI. | [`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`](https://etherscan.io/address/0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890) | `contracts/src/MemeBountyBoard.sol` | Live — `bountyCount() == 0` |
+| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation. | [`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `gaugeCount() == 0` (no gauge registered yet); `pairToGauge(address)` answers normally |
+| **VoteIncentives** — Bribes market for gauge voters. | [`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF`](https://etherscan.io/address/0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `gaugeController()` is still `0x0…0`. **`setGaugeController` is one-shot: the only correct argument is `0x6c79522D…1054`.** |
+| **VoteIncentivesAdmin** — EIP-170 admin sister of VoteIncentives. | [`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`](https://etherscan.io/address/0xf87Ec231BA7FA3975619309bc16C698B2ea3B300) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — wired via `setVoteIncentivesAdmin` in the same broadcast |
+| **CommunityGrants** — Grant disbursement with milestone gating. | [`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471`](https://etherscan.io/address/0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live |
+| **MemeBountyBoard** — On-chain bounties for meme submissions, voted by veTOWELI. | [`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`](https://etherscan.io/address/0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `bountyCount() == 0` |
 
 ---
 
@@ -116,7 +119,6 @@ code, so it is not a Safe).
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **TegridyLending** — ERC20 money market collateralized by TOWELI and LP tokens. | _not deployed_ | `contracts/src/TegridyLending.sol` | Deferred — `TEGRIDY_LENDING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
 | **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections. | [`0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`](https://etherscan.io/address/0x89BeB6cc0255B7465c01aA38a6f937efd345f14F) | `contracts/src/TegridyNFTLending.sol` | Live (2026-07-16) — `paused() == false` |
 | **TegridyNFTLendingAdmin** — EIP-170 admin sister. | [`0x693787831e9C36A98afeDaD39F8728491f580a9C`](https://etherscan.io/address/0x693787831e9C36A98afeDaD39F8728491f580a9C) | `contracts/src/TegridyNFTLendingAdmin.sol` | Live (2026-07-16) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B`](https://etherscan.io/address/0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B) | `contracts/src/TegridyNFTPoolFactory.sol` | Live (2026-07-16) — `owner()` = `0xA360…b7F8` (differs from the rest of the batch) |
@@ -203,6 +205,10 @@ Full MVP + curve stack, every slot read back on-chain before wiring. Explorer: B
 | TegridyCurveLauncher | `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` |
 | Fee sink — FEE_REMITTANCE Safe | `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1` |
 | Treasury Safe | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
+| TegridyFactory (0.006 ETH to open a pool, to the treasury Safe; 2026-11-08) | `0x09E1B43f90cb6488063BB91310FD40c4339027e6` |
+| TegridyRouter (opening fee) | `0x7D7DA5d6335efdCdd510C439cB7948b31562847f` |
+| SwapFeeRouter (opening-fee pools) | `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` |
+| SwapFeeRouterAdmin (opening-fee pools) | `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37` |
 
 ### Robinhood Chain 4663 — deployed 2026-08-25
 Arbitrum Orbit L2, ETH gas, Blockscout explorer.
@@ -217,6 +223,10 @@ Arbitrum Orbit L2, ETH gas, Blockscout explorer.
 | SwapFeeRouterAdmin | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` |
 | TegridyCurveLauncher | `0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5` |
 | Fee sink / Treasury | the same FEE_REMITTANCE / TREASURY Safes as Base (CREATE2, both chains) |
+| TegridyFactory (0.006 ETH to open a pool, to the treasury Safe; 2026-11-08) | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` |
+| TegridyRouter (opening fee) | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` |
+| SwapFeeRouter (opening-fee pools) | `0x85AB297793e14283b54347C92C6AEFBaa20d1492` |
+| SwapFeeRouterAdmin (opening-fee pools) | `0xe9c38b477573c7f386892E3CE15Ccb38f637e23e` |
 
 **The `AttestedSequencerUptimeFeed` had to deploy first.** Chainlink publishes no uptime feed
 for 4663, and `SequencerCheck` reverts off-mainnet on a zero feed — so the deploy scripts

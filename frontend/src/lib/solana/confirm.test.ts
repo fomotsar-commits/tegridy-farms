@@ -65,9 +65,25 @@ describe('pollConfirm', () => {
     const k = clock();
     const c = conn(async () => ({ value: [null] }));
     await expect(poll(c.asConn, 10_000, k)).resolves.toEqual({ outcome: 'unknown', slot: null });
-    // Polled every 2 s for the whole window (0, 2, 4, 6, 8 and the look at 10 s), then stopped.
-    expect(c.getSignatureStatuses).toHaveBeenCalledTimes(6);
-    expect(k.sleep).toHaveBeenCalledWith(2_000);
+    // Polled every second for the whole window (0 to 9 and the look at 10 s), then stopped.
+    expect(c.getSignatureStatuses).toHaveBeenCalledTimes(11);
+  });
+
+  it('reads every second for the first 10 s, when a transaction usually lands, then every 2 s', async () => {
+    const k = clock();
+    const c = conn(async () => ({ value: [null] }));
+    await poll(c.asConn, 20_000, k);
+    // Reads at 0, 1, ..., 10, then 12, 14, ..., 20.
+    expect(k.sleep.mock.calls.map(([ms]) => ms)).toEqual([...Array<number>(10).fill(1_000), ...Array<number>(5).fill(2_000)]);
+    expect(c.getSignatureStatuses).toHaveBeenCalledTimes(16);
+  });
+
+  it('a transaction that confirms within the first second is seen at the second read, one second in', async () => {
+    const k = clock();
+    let n = 0;
+    const c = conn(async () => ({ value: [++n === 1 ? null : { err: null, confirmationStatus: 'confirmed' }] }));
+    expect((await poll(c.asConn, 60_000, k)).outcome).toBe('confirmed');
+    expect(k.now()).toBe(1_000);
   });
 
   it('a status read that throws is not an ending: the wait goes on and a later read decides', async () => {

@@ -154,7 +154,7 @@ export const API_ERROR_SEMANTICS = [
   { status: 401, code: 'api_key_invalid', meaning: 'The key is not recognised. Malformed and unknown keys are deliberately indistinguishable.' },
   { status: 401, code: 'api_key_revoked', meaning: 'The key existed and was withdrawn. Issue a new one.' },
   { status: 400, code: 'missing_chain', meaning: 'No chain given. There is no default — a silent one answers about the wrong chain.' },
-  { status: 400, code: 'chain_not_supported', meaning: 'This deployment cannot scan that chain.' },
+  { status: 400, code: 'chain_not_supported', meaning: 'This deployment does not scan that chain.' },
   { status: 400, code: 'invalid_address', meaning: 'The address is not a valid EVM address.' },
   {
     status: 422,
@@ -190,7 +190,7 @@ export const API_ERROR_SEMANTICS = [
   },
   { status: 503, code: 'api_keys_not_configured', meaning: 'This deployment has no key store, so no key can be checked. Not a statement about your key.' },
   { status: 503, code: 'api_key_store_unavailable', meaning: 'The key store could not be reached. Transient on our side.' },
-  { status: 503, code: 'api_key_tier_unknown', meaning: 'The key names a tier this deployment cannot resolve, so entitlement is undetermined. We refuse rather than guess.' },
+  { status: 503, code: 'api_key_tier_unknown', meaning: 'The key names a tier this deployment does not know, so entitlement is undetermined. We refuse rather than guess.' },
   {
     status: 503,
     code: 'metering_not_configured',

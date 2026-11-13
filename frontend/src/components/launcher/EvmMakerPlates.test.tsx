@@ -166,6 +166,15 @@ describe('the words', () => {
 
 const text = (c: HTMLElement) => c.textContent ?? '';
 const EM_DASH = String.fromCharCode(0x2014);
+/** What a visitor reads before opening anything: the card without its <details>. */
+const shown = (c: HTMLElement) => {
+  const copy = c.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll('details').forEach((d) => d.remove());
+  return copy.textContent ?? '';
+};
+// Live 2026-10-14, the /launch card's small print, in view: 'its launch transaction could not
+// be read: Transaction receipt with hash "0x730b…" could not be found.'
+const FAILED = 'its launch receipt could not be read: our usual host had no copy, eth.drpc.org failed (HTTP 429)';
 
 describe('/eth-curve block', () => {
   it('while reading: says so, names the wallet, and states the lock line', () => {
@@ -185,6 +194,17 @@ describe('/eth-curve block', () => {
     expect(text(container)).not.toMatch(/\b0(\.0+)?%|bought nothing/);
     fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('unreadable: one plain sentence in view, and what failed only under Details', () => {
+    const { container } = render(<CurveMakerCreateBuyView chainId={1} creator={MAKER} read={{ kind: 'unreadable', detail: FAILED }} onRetry={() => {}} />);
+    const details = screen.getByTestId('curve-maker-create-buy-failure');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details).not.toHaveAttribute('open');
+    expect(details.textContent).toContain(`What failed: ${FAILED}`);
+    expect(shown(container)).toContain(CREATE_BUY_UNREADABLE);
+    expect(shown(container)).not.toMatch(/could not be read:|eth\.drpc\.org|HTTP 429/);
+    expect(screen.getByRole('button', { name: 'Read again' }).closest('details')).toBeNull();
   });
 
   it('read: the figure, the wallet, the lock, and a link to the transaction on its own chain', () => {
@@ -222,6 +242,17 @@ describe('/launch card', () => {
     expect(screen.queryByText(NO_ALLOCATION)).not.toBeInTheDocument();
     expect(screen.queryByText(/Bought in the launch transaction/)).not.toBeInTheDocument();
     expect(text(container)).not.toMatch(/\b0(\.0+)?%|\b0 tokens/);
+  });
+
+  it('unreadable: one plain sentence in view, and what failed only under Details', () => {
+    const { container } = render(<MakerPlatesView plates={{ kind: 'unreadable', detail: FAILED }} onRetry={() => {}} />);
+    const details = screen.getByTestId('maker-plates-failure');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details).not.toHaveAttribute('open');
+    expect(details.textContent).toContain(`What failed: ${FAILED}`);
+    expect(shown(container)).toContain(ALLOCATION_UNREADABLE);
+    expect(shown(container)).not.toMatch(/could not be read:|eth\.drpc\.org|HTTP 429/);
+    expect(screen.getByRole('button', { name: 'Read again' }).closest('details')).toBeNull();
   });
 
   it('read: the allocation, and "Bought ... none" only when the receipt showed nothing reaching the maker', () => {

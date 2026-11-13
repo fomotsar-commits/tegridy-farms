@@ -14,6 +14,14 @@
 >
 > Quoting only Scope A would leave the dangerous program unreviewed.
 
+> **Scope A first, for Jupiter.** Jupiter's router asks for a security audit before it will
+> route trades to a program, and wants the report with the submission
+> ([DEX integration](https://developers.jup.ag/docs/routing/dex-integration)). The pools it
+> would route are cp-swap's, and the code it needs from us is built and tested
+> (`jupiter-sdk/`). So a Scope A report on its own unblocks the listing. Please quote Scope A
+> so that it can start, finish and be published on its own. Scope B can follow: the launcher
+> is paused on chain and has never opened a launch.
+
 **Scope A one-liner:** review a **fork** of Raydium's audited CPMM
 (`raydium-cp-swap`) whose *entire* delta from upstream is **four hardcoded
 authority/identity constants**, **one added instruction, `create_lp_metadata`**, **one
@@ -42,7 +50,7 @@ changed, one instruction added (`create_lp_metadata`, above) and one refusal add
 upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the binary live on mainnet since its upgrade, a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the binary live on mainnet since its third upgrade on 2026-11-06 (and from 2026-10-23 until a roll-back on 2026-10-24, and from 2026-11-03 until a roll-back on 2026-11-04), a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
 ## Exact scope: the whole code delta
@@ -60,7 +68,7 @@ authorities:
 | Constant | File | Change |
 |---|---|---|
 | `declare_id!` (program ID) | `programs/cp-swap/src/lib.rs` | Raydium → our program id. Mainnet arm: `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, the live program. Devnet arm: a throwaway. |
-| `admin::ID` | `lib.rs` | Raydium → our admin. Mainnet arm: the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, never the Squads multisig account. Devnet arm: a throwaway key. |
+| `admin::ID` | `lib.rs` | Raydium → our admin. Mainnet arm: the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, never the Squads multisig account. Devnet arm: an operator-held devnet key, not a throwaway (it has also signed on mainnet; see `TEGRIDY_FORK.md`). |
 | `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium WSOL acct → `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`, the vault's WSOL ATA. **A token account, not a wallet**: it is consumed as `InterfaceAccount<TokenAccount>` at `instructions/initialize.rs:131-135`. |
 | `create_support_mint_associated_owner::ID` | `instructions/admin/create_support_mint_associated.rs` | Raydium → the same Squads vault PDA on the mainnet arm. |
 
@@ -83,8 +91,10 @@ let you find them and wonder what else we did not mention:
   on-chain claim. Please confirm we removed it correctly and that nothing else in that
   block still asserts a Raydium property. Since 2026-10-06 the source's block has an email
   as its first contact and every link on `memetics.finance` (`TEGRIDY_FORK.md`, "The
-  on-chain security text"). The binary on mainnet has carried that text since the upgrade.
-  The binary it replaced carried the older text, whose links had gone dead.
+  on-chain security text"). The binary on mainnet has carried that text since the third upgrade
+  on 2026-11-06 (and from 2026-10-23 until the roll-back of 2026-10-24, and from 2026-11-03 until
+  the roll-back of 2026-11-04). The binary it replaced carried the
+  older text, whose links had gone dead.
 - **`instructions/initialize.rs`, the launch-tier refusal** (added 2026-10-19, pull request
   #899): five lines beside upstream's `disable_create_pool` check. A public `initialize` on
   the fee config with `index == 0` returns upstream's own `NotApproved` (6000). Index 0 is
@@ -163,8 +173,13 @@ moved to `memetics.finance`.
 **Corrected again with the pool program's upgrade:** the Squads vault has since upgraded
 cp-swap to a build of this source (sha256 `1e55bcdc…`, 725,176 bytes), so the live program
 has the instruction, the new security text and the launch-tier refusal, and the source and
-the live program no longer differ in any of them. It was the program's first upgrade, and it went in unaudited. The day and
-the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
+the live program no longer differ in any of them. It was the program's first upgrade, and it went in unaudited.
+It was rolled back on 2026-10-24 (proposal #16) and upgraded again to the same build (proposal #23),
+then rolled back by mistake on 2026-11-04 (proposal #24) and upgraded a third time on 2026-11-06 (proposal #31).
+The days and the transactions are in `MAINNET_RUNBOOK.md`, section 4b.
+
+**Quote against this source:** since vault proposal #31 ran on 2026-11-06 at 15:13:03 UTC, a
+build of it (`1e55bcdc…`) is the live program.
 
 ---
 
@@ -189,6 +204,13 @@ the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 1. The `diff-rq`/diff-guard claim holds: nothing beyond the four constants, the one added
    instruction and the program's own name and contact text changed vs the audited upstream
    commit; the underlying upstream is at a safe, audited revision.
+1a. Two things we know about the pin, so you can weigh them rather than find them. It is three
+   commits behind upstream's head as read on 2026-10-10 (`b3187ae5`): creator-fee collection,
+   a move to Anchor 1.0 and a protocol share of the creator fee. None is marked as a security
+   fix, and they would bring five more keys that Raydium holds. And upstream's `MINT_WHITELIST`
+   is still in: four Token-2022 coins whose issuers hold a permanent delegate. No pool holds
+   them and the site refuses to open or add with them; we plan to remove the list. Tell us if
+   either should come first.
 2. The four constants are wired correctly (each authority is used where intended; no
    authority path was missed or left pointing at a foreign key).
 2a. `create_lp_metadata` can only create the Metaplex name record of a real pool's lp mint:
@@ -226,6 +248,15 @@ the program's first upgrade (`MAINNET_RUNBOOK.md`, section 4b), and it went in u
 - Read access to `solana/tegridy-amm/` (this repo) + `TEGRIDY_FORK.md`
 - The pinned upstream commit for the reference diff
 - CI (`solana-ci.yml`) showing the enforced invariant + a reproducible build
+
+## What we need back
+- A report we may publish, and hand to Jupiter with our listing.
+
+## Not in this request: the range program
+`solana/tegridy-clmm/` (program `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`) is Raydium's
+concentrated-liquidity program copied as it is, with only its identity changed (its
+`README.md`). It holds no pools, and the Jupiter code in `jupiter-sdk/` does not cover it. We
+will ask for it separately if range pools open.
 
 ## Recommended firms (Solana)
 OtterSec · Neodyme · Sec3 · Zellic. Please quote a **fork/diff review** (not a full AMM

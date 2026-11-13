@@ -16,9 +16,10 @@ import {
   venueChainOfEvm,
 } from './sectionChains';
 
-describe('the four networks', () => {
-  it('are Ethereum, Base, Robinhood Chain and Solana, named as the registry names them', () => {
-    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Ethereum', 'Base', 'Robinhood Chain', 'Solana']);
+describe('the five networks', () => {
+  // Build 2 (2026-11-01): Solana first, because the island's traffic is Solana.
+  it('are Solana, Base, Robinhood Chain, Ethereum and Cardano, named as the registry names them', () => {
+    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Solana', 'Base', 'Robinhood Chain', 'Ethereum', 'Cardano']);
     for (const c of VENUE_CHAINS) {
       if (c.evmChainId !== null) expect(getChainConfig(c.evmChainId)?.name).toBe(c.name);
     }
@@ -35,20 +36,20 @@ describe('the four networks', () => {
 
 describe('which tab serves which network', () => {
   it('swaps on every EVM chain with a swap venue, and on Solana', () => {
-    expect(tabChains('/swap')).toEqual(['ethereum', 'base', 'robinhood']);
+    expect(tabChains('/swap')).toEqual(['base', 'robinhood', 'ethereum']);
     expect(tabChains('/solana')).toEqual(['solana']);
   });
 
   it('adds liquidity wherever our router, factory and WETH are deployed', () => {
-    expect(tabChains('/liquidity')).toEqual(['ethereum', 'base', 'robinhood']);
+    expect(tabChains('/liquidity')).toEqual(['base', 'robinhood', 'ethereum']);
     expect(tabChains('/zap')).toEqual(['ethereum']);
-    expect(tabChains('/solana-lp')).toEqual(['solana']);
     expect(tabChains('/pools')).toEqual(['solana']);
   });
 
   it('launches on the EVM curve wherever its launcher is deployed, and the simulator names none', () => {
-    expect(tabChains('/eth-curve')).toEqual(['ethereum', 'base', 'robinhood']);
-    expect(tabChains('/launch')).toEqual(['ethereum']);
+    expect(tabChains('/eth-curve')).toEqual(['base', 'robinhood', 'ethereum']);
+    // The launch door names no network while it is closed (island answer twenty-six).
+    expect(tabChains('/launch')).toBe('any');
     expect(tabChains('/curve-launch')).toEqual(['solana']);
     expect(tabChains('/launch-simulator')).toBe('any');
   });
@@ -57,18 +58,23 @@ describe('which tab serves which network', () => {
 describe('where a pick goes', () => {
   const pools = POOLS_SECTION.items;
   const launch = LAUNCH_SECTION.items;
+  // The same section the day the EVM curve's switch opens (curveChains.ts CURVE_LAUNCH_OPEN).
+  const launchCurveOpen = launch.map((i) => (i.to === '/eth-curve' ? { ...i, soon: false } : i));
 
   it('stays on the tab the visitor is on when it serves the network', () => {
     expect(chainDestination(launch, '/eth-curve', 'base')).toBe('/eth-curve');
     expect(chainDestination(pools, '/liquidity', 'robinhood')).toBe('/liquidity');
-    expect(chainDestination(launch, '/launch-simulator', 'base')).toBe('/launch-simulator');
+    expect(chainDestination(launchCurveOpen, '/launch-simulator', 'base')).toBe('/launch-simulator');
+    // Launching off on every rail (answer twenty-six): no launch tab serves Base, so a pick goes nowhere.
+    expect(chainDestination(launch, '/launch-simulator', 'base')).toBeNull();
   });
 
   it("else goes to the section's first live tab on that network", () => {
-    expect(chainDestination(pools, '/liquidity', 'solana')).toBe('/solana-lp');
+    expect(chainDestination(pools, '/liquidity', 'solana')).toBe('/pools');
     expect(chainDestination(pools, '/pools', 'ethereum')).toBe('/liquidity');
     expect(chainDestination(pools, '/zap', 'base')).toBe('/liquidity');
-    expect(chainDestination(launch, '/launch', 'robinhood')).toBe('/eth-curve');
+    expect(chainDestination(launchCurveOpen, '/curve-launch', 'robinhood')).toBe('/eth-curve');
+    expect(chainDestination(launch, '/launch', 'robinhood')).toBeNull();
     expect(chainDestination(SWAP_SECTION.items, '/solana', 'ethereum')).toBe('/swap');
   });
 
@@ -100,6 +106,6 @@ describe('where a pick goes', () => {
     expect(chainHref('/launch-simulator', 'solana')).toBe('/launch-simulator?chain=solana');
     expect(chainHref('/swap', 'ethereum')).toBe('/swap?c=1');
     expect(chainHref('/swap', 'base')).toBe('/swap?c=8453');
-    expect(chainHref('/solana-lp', 'solana')).toBe('/solana-lp');
+    expect(chainHref('/pools', 'solana')).toBe('/pools');
   });
 });

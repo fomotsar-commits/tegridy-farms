@@ -147,6 +147,51 @@ describe("the island order's price read is kept at the edge for 30 seconds", () 
   });
 });
 
+describe("what every visitor asks alike is kept at the edge with no marker", () => {
+  const TRENDING = "s-maxage=300, stale-while-revalidate=60";
+  const SHIELD = "s-maxage=60, stale-while-revalidate=30";
+  const MINTS = "So11111111111111111111111111111111111111112,7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+
+  it("the trending lists are shared for 5 minutes, on the free host and the keyed one", async () => {
+    for (const key of [undefined, "fake-jupiter-test-value"]) {
+      if (key) process.env.JUPITER_API_KEY = key;
+      for (const list of ["toptrending", "toptraded", "toporganicscore"]) {
+        globalThis.fetch = upstream({ status: 200, payload: [] });
+        const { statusSpy, headerSpy } = await run(jupiter(["tokens", "v2", list, "24h"], { limit: "12" }));
+        expect(statusSpy).toHaveBeenCalledWith(200);
+        expect(cacheHeaders(headerSpy)).toEqual([TRENDING]);
+      }
+    }
+  });
+
+  it("Shield's warnings are shared for 1 minute, on the free host and the keyed one", async () => {
+    for (const key of [undefined, "fake-jupiter-test-value"]) {
+      if (key) process.env.JUPITER_API_KEY = key;
+      globalThis.fetch = upstream({ status: 200, payload: { warnings: {} } });
+      const { statusSpy, headerSpy } = await run(jupiter(["ultra", "v1", "shield"], { mints: MINTS }));
+      expect(statusSpy).toHaveBeenCalledWith(200);
+      expect(cacheHeaders(headerSpy)).toEqual([SHIELD]);
+    }
+  });
+
+  it("Shield answered by the free host after the keyed one turned it away is shared like any answer", async () => {
+    process.env.JUPITER_API_KEY = "fake-jupiter-test-value";
+    globalThis.fetch = upstream({ status: 404, payload: {} }, { status: 200, payload: { warnings: {} } });
+    const { statusSpy, headerSpy } = await run(jupiter(["ultra", "v1", "shield"], { mints: MINTS }));
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(globalThis.fetch.mock.calls[1][0])).toMatch(/^https:\/\/lite-api\.jup\.ag\//);
+    expect(cacheHeaders(headerSpy)).toEqual([SHIELD]);
+  });
+
+  it("a trending list or a Shield read that failed is never kept", async () => {
+    for (const req of [jupiter(["tokens", "v2", "toptrending", "24h"], { limit: "12" }), jupiter(["ultra", "v1", "shield"], { mints: MINTS })]) {
+      globalThis.fetch = upstream({ status: 500, payload: {} });
+      const { headerSpy } = await run(req);
+      expect(cacheHeaders(headerSpy).every((v) => !/s-maxage/.test(v))).toBe(true);
+    }
+  });
+});
+
 describe("nothing else is ever kept at the edge", () => {
   it("the swap page's quote (no marker), with or without the 0.5% fee, stays private", async () => {
     for (const query of [SWAP_QUOTE, { ...SWAP_QUOTE, platformFeeBps: "50" }]) {
@@ -181,10 +226,10 @@ describe("nothing else is ever kept at the edge", () => {
     expect(cacheHeaders(headerSpy)).toEqual([PRIVATE]);
   });
 
-  it("another Jupiter path carrying the marker is not shared", async () => {
+  it("another Jupiter path carrying the marker is not shared: a visitor's token search", async () => {
     for (const [path, query] of [
       [["tokens", "v2", "search"], { query: "bayla", priceCheck: "1" }],
-      [["ultra", "v1", "shield"], { mints: "So11111111111111111111111111111111111111112", priceCheck: "1" }],
+      [["tokens", "v2", "search"], { query: "bayla" }],
     ]) {
       globalThis.fetch = upstream({ status: 200, payload: {} });
       const { headerSpy } = await run(jupiter(path, query));

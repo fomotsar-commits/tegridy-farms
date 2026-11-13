@@ -30,7 +30,7 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 | `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
 | the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, error retention, venue volume, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
-| `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
+| `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC; **paused** since 2026-10-29, runs only by hand (`docs/GIT_HOSTING.md`, top) | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
 | `git-vault-backup`, the daily git bundles | this PC (Task Scheduler) | daily, 03:30 local | the `git-vault-backup` check (`docs/GIT_HOSTING.md` 2G) |
 
@@ -64,6 +64,14 @@ without repo activity stops them all at once, so the heartbeat catches that.
    - `backup-pull`: `ops.env` (section 3), as `HC_PING_URL_BACKUP_PULL`.
    - `gitlab-standby`: the GitHub secret `HC_PING_URL_GITLAB_STANDBY`; `git-vault-backup`:
      `ops.env`, as `HC_PING_URL_GIT_VAULT_BACKUP` (`docs/GIT_HOSTING.md` 2E and 2G).
+
+   A URL that names no check (a typo, or a check since deleted) still gets HTTP 200 from
+   healthchecks.io, with the answer "OK (not found)", and the check you meant stays grey and
+   silent. Every sender reads that answer, and anything but "OK" is a ping NOT delivered: the
+   jobs `scripts/ops/run-job.mjs` runs print it, and a job that passed exits 3; the
+   `github-crons` heartbeat is a warning on its run; the `gitlab-standby` ping job goes red; the
+   `git-vault-backup` task writes "alarm: the ping was answered ..." to its log (an install from
+   before 2026-10-27 does not: re-run `register-backup-task.ps1`).
 5. Create the six failover checks now too (section 5 lists them). A check that has never been
    pinged stays grey and sends nothing, and having them ready saves time in a failover.
 

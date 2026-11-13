@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Add the swaps that are new since the last run to the venue's all-time volume.
 //
-// Run every hour by .github/workflows/venue-volume.yml, with SUPABASE_URL and
+// Run every five minutes by Vercel (api/venue-volume-count.js), and every hour by
+// .github/workflows/venue-volume.yml as the backup, with SUPABASE_URL and
 // SUPABASE_SERVICE_KEY. By hand, from the repo root, with those two set:
 //   node frontend/scripts/venue-volume.mjs
 // `--dry-run` needs no secrets: it counts every source from zero and writes nothing.
@@ -18,6 +19,7 @@ import {
   SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
+  USDT_MINT,
   evmRpc,
   readEvmChain,
   readJupiter,
@@ -69,10 +71,10 @@ export async function spotPrice(symbol, fetchImpl) {
   return quotes[0];
 }
 
-/** The dollars of one leg. USDC is dollars; SOL and WETH take today's price. */
+/** The dollars of one leg. USDC and USDT are dollars; SOL and WETH take today's price. */
 export function legUsd(leg, prices) {
   if (!leg) return null;
-  if (leg.mint === USDC_MINT) return Number(leg.raw) / 1e6;
+  if (leg.mint === USDC_MINT || leg.mint === USDT_MINT) return Number(leg.raw) / 1e6;
   if (leg.mint === SOL_MINT) return (Number(leg.raw) / 1e9) * prices.SOL;
   if (leg.mint === "WETH") return (Number(leg.raw) / 1e18) * prices.ETH;
   return null;
@@ -135,7 +137,8 @@ function postgrest(env, fetchImpl) {
 
 /**
  * Write one source's new row. An existing row is replaced only at the version this run
- * read, so two runs at once cannot both add the same swaps; the loser is refused.
+ * read, so two runs at once cannot both add the same swaps; the loser is refused. A refusal
+ * that matched no row is that lost race (`lostRace`): the other run read these swaps too.
  */
 async function writeRow(db, row, next) {
   if (row) {
@@ -143,8 +146,11 @@ async function writeRow(db, row, next) {
       method: "PATCH",
       body: JSON.stringify({ ...next, version: row.version + 1 }),
     });
+    if (r.status === 200 && Array.isArray(r.body) && r.body.length === 0) {
+      throw Object.assign(new Error("another run counted first"), { lostRace: true });
+    }
     if (r.status !== 200 || !Array.isArray(r.body) || r.body.length !== 1) {
-      throw new Error(`write refused (HTTP ${r.status}); another run may have counted first`);
+      throw new Error(`write refused (HTTP ${r.status})`);
     }
     return;
   }
@@ -153,7 +159,8 @@ async function writeRow(db, row, next) {
 }
 
 // Each source stops reading after this long and saves what it read, so a long backfill
-// spreads over hourly runs instead of hitting the job's 30-minute timeout.
+// spreads over hourly runs instead of hitting the job's 30-minute timeout. The Vercel run
+// passes a shorter `budgetMs` (api/venue-volume-count.js).
 const SOURCE_BUDGET_MS = 8 * 60 * 1000;
 
 function defaultDeps(fetchImpl) {
@@ -173,6 +180,7 @@ export async function main({
   log = console.log,
   error = console.error,
   dryRun = false,
+  budgetMs = SOURCE_BUDGET_MS,
 } = {}) {
   const missing = REQUIRED.filter((k) => !env[k]);
   if (dryRun) return dryRunAll({ fetchImpl, deps, sources, readers, log, error });
@@ -199,7 +207,7 @@ export async function main({
   for (const source of sources) {
     const row = rows.get(source) ?? null;
     try {
-      const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + SOURCE_BUDGET_MS });
+      const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + budgetMs });
       const totals = await addUp(row, got.swaps, priceOf, botsOf(source));
       const now = new Date().toISOString();
       if (got.incomplete) {
@@ -229,6 +237,12 @@ export async function main({
       });
       log(`${source}: +${got.swaps.length} swap(s), now ${totals.swaps} swaps, $${totals.usd.toFixed(2)}`);
     } catch (e) {
+      if (e?.lostRace) {
+        // The other counter (Vercel every five minutes, this job hourly) wrote first, from
+        // the same cursor: these swaps are counted, once. Nothing failed, so nothing is red.
+        log(`${source}: another run counted first; nothing written`);
+        continue;
+      }
       failed++;
       const msg = String(e?.message ?? e).slice(0, 300);
       error(`::error title=Volume source ${source} not counted::${msg}`);

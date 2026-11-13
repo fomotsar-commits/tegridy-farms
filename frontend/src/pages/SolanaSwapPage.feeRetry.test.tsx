@@ -21,6 +21,7 @@ import type { JupiterQuote, SwapSimulation } from '../lib/jupiter';
 const USER = new PublicKey('5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
 
 // Two real serialized v0 transactions (payer USER, one instruction into the
@@ -82,8 +83,8 @@ vi.mock('../lib/jupiter', async (orig) => ({
   getShield: vi.fn(async () => ({})),
 }));
 // The real wait (the one shared poller, lib/solana/confirm.ts), on a clock the
-// test owns: each 2 s beat moves it and nothing really sleeps, so a wait that
-// never confirms is exactly 46 reads however loaded the machine is. The page's
+// test owns: each beat moves it and nothing really sleeps, so a wait that
+// never confirms is exactly 51 reads however loaded the machine is. The page's
 // own time limit is passed through untouched: that count is what pins it.
 vi.mock('../lib/solana/confirm', async (orig) => {
   const real = await orig<typeof import('../lib/solana/confirm')>();
@@ -111,6 +112,7 @@ import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JupiterBusyError } from '../lib/solana/swap/jupiterBusy';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 const WOULD_FAIL = 'Swap would fail';
 
@@ -128,6 +130,7 @@ let atSign: { notice: string | null; receive: string | null; feeValue: string | 
 const SIG = '5'.repeat(88);
 
 beforeEach(() => {
+  clearReceipt();
   atSign = null;
   // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
   window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
@@ -195,8 +198,9 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
     expect(atSign!.infoToasts[0]![0]).toBe(COPY);
     expect(JSON.stringify(atSign!.infoToasts[0]![1])).toContain('15 USDC');
 
-    // IN THE RESULT: the success toast says it again.
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.objectContaining({ description: expect.stringContaining(COPY) })));
+    // IN THE RESULT: the receipt card, whose venue row is read from what the fee account received (island answer twenty-five).
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
+    expect(h.toast.success).not.toHaveBeenCalled();
     expect(h.toast.error).not.toHaveBeenCalled();
   });
 
@@ -208,9 +212,9 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
     expect(atSign!.notice).toBeNull();
     expect(atSign!.receive).toBe('14.925');
     expect(h.toast.info).not.toHaveBeenCalled();
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
-    const bought = h.toast.success.mock.calls.find((c) => c[0] === 'Bought USDC')!;
-    expect(JSON.stringify(bought[1])).not.toMatch(/no site fee/i);
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
+    // The toast is for errors only: nothing says a waiver.
+    expect(h.toast.success).not.toHaveBeenCalled();
   });
 
   it('any other simulation failure is blocked exactly as before: no re-quote, no wallet', async () => {
@@ -341,7 +345,18 @@ describe('SolanaSwapPage: while the waiver is on screen nothing else on the card
     h.simulateSwap.mockResolvedValue(OK);
     await typeAmountAndBuy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
-    expect(atSign!.footer).toMatch(/^A 0\.5% platform fee applies on pairs that include SOL or USDC, and 0\.05% between SOL, USDC, USDT and staked SOL\.$/);
+    expect(atSign!.footer).toMatch(/^A 0\.5% platform fee applies on pairs that include SOL, USDC or USDT, and 0\.05% between SOL, USDC, USDT and staked SOL\.$/);
+  });
+});
+
+describe('SolanaSwapPage: a swap paid in USDT carries the fee, in USDT', () => {
+  it('USDT for a coin that is neither SOL nor USDC: the fee line names USDT, never "None on this pair"', async () => {
+    // Pay USDT, buy the page's opening coin (BAYLA). Until 2026-11-02 the fee mint set was
+    // {SOL, USDC}, so this pair read "None on this pair" and the venue earned nothing on it.
+    window.history.replaceState(null, '', `/solana?in=${USDT_MINT}`);
+    render(<SolanaSwapPage />);
+    expect(await screen.findByLabelText('Amount of USDT to pay', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('site-fee-value')).toHaveTextContent(/% · in USDT$/));
   });
 });
 
@@ -393,7 +408,7 @@ describe('SolanaSwapPage: clicking again on a waived quote compares like with li
     expect(h.toast.error).not.toHaveBeenCalledWith('Price moved', expect.anything());
     const second = h.sendTransaction.mock.calls[1]![0] as VersionedTransaction;
     expect(second.message.compiledInstructions[0]!.data[0]).toBe(2);
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.objectContaining({ description: expect.stringContaining(COPY) })));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
   });
 
   it('if the fee can be taken after all on the second click, the fee-bearing swap is shown, not signed', async () => {
@@ -441,9 +456,10 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     expect(opts.action.label).toBe('Check on Explorer');
     // Never "failed", never "bought".
     expect(h.toast.error).not.toHaveBeenCalled();
-    expect(h.toast.success).not.toHaveBeenCalledWith('Bought USDC', expect.anything());
-    // It was asked every 2 s for the whole 90 s (0 s to 90 s inclusive) before giving up.
-    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(46);
+    expect(lastReceipt()).toBeNull();
+    // It was asked for the whole 90 s before giving up: every second to 10 s, then every
+    // 2 s to 90 s inclusive (11 + 40 reads).
+    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(51);
     // The activity list keeps the signature, marked as not confirmed, with the waiver.
     const rows = getActivity(USER.toBase58());
     expect(rows).toHaveLength(1);
@@ -494,7 +510,7 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
         : { value: [{ err: null, confirmationStatus: 'confirmed' }] };
     });
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(reads).toBe(2);
     expect(h.toast.error).not.toHaveBeenCalled();
     expect(h.toast.warning).not.toHaveBeenCalled();

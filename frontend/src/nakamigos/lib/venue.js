@@ -1,11 +1,15 @@
 import { COLLECTIONS } from "../constants";
 
-// The one rule for money on this venue. The money path is Seaport on Ethereum
-// with ERC-721 ownerOf pre-flights, so a collection trades here only as an
-// Ethereum ERC-721 the registry flags venueTrade, with a real address. Every
-// money sink asks venueRefusal before it touches a wallet, and every surface
-// reads canTradeOnVenue. Cancels move no value and stay open, except for an
-// order on another chain: cancelRefusal.
+// The one rule for money on this venue. The money path is Seaport with
+// ERC-721 ownerOf pre-flights, so a collection trades here only as an Ethereum
+// ERC-721 the registry flags venueTrade, with a real address. Every money sink
+// asks venueRefusal before it touches a wallet, and every surface reads
+// canTradeOnVenue. One exception: a Base ERC-721 flagged venueBuy trades here
+// on Base, through Seaport 1.6 on Base: its OpenSea listings are bought, it is
+// listed on the order book and bid on item by item (canBuyOnVenue,
+// buyChainFor). Its cart, bundles, trades and collection offers stay refused.
+// Cancels move no value and stay open, each sent on the order's own chain
+// (cancelChainFor).
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const TOKEN_ID_RE = /^\d{1,10}$/;
@@ -23,7 +27,65 @@ export function canTradeOnVenue(collection) {
 
 export const VENUE_COLLECTIONS = Object.freeze(Object.values(COLLECTIONS).filter(canTradeOnVenue));
 
+// The chains a fill is ever sent on, by registry chain name. Seaport and
+// OpenSea's conduit sit at the same addresses on both (read on chain
+// 2026-11-07: Seaport 1.6 on Base is Ethereum's bytecode with only the chain id
+// and the domain separator built from it differing).
+export const VENUE_CHAIN_IDS = Object.freeze({ ethereum: 1, base: 8453 });
+const CHAIN_WALLET_LABELS = { ethereum: "Ethereum Mainnet", base: "Base" };
+const EXPLORER_TX = { ethereum: "https://etherscan.io/tx/", base: "https://basescan.org/tx/" };
+
+/**
+ * A collection whose listings can be BOUGHT here: every venue collection, and
+ * a Base ERC-721 the registry flags venueBuy. A venueBuy collection has the buy
+ * of one OpenSea listing and nothing else: no listing, offer, cart or order book.
+ */
+export function canBuyOnVenue(collection) {
+  if (canTradeOnVenue(collection)) return true;
+  return !!collection
+    && collection.venueBuy === true
+    && collection.chain === "base"
+    && collection.standard === "erc721"
+    && typeof collection.contract === "string"
+    && ADDRESS_RE.test(collection.contract);
+}
+
+const BUY_COLLECTIONS = Object.freeze(Object.values(COLLECTIONS).filter(canBuyOnVenue));
+
 const lower = (value) => (typeof value === "string" ? value.toLowerCase() : "");
+
+/**
+ * The chain a buy of these NFT contracts settles on: `{ chain, chainId }`, or
+ * the `{ error, message }` refusal. Every contract must be buyable here and all
+ * must sit on ONE chain; an empty list is refused. The chain comes from the
+ * registry, never from a market's answer.
+ */
+export function buyChainFor(addresses) {
+  const list = Array.isArray(addresses) ? addresses : [];
+  if (list.length === 0) return refusalFor(null);
+  let chain = null;
+  for (const address of list) {
+    const a = lower(address);
+    const c = a ? BUY_COLLECTIONS.find((x) => x.contract.toLowerCase() === a) : null;
+    if (!c) return refusalFor(collectionByContractAnyChain(address));
+    if (chain && c.chain !== chain) {
+      return { error: NOT_VENUE_TRADEABLE, message: "This order mixes NFTs from two chains. Nothing was sent." };
+    }
+    chain = c.chain;
+  }
+  return { chain, chainId: VENUE_CHAIN_IDS[chain] };
+}
+
+/** "Ethereum Mainnet", "Base": the network a wallet must be on for this chain. */
+export function walletChainLabel(chain) {
+  return CHAIN_WALLET_LABELS[chain] || null;
+}
+
+/** Where to look at a transaction on this chain. */
+export function chainTxUrl(chain, hash) {
+  const root = EXPLORER_TX[chain];
+  return root && typeof hash === "string" ? `${root}${hash}` : null;
+}
 
 /** The venue collection at this contract (any case), or null. */
 export function venueCollectionByContract(address) {
@@ -87,12 +149,41 @@ export function venueSlugRefusal(...slugs) {
 }
 
 /**
- * null unless a Seaport order moves an NFT of a registry collection on another
- * chain. Every cancel here is sent on Ethereum and cannot reach such an order,
- * so it is refused with the market to cancel on. Any other cancel stays open,
- * so a signed Ethereum order is never stranded.
+ * The chain a cancel of this Seaport order is sent on: `{ chain, chainId }`,
+ * or the `{ error, message }` refusal. A Base buy collection's order is
+ * cancelled on Base; an order on any other chain the venue does not trade on
+ * is refused with the market to cancel on. Any other order (no registry NFT)
+ * is cancelled on Ethereum, so a signed Ethereum order is never stranded.
  */
-export function cancelRefusal(parameters) {
+export function cancelChainFor(parameters) {
+  const list = (v) => (Array.isArray(v) ? v : []);
+  let chain = "ethereum";
+  let seen = null;
+  for (const item of [...list(parameters?.offer), ...list(parameters?.consideration)]) {
+    const type = Number(item?.itemType);
+    if (type < 2 || type > 5) continue;
+    const c = collectionByContractAnyChain(item.token);
+    if (!c || c.chain === "ethereum") continue;
+    if (!canBuyOnVenue(c)) {
+      return {
+        error: NOT_VENUE_TRADEABLE,
+        message: `${c.name} orders live on ${chainLabel(c) || c.chain}, and this venue cancels only on Ethereum and Base. Cancel it on ${c.market?.name || "its own market"}.`,
+      };
+    }
+    if (seen && seen !== c.chain) {
+      return { error: NOT_VENUE_TRADEABLE, message: "This order mixes NFTs from two chains. Nothing was sent." };
+    }
+    seen = c.chain;
+    chain = c.chain;
+  }
+  return { chain, chainId: VENUE_CHAIN_IDS[chain] };
+}
+
+/**
+ * null unless the order moves an NFT of a registry collection on a chain other
+ * than Ethereum. For the sinks that cancel on Ethereum only (a P2P trade).
+ */
+export function ethereumCancelRefusal(parameters) {
   const list = (v) => (Array.isArray(v) ? v : []);
   for (const item of [...list(parameters?.offer), ...list(parameters?.consideration)]) {
     const type = Number(item?.itemType);
@@ -101,11 +192,24 @@ export function cancelRefusal(parameters) {
     if (c && c.chain !== "ethereum") {
       return {
         error: NOT_VENUE_TRADEABLE,
-        message: `${c.name} orders live on ${chainLabel(c) || c.chain}, and this venue cancels only on Ethereum. Cancel it on ${c.market?.name || "its own market"}.`,
+        message: `${c.name} orders live on ${chainLabel(c) || c.chain}, and this venue cancels trades only on Ethereum. Cancel it on ${c.market?.name || "its own market"}.`,
       };
     }
   }
   return null;
+}
+
+/** null when a cancel of this order can be sent here, else the refusal. */
+export function cancelRefusal(parameters) {
+  const where = cancelChainFor(parameters);
+  return where.error ? where : null;
+}
+
+/** Any collection traded here (Ethereum venue or Base buy) at this contract, or null. */
+export function bookCollectionByContract(address) {
+  const a = lower(address);
+  if (!a) return null;
+  return BUY_COLLECTIONS.find((c) => c.contract.toLowerCase() === a) || null;
 }
 
 /** The same refusal, thrown, for sinks whose contract is to throw. */

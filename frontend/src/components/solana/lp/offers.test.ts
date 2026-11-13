@@ -14,7 +14,7 @@ import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, BOBO_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, priceWarned, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
@@ -132,9 +132,10 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     }
   });
 
-  it('a price that could not be read: no add, and it is not a warning; remove offered', () => {
-    expect(add(view(), { price: 'unread' })).toBe('checks');
-    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'unchecked', warnings: [] });
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an outside price that could not be read: add is offered, and it is not a warning; remove offered', () => {
+    expect(add(view(), { price: 'unread' })).toBe('offer');
+    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'allowed', warnings: [] });
     expect(remove(position(view()))).toBe('offer');
   });
 
@@ -184,6 +185,26 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
     // An empty side: no amount can come out.
     expect(remove(position(view({ sol: 0n })))).toBe('dust');
+  });
+
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  // Whoever holds its last shares can still take them out.
+  it('a pool almost everyone has left: Add is refused by its checks, and Remove is still offered', () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units: 0.01 SOL a token.
+    const v = view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n });
+    expect(add(v)).toBe('checks');
+    expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
+  });
+
+  it('a share whose token payout the transfer fee would take whole is dust, though it is enough without the fee', () => {
+    // 1,000 tokens over 10^6 shares: 1,000 shares pay 1 token, and any fee takes at least 1 of it.
+    const v = view({ sol: 10n ** 12n, tok: 1_000n, lpSupply: 1_000_000n });
+    const p = position(v, { lpAmount: 1_000n });
+    const oneBps = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 1 };
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false })).toBe('offer');
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false, tokenFee: oneBps })).toBe('dust');
+    // Two tokens out, one reaching the wallet: offered.
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: position(v, { lpAmount: 2_000n }), held: false, tokenFee: oneBps })).toBe('offer');
   });
 
   it('a pool that does not pair the token with SOL, or that could not be read: no remove from here', () => {
@@ -284,7 +305,7 @@ describe('createOffer', () => {
   type Entry = PoolSearch['pools'][number];
   const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
     kind: 'ok',
-    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, knownState: {}, chainNow: NOW },
+    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, launchTierPools: [], knownState: {}, chainNow: NOW },
   });
   type In = Parameters<typeof createOffer>[0];
   const base = (): In => ({
@@ -535,8 +556,8 @@ describe('createOffer', () => {
     });
   });
 
-  // Pairing coins (owner ruling 2026-10-03): a new pool is paired with SOL, USDC or BAYLA,
-  // and the pool to add to instead is one paired with the SAME coin. The owner's own case:
+  // Pairing coins (owner rulings 2026-10-03 and 2026-11-07): a new pool is paired with SOL, USDC
+  // or an island coin, and the pool to add to instead is one paired with the SAME coin. The owner's own case:
   // BAYLA has a SOL pool, and he opens the first BAYLA/USDC pool.
   describe('the advice is per pairing coin', () => {
     /** A pool for `mint` paired with `quote` on fee tier `tier`; `reserve` is in that coin's own base units. */
@@ -622,8 +643,9 @@ describe('createOffer', () => {
       const facts = (a: In, o: { tokenMint?: string; advise?: boolean; openedHere?: (p: string) => boolean } = {}) =>
         pairFacts({ tokenMint: o.tokenMint ?? mint.toBase58(), gate: a.gate, search: a.search, healths: a.healths, openedHere: o.openedHere ?? (() => false), advise: o.advise ?? true });
 
-      it('an ordinary token: SOL, USDC and BAYLA, in that order; BAYLA: SOL and USDC; USDC: SOL only; SOL: none', () => {
-        expect(facts(base()).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE]);
+      it('an ordinary token: every coin in rank order; BOBO: SOL, USDC and BAYLA; BAYLA: SOL and USDC; USDC: SOL only; SOL: none', () => {
+        expect(facts(base()).map((x) => x.coin)).toEqual([...QUOTE_COINS]);
+        expect(facts(base(), { tokenMint: BOBO_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE]);
         expect(facts(base(), { tokenMint: BAYLA_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE]);
         expect(facts(base(), { tokenMint: USDC_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE]);
         expect(facts(base(), { tokenMint: SOL_QUOTE.mint })).toEqual([]);
@@ -637,15 +659,44 @@ describe('createOffer', () => {
           ['SOL', { kind: 'exists', pool: sol.view }, true],
           // A pool that does not pass is still a pool: USDC is not "no pool yet".
           ['USDC', { kind: 'none' }, true],
-          ['BAYLA', { kind: 'none' }, false],
+          // No island coin has one.
+          ...QUOTE_COINS.slice(2).map((q) => [q.symbol, { kind: 'none' }, false]),
         ]);
+      });
+
+      // Owner ruling 2026-11-01: one pool per pair and fee tier.
+      it('a pair is taken by its passing pool on the public tier, and by nothing else', () => {
+        const sol = poolOn(1);
+        const failingUsdc = pairedOn(USDC_QUOTE, USDC_UNIT);
+        const otherTierBayla = pairedOn(BAYLA_QUOTE, USDC_UNIT, 0);
+        let a = withPool(withPool(base(), sol, 'allowed'), failingUsdc, 'refused');
+        a = withPool(a, otherTierBayla, 'allowed');
+        expect(facts(a).map((x) => [x.coin.symbol, x.taken?.pool.address ?? null])).toEqual([
+          ['SOL', sol.view.address],
+          // A pool that takes no deposits leaves its pair free: never nothing to add to and nothing to open.
+          ['USDC', null],
+          // A pool on another fee tier takes nothing on the public one.
+          ['BAYLA', null],
+          // No pool at all on the other island coins.
+          ...QUOTE_COINS.slice(3).map((q) => [q.symbol, null]),
+        ]);
+        expect(facts(a)[0]!.taken?.warned).toBe(false);
+      });
+
+      it('a pool this tab opened takes its pair once it passes, and a card that offers no opening takes none', () => {
+        const mine = poolOn(1);
+        const a = withPool(base(), mine, 'allowed');
+        const opened = (p: string) => p === mine.view.address;
+        expect(facts(a, { openedHere: opened })[0]).toMatchObject({ advice: { kind: 'opened-here' }, taken: { pool: mine.view } });
+        expect(facts(withPool(base(), poolOn(1), 'refused'), { openedHere: () => true })[0]!.taken).toBeNull();
+        expect(facts(a, { advise: false }).map((x) => x.taken)).toEqual(QUOTE_COINS.map(() => null));
       });
 
       it('a card that offers no opening names no pool for any coin', () => {
         const a = withPool(base(), poolOn(1), 'allowed');
-        expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual([{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }]);
+        expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual(QUOTE_COINS.map(() => ({ kind: 'none' })));
         // What was read is still said: SOL has a pool.
-        expect(facts(a, { advise: false }).map((x) => x.hasPool)).toEqual([true, false, false]);
+        expect(facts(a, { advise: false }).map((x) => x.hasPool)).toEqual(QUOTE_COINS.map((q) => q === SOL_QUOTE));
       });
 
       // Review 2026-10-04 (C2, then W3). The card and the form say "passes the checks" only
@@ -658,17 +709,19 @@ describe('createOffer', () => {
           const a = withPool(base(), sol);
           return facts({ ...a, healths: new Map([[sol.view.address, health(sol.view, { price, safety })]]) }).map((x) => [x.coin.symbol, x.advice.kind, x.warned]);
         };
+        // Every coin but SOL has no pool here, so nothing is pointed to and nothing warned of.
+        const rest = QUOTE_COINS.slice(1).map((q) => [q.symbol, 'none', false]);
         // The pool is at 0.01 SOL a token.
-        expect(warnedFor(0.01)).toEqual([['SOL', 'exists', false], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
-        expect(warnedFor(0.02)).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
-        expect(warnedFor('no-route')).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        expect(warnedFor(0.01)).toEqual([['SOL', 'exists', false], ...rest]);
+        expect(warnedFor(0.02)).toEqual([['SOL', 'exists', true], ...rest]);
+        expect(warnedFor('no-route')).toEqual([['SOL', 'exists', true], ...rest]);
         // At the market, and the token itself is what the pool's card warns of.
         for (const code of POOL_RISK_CODES) {
-          expect(warnedFor(0.01, warnedWith(code)), code).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+          expect(warnedFor(0.01, warnedWith(code)), code).toEqual([['SOL', 'exists', true], ...rest]);
         }
         // A token warning that changes nothing about a pool (a live mint authority) is not
         // on the pool's card, so the pool still passes clean.
-        expect(warnedFor(0.01, warnedToken)).toEqual([['SOL', 'exists', false], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        expect(warnedFor(0.01, warnedToken)).toEqual([['SOL', 'exists', false], ...rest]);
         // The one test behind it, and the price-only one beside it: they differ exactly on a token warning.
         const freezable = health(sol.view, { price: 0.01, safety: warnedWith('freeze-authority') });
         expect([depositWarned(freezable), priceWarned(freezable)]).toEqual([true, false]);
@@ -676,12 +729,15 @@ describe('createOffer', () => {
         expect([depositWarned(health(sol.view)), depositWarned(undefined)]).toEqual([false, false]);
         // Owner rulings 2026-10-07: two more prices that were compared with nothing are price
         // warnings too. A pool priced in a coin Jupiter has no price for (`no-market` of the
-        // coin), and a launch pool with no route and under 10 minutes of trading (`too-new`).
+        // coin), and a launch pool with no route and too short a record (`too-new`). So are
+        // the two of M-1009-6: a launch pool whose price may have moved without a trade.
         // An Add wish that names no pool passes each over while another pool offers adding.
         const withPrice = (price: PoolHealth['price']): PoolHealth => ({ ...health(sol.view), price });
         expect(priceWarned(withPrice({ state: 'no-market', of: 'coin', pool: 2, detail: 'Jupiter has no route for USDC' }))).toBe(true);
         expect(priceWarned(withPrice({ state: 'no-market', of: 'token', pool: 2, detail: 'Jupiter has no route for this token' }))).toBe(true);
         expect(priceWarned(withPrice({ state: 'too-new', pool: 0.01, historySecs: 120n }))).toBe(true);
+        expect(priceWarned(withPrice({ state: 'reserves-moved', pool: 0.01 }))).toBe(true);
+        expect(priceWarned(withPrice({ state: 'too-quiet', pool: 0.01, reference: 0.01, diff: 0 }))).toBe(true);
         // What is not a price warning stays not one: a price that agrees, a launch pool
         // nobody has traded, and a price that could not be read (that pool offers nothing).
         expect(priceWarned(withPrice({ state: 'no-trades-yet', pool: 0.01 }))).toBe(false);
@@ -690,7 +746,7 @@ describe('createOffer', () => {
         // No pool pointed to, no warning about one: a card that offers nothing names nothing.
         const off = withPool(base(), sol);
         const stopped = facts({ ...off, healths: new Map([[sol.view.address, health(sol.view, { price: 0.02 })]]) }, { advise: false });
-        expect(stopped.map((x) => x.warned)).toEqual([false, false, false]);
+        expect(stopped.map((x) => x.warned)).toEqual(QUOTE_COINS.map(() => false));
       });
 
       // Every pair has its own standard address. A SOL pool at the SOL pair's address says
@@ -708,7 +764,7 @@ describe('createOffer', () => {
         };
         const withState = (knownState: PoolSearch['knownState']): PoolSearchRead => ({
           kind: 'ok',
-          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, knownState, chainNow: NOW },
+          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, launchTierPools: [], knownState, chainNow: NOW },
         });
         const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q));
 
@@ -722,7 +778,10 @@ describe('createOffer', () => {
         // An unread search, and a coin the search has no address for.
         expect(standardState({ kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } }, USDC_QUOTE)).toBe('empty');
         expect(standardState(searchOf([]), USDC_QUOTE)).toBe('empty');
-        expect(pairFacts({ tokenMint: mint.toBase58(), gate: GATE, search: withState({ [usdcStd!]: 'pool' }), healths: new Map(), openedHere: () => false, advise: true }).map((x) => x.standard)).toEqual(['empty', 'taken', 'empty']);
+        // One answer per coin: USDC's address is taken; every other coin's (the search names none for the island coins past BAYLA) is empty.
+        expect(pairFacts({ tokenMint: mint.toBase58(), gate: GATE, search: withState({ [usdcStd!]: 'pool' }), healths: new Map(), openedHere: () => false, advise: true }).map((x) => x.standard)).toEqual(
+          QUOTE_COINS.map((q) => (q === USDC_QUOTE ? 'taken' : 'empty')),
+        );
       });
     });
   });
@@ -806,7 +865,7 @@ describe('createOffer', () => {
     // opening check says each of them above Review. If the check ever stopped saying one,
     // it would be said nowhere in the form: this pins that it cannot.
     it('every code the form leaves out of its top list has a line from the opening check', () => {
-      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount']);
+      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount', 'transfer-fee', 'transfer-fee-mutable']);
       for (const code of POOL_RISK_CODES) {
         expect(tokenReasons(warnedWith(code), 'pools').warned, code).toHaveLength(1);
       }

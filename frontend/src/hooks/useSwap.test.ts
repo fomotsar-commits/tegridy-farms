@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { parseUnits, parseEther } from 'viem';
 
 // ── Self-contained wagmi mock (useSwap uses useBalance which the shared
@@ -17,12 +17,16 @@ const wagmiState = vi.hoisted(() => {
     // FE-HIGH-6: addCustomToken re-verifies symbol/decimals on-chain before
     // adding. Tests configure the "on-chain" ERC20 shape the mock returns.
     erc20Shape: { symbol: 'FOO', decimals: 18 } as { symbol: string; decimals: number },
+    // Permit2.allowance(owner, token, router): [amount, expiration, nonce].
+    permit2Allowance: [0n, 0, 0] as [bigint, number, number],
+    signTypedDataMock: null as unknown as ReturnType<typeof import('vitest').vi.fn>,
   };
 });
 
 vi.mock('wagmi', async () => {
   const { vi: vitest } = await import('vitest');
   if (!wagmiState.writeContractMock) wagmiState.writeContractMock = vitest.fn();
+  if (!wagmiState.signTypedDataMock) wagmiState.signTypedDataMock = vitest.fn();
   return {
     useAccount: () => ({
       address: wagmiState.account.address,
@@ -65,10 +69,12 @@ vi.mock('wagmi', async () => {
       readContract: vitest.fn().mockImplementation(({ functionName }: { functionName?: string }) => {
         if (functionName === 'symbol') return Promise.resolve(wagmiState.erc20Shape.symbol);
         if (functionName === 'decimals') return Promise.resolve(wagmiState.erc20Shape.decimals);
+        if (functionName === 'allowance') return Promise.resolve(wagmiState.permit2Allowance);
         return Promise.resolve(0n);
       }),
       multicall: vitest.fn().mockResolvedValue([]),
     }),
+    useSignTypedData: () => ({ signTypedDataAsync: wagmiState.signTypedDataMock }),
   };
 });
 
@@ -86,7 +92,7 @@ vi.mock('../lib/analytics', () => ({ trackSwap: vi.fn() }));
 vi.mock('../lib/revertDecoder', () => ({ decodeRevertReason: (e: Error) => e?.message ?? 'err' }));
 
 // ── Controllable mocks for the two composed sub-hooks ────────────────────
-type RouteSource = 'tegridy' | 'uniswap' | 'aggregator';
+type RouteSource = 'tegridy' | 'uniswap' | 'uniswap-v3' | 'aggregator';
 interface QuoteShape {
   outputAmount: bigint;
   outputFormatted: string;
@@ -96,7 +102,9 @@ interface QuoteShape {
   minimumReceivedFormatted: string;
   isQuoteLoading: boolean;
   selectedRoute: RouteSource;
-  selectedOnChainRoute: { source: 'tegridy' | 'uniswap'; output: bigint };
+  selectedOnChainRoute: { source: 'tegridy' | 'uniswap' | 'uniswap-v3'; output: bigint };
+  ownPools?: 'base' | 'opening';
+  v3: { leg: { side: 'buy' | 'sell'; coin: `0x${string}`; pool: `0x${string}`; poolFee: number; quoterV2: `0x${string}`; router: `0x${string}` }; feeBips: bigint; feeRecipient: `0x${string}` } | null;
   hasTegridyPair: boolean;
   tegridyOutputFormatted: string | null;
   uniOutputFormatted: string | null;
@@ -133,11 +141,13 @@ const defaultQuote = (): QuoteShape => ({
   hasDirectPair: true,
   intermediateAmount: undefined,
   path: ['0x1111111111111111111111111111111111111111', '0x2222222222222222222222222222222222222222'],
+  v3: null,
 });
 
-const quoteState: { current: QuoteShape } = { current: defaultQuote() };
+const quoteState: { current: QuoteShape; lastArgs: unknown[] } = { current: defaultQuote(), lastArgs: [] };
 
 const allowanceState = {
+  lastVenue: undefined as unknown,
   needsApproval: false,
   approveMock: vi.fn(),
   unlimitedApproval: false,
@@ -149,22 +159,37 @@ const allowanceState = {
 // `QUOTE_MAX_AGE_MS` was added as a named export on useSwapQuote after this
 // mock was first written; without it the test fails at module load.
 vi.mock('./useSwapQuote', () => ({
-  useSwapQuote: () => quoteState.current,
+  useSwapQuote: (...args: unknown[]) => { quoteState.lastArgs = args; return quoteState.current; },
   QUOTE_MAX_AGE_MS: 30_000,
 }));
 
+// The factory that charges 0.006 ETH to open a pool has its own router and SwapFeeRouter. Off
+// by default (as on mainnet today, where its addresses are zero); the opening tests switch it on.
+const OPENING_FACTORY = '0x0fac000000000000000000000000000000000001' as const;
+const OPENING_ROUTER = '0x0be0000000000000000000000000000000000002' as const;
+const OPENING_SFR = '0x05f0000000000000000000000000000000000003' as const;
+const openingState = vi.hoisted(() => ({ on: false }));
+vi.mock('../lib/chains/swapVenue', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/chains/swapVenue')>();
+  return {
+    ...real,
+    openingSwapVenue: (v: ReturnType<typeof real.swapVenueOn>) =>
+      openingState.on && v ? { ...v, factory: OPENING_FACTORY, router: OPENING_ROUTER, swapFeeRouter: OPENING_SFR } : null,
+  };
+});
+
 vi.mock('./useSwapAllowance', () => ({
-  useSwapAllowance: () => ({
+  useSwapAllowance: (...args: unknown[]) => { allowanceState.lastVenue = args[6]; return ({
     needsApproval: allowanceState.needsApproval,
     approve: allowanceState.approveMock,
     unlimitedApproval: allowanceState.unlimitedApproval,
     toggleUnlimitedApproval: allowanceState.toggleMock,
     refetchAllowance: allowanceState.refetchMock,
-  }),
+  }); },
 }));
 
 // ── Import hook + constants AFTER mocks ─────────────────────────────────
-import { useSwap } from './useSwap';
+import { useSwap, BLOCKED_PRICE_IMPACT_PCT } from './useSwap';
 import { DEFAULT_TOKENS } from '../lib/tokenList';
 import {
   CHAIN_ID,
@@ -185,12 +210,16 @@ function resetWagmi() {
   wagmiState.tokenBalance = parseUnits('1000000', 18); // plenty
   wagmiState.erc20Shape = { symbol: 'FOO', decimals: 18 };
   wagmiState.writeContractMock.mockReset();
+  wagmiState.signTypedDataMock.mockReset();
+  wagmiState.permit2Allowance = [0n, 0, 0];
 }
 
 describe('useSwap', () => {
   beforeEach(() => {
     resetWagmi();
     quoteState.current = defaultQuote();
+    openingState.on = false;
+    allowanceState.lastVenue = undefined;
     allowanceState.needsApproval = false;
     allowanceState.unlimitedApproval = false;
     allowanceState.approveMock.mockReset();
@@ -351,6 +380,33 @@ describe('useSwap', () => {
     expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
   });
 
+  // 2026-11-01: Base's BNKR V2 pool quoted 1.75M BNKR at 99.99% impact and the
+  // swap still signed. Uniswap's interface refuses at 15%; so does this.
+  it('executeSwap refuses at or above 15% price impact, and says so', () => {
+    quoteState.current = { ...defaultQuote(), priceImpact: 99.99 };
+    const { result } = renderHook(() => useSwap());
+    expect(result.current.impactBlocked).toBe(true);
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+
+    quoteState.current = { ...defaultQuote(), priceImpact: BLOCKED_PRICE_IMPACT_PCT };
+    const edge = renderHook(() => useSwap());
+    expect(edge.result.current.impactBlocked).toBe(true);
+  });
+
+  it('executeSwap still signs just under 15%, and an unread impact is not a block', () => {
+    quoteState.current = { ...defaultQuote(), priceImpact: 14.99 };
+    const { result } = renderHook(() => useSwap());
+    expect(result.current.impactBlocked).toBe(false);
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+
+    quoteState.current = { ...defaultQuote(), priceImpact: null, priceImpactUnread: true };
+    expect(renderHook(() => useSwap()).result.current.impactBlocked).toBe(false);
+  });
+
   // ────────────── Action-side: writeContract args ───────────────────────
 
   it('ETH→TOKEN via uniswap route targets the real Uniswap router with value and no maxFeeBps', () => {
@@ -499,6 +555,8 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
   beforeEach(() => {
     resetWagmi();
     quoteState.current = defaultQuote();
+    openingState.on = false;
+    allowanceState.lastVenue = undefined;
     allowanceState.needsApproval = false;
     try { window.localStorage.clear(); } catch { /* jsdom only */ }
   });
@@ -576,5 +634,156 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
     act(() => result.current.executeSwap());
     expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
     expect(result.current.swapChainId).toBe(CHAIN_ID);
+  });
+});
+
+// Pools opened on the factory that charges 0.006 ETH to open (owner ruling 2026-10-25) are
+// swapped through the SwapFeeRouter bound to that factory's router, which takes the same
+// venue fee. The quote names the winning pool (`ownPools`); writes and approvals follow it.
+describe('useSwap: our pools on the opening factory', () => {
+  beforeEach(() => {
+    resetWagmi();
+    quoteState.current = defaultQuote();
+    openingState.on = true;
+    allowanceState.lastVenue = undefined;
+    allowanceState.needsApproval = false;
+  });
+
+  it('asks the quote for opening pools', () => {
+    renderHook(() => useSwap());
+    expect(quoteState.lastArgs[6]).toEqual({ includeOpeningPools: true });
+  });
+
+  it('a winning pool on the opening factory signs through its SwapFeeRouter, and approvals target it', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'tegridy',
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'opening',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    const call = wagmiState.writeContractMock.mock.calls[0][0];
+    expect(call.address).toBe(OPENING_SFR);
+    expect(call.functionName).toBe('swapExactETHForTokens');
+    expect(call.args[4]).toBe(100n);
+    expect((allowanceState.lastVenue as { swapFeeRouter: string }).swapFeeRouter).toBe(OPENING_SFR);
+  });
+
+  it('the aggregator path falls back through the opening SwapFeeRouter too', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'aggregator',
+      aggBetter: true,
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'opening',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock.mock.calls[0][0].address).toBe(OPENING_SFR);
+  });
+
+  it('a winning pool on the old factory still signs through the live SwapFeeRouter', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'tegridy',
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'base',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock.mock.calls[0][0].address).toBe(SWAP_FEE_ROUTER_ADDRESS);
+    expect((allowanceState.lastVenue as { swapFeeRouter: string }).swapFeeRouter).toBe(SWAP_FEE_ROUTER_ADDRESS);
+  });
+});
+
+// 2026-11-01: an island coin's own Uniswap V3 pool, through Uniswap's Universal Router,
+// which pays the venue its fee in the same transaction (lib/evm/universalRouter.ts).
+describe('useSwap on Base: an island coin through its own V3 pool, venue fee included', () => {
+  const UR = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
+  const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+  const BNKR = { address: '0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b' as `0x${string}`, symbol: 'BNKR', name: 'BNKR', decimals: 18, logoURI: '' };
+  const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1' as `0x${string}`;
+  const v3 = (side: 'buy' | 'sell') => ({
+    leg: { side, coin: BNKR.address, pool: '0xAEC085E5A5CE8d96A7bDd3eB3A62445d4f6CE703' as `0x${string}`, poolFee: 10000, quoterV2: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a' as `0x${string}`, router: UR as `0x${string}` },
+    feeBips: 50n,
+    feeRecipient: SAFE,
+  });
+
+  beforeEach(() => {
+    resetWagmi();
+    wagmiState.chainId = 8453;
+    allowanceState.needsApproval = false;
+    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+  });
+
+  it('a buy sends the ETH to the router: fee first, then wrap, then the swap to the buyer at Min. Received', () => {
+    quoteState.current = { ...defaultQuote(), selectedRoute: 'uniswap-v3', selectedOnChainRoute: { source: 'uniswap-v3', output: 1000n * 10n ** 18n }, v3: v3('buy') };
+    const { result } = renderHook(() => useSwap({ chainId: 8453 }));
+    act(() => result.current.setToToken(BNKR));
+    act(() => result.current.setInputAmount('0.1'));
+    act(() => result.current.executeSwap());
+    const write = wagmiState.writeContractMock;
+    expect(write).toHaveBeenCalledTimes(1);
+    const call = write.mock.calls[0][0];
+    expect(call.chainId).toBe(8453);
+    expect(call.address).toBe(UR);
+    expect(call.functionName).toBe('execute');
+    expect(call.value).toBe(parseEther('0.1'));
+    expect(call.args[0]).toBe('0x060b00'); // PAY_PORTION, WRAP_ETH, V3_SWAP_EXACT_IN
+    expect((call.args[1][0] as string).toLowerCase()).toContain(SAFE.slice(2).toLowerCase());
+    expect(BigInt(`0x${(call.args[1][2] as string).slice(2 + 64 * 2, 2 + 64 * 3)}`)).toBe(990n * 10n ** 18n); // amountOutMin
+    expect(wagmiState.signTypedDataMock).not.toHaveBeenCalled();
+  });
+
+  it('a sale signs a Permit2 allowance for exactly the amount, then swaps, pays the fee and unwraps', async () => {
+    quoteState.current = { ...defaultQuote(), selectedRoute: 'uniswap-v3', selectedOnChainRoute: { source: 'uniswap-v3', output: 1000n * 10n ** 18n }, v3: v3('sell') };
+    wagmiState.permit2Allowance = [0n, 0, 7];
+    wagmiState.signTypedDataMock.mockResolvedValue(`0x${'ab'.repeat(65)}`);
+    const { result } = renderHook(() => useSwap({ chainId: 8453 }));
+    act(() => { result.current.setFromToken(BNKR); result.current.setToToken(ETH); });
+    act(() => result.current.setInputAmount('500000'));
+    act(() => result.current.executeSwap());
+    await waitFor(() => expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1));
+    const signed = wagmiState.signTypedDataMock.mock.calls[0][0];
+    expect(signed.domain).toEqual({ name: 'Permit2', chainId: 8453, verifyingContract: PERMIT2 });
+    expect(signed.message.details.amount).toBe(500_000n * 10n ** 18n);
+    expect(signed.message.details.token).toBe(BNKR.address);
+    expect(signed.message.details.nonce).toBe(7);
+    expect(signed.message.spender).toBe(UR);
+    const call = wagmiState.writeContractMock.mock.calls[0][0];
+    expect(call.address).toBe(UR);
+    expect(call.value).toBeUndefined();
+    expect(call.args[0]).toBe('0x0a00060c'); // PERMIT2_PERMIT, V3_SWAP_EXACT_IN, PAY_PORTION, UNWRAP_WETH
+  });
+
+  it('a sale skips the signature when a live Permit2 allowance already covers it', async () => {
+    quoteState.current = { ...defaultQuote(), selectedRoute: 'uniswap-v3', selectedOnChainRoute: { source: 'uniswap-v3', output: 1000n * 10n ** 18n }, v3: v3('sell') };
+    wagmiState.permit2Allowance = [2_000_000n * 10n ** 18n, Math.floor(Date.now() / 1000) + 3600, 8];
+    const { result } = renderHook(() => useSwap({ chainId: 8453 }));
+    act(() => { result.current.setFromToken(BNKR); result.current.setToToken(ETH); });
+    act(() => result.current.setInputAmount('500000'));
+    act(() => result.current.executeSwap());
+    await waitFor(() => expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1));
+    expect(wagmiState.signTypedDataMock).not.toHaveBeenCalled();
+    expect(wagmiState.writeContractMock.mock.calls[0][0].args[0]).toBe('0x00060c');
+  });
+
+  it('a cancelled signature sends nothing, says so, and leaves the button usable', async () => {
+    const { toast } = await import('sonner');
+    quoteState.current = { ...defaultQuote(), selectedRoute: 'uniswap-v3', selectedOnChainRoute: { source: 'uniswap-v3', output: 1000n * 10n ** 18n }, v3: v3('sell') };
+    wagmiState.signTypedDataMock.mockRejectedValueOnce(Object.assign(new Error('User rejected the request.'), { code: 4001 }));
+    const { result } = renderHook(() => useSwap({ chainId: 8453 }));
+    act(() => { result.current.setFromToken(BNKR); result.current.setToToken(ETH); });
+    act(() => result.current.setInputAmount('500000'));
+    act(() => result.current.executeSwap());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Signature cancelled. Nothing was sold.'));
+    expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+    wagmiState.signTypedDataMock.mockResolvedValue(`0x${'ab'.repeat(65)}`);
+    act(() => result.current.executeSwap());
+    await waitFor(() => expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1));
   });
 });

@@ -1,15 +1,10 @@
 // @vitest-environment jsdom
 /**
- * The top bar's own Solana connection, end to end with the REAL pieces: the
- * wallet sheet, TopBarSolana's import(), SolanaProviders and the Solana wallet
- * list. Only RainbowKit, wagmi and the animation library are stand-ins.
- *
- * ⚠️ THE FIRST TEST IS A BUG THAT SHIPPED TO REVIEW (2026-10-03). On a first
- * Solana connect from a page with no Solana section, the list could open while
- * the wallet sheet still held the page's scroll lock; the list took that lock
- * for the page's own state and put it back when it closed. The page then no
- * longer scrolled until a reload, and keyboard focus was left on <body>. To
- * see it fail, make WalletSheet's waiting effect call `openSolanaList()`
+ * The top bar's own Solana connection, end to end with the real wallet sheet, TopBarSolana's
+ * import(), SolanaProviders and wallet list; only RainbowKit, wagmi and the animation library
+ * are stand-ins. In the first test the list must not open while the sheet still holds the
+ * page's scroll lock, or the list keeps it as the page's own: the page stops scrolling and focus
+ * is left on <body>. To see it fail, make WalletSheet's waiting effect call `openSolanaList()`
  * itself instead of leaving it in `afterClose`.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';

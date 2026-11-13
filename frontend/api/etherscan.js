@@ -111,6 +111,12 @@ function parsePageParam(raw) {
   return n;
 }
 
+// One deadline for Etherscan's headers and body together: the house 8 s, a starting
+// number, not a measure of this upstream. A silent Etherscan ends in the handler's own
+// catch, in the words a fetch that throws already gets. Pinned in
+// __tests__/etherscan.stall.test.js.
+const UPSTREAM_TIMEOUT_MS = 8000;
+
 export default async function handler(req, res) {
   setCors(req, res);
 
@@ -206,6 +212,8 @@ export default async function handler(req, res) {
   try {
     const response = await fetch(`${ETHERSCAN_BASE}?${params}`, {
       headers: authHeaders(),
+      // Stays armed through the bounded read below.
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     // AUDIT R049 H-3: bounded body read.
     const { text, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);

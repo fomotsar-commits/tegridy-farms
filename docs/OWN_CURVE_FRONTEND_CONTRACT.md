@@ -178,8 +178,9 @@ The browser never talks to a Solana RPC directly; it goes through
 
 > **This is a hard product constraint, not a detail.** There is no way to *enumerate*
 > launches from the browser. A "all launches" list must come from a curated mint list or
-> a new server-side route — and Vercel Hobby is at 9 of 12 functions, so it must be a
-> `?resource=` branch on the existing aggregator catchall, not a new `api/*.js`. Until
+> a new server-side route: a `?resource=` branch on the existing aggregator catchall, or
+> its own `api/*.js` listed in `frontend/api/SERVERLESS_BUDGET.md` (the Vercel Hobby
+> 12-function cap that once ruled that out is gone since the move to Pro on 2026-09-04). Until
 > that exists, a directory page must say it is showing a **known list**, not "all
 > launches".
 

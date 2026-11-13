@@ -188,6 +188,19 @@ describe('classifyProvenance', () => {
     expect(p.detail).toMatch(/cannot say/i);
     expect(p.detail).not.toMatch(/did not come through this rail/i);
   });
+
+  it('keeps what failed out of the sentence, and hands it over on its own, bounded', () => {
+    const message = `HTTP request failed. URL: https://eth.drpc.org Request body: {"method":"eth_call","params":["${'ab'.repeat(200)}"]}`;
+    const p = classifyProvenance({ status: 'unreadable', message });
+    expect(p.detail).not.toMatch(/HTTP request failed|eth\.drpc\.org|Request body/);
+    expect(p.failure).toBe(clipMessage(message));
+    expect(classifyProvenance(found(THEIRS)).failure).toBeUndefined();
+  });
+
+  it('says every provenance in sentences with no em dash', () => {
+    const all = [found(OURS), found(THEIRS), found(ZERO), { status: 'absent' } as const, { status: 'unreadable', message: 'rpc down' } as const];
+    for (const r of all) expect(classifyProvenance(r).detail).not.toContain('—');
+  });
 });
 
 describe('classifyGraduation', () => {

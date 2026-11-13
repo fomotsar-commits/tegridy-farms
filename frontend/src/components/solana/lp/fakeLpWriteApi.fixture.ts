@@ -72,6 +72,7 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
   return {
     kind: 'lp-deposit',
     pool,
+    transferFee: null,
     origin: 'other',
     config: null,
     enableCreatorFee: false,
@@ -111,6 +112,7 @@ export function lpWithdrawSummary(
   return {
     kind: 'lp-withdraw',
     pool,
+    transferFee: null,
     origin: 'other',
     config: null,
     tokenMint,
@@ -171,6 +173,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
   return {
     kind: 'lp-create',
     pool,
+    transferFee: null,
     origin: 'standard',
     config: tier1Config(),
     tokenMint,
@@ -185,6 +188,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     createFee: 150_000_000n,
     feeReceiver: new PublicKey(new Uint8Array(32).fill(42)),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
     price: { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
     tokenWarnings: [],
     unwrapsWsol: quote.native,

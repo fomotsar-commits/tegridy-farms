@@ -13,7 +13,8 @@
 
 import { publicTierConfig, withdrawEnabled } from '../../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
-import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
+import { minLpForBothSides, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import type { TransferFee } from '../../../lib/solana/lp/transferFee';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -61,9 +62,10 @@ export type WithdrawOffer =
  * has no pool placed → its pool could not be read (or was not the pool the share
  * names) → the pool does not pair the token with a pairing coin → a withdrawal from this pool is
  * still pending → the pool program's withdraw switch is off → a vault is frozen → the
- * whole share is below the program's minimum (one side would round to zero) → offer.
+ * whole share is below the program's minimum (one side would round to zero, or reach the
+ * wallet as nothing once the token's transfer fee `tokenFee` is taken) → offer.
  */
-export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; position: Position; held: boolean }): WithdrawOffer {
+export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; position: Position; held: boolean; tokenFee?: TransferFee | null }): WithdrawOffer {
   if (a.mode === 'off') return 'off';
   if (!a.gate || a.gate.kind !== 'open') return 'gate';
   const pool = a.position.pool;
@@ -75,7 +77,7 @@ export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; posit
   if (a.held) return 'held';
   if (!withdrawEnabled(pool.view.snapshot.pool)) return 'switched-off';
   if (pool.view.vaultsFrozen) return 'vault-frozen';
-  const minLp = minLpForBothSides(pool.view.snapshot);
+  const minLp = minLpForBothSides(pool.view.snapshot, poolFeesOf(pool.view.quoteIsToken0, a.tokenFee ?? null));
   if (minLp === null || a.position.lpAmount < minLp) return 'dust';
   return 'offer';
 }
@@ -161,9 +163,10 @@ export function poolListCut(search: PoolSearchRead): boolean {
  * a warning before the button (`openingCautions`). Jupiter failing to answer is not "no
  * market price": that is unread, and stops here.
  *
- * A pool that already exists NEVER stops an opening (owner ruling 2026-10-03): a token
- * may have as many pools as people open. The card points to the pool to add to first
- * (`createAdvice`), which is why every pool must be read and checked before `offer`.
+ * A pool that already exists never stops the CARD's offer: it stops only its own pair
+ * (`pairTaken`, owner ruling 2026-11-01), and the form says so for that pair. The card
+ * points to the pool to add to first (`createAdvice`) and says which pairs are taken, which
+ * is why every pool must be read and checked before `offer`.
  */
 export function createOffer(a: {
   mode: LpWriteMode;
@@ -218,7 +221,8 @@ export function createOffer(a: {
 
 /**
  * The token warnings that change what a pool for the token risks: it copies a well-known
- * name, its creator can freeze accounts, or a wallet shows a changing amount for it.
+ * name, its creator can freeze accounts, a wallet shows a changing amount for it, or it
+ * keeps back part of every transfer (and whoever controls that can raise it).
  * `tokenReasons` (poolHealth.ts) says each of these again for the pool, and the
  * open-a-pool form shows those lines above Review. So the form leaves these out of the
  * list above its amount boxes (on a phone that list pushes the boxes off the first
@@ -230,6 +234,8 @@ export const POOL_RISK_CODES: ReadonlySet<SafetyReason['code']> = new Set<Safety
   'freeze-authority',
   'interest-bearing',
   'scaled-amount',
+  'transfer-fee',
+  'transfer-fee-mutable',
 ]);
 
 const NO_MARKET_CAUTION =
@@ -283,27 +289,49 @@ export function createAdvice(a: {
     list.reduce<PoolView | null>((best, v) => (best === null || v.quoteReserve > best.quoteReserve ? v : best), null);
   const mine = biggest(views.filter((v) => a.openedHere(v.address)));
   if (mine) return { kind: 'opened-here', pool: mine };
-  const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
-  const passing = views.filter((v) => v.snapshot.pool.ammConfig === tier1 && a.healths.get(v.address)?.deposits.verdict === 'allowed');
-  // A pool more than 3% off its reference is 'allowed' now, with a warning (owner ruling
-  // 2026-10-04). One big pool at a wrong price must not hide a smaller one at the market:
-  // the biggest pool whose price is not off is the one pointed to, and an off-price pool
-  // is named only when it is all there is (review, 2026-10-04).
-  const pick = biggest(passing.filter((v) => a.healths.get(v.address)?.price.state !== 'disagrees')) ?? biggest(passing);
+  const pick = pairTaken(a);
   return pick ? { kind: 'exists', pool: pick } : { kind: 'none' };
+}
+
+/**
+ * The pool that already holds this pair on the public tier and takes deposits, or null.
+ *
+ * ONE POOL PER PAIR PER FEE TIER (owner ruling 2026-11-01, replacing 2026-10-03's "as many
+ * pools as people open"). While such a pool is there, a second pool pairing the token with
+ * the same coin on the same tier is not opened here: the opener adds to it instead, so the
+ * pair's liquidity stays in one place and its price follows the market more closely. A token
+ * may still have one pool for each coin it pairs with. A pool that takes no deposits (empty,
+ * paused, refused by its checks) does not count, so a pair is never left with nothing to add
+ * to and nothing to open.
+ *
+ * A pool more than 3% off its reference is 'allowed', with a warning (owner ruling
+ * 2026-10-04). One big pool at a wrong price must not hide a smaller one at the market: the
+ * biggest pool whose price is not off is the one named, and an off-price pool only when it is
+ * all there is (review, 2026-10-04). Pure, like `createAdvice`.
+ */
+export function pairTaken(a: { gate: LpGate | null; search: PoolSearchRead; healths: ReadonlyMap<string, PoolHealth>; quote?: QuoteCoin }): PoolView | null {
+  if (!a.gate || a.gate.kind !== 'open' || a.search.kind !== 'ok') return null;
+  const coin = (a.quote ?? SOL_QUOTE).mint;
+  const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
+  const passing = a.search.search.pools.flatMap((e) =>
+    e.kind === 'pool' && e.view.quote.mint === coin && e.view.snapshot.pool.ammConfig === tier1 && a.healths.get(e.view.address)?.deposits.verdict === 'allowed' ? [e.view] : [],
+  );
+  const biggest = (list: PoolView[]): PoolView | null =>
+    list.reduce<PoolView | null>((best, v) => (best === null || v.quoteReserve > best.quoteReserve ? v : best), null);
+  return biggest(passing.filter((v) => a.healths.get(v.address)?.price.state !== 'disagrees')) ?? biggest(passing);
 }
 
 /**
  * Did a pool's price check end in a warning: its price is more than 3% off its reference,
  * or it was compared with nothing (Jupiter has no price for the token or for the pool's
- * pairing coin, `no-market`; or a launch pool with no route has traded for too short a
- * time for its own average to count, `too-new`)? A deposit there may lose money to the
- * price alone, so an Add wish that names no pool passes such a pool over while another
- * offers adding (PoolFinder `addTo`).
+ * pairing coin, `no-market`; or a launch pool with no route whose own record proves
+ * nothing: too short, `too-new`; moved without a trade, `reserves-moved`; too quiet,
+ * `too-quiet`)? A deposit there may lose money to the price alone, so an Add wish that
+ * names no pool passes such a pool over while another offers adding (PoolFinder `addTo`).
  */
 export function priceWarned(health: PoolHealth | undefined): boolean {
   const state = health?.price.state;
-  return state === 'disagrees' || state === 'no-market' || state === 'too-new';
+  return state === 'disagrees' || state === 'no-market' || state === 'too-new' || state === 'reserves-moved' || state === 'too-quiet';
 }
 
 /**
@@ -337,6 +365,12 @@ export interface PairFacts {
   warned: boolean;
   /** Did the search read any pool paired with this coin, passing its checks or not? */
   hasPool: boolean;
+  /**
+   * The pool that takes this pair on the public tier (`pairTaken`), and whether it takes
+   * deposits with a warning of any kind (`depositWarned`). While set, the form opens no
+   * pool for this coin.
+   */
+  taken: { pool: PoolView; warned: boolean } | null;
   /** Whether the search found anything at THIS pair's standard tier-1 address. Prepare decides for good. */
   standard: 'empty' | 'taken';
 }
@@ -370,11 +404,17 @@ export function pairFacts(a: {
   const paired = new Set(a.search.kind === 'ok' ? a.search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view.quote.mint] : [])) : []);
   return quotesFor(a.tokenMint).map((coin) => {
     const advice: CreateAdvice = a.advise ? createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere: a.openedHere, quote: coin }) : { kind: 'none' };
+    // `createAdvice` names the taking pool itself ('exists'), unless this tab opened one,
+    // and names none when there is none: so it is looked for again only after an opening
+    // here. A card that offers no opening has no pair to take (and derives no tier address
+    // on every render).
+    const taken = advice.kind === 'exists' ? advice.pool : advice.kind === 'opened-here' ? pairTaken({ gate: a.gate, search: a.search, healths: a.healths, quote: coin }) : null;
     return {
       coin,
       advice,
       warned: advice.kind !== 'none' && depositWarned(a.healths.get(advice.pool.address)),
       hasPool: paired.has(coin.mint),
+      taken: taken && { pool: taken, warned: depositWarned(a.healths.get(taken.address)) },
       standard: standardState(a.search, coin),
     };
   });

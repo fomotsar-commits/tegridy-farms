@@ -12,7 +12,7 @@ import { lpWithdrawValue } from '../cpswap/read';
 import { minuteText } from './format';
 import { tokenSymbol } from './identity';
 import type { TokenSafety } from './tokenSafety';
-import { LOCKED_LP, LOCKED_SHARES_TEXT, isqrt } from './liquidityMath';
+import { LOCKED_LP, LOCKED_SHARES_TEXT, claimableShares, isqrt } from './liquidityMath';
 import { paceText } from './pace';
 import type { PoolView } from './poolFinder';
 import type { LastTrade } from './poolPast';
@@ -47,6 +47,10 @@ export interface LedgerFigures {
   provenShares: bigint;
   /** Case B: shares that arrived another way, valued apart and never counted. */
   otherShares: { lp: bigint; worth: { token: bigint; coin: bigint } } | null;
+  /** The liquidity the proven deposits still have in the pool (isqrt units): what a claim leaves in. */
+  basis: bigint;
+  /** The proven shares that are growth alone at this pool read: what Claim fees takes out (liquidityMath.ts `claimableShares`). */
+  claimShares: bigint;
 }
 
 export interface LedgerWindow { count: number; oldest: number | null; more: boolean }
@@ -236,18 +240,29 @@ export function ledgerFigures(entries: LedgerEntry[], view: PoolView, lpAmount: 
   const N = Vpos + Vout - Vhold;
 
   // Basis in liquidity units: a deposit buys isqrt(t * c); the opening's is the shares it
-  // minted (the 100 locked are paid for and not held); a withdrawal removes its share of
-  // the basis and realises what its payout's liquidity exceeds that by.
+  // minted (the 100 locked are paid for and not held). A withdrawal takes the growth
+  // first: of its payout's liquidity w, what the position then held beyond the basis is
+  // realised (f), and only the rest leaves the basis. So a claim (Claim fees takes the
+  // growth alone) leaves the basis whole, and the next one finds only what grew since.
+  // What the position then held is worked out from the payout's own liquidity per share,
+  // rounded up with room for the payout's floors, so the basis errs high: a later claim
+  // can come out a few units short, never a unit into what was put in. G and N do not
+  // depend on the split (-B + f moves by w either way), only `claimShares` does.
   let B = 0n;
   let f = 0n;
   for (const e of proven) {
     if (e.kind === 'deposit') B += isqrt(e.token * e.coin);
     else if (e.kind === 'opening') B += e.lp;
     else {
-      if (e.lpBefore <= 0n) return worthOnly('withdrawal-unbalanced');
-      const removed = (B * e.lp) / e.lpBefore;
-      f += isqrt(e.token * e.coin) - removed;
-      B -= removed;
+      if (e.lpBefore <= 0n || e.lp <= 0n || e.lp > e.lpBefore) return worthOnly('withdrawal-unbalanced');
+      const w = isqrt(e.token * e.coin);
+      // The payout's sides are floors: its liquidity can sit under the shares' by about (t + c) / 2w, plus the root's floor.
+      const slack = w > 0n ? (e.token + e.coin) / w + 2n : 2n;
+      const heldThen = ceilDiv((w + slack) * e.lpBefore, e.lp);
+      const growth = heldThen > B ? heldThen - B : 0n;
+      const removed = w > growth ? w - growth : 0n;
+      f += w - removed;
+      B -= removed < B ? removed : B;
     }
   }
   const valueOfLiquidity = (liq: bigint): bigint => {
@@ -274,6 +289,8 @@ export function ledgerFigures(entries: LedgerEntry[], view: PoolView, lpAmount: 
     since: entries[start]!.blockTime,
     provenShares,
     otherShares: otherWorth ? { lp: lpAmount - provenShares, worth: otherWorth } : null,
+    basis: B,
+    claimShares: claimableShares(view.snapshot, { basis: B, provenShares }),
   };
   return { kind: 'ok', figures, entries, window, case: ledgerCase };
 }
@@ -298,8 +315,12 @@ export async function readLedger(rpc: SolanaRpc, share: Share, view: PoolView, p
 // ── the words ────────────────────────────────────────────────────────────────────────
 
 export const LEDGER_COPY = {
-  /** On every placed share, with no press: the pool program has no claim step for a liquidity provider. */
-  feesInShares: 'Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.',
+  /**
+   * On every placed share, with no press, so true of every one: Claim fees (the pool program's
+   * withdraw of just the shares the fees added) is said where it is offered, by its button.
+   */
+  feesInShares: 'Fees you earn are added to your shares, and you receive them when you remove liquidity.',
+  claim: 'Claim fees',
   button: 'Work out what this position earned',
   reading: 'Working out what this position earned…',
   /** The same button once an answer is shown, and what a screen reader hears when one arrives. */

@@ -42,8 +42,10 @@ exactly matches the dry-run's. That is the whole discipline below.
 
 4. **Replay each `transactions[]` entry IN ORDER:**
 
-   - CREATE entries (`transactionType: "CREATE"`, no `to`):
-     `cast send --create <transaction.data> --rpc-url $ROBINHOOD_RPC --private-key $PK --legacy --gas-price 100000000`
+   - CREATE entries (`transactionType: "CREATE"`, no `to`), **options first**:
+     `cast send --rpc-url $ROBINHOOD_RPC --private-key $PK --legacy --gas-price 100000000 --create <transaction.input>`
+     (`--create <CODE> [SIG] [ARGS]...` takes every word after the code as a constructor
+     argument, so a flag after it fails `unexpected argument '--rpc-url'`; seen 2026-11-08)
    - CALL entries:
      `cast send <transaction.to> <transaction.data> --rpc-url $ROBINHOOD_RPC --private-key $PK --legacy --gas-price 100000000`
    - Entries with `value != 0x0`: add `--value <value>`.
@@ -85,6 +87,12 @@ exactly matches the dry-run's. That is the whole discipline below.
 - `$env:ROBINHOOD_RPC = "https://rpc.mainnet.chain.robinhood.com"` — never `export`.
 - forge/cast by full path if not on PATH: `& "$HOME\.foundry\bin\cast.exe" ...`
 - One command per line; no `\` continuations.
-- `--interactives 1` prompts for the key rather than putting it in history.
+- `--interactives 1` prompts for the key rather than putting it in history; `--account deployer`
+  (the Foundry keystore) prompts for its password instead.
+- **Windows caps a command line at 32,767 characters.** A contract whose initcode is longer (the
+  SwapFeeRouter's is 46,786 hex characters) fails `The filename or extension is too long` and is
+  never sent. Replay those from WSL (`wsl.exe -e bash <script>`, Foundry in `~/.foundry/bin`, the
+  keystore as `--keystore /mnt/c/Users/<you>/.foundry/keystores/deployer`); the 2026-11-08
+  opening-fee replay did, from nonce 29 on.
 - Explorer for eyeballing: https://robinhoodchain.blockscout.com (Etherscan v2
   does NOT serve 4663 — contract verification goes through Blockscout).

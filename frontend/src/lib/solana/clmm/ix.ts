@@ -1,5 +1,6 @@
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import { associatedTokenAddress } from '../../launcher/solana/curve/ix';
+import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, MEMO_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getArrayStartIndex, isOverflowDefaultTickarrayBitmap } from './bitmap';
 import { U128_MAX, U64_MAX } from './math';
@@ -53,6 +54,7 @@ export const CREATE_POOL_ACCOUNTS: AccountSpec[] = [
   A('token_vault_0', false, true), A('token_vault_1', false, true),
   A('observation_state', false, true), A('tick_array_bitmap', false, true),
   A('token_program_0'), A('token_program_1'), A('system_program'), A('rent'),
+  A('create_pool_fee', false, true),
 ];
 
 /** `OpenPositionWithToken22Nft`: open_position_with_token22_nft.rs. */
@@ -198,6 +200,11 @@ export interface CreatePoolArgs {
   sqrtPriceX64: bigint;
 }
 
+/** What the program charges to open a pool, in lamports (lib.rs CREATE_POOL_FEE): 0.5 SOL. */
+export const CREATE_POOL_FEE_LAMPORTS = 500_000_000n;
+/** Who that fee pays: the team's vault (lib.rs create_pool_fee_reveiver). */
+export const CREATE_POOL_FEE_RECEIVER = PLATFORM_TREASURY_VAULT;
+
 /** `create_pool`. Open time is 0: the program requires it to be in the past. */
 export function createPoolIx(a: CreatePoolArgs): TransactionInstruction {
   const { token0 } = sortMints(a.mint0, a.mint1);
@@ -212,6 +219,7 @@ export function createPoolIx(a: CreatePoolArgs): TransactionInstruction {
       deriveVault(a.programId, pool, a.mint0), deriveVault(a.programId, pool, a.mint1),
       deriveObservation(a.programId, pool), deriveBitmapExtension(a.programId, pool),
       a.tokenProgram0, a.tokenProgram1, SystemProgram.programId, SYSVAR_RENT_PUBKEY,
+      CREATE_POOL_FEE_RECEIVER,
     ]),
     data: new Writer().raw(IX_CREATE_POOL).u128(a.sqrtPriceX64).u64(0n).done(),
   });

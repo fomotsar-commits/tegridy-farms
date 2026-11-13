@@ -1,24 +1,22 @@
-// The NFT-lending "Protocol Fee" tile, and the difference between "takes no
-// cut" and "nobody could ask".
+// The NFT-lending "Venue Fee" tile, and the difference between "takes no cut" and
+// "nobody could ask". Since 2026-10-27 the tile reads Gondi's loan contract:
+// getProtocolFee().fraction, the venue's share of a lender's interest.
 //
-// The tile computed its figure as
+// The tile once computed its figure as
 //   `const protocolFeeBps = protocolFeeBpsData ? Number(protocolFeeBpsData) : 0`
-// and then rendered `${bpsToPercent(protocolFeeBps)}%` unconditionally. So an
-// RPC hiccup, a wrong chain, an ABI drift — anything that made the read come
-// back empty — printed "0.00%": a flat statement that the protocol keeps none
-// of a lender's interest. It keeps 5% by default and the owner can move it, and
-// this tile is on the screen where a lender decides what APR to offer. A zero
-// that came from an outage is the worst possible lie to tell there, because it
-// is the one that makes the deal look better than it is.
+// and then rendered `${bpsToPercent(protocolFeeBps)}%` unconditionally. So an RPC
+// hiccup, a wrong chain, an ABI drift — anything that made the read come back empty —
+// printed "0.00%": a flat statement that the venue keeps none of a lender's interest. It
+// keeps 5% by default and the owner can move it, and this tile is on the screen where a
+// lender decides what APR to offer. A zero that came from an outage is the worst possible
+// lie to tell there, because it is the one that makes the deal look better than it is.
 //
 // Both halves are pinned here, because only the pair is a fix:
-//   • UNREAD  — a failed read (stubbed failure, and the no-stub case, which in
-//     this mock IS a failed read) shows the unavailable state and renders no
-//     percentage of any kind;
+//   • UNREAD  — a failed read (stubbed failure, and the no-stub case, which in this mock
+//     IS a failed read) shows the unavailable state and renders no percentage of any kind;
 //   • GENUINE ZERO — a successfully read 0n still renders "0.00%" and never the
-//     unavailable state. A governance-set zero fee and a fee nobody read must
-//     not look alike; a fix that collapses them is just the same bug pointed the
-//     other way.
+//     unavailable state. A governance-set zero fee and a fee nobody read must not look
+//     alike; a fix that collapses them is just the same bug pointed the other way.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/react';
@@ -48,26 +46,32 @@ vi.mock('framer-motion', () => {
   };
 });
 
-import { NFTLendingSection } from './NFTLendingSection';
-import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../lib/constants';
+// The tile only reads once Gondi's loan contract is deployed: give it an address.
+vi.mock('../../lib/gondi/loanOffer.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/gondi/loanOffer.js')>()),
+  GONDI_LOAN_ADDRESS: '0x5555555555555555555555555555555555555555',
+}));
+vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ offers: [], count: 0, live: true }))));
 
-const SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'NFTLendingSection.tsx'),
-  'utf-8',
-)
+import { NFTLendingSection } from './NFTLendingSection';
+
+const LOAN = '0x5555555555555555555555555555555555555555';
+const TREASURY = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
+
+const SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'NFTLendingSection.tsx'), 'utf-8')
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^\s*\/\/.*$/gm, '');
 
 /** Any bare percentage figure, e.g. "0.00%" or "5.00%". */
 const PERCENT = /^\d+\.\d{2}%$/;
 
-/** The panel that holds the Protocol Fee label and its value, and nothing else. */
+/** The panel that holds the Venue Fee label and its value, and nothing else. */
 function feeTile(): HTMLElement {
-  // getNodeText only reads a node's OWN text children, so this matches the
-  // label <p> (the "?" lives in a nested button) and not its ancestors.
-  const label = screen.getByText('Protocol Fee');
+  // getNodeText only reads a node's OWN text children, so this matches the label <p>
+  // (the "?" lives in a nested button) and not its ancestors.
+  const label = screen.getByText('Venue Fee');
   const tile = label.parentElement;
-  if (!tile) throw new Error('Protocol Fee tile has no container');
+  if (!tile) throw new Error('Venue Fee tile has no container');
   return tile;
 }
 
@@ -78,16 +82,16 @@ function feeTooltipText(): string {
   return within(tile).getByRole('tooltip').textContent ?? '';
 }
 
-function stubFee(result: unknown, status?: 'success' | 'failure') {
+function stubFee(fraction: bigint | undefined, status?: 'success' | 'failure') {
   wagmiMock.setReadResult({
-    functionName: 'protocolFeeBps',
-    address: TEGRIDY_NFT_LENDING_ADDRESS,
-    result,
+    functionName: 'getProtocolFee',
+    address: LOAN,
+    result: fraction === undefined ? undefined : { recipient: TREASURY, fraction },
     status,
   });
 }
 
-describe('NFT lending protocol-fee tile', () => {
+describe('NFT lending venue-fee tile', () => {
   beforeEach(() => {
     wagmiMock.reset();
   });
@@ -100,8 +104,7 @@ describe('NFT lending protocol-fee tile', () => {
 
     const tile = feeTile();
     expect(within(tile).getByText('Unavailable')).toBeTruthy();
-    // The whole point: not "0.00%", and not any other figure either. Old code
-    // put "0.00%" in this tile on exactly this input.
+    // The whole point: not "0.00%", and not any other figure either.
     expect(within(tile).queryByText(PERCENT)).toBeNull();
     expect(screen.queryByText(PERCENT)).toBeNull();
     // Nor the still-loading dash — the read finished, it finished badly.
@@ -109,8 +112,7 @@ describe('NFT lending protocol-fee tile', () => {
   });
 
   it('says the fee is unavailable when nothing answers at all', () => {
-    // No stub. An unstubbed read is a FAILED read, not a zero — the conflation
-    // that made this defect survive its own test suite last time.
+    // No stub. An unstubbed read is a FAILED read, not a zero.
     renderWithProviders(<NFTLendingSection />);
 
     const tile = feeTile();
@@ -126,9 +128,7 @@ describe('NFT lending protocol-fee tile', () => {
     const text = feeTooltipText();
     expect(text).toMatch(/not zero/i);
     expect(text).toMatch(/could not be read/i);
-    // Old code handed this tile the standard "fee taken from interest" copy
-    // whatever happened to the read, which corroborated the fabricated 0.00%.
-    expect(text).not.toMatch(/paid to the protocol treasury/i);
+    expect(text).not.toMatch(/the venue keeps this share/i);
   });
 
   /* ── GENUINE ZERO ───────────────────────────────────────────────── */
@@ -144,19 +144,17 @@ describe('NFT lending protocol-fee tile', () => {
   });
 
   it('keeps the ordinary fee explanation on a real zero', () => {
-    // A read that succeeded is a read that succeeded. 0n must not pick up the
-    // "unknown right now" copy — that would be the fix over-firing.
     stubFee(0n);
     renderWithProviders(<NFTLendingSection />);
 
     const text = feeTooltipText();
-    expect(text).toMatch(/paid to the protocol treasury/i);
+    expect(text).toMatch(/the venue keeps this share/i);
     expect(text).not.toMatch(/not zero/i);
   });
 
   /* ── READ OK ────────────────────────────────────────────────────── */
 
-  it('renders the fee the lending contract reports', () => {
+  it('renders the fee the loan contract reports', () => {
     stubFee(500n);
     renderWithProviders(<NFTLendingSection />);
 
@@ -174,34 +172,25 @@ describe('NFT lending protocol-fee tile', () => {
 });
 
 /* ── SOURCE GUARD ─────────────────────────────────────────────────────
-   The render tests above only cover the branches a render reaches. This block
-   pins the shape of the code itself, so the collapse cannot be reintroduced on
-   a path no test drives — and so a "tidy-up" that restores the one-line ternary
-   fails here even if it happens to look right on screen. */
+   The render tests above only cover the branches a render reaches. This block pins the
+   shape of the code itself, so the collapse cannot come back on a path no test drives. */
 describe('the outage-as-zero collapse stays out of NFTLendingSection', () => {
-  it('never truthiness-collapses the raw protocolFeeBps read', () => {
-    // `protocolFeeBpsData ? … : 0` — the exact defect. Comments are stripped
-    // from SRC, so the one describing the old line does not trip this.
-    expect(SRC).not.toMatch(/protocolFeeBpsData\s*\?/);
-  });
-
-  it('never falls back to a 0 fee anywhere on that binding', () => {
-    expect(SRC).not.toMatch(/protocolFeeBps\s*=[^;\n]*:\s*0\b/);
+  it('never falls back to a 0 fee on the fee binding', () => {
+    expect(SRC).not.toMatch(/feeBps\s*=[^;\n]*:\s*0\b/);
   });
 
   it('discriminates a bigint read from an absent one, and can yield null', () => {
-    expect(SRC).toMatch(/typeof protocolFeeBpsData === 'bigint'\s*\?/);
-    expect(SRC).toMatch(/:\s*null;/);
+    expect(SRC).toMatch(/typeof protocolFee\.fraction === 'bigint'\s*\?\s*Number\(protocolFee\.fraction\)\s*:\s*null;/);
   });
 
   it('only prints a percentage on the non-null branch', () => {
-    expect(SRC).toMatch(/protocolFeeBps !== null\s*\?\s*`\$\{bpsToPercent\(protocolFeeBps\)\}%`/);
+    expect(SRC).toMatch(/feeBps !== null\s*\?\s*`\$\{bpsToPercent\(feeBps\)\}%`/);
     expect(SRC).toMatch(/'Unavailable'/);
   });
 
-  it('guards the guard — the old line really would trip these', () => {
-    const OLD = "  const protocolFeeBps = protocolFeeBpsData ? Number(protocolFeeBpsData) : 0;";
-    expect(OLD).toMatch(/protocolFeeBpsData\s*\?/);
-    expect(OLD).toMatch(/protocolFeeBps\s*=[^;\n]*:\s*0\b/);
+  it('guards the guard — the old shape really would trip these', () => {
+    const OLD = '  const feeBps = protocolFee ? Number(protocolFee.fraction) : 0;';
+    expect(OLD).toMatch(/feeBps\s*=[^;\n]*:\s*0\b/);
+    expect(OLD).not.toMatch(/typeof protocolFee\.fraction === 'bigint'/);
   });
 });

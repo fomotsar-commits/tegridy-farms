@@ -284,7 +284,21 @@ export async function signAndWait(p: Page, timeout = 120_000): Promise<string> {
   await clickReal(ui.signButton(p), 'Sign in wallet');
   const out = ui.outcome(p);
   await expect(out).toBeVisible({ timeout });
-  return (await out.getAttribute('data-status')) ?? '';
+  const status = (await out.getAttribute('data-status')) ?? '';
+  if (status === 'confirmed') await backToTheRoom(p);
+  return status;
+}
+
+/**
+ * A landed add or swap ends on the receipt card over the page (components/ReceiptCard.tsx),
+ * raised in the same render as the confirmed outcome, so a confirmed outcome with no card
+ * means none was raised. A person presses Back to the room before anything under it.
+ */
+export async function backToTheRoom(p: Page): Promise<void> {
+  const card = p.getByTestId('receipt-card');
+  if ((await card.count()) === 0) return;
+  await clickReal(card.getByTestId('receipt-back'), 'Back to the room');
+  await expect(p.getByTestId('receipt-layer')).toHaveCount(0);
 }
 
 /** Raw token units → the decimal string a person would type (6 decimals). */
@@ -293,4 +307,27 @@ export function tokensToInput(raw: bigint, decimals = 6): string {
   const whole = s.slice(0, -decimals);
   const frac = s.slice(-decimals).replace(/0+$/, '');
   return frac ? `${whole}.${frac}` : whole;
+}
+
+/**
+ * The text a word guard reads: textContent, with every whole-word base58 run as long as an
+ * address (32-44) or a signature (87-88) taken out. They are random per run, and a
+ * case-insensitive guard finds words spelled inside them: "aPy" in
+ * 9UaPybzGR1pu5SgwZGwGPZur6vfVdUqRAwtn9ErHULYP failed E19 once, and "faiL" fits in a
+ * signature. Taken out text node by text node, because textContent glues neighbours: from
+ * "…HULYP" + "APY 12%" one pass over the whole text would take the APY out with the address.
+ */
+export async function guardText(loc: Locator): Promise<string> {
+  const nodes = await loc.evaluate((el) => {
+    const out: string[] = [];
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) out.push(n.nodeValue ?? '');
+    return out;
+  });
+  return nodes.map((t) => t.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,}\b/g, ' ')).join('').replace(/\s+/g, ' ');
+}
+
+/** `expect(loc).not.toContainText(word)`, on guardText. As there, a missing element fails it. */
+export async function expectNoWord(loc: Locator, word: RegExp): Promise<void> {
+  await expect.poll(() => guardText(loc), { message: `no ${word} in the text` }).not.toMatch(word);
 }

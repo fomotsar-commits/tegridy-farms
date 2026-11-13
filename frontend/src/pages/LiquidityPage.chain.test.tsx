@@ -1,7 +1,8 @@
-// The add / remove page names the chain its form is on. Picked from the network drop-down with
-// no wallet (`?c=`), or the wallet's chain once one is connected; a wallet's chain always wins,
-// so a write is never addressed to a chain the URL names. Off mainnet that chain's own pool list
-// replaces the Ethereum table, and the money line says how the venue earns there.
+// The add / remove page names the chain its form is on: the network drop-down's pick (`?c=`),
+// else the wallet's chain. The pick wins over a connected wallet, and a wallet left on another
+// network is told to switch (every write names the page's chain, so it cannot sign there). Off
+// mainnet that chain's own pool list replaces the Ethereum table, and the money line says how
+// the venue earns there.
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -11,6 +12,8 @@ const formMounts = vi.hoisted(() => ({ count: 0 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: wallet.isConnected }),
   useChainId: () => wallet.chainId,
+  useChains: () => [{ id: 1, name: 'Ethereum' }, { id: 8453, name: 'Base' }, { id: 4663, name: 'Robinhood Chain' }],
+  useSwitchChain: () => ({ switchChain: () => {}, isPending: false }),
 }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
@@ -54,12 +57,32 @@ describe('/liquidity on the picked chain', () => {
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
+  // Opening a pool pays the factory's POOL_OPENING_FEE (0.006 ETH) to the treasury Safe: the
+  // money line says it before any wallet is asked (law-25 read of #1169, 2026-11-09), in 8
+  // words, since /liquidity sits at its 140-word ceiling (e2e/word-budget.spec.ts); How it
+  // works says where it goes and that adding costs nothing extra.
+  it.each([
+    ['/liquidity', /^Ethereum pools\./],
+    ['/liquidity?c=8453', /^Base pools\./],
+    ['/liquidity?c=4663', /^Robinhood Chain pools\./],
+  ])('%s: the money line says what opening a pool costs and who gets it; How it works says the rest', (path, line) => {
+    at(path);
+    expect(screen.getByText(line)).toHaveTextContent('Opening a pool pays the venue 0.006 ETH.');
+    expect(screen.getByText(/^Opening a new pool pays 0\.006 ETH/)).toHaveTextContent(
+      "Opening a new pool pays 0.006 ETH to the venue's treasury, on top of the deposit and not part of your liquidity. Adding to a pool already open costs nothing extra.",
+    );
+  });
+
   it('follows ?c= with no wallet: Base names Base, hides the Ethereum table and says where the venue cut goes', () => {
     at('/liquidity?c=8453');
     // The chain is named in the money line, not an eyebrow (owner, 2026-10-14).
     // A new pair starts with kLast = 0, so a Base pool's cut is off until the venue switches
-    // it on; the line may not claim it is on (it did until 2026-10-17).
-    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue's fee Safe/);
+    // it on; the line may not claim it is on (it did until 2026-10-17). A pool on the old
+    // factory pays that cut to the fee-remittance Safe, one opened since 2026-11-08 to the
+    // treasury Safe: the line names neither, only the venue.
+    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue as new pool shares/);
+    expect(screen.getByText(/^Base pools\./)).not.toHaveTextContent(/fee Safe/);
+    expect(screen.getByText(/The venue can take one sixth of it/)).toHaveTextContent('paid to the venue as new pool shares');
     expect(screen.queryByText(/TOWELI\/ETH/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
     expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
@@ -104,11 +127,29 @@ describe('/liquidity on the picked chain', () => {
     expect(formMounts.count).toBe(2);
   });
 
-  it("ignores ?c= once a wallet is connected: the wallet's chain is the one that signs", () => {
+  // Owner, 2026-10-31: "the liquidity pools on other chains besides sol arent showing". With a
+  // wallet that did not switch, a pick of Base left the menu and the list on Ethereum.
+  it('follows ?c= over a connected wallet, and tells a wallet on another network to switch', () => {
     wallet.isConnected = true;
     wallet.chainId = 4663;
     at('/liquidity?c=8453');
-    expect(screen.getByText(/^Robinhood Chain pools\./)).toBeInTheDocument();
-    expect(screen.getByTestId('form')).toHaveTextContent('4663');
+    expect(screen.getByText(/^Base pools\./)).toBeInTheDocument();
+    expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
+    expect(screen.getByTestId('form')).toHaveTextContent('8453');
+    expect(screen.getByRole('alert')).toHaveTextContent(/Your wallet is on another network\. Switch it to add or remove here\./);
+    expect(screen.getByRole('button', { name: 'Switch to Base' })).toBeInTheDocument();
+  });
+
+  it('shows no switch banner when the wallet is on the picked network, or with no wallet', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 8453;
+    const view = at('/liquidity?c=8453');
+    expect(screen.getByText(/^Base pools\./)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    view.unmount();
+    wallet.isConnected = false;
+    wallet.chainId = 1;
+    at('/liquidity?c=8453');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

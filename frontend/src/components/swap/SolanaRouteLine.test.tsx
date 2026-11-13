@@ -19,6 +19,8 @@ const readVenue = vi.fn();
 const readVenuePools = vi.fn();
 const quoteVenuePools = vi.fn();
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('../../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../../lib/solana/swap/venuePools', () => ({
   readVenuePools: (...a: unknown[]) => readVenuePools(...a),
@@ -303,7 +305,7 @@ describe('when the venue AMM is live', () => {
   it('says a pair with no pairing coin was not looked for, never that it has no pool', async () => {
     quoteVenuePools.mockReturnValue({ state: 'not-searched', candidates: [] });
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Our pools pair a token with SOL, USDC or BAYLA, so there is none for this pair\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pools pair a token with SOL, USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ, so there is none for this pair\./)).toBeInTheDocument());
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 

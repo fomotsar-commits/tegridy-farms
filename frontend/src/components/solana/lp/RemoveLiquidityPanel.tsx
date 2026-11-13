@@ -1,11 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { associatedTokenAddress } from '../../../lib/launcher/solana/curve/ix';
 import { formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
-import { feeReserveFor, isPlanProblem, planWithdraw, type PlanProblem, type WithdrawPlan } from '../../../lib/solana/lp/liquidityMath';
+import { claimableShares, feeReserveFor, isPlanProblem, planWithdraw, planWithdrawShares, poolFeesOf, type PlanProblem, type WithdrawPlan } from '../../../lib/solana/lp/liquidityMath';
+import { feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen } from '../../../lib/solana/lp/poolHealth';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -17,11 +18,13 @@ import { DEFAULT_SLIPPAGE_BPS, sharePercent } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
-import type { LpOpenGate, LpWriteApi, PreparedTx } from '../curve/ports';
+import type { LpClaimBasis, LpOpenGate, LpWriteApi, PreparedTx } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { PanelFrame } from './PanelFrame';
 import { coinAbout, coinExact, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
+import { dropClaimSent, noteClaimSent } from '../../../lib/solana/lp/claimed';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const REMOVE_HINT = 'If the pool’s price moves more than this before your withdrawal runs, it is refused and only the network fees are spent.';
@@ -46,6 +49,12 @@ const BASE_FEE_LAMPORTS = 5_000n;
  * AFTER IT LANDS. The confirmed card says what came out, from the review's own figures, and
  * offers the two ways on: swap the token on the site's Solana swap, or the All pools list
  * (`onAllPools`, set by the section) to add it somewhere else.
+ *
+ * CLAIM FEES (`claim`). The same withdrawal, of the shares that are the position's fee
+ * growth alone (liquidityMath.ts `claimableShares`, from the ledger's basis): no percent to
+ * pick, and what was put in stays in the pool. The pool program has no claim step of its
+ * own; this is its ordinary withdraw, sized so. Shares that changed since the ledger was
+ * worked out are said, and nothing is offered for review.
  */
 export function RemoveLiquidityPanel(p: {
   position: Position;
@@ -57,6 +66,10 @@ export function RemoveLiquidityPanel(p: {
   onClose: () => void;
   /** Set by the section: "Add to another pool" brings the All pools list onto the screen. */
   onAllPools?: () => void;
+  /** Claim fees: the ledger's figures for the shares held when it was worked out. */
+  claim?: LpClaimBasis;
+  /** Claim fees on a position with a withdrawal: its Fees earned counts fees that withdrawal already took out. */
+  claimAfterWithdrawal?: boolean;
 }) {
   const writes = useLpWrites();
   const gate = writes?.gate?.kind === 'open' ? writes.gate : null;
@@ -73,6 +86,8 @@ function RemoveInner({
   setAside,
   onClose,
   onAllPools,
+  claim,
+  claimAfterWithdrawal = false,
   writes,
   api,
   gate,
@@ -85,6 +100,8 @@ function RemoveInner({
   setAside: boolean;
   onClose: () => void;
   onAllPools?: () => void;
+  claim?: LpClaimBasis;
+  claimAfterWithdrawal?: boolean;
   writes: LpWrites;
   api: LpWriteApi;
   gate: LpOpenGate;
@@ -104,24 +121,51 @@ function RemoveInner({
   const flow = useTxFlow(api, writes.rpc, writes.pending.record, writes.pending.sent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   const reread = useCallback(() => setFactsNonce((n) => n + 1), []);
+  // A claim once sent is never offered again on the balance it was worked out for, unless its
+  // outcome says it did not land (claimed.ts).
+  const claimStep = !claim ? null : flow.state.step === 'sent' ? 'sent' : flow.state.step === 'outcome' ? flow.state.outcome.status : null;
+  useEffect(() => {
+    if (!claim || claimStep === null) return;
+    // Sent, landed, or not known yet: each may be on chain. (A quick send can reach its outcome before 'sent' is drawn.)
+    if (claimStep === 'sent' || claimStep === 'confirmed' || claimStep === 'unknown') noteClaimSent(position.lpAccount, claim.heldAtRead);
+    else if (claimStep === 'expired' || claimStep === 'reverted' || claimStep === 'not-sent') dropClaimSent(position.lpAccount, claim.heldAtRead);
+  }, [claimStep, claim, position.lpAccount]);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
   const held = position.lpAmount;
-  const result = useMemo(
-    () => (typeof pct === 'bigint' ? planWithdraw(view.snapshot, { held, pctBps: pct, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS }) : null),
-    [pct, view, held, slippageBps],
-  );
+  // The token's transfer fee, taken off its payout. With a change pending the page uses
+  // the larger of the two settings; the review says exactly (transferFee.ts `feeNow`).
+  const tokenFee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
+  // A claim's figures belong to the shares they were worked out for; any other balance is said, never claimed against.
+  const claimStale = !!claim && claim.heldAtRead !== held;
+  const result = useMemo(() => {
+    const bps = slippageBps ?? DEFAULT_SLIPPAGE_BPS;
+    const fees = poolFeesOf(view.quoteIsToken0, tokenFee);
+    if (claim) {
+      if (claimStale) return null;
+      const lp = claimableShares(view.snapshot, claim);
+      return lp < 1n ? ({ problem: 'too-small', minLp: null } as const) : planWithdrawShares(view.snapshot, { held, lp, bps, fees });
+    }
+    return typeof pct === 'bigint' ? planWithdraw(view.snapshot, { held, pctBps: pct, bps, fees }) : null;
+  }, [claim, claimStale, pct, view, held, slippageBps, tokenFee]);
   const plan: WithdrawPlan | null = result && !isPlanProblem(result) ? result : null;
   const problem: PlanProblem | null = result && isPlanProblem(result) ? result : null;
   // The coin's side of a plan, in the coin's own base units, and the token's.
   const coinOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out0 : pl.out1, min: view.quoteIsToken0 ? pl.min0 : pl.min1 });
-  const tokOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out1 : pl.out0, min: view.quoteIsToken0 ? pl.min1 : pl.min0 });
+  // `fee`: what the token's transfer fee keeps of its payout; `out` is already after it.
+  const tokOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out1 : pl.out0, min: view.quoteIsToken0 ? pl.min1 : pl.min0, fee: view.quoteIsToken0 ? pl.fee1 : pl.fee0 });
   const shares = (v: bigint) => unitsExact(v, pool.lpMintDecimals);
   const tok = (v: bigint) => tokensAbout(v, decimals);
 
   let problemText = '';
   let takeAll = false;
-  if (pct === 'bad') problemText = 'Enter a percent from 0.01 to 100.';
+  if (claimStale) problemText = 'Your pool shares changed since your fees were worked out. Work them out again, then claim.';
+  else if (claim && problem)
+    problemText =
+      problem.problem === 'dust-remainder'
+        ? 'Taking out just the fees would leave too few shares to ever take out at this pool’s size. Remove all of it instead.'
+        : 'The fees in this position are too small to take out yet: one side would round to zero.';
+  else if (pct === 'bad') problemText = 'Enter a percent from 0.01 to 100.';
   else if (problem) {
     switch (problem.problem) {
       case 'dust-remainder':
@@ -206,19 +250,21 @@ function RemoveInner({
 
   // A withdrawal from this pool still pending (this panel's own, or one found after a reload) holds it.
   const pendingHere = lpHeld(writes.pending.notes, view.address, 'remove');
-  const canReview = !!signer && !!plan && slippageBps !== null && !flow.locked && !pendingHere && typeof pct === 'bigint';
+  const amountChosen = claim ? !claimStale : typeof pct === 'bigint';
+  const canReview = !!signer && !!plan && slippageBps !== null && !flow.locked && !pendingHere && amountChosen;
   const review = () => {
-    if (!signer || !plan || typeof pct !== 'bigint' || slippageBps === null) return;
+    if (!signer || !plan || !amountChosen || slippageBps === null) return;
+    const base = {
+      owner: signer.publicKey,
+      txVersion: txVersionOf(signer),
+      pool: new PublicKey(view.address),
+      tokenMint: new PublicKey(view.tokenMint),
+      quoteMint: new PublicKey(view.quote.mint),
+      lpAccount: new PublicKey(position.lpAccount),
+      slippageBps,
+    };
     const build = () =>
-      api.prepareLpWithdraw(writes.rpc, gate, {
-        owner: signer.publicKey,
-        pool: new PublicKey(view.address),
-        tokenMint: new PublicKey(view.tokenMint),
-        quoteMint: new PublicKey(view.quote.mint),
-        lpAccount: new PublicKey(position.lpAccount),
-        pctBps: pct,
-        slippageBps,
-      });
+      claim ? api.prepareLpWithdraw(writes.rpc, gate, { ...base, claim }) : api.prepareLpWithdraw(writes.rpc, gate, { ...base, pctBps: pct as bigint });
     void flow.prepare(build, { repeatable: true });
   };
 
@@ -241,6 +287,8 @@ function RemoveInner({
     return (
       <div className="space-y-2" data-testid="lp-removed">
         {got && <p className="text-white/85">You got about {got}.</p>}
+        {/* A claim leaves the position in the pool: nothing to swap or move on with here. */}
+        {!claim && (
         <div className="flex flex-col sm:flex-row gap-2">
           {/* The swap opens paying with the token for the pool's coin, each by its address. A set-aside token is not offered. */}
           {!setAside && (
@@ -265,12 +313,13 @@ function RemoveInner({
             </button>
           )}
         </div>
+        )}
       </div>
     );
   };
 
   return (
-    <PanelFrame testId="lp-remove-panel" title="Remove liquidity from this pool" headingRef={headingRef}>
+    <PanelFrame testId={claim ? 'lp-claim-panel' : 'lp-remove-panel'} title={claim ? 'Claim fees from this pool' : 'Remove liquidity from this pool'} headingRef={headingRef}>
       <div className="space-y-1.5">
         <Row label="Pool" value={view.address} />
         <Row label="Token" value={view.tokenMint} />
@@ -295,19 +344,37 @@ function RemoveInner({
           cluster={gate.cfg.cluster}
           decimals={decimals}
           signer={signer}
-          preparingText="Reading the pool again and test-running your withdrawal on the network…"
+          preparingText={claim ? 'Reading the pool again and test-running your claim on the network…' : 'Reading the pool again and test-running your withdrawal on the network…'}
           afterConfirmed={removed}
         />
       ) : (
         <>
-          <PercentPicker valueBps={typeof pct === 'bigint' ? pct : null} onChange={(v) => setPct(v.bad ? 'bad' : v.bps)} />
+          {claim ? (
+            <div className="space-y-1">
+              <p className="text-white/70">Gives back just enough of your shares to pay out the fees they earned. The rest stay in the pool.</p>
+              {claimAfterWithdrawal && (
+                <p className="text-white/55 text-[11px]" data-testid="lp-claim-after-withdrawal">
+                  Fees earned also counts any fees your earlier withdrawals took out. This pays out only the ones still in the pool.
+                </p>
+              )}
+            </div>
+          ) : (
+            <PercentPicker valueBps={typeof pct === 'bigint' ? pct : null} onChange={(v) => setPct(v.bad ? 'bad' : v.bps)} />
+          )}
           <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint={REMOVE_HINT} />
           {plan && (
-            <div className="space-y-1.5" data-testid="lp-remove-preview">
+            <div className="space-y-1.5" data-testid={claim ? 'lp-claim-preview' : 'lp-remove-preview'}>
               <p className="text-white/45 text-[10px]">Worked out from your position as the page read it; checked again on fresh reads when you press Review.</p>
               <Row label="You give back" value={`${shares(plan.lp)} pool shares (${sharePercent(plan.lp, held) ?? sharePct(plan.lp, held)} of yours)`} mono={false} />
               <Row label="You get about" value={`${coinAbout(coinOut(plan).out, coin)} and ${tok(tokOut(plan).out)}`} mono={false} />
               <Row label="You get at least" value={`${coinExact(coinOut(plan).min, coin)} and ${unitsExact(tokOut(plan).min, decimals)} tokens`} mono={false} />
+              {tokenFee && (
+                <Row
+                  label="The token’s own transfer fee"
+                  value={`about ${tok(tokOut(plan).fee)} more (${feeRateText(tokenFee)}), kept by the token for its fee collector; the amounts above are after it`}
+                  mono={false}
+                />
+              )}
               <Row label="You keep" value={plan.keep > 0n ? `${shares(plan.keep)} pool shares` : 'none in this pool'} mono={false} />
               {coin.native ? (
                 <Row label="The SOL arrives" value={solArrives} mono={false} />
@@ -365,7 +432,7 @@ function RemoveInner({
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
-              Review: remove liquidity
+              {claim ? 'Review: claim fees' : 'Review: remove liquidity'}
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>
               Close

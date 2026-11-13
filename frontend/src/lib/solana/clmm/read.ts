@@ -38,8 +38,12 @@ import {
 
 export type Read<T> = { kind: 'ok'; value: T } | { kind: 'unread'; detail: string };
 
-/** Fee tiers are looked for at indexes 0 to 15: the vault makes them one at a time, from 0. */
-export const FEE_TIER_INDEXES = 16;
+/**
+ * Fee tiers are looked for at index 0 alone: one tier, 1% (owner, 2026-10-25: "there should only
+ * be one fee tier that is 1%"), which the deploy pack makes at index 0. A tier the vault makes at
+ * any other index is never listed here and never in a swap's route.
+ */
+export const FEE_TIER_INDEXES = 1;
 
 /** The bands read on each side of a pool's price, for its liquidity and a swap's walk. */
 export const BANDS_EACH_SIDE = 4;
@@ -293,8 +297,8 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
   });
 }
 
-/** A mint's freeze authority (null for none), or why the address is not a token mint at all. */
-export type MintFreeze = { kind: 'mint'; freezeAuthority: string | null } | { kind: 'not-a-mint'; detail: string };
+/** A mint's freeze authority (null for none) and decimals, or why the address is not a token mint at all. */
+export type MintFreeze = { kind: 'mint'; freezeAuthority: string | null; decimals: number } | { kind: 'not-a-mint'; detail: string };
 
 /**
  * A token's freeze authority as the chain has it: what the LP deposit's token check reads.
@@ -306,7 +310,7 @@ export function readFreezeAuthority(rpc: SolanaRpc, mint: string): Promise<Read<
     const [a] = await getMultipleAccounts(rpc, [mint]);
     if (!a) return { kind: 'not-a-mint', detail: 'there is no account at this address' };
     const d = decodeMintAccount(a.owner, a.data);
-    return d.ok ? { kind: 'mint', freezeAuthority: d.value.freezeAuthority } : { kind: 'not-a-mint', detail: d.reason };
+    return d.ok ? { kind: 'mint', freezeAuthority: d.value.freezeAuthority, decimals: d.value.decimals } : { kind: 'not-a-mint', detail: d.reason };
   });
 }
 

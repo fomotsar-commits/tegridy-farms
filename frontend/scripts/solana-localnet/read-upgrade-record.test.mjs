@@ -7,7 +7,8 @@
 // test green while the old program still runs.
 import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HEADER, MAINNET_GENESIS, OLD_BUILD, PROGRAM_DATA, pickExecute, readProgramData, recordRows, registeredBuild, run, verdict } from './read-upgrade-record.mjs';
@@ -159,5 +160,18 @@ describe('the builds it looks for', () => {
 
   it('refuses a registry that does not say which build the account holds', () => {
     expect(() => registeredBuild(join(HERE, 'golden', 'usdc-mint.mainnet.json'))).toThrow('no expect.holdsProgram');
+  });
+
+  // From the roll-back of 2026-10-24 until the re-upgrade the registry named the old build.
+  // Read as "the new build", that would have printed a record of the roll-back.
+  it('refuses a registry that names the build from before the upgrade: a roll-back is in effect', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'upgrade-record-'));
+    const at = join(dir, 'addresses.json');
+    try {
+      writeFileSync(at, JSON.stringify({ solana: [{ address: PROGRAM_DATA, expect: { holdsProgram: { ...OLD_BUILD } } }] }));
+      expect(() => registeredBuild(at)).toThrow('roll-back');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

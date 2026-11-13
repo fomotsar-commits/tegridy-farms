@@ -27,9 +27,7 @@ export const PDA = {
   rewardVault: (pool, mint) => pda(seed('POOL_REWARD_VAULT_SEED'), pool.toBuffer(), mint.toBuffer()),
   limitNonce: (owner, i) => pda(owner.toBuffer(), Buffer.from([i])),
   limitOrder: (owner, nonceAcc, n) => { const b = Buffer.alloc(8); b.writeBigUInt64BE(BigInt(n)); return pda(owner.toBuffer(), nonceAcc.toBuffer(), b); },
-  permission: (authority) => pda(seed('PERMISSION_SEED'), authority.toBuffer()),
   supportMint: (mint) => pda(seed('SUPPORT_MINT_SEED'), mint.toBuffer()),
-  dynamicFee: (index) => pda(seed('DYNAMIC_FEE_CONFIG_SEED'), be(index, 2)),
 };
 
 /** Accounts every instruction may name by role, so a call passes only what is specific to it. */
@@ -37,6 +35,8 @@ export const COMMON = {
   system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY,
   token_program: ADDR.token, token_program_2022: ADDR.token2022, associated_token_program: ADDR.ata,
   get memo_program() { return ADDR.memo; }, metadata_program: ADDR.metaplex,
+  // The wallet every pool opening pays its fee to (lib.rs create_pool_fee_reveiver): the vault.
+  create_pool_fee: ADDR.vault,
 };
 
 /**
