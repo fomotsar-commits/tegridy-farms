@@ -35,7 +35,9 @@ test('a stranger with no room: the bar reads five words, Add third, and Swap rai
   // The row ends with the swap's network drop-down, where "Any coin" stood (owner, 2026-11-07).
   const row = sheet.getByRole('group', { name: 'Pick a coin' });
   await expect(row.getByRole('button', { name: 'Swap network: Solana' })).toBeVisible({ timeout: 30_000 });
-  await expect(row.getByRole('button', { name: 'BAYLA', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  // One coin chip, nothing picked (owner, 2026-11-11: the row of room chips is gone, the rooms are in its list).
+  await expect(row.getByTestId('sheet-coin-chip')).toHaveAccessibleName('Pick a coin');
+  await expect(row.getByRole('button', { name: 'BAYLA', exact: true })).toHaveCount(0);
   await expect(sheet.getByRole('button', { name: 'Any coin' })).toHaveCount(0);
   await expect(sheet).toContainText('Pick a coin.');
 });

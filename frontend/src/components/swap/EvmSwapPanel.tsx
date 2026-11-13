@@ -580,6 +580,7 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy, lead }: 
                         type="button"
                         onClick={openConnectModal}
                         disabled={!mounted}
+                        data-testid="evm-swap-connect"
                         className="w-full btn-primary min-h-[56px] text-[16px] font-extrabold rounded-2xl disabled:opacity-40"
                         style={{ boxShadow: '0 8px 24px rgba(76,175,80,0.28)' }}
                       >
