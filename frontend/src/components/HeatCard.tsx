@@ -11,6 +11,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
 import { setLastReading } from '../lib/heat/heatStore';
+import { useConnectedHeatSubject } from '../hooks/useConnectedHeatSubject';
 import { HeatSince, RollingDegrees } from './heat/RollingDegrees';
 import { IslandCard } from './heat/IslandCard';
 import { earliestRow, sinceLine } from '../lib/heat/sinceLine';
@@ -198,6 +199,11 @@ export function HeatCard({
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const solanaConnected = useSolanaSurface().surface?.address ?? null;
+  // The connected wallet this card reads by itself. One hand can hold two (an Ethereum account and
+  // a Solana wallet, as inside Phantom's browser): the card and Bayla's line then read the same
+  // one, the warmest (hooks/useConnectedHeatSubject.ts). The fill buttons below still name each. A
+  // page about one network (`fillFrom`) reads that network's wallet only, as its fill does.
+  const connectedSubject = useConnectedHeatSubject(fillFrom);
   const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
@@ -206,8 +212,8 @@ export function HeatCard({
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
   const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
-  const subject = pinned ?? initialAddress ?? connected ?? '';
-  const input = pinned ?? draft ?? connected ?? '';
+  const subject = pinned ?? initialAddress ?? connectedSubject ?? '';
+  const input = pinned ?? draft ?? connectedSubject ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
   // WALLET FILL: the networks the fill can read now. The page's own if it names one. Else
   // a Solana wallet connected to the site, with no Ethereum account connected, is the

@@ -44,6 +44,7 @@ function add(over: Partial<Receipt> = {}): Receipt {
     wallet: WALLET,
     action: 'added',
     coin: { symbol: 'BAYLA', mint: BAYLA },
+    island: true,
     title: null,
     under: 'to the SOL + BAYLA pool',
     fee: { kind: 'add', network: '0.000005 SOL' },
@@ -133,6 +134,81 @@ describe('an add: the pool is the card’s head', () => {
   it('a ticker that carries its own $ is not given a second', () => {
     act(() => raiseReceipt(add({ coin: { symbol: '$WIF', mint: WIF } })));
     expect(line()).toHaveTextContent("You're part of $WIF's floor now. Every trade in the pool pays you.");
+  });
+
+  // Island answer thirty-four: the page the owner approved prints the coin's floor bold in the token's hue.
+  it('the coin’s floor is marked in the token’s hue, as the shore’s coin is marked on a buy', () => {
+    act(() => raiseReceipt(add()));
+    const mark = line().querySelector('strong');
+    expect(mark).toHaveTextContent("$BAYLA's floor");
+    expect(mark).toHaveClass('receipt-floor-mark');
+    // The words around it are not: the line reads whole, the mark inside it.
+    expect(line()).toHaveTextContent(BAYLA_LINE);
+    expect(line().querySelectorAll('strong')).toHaveLength(1);
+    // The hue is the card's own variable (the token's), never a fixed color.
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.css'), 'utf8');
+    expect(css).toMatch(/\.receipt-floor-mark\s*\{[^}]*color:\s*rgb\(var\(--floor-hue-mid\)\);[^}]*font-weight:\s*700;[^}]*\}/);
+    expect(card().style.getPropertyValue('--floor-hue-mid')).toBe('150,255,140');
+  });
+
+  it('a ticker with its own $ is marked with one', () => {
+    act(() => raiseReceipt(add({ coin: { symbol: '$WIF', mint: WIF } })));
+    expect(line().querySelector('strong')).toHaveTextContent("$WIF's floor");
+  });
+
+  describe('a coin the venue cannot name is left unnamed', () => {
+    const UNNAMED_LINE = "You're part of the floor now. Every trade in the pool pays you.";
+    const UNNAMED_POST = "Just added liquidity. I'm part of the floor now. Every trade in the pool pays me.";
+    const posted = () => new URL(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href') ?? '').searchParams.get('text');
+
+    it('a ticker that was not read (the venue’s own word for it is "tokens"): no coin in the line, none marked, none in the post', () => {
+      act(() => raiseReceipt(add({ coin: { symbol: 'tokens', mint: WIF }, unnamed: true, under: 'to the SOL + tokens pool' })));
+      expect(line()).toHaveTextContent(UNNAMED_LINE);
+      expect(line().textContent).toBe(UNNAMED_LINE);
+      expect(line().querySelector('strong')).toBeNull();
+      expect(posted()).toBe(`${UNNAMED_POST} https://memetics.finance/lp/${WIF}`);
+      expect(card().textContent).not.toContain('$tokens');
+      expect(posted()).not.toContain('$');
+    });
+
+    it('a copy ("fake USDC"): never the ticker it copies, with or without "fake"', () => {
+      act(() => raiseReceipt(add({ coin: { symbol: 'fake USDC', mint: WIF }, unnamed: true, under: 'to the SOL + fake USDC pool' })));
+      expect(line().textContent).toBe(UNNAMED_LINE);
+      expect(posted()).toBe(`${UNNAMED_POST} https://memetics.finance/lp/${WIF}`);
+      expect(posted()).not.toMatch(/USDC|fake/);
+      expect(line().textContent).not.toMatch(/USDC|fake/);
+    });
+
+    it('the unnamed post fits X with its link, and carries no em dash', () => {
+      act(() => raiseReceipt(add({ coin: { symbol: 'tokens', mint: WIF }, unnamed: true })));
+      const text = posted() ?? '';
+      const link = `https://memetics.finance/lp/${WIF}`;
+      expect(text.length - link.length + 23).toBeLessThanOrEqual(280);
+      expect(text).not.toMatch(/—/);
+    });
+
+    it('a coin with a ticker of its own is named as before', () => {
+      act(() => raiseReceipt(add({ coin: { symbol: 'WIF', mint: WIF }, unnamed: false })));
+      expect(line()).toHaveTextContent("You're part of $WIF's floor now. Every trade in the pool pays you.");
+      expect(posted()).toBe(`Just added liquidity to $WIF. I'm part of the floor now. Every trade in the pool pays me. https://memetics.finance/lp/${WIF}`);
+    });
+  });
+
+  // The pour is what went in: the other stream is the pool's pairing coin (island answer thirty-four).
+  it.each([
+    ['a SOL pool', 'SOL'],
+    ['a USDC pool', 'USDC'],
+    ['a pool paired with an island coin', 'BAYLA'],
+  ])('%s: the moment is told the pairing coin', (_name, pairing) => {
+    act(() => raiseReceipt(add({ coin: { symbol: 'BRAINLET', mint: WIF }, pairing })));
+    rise();
+    expect(opts(0)).toMatchObject({ symbol: 'BRAINLET', pairing });
+  });
+
+  it('an add that names no pairing coin tells the moment none: the pour keeps SOL’s green', () => {
+    act(() => raiseReceipt(add()));
+    rise();
+    expect(opts(0).pairing ?? null).toBeNull();
   });
 
   it('the pool’s LP count read after the card is up reaches the running moment as setLps, never a restart', () => {

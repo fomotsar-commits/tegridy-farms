@@ -152,11 +152,13 @@ test('another Solana room’s door does not carry BAYLA’s cards', async ({ pag
 });
 
 test('where the Solana wallets cannot be loaded, the sheet says so instead of loading for ever', async ({ page }) => {
-  // The provider's stylesheet fails, as it does offline or in a tab left open
-  // across a deploy. The bundler's import() wrapper rejects for it, and that
-  // rejection once went unheard: "Loading Solana wallets…" never ended.
+  // The provider's code fails to arrive, as it does offline or in a tab left open
+  // across a deploy. The bundler's import() rejects for it, and that rejection
+  // once went unheard: "Loading Solana wallets…" never ended. (Until 2026-11-11
+  // this refused the provider's own stylesheet. That stylesheet now rides the
+  // entry's, so no lazy one is left to refuse: scripts/check-dist-graph.mjs, G.)
   let aborted = 0;
-  await page.route(/\/assets\/SolanaProviders-[^/]*\.css(\?.*)?$/, (route) => {
+  await page.route(/\/assets\/SolanaProviders-[^/]*\.js(\?.*)?$/, (route) => {
     aborted += 1;
     return route.abort();
   });
@@ -169,13 +171,13 @@ test('where the Solana wallets cannot be loaded, the sheet says so instead of lo
   // is heard here, not the limit running out.
   await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.', { timeout: 8_000 });
   await expect(solanaList(page)).toHaveCount(0);
-  expect(aborted, "the provider's stylesheet was asked for, and refused").toBeGreaterThan(0);
+  expect(aborted, "the provider's code was asked for, and refused").toBeGreaterThan(0);
 });
 
 // On the home the cards' code is the top bar's Solana connection: when it cannot load, the
 // cards' two pages are linked in their place, and the sheet says so before any press.
 test('on the home, where the cards cannot load, their pages are linked and the sheet says the wallets did not load', async ({ page }) => {
-  await page.route(/\/assets\/SolanaProviders-[^/]*\.css(\?.*)?$/, (route) => route.abort());
+  await page.route(/\/assets\/SolanaProviders-[^/]*\.js(\?.*)?$/, (route) => route.abort());
   await page.goto('/');
   const main = page.locator('#main-content');
   await expect(main.getByRole('link', { name: 'Stake BAYLA' })).toHaveAttribute('href', '/earn/bayla', { timeout: 30_000 });

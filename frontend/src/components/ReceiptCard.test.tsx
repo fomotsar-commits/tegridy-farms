@@ -26,6 +26,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     wallet: WALLET,
     action: 'bought',
     coin: { symbol: 'BAYLA', mint: BAYLA },
+    island: true,
     title: null,
     under: null,
     fee: { kind: 'reading' },
@@ -209,7 +210,8 @@ describe('the receipt card', () => {
 // written. Its link unfurls the island's card (middleware.js) and sends a person to the Add.
 describe('an add shares on X', () => {
   const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
-  const POST = (coin: string) => `Just added liquidity to $${coin} on memetics.finance. I'm part of the floor now. Every trade in the pool pays me.`;
+  // One link a post (island answer thirty-five): the sentence names no site, so X draws the add's own card.
+  const POST = (coin: string) => `Just added liquidity to $${coin}. I'm part of the floor now. Every trade in the pool pays me.`;
   const added = (coin = { symbol: 'BAYLA', mint: BAYLA }) =>
     receipt({ action: 'added', coin, clock: 'double', under: `to the SOL + ${coin.symbol} pool`, fee: { kind: 'add', network: '0.000005 SOL' } });
   const posted = (href: string | null) => {

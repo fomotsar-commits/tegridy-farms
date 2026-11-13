@@ -47,6 +47,8 @@
 // And one for the Cardano swap (2026-10-24):
 //   E. EMURGO's serialization library (vendor-cardano, plus its .wasm) stays LAZY: the chunk
 //      exists, is outside the entry's static closure, and is never preloaded.
+// And one for WebKit, the engine under every iPhone browser (2026-11-11):
+//   G. No stylesheet arrives with a lazy chunk: every .css in dist/assets is one index.html links.
 //
 // Silent-gate discipline: this script FAILS on a missing/empty dist, on an
 // unreadable entry, and on a suspiciously tiny closure — "checked nothing"
@@ -264,9 +266,38 @@ for (const f of wagmiChunks) {
 }
 const wagmiKb = wagmiChunks.map((f) => `${Math.round(Buffer.byteLength(read(f), 'utf8') / 1024)} KB`).join(', ');
 
+// G. NO STYLESHEET ARRIVES WITH A LAZY CHUNK (2026-11-11).
+//
+// CSS a lazy chunk imports is a file of its own (vite.config.ts cssCodeSplit), fetched by a <link>
+// Vite adds to the document when the chunk is asked for. WebKit, the engine under Safari and under
+// every browser on an iPhone (a wallet app's own included), does not draw what a page adds while
+// such a stylesheet is still loading. So a page that mounted as such a chunk was asked for went
+// blank for about a second: the bar, nothing, then the footer (recorded in Playwright's WebKit,
+// 0.76 to 2.0 s, and never with the stylesheet already there; a script that reads layout while it
+// loads hides the blank, so only a recording shows it). It was the home and every room's door,
+// with src/styles/wallet-adapter-ui.css imported by the lazy SolanaProviders; the owner met the
+// flash on his iPhone. Chromium never does this, so no Chromium rig will see it come back. Every
+// stylesheet the build emits must be one the first HTML already links; a module that needs CSS of
+// its own gets it imported from src/main.tsx, as that file's note says.
+const styleFiles = readdirSync(ASSETS).filter((f) => f.endsWith('.css'));
+if (styleFiles.length === 0) die('no stylesheet in dist/assets — invariant G checked nothing');
+const linkedStyles = (html.match(/<link\b[^>]*>/g) ?? [])
+  .filter((tag) => /\brel="stylesheet"/.test(tag))
+  .map((tag) => /\bhref="\/?assets\/([^"]+\.css)"/.exec(tag)?.[1])
+  .filter(Boolean);
+const lazyStyles = styleFiles.filter((f) => !linkedStyles.includes(f));
+if (lazyStyles.length) {
+  die(
+    `${lazyStyles.join(', ')} is a stylesheet index.html does not link, so it arrives with a lazy chunk. ` +
+      `WebKit does not draw a page's new content while such a stylesheet loads (Safari, every iPhone browser, a wallet app's own included): ` +
+      `the page goes blank between its first frame and itself. Import that CSS from src/main.tsx, so it rides the entry's stylesheet.`,
+  );
+}
+
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
     `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
     `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}; ` +
-    `Cardano library lazy (${cardanoChunks.join(', ')}); vendor-wagmi ${wagmiKb}.`,
+    `Cardano library lazy (${cardanoChunks.join(', ')}); vendor-wagmi ${wagmiKb}. ` +
+    `Every stylesheet is in the first HTML (${styleFiles.join(', ')}).`,
 );

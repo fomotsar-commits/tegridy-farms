@@ -30,8 +30,21 @@ export interface Receipt {
   action: 'bought' | 'sold' | 'added';
   /** The coin the card is about, as the venue names it. */
   coin: { symbol: string; mint: string };
+  /**
+   * The coin has a room on the island (lib/bungalows.ts), so the island counts its holders and its clock:
+   * a buy's or a sale's card says the shore's line ("You're on $COIN's shore...", or that the light cools).
+   * Any other coin's card plays the same moment and says no such line, because nothing on that shore is
+   * read (island answer thirty-four).
+   */
+  island: boolean;
   /** On an add, the pool's pairing coin by its ticker: SOL, USDC or an island coin (`QUOTE_COINS`). */
   pairing?: string;
+  /**
+   * On an add: `coin.symbol` is no ticker of the coin's own, because none was read ("tokens") or it copies
+   * a well-known coin ("fake USDC": lib/solana/lp/identity.ts `ownTicker`). The floor line and the post
+   * then name no coin (island answer thirty-four).
+   */
+  unnamed?: boolean;
   /** The action's words, from what the transaction moved; null until read. */
   title: string | null;
   under: string | null;
