@@ -3,7 +3,8 @@ register-backup-task.ps1: installs backup-bundles.sh as a daily Windows schedule
 The owner runs it: powershell -ExecutionPolicy Bypass -File scripts\git-hosting\register-backup-task.ps1
 It prints what it will create, asks nothing, and is safe to re-run (same files, same task).
 -DryRun prints only. -InstallOnly writes the files and registers nothing. Runbook: docs/GIT_HOSTING.md.
-Each run pings HC_PING_URL_GIT_VAULT_BACKUP from -EnvFile (read at run time), /fail on a failure.
+Each run pings HC_PING_URL_GIT_VAULT_BACKUP from -EnvFile (read at run time), /fail on a failure,
+and logs an alarm line unless healthchecks.io answers exactly "OK".
 #>
 [CmdletBinding()]
 param(
@@ -55,8 +56,15 @@ $runnerText = @(
   'if ($url -match ''^https://'') {',
   '  $target = $url; if ($code -ne 0) { $target += ''/fail'' }',
   '  $body = (Get-Content -LiteralPath $log -Tail 40) -join "`n"',
-  '  try { Invoke-WebRequest -Uri $target -Method Post -Body $body -UseBasicParsing -TimeoutSec 15 | Out-Null; $note = "alarm: pinged ($(if ($code) { ''fail'' } else { ''success'' }))" }',
-  '  catch { $note = ''alarm: the ping failed: '' + $_.Exception.Message.Replace($url, "<$name>") }',
+  '  try {',
+  '    $said = ([string](Invoke-WebRequest -Uri $target -Method Post -Body $body -UseBasicParsing -TimeoutSec 15).Content).Trim()',
+  '    # Only "OK" counts: healthchecks.io answers a URL that names no check with 200 "OK (not found)".',
+  '    $note = "alarm: pinged ($(if ($code) { ''fail'' } else { ''success'' }))"',
+  '    if ($said -cne ''OK'') {',
+  '      $said = $said.Replace($url, "<$name>") -replace ''\s+'', '' ''',
+  '      $note = ''alarm: the ping was answered "'' + $said.Substring(0, [Math]::Min(100, $said.Length)) + ''", not "OK", so no check counted it''',
+  '    }',
+  '  } catch { $note = ''alarm: the ping failed: '' + $_.Exception.Message.Replace($url, "<$name>") }',
   '} elseif ($url) { $note = "alarm: $name is not an https URL, so nothing was pinged" }',
   'Add-Content -LiteralPath $log -Value $note',
   'exit $code'
