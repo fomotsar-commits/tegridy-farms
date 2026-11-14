@@ -1,7 +1,7 @@
-// THE VAULT'S 48-HOUR WAIT. Since Squads #14 (2026-10-19) the multisig's time lock is 172,800 s
-// (read on chain 2026-10-20, finalized slot 459,251,370), so every vault action runs 48 hours
-// after its second approval at the earliest. Every Risks list that says what the vault can do
-// says the wait, and none still says it acts at once.
+// THE VAULT'S 48-HOUR WAIT, SAID AS READ. Since Squads #14 (2026-10-19) the multisig's time lock
+// is 172,800 s (read again 2026-11-14 UTC, finalized slot 469,210,343), so every vault action, a
+// pause too, runs 48 hours after its second approval at the earliest. Every Risks list that says
+// what the vault can do says the wait, with the date it was read, and none says it acts at once.
 
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
@@ -13,7 +13,8 @@ const TIER: AmmConfigView = {
   fundFeeRate: 56_000n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: 'vault', fundOwner: 'workshop',
 };
 const SAYS_NO_WAIT = /at once|no waiting period|time lock of 0/i;
-const VAULT_WAIT = 'Each change waits 48 hours after both have signed.';
+const AS_READ = '(as read on chain on 2026-11-14)';
+const VAULT_WAIT = 'Each of these, a switch-off too, waits 48 hours after both have signed.';
 
 const SURFACES = {
   'the Add liquidity form': () => <LpBeforeYouAdd launchPool config={TIER} enableCreatorFee={false} />,
@@ -23,16 +24,19 @@ const SURFACES = {
 };
 
 describe('the vault waits 48 hours, and every Risks list says so', () => {
-  it('the short sentence says what the vault can do, and when', () => {
-    expect(RISK_SHORT).toContain('can pause removing, change fees or replace the program, 48 hours after both its keys approve.');
+  it('the short sentence says what the vault can do, and when, as read on chain with the date', () => {
+    expect(RISK_SHORT).toContain(`can pause removing, change fees or replace the program, 48 hours after both its keys approve ${AS_READ}.`);
     expect(RISK_SHORT).not.toMatch(SAYS_NO_WAIT);
+    expect(RISK_SHORT).not.toContain('—');
   });
 
   for (const [where, draw] of Object.entries(SURFACES)) {
-    it(`on ${where}`, () => {
+    it(`on ${where}: the wait, as read, and a switch-off waits too`, () => {
       const text = render(draw()).container.textContent ?? '';
+      expect(text).toContain(AS_READ);
       expect(text).toContain(VAULT_WAIT);
       expect(text).not.toMatch(SAYS_NO_WAIT);
+      expect(text).not.toContain('—');
     });
   }
 
