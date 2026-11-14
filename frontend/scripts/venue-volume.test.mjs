@@ -31,7 +31,7 @@ import {
   base58,
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
-import { READERS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
+import { DB_TIMEOUT_MS, READERS, RUN_BUDGET_MS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
 import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -653,6 +653,44 @@ describe("main: totals and cursor are written together, or not at all", () => {
     await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, ...quiet });
     expect(deadline - before).toBeGreaterThanOrEqual(20_000);
     expect(deadline - before).toBeLessThan(25_000);
+    // Less when the run itself has less left.
+    const second = Date.now();
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, runMs: 5_000, ...quiet });
+    expect(deadline - second).toBeGreaterThan(4_000);
+    expect(deadline - second).toBeLessThan(6_000);
+  });
+
+  // A source's budget is checked only between reads, and the Solana readers never check it:
+  // one stuck RPC call ran the Vercel count past its 120-second cap and lost every source after it.
+  it("a source still reading when the run's time is up is let go unsaved, and the rest wait for the next run", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+    const errors = [];
+    const readers = { jupiter: () => new Promise(() => {}), ethereum: reader([], { block: 9, pairs: [] }) };
+    const code = await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter", "ethereum"], readers, runMs: 50, log: () => {}, error: (m) => errors.push(m) });
+    expect(code).toBe(1);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, cursor: { k: "old" }, version: 2 });
+    expect(db.rows.get("jupiter").last_error).toMatch(/out of time/);
+    expect(db.rows.has("ethereum")).toBe(false);
+    expect(errors.join(" ")).toMatch(/ethereum not counted::the run was out of time before it began/);
+  }, 5_000);
+
+  it("what a let-go source reads after the run ends is never written", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+    const late = new Promise((r) => setTimeout(r, 100));
+    const readers = { jupiter: async () => (await late, reader(oneUsdcSwap, { k: "new" })()) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, runMs: 20, ...quiet })).toBe(1);
+    await late;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, cursor: { k: "old" }, version: 2 });
+    expect(db.writes.filter((w) => w.url.includes("version=eq."))).toHaveLength(0);
+  });
+
+  // setTimeout fires at once for a wait past 2^31 ms, Infinity included.
+  it("a run with no time limit waits for a slow source", async () => {
+    const db = fakeDb();
+    const readers = { jupiter: async () => (await new Promise((r) => setTimeout(r, 30)), reader(oneUsdcSwap, { k: "s" })()) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, runMs: Infinity, ...quiet })).toBe(0);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, cursor: { k: "s" } });
   });
 
   it("a source that fails keeps its totals and cursor, records the error, and the rest still count", async () => {
@@ -678,6 +716,14 @@ describe("main: totals and cursor are written together, or not at all", () => {
 });
 
 describe("pins", () => {
+  // After the run's time is up, a write and an error note can still each wait DB_TIMEOUT_MS;
+  // checkout and Node take about two minutes of the job's own limit.
+  it("the hourly job's run ends inside the workflow's timeout-minutes", () => {
+    const yml = readFileSync(join(HERE, "..", "..", ".github", "workflows", "venue-volume.yml"), "utf-8");
+    const limitMs = Number(yml.match(/timeout-minutes:\s*(\d+)/)[1]) * 60_000;
+    expect(RUN_BUDGET_MS + 2 * DB_TIMEOUT_MS + 2 * 60_000).toBeLessThanOrEqual(limitMs);
+  });
+
   it("Base reads through every keyless RPC that serves its old blocks", () => {
     expect(EVM_CHAINS.base.rpcs).toEqual(expect.arrayContaining(["https://base.drpc.org", "https://base.gateway.tenderly.co"]));
   });
