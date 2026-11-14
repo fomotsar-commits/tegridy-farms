@@ -198,7 +198,13 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     el.scrollIntoView?.({ block: 'start' });
   }, []);
   // A link to a pairing coin (?mint=BAYLA) lists the pools priced in it instead (pricedIn.ts): what its community shares.
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} pricedIn={pricedInCoin(mint)} />;
+  // Read once, from the address the page opened with, as PoolsPage reads the door's token: the finder writes ?mint= too (a
+  // row's View or Add, Add more liquidity, a typed token), and the list must not change under the visitor. Every pool drops it.
+  const [pricedIn, setPricedIn] = useState(() => pricedInCoin(mint));
+  const everyPool = useCallback(() => setPricedIn(null), []);
+  const allPools = (
+    <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} pricedIn={pricedIn} onEveryPool={everyPool} />
+  );
   const finder = (
     <PoolFinder
       ref={finderRef}

@@ -163,6 +163,33 @@ describe('Priced in X: /pools?mint=<a pairing coin>', () => {
   });
 });
 
+// The finder writes ?mint= too (a row's View or Add, Add more liquidity, a typed token): the list is the link's, and stays.
+describe('a press on the page never swaps the list', () => {
+  it('/pools: View on BAYLA / SOL, then Add on BAYLA / USDC, keep All pools', async () => {
+    const r = readers(ok(venue(), SAFETY));
+    mount(r, '/pools');
+    fireEvent.click(await within(list()).findByRole('button', { name: 'View BAYLA / SOL · 1% tier' }));
+    await waitFor(() => expect(r.findPools).toHaveBeenCalledWith(new PublicKey(BAYLA_MINT)));
+    expect(within(list()).getByRole('heading', { name: 'All pools' })).toBeInTheDocument();
+    expect(within(list()).getAllByTestId('lp-all-pools-row')).toHaveLength(7);
+    fireEvent.click(within(list()).getByRole('button', { name: 'Add to BAYLA / USDC · 1% tier' }));
+    expect(within(list()).getByRole('heading', { name: 'All pools' })).toBeInTheDocument();
+    expect(list()).not.toHaveTextContent('Priced in');
+  });
+
+  it('/pools?mint=BAYLA: View on BOBO / BAYLA keeps Priced in BAYLA, and Every pool still goes back', async () => {
+    const r = readers(ok(venue(), SAFETY));
+    mount(r, `/pools?mint=${BAYLA_MINT}`);
+    fireEvent.click(await within(list()).findByRole('button', { name: 'View BOBO / BAYLA · 1% tier' }));
+    await waitFor(() => expect(r.findPools).toHaveBeenCalledWith(new PublicKey(BOBO_MINT)));
+    expect(within(list()).getByRole('heading', { name: 'Priced in BAYLA' })).toBeInTheDocument();
+    expect(within(list()).getAllByTestId('lp-all-pools-row')).toHaveLength(4);
+    fireEvent.click(within(list()).getByRole('link', { name: 'Every pool' }));
+    expect(await within(list()).findByRole('heading', { name: 'All pools' })).toBeInTheDocument();
+    expect(within(list()).getAllByTestId('lp-all-pools-row')).toHaveLength(7);
+  });
+});
+
 describe('the default view is unchanged', () => {
   for (const [name, at] of [
     ['/pools', '/pools'],

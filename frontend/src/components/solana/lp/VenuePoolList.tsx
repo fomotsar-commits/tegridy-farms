@@ -49,6 +49,7 @@ export function VenuePoolList({
   onAdd,
   sectionRef,
   pricedIn = null,
+  onEveryPool,
 }: {
   readers: LpReaders;
   reloadKey?: number;
@@ -59,6 +60,8 @@ export function VenuePoolList({
   sectionRef?: Ref<HTMLElement>;
   /** The pairing coin of a ?mint= link (pricedIn.ts `pricedInCoin`): list only the pools priced in it. Null: every pool. */
   pricedIn?: QuoteCoin | null;
+  /** Pressed with "Every pool", before it goes there: the section drops the coin it holds. */
+  onEveryPool?: () => void;
 }) {
   const live = useLivePoolList(readers, reloadKey);
   const read = live.read;
@@ -71,7 +74,7 @@ export function VenuePoolList({
       {/* The list is the first card under the finder; the Arbitrage board, a trader's card, sits under it (answer twenty-seven, cut 4). */}
       <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" data-priced-in={pricedIn?.symbol} aria-label={title}>
         <Card title={title} art={<CardArt pageId="solana-lp" idx={13} />}>
-          {pricedIn && <PricedInCoin coin={pricedIn} everyPool={`${pathname}${everyPoolSearch(search)}`} />}
+          {pricedIn && <PricedInCoin coin={pricedIn} everyPool={`${pathname}${everyPoolSearch(search)}`} onEveryPool={onEveryPool} />}
           {read === null ? (
             <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
           ) : read.kind === 'unread' ? (
@@ -144,12 +147,12 @@ export function VenuePoolList({
  * address, then its whole address (a ticker is a claim, the address is the coin), its risk line
  * when pairing with it adds one (quotes.ts `risk`), and the way back to every pool.
  */
-function PricedInCoin({ coin, everyPool }: { coin: QuoteCoin; everyPool: string }) {
+function PricedInCoin({ coin, everyPool, onEveryPool }: { coin: QuoteCoin; everyPool: string; onEveryPool?: () => void }) {
   return (
     <div data-testid="lp-priced-in-coin" className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <CoinName name={coin.symbol} address={coin.mint} nameClassName="text-white text-[13px]" />
-        <Link to={everyPool} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center">
+        <Link to={everyPool} onClick={onEveryPool} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center">
           Every pool
         </Link>
       </div>
