@@ -460,7 +460,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
+    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -494,11 +494,11 @@ describe('the order of the section', () => {
   });
 
   // The vault's powers: the pool program's admin and its upgrade authority are both vault 0 of
-  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read 2026-10-20).
-  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait, and keeps the afford-to-lose clause', () => {
+  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read again 2026-11-14).
+  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait as read, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('48 hours after both its keys approve');
+    expect(line).toContain('48 hours after both its keys approve (as read on chain on 2026-11-14).');
     expect(line).not.toMatch(/no waiting period|at once/);
     expect(line).toContain('can pause removing');
     expect(line).toContain('change fees');
@@ -507,8 +507,9 @@ describe('the order of the section', () => {
     expect(line).toMatch(/Only add what you can afford to lose\.$/);
     // The line it replaced did not say that removing can be paused; it is gone from the page.
     expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
-    // One line, under the word budget the first screen has room for (e2e/word-budget.spec.ts).
-    expect(line.split(/\s+/).length).toBeLessThan(35);
+    // Behind a press, so e2e/word-budget.spec.ts does not count it; still held short: 40 words,
+    // the read date included.
+    expect(line.split(/\s+/).length).toBeLessThan(41);
     expect(line).not.toContain('—');
   });
 

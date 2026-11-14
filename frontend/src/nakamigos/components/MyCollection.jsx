@@ -362,12 +362,11 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
         </div>
       )}
 
-      {/* NFT Finance funnel: only for a collection the deployed
-          TegridyNFTLending accepts (loanDeskAccepts). */}
+      {/* NFT Finance funnel: only for a collection the loan contract takes (loanDeskAccepts). */}
       {loanDeskAccepts(collection) && !loading && tokens.length > 0 && (
         <Link
           to="/nft-finance"
-          aria-label="Borrow ETH against your NFTs in NFT Finance"
+          aria-label="Borrow WETH against your NFTs in NFT Finance"
           style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             gap: 12, margin: "0 32px 16px", padding: "14px 18px",
@@ -380,7 +379,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
               BORROW WITHOUT SELLING
             </div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
-              Your {collection.name} NFTs can back an ETH loan in NFT Finance
+              Your {collection.name} NFTs can back a WETH loan in NFT Finance
             </div>
           </div>
           <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)", whiteSpace: "nowrap" }}>{"→"}</span>
