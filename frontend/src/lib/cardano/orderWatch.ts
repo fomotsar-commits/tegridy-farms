@@ -18,7 +18,7 @@
 // Notes are kept in this browser so a reload does not lose an order still on its way.
 
 import { readCredentialTxs, readTip, readTx, readTxDepth, readUtxoSpent } from './chain';
-import { isAda, MINSWAP_V2, sameAsset, type CardanoAsset } from './minswapV2';
+import { isAda, MINSWAP_V2, sameAsset, type CardanoAsset, type ChainUtxo } from './minswapV2';
 
 export interface PendingOrder {
   txHash: string;
@@ -93,16 +93,29 @@ export function pollDelayMs(orders: readonly Pick<PendingOrder, 'txHash' | 'plac
 /** 20 minutes of slots past the expiry before a never-seen transaction is called expired. */
 export const EXPIRY_MARGIN_SLOTS = 1200;
 
-function outputsTo(tx: { outputs: { addressHex: string; lovelace: bigint; assets: { policyId: string; assetName: string; quantity: bigint }[] }[] }, hex: string) {
+function outputsTo<T extends { addressHex: string }>(tx: { outputs: T[] }, hex: string): T[] {
   return tx.outputs.filter((o) => o.addressHex === hex);
 }
 
-function held(o: { lovelace: bigint; assets: { policyId: string; assetName: string; quantity: bigint }[] }, a: CardanoAsset): bigint {
+export function held(o: { lovelace: bigint; assets: { policyId: string; assetName: string; quantity: bigint }[] }, a: CardanoAsset): bigint {
   if (isAda(a)) return o.lovelace;
   return o.assets.filter((x) => sameAsset(x, a)).reduce((s, x) => s + x.quantity, 0n);
 }
 
-export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal): Promise<OrderStatus> {
+/** Where an order stands before its outcome is read: still open, never landed, or spent by `fillTx`, whose outputs to the trader are `mine`. */
+export type OrderSpend =
+  | Extract<OrderStatus, { kind: 'not-seen' } | { kind: 'expired' } | { kind: 'placed' } | { kind: 'unknown' }>
+  | { kind: 'spent-by'; fillTx: string; mine: ChainUtxo[] }
+  | { kind: 'spent'; fillTx: null };
+
+/**
+ * Finds what became of an order: open, never landed, or the transaction that spent it, among
+ * the trader's own (a fill pays them). Any kind of order: the caller reads what it paid.
+ */
+export async function readOrderSpend(
+  order: Pick<PendingOrder, 'txHash' | 'orderIndex' | 'traderHex' | 'traderPaymentHash' | 'ttlSlot'>,
+  signal?: AbortSignal,
+): Promise<OrderSpend> {
   const spent = await readUtxoSpent(order.txHash, order.orderIndex, signal);
   if (spent.status !== 'ok') return { kind: 'unknown', reason: spent.reason };
   if (spent.data === false) {
@@ -130,26 +143,32 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
     const tx = await readTx(h.txHash, signal);
     if (tx.status !== 'ok') return { kind: 'unknown', reason: tx.reason };
     if (!tx.data || !tx.data.inputs.some((i) => i.txHash === order.txHash && i.index === order.orderIndex)) continue;
-    const mine = outputsTo(tx.data, order.traderHex);
-    // Exactly one output to the trader is this order's. Two (two of their orders in one batch)
-    // or none cannot be attributed without the batch's redeemer: said as spent, not guessed.
-    if (mine.length !== 1) return { kind: 'spent', fillTx: h.txHash };
-    const bought = mine.reduce((s, o) => s + held(o, order.assetOut), 0n);
-    const back = mine.reduce((s, o) => s + held(o, order.assetIn), 0n);
-    if (!isAda(order.assetOut) && bought > 0n) {
-      // The order's 2 ADA deposit rides back with the coins bought.
-      return { kind: 'filled', fillTx: h.txHash, received: bought, depositBack: mine.reduce((s, o) => s + o.lovelace, 0n) };
-    }
-    if (isAda(order.assetOut)) {
-      // Selling a token for ADA: the token coming back means returned; ADA alone means filled.
-      if (back > 0n) return { kind: 'returned', fillTx: h.txHash };
-      const ada = mine.reduce((s, o) => s + o.lovelace, 0n);
-      if (ada > MINSWAP_V2.orderDeposit) return { kind: 'filled', fillTx: h.txHash, received: ada - MINSWAP_V2.orderDeposit, depositBack: MINSWAP_V2.orderDeposit };
-    }
-    if (isAda(order.assetIn) && back > 0n) return { kind: 'returned', fillTx: h.txHash };
-    return { kind: 'spent', fillTx: h.txHash };
+    return { kind: 'spent-by', fillTx: h.txHash, mine: outputsTo(tx.data, order.traderHex) };
   }
   return { kind: 'spent', fillTx: null };
+}
+
+export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal): Promise<OrderStatus> {
+  const s = await readOrderSpend(order, signal);
+  if (s.kind !== 'spent-by') return s;
+  const { fillTx, mine } = s;
+  // Exactly one output to the trader is this order's. Two (two of their orders in one batch)
+  // or none cannot be attributed without the batch's redeemer: said as spent, not guessed.
+  if (mine.length !== 1) return { kind: 'spent', fillTx };
+  const bought = mine.reduce((sum, o) => sum + held(o, order.assetOut), 0n);
+  const back = mine.reduce((sum, o) => sum + held(o, order.assetIn), 0n);
+  if (!isAda(order.assetOut) && bought > 0n) {
+    // The order's 2 ADA deposit rides back with the coins bought.
+    return { kind: 'filled', fillTx, received: bought, depositBack: mine.reduce((sum, o) => sum + o.lovelace, 0n) };
+  }
+  if (isAda(order.assetOut)) {
+    // Selling a token for ADA: the token coming back means returned; ADA alone means filled.
+    if (back > 0n) return { kind: 'returned', fillTx };
+    const ada = mine.reduce((sum, o) => sum + o.lovelace, 0n);
+    if (ada > MINSWAP_V2.orderDeposit) return { kind: 'filled', fillTx, received: ada - MINSWAP_V2.orderDeposit, depositBack: MINSWAP_V2.orderDeposit };
+  }
+  if (isAda(order.assetIn) && back > 0n) return { kind: 'returned', fillTx };
+  return { kind: 'spent', fillTx };
 }
 
 const NOTES_KEY = 'tegridy.minswap.orders.v1';

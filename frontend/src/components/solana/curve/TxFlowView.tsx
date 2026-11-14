@@ -9,6 +9,8 @@ import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeCreateRows, RangeRows } from './RangeRows';
+import { rewardCoin, siteCoin } from '../range/rangeText';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import type { ReviewState, TxFlow } from './useTxFlow';
@@ -92,8 +94,11 @@ export function SummaryRows({
   summary,
   decimals,
   display,
+  coinName,
 }: {
   summary: TxSummary;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** The launch mint's decimals, when read. `null` shows raw base units, never an assumed 9. */
   decimals: number | null;
   display: (s: string, max: number) => string;
@@ -205,7 +210,7 @@ export function SummaryRows({
     case 'range-open':
     case 'range-remove':
     case 'range-close':
-      return <RangeRows summary={summary} />;
+      return <RangeRows summary={summary} coinName={coinName} />;
     case 'range-create':
       return <RangeCreateRows summary={summary} />;
     case 'range-swap':
@@ -835,7 +840,7 @@ function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create'
  * is in that coin's decimals; every other account is in its own mint's decimals when the
  * builder knew them.
  */
-function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
+function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null, coinName?: (mint: string) => string | null) {
   const summary = prepared.summary;
   const sign = t.delta < 0n ? '-' : '+';
   const amount = t.delta < 0n ? -t.delta : t.delta;
@@ -850,6 +855,19 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : 'poolLine' in summary ? summary.poolLine.quote : null;
   const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
+  // A range take-out watches a reward's own account untagged: named by the reward's coin. A coin
+  // off the site's list carries its whole address, so its name goes beside the amount, not in the label.
+  if (!t.role && (summary.kind === 'range-remove' || summary.kind === 'range-close')) {
+    const mint = t.mint.toBase58();
+    const own = siteCoin(mint);
+    const paid = `${sign}${tokenText(amount, t.decimals ?? null)}`;
+    return own
+      ? { label: `Test run: your ${own} changes by`, value: paid }
+      : { label: 'Test run: your reward coin changes by', value: `${paid} ${rewardCoin(mint, coinName?.(mint))}`, words: true };
+  }
+  // A range pool's token, when it is one of the site's own coins: by its ticker.
+  const ownTicker = t.role === 'token' && 'poolLine' in summary && t.mint.equals(summary.poolLine.tokenMint) ? tokenTicker(t.mint.toBase58()) : null;
+  if (ownTicker) return { label: `Test run: your ${ownTicker} changes by`, value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
@@ -936,7 +954,7 @@ function rentRowLabel(prepared: PreparedTx): string {
   return RENT_ROW_LABEL[prepared.kind];
 }
 
-export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
+export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx; decimals: number | null; coinName?: (mint: string) => string | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
   const share = base !== null && base > 0n ? sharePercent(f.priorityLamports, base) : null;
@@ -970,7 +988,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
-          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals)} />
+          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals, coinName)} />
         ))}
       {(prepared.simulated.solDeltas ?? []).map((t) => (
         <Row
@@ -1008,10 +1026,13 @@ export function TxReview({
   display,
   extra,
   headingRef,
+  coinName,
 }: {
   prepared: PreparedTx;
   decimals: number | null;
   display: (s: string, max: number) => string;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** Anything the kind needs on top, such as the create flow's public-forever list. */
   extra?: ReactNode;
   /** Focus lands here when the review appears. */
@@ -1025,14 +1046,18 @@ export function TxReview({
   return (
     <div className="space-y-2" data-testid="tx-review">
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
-        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim ? 'Review: claim fees' : TITLES[prepared.kind]}
+        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim
+          ? 'Review: claim fees'
+          : prepared.summary.kind === 'range-remove' && prepared.summary.percent === 0
+            ? 'Review: collect'
+            : TITLES[prepared.kind]}
       </h3>
       {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
-      <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />
+      <SummaryRows summary={prepared.summary} decimals={decimals} display={display} coinName={coinName} />
       <div className="pt-2 space-y-1.5" style={DIVIDER}>
-        <FeeRows prepared={prepared} decimals={prepared.kind === 'create' ? 6 : decimals} />
+        <FeeRows prepared={prepared} decimals={prepared.kind === 'create' ? 6 : decimals} coinName={coinName} />
       </div>
       <Notice tone="good">Test run passed: the network ran this exact transaction without sending it.</Notice>
     </div>
@@ -1093,8 +1118,8 @@ function signStatus(s: ReviewState): string {
 }
 
 /**
- * While the wallet is open on a transaction built again at the press: what a market or
- * the network's fees moved since the review was read. Nothing else had changed.
+ * While the wallet is open on a transaction built again at the press: what a market, the
+ * network's fees or the chain's clock moved since the review was read. Nothing else had changed.
  */
 function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   const list = (items: string[]) => (
@@ -1106,7 +1131,7 @@ function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   );
   return (
     <div className="text-white/55 space-y-1" data-testid="tx-moved">
-      <p>Built again on fresh numbers before your wallet opened. These moved with the market or the network&apos;s fees since you read the review; every other line, and every instruction, is the same:</p>
+      <p>Built again on fresh numbers before your wallet opened. These moved with the market, the network&apos;s fees or the chain&apos;s clock since you read the review; every other line, and every instruction, is the same:</p>
       {moved.now.length > 0 && list(moved.now)}
       {moved.gone.length > 0 && <p>{moved.now.length > 0 ? 'In place of:' : 'No longer on it:'}</p>}
       {moved.gone.length > 0 && list(moved.gone)}
@@ -1303,8 +1328,11 @@ export function TxFlowView({
   onOutcomeReset,
   resetMeans,
   afterConfirmed,
+  coinName,
 }: {
   flow: TxFlow;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
   api: TxViewApi;
   cluster: SolanaCluster;
@@ -1363,7 +1391,7 @@ export function TxFlowView({
     const working = s.checking || s.renewing;
     // The panel's `extraReview` is its own and does not come from the prepared
     // transaction, so the lines compared are the review's alone.
-    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} />);
+    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
     return (
       <div className="space-y-3">
         <TxReview
@@ -1372,6 +1400,7 @@ export function TxFlowView({
           display={api.meta.displaySafe}
           extra={extraReview}
           headingRef={setFocus}
+          coinName={coinName}
         />
         {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
         {dead ? (

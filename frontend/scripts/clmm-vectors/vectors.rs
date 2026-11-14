@@ -8,7 +8,8 @@ use crate::libraries::{big_num::U1024, fixed_point_64, liquidity_math, sqrt_pric
 use crate::states::pool_test::build_pool;
 use crate::states::tick_array_bitmap_extension_test::build_tick_array_bitmap_extension_info;
 use crate::states::tick_array_test::build_tick_array_with_tick_states;
-use crate::states::{get_fee_growth_inside, AmmConfig, ObservationState, PoolState, TickArrayBitmapExtension, TickArrayState, TickState};
+use crate::states::{get_fee_growth_inside, get_reward_growths_inside, AmmConfig, ObservationState, PersonalPositionState, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, REWARD_NUM};
+use anchor_lang::prelude::Pubkey;
 use anchor_lang::prelude::AccountLoader;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
@@ -463,6 +464,82 @@ fn write_vectors() {
             spacing, tick_current, q(sqrt), q(liquidity), fee_on, bitmap_bits.join(","), ext_json, dyn_json,
             { cfg.trade_fee_rate }, { cfg.protocol_fee_rate }, { cfg.fund_fee_rate }, ticks_json.join(","),
             zfo, base_in, q(amount), q(limit), block_ts, res, fees
+        );
+    }
+    out.push_str("],\n");
+
+    // rewards: the pool's counters brought to a clock, growth inside a range, then what a
+    // position is owed once changed. Its own seed, so every section above stays as it was.
+    let mut r = StdRng::seed_from_u64(20261024);
+    out.push_str("\"rewards\":[");
+    for case in 0..500 {
+        let mut pool = PoolState::default();
+        pool.liquidity = match r.gen_range(0..6) { 0 => 0, 1 => r.gen_range(1..1000), _ => wide(&mut r, 100) };
+        let base: u64 = 1_700_000_000;
+        let mut infos = [RewardInfo::default(); REWARD_NUM];
+        for info in infos.iter_mut() {
+            if r.gen_bool(0.2) {
+                continue;
+            }
+            let open = base + r.gen_range(0..1000);
+            let end = open + r.gen_range(1..200_000);
+            info.token_mint = Pubkey::new_unique();
+            info.open_time = open;
+            info.end_time = end;
+            info.last_update_time = match r.gen_range(0..3) { 0 => open, 1 => r.gen_range(open..=end), _ => end };
+            info.emissions_per_second_x64 = match r.gen_range(0..4) { 0 => r.gen_range(1..10_000_000u128) << 64, 1 => wide(&mut r, 128), _ => wide(&mut r, 96) };
+            info.reward_total_emitted = match r.gen_range(0..6) { 0 => u64::MAX, 1 => u64::MAX - r.gen_range(0..1_000_000u64), _ => wide(&mut r, 60) as u64 };
+            info.reward_growth_global_x64 = wide(&mut r, 128);
+            info.reward_state = r.gen_range(0..4);
+        }
+        pool.reward_infos = infos;
+        let now = match r.gen_range(0..8) {
+            0 => { infos[0].open_time }
+            1 => { infos[0].end_time }
+            2 => { infos[0].last_update_time }
+            _ => base + r.gen_range(0..250_000),
+        };
+        let mut lo = TickState::default();
+        let mut hi = TickState::default();
+        lo.tick = r.gen_range(-1000..1000);
+        hi.tick = lo.tick + r.gen_range(1..500);
+        let cur = r.gen_range(lo.tick - 300..hi.tick + 300);
+        pool.tick_current = cur;
+        lo.reward_growths_outside_x64 = [wide(&mut r, 128), wide(&mut r, 128), wide(&mut r, 128)];
+        hi.reward_growths_outside_x64 = [wide(&mut r, 128), wide(&mut r, 128), wide(&mut r, 128)];
+        let before: Vec<String> = infos
+            .iter()
+            .map(|i| format!("[{},{},{},{},{},{},{},{}]", i.initialized(), { i.reward_state }, { i.open_time }, { i.end_time }, { i.last_update_time }, q({ i.emissions_per_second_x64 }), q({ i.reward_total_emitted }), q({ i.reward_growth_global_x64 })))
+            .collect();
+        let updated = pool.update_reward_infos(now).unwrap();
+        let after: Vec<String> = updated
+            .iter()
+            .map(|i| format!("[{},{},{},{}]", { i.reward_state }, { i.last_update_time }, q({ i.reward_total_emitted }), q({ i.reward_growth_global_x64 })))
+            .collect();
+        let inside = get_reward_growths_inside(&lo, &hi, cur, &updated);
+        let mut pos = PersonalPositionState::default();
+        pos.liquidity = match r.gen_range(0..5) { 0 => 0, 1 => r.gen_range(1..1_000_000_000u128), _ => wide(&mut r, 100) };
+        for i in 0..REWARD_NUM {
+            pos.reward_infos[i].growth_inside_last_x64 = if r.gen_bool(0.7) { inside[i].wrapping_sub(wide(&mut r, 70)) } else { wide(&mut r, 128) };
+            pos.reward_infos[i].reward_amount_owed = match r.gen_range(0..5) { 0 => u64::MAX - r.gen_range(0..1000u64), _ => wide(&mut r, 50) as u64 };
+        }
+        let position: Vec<String> = pos.reward_infos.iter().map(|x| format!("[{},{}]", q(x.growth_inside_last_x64), q(x.reward_amount_owed))).collect();
+        let pos_liquidity = pos.liquidity;
+        let owed = outcome(
+            move || {
+                pos.decrease_liquidity(0, 0, 0, inside, 0)?;
+                Ok(pos.reward_infos.map(|x| x.reward_amount_owed))
+            },
+            |v| format!("[{},{},{}]", q(v[0]), q(v[1]), q(v[2])),
+        );
+        let _ = write!(
+            out,
+            "{}{{\"liquidity\":{},\"tick\":{},\"now\":{},\"rewards\":[{}],\"lower\":[{},[{},{},{}]],\"upper\":[{},[{},{},{}]],\"position\":[{},[{}]],\"after\":[{}],\"inside\":[{},{},{}],\"owed\":{}}}",
+            if case > 0 { "," } else { "" },
+            q({ pool.liquidity }), cur, now, before.join(","),
+            { lo.tick }, q({ lo.reward_growths_outside_x64 }[0]), q({ lo.reward_growths_outside_x64 }[1]), q({ lo.reward_growths_outside_x64 }[2]),
+            { hi.tick }, q({ hi.reward_growths_outside_x64 }[0]), q({ hi.reward_growths_outside_x64 }[1]), q({ hi.reward_growths_outside_x64 }[2]),
+            q(pos_liquidity), position.join(","), after.join(","), q(inside[0]), q(inside[1]), q(inside[2]), owed
         );
     }
     out.push_str("]\n}\n");

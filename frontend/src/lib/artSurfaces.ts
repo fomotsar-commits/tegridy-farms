@@ -137,6 +137,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'venue-amm': '/solana-lp',
   // Listed and routed only while range pools show (clmm/programId.ts).
   'range-pools': '/range-pools',
+  // Listed and routed only while the venue's own Cardano pools show (lib/cardano/flags.ts).
+  'cardano-pools': '/cardano-pools',
   zap: '/zap',
   'venue-launch-lines': '/curve-launch',
   'gate-audit-panel': '/launch',
@@ -718,6 +720,11 @@ export const SURFACES: Surface[] = [
   { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 1, label: 'Swap card' },
   { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 2, label: 'Your order card (after an order is placed)' },
 
+  // Pools · Cardano (hidden until the venue's own Cardano pools open)
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 0, label: 'Page background' },
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 1, label: 'Pools card (positions, add, remove, open a pool)' },
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 2, label: 'Your pool orders card (after an order is placed)' },
+
   // Pools · Add / Remove
   { group: 'Pools · Add / Remove', pageId: 'il-calculator', idx: 0, label: 'Impermanent loss calculator card (calculator opened)' },
   { group: 'Pools · Add / Remove', pageId: 'liquidity', idx: 0, label: 'Page background' },
@@ -855,6 +862,8 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 27, label: 'Floor bid and who buys it card (Lend tab, picked collection)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 28, label: 'Ask for a loan card (Borrow tab, once the request book is open)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 29, label: 'Borrowers asking card (Lend tab, once a borrower has asked)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 1, label: 'How this shield works notice' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 2, label: 'Not covered by this page notice' },
