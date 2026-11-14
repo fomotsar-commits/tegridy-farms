@@ -11,7 +11,10 @@
 //
 // Every pool here is paired with SOL. Pools paired with USDC or BAYLA are in
 // lp-coins.spec.ts. Owner ruling 2026-10-04 (any token may have a pool): P10 and P11 hold
-// the page to warnings where it used to refuse, each to an opening that lands.
+// the page to warnings where it used to refuse, each to an opening that lands. Owner
+// ruling 2026-11-01 (one pool per pair and fee tier): P1, P5 and P16 hold the form to
+// naming the pool that takes the SOL pair and keeping Review off; P4 and P18 open at a
+// one-off address, because the pool at the standard address there takes no deposits.
 //
 // Group A runs on chromium AND mobile-chrome against one chain, so each project makes its
 // own tokens in its own beforeAll. Group B is chromium only.
@@ -19,8 +22,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
-  wrapSol, CP_SWAP_PROGRAM,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, metadataFacts, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
+  wrapSol, CP_SWAP_PROGRAM, METAPLEX,
 } from './fixtures/chain';
 import {
   CREATE_POOL_FEE_RECEIVER, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
@@ -81,11 +84,23 @@ const tierText = (c: AmmConfigView) =>
   // A pool this site opens goes through `initialize`, which switches its creator fee off.
   `${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
 
-interface Rents { r0: bigint; r165: bigint; neverRefunded: bigint }
-/** Live rents: the pool (637), its price record (4075), its share mint (82) and its two 165-byte vaults never come back. */
+/**
+ * What Metaplex keeps for making a record, on top of its rent: a flat 0.01 SOL, measured on
+ * mainnet by simulation and on the validator's clone of it (NOTES 2026-10-06). Every landed
+ * record below is held to its rent plus exactly this.
+ */
+const METAPLEX_CREATE_FEE = 10_000_000n;
+/** The share's name record as the pool program writes it: Metaplex MetadataV1, padded to 607 bytes. */
+const NAME_RECORD_BYTES = 607;
+const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+interface Rents { r0: bigint; r165: bigint; neverRefunded: bigint; nameRecord: bigint }
+/**
+ * Live rents: the pool (637), its price record (4075), its share mint (82) and its two 165-byte
+ * vaults never come back; nor does the share's name record (607 bytes, plus Metaplex's fee).
+ */
 async function liveRents(): Promise<Rents> {
-  const [r0, r82, r165, r637, r4075] = (await Promise.all([0, 82, 165, 637, 4075].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint, bigint];
-  return { r0, r165, neverRefunded: r637 + r4075 + r82 + r165 + r165 };
+  const [r0, r82, r165, r637, r4075, r607] = (await Promise.all([0, 82, 165, 637, 4075, NAME_RECORD_BYTES].map((n) => chain().getMinimumBalanceForRentExemption(n)))).map(BigInt) as [bigint, bigint, bigint, bigint, bigint, bigint];
+  return { r0, r165, neverRefunded: r637 + r4075 + r82 + r165 + r165, nameRecord: r607 + METAPLEX_CREATE_FEE };
 }
 
 const standardOf = (mint: PublicKey) => {
@@ -146,6 +161,9 @@ async function checkCreateReview(
   expect(rows['Opens for trading']).toBe('At once (one second after it lands)');
   expect(rows['Fee to open the pool']).toBe(`${solExact(tier.createPoolFee)}, paid to the team's vault (into ${CREATE_POOL_FEE_RECEIVER.toBase58()}, the account the pool program fixes); not refundable`);
   expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
+  expect(rows['Name record of the pool share']).toBe(
+    `${solExact(rents.nameRecord)}: ${solExact(METAPLEX_CREATE_FEE)} is Metaplex's fee for making it, ${solExact(rents.nameRecord - METAPLEX_CREATE_FEE)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`,
+  );
   expect(rows['Your pool-share account']).toBe(`${solExact(rents.r165)} (it comes back if you close that account later)`);
   expect(rows['You get']).toBe(`${units(plan.lp, 9)} pool shares, exactly`);
   expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(plan.locked.quote)} and ${tok(plan.locked.token, d)} tokens at these amounts`);
@@ -222,6 +240,25 @@ async function checkOpenedPool(o: {
   expect(await tokenAmount(lpAccount)).toBe(supply - 100n);
   expect(o.tokenBefore - ((await tokenAmount(ata(o.mint, o.owner, tokenProgram))) ?? 0n), 'the tokens left by exactly the typed amount').toBe(o.token);
   expect((await tokenAmount(CREATE_POOL_FEE_RECEIVER))! - o.feeBefore, 'the fee account received exactly the fee').toBe(o.fee);
+  await checkShareNamed(o.pool);
+}
+
+/**
+ * The opening named its share in the same transaction: Metaplex's record for the share mint
+ * holds the pool program's own words and link, the vault as its editor, and exactly its rent
+ * plus Metaplex's fee (read here from the chain, never from the site).
+ */
+async function checkShareNamed(pool: PublicKey): Promise<void> {
+  const lpMint = deriveLpMint(CP_SWAP_PROGRAM, pool);
+  const m = await metadataFacts(lpMint);
+  expect(m, 'the share has its name record').not.toBeNull();
+  expect(m!.owner.equals(METAPLEX), "the record is Metaplex's").toBe(true);
+  expect(m!.mint.equals(lpMint), 'the record is for the share mint').toBe(true);
+  expect([m!.name, m!.symbol, m!.uri]).toEqual(['Memetics Pool Share', 'MEM-LP', `https://memetics.finance/mint/${lpMint.toBase58()}.json`]);
+  expect(m!.updateAuthority.toBase58(), 'the vault edits the name').toBe(VAULT);
+  expect(m!.isMutable, 'the vault can give it the pair name later').toBe(true);
+  expect(m!.size).toBe(NAME_RECORD_BYTES);
+  expect(m!.lamports, "its rent plus Metaplex's fee").toBe(BigInt(await chain().getMinimumBalanceForRentExemption(NAME_RECORD_BYTES)) + METAPLEX_CREATE_FEE);
 }
 
 /**
@@ -238,14 +275,16 @@ async function checkOpenerSol(t: Awaited<ReturnType<typeof landedTx>>, owner: Pu
   // `emptyWsolClosed`: the lamports of a wrapped-SOL account the opener already had,
   // empty, before the opening. The opening closes it (wsol.ts) and those come back.
   expect(lamportDelta(t, owner), "the opener's SOL change, worked out in Node").toBe(
-    -(solIn + tier.createPoolFee + rents.neverRefunded + rents.r165 + networkFee) + emptyWsolClosed,
+    -(solIn + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165 + networkFee) + emptyWsolClosed,
   );
 }
 
-/** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots. */
+/** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots, then the share's name. */
 function checkSignedOpening(a: Actor, pool: PublicKey, origin: 'standard' | 'co-signer') {
   const opens = a.wallet.lastSigned().instructions.filter((i) => i.program === 'cp-swap');
-  expect(opens.map((i) => i.name)).toEqual(['initialize']);
+  expect(opens.map((i) => i.name)).toEqual(['initialize', 'create_lp_metadata']);
+  expect(opens[1]!.accounts.pool_state).toBe(pool.toBase58());
+  expect(opens[1]!.accounts.update_authority).toBe(VAULT);
   const init = opens[0]!;
   expect(init.args.openTime).toBe('0');
   expect(init.args.origin).toBe(origin);
@@ -360,21 +399,29 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     expect(await accountOwner(ata(WSOL, A.opener.publicKey)), 'no wrapped-SOL account left').toBeNull();
 
     // The outcome's Close goes back to the panel's form. The amounts it opened with are
-    // gone, so a stray press of Review opens nothing: no second pool by accident. The card
-    // points to the pool just opened and still offers another, which is the opener's
-    // choice (owner ruling 2026-10-03; P16 opens one).
+    // gone, so a stray press of Review opens nothing. The pool just opened now takes the
+    // SOL pair (one pool per pair and fee tier, owner ruling 2026-11-01): the form names
+    // it and keeps Review off; the card says so and still offers a USDC or BAYLA pool.
     await press(ui.outcome(p).getByRole('button', { name: 'Close' }), 'close the outcome');
     await expect(createCard(p)).toHaveAttribute('data-advice', 'opened-here', { timeout: 60_000 });
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer');
     await expect(ui.lp.create.solToPut(p)).toHaveValue('');
     await expect(ui.lp.create.review(p)).toBeDisabled();
-    await expect(ui.lp.create.panel(p)).toContainText('You opened a pool for this token just now. Opening again makes a second, separate pool and pays the fee to open again.');
+    // The page read the pool the moment the opening confirmed, which can be the second
+    // before it opens ("Deposits wait until then", train 3's run, 2026-11-08): the finder
+    // then reads it again as it opens, with nothing pressed, and only then it takes the pair.
+    await expect(poolCard(p, pool)).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
+    await expect(ui.lp.create.panel(p).getByTestId('lp-create-taken')).toContainText(
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${pool.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
+    );
     expect(a.wallet.signed()).toHaveLength(1);
     await closeAll(p, ui.lp.create.panel(p));
     await expect(poolCard(p, pool)).toContainText("You opened this pool just now. Your share is under 'Your positions'.", { timeout: 60_000 });
     await expect(createCard(p)).toHaveAttribute('data-advice', 'opened-here', { timeout: 60_000 });
-    await expect(createCard(p)).toContainText(pool.toBase58());
-    await expect(createCard(p)).toContainText('You can still open another on the public fee tier');
+    await expect(createCard(p).getByTestId('lp-create-opened')).toContainText(`You opened a pool for this token just now (${pool.toBase58()}). Your share is under 'Your positions'.`);
+    await expect(createCard(p).getByTestId('lp-create-still')).toHaveText(
+      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}.`,
+    );
     await expect(ui.lp.create.openButton(p)).toHaveCount(1);
     await expect(positionRow(p, pool)).toHaveAttribute('data-remove', 'offer', { timeout: 60_000 });
     expect(a.rpc.violations).toEqual([]);
@@ -560,7 +607,7 @@ test.describe('group B (chromium only)', () => {
         // Wallet R: funded to the lamport, so that what it can put in is exactly R13_SPENDABLE.
         const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
         const hold = rents.r165 > rents.r0 ? rents.r165 : rents.r0;
-        const need = R13_SPENDABLE + feeReserveFor(2) + rents.r165 + tier.createPoolFee + rents.neverRefunded + hold;
+        const need = R13_SPENDABLE + feeReserveFor(2) + rents.r165 + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + hold;
         B.r13 = await fundedKeypair(Number(need) / 1e9);
         await transferTokens(B.c13, B.r13.publicKey, B.t13, 1_000_000n * UNIT);
       })(),
@@ -637,7 +684,7 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('P5: a front-run at the standard address after the review is turned away before running; Start over opens at a new address', async ({ browser }) => {
+  test('P5: a front-run at the standard address after the review is turned away before running; Start over finds their pool takes the pair, and opens nothing', async ({ browser }) => {
     test.setTimeout(8 * 60_000);
     const a = await actor(browser, B.c5, { prices: B.prices });
     const p = a.page;
@@ -654,19 +701,27 @@ test.describe('group B (chromium only)', () => {
     const out = ui.outcome(p);
     await expect(out).toHaveAttribute('data-status', 'not-sent', { timeout: 120_000 });
     await expect(out).toContainText('Not sent. The network turned it away before running it.');
-    await expect(out).toContainText('Someone opened a pool at this address first. Nothing was opened. Start over: the site will use a new address.');
+    await expect(out).toContainText('Someone opened a pool at this address first. Nothing was opened. Start over: if their pool takes deposits, add to it instead; if not, yours gets a new address.');
     await expect(out).toContainText('Nothing was sent.');
     expect(await pendingNotes(p)).toBeNull();
 
+    // Start over reads the pools again. Theirs takes deposits (at ten times the market: a
+    // warning, not a refusal), so it takes the SOL pair (one pool per pair and fee tier):
+    // the form stays on SOL, names it, and keeps Review off with the amounts still typed.
+    // P4 and P18 open at a one-off address, where the pool there takes no deposits.
     await press(out.getByRole('button', { name: 'Start over' }), 'Start over');
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
-    await expect(ui.lp.create.panel(p)).toContainText('a new address of its own (the standard address is already taken)', { timeout: 60_000 });
+    await expect(ui.lp.create.pair(p)).toHaveAttribute('data-coin', 'SOL');
+    await expect(ui.lp.create.panel(p).getByTestId('lp-create-taken')).toContainText(
+      `This token already has a SOL pool on the public fee tier that takes deposits, with a warning: ${squat.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
+      { timeout: 60_000 },
+    );
+    await expect(ui.lp.create.panel(p)).toContainText('a new address of its own (the standard address is already taken)');
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'agrees');
-    const rows2 = await reviewCreate(p);
-    const pool = await checkCreateReview(p, rows2, { mint: B.t5, sol: solIn, token, origin: 'other', market: stubMarket(FAIR) });
-    await signConfirmed(a);
-    checkSignedOpening(a, pool, 'co-signer');
-    expect(await poolsFor(B.t5, B.c5.publicKey), 'one pool by this creator').toEqual([pool]);
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    await expect(ui.lp.create.panel(p).getByTestId('lp-review-why')).toHaveCount(0);
+    await expect(poolCard(p, squat.address)).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
+    expect(await poolsFor(B.t5, B.c5.publicKey), 'no pool by this creator').toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
@@ -1059,7 +1114,7 @@ test.describe('group B (chromium only)', () => {
     const have = await lamports(B.r13.publicKey);
     const spendable = spendableSol({
       lamports: have, walletFloor: rents.r0, feeReserve: feeReserveFor(2), lpAccountRent: rents.r165, wsolCreateRent: rents.r165,
-      alsoPaid: tier.createPoolFee + rents.neverRefunded,
+      alsoPaid: tier.createPoolFee + rents.neverRefunded + rents.nameRecord,
     });
     expect(spendable).toBe(R13_SPENDABLE);
     expect(await tokenAmount(ata(WSOL, B.r13.publicKey)), 'wallet R holds no wrapped-SOL account').toBeNull();
@@ -1073,7 +1128,7 @@ test.describe('group B (chromium only)', () => {
     // 0.001 SOL more: the rent-band line, and no Review.
     await ui.lp.create.solToPut(p).fill(formatSol(spendable + sol(0.001), 9));
     await expect(ui.lp.create.panel(p).getByRole('alert')).toContainText(
-      `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${solExact(spendable)}.`,
+      `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and the share's name record, and stay open on the network. The most you can put in from this wallet is ${solExact(spendable)}.`,
     );
     await expect(ui.lp.create.review(p)).toBeDisabled();
     // Max again, Match, and it lands.
@@ -1171,55 +1226,59 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  // Owner ruling 2026-10-03: a token may have as many pools as people open. The card
-  // points to the bigger pool first and still offers Create; a second pool then opens at
-  // an address of its own, beside the first, and the first is untouched.
-  test('P16: a passing tier-1 pool already exists: the card points to it, its Add is offered, and a second pool still opens beside it', async ({ browser }) => {
+  // One pool per pair and fee tier (owner ruling 2026-11-01, replacing 2026-10-03's "as
+  // many pools as people open"): the card points to the pool and says a second SOL pool
+  // is not opened here. The form opens on a pair still free (USDC); switched to SOL, it
+  // names the pool and Review stays off whatever is typed. P4 and P18 open at a one-off
+  // address, where the pool at the standard address takes no deposits.
+  test('P16: a passing tier-1 pool already exists: the card points to it, its Add is offered, and a second SOL pool is not opened here', async ({ browser }) => {
     test.setTimeout(6 * 60_000);
     const a = await actor(browser, B.c16, { prices: B.prices });
     const p = a.page;
     await openPools(p, B.t16);
     await connect(p);
+    const terms = tradeCostText(await tierView(1), CREATOR_FEE_SWITCH.publicOpen);
     await expect(poolCard(p, B.p16.address)).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toHaveAttribute('data-advice', 'exists');
     await expect(createCard(p)).toContainText(
       `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${B.p16.address.toBase58()}, holding 1 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
     );
-    await expect(createCard(p)).toContainText('You can still open your own on the public fee tier');
+    await expect(createCard(p).getByTestId('lp-create-still')).toHaveText(
+      `One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at ${terms}.`,
+    );
     await expect(poolCard(p, B.p16.address)).toHaveAttribute('data-add', 'offer');
     await pressable(ui.lp.addButton(poolCard(p, B.p16.address)), 'Add liquidity');
     expect(a.wallet.records).toEqual([]);
 
-    // The second pool, by choice. The standard address holds the first, so it goes to a
-    // one-off key, and the panel says a pool is already there next to Review.
+    // The form opens on the first pair that is free, USDC, where this would be the first pool.
     const firstBytes = (await chain().getAccountInfo(B.p16.address, 'confirmed'))!.data;
-    const panel = await openCreate(p);
-    await expect(panel).toContainText('a new address of its own (the standard address is already taken)');
-    await expect(panel).toContainText('This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool');
-    const { sol: solIn, token } = await solThenMatch(p, '0.2');
-    const rows = await reviewCreate(p);
-    const pool = await checkCreateReview(p, rows, { mint: B.t16, sol: solIn, token, origin: 'other', market: stubMarket(FAIR) });
-    expect(pool.toBase58(), 'a different pool from the first').not.toBe(B.p16.address.toBase58());
-    const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
-    const tokenBefore = (await tokenAmount(ata(B.t16, B.c16.publicKey)))!;
-    // The first pool was opened from Node (createSolPool), which leaves the opener's
-    // wrapped-SOL account open and empty. This opening closes it, and its deposit comes back.
-    const wsolAcc = ata(WSOL, B.c16.publicKey);
-    expect(await tokenAmount(wsolAcc), 'an empty wrapped-SOL account before').toBe(0n);
-    const wsolLamports = await lamports(wsolAcc);
-    const { signature, t } = await signConfirmed(a);
-    checkSignedOpening(a, pool, 'co-signer');
-    await checkOpenedPool({ pool, mint: B.t16, owner: B.c16.publicKey, sol: solIn, token, signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
-    await checkOpenerSol(t, B.c16.publicKey, solIn, wsolLamports);
-    expect(await accountOwner(wsolAcc), 'no wrapped-SOL account left').toBeNull();
-    expect(Buffer.from((await chain().getAccountInfo(B.p16.address, 'confirmed'))!.data).equals(Buffer.from(firstBytes)), "the first pool's bytes are unchanged").toBe(true);
+    await press(ui.lp.create.openButton(p), 'Open a pool');
+    const panel = ui.lp.create.panel(p);
+    await expect(panel).toBeVisible();
+    await expect(ui.lp.create.pair(p)).toHaveAttribute('data-coin', 'USDC');
+    await expect(panel.getByTestId('lp-create-first')).toHaveText('No pool pairs this token with USDC yet. Yours would be the first.');
+    await expect(panel.getByTestId('lp-create-taken')).toHaveCount(0);
 
-    // Both pools are listed, each with its own card.
+    // Switched to SOL: the pair is taken, so the form names the pool and Review is off,
+    // amounts typed at the market or not. Nothing is signed, and the first pool is untouched.
+    await press(ui.lp.create.pairWith(p, 'SOL'), 'Pair with SOL');
+    await expect(ui.lp.create.pair(p)).toHaveAttribute('data-coin', 'SOL');
+    await expect(ui.lp.create.maxSol(p)).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByTestId('lp-create-taken')).toContainText(
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${B.p16.address.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
+    );
+    await expect(panel.getByTestId('lp-create-first')).toHaveCount(0);
+    await expect(panel).toContainText('a new address of its own (the standard address is already taken)');
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    await solThenMatch(p, '0.2');
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    await expect(panel.getByTestId('lp-review-why')).toHaveCount(0);
+    expect(a.wallet.records).toEqual([]);
+    expect(await poolsFor(B.t16), 'the one pool, opened from Node').toEqual([B.p16.address]);
+    expect(Buffer.from((await chain().getAccountInfo(B.p16.address, 'confirmed'))!.data).equals(Buffer.from(firstBytes)), "the first pool's bytes are unchanged").toBe(true);
     await closeAll(p, ui.lp.create.panel(p));
-    await expect(poolCard(p, pool)).toContainText("You opened this pool just now. Your share is under 'Your positions'.", { timeout: 60_000 });
     await expect(poolCard(p, B.p16.address)).toHaveAttribute('data-deposits', 'allowed');
-    expect(a.wallet.signed()).toHaveLength(1);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
@@ -1377,7 +1436,7 @@ test.describe('group B (chromium only)', () => {
     await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
     // And what leaves the wallet in all names the tokens too, not the SOL alone.
     const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
-    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
     expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);

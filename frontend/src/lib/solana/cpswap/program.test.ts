@@ -22,6 +22,7 @@ import {
   POOL_STATE_OFFSETS,
   POOL_STATE_LEN,
   IX_INITIALIZE,
+  IX_CREATE_LP_METADATA,
   IX_DEPOSIT,
   IX_WITHDRAW,
   IX_SWAP_BASE_INPUT,
@@ -166,6 +167,7 @@ describe('discriminators are re-hashed, never trusted', () => {
 
   it.each([
     ['global:initialize', IX_INITIALIZE],
+    ['global:create_lp_metadata', IX_CREATE_LP_METADATA],
     ['global:deposit', IX_DEPOSIT],
     ['global:withdraw', IX_WITHDRAW],
     ['global:swap_base_input', IX_SWAP_BASE_INPUT],
@@ -178,7 +180,7 @@ describe('discriminators are re-hashed, never trusted', () => {
 
   it('every instruction we encode still exists in the program', () => {
     const lib = rust('lib.rs');
-    for (const name of ['initialize', 'deposit', 'withdraw', 'swap_base_input', 'swap_base_output']) {
+    for (const name of ['initialize', 'deposit', 'withdraw', 'swap_base_input', 'swap_base_output', 'create_lp_metadata']) {
       expect(lib, `${name} missing from the #[program] module`).toContain(`pub fn ${name}`);
     }
   });

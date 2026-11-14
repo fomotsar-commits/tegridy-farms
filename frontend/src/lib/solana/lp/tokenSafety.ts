@@ -61,6 +61,15 @@ export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
 /** BAYLA, the token of this site's Solana side (the same mint as bungalows.ts BAYLA_MINT, pinned by a test). */
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+/**
+ * The island's other four Solana coins (bungalows.ts, each pinned to its entry by a test).
+ * pump.fun mints under the classic token program; with BAYLA they are the coins a pool
+ * here may pair a token with (quotes.ts).
+ */
+export const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+export const SOY_MINT = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
+export const BRAINLET_MINT = '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump';
+export const RIZZ_MINT = '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k';
 
 /**
  * Names that belong to ONE token. A token calling itself one of these from any other
@@ -82,10 +91,10 @@ export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; na
   { label: 'USDT', mint: USDT_MINT, names: ['USDT', 'Tether', 'Tether USD', 'USDTether'] },
   { label: 'BAYLA', mint: BAYLA_MINT, names: ['BAYLA'] },
   { label: 'TOWELI', mint: null, names: ['TOWELI'] },
-  { label: 'BOBO', mint: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', names: ['BOBO'] },
-  { label: 'SOY', mint: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', names: ['SOY'] },
-  { label: 'BRAINLET', mint: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', names: ['BRAINLET'] },
-  { label: 'RIZZ', mint: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', names: ['RIZZ'] },
+  { label: 'BOBO', mint: BOBO_MINT, names: ['BOBO'] },
+  { label: 'SOY', mint: SOY_MINT, names: ['SOY'] },
+  { label: 'BRAINLET', mint: BRAINLET_MINT, names: ['BRAINLET'] },
+  { label: 'RIZZ', mint: RIZZ_MINT, names: ['RIZZ'] },
 ];
 
 // Names are compared with the launcher's own rules (launchMetadata/validate.js), never
@@ -121,8 +130,11 @@ const hasLookalikeLetters = (s: string) => /(?!\p{ASCII})[\p{L}\p{N}]/u.test(s.n
 export const FREEZE_AUTHORITY_ACCEPTED = new Set([USDC_MINT, USDT_MINT]);
 
 /**
- * cp-swap's `MINT_WHITELIST` (utils/token.rs:18-23): Token-2022 mints the program accepts
- * whatever their extensions. All four carry a permanent delegate (USDP, GYEN, ZUSD, PYUSD).
+ * The four Token-2022 stablecoins the pool program once took by name, whatever their
+ * extensions (upstream's `MINT_WHITELIST`, which Raydium has since deleted): USDP, GYEN,
+ * ZUSD, PYUSD. All four carry a permanent delegate. Our pool program dropped that list with
+ * its upgrade of 2026-11, so the four meet the same extension check as every coin and are
+ * refused. The site blocked them before and still does; only the reason it gives changed.
  */
 export const RAYDIUM_WHITELISTED_MINTS = new Set([
   'HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM',
@@ -474,12 +486,12 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
 
   if (f.freezeAuthority) warnings.push(freezeWarning(mint, f.freezeAuthority));
 
-  // The four stablecoins the pool program takes by name, whatever their extensions.
+  // The four stablecoins the pool program took by name until its upgrade of 2026-11. It refuses them now.
   const takenByName = RAYDIUM_WHITELISTED_MINTS.has(mint);
   if (takenByName) {
     blocks.push({
       code: 'permanent-delegate-whitelist',
-      text: 'This stablecoin has a permanent delegate, which can move tokens out of any account, a pool’s included. The pool program accepts it by name, but this site cannot build exact deposits and withdrawals for it, so it does not open or add to pools for it.',
+      text: 'This stablecoin has a permanent delegate, which can move tokens out of any account, a pool’s included. The pool program does not open a pool for a coin like that, and this site does not open or add to pools for it.',
     });
   }
 

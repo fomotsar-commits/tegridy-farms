@@ -776,3 +776,60 @@ describe('the account sizes the rent reads use', () => {
     expect(RENT_EXEMPT_CURVE).toBe(BigInt((128 + BONDING_CURVE_SIZE) * 6960));
   });
 });
+
+describe('readDeployment — ProgramData is asked about, not downloaded', () => {
+  /** A transport with the data-less read, recording which read each address got. */
+  function metaRpc(accounts: Record<string, AccountSnapshot | Error>) {
+    const full: string[] = [];
+    const meta: string[] = [];
+    const get = (address: PublicKey) => {
+      const hit = accounts[address.toBase58()];
+      if (hit instanceof Error) throw hit;
+      return hit ?? null;
+    };
+    const rpc: CurveRpc = {
+      async getAccountInfo(address) {
+        full.push(address.toBase58());
+        return get(address);
+      },
+      async getAccountMeta(address) {
+        meta.push(address.toBase58());
+        const a = get(address);
+        return a ? { ...a, data: new Uint8Array(0) } : null;
+      },
+      async getMinimumBalanceForRentExemption() {
+        return 0;
+      },
+    };
+    return { rpc, full, meta };
+  }
+  const stub = () => snapshot(stubBytes(), 1_141_440, true, BPF_LOADER_UPGRADEABLE_ID);
+
+  it('reads the program stub in full (its bytes hold the pointer) and ProgramData without its bytes', async () => {
+    const t = metaRpc({ [PROGRAM_ID.toBase58()]: stub(), [PROGRAM_DATA.toBase58()]: snapshot(new Uint8Array(167_000), 1_163_000_000) });
+    expect(await readDeployment(t.rpc)).toEqual({ kind: 'deployed', executable: true });
+    expect(t.full).toEqual([PROGRAM_ID.toBase58()]);
+    expect(t.meta).toEqual([PROGRAM_DATA.toBase58()]);
+  });
+
+  it('gives the same three answers as the full read: closed when gone, closed at zero lamports, unreadable on a failure', async () => {
+    expect(await readDeployment(metaRpc({ [PROGRAM_ID.toBase58()]: stub() }).rpc)).toEqual({
+      kind: 'closed',
+      programDataAddress: PROGRAM_DATA.toBase58(),
+    });
+    expect(
+      (await readDeployment(metaRpc({ [PROGRAM_ID.toBase58()]: stub(), [PROGRAM_DATA.toBase58()]: snapshot(new Uint8Array(45), 0) }).rpc)).kind,
+    ).toBe('closed');
+    const down = await readDeployment(metaRpc({ [PROGRAM_ID.toBase58()]: stub(), [PROGRAM_DATA.toBase58()]: new Error('HTTP 502') }).rpc);
+    expect(down.kind).toBe('unreadable');
+    expect(down).not.toMatchObject({ kind: 'deployed' });
+  });
+
+  it('a transport without the data-less read is asked the old way, with the same answer', async () => {
+    const rpc = fakeRpc({
+      accounts: { [PROGRAM_ID.toBase58()]: stub(), [PROGRAM_DATA.toBase58()]: snapshot(new Uint8Array(45), 1_163_000_000) },
+    });
+    expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
+    expect(rpc.reads).toEqual([PROGRAM_ID.toBase58(), PROGRAM_DATA.toBase58()]);
+  });
+});

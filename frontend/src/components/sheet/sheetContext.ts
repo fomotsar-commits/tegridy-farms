@@ -15,6 +15,8 @@ export interface SheetPlace {
   bayla: ReactNode;
   /** Opens the form again from its start, on the room's coin: the room's chip pressed after a pick from the You get press. */
   reopen?: () => void;
+  /** Add on every pool (lib/sheet.ts SHEET_ALL). */
+  all?: boolean;
 }
 
 /**

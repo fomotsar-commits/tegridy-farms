@@ -85,7 +85,7 @@
     },
     {
       "slice": "misc",
-      "pattern": "test/{C01_,C1_,KickForfeitDoS,LockerClaimer,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig}*.t.sol"
+      "pattern": "test/{C01_,C1_,KickForfeitDoS,LockerClaimer,MVPLaunch_,POLAccumulator,PoolOpeningFee,PremiumAccess,RedTeam,Referral,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig}*.t.sol"
     },
     {
       "slice": "v4",

@@ -30,10 +30,11 @@ export function cardanoscanTx(txHash: string): string {
   return `https://cardanoscan.io/transaction/${txHash}`;
 }
 
-const HEX = /^[0-9a-f]*$/i;
-
-/** A coin's Cardanoscan page. The ids can come from what a visitor typed: only hex reaches the link. */
+/**
+ * A coin's Cardanoscan page. A policy id is 56 hex digits and an asset name up to 32 bytes of hex, so only hex
+ * ever reaches the link; anything else (text a visitor typed that was never a coin) gets Cardanoscan's front page.
+ */
 export function cardanoscanToken(policyId: string, assetName: string): string {
-  if (!HEX.test(policyId) || !HEX.test(assetName)) return 'https://cardanoscan.io/';
+  if (!/^[0-9a-f]{56}$/i.test(policyId) || !/^(?:[0-9a-f]{2}){0,32}$/i.test(assetName)) return 'https://cardanoscan.io/';
   return `https://cardanoscan.io/token/${encodeURIComponent(policyId + assetName)}`;
 }

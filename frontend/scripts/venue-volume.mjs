@@ -16,12 +16,16 @@ import { pathToFileURL } from "node:url";
 import { VOLUME_SOURCES } from "../api/_lib/venueVolumePolicy.js";
 import {
   EVM_CHAINS,
+  ISLAND_COINS,
+  ISLAND_DECIMALS,
   SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
+  USDT_MINT,
   evmRpc,
   readEvmChain,
   readJupiter,
+  readNftLoans,
   readSolanaPools,
   solanaRpc,
 } from "./lib/venue-volume-chain.mjs";
@@ -35,7 +39,60 @@ export const READERS = {
   ethereum: (cursor, d) => readEvmChain(d.evm("ethereum"), EVM_CHAINS.ethereum, cursor, d),
   base: (cursor, d) => readEvmChain(d.evm("base"), EVM_CHAINS.base, cursor, d),
   robinhood: (cursor, d) => readEvmChain(d.evm("robinhood"), EVM_CHAINS.robinhood, cursor, d),
+  "nft-lending": (cursor, d) => readNftLoans(d.evm("ethereum"), cursor, d),
+  "nft-orderbook": (cursor, d) => readOrderBookFills(d.db, cursor),
 };
+
+// Native ETH, or each chain's WETH: an order-book sale paid in either is ETH-priced.
+const ETH_CURRENCIES = new Set([
+  "0x0000000000000000000000000000000000000000",
+  EVM_CHAINS.ethereum.weth.toLowerCase(),
+  EVM_CHAINS.base.weth.toLowerCase(),
+]);
+const FILL_PAGE = 1000;
+
+/**
+ * Sales on our own NFT order book (native_orders, migration 002) since the cursor: each row
+ * the order book marked filled, which it does only after reading the sale's OrderFulfilled
+ * on chain (api/orderbook.js "fill"). The sale's price is the leg. The cursor is the last
+ * fill time read and the orders filled at that very time, so a fill landing in the same
+ * millisecond as the last one read is neither skipped nor counted twice. Buying an OpenSea
+ * listing here is not on this book and leaves no mark on chain that says it was bought
+ * here, so it is not counted.
+ */
+export async function readOrderBookFills(db, cursor) {
+  if (!db) throw new Error("the order book needs the database");
+  const countedTo = new Date().toISOString();
+  let at = cursor?.at ?? null;
+  let seen = new Set(cursor?.orders ?? []);
+  const swaps = [];
+  for (;;) {
+    const where = at ? `filled_at=gte.${encodeURIComponent(at)}` : "filled_at=not.is.null";
+    const r = await db(
+      `native_orders?select=order_hash,price_wei,currency,filled_at,filled_by&status=eq.filled&${where}&order=filled_at.asc,order_hash.asc&limit=${FILL_PAGE}`,
+    );
+    if (r.status !== 200 || !Array.isArray(r.body)) throw new Error(`the order book could not be read (HTTP ${r.status})`);
+    let fresh = 0;
+    for (const row of r.body) {
+      if (row.filled_at === at && seen.has(row.order_hash)) continue;
+      fresh++;
+      if (row.filled_at !== at) {
+        at = row.filled_at;
+        seen = new Set();
+      }
+      seen.add(row.order_hash);
+      const raw = /^[0-9]+$/.test(String(row.price_wei ?? "")) ? BigInt(row.price_wei) : null;
+      const eth = ETH_CURRENCIES.has(String(row.currency ?? "").toLowerCase());
+      swaps.push({ leg: raw !== null && eth ? { mint: "WETH", raw } : null, payer: String(row.filled_by ?? ""), id: row.order_hash });
+    }
+    // A full page that was all seen before means more than a page filled in one millisecond.
+    if (r.body.length === FILL_PAGE && fresh === 0) throw new Error(`more than ${FILL_PAGE} sales filled at ${at}`);
+    if (r.body.length < FILL_PAGE) break;
+  }
+  // No sale yet: an empty cursor, never null (venue_volume.cursor is NOT NULL; a null made
+  // Postgres refuse the first write, and the home page showed no volume, 2026-11-14).
+  return { swaps, cursor: at ? { at, orders: [...seen] } : {}, countedTo };
+}
 
 const PRICE_SOURCES = {
   SOL: [
@@ -70,20 +127,55 @@ export async function spotPrice(symbol, fetchImpl) {
   return quotes[0];
 }
 
-/** The dollars of one leg. USDC is dollars; SOL and WETH take today's price. */
+const ISLAND_MINTS = new Set(ISLAND_COINS.map((c) => c.mint));
+
+/**
+ * The island coins' market prices from Jupiter (the keyed host when its server-only key is
+ * set), one read for all five: `{ mint: usd | null }`, null for a coin Jupiter has no price
+ * for. Throws when Jupiter cannot be read, so the source is counted on the next run instead.
+ */
+export async function islandPrices(fetchImpl, key = (process.env.JUPITER_API_KEY || "").trim()) {
+  const ids = ISLAND_COINS.map((c) => c.mint).join(",");
+  const hosts = key ? [["https://api.jup.ag", { "x-api-key": key }], ["https://lite-api.jup.ag", {}]] : [["https://lite-api.jup.ag", {}]];
+  let last = "";
+  for (const [host, headers] of hosts) {
+    try {
+      const r = await fetchImpl(`${host}/price/v3?ids=${ids}`, { headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      return Object.fromEntries(ISLAND_COINS.map((c) => [c.mint, Number(j?.[c.mint]?.usdPrice) > 0 ? Number(j[c.mint].usdPrice) : null]));
+    } catch (e) {
+      last = `${new URL(host).host} ${e?.message ?? e}`;
+    }
+  }
+  throw new Error(`no island coin price could be read (${last})`);
+}
+
+/**
+ * The dollars of one leg. USDC and USDT are dollars; SOL and WETH take today's price, an
+ * island coin its market price (null when it has none).
+ */
 export function legUsd(leg, prices) {
   if (!leg) return null;
-  if (leg.mint === USDC_MINT) return Number(leg.raw) / 1e6;
+  if (leg.mint === USDC_MINT || leg.mint === USDT_MINT) return Number(leg.raw) / 1e6;
   if (leg.mint === SOL_MINT) return (Number(leg.raw) / 1e9) * prices.SOL;
   if (leg.mint === "WETH") return (Number(leg.raw) / 1e18) * prices.ETH;
+  if (ISLAND_MINTS.has(leg.mint)) return prices[leg.mint] > 0 ? (Number(leg.raw) / 10 ** ISLAND_DECIMALS) * prices[leg.mint] : null;
   return null;
 }
 
-/** New totals for one source: its old row plus the new swaps, each valued once. */
-export async function addUp(row, swaps, priceOf, bots) {
+/** The price `priceOf` is asked for to value a leg: SOL, ETH or an island coin's mint. */
+const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH" ? "ETH" : ISLAND_MINTS.has(leg?.mint) ? leg.mint : null);
+
+/**
+ * New totals for one source: its old row plus the new swaps, each valued once. `repriced`
+ * are swaps already in the row with no dollars (readEvmChain): each one that now has a
+ * price adds its dollars and leaves the unpriced count, and none is counted again.
+ */
+export async function addUp(row, swaps, priceOf, bots, repriced = []) {
   const prices = {};
-  for (const s of swaps) {
-    const sym = s.leg?.mint === SOL_MINT ? "SOL" : s.leg?.mint === "WETH" ? "ETH" : null;
+  for (const s of [...swaps, ...repriced]) {
+    const sym = priceKey(s.leg);
     if (sym && prices[sym] === undefined) prices[sym] = await priceOf(sym);
   }
   let usd = Number(row?.usd ?? 0);
@@ -101,6 +193,17 @@ export async function addUp(row, swaps, priceOf, bots) {
       if (v !== null) botUsd += v;
     }
   }
+  let found = 0;
+  for (const s of repriced) {
+    const v = legUsd(s.leg, prices);
+    if (v === null) continue;
+    found++;
+    usd += v;
+    if (bots.has(s.payer)) botUsd += v;
+  }
+  // More than were counted with no dollars would be counting some twice.
+  if (found > Number(row?.unpriced ?? 0)) throw new Error(`${found} swaps to reprice, but only ${Number(row?.unpriced ?? 0)} were counted with no dollars`);
+  unpriced -= found;
   const round = (x) => Math.round(x * 1e6) / 1e6;
   return { swaps: n, usd: round(usd), unpriced, bot_swaps: botSwaps, bot_usd: round(botUsd) };
 }
@@ -162,6 +265,27 @@ async function writeRow(db, row, next) {
 // passes a shorter `budgetMs` (api/venue-volume-count.js).
 const SOURCE_BUDGET_MS = 8 * 60 * 1000;
 
+/**
+ * One run's prices, each read at most once: SOL and ETH from two quotes, the island coins
+ * from Jupiter in one read. `used` is what was read, for the dry run's log.
+ */
+function pricer(fetchImpl) {
+  const used = {};
+  let island = null;
+  const priceOf = async (sym) => {
+    if (sym in used) return used[sym];
+    if (ISLAND_MINTS.has(sym)) {
+      island ??= islandPrices(fetchImpl);
+      used[sym] = (await island)[sym];
+    } else {
+      used[sym] = await spotPrice(sym, fetchImpl);
+    }
+    return used[sym];
+  };
+  priceOf.used = used;
+  return priceOf;
+}
+
 function defaultDeps(fetchImpl) {
   return {
     solana: solanaRpc({ fetchImpl }),
@@ -198,16 +322,16 @@ export async function main({
     return 1;
   }
   const rows = new Map(read.body.map((r) => [r.source, r]));
-  const d = deps ?? defaultDeps(fetchImpl);
-  const priceCache = {};
-  const priceOf = async (sym) => (priceCache[sym] ??= await spotPrice(sym, fetchImpl));
+  const d = { ...(deps ?? defaultDeps(fetchImpl)), db };
+  const priceOf = pricer(fetchImpl);
 
   let failed = 0;
   for (const source of sources) {
     const row = rows.get(source) ?? null;
     try {
       const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + budgetMs });
-      const totals = await addUp(row, got.swaps, priceOf, botsOf(source));
+      const totals = await addUp(row, got.swaps, priceOf, botsOf(source), got.repriced);
+      if (got.repriced?.length) log(`${source}: ${got.repriced.length} swap(s) counted earlier with no dollars now priced`);
       const now = new Date().toISOString();
       if (got.incomplete) {
         // Keep what was read and resume from it next run; the source stays as counted as it
@@ -259,8 +383,7 @@ export async function main({
 
 async function dryRunAll({ fetchImpl, deps, sources, readers, log, error }) {
   const d = deps ?? defaultDeps(fetchImpl);
-  const priceCache = {};
-  const priceOf = async (sym) => (priceCache[sym] ??= await spotPrice(sym, fetchImpl));
+  const priceOf = pricer(fetchImpl);
   let failed = 0;
   for (const source of sources) {
     try {
@@ -276,7 +399,7 @@ async function dryRunAll({ fetchImpl, deps, sources, readers, log, error }) {
       error(`${source}: not counted: ${e?.message ?? e}`);
     }
   }
-  log(`prices used: ${JSON.stringify(priceCache)}`);
+  log(`prices used: ${JSON.stringify(priceOf.used)}`);
   return failed ? 1 : 0;
 }
 

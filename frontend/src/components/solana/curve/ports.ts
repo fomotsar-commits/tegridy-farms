@@ -37,9 +37,9 @@ import type {
 } from '../../../lib/launcher/solana/write/types';
 import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
-import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
+import type { LpClaimBasis, LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
-import type { RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
+import type { RangeCreateArgs, RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
 import type { VenueSwapArgs } from '../../../lib/launcher/solana/write/venueSwap';
 import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
@@ -80,6 +80,7 @@ export type {
   Prepared,
   PreparedTx,
   PreparedWire,
+  RangeCreateSummary,
   RangeKind,
   RangeSummary,
   SimulatedEffect,
@@ -100,7 +101,7 @@ export type {
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
 export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
-export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
+export type { LpClaimBasis, LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
 
@@ -236,6 +237,8 @@ export interface LpWriteApi {
 export interface RangeWriteApi {
   rangeWriteConfig(): CurveWriteConfig | null;
   prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeOpenArgs): Promise<Prepared>;
+  /** A new pool on the 1% tier and its first position, in one transaction. */
+  prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeCreateArgs): Promise<Prepared>;
   prepareRangeRemove(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: RangeRemoveArgs): Promise<Prepared>;
   prepareRangeClose(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: Omit<RangeRemoveArgs, 'percent'>): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;

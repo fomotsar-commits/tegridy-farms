@@ -11,6 +11,7 @@ import { DeepLinkSheet } from './components/sheet/ActionSheet';
 import { PageSkeleton } from './components/PageSkeleton';
 import { FirstFrame } from './components/FirstFrame';
 import { DoorFrame } from './components/DoorFrame';
+import { PoolsFallback } from './components/PoolsFrame';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -325,7 +326,8 @@ function AnimatedRoutes() {
         <Route path="solana-lp" element={<SolanaLpRedirect />} />
         {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
         {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
-        <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
+        {/* Opened on /pools itself, its heading is on screen from the HTML and stays (PoolsFrame.tsx). */}
+        <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<PoolsFallback />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
         {/* The venue's own Cardano pools: no route until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts). */}
         {cardanoOwnPoolsVisible() && <Route path="cardano-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it

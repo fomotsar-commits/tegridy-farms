@@ -101,7 +101,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPoolFactory.ZeroAddress.selector);
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(0), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -110,7 +110,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert(bytes("NOT_CONTRACT"));
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             alice, TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -119,7 +119,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert(bytes("MIN_DEPOSIT"));
-        factory.createPool{value: 0.009 ether}(
+        factory.createPool{value: 0.009 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -127,7 +127,7 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_createPool_acceptsETHOnlyDeposit() public {
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.05 ether}(
+        address pool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -159,7 +159,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         // logic from the other side.
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.05 ether}(
+        address pool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -178,11 +178,11 @@ contract TegridyNFTPoolFactoryTest is Test {
         // a different address.
         uint256[] memory ids;
         vm.prank(alice);
-        address first = factory.createPool{value: 0.05 ether}(
+        address first = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         vm.prank(alice);
-        address second = factory.createPool{value: 0.05 ether}(
+        address second = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(first != second, "counter bump must produce unique address");
@@ -191,14 +191,14 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_createPool_differentCallersGetDifferentAddresses() public {
         uint256[] memory ids;
         vm.prank(alice);
-        address alicesPool = factory.createPool{value: 0.05 ether}(
+        address alicesPool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
 
         // bob creates with identical args — salt differs because msg.sender
         // differs and _allPools.length also differs (now 1 not 0).
         vm.prank(bob);
-        address bobsPool = factory.createPool{value: 0.05 ether}(
+        address bobsPool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(alicesPool != bobsPool);
@@ -211,15 +211,15 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
 
         vm.prank(alice);
-        address a1 = factory.createPool{value: 0.05 ether}(
+        address a1 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         vm.prank(alice);
-        address a2 = factory.createPool{value: 0.05 ether}(
+        address a2 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.BUY, SPOT_PRICE, DELTA, 0, ids
         );
         vm.prank(alice);
-        address b1 = factory.createPool{value: 0.05 ether}(
+        address b1 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(otherNft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
 
@@ -238,7 +238,7 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_pagination_emptyWhenOffsetPastEnd() public {
         uint256[] memory ids;
         vm.prank(alice);
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         address[] memory slice = factory.getPoolsPaginated(address(nft), 10, 5);
@@ -249,7 +249,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         for (uint256 i; i < 3; i++) {
             vm.prank(alice);
-            factory.createPool{value: 0.05 ether}(
+            factory.createPool{value: 0.05 ether + 0.006 ether}(
                 address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
             );
         }
@@ -265,7 +265,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert();
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -283,7 +283,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         factory.unpause();
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.05 ether}(
+        address pool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -367,7 +367,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         // and event name via vm.recordLogs.
         vm.recordLogs();
         vm.prank(alice);
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -410,7 +410,7 @@ contract TegridyNFTPoolFactoryTest is Test {
 
         // Bob deploys first — global `_allPools.length` advances 0 → 1.
         vm.prank(bob);
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, emptyIds
         );
         assertEq(factory.getPoolCount(), 1, "bob's deploy did not land");
@@ -419,7 +419,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         // shifted because the global counter is now 1. With the per-creator
         // fix she still sees nonce 0 and the predicted address must match.
         vm.prank(alice);
-        address actual = factory.createPool{value: 0.05 ether}(
+        address actual = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, emptyIds
         );
         assertEq(actual, predicted, "another creator's deploy shifted my deterministic address");
@@ -437,19 +437,19 @@ contract TegridyNFTPoolFactoryTest is Test {
         assertEq(factory.poolsCreatedByCreator(alice), 0, "pre: nonce starts at 0");
 
         vm.prank(alice);
-        address p0 = factory.createPool{value: 0.05 ether}(
+        address p0 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
         );
         assertEq(factory.poolsCreatedByCreator(alice), 1, "after 1st: nonce == 1");
 
         vm.prank(alice);
-        address p1 = factory.createPool{value: 0.05 ether}(
+        address p1 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
         );
         assertEq(factory.poolsCreatedByCreator(alice), 2, "after 2nd: nonce == 2");
 
         vm.prank(alice);
-        address p2 = factory.createPool{value: 0.05 ether}(
+        address p2 = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
         );
         assertEq(factory.poolsCreatedByCreator(alice), 3, "after 3rd: nonce == 3");

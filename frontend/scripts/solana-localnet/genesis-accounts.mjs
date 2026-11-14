@@ -34,6 +34,12 @@
 // holds (usdcMintAuthority), so the e2e can give wallets USDC. Its freeze authority stays
 // mainnet's: the token check says USDC's issuer can freeze, and nothing here can.
 //
+// ./golden/{bobo,soy,brainlet,rizz}-mint.mainnet.json are the same kind of read of the
+// island's other four coins (classic token program, 82 B, 6 decimals, read 2026-11-07 at
+// slot 466781606). They are NOT seeded: src/lib/solana/lp/quotes.test.ts pins each coin's
+// pairing row (program, decimals, no authorities) to them, and the local validator has no
+// pool paired with one.
+//
 // The e2e GlobalConfig is the 1-SOL book the rehearsal initialised on the same binary
 // (run 3111 step c, and run 230): 1% fee split 50/50, 3.69% platform reserve, target
 // 1 SOL + 0.05 SOL migration reserve. The program itself accepted exactly these values
@@ -47,15 +53,17 @@
 //
 // Needs the release artifacts (the .so files are not in the repo):
 //   TEGRIDY_RELEASE_ARTIFACTS (default C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts)
-// Since the pool program's upgrade that folder must also hold the upgrade's build, under its
-// own names, beside the release's files (which stay as they are):
-//   cp_swap.upgrade-1e55bcdc.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
-//   raydium_cp_swap.upgrade-1e55bcdc.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
-//   SHA256SUMS.upgrade-1e55bcdc                  one line for each: the sha256, two spaces, the file name
-// The three wait, already named and checked, in
-//   C:/Users/jimbo/solana-launch-release-2026-09-26/upgrade-day-staged
-// whose README holds the copy commands. Its list ends its lines in LF. A list typed on
-// Windows (CR LF) is read the same by this script and by start-validator.sh.
+// Since the pool program's upgrades that folder must also hold the build mainnet runs now,
+// under its own names, beside the release's files (which stay as they are):
+//   cp_swap.upgrade-01fe923b.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
+//   raydium_cp_swap.upgrade-01fe923b.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
+//   SHA256SUMS.upgrade-01fe923b                  one line for each: the sha256, two spaces, the file name
+// The first two are the files of the pack
+//   C:/Users/jimbo/solana-launch-release-2026-09-26/pool-swap-guard-upgrade-2026-11/binary-to-deploy
+// (there the IDL is named raydium_cp_swap.idl.json). The list ends its lines in LF. A list
+// typed on Windows (CR LF) is read the same by this script and by start-validator.sh.
+// The three files of the upgrade before it (...upgrade-1e55bcdc...) stay in the folder too:
+// that build is the roll-back build now, and this harness no longer loads it.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -103,31 +111,33 @@ export function baylaMintAuthority() {
 
 /**
  * The pool program's files, as the artifacts folder names them: the build mainnet has run
- * since the upgrade that added `create_lp_metadata` and closed fee tier 0 to a public
- * `initialize` (MAINNET_RUNBOOK.md, section 4b), and the IDL emitted from the same source. They sit beside the 2026-09-26 release's own
- * `cp_swap.mainnet.so` and `raydium_cp_swap.idl.json`, which are what mainnet ran before
- * the upgrade. Those two stay in the folder untouched (the first is the roll-back build)
- * and this harness no longer loads them.
+ * since the upgrade that added the swap guard and the fee rules of 2026-11-03
+ * (MAINNET_RUNBOOK.md, section 4b), and the IDL emitted from the same source. Like the
+ * build before it, it has `create_lp_metadata` and refuses a public `initialize` on fee
+ * tier 0. They sit beside the files of the two builds mainnet ran before: the first
+ * upgrade's (`cp_swap.upgrade-1e55bcdc.mainnet.so`, the roll-back build now) and the
+ * 2026-09-26 release's own `cp_swap.mainnet.so` and `raydium_cp_swap.idl.json`. Those
+ * stay in the folder untouched and this harness no longer loads them.
  */
-export const POOL_PROGRAM_SO = 'cp_swap.upgrade-1e55bcdc.mainnet.so';
-export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-1e55bcdc.idl.json';
+export const POOL_PROGRAM_SO = 'cp_swap.upgrade-01fe923b.mainnet.so';
+export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-01fe923b.idl.json';
 
 /**
  * Every file the validator and the encoder are built on, pinned here by sha256 so a swapped
  * file cannot pass. The two launcher files are the 2026-09-26 release's. The pool program's
- * binary is 725,176 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
+ * binary is 714,776 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
  * and from start-validator.sh, and ties the site's wording about the pool program to it.
  *
  * The repo's pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json) and the folder's copy
- * are the same file again, so they share the one pin below. From 2026-10-06 until the
- * upgrade the repo's was one instruction ahead of the binary on mainnet and had a pin of
- * its own. src/lib/launcher/solana/write/idl.test.ts still holds that this file with
- * `create_lp_metadata` taken out is the IDL of the build mainnet ran before.
+ * are the same file, so they share the one pin below. src/lib/launcher/solana/write/idl.test.ts
+ * holds what each upgrade changed in it: undo the swap guard's error, its two fields and its
+ * comment lines and the file is the IDL of the build before (`1e8fd792...`); take
+ * `create_lp_metadata` out of that and it is the 2026-09-26 release's.
  */
 export const PINNED_SHA256 = Object.freeze({
-  'cp_swap.upgrade-1e55bcdc.mainnet.so': '1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22',
+  'cp_swap.upgrade-01fe923b.mainnet.so': '01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938',
   'tegridy_launch.mainnet.so': 'a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d',
-  'raydium_cp_swap.upgrade-1e55bcdc.idl.json': '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
+  'raydium_cp_swap.upgrade-01fe923b.idl.json': 'de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889',
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
@@ -135,7 +145,7 @@ export const PINNED_SHA256 = Object.freeze({
  * The checksum list in the artifacts folder that must name each pinned file. The release's
  * own SHA256SUMS is never edited: the upgrade's two files came with a list of their own.
  */
-export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-1e55bcdc';
+export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-01fe923b';
 const SUMS_FILE = Object.freeze({
   [POOL_PROGRAM_SO]: UPGRADE_SUMS,
   [POOL_PROGRAM_IDL]: UPGRADE_SUMS,
@@ -330,6 +340,11 @@ export function ammConfigValues() {
     protocol_owner: VAULT,
     fund_owner: VAULT,
     creator_fee_rate: 0n,
+    // The swap guard's two fields (the upgrade of 2026-11), taken from the padding. Every
+    // tier holds zeros there until the vault sets them: the guard off, and nobody as keeper
+    // (the all-zero key). The golden check below holds these against mainnet's own bytes.
+    swap_guard: 0n,
+    keeper: PublicKey.default,
   };
 }
 

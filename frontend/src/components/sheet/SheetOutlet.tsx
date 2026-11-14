@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { holdSheetOutlet, useSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
 import { SHEET_WAIT, SheetContext, type SheetPlace } from './sheetContext';
 import { SheetBaylaRow } from './SheetBaylaRow';
+import { ModuleNetworkProvider } from '../layout/moduleNetwork';
 
 // The forms themselves, in the Solana chunk: an outlet is cheap to mount on any Solana section.
 const SheetBody = lazy(() => import('./SheetBody'));
@@ -21,17 +22,20 @@ export function SheetBodyOutlet({ page = true }: { page?: boolean }) {
   // Bumped by `reopen`: the form is drawn afresh on the same coin (SheetBuyRow).
   const [opened, setOpened] = useState(0);
   const place = useMemo<SheetPlace | null>(
-    () => (open ? { kind: open.kind, room: open.room, bayla: <SheetBaylaRow />, reopen: () => setOpened((n) => n + 1) } : null),
+    () => (open ? { kind: open.kind, room: open.room, bayla: <SheetBaylaRow />, all: open.all, reopen: () => setOpened((n) => n + 1) } : null),
     [open],
   );
   if (!open || !place) return null;
   if (page ? head !== token : head !== null) return null;
   return createPortal(
+    // The form's network drop-down is the sheet's: a pick changes the sheet's form, and leaves nothing.
+    <ModuleNetworkProvider active="solana" pick={open.pickNet}>
     <SheetContext.Provider value={place}>
       <Suspense fallback={<p role="status" className={`text-white/70 text-[13px] py-3 ${SHEET_WAIT[place.kind].line}`}>Reading the pool…</p>}>
-        <SheetBody key={`${place.kind}:${place.room?.id ?? ''}:${opened}`} />
+        <SheetBody key={`${place.kind}:${place.all ? 'all' : (place.room?.id ?? '')}:${opened}`} />
       </Suspense>
-    </SheetContext.Provider>,
+    </SheetContext.Provider>
+    </ModuleNetworkProvider>,
     open.slot,
   );
 }

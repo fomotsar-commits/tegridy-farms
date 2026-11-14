@@ -121,7 +121,7 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
         )}
         {(warm || timer) && (
           <p className="text-[15px] leading-snug mt-[18px]" style={{ color: 'var(--color-text-secondary)' }}>
-            {warm ? COUNTDOWN_WORDS.warmUnder : COUNTDOWN_WORDS.under}
+            {warm ? COUNTDOWN_WORDS.warmUnder : timer && 'unserved' in timer ? COUNTDOWN_WORDS.underUnserved : COUNTDOWN_WORDS.under}
           </p>
         )}
 

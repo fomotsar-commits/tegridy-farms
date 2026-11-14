@@ -18,6 +18,17 @@ const rowOf = (name: RegExp) => screen.getByRole('rowheader', { name }).closest(
 beforeEach(resetFake);
 
 describe('the pool list on Base and Robinhood Chain', () => {
+  // Since 2026-11-08 a new pool opens on the factory that charges 0.006 ETH to the treasury, and
+  // its cut, once on, pays the treasury Safe, not the fee Safe the old factory pays (law-25 read
+  // of #1169): the fine print names the cost and says only "the venue" for the cut.
+  it.each([8453, 4663])('chain %i: the fine print says what opening a pool costs, and where the cut goes without naming the old Safe', (chainId) => {
+    fake.length = { data: 0n, isError: false };
+    const { container } = show(chainId);
+    expect(container).toHaveTextContent("Anyone can open a pool here for 0.006 ETH, paid to the venue's treasury");
+    expect(container).toHaveTextContent('then it goes to the venue as new pool shares.');
+    expect(container).not.toHaveTextContent(/fee Safe/);
+  });
+
   it('says "No pools yet" when the factory answered 0', () => {
     fake.length = { data: 0n, isError: false };
     show();

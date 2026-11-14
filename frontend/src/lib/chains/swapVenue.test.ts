@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as constants from '../constants';
-import { swapVenueOn } from './swapVenue';
+import { swapVenueOn, openingSwapVenue } from './swapVenue';
+import { CHAINS, CONFIGURED_CHAIN_IDS } from './registry';
 
 /**
  * The swap's addresses, per chain. Mainnet must resolve to EXACTLY what the constants
@@ -67,5 +68,25 @@ describe('swapVenueOn', () => {
     expect(swapVenueOn(undefined)).toBeNull();
     expect(swapVenueOn(null)).toBeNull();
     expect(swapVenueOn(8453)).toBe(swapVenueOn(8453));
+  });
+});
+
+describe('openingSwapVenue: pools on the factory that charges 0.006 ETH to open', () => {
+  it('is null on every configured chain until its factory, router and SwapFeeRouter are all set', () => {
+    for (const id of CONFIGURED_CHAIN_IDS) {
+      const own = CHAINS[id]!.contracts;
+      const all = own.openingFactory && own.openingRouter && own.openingSwapFeeRouter;
+      const venue = openingSwapVenue(swapVenueOn(id));
+      if (!all) expect(venue, `${CHAINS[id]!.name} resolved an opening swap venue it does not have`).toBeNull();
+      else {
+        expect(venue!.swapFeeRouter).toBe(own.openingSwapFeeRouter);
+        expect(venue!.router).toBe(own.openingRouter);
+        expect(venue!.factory).toBe(own.openingFactory);
+      }
+    }
+  });
+
+  it('answers null for a chain with no swap venue', () => {
+    expect(openingSwapVenue(null)).toBeNull();
   });
 });

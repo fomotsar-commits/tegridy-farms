@@ -31,7 +31,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { LAUNCH_TIER_POOL, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -247,7 +247,7 @@ describe('Add more liquidity is on a position', () => {
     // The fold's label is short; why they are set aside is the first line inside it.
     expect(aside.querySelector('summary')).toHaveTextContent(/^3 other pool shares, set aside$/);
     expect(aside).toHaveTextContent(
-      'Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm.',
+      `Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with ${QUOTE_COINS_OR}, or pools we could not confirm.`,
     );
     const refusedRow = within(aside).getAllByTestId('lp-position').find((el) => el.getAttribute('data-pool') === ofBlocked.address)!;
     expect(refusedRow).toHaveTextContent('Set aside: this site does not open or add to pools for its token.');

@@ -12,7 +12,7 @@
 // read the same sentence.
 
 import { indexerConfigProblem, isIndexerConfigured } from '../indexer/client';
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
+import { shieldVenueReadiness } from '../shield/venues';
 import { ALERT_RULE_KINDS, type AlertRuleKind } from './rules';
 
 export type AlertSourceId =
@@ -63,10 +63,10 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
   },
   'venue-lending': {
     id: 'venue-lending',
-    label: 'Venue lending contracts (direct reads)',
-    attribution: 'direct reads of the venue’s own lending contracts',
+    label: 'Venue NFT loans (checked on chain)',
+    attribution: 'the venue’s offer book, each loan checked against Gondi’s loan contract',
     operatorStep:
-      'No operator step — loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
+      'Deploy Gondi’s loan contract and set GONDI_LOAN_ADDRESS (lib/gondi/loanOffer.js). Loans are then listed from the offer book and each is checked on chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
   },
   'gecko-pool': {
     id: 'gecko-pool',
@@ -106,20 +106,19 @@ const INDEXER_UNSET_DETAIL =
  */
 export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
   const indexerReadable = isIndexerConfigured();
-  const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+  // Loan deadlines are read by the shield's venue adapter; no adapter, no loans read.
+  const lending = shieldVenueReadiness()['tegridy-nft-lending'];
   return {
     indexer: {
       readable: indexerReadable,
       detail: indexerReadable ? null : (indexerConfigProblem() ?? INDEXER_UNSET_DETAIL),
     },
-    // Deployed is the whole gate here: the contract is read directly, so there is
-    // no service to configure. A failed RPC read is an outage and is reported as
-    // one at read time, exactly like the same-origin sources below.
+    // Deployed is the whole gate here (lib/shield/venues.ts). A failed read is an
+    // outage and is reported as one at read time, exactly like the same-origin
+    // sources below.
     'venue-lending': {
-      readable: lendingDeployed,
-      detail: lendingDeployed
-        ? null
-        : 'The venue’s lending contract is not deployed on this network, so there are no loans to read and no deadline to watch.',
+      readable: lending.readable,
+      detail: lending.readable ? null : lending.detail,
     },
     // Same-origin resources on the aggregator catchall. They ship with every
     // deployment, so there is no configuration that could make them absent; a

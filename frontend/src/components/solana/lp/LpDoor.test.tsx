@@ -281,7 +281,7 @@ describe('the home card', () => {
   });
 
   // Owner, 2026-10-16: "the add lp doesnt even show how to add". A failed read never strands the card.
-  it('a pool read that failed tries again by itself, and offers Read again and the Venue AMM tab meanwhile', async () => {
+  it('a pool read that failed tries again by itself, and offers Read again and the Pools page meanwhile', async () => {
     const sol = view();
     const r = readers([sol]);
     const ok = search([sol]);
@@ -290,7 +290,7 @@ describe('the home card', () => {
     mountHome(r, '/', sol.address);
     const stuck = await screen.findByTestId('lp-only-unread');
     expect(within(stuck).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
-    expect(within(stuck).getByRole('link', { name: 'Add on the Venue AMM tab' })).toHaveAttribute('href', `/pools?mint=${M}&task=add&pool=${sol.address}`);
+    expect(within(stuck).getByRole('link', { name: 'Add on the Pools page' })).toHaveAttribute('href', `/pools?mint=${M}&task=add&pool=${sol.address}`);
     // No press: the card reads again on its own and its Add buttons arrive.
     const card = await screen.findByTestId('lp-pool', {}, { timeout: 6_000 });
     expect(await within(card).findByRole('button', { name: 'Add with one coin' })).toBeInTheDocument();

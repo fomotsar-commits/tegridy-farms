@@ -167,7 +167,7 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
       'This wallet reads 42.50° (Observer): 148 days to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
     );
     expect(gateDecision(ADDR, parseHeatReading(COLD), asOf).detail).toBe(
-      'This wallet reads 0.00°: about half a year to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
+      'This wallet reads 0.00°: about half a year to the door, from your first real buy. Residents launch here. Nobody can buy last year.',
     );
   });
 

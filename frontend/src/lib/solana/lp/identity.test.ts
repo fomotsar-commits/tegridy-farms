@@ -3,7 +3,7 @@
 // address; every other coin by the ticker it gives itself, and a copy of a well-known
 // ticker as "fake X".
 import { describe, it, expect } from 'vitest';
-import { claimedTicker, pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
+import { claimedTicker, ownTicker, pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
 import { BAYLA_MINT, USDC_MINT, USDT_MINT, WSOL_MINT, type TokenSafety } from './tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from './quotes';
 import type { PoolView } from './poolFinder';
@@ -188,5 +188,39 @@ describe('claimedTicker: the same name from a ticker read anywhere else (the swa
     expect(claimedTicker(COPY, 'ABCDEFGHIJKLMNOP')).toBe(tokenTicker(COPY, { ...CLAIMS_BAYLA, mint: COPY, symbol: 'ABCDEFGHIJKLMNOP' }));
     expect(claimedTicker(COPY, '')).toBeNull();
     expect(claimedTicker(COPY, null)).toBeNull();
+  });
+});
+
+// Island answer thirty-four: a post or a line that says "$TICKER" names a coin, so it needs a
+// ticker that is the coin's own. "fake BAYLA" heads a card honestly; it is no name to post.
+describe('ownTicker: the ticker a coin may be named by', () => {
+  it('our coins and the pairing coins: the site’s own name, whatever their check says', () => {
+    expect(ownTicker(BAYLA_MINT)).toBe('BAYLA');
+    expect(ownTicker(BAYLA_MINT, claims(BAYLA_MINT, 'SCAM'))).toBe('BAYLA');
+    expect(ownTicker(USDC_MINT)).toBe('USDC');
+    expect(ownTicker(WSOL_MINT)).toBe('SOL');
+  });
+
+  it('any other coin: the ticker its check read, as tokenTicker shows it', () => {
+    expect(ownTicker(OTHER, claims(OTHER, 'CRYING'))).toBe('CRYING');
+    expect(ownTicker(OTHER, claims(OTHER, 'CRYING'))).toBe(tokenTicker(OTHER, claims(OTHER, 'CRYING')));
+  });
+
+  it('a copy has none: tokenTicker says "fake BAYLA", and that is not the coin’s own', () => {
+    expect(tokenTicker(FAKE_BAYLA, CLAIMS_BAYLA)).toBe('fake BAYLA');
+    expect(ownTicker(FAKE_BAYLA, CLAIMS_BAYLA)).toBeNull();
+    expect(tokenTicker(OTHER, claims(OTHER, 'USDC'))).toBe('fake USDC');
+    expect(ownTicker(OTHER, claims(OTHER, 'USDC'))).toBeNull();
+    expect(ownTicker(OTHER, claims(OTHER, 'S0L'))).toBeNull();
+  });
+
+  it('a coin whose ticker was not read has none', () => {
+    expect(ownTicker(OTHER)).toBeNull();
+    expect(ownTicker(OTHER, null)).toBeNull();
+    expect(ownTicker(OTHER, claims(OTHER, null))).toBeNull();
+    expect(ownTicker(OTHER, claims(OTHER, ''))).toBeNull();
+    expect(ownTicker(OTHER, { kind: 'unread', mint: OTHER, detail: 'HTTP 429' })).toBeNull();
+    // A check read for another mint says nothing of this one.
+    expect(ownTicker(OTHER, claims(FAKE_BAYLA, 'CRYING'))).toBeNull();
   });
 });

@@ -47,8 +47,9 @@ const DOORS = {
   brainlet: { file: join(PUBLIC, 'art', 'brainlet', 'B5D288A5-2281-4654-A9E0-E197E5AE4246.jpg'), sha256: '421e25e1bf1819ffd11ec6d190794b3ab47f0e80a12096282ab1a223055b0adc', focusY: 33 },
   rizz: { file: join(PUBLIC, 'art', 'rizz', 'B40345D2-9FCF-4110-979A-572B2CE7FE38.jpg'), sha256: '655a30db9c9205cc50e1656f0007e0240c5cfff40fedbfcb5846f1d118df3826', focusY: 41 },
 };
-// The drawn ring's colour per pair coin: violet SOL, blue USDC, as the island's turned rings.
-const DOOR_RINGS = { sol: '#8f6bff', usdc: '#3d8bff' };
+// The drawn ring's colour per pair coin: violet SOL, blue USDC, as the island's turned rings,
+// and moonlight silver for an island coin paired with (it has no ring colour of its own).
+const DOOR_RINGS = { sol: '#8f6bff', usdc: '#3d8bff', moonlight: '#c9d1d9' };
 // The art's radius inside the 512 px square; the ring sits just outside it.
 const DOOR_R = 205;
 

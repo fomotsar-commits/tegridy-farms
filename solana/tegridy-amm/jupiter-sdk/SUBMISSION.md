@@ -7,9 +7,14 @@ page. The owner sends the form. Nothing in this folder sends anything.
 
 ## Before sending
 
-1. ✅ The pool program on mainnet is `1e55bcdc…` again. #23 ran on 2026-11-03, the roll-back #24
-   ran by mistake on 2026-11-04, and #31 put the build back on 2026-11-06 at 15:13:03 UTC; its
-   check passed.
+1. The pool program on mainnet is the build with the swap guard, `01fe923b…` (the vault's
+   proposal #32; `../MAINNET_RUNBOOK.md`, section 4b). **While the guard is on for a fee setting,
+   its pools refuse every swap that another program calls (6015), Jupiter's included.** This SDK
+   reads a fee setting's fees only, so it would still quote those pools and every such route
+   would fail on chain. Before sending, one of two things is true and the SDK knows it: the
+   guard is off for the fee settings being listed, or the program lets Jupiter's program
+   through (a program change). Either way the SDK refuses to quote a fee setting whose guard is
+   on (`../TEGRIDY_FORK.md`, "The swap guard").
 2. The fixtures are taken again from that program, as `README.md` says under "To take new
    snapshots": delete `tests/fixtures/memetics.so`, run the refresh, pin the new hash in
    `tests/parity.rs`, and write `tests/fixtures/quote_vectors.json` again, with the site's

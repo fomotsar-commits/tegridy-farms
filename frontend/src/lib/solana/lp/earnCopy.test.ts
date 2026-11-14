@@ -22,7 +22,7 @@ const tier1 = (): AmmConfigView => recordedTier(1);
 /** Tier 1 as mainnet holds it since the split (2026-10-19). */
 const split1 = (): AmmConfigView => splitTier(1);
 const jupiter = { bps: 50, wallet: VAULT };
-const NOTHING_TO_CLAIM = 'Nothing to claim: you receive it when you remove liquidity.';
+const NOTHING_TO_CLAIM = 'You receive it when you remove liquidity.';
 const FEW_TRADES = 'Few trades means small fees.';
 const VAULT_ROW = { label: 'Team’s shared wallet', address: VAULT };
 const WORKSHOP_ROW = { label: 'Island’s Workshop', address: WORKSHOP };
@@ -101,7 +101,8 @@ describe('How the venue earns', () => {
     expect(howVenueEarns({ ...split1(), protocolFeeRate: 130_000n, fundFeeRate: 70_000n }, null).elsewhere).toBe(true);
   });
 
-  // The program's default fund owner is the vault, and the vault can point it back there: the island's part is then lost quietly.
+  // The program's default fund owner is the vault: on a tier whose fund fee was never handed over, the island's part
+  // stays there quietly. (Since the pool program's upgrade of 2026-11 a tier that HAS been handed over cannot be pointed back.)
   it('a fund owner that is the team’s vault keeps the island’s part: said in bold, with the whole cut summed on the vault', () => {
     const v = howVenueEarns({ ...split1(), fundOwner: VAULT }, jupiter);
     expect(v.elsewhere).toBe(true);
