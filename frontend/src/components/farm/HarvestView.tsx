@@ -6,9 +6,11 @@ import { getTxUrl } from '../../lib/explorer';
 import { fmtAmount } from '../../lib/wallet/walletRows';
 import { EVM_CHAIN_IDS } from '../../lib/harvest/evm';
 import { runSummary } from '../../lib/harvest/run';
+import { harvestTally, type TallyCoin } from '../../lib/harvest/tally';
+import { fmtDaily } from '../../lib/ladder/format';
 import {
   HARVEST_CHAIN_LABEL,
-  type ClaimState, type HarvestClaim, type HarvestHeld, type HarvestUnread,
+  type ClaimState, type HarvestClaim, type HarvestEarning, type HarvestHeld, type HarvestUnread,
 } from '../../lib/harvest/types';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
@@ -26,13 +28,15 @@ const txUrl = (claim: HarvestClaim, tx: string) =>
  * claim, a pool not read) can be drawn from plain values. What the words and the order mean is
  * HarvestCard's note; what the figure means is HarvestStack's.
  */
-export function HarvestView({ className, headingLevel, claims, held, unread, run, reading, label, disabled, asks, onPress, onReread }: {
+export function HarvestView({ className, headingLevel, claims, held, unread, earning = [], run, reading, label, disabled, asks, onPress, onReread }: {
   className: string;
   headingLevel: 2 | 3;
   /** Ready to claim, in run order. */
   claims: readonly HarvestClaim[];
   held: readonly HarvestHeld[];
   unread: readonly HarvestUnread[];
+  /** What the stake behind the claims earns a day, per pool whose reader could state it. */
+  earning?: readonly HarvestEarning[];
   /** The harvest on screen: its claims and what each has come to. Null before a press. */
   run: { rows: RunRow[]; done: boolean } | null;
   reading: boolean;
@@ -54,6 +58,8 @@ export function HarvestView({ className, headingLevel, claims, held, unread, run
   // Nothing to list (the pools are being read, or there is nothing to claim): the figure takes the
   // ledger's place, so the instrument is a short band instead of a tall one with an empty half.
   const bare = run === null && claims.length === 0 && held.length === 0 && unread.length === 0;
+  // The totals bar: the run's claims once there is a run, else what is ready to claim.
+  const tally = harvestTally(run ? run.rows.map((r) => r.claim) : claims, earning);
   const figure = (
     <HarvestStack plates={plates} reading={reading && run === null} active={hot} onActive={setHot}
       className={bare ? 'max-h-[8.5rem] @3xl:max-h-[11rem]' : 'max-h-[12rem] @3xl:max-h-[18rem]'} />
@@ -88,6 +94,11 @@ export function HarvestView({ className, headingLevel, claims, held, unread, run
           </div>
 
           <div className="min-w-0 @3xl:[grid-area:ledger]">
+            {tally.length > 0 && (
+              <div className="mb-4 space-y-4" data-testid="harvest-tally">
+                {tally.map((coin) => <TallyBar key={coin.key} coin={coin} />)}
+              </div>
+            )}
             {bare && figure}
             {run ? (
               <ul className={LEDGER} aria-label="This harvest">
@@ -169,6 +180,15 @@ export function HarvestView({ className, headingLevel, claims, held, unread, run
                 pays. A plate stays afloat until its claim is paid, then turns green and comes down on the pad. One
                 left afloat was refused, not confirmed, cancelled or not sent, as its row says.
               </p>
+              <p>
+                The bar over the list adds one coin&rsquo;s claims together; two coins are never added, because no
+                price is read here. For a lock ladder on Solana it also says what your locks earn a day and that as
+                a yearly rate on what you locked: your weight (each lock times its boost) over all stakers&rsquo;
+                weight, times what the pool pays a day. Those two are the same figures as on the pool&rsquo;s own
+                page. They hold only at today&rsquo;s rate: they fall when others lock, rise when they leave, and
+                stop on the date shown unless the pool is refilled. Where they cannot be worked out they are left
+                out, never shown as a zero.
+              </p>
             </FinePrint>
           </div>
         </div>
@@ -178,6 +198,79 @@ export function HarvestView({ className, headingLevel, claims, held, unread, run
 }
 
 const LEDGER = 'list-none p-0 m-0 border-t border-white/25';
+
+const dateOf = (secs: number) =>
+  new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+/** One figure of the bar: the number in heavy type over its unit, as a drawing letters a measure. */
+function Figure({ value, unit, tone = 'ink', size = 'md' }: { value: string; unit: string; tone?: 'ink' | 'green'; size?: 'lg' | 'md' }) {
+  return (
+    <span className="flex flex-col min-w-0">
+      <span
+        className={`font-black leading-none tracking-[-0.045em] tabular-nums [overflow-wrap:anywhere] ${size === 'lg' ? 'text-[34px] @md:text-[40px]' : 'text-[24px] @md:text-[28px]'} ${tone === 'green' ? 'text-[#22c55e]' : ''}`}
+        style={HEADING_FONT}
+      >
+        {value}
+      </span>
+      <span className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#f5e4b8]/65">{unit}</span>
+    </span>
+  );
+}
+
+/**
+ * The totals bar for one coin (owner, 2026-11-14: "the bar that adds them all together plus
+ * shows % and daily yield"; lib/harvest/tally.ts has the rule). Set out as an overall dimension:
+ * the line across the top spans what the figures under it add up, and names it.
+ *
+ *  - The total is this coin's claims added up, by the same formatter the rows use.
+ *  - A day and APR are the pool reader's own figures (HarvestEarning), in the pool page's words.
+ *    They are a projection, so their basis stands on the line under them, as it does there;
+ *    with no figure stated there is no line, never a zero or a dash.
+ */
+function TallyBar({ coin }: { coin: TallyCoin }) {
+  const span = coin.claims > 0 ? `${coin.symbol} · ${coin.claims} ${coin.claims === 1 ? 'claim' : 'claims'}` : coin.symbol;
+  return (
+    <div role="group" aria-label={`${coin.symbol} total`} className="min-w-0">
+      <p className="m-0 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/70">
+        <span aria-hidden="true" className="h-2.5 w-px bg-[#f5e4b8]/60" />
+        <span aria-hidden="true" className="h-px w-4 bg-[#f5e4b8]/40" />
+        <span className="whitespace-nowrap">{span}</span>
+        <span aria-hidden="true" className="h-px flex-1 bg-[#f5e4b8]/40" />
+        <span aria-hidden="true" className="h-2.5 w-px bg-[#f5e4b8]/60" />
+      </p>
+      {coin.totalRaw !== null && coin.earning.length <= 1 ? (
+        <div className="mt-2.5 flex flex-wrap items-end gap-x-7 gap-y-3">
+          <Figure size="lg" value={fmtAmount(coin.totalRaw, coin.decimals)} unit={`${coin.symbol} total`} />
+          {coin.earning.map((e) => <Rate key={e.key} e={e} />)}
+        </div>
+      ) : (
+        <>
+          {coin.totalRaw !== null && (
+            <div className="mt-2.5"><Figure size="lg" value={fmtAmount(coin.totalRaw, coin.decimals)} unit={`${coin.symbol} total`} /></div>
+          )}
+          {coin.earning.map((e) => (
+            <div key={e.key} className="mt-2.5 flex flex-wrap items-end gap-x-7 gap-y-3"><Rate e={e} named={coin.earning.length > 1} /></div>
+          ))}
+        </>
+      )}
+      {coin.earning.map((e) => (
+        <p key={e.key} className="mt-2 mb-0 font-mono text-[10px] uppercase tracking-[0.12em] leading-snug text-[#f5e4b8]/60">
+          {coin.earning.length > 1 ? `${e.where}: ` : ''}at today&rsquo;s rate, funded to {dateOf(e.fundedToSecs)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** What one pool's stake earns a day, and that as a yearly rate: the two figures of its own page. */
+function Rate({ e, named = false }: { e: HarvestEarning; named?: boolean }) {
+  return (
+    <>
+      <Figure tone="green" value={fmtDaily(e.perDayRaw, e.decimals)} unit={`${e.symbol} a day${named ? ` · ${e.where}` : ''}`} />
+      <Figure tone="green" value={e.apr} unit="APR" />
+    </>
+  );
+}
 
 // The button: a green slab that lifts off the sheet when pointed at, with the cream under it, and
 // sets back down when pressed. Waiting or with nothing to send it is an outline. Colours that

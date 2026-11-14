@@ -10,7 +10,7 @@ import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesC
 import { forgetHeldReads } from '../../lib/wallet/heldReads';
 import {
   orderClaims,
-  type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
+  type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestEarning, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
 import { HarvestView, type RunRow } from './HarvestView';
 
@@ -48,7 +48,7 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
   // A read that came back partly unread is asked again, twice, a little later. Quiet (a pool
   // page, a dashboard) hides a card with nothing to claim, so an RPC that turned a burst away,
   // or a page caught mid-deploy, left Harvest hidden until a reload (owner's board, 2026-10-30).
-  const unreadNow = Boolean(plan && plan.unread.length > 0);
+  const unreadNow = Boolean(plan && (plan.unread.length > 0 || plan.settling));
   useEffect(() => {
     if (!address || !unreadNow) return;
     const key = `${address}:${nonce}`;
@@ -121,6 +121,8 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   const claims: HarvestClaim[] = orderClaims([...(solPlan?.claims ?? []), ...(evmPlan?.claims ?? [])], evm.chain);
   const held: HarvestHeld[] = [...(solPlan?.held ?? []), ...(evmPlan?.held ?? [])];
   const unread: HarvestUnread[] = [...(solPlan?.unread ?? []), ...(evmPlan?.unread ?? [])];
+  // What the stake behind the claims earns a day, where a pool's reader could state it.
+  const earning: HarvestEarning[] = [...(solPlan?.earning ?? []), ...(evmPlan?.earning ?? [])];
   const running = run !== null && !run.done;
   const canTogether = (chain: HarvestChain) => (chain === 'solana' ? signsAll(surface?.signer) : evm.batchable[chain]);
   const asks = promptCount(claims, evm.chain, canTogether);
@@ -197,6 +199,7 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
       claims={claims}
       held={held}
       unread={unread}
+      earning={earning}
       run={run}
       reading={reading}
       label={label}
