@@ -29,6 +29,45 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-14: the range program's fixes, and the operation account rewards need (two sittings; the pack is ready)
+
+Nothing has been sent on mainnet. Your paper is `START-HERE.md` in
+`C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-fix-upgrade-2026-11`.
+
+**Why now.** The audit of 2026-11-14 found that mainnet's range program is still the build of
+2026-11-04 (`1e896e1e…`). The fixes of 2026-11-03 are on trunk and were never deployed. No range
+pool exists yet, so shipping them before the first one opens touches nobody's money. Range rewards
+and Collect (#1224) are live on the site, but no reward can run until the vault makes the
+operation account, and on today's build that account would let a pool's opener start a reward.
+
+**What it is.** Two vault proposals, signed in one sitting so their 48 hours run together.
+- **#36 upgrades the range program** to `d627cf99…` (1,375,384 bytes, smaller than today's, so no
+  enlarge). A pool's opener can no longer start a reward, a new pool takes no limit order until the
+  vault switches them on, and seven instructions are gone. Opening a pool still pays the vault 0.5 SOL.
+- **#37 makes the operation account**, empty: no operator, no listed coin. It is pre-staged: the page
+  executes it only after #36. The vault pays its 0.0186 SOL rent itself.
+
+**Rehearsed.** On 2026-11-14 the whole paper ran on a private copy of mainnet: 176 of 176 checks
+passed, among them a stranger really starting a reward when the operation account came first (the
+hole), and the chain refusing it after the upgrade. `evidence\REPORT.md` in the pack has the details.
+
+**Sitting 1, about 45 minutes:** send 7.00 SOL to the paying wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (6.99 of it is parked for the upload and comes back
+when #36 executes), 0.02 SOL to member A and 0.01 SOL to the vault, then steps 1 to 12 of the paper.
+One `REFUSED` line is expected in step 3, about your own #30. Do not execute #30 between step 10 and
+step 11.
+
+**Sitting 2, 48 hours after member B's approvals:** steps 13 to 17. Execute #36, run its check,
+execute #37, run its check.
+
+**The website needs no release for this.** It reads each pool's status bit by bit and was built
+against the new build's source. The one site change, the Risks line about changing a running reward,
+is pull request #1242.
+
+**After it: the first reward** is its own vault proposal, once a pool exists. Tell a session the
+pool, the coin, the amount and the dates; the vault must hold that coin, and it pays the whole reward
+up front. Positions in range share it; the venue takes no cut.
+
 ## 🔴 2026-11-10: the pool program upgrade with the swap guard (two sittings; the pack is ready)
 
 Pull request #1177 merged on 2026-11-10. Nothing has been sent on mainnet. Your paper is
