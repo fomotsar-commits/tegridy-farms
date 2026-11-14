@@ -330,7 +330,7 @@ describe('Add liquidity', () => {
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each of these, a switch-off too, waits 48 hours after both have signed./);
+    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
@@ -1006,11 +1006,11 @@ describe('the review', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Each of these, a switch-off too, waits 48 hours after both have signed./);
+    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
     // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
     // the panel said them again under the Sign button; it keeps its other lines.
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Each of these, a switch-off too, waits 48 hours after both have signed./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.

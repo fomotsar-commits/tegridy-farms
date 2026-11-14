@@ -29,7 +29,7 @@ const FORK_LINE =
 export const RISK_SHORT =
   "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Each of these, a switch-off too, waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
@@ -40,7 +40,7 @@ const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if
 
 /** What the vault can do to a pool this site opens, and to the tier it opens on. */
 const CREATE_VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each of these, a switch-off too, waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not

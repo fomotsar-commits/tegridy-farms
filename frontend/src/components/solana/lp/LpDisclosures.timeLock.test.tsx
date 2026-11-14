@@ -14,7 +14,7 @@ const TIER: AmmConfigView = {
 };
 const SAYS_NO_WAIT = /at once|no waiting period|time lock of 0/i;
 const AS_READ = '(as read on chain on 2026-11-14)';
-const VAULT_WAIT = 'Each of these, a switch-off too, waits 48 hours after both have signed.';
+const VAULT_WAIT = 'Every vault action waits 48 hours after both have signed, a switch-off too.';
 
 const SURFACES = {
   'the Add liquidity form': () => <LpBeforeYouAdd launchPool config={TIER} enableCreatorFee={false} />,
