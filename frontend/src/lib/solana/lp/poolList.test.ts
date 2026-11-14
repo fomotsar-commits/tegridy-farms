@@ -485,6 +485,14 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
     expect(arbitrage({ ...v, vaultsFrozen: true }, usd(v, 20), NOW)).toBeNull();
   });
 
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so the board offers no trade
+  // in it, and the keeper, which sizes its trips from this figure, makes none.
+  it('a pool priced in a delisted coin gets no figure, whatever its gap: nobody may swap in it here', async () => {
+    const v = row();
+    await whileDelisted(SOL_QUOTE, () => expect(arbitrage(v, usd(v, 20), NOW)).toBeNull());
+    expect(arbitrage(v, usd(v, 20), NOW)).not.toBeNull();
+  });
+
   it(`under $${ARB_FLOOR_USD} of profit nothing is listed: a tiny pool with an 11% gap is noise, the same pool a thousand times over is a trade`, () => {
     // 0.01 SOL and 1 token: $1 a side at $100 a SOL. The token 11% dear here, past the 1% fee, makes well under a cent.
     const tiny = viewOf(buildPool({ mint: key(), address: at(), quoteReserve: 10n ** 7n, tokenReserve: 10n ** 6n }), { sol: 10n ** 7n, tok: 10n ** 6n });

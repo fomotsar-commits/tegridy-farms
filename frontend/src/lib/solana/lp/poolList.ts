@@ -316,6 +316,8 @@ export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chai
   if (!view.config || chainNow === null || coinUsd === undefined || tokenUsd === undefined) return null;
   // A frozen vault takes nothing in and pays nothing out: the swap page quotes no such pool.
   if (view.vaultsFrozen) return null;
+  // Priced in a delisted coin (quotes.ts): withdraw-only, so no swap in it is offered or made here.
+  if (isWithdrawOnly(view.quote)) return null;
   const Q = Number(view.quoteReserve);
   const T = Number(view.tokenReserve);
   if (!(Q > 0 && T > 0)) return null;

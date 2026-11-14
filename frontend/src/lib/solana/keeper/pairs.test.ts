@@ -8,6 +8,7 @@ import { POOL_STATUS_DISABLE_SWAP } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import { buildPool, key, viewOf } from '../lp/testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE } from '../lp/quotes';
+import { whileDelisted } from '../lp/delisted.fixture';
 import type { PoolView } from '../lp/poolFinder';
 import { DEFAULT_LIMITS, MAX_FEE_LAMPORTS, dustSaleProblem, ownPairPlan, poolProblem, priceStep } from './plan';
 import { PublicKey } from '@solana/web3.js';
@@ -87,6 +88,16 @@ describe('poolProblem: which pools the keeper can trade', () => {
     expect(poolProblem(pool(SOL, 10n ** 9n, { status: POOL_STATUS_DISABLE_SWAP }), null)).toMatch(/switched off/);
     expect(poolProblem({ ...pool(SOL, 10n ** 9n), config: null }, null)).toMatch(/fee settings/);
     expect(poolProblem(pool(SOL, 10n ** 9n), 'unread')).toMatch(/not read/);
+  });
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only. The keeper builds its own
+  // swaps, past the site's builders and checker, so it refuses such a pool itself, in both of its
+  // plans (cycle.ts filters every pool through this first).
+  it('never trades a pool priced in a delisted coin', async () => {
+    const bayla = pool(SOL, 10n ** 9n, { quote: BAYLA_QUOTE });
+    await whileDelisted(BAYLA_QUOTE, () => expect(poolProblem(bayla, null)).toMatch(/delisted coin: withdraw-only/));
+    expect(poolProblem(bayla, null)).toBeNull();
+    // A SOL pool of the same token is not priced in the delisted coin: it trades as before.
+    await whileDelisted(BAYLA_QUOTE, () => expect(poolProblem(pool(SOL, 10n ** 9n), null)).toBeNull());
   });
 });
 
