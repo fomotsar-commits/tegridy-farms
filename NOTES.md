@@ -31,6 +31,58 @@ is the first step to any reward.
 build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
 read the deployed commit with `git show <commit>:<path>`.
 
+## 2026-11-14: a tooltip Playwright calls visible can be clipped to nothing by its card
+
+**Believed:** an open `InfoTooltip` (its bubble is `absolute z-50`) shows above the page, and a
+walk that finds its text with `isVisible()` has seen it.
+
+**Measured** (PR #1222, /nft-finance's four stat tiles): each tile was `overflow-hidden` so its
+art kept the rounded corners, and that clipped its own bubble. On desktop nothing showed; on a
+390px phone only the arrow peeked out. `isVisible()` returned true for the bubble's sentence on
+all three widths while the screenshots showed nothing. The fee tile's tooltip was the only place
+the page said how the venue earns.
+
+**Do:** read what the browser draws: `document.elementFromPoint` at the bubble's centre must be
+the bubble or inside it (e2e/lending.spec.ts, "each stat tile's explanation"). jsdom has no layout,
+so no unit test can see this. To fix, clip only the art layer (an `absolute inset-0
+overflow-hidden` wrapper) and lift the card with `[&:has([role=tooltip])]:z-20`.
+
+## 2026-11-14: Gondi's loan events carry no indexed loan id, so a closed loan is found by halving blocks
+
+**Believed:** finding how a Gondi loan closed (repaid, claimed, taken over) is an `eth_getLogs`
+filter on its id.
+
+**Measured** (PR #1225): `IMultiSourceLoan`'s events (`LoanRepaid`, `LoanLiquidated`,
+`LoanRefinanced`, `LoanRefinancedFromNewOffers`) declare no indexed parameters, so a log filter can
+only take the contract and the event, over every block since the loan opened. `getLoanHash(id)` is
+set while the loan is open and zero once it closes, and an archive `eth_call` reads it at any
+block. Halving the range from the opening block finds the closing block in about log2(blocks)
+reads (about 25 for a year), then one single-block `eth_getLogs` names the transaction. Read
+against mainnet on eth.drpc.org (the venue's loan contract, loan 1): set at block 26,399,833, zero
+at the block before, and the one-block log read returned exactly its opening transaction.
+
+**Do:** use `findCloseBlock` in `api/_lib/loanOffers.js` (action `loan-sync`). A lender takeover
+(`refinanceFull`) needs no borrower signature, so a loan can move with no transaction the site
+ever sees.
+
+## 2026-11-14: Smart App Control blocks `anvil.exe`, and `npm run e2e` says only "spawn UNKNOWN"
+
+**Believed:** a fork e2e on this PC needs the Windows `anvil` that `run-e2e-with-anvil.mjs`
+spawns.
+
+**Measured:** `npm run e2e` failed at once with `[e2e] orchestrator error: Error: spawn UNKNOWN`.
+`& anvil.exe --version` in PowerShell said "An Application Control policy has blocked this file",
+and `Microsoft-Windows-CodeIntegrity/Operational` logged events 3077 and 3033 for
+`.foundry\bin\anvil.exe` that minute. WebKit ran the same day, so it is not all unsigned binaries
+at once. WSL's `~/.foundry/bin/anvil` (1.7.1) worked: run with `--host 0.0.0.0 --port 8645
+--fork-url https://eth.drpc.org` and the test mnemonic, then point Playwright at it directly with
+`ANVIL_RPC_URL=http://127.0.0.1:8645 E2E_REQUIRE_ANVIL=1 npx playwright test e2e/lending.spec.ts`.
+`lending.spec.ts` passed 5 of 5 that way, the borrow-then-repay cycle included.
+
+**Do:** never switch Smart App Control off (the owner's security setting). Use the WSL anvil, and
+stop it afterwards with `pkill` run inside WSL (see 2026-10-19 on `pkill -f` through
+`wsl -e bash -lc`: it kills its own shell, but the anvil goes too; check the port is free).
+
 ## 2026-11-14: a WebKit `click()` is two messages, and a page that moves between them loses the press
 
 **Believed:** Playwright's actionability and hit-target checks mean a `click()` that returns
