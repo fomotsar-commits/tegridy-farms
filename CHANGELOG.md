@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Receipt card: Share on X after a buy or an add in a room now posts the moment itself, as a GIF.
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
 - NFT Finance: the NFT Lending intro card shows a new photo, four apes leaning over a stairwell rail, and the three intro cards' dark layer is lighter so each card's picture shows.
 - Earn: the page is redrawn as an architect's sheet. A model of the island stands beside the title: every pool is a block on its chain's street, a pool with a lock ladder is a ramp drawn to scale (the longer the lock, the higher the share) and a pool with none is a flat block. It shows terms only, never a rate. The list under it is a numbered schedule with each room's door picture, and the whole row opens the pool. Pointing at a row lights its block, and the other way round. Harvest draws your claims as plates, one stack per network: a plate turns green and comes down on its pad when its claim is paid, and one that was refused, not confirmed or cancelled stays afloat. The same Harvest shows on each pool's page and on the dashboard. What Harvest claims, and in what order, is unchanged.
