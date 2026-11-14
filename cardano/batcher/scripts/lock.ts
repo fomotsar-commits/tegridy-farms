@@ -18,7 +18,7 @@
 // <out> is deploy.ts's: scripts.json and state.json (the reference scripts) name the lock, the pool
 // and the GlobalSetting. Chain: KOIOS_URL (UTxOs), OGMIOS_URL (tip, parameters, the judge); both
 // must answer with the inputs' network.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { checkMagic } from '../cosign/review.ts';

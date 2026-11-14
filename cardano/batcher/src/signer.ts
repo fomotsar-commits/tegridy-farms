@@ -42,18 +42,19 @@ export function makeKeyFile(path: string, network: number): { keyHash: string; a
   const tmp = `${path}.new`;
   rmSync(tmp, { force: true });
   try {
-    closeSync(openSync(tmp, 'wx', 0o600));
-    if (process.platform === 'win32') {
-      const user = process.env.USERNAME;
-      try {
-        if (!user) throw new Error('USERNAME is not set');
-        execFileSync('icacls', [tmp, '/inheritance:r', '/grant:r', `${user}:F`], { stdio: 'pipe' });
-      } catch (e) {
-        throw new Error(`the key file's access could not be limited to ${user ?? 'this user'}, so no key was made: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    const fd = openSync(tmp, 'r+');
+    // The key goes through the handle that created the file: opening the path again would write
+    // to whatever sits there by then.
+    const fd = openSync(tmp, 'wx', 0o600);
     try {
+      if (process.platform === 'win32') {
+        const user = process.env.USERNAME;
+        try {
+          if (!user) throw new Error('USERNAME is not set');
+          execFileSync('icacls', [tmp, '/inheritance:r', '/grant:r', `${user}:F`], { stdio: 'pipe' });
+        } catch (e) {
+          throw new Error(`the key file's access could not be limited to ${user ?? 'this user'}, so no key was made: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       writeSync(fd, `${JSON.stringify({ type: 'PaymentSigningKeyShelley_ed25519', description: 'Batcher signing key', cborHex }, null, 2)}\n`);
       fsyncSync(fd);
     } finally {

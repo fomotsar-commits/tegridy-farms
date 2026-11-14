@@ -225,7 +225,9 @@ if (cmd === 'assemble') {
           if (req.headers.origin !== origin || !String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 403, { error: 'only this page may send signatures' });
           const b = await readBody(req);
           checkWalletNetwork(b.networkId, network);
-          const step = String(b.step ?? '');
+          // The step as this server's own list spells it, so nothing the page sends reaches a file name or the log.
+          const step = steps().find((s) => s === b.step);
+          if (!step) throw new Refused(`no unsigned transaction ${String(b.step)}.tx.json in ${out}`);
           if (url.pathname === '/api/wallet') {
             const { r } = await reviewOf(step);
             const keys = walletKeys(b.addresses, network);
@@ -242,7 +244,10 @@ if (cmd === 'assemble') {
         }
         return send(res, 404, { error: 'not found' });
       } catch (e) {
-        send(res, e instanceof Refused ? 422 : 500, { error: e instanceof Error ? e.message : String(e) });
+        // A refusal is written for the page. Anything else stays in this terminal.
+        if (e instanceof Refused) return send(res, 422, { error: e.message });
+        console.error(e);
+        send(res, 500, { error: 'the co-sign server failed: its terminal says why' });
       }
     })();
   })

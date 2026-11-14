@@ -24,7 +24,7 @@ import { keyFromFile } from '../src/signer.ts';
 import { decodePoolDatum } from '../src/types.ts';
 import { lpAssetName } from '../src/verify.ts';
 import type { ChainUtxo } from '../src/view.ts';
-import { addresses, NAMES, plutusAddress, type Scripts } from '../src/deploy.ts';
+import { addresses, NAMES, type Scripts } from '../src/deploy.ts';
 
 const [dir, step] = process.argv.slice(2) as [string, string];
 const flag = (f: string) => {

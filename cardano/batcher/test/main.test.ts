@@ -17,7 +17,7 @@ import type { SocketFactory, SocketLike } from '../src/follow.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import type { Evaluator } from '../src/prepare.ts';
 import type { ChainView } from '../src/view.ts';
-import { ADA, DEP, FakeView, TREASURY, evaluator, inputsOf, swapOn } from './fake-view.ts';
+import { ADA, DEP, FakeView, TREASURY, evaluator, swapOn } from './fake-view.ts';
 import { BATCHER_ADDRESS, BATCHER_KEY, BATCHER_SKEY, S, utxo, value, world } from './world.ts';
 
 const KEY = '55'.repeat(28);

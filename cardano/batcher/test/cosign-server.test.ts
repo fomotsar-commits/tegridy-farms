@@ -218,3 +218,25 @@ test('the page: this machine only, needed keys only, one body only, then assembl
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a failure that is not a refusal stays in the terminal: the page gets a plain line, not the error', async () => {
+  const c = await chain({ koios: '1', ogmios: 1 });
+  const dir = runDir();
+  // A step whose bytes CSL cannot read: reviewing it throws CSL's own error, not a refusal.
+  writeFileSync(join(dir, 'out', 'broken.tx.json'), JSON.stringify({ type: 'Tx ConwayEra', description: 'broken', cborHex: 'deadbeef' }));
+  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  let s: Awaited<ReturnType<typeof serve>> | undefined;
+  try {
+    s = await serve(dir, c.url, port);
+    const r = await call(port, 'GET', '/api/tx?step=broken', { host: `127.0.0.1:${port}` });
+    assert.equal(r.status, 500);
+    assert.deepEqual(r.json, { error: 'the co-sign server failed: its terminal says why' });
+    // The owner still reads why, where the server runs.
+    await new Promise((ok) => setTimeout(ok, 200));
+    assert.match(s.log(), /Deserialization failed/, 'the terminal shows the error');
+  } finally {
+    s?.p.kill();
+    c.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
