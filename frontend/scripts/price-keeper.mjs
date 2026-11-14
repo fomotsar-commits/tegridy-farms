@@ -156,6 +156,8 @@
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
  *   pools                      every pool on the venue, and whether the keeper can trade it
+ *   prove                      the Lighthouse proof alone, against KEEPER_RPC_URL: two test runs from
+ *                              the keeper's wallet, nothing signed or sent; says PROVEN or why not
  *   run [--once] [--live]      one pass, or keep watching (Ctrl+C stops)
  *   report                     what the keeper earned and spent, day by day, from its log; and
  *                              from the gap log, the gaps it saw, how soon it traded them, and
@@ -177,6 +179,7 @@ import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CLMM, RAYDIUM_CPMM, R
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 import { JITO_WARM_EVERY_MS, jitoLine } from './lib/jito-line.mjs';
 import { alsoSend, plainDoor } from './lib/plain-door.mjs';
+import { couldNotRun, keepProving, proveAtStart } from './lib/proof-retry.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -209,7 +212,7 @@ const lib = (rel) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', ..
 
 const { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 const spl = await import('@solana/spl-token');
-const { runCycle, poolCoverage, fingerprint, sellDust, engineTrip, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { runCycle, poolCoverage, fingerprint, sellDust, engineTrip, withTripLock, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
 const { ENGINE_FRESH_MS, enginePageUrl, engineEventsUrl, engineOutcomeUrl, engineStands, followEngine } = await lib('solana/keeper/engine.ts');
 const { foldGaps, gapLine, gapReport, GAP_HEADER } = await lib('solana/keeper/gaps.ts');
 const { readActivity, results, byDay, madeSol, expectedHoldings } = await lib('solana/keeper/history.ts');
@@ -424,8 +427,14 @@ function readTripRows() {
 async function lighthouseProof(owner) {
   try {
     const ata = spl.getAssociatedTokenAddressSync(WSOL, owner, true);
-    const held = await rpc('getTokenAccountBalance', [ata.toBase58(), { commitment: 'confirmed' }]);
-    const balance = BigInt(held.value.amount);
+    // The balance from the account itself: every RPC answers getAccountInfo, where some refuse
+    // getTokenAccountBalance (publicnode, 2026-11-14: "Indexed requests require a personal token"),
+    // so a fallback RPC can carry the whole proof. A token account holds its amount at byte 64.
+    const held = await rpc('getAccountInfo', [ata.toBase58(), { encoding: 'base64', commitment: 'confirmed' }]);
+    if (!held?.value) throw new Error('the keeper holds no wrapped-SOL account');
+    const data = Buffer.from(held.value.data[0], 'base64');
+    if (data.length < 72) throw new Error('the wrapped-SOL account was not read as a token account');
+    const balance = data.readBigUInt64LE(64);
     return await proveLighthouse(ata, balance, async (ix) => {
       const { blockhash } = (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value;
       const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions: [ix] }).compileToV0Message());
@@ -937,6 +946,14 @@ async function main() {
     return;
   }
 
+  if (cmd === 'prove') {
+    const owner = keeperAddress();
+    const proof = await lighthouseProof(owner);
+    log(proof === null ? `Lighthouse check PROVEN for ${owner.toBase58()} on ${redactRpcUrl(RPC)}${RPC_FALLBACKS.length ? ` (or its ${RPC_FALLBACKS.length} fallback)` : ''}: two test runs, nothing sent` : `Lighthouse check NOT proven on ${redactRpcUrl(RPC)}: ${proof}`);
+    process.exitCode = proof === null ? 0 : 1;
+    return;
+  }
+
   if (cmd === 'pools') {
     const rows = await poolCoverage({ rpc, indexFetch: (input, init) => fetch(new URL(String(input), SITE), init) });
     if (typeof rows === 'string') throw new Error(`pools not read: ${rows}`);
@@ -1160,11 +1177,27 @@ async function main() {
     };
     // The cap past $25 waits on this: two test runs from the robot's own wallet, a Lighthouse
     // check at its wrapped-SOL balance (must pass) and one a unit over it (must fail).
-    const proof = await lighthouseProof(owner);
+    // A proof the RPC was too busy to run is asked again (lib/proof-retry.mjs): up to four tries now,
+    // then once a minute while the robot runs, so one 429 at the start no longer costs the run its cap.
+    const proved = await proveAtStart(() => lighthouseProof(owner));
+    const proof = proved.proof;
     settings.lighthouseProven = proof === null;
     screen.lighthouse = { proven: proof === null, why: proof, capUsd: capUsd(settings), settingUsd: settings.maxTradeUsd };
     // The rule this run judges with, for the scanner to judge and size with too (keeper/rule.ts robotRule).
     screen.rule = publishedRule(settings);
+    const provingOn = couldNotRun(proof) && !flag('--once');
+    if (provingOn) {
+      // Under the trip lock: no trip moves the balance between the proof's two test runs.
+      keepProving(() => withTripLock(() => lighthouseProof(owner)), {
+        onProven: (asked) => {
+          settings.lighthouseProven = true;
+          screen.lighthouse = { proven: true, why: null, capUsd: capUsd(settings), settingUsd: settings.maxTradeUsd };
+          screen.rule = publishedRule(settings);
+          log(`Lighthouse check PROVEN on mainnet, ${asked} min after the start (the RPC was too busy for it then): trips may now go up to the setting, $${settings.maxTradeUsd}`);
+        },
+        onGaveUp: (why) => log(`Lighthouse check still not proven after an hour of asking (${why}): trips stay at most $${SAFE_CAP_USD} until the robot is started again`),
+      });
+    }
     // Pools whose sent trips the chain refused: two in a day ban the pool for a day, seeded from the earnings log.
     const bans = new TripBans();
     try {
@@ -1264,8 +1297,8 @@ async function main() {
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${capUsd(settings)} a trip · floor $${settings.minProfitUsd} + the network fee`);
     log(
       proof === null
-        ? `  Lighthouse check PROVEN on mainnet (a trip under its floor is undone): trips may go up to the setting, $${settings.maxTradeUsd}`
-        : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
+        ? `  Lighthouse check PROVEN on mainnet${proved.tried > 1 ? ` at try ${proved.tried} (the RPC was too busy before)` : ''} (a trip under its floor is undone): trips may go up to the setting, $${settings.maxTradeUsd}`
+        : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check${provingOn ? `; asked again every minute, and the cap is lifted to $${settings.maxTradeUsd} the moment it is proven` : ''}`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  SOL trips sent: ${settings.jito ? `through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least ${settings.jitoLeastTip.toLocaleString('en-US')} lamports (else the usual way, untipped); a lost race costs nothing` : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
