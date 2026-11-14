@@ -131,14 +131,22 @@ deployed all three on 2026-11-08; the addresses are in [`CONTRACTS.md`](CONTRACT
 
 ---
 
-## 🔴 2026-11-07: Cardano pools, everything left before you can add liquidity
+## 🔴 2026-11-07: Cardano pools, everything left before you can add liquidity (revised 2026-11-14)
 
 Your ask (2026-11-07): what is left before you can add liquidity on Cardano on memetics.finance.
 **Today you cannot.** None of our own Cardano pools is deployed, and by your ruling of 2026-10-24
 the site never sends liquidity into Minswap's pools (a sixth of their trade fee goes to Minswap).
-The code is written and waiting as drafts: our copy of Minswap V2 with the 48-hour, two-key lock
-(#988), the 73 ADA pool opening fee (#1016), the batcher that fills orders (#1008), the LP screens
-(#1068) and Cancel order (#1071). The plan is [`CARDANO_PLAN.md`](CARDANO_PLAN.md) Part 2.
+**All the code is written**, brought up to date with trunk on 2026-11-14, and waiting for your merge
+word: our copy of Minswap V2 with the 48-hour, two-key lock (#988), the 73 ADA pool opening fee
+(#1016), the batcher that fills orders (#1008), the deploy script, rehearsed in full on preprod
+(#1148), the LP screens (#1068), their Cancel order (#1071), and Cancel order on the live Cardano
+swap (#1004). What is left is yours: a lawyer, an auditor, accounts, signatures and ADA. The plan
+is [`CARDANO_PLAN.md`](CARDANO_PLAN.md) Part 2.
+
+**The admin-power finding (CertiK MIN-01) is fixed in code, as you ruled.** Every admin role in
+the pools' settings is held by the lock (#988): a change runs only 48 hours after it is announced,
+within 14 days, and only with both your keys. The deploy script refuses a setting that gives any
+role to anyone else. The paid audit covers that lock.
 
 **How the money moves once it is live** (your rulings of 2026-10-24 and 2026-10-25):
 - **Opening a pool:** whoever opens it pays 73 ADA, in the same transaction, straight to the
@@ -152,19 +160,35 @@ The code is written and waiting as drafts: our copy of Minswap V2 with the 48-ho
 
 | Step | What | Who |
 |---|---|---|
-| ⬜ 1 | Finish the treasury (the Cardano swap section below): confirm the two keys come from two different 24-word phrases, and move key B to your phone. The pools pay into this same treasury. | you |
-| ⬜ 2 | Decide who holds the lock's two owner keys. Every pool setting change (fees, batchers, the treasury) needs both, 48 hours after it is announced. Also pick a DRep for the pools' stake, or "always abstain": since the Plomin hard fork, staking rewards cannot be withdrawn without one. | you |
-| ⬜ 3 | A lawyer reads Minswap's licence. Its `LICENSE.md` says GPL-3.0; its `aiken.toml` and `plutus.json` say Apache-2.0. Owed before any deploy. | you |
-| ⬜ 4 | Code fixes before the audit. The batcher reads the global settings as 6 fields, but the opening fee (#1016) makes them 8. Bring the treasury-is-Eternl fix (#1032, #1033) into the branches, and name the proven treasury as the lock's treasury. Bring the LP screens (#1068) up to date with trunk: they conflict today. | a session |
-| ⬜ 5 | Write the deploy script, which does not exist yet: our seed UTxO, the pool contracts with our settings, the lock, the reference scripts, and registering the batching script's reward account. Rehearse it on preprod. The rehearsal says how much ADA the deploy locks up. | a session |
-| ⬜ 6 | Pick and pay an auditor. Scope: the one-line fee-share patch, the opening fee, the lock, the deploy settings and the batcher. The brief is `docs/CARDANO_AUDIT_SCOPE.md` on #988. Every finding gets fixed, none accepted (your rule of 2026-10-13). This is the longest wait, so it sets the date. | you, then a session |
-| ⬜ 7 | Give the batcher a home: a new Railway project (two-factor on, no other members, a volume, volume backups off), two healthchecks.io checks, a Demeter account for Ogmios and Kupo, and a second Koios key used only by the batcher. Step by step in `cardano/batcher/README.md` on #1008. | you |
-| ⬜ 8 | After the audit, deploy with your keys. Then name the batcher's key through the lock (48 hours) and fund it: about 5 ADA of collateral and a float of at least 10 ADA. | you, with a session |
-| ⬜ 9 | A week of batcher dry runs, signing nothing, with one small order per pool. Then switch it live. | a session, live on your word |
-| ⬜ 10 | Merge the pool PRs and the LP screens, each on your word (each merge is a production deploy). A session walks the screens from the home page after each. | you, then a session |
-| ⬜ 11 | Open the first pool (73 ADA to the treasury) and add liquidity. Announce the venue's share; it switches on 48 hours later. | you |
+| ✅ 1 | The treasury: two different 24-word phrases, key B on your phone, a two-key spend signed on the phone (2026-11-08). The pools pay into this same treasury. | you |
+| ✅ 2 | The lock's two owner keys: mem2 (key A) and mem (key B); the pools' stake goes to the treasury's own stake script (you: "Use your picks", 2026-11-08). | you |
+| ⬜ 3 | A lawyer reads Minswap's licence. Its `LICENSE.md` says GPL-3.0; its `aiken.toml` and `plutus.json` say Apache-2.0. Owed before any deploy. The question is written: `cardano-launch-packets\LAWYER-licence-question.md` on this PC. | you |
+| ✅ 4 | Code fixes before the audit (2026-11-07). | a session |
+| ✅ 5 | The deploy script, and a full preprod rehearsal (2026-11-10): deploy, a pool opened (73 tADA to a stand-in treasury), swaps filled by our batcher, a lock change run after its 48 hours, and the venue's share withdrawn to the treasury only. The mainnet deploy locks up or spends about 194 ADA. | a session |
+| ⬜ 6 | Pick and pay an auditor. The brief, the shortlist (Anastasia Labs, who audited Minswap V2; TxPipe; Invariant0) and the quote email are in `cardano-launch-packets\` on this PC. They name commit `27a3dce1`; today's branches hold exactly that code (only the preprod rehearsal script changed since). Every finding gets fixed, none accepted (your rule of 2026-10-13). This is the longest wait, so it sets the date. | you, then a session |
+| 🟡 7 | The batcher's home. Done 2026-11-08: the private Railway project `cardano-batcher`, its volume, the batcher's key made on the server, two healthchecks.io checks. Left for you: two-factor on the Railway login, a Demeter account (Ogmios and Kupo, mainnet), a second Koios key used only by the batcher, and the two ping URLs as sealed variables. Needed by the dry runs (step 11). Steps in `cardano/batcher/README.md`. | you |
+| ⬜ 8 | Decide the batcher fee per order (Minswap's own is 2 ADA) and the batcher's float cap (about 100 ADA was the plan; above it, it sweeps to the treasury). | you |
+| ⬜ 9 | A dress rehearsal on preprod with your real Eternl on the co-signing page. So far only stand-in wallets have signed there; real Eternl signing for a "required signer" on `http://127.0.0.1` is unproven. | you, with a session |
+| ⬜ 10 | After the audit, deploy with your Eternl wallets, as #1148's "Mainnet run" says: a fresh Eternl wallet as the deployer, funded with about 200 ADA in three separate payments; you sign on the co-signing page (deployer, then mem2, then mem). The batcher's key goes into the first settings, so no 48-hour wait follows. | you, with a session |
+| ⬜ 11 | Fund the batcher (about 5 ADA of collateral and a float of at least 10 ADA). A week of dry runs, signing nothing, with one small order per pool. Then switch it live. | a session, live on your word |
+| ⬜ 12 | The merges, in the order below, each on your word. Then a session fills in the site's deployment record and you switch the pools on. A session walks the screens from the home page after each merge. | you, then a session |
+| ⬜ 13 | Open the first pool (73 ADA to the treasury) and add liquidity. Announce the venue's share; it switches on 48 hours later. Before launch, in Eternl: register the treasury's stake address and set its vote to "Always Abstain", or the pools' staking rewards cannot be withdrawn. | you |
 
-Steps 1 to 7 can all run at once. Steps 2, 3 and 6 only you can start, and step 6 sets the date.
+Steps 3, 6, 7, 8 and 9 can all run at once, and only you can start them. Step 6 sets the date.
+
+**The merge order.** Each merge is a production deploy. Only #1004 changes what visitors see; the
+pools appear only at step 12.
+1. #988, then #1016, then #1008, then #1148: the pools' code, its proofs and its CI. Merge from the
+   bottom. After each, change the next one's base to `mvp-launch` and let its full CI finish
+   before you merge it.
+2. #1068, then #1071: the LP screens and their Cancel order. They are switched off, so the site does
+   not change. They do not depend on the pools' PRs and can go before them.
+3. #1004 last: Cancel order on the live Cardano swap, a change visitors see. It is stacked on #1071.
+   First, walk one real cancel yourself (#1004's description). Move its changelog line to the
+   merge date.
+
+Railway builds the batcher from #1148's branch. After #1148 merges, switch the Railway service to
+`mvp-launch` before that branch is deleted.
 
 ---
 
