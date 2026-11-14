@@ -30,6 +30,12 @@
  *   KEEPER_KEYPAIR          path to the keeper's key file (needed to send)
  *   KEEPER_WALLET           the keeper's address, for a dry run without the key
  *   KEEPER_RPC_URL          Solana RPC (default: the public mainnet one)
+ *   KEEPER_RPC_FALLBACK_URLS  more RPCs, joined by commas: a read KEEPER_RPC_URL is too busy to
+ *                           answer (429, a 5xx, no answer) goes to the next at once, and the busy
+ *                           one is left alone for 10 s (scripts/lib/rpc-fallback.mjs). With two
+ *                           doors a trip the main RPC sent goes out through these as well. Measured
+ *                           2026-11-14 05:56Z: 15 s of 429s while BAYLA moved, and another wallet
+ *                           traded first (default: none; the public mainnet RPC alone, as before)
  *   JUPITER_API_KEY         the keeper's own Jupiter key
  *   KEEPER_SITE             where the pool list is read (default https://memetics.finance)
  *   KEEPER_MAX_TRADE_USD    largest round trip (default 25)
@@ -85,6 +91,21 @@
  *                           the nearby endpoint on one, 267 ms on a new one (Europe and Asia 140 ms
  *                           against 520). A bundle never shares a second with a warming call
  *                           (Jito takes 1 call a second an IP, a region; default no)
+ *   KEEPER_JITO_MIN_TIP_LAMPORTS  the least tip a trip goes through Jito with; a smaller one goes
+ *                           the usual way, untipped (default 20000). Measured 2026-11-11 to 11-14:
+ *                           tips of 25,295 to 46,312 landed 1 time in 8, tips of 48,230 and more
+ *                           8 times in 9, so 50000 is what lands now
+ *   KEEPER_TWO_DOORS        yes = every Jito bundle's signed transaction also goes to the usual RPC
+ *                           at the same moment (its own test run first, at the newest state), and
+ *                           again each second, four times in all, while it has not landed: one
+ *                           signature, so it lands once at most, by whichever door is first. A
+ *                           bundle Jito drops then still lands (8 of 17 bundles were dropped
+ *                           2026-11-11 to 11-14, each holding the robot ~35 s). A trip the RPC's test
+ *                           run refuses three times running, with nothing sent by that door, is
+ *                           called lost after ~3 s, not ~35. The cost: a trip that lands by the
+ *                           plain door still pays its tip, and one that loses a race in the same
+ *                           block lands failed and pays its network fee (~6,000 lamports), where
+ *                           a bundle alone would have paid nothing. Needs KEEPER_JITO (default no)
  *   KEEPER_DIRECT           yes = before asking Jupiter, each of our SOL pools is weighed against
  *                           its coin's outside pools on PumpSwap (and Raydium CPMM / AMM v4 when
  *                           KEEPER_ALLOW_RAYDIUM=yes), both swaps built by the robot with each
@@ -150,9 +171,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
+import { RPC_REST_MS, fallbackUrls, rpcWithFallback } from './lib/rpc-fallback.mjs';
 import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CLMM, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 import { JITO_WARM_EVERY_MS, jitoLine } from './lib/jito-line.mjs';
+import { alsoSend, plainDoor } from './lib/plain-door.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -232,13 +255,20 @@ const flag = (f) => rest.includes(f);
 const args = rest.filter((a) => !a.startsWith('--'));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
 
-const rpc = async (method, params) => {
-  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
-  if (!r.ok) throw new Error(`${method}: the RPC answered ${r.status}`);
-  const j = await r.json();
-  if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
-  return j.result;
-};
+// Reads go to KEEPER_RPC_URL, and to KEEPER_RPC_FALLBACK_URLS when it is too busy (lib/rpc-fallback.mjs).
+// With no fallback set this is the one call it always was: one try, the same error text.
+const RPC_FALLBACKS = fallbackUrls(env.KEEPER_RPC_FALLBACK_URLS).filter((u) => u !== RPC);
+const rpcBusySaid = new Map();
+const rpcLine = rpcWithFallback({
+  urls: [RPC, ...RPC_FALLBACKS],
+  // Said once a minute an endpoint at most: a busy spell is many calls.
+  onBusy: (url, why) => {
+    if (Date.now() - (rpcBusySaid.get(url) ?? 0) < 60_000) return;
+    rpcBusySaid.set(url, Date.now());
+    log(`RPC ${redactRpcUrl(url)} is busy (${why}): reads go to ${RPC_FALLBACKS.length ? 'the next endpoint' : 'no other'} for ${RPC_REST_MS / 1000} s`);
+  },
+});
+const rpc = rpcLine.call;
 const conn = new Connection(RPC, 'confirmed');
 
 function loadKey() {
@@ -274,6 +304,8 @@ async function sendSigned(tx, key) {
     raw = tx.serialize();
   }
   const signature = await conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 });
+  // Taken by the main RPC (its test run passed): on to every fallback RPC too, the same signature.
+  alsoSend(raw, RPC_FALLBACKS);
   const { outcome } = await pollConfirm(conn, signature, 60_000);
   return { signature, outcome };
 }
@@ -959,6 +991,9 @@ async function main() {
       v1: yes('KEEPER_V1'),
       fast: yes('KEEPER_FAST'),
       freeSwaps: yes('KEEPER_FREE_SWAPS'),
+      jitoLeastTip: BigInt(Math.round(num('KEEPER_JITO_MIN_TIP_LAMPORTS', Number(DEFAULT_SETTINGS.jitoLeastTip)))),
+      // The second door only where there is a first: a trip goes through Jito at all.
+      twoDoors: yes('KEEPER_JITO') && yes('KEEPER_TWO_DOORS'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     // The fast path's blockhash: refreshed every BLOCKHASH_EVERY_MS in the background (one call each),
@@ -1049,11 +1084,17 @@ async function main() {
       await jitoWarm.warm(jitoAt);
       setInterval(() => jitoWarm.warm(jitoAt).catch(() => {}), 5_000).unref();
     }
+    // KEEPER_TWO_DOORS: the bundle's signed transaction to the usual RPC too, its test run first at
+    // the newest state (lib/plain-door.mjs), and on to every fallback RPC once the main one took it.
+    const plain = settings.twoDoors
+      ? plainDoor({ sendRaw: (raw) => conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'processed', maxRetries: 2 }), also: RPC_FALLBACKS })
+      : undefined;
     const jito = jitoSender({
       urls: jitoAt,
       fetchImpl: jitoWarm ? jitoWarm.fetch : fetch,
       status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null,
       blockhashValid: async (blockhash) => (await conn.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value,
+      plain,
     });
     const sendJito = async (tx) => {
       const hold = holdReason();
@@ -1224,7 +1265,9 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
-    log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    log(`  SOL trips sent: ${settings.jito ? `through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least ${settings.jitoLeastTip.toLocaleString('en-US')} lamports (else the usual way, untipped); a lost race costs nothing` : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    if (settings.jito) log(`  two doors: ${settings.twoDoors ? `ON: each bundle's transaction also goes to the usual RPC at the same moment${RPC_FALLBACKS.length ? ` and ${RPC_FALLBACKS.length} more` : ''} (its test run first); it lands once, by whichever door is first; a trip that lands by the plain door still pays its tip` : 'off (KEEPER_TWO_DOORS=yes also sends each bundle the usual way, so one Jito drops still lands)'}`);
+    log(`  RPC fallbacks: ${RPC_FALLBACKS.length ? `${RPC_FALLBACKS.map((u) => redactRpcUrl(u)).join(', ')}: a read the main RPC is too busy for goes there at once` : 'none (KEEPER_RPC_FALLBACK_URLS names more; a 429 from the one RPC then skips nothing)'}`);
     if (settings.jito) log(`  Jito's line: ${jitoWarm ? `kept open and warm (a call once idle ${JITO_WARM_EVERY_MS / 60_000} min)` : 'a new connection for each bundle (KEEPER_JITO_WARM=yes keeps it open)'}`);
     if (settings.jito) log(`  Jito bundles go to: ${jitoAt.length === 1 && jitoAt[0] === JITO_BLOCK_ENGINE ? 'the one endpoint (KEEPER_JITO_REGIONS=all sends each to every region at once)' : `${jitoAt.length} block engines at once (${jitoAt.map((u) => new URL(u).hostname.split('.')[0]).join(', ')})`}`);
     log(`  its own swaps in our pools: ${settings.freeSwaps ? 'FREE on each tier that names this wallet its keeper (KEEPER_FREE_SWAPS; needs the keeper-fee upgrade on mainnet), the fee elsewhere' : 'the tier’s fee, as anyone pays (KEEPER_FREE_SWAPS=yes once the keeper-fee upgrade executes and the vault names this wallet)'}`);

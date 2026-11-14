@@ -14,15 +14,19 @@ import {
   JITO_REGIONS,
   JITO_KEEP_LAMPORTS,
   JITO_LANDING_TIP_LAMPORTS,
+  JITO_LANDING_TIP_MEASURED_2026_11_14,
   JITO_MIN_TIP_LAMPORTS,
   JITO_TIP_ACCOUNTS,
   JITO_WATCH_MS,
+  PLAIN_KNOCKS,
+  PLAIN_REFUSALS_LOST,
   jitoNote,
   jitoSender,
   jitoTip,
   jitoUrls,
   jitoTipIx,
   pickTipAccount,
+  type PlainDoor,
 } from './jito';
 
 // Mainnet transaction 5NWjWUTarePF557unjrhWPnobzYca6oDMRwARnbAmVbYTfUHik9cshCHRZ1yTDkeT3qgGAXLDeiSeitncQGBNQQF
@@ -113,6 +117,18 @@ describe('jitoTip', () => {
     expect(jitoTip(1_000_000n, 1_000_000n - 19_999n, RICH)).toBeNull();
     expect(jitoTip(70_000n, 0n, RICH)).toBe(21_000n);
     expect(jitoTip(1_000_000n, 1_000_000n - 20_000n, RICH)).toBe(20_000n);
+  });
+
+  it('takes the least tip that lands from the setting (KEEPER_JITO_MIN_TIP_LAMPORTS), never under Jito’s own least', () => {
+    // 11-11 to 11-14: tips of 25,295 to 46,312 lamports landed 1 time in 8; 48,230 and more, 8 in 9.
+    expect(JITO_LANDING_TIP_MEASURED_2026_11_14).toBe(50_000n);
+    // A 152,000-lamport gain: a 45,600 tip. It went through Jito before, and goes the usual way at 50,000.
+    expect(jitoTip(152_000n, 0n, RICH)).toBe(45_600n);
+    expect(jitoTip(152_000n, 0n, RICH, JITO_LANDING_TIP_MEASURED_2026_11_14)).toBeNull();
+    expect(jitoTip(167_000n, 0n, RICH, JITO_LANDING_TIP_MEASURED_2026_11_14)).toBe(50_100n);
+    // A setting under Jito's own least tip is held to it.
+    expect(jitoTip(3_000n, 0n, RICH, 1n)).toBeNull();
+    expect(jitoTip(4_000n, 0n, RICH, 1n)).toBe(1_200n);
   });
 });
 
@@ -309,6 +325,139 @@ describe('jitoSender', () => {
       const r = watch((clock, ranOut) => (clock >= 90_000 ? { err: null, confirmationStatus: 'confirmed' } : ranOut ? { err: null, confirmationStatus: 'processed' } : null));
       expect((await r.send()).outcome).toBe('confirmed');
       expect(r.clock()).toBeGreaterThanOrEqual(90_000);
+    });
+  });
+
+  describe('with two doors (KEEPER_TWO_DOORS): the same signed transaction to the usual RPC too', () => {
+    const BLOCKHASH = 'Blockhash1111111111111111111111111111111111';
+    const withHash = { ...signed, message: { recentBlockhash: BLOCKHASH } } as unknown as VersionedTransaction;
+    const SENT: PlainDoor = { door: 'sent' };
+    const REFUSED: PlainDoor = { door: 'refused', why: 'instruction 2: custom program error: 0x1774' };
+    const UNREAD: PlainDoor = { door: 'unread', why: '429 Too Many Requests' };
+    /**
+     * Jito takes the bundle (or answers `bundleStatus`) and says `inflight` of it, in turn; the plain
+     * door answers `doors` in turn (the last one again after that; an Error is thrown); the chain's
+     * status is `status(clock, reads)`; the blockhash runs out at `expiresAt` when given.
+     */
+    function doors(o: { doors: (PlainDoor | Error)[]; inflight?: string[]; status?: (clock: number, reads: number) => { err: unknown; confirmationStatus: string } | null; bundleStatus?: number; expiresAt?: number }) {
+      let clock = 0;
+      let asks = 0;
+      let reads = 0;
+      const knocks: { at: number; tx: VersionedTransaction }[] = [];
+      const order: string[] = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        if (body.method === 'sendBundle') {
+          order.push('bundle');
+          return new Response(JSON.stringify({ result: 'bundle-1' }), { status: o.bundleStatus ?? 200 });
+        }
+        return new Response(JSON.stringify({ result: { value: [{ status: o.inflight?.[Math.min(asks++, o.inflight.length - 1)] ?? 'Pending' }] } }));
+      }) as unknown as typeof fetch;
+      const send = jitoSender({
+        fetchImpl,
+        status: async () => o.status?.(clock, reads++) ?? null,
+        ...(o.expiresAt === undefined ? {} : { blockhashValid: async () => clock < o.expiresAt! }),
+        plain: async (tx) => {
+          order.push('plain');
+          const a = o.doors[Math.min(knocks.length, o.doors.length - 1)]!;
+          knocks.push({ at: clock, tx });
+          if (a instanceof Error) throw a;
+          return a;
+        },
+        sleep: async (ms) => void (clock += ms),
+        now: () => clock,
+      });
+      return { send: () => send(withHash), knocks, order, clock: () => clock };
+    }
+    const confirmedFrom = (ms: number) => (clock: number) => (clock >= ms ? { err: null, confirmationStatus: 'confirmed' } : null);
+
+    it('hands the plain door the very transaction the bundle carries, at the same moment, and says so', async () => {
+      const r = doors({ doors: [SENT], status: confirmedFrom(1_000) });
+      const sent = await r.send();
+      expect(sent).toMatchObject({ signature: SIG, outcome: 'confirmed', bundle: 'bundle-1', plain: 'sent', plainWhy: null });
+      expect(r.knocks).toEqual([{ at: 0, tx: withHash }]);
+      expect(new Set(r.order)).toEqual(new Set(['bundle', 'plain']));
+      expect(jitoNote(sent)).toBe("Jito's last word: none; the plain door: sent too");
+    });
+
+    it('a bundle Jito drops still lands by the plain door: Failed no longer ends the watch once it went out by it', async () => {
+      const r = doors({ doors: [SENT], inflight: ['Failed'], status: confirmedFrom(3_000) });
+      expect(await r.send()).toMatchObject({ outcome: 'confirmed', jitoSaid: 'Failed', plain: 'sent' });
+      expect(r.clock()).toBe(3_000);
+    });
+
+    it('a failed trip that lands by the plain door is reverted, as the chain says', async () => {
+      const r = doors({ doors: [SENT], status: (clock) => (clock >= 2_000 ? { err: { InstructionError: [3, { Custom: 6005 }] }, confirmationStatus: 'confirmed' } : null) });
+      expect((await r.send()).outcome).toBe('reverted');
+    });
+
+    it('knocks again each watch round while it has not landed, PLAIN_KNOCKS times in all', async () => {
+      expect(PLAIN_KNOCKS).toBe(4);
+      const r = doors({ doors: [UNREAD] });
+      await r.send();
+      expect(r.knocks.map((k) => k.at)).toEqual([0, 1_000, 2_000, 3_000]);
+    });
+
+    it('calls a trip the RPC’s test run refuses three times running, with nothing sent by that door, lost in 2 s, not 35', async () => {
+      expect(PLAIN_REFUSALS_LOST).toBe(3);
+      const r = doors({ doors: [REFUSED], inflight: ['Invalid'], expiresAt: 35_000 });
+      const sent = await r.send();
+      expect(sent).toMatchObject({ outcome: 'lost', jitoSaid: 'Invalid', plain: 'refused', plainWhy: 'instruction 2: custom program error: 0x1774' });
+      expect(r.clock()).toBe(2_000);
+      expect(r.knocks).toHaveLength(3);
+      expect(jitoNote(sent)).toBe("Jito's last word: Invalid; the plain door: its test run refused it: instruction 2: custom program error: 0x1774");
+    });
+
+    it('never calls it lost early once it went out by the plain door, whatever its later test runs say: only the blockhash running out does', async () => {
+      // Out by the plain door at once; then its test run says no three times running (a rival took
+      // the gap, say). The transaction is out all the same and may land while its blockhash lives.
+      const r = doors({ doors: [SENT, REFUSED, REFUSED, REFUSED], inflight: ['Invalid'], expiresAt: 35_000 });
+      const sent = await r.send();
+      expect(sent).toMatchObject({ outcome: 'lost', plain: 'sent' });
+      expect(r.clock()).toBeGreaterThanOrEqual(35_000);
+      // And one that went out by it only at the second knock.
+      const late = doors({ doors: [REFUSED, SENT, REFUSED, REFUSED], inflight: ['Invalid'], expiresAt: 35_000 });
+      expect(await late.send()).toMatchObject({ outcome: 'lost', plain: 'sent' });
+      expect(late.clock()).toBeGreaterThanOrEqual(35_000);
+    });
+
+    it('never counts an RPC that could not be reached as a refusal', async () => {
+      const r = doors({ doors: [REFUSED, UNREAD, REFUSED, REFUSED], inflight: ['Invalid'] });
+      const sent = await r.send();
+      // Refusals running never reach three: unknown once the watch runs out, never lost.
+      expect(sent).toMatchObject({ outcome: 'unknown', plain: 'refused' });
+      expect(r.clock()).toBeGreaterThanOrEqual(JITO_WATCH_MS);
+      const thrown = doors({ doors: [new Error('socket hang up')], inflight: ['Invalid'] });
+      expect(await thrown.send()).toMatchObject({ outcome: 'unknown', plain: 'unread', plainWhy: 'socket hang up' });
+    });
+
+    it('watches on when the chain knows the signature after all, three refusals or not', async () => {
+      // Reads 0 and 1: unknown to the chain. Read 2 (the last look before calling it lost): in a block, not yet confirmed.
+      const r = doors({ doors: [REFUSED], inflight: ['Invalid'], status: (_clock, reads) => (reads < 2 ? null : reads < 4 ? { err: null, confirmationStatus: 'processed' } : { err: null, confirmationStatus: 'confirmed' }) });
+      expect(await r.send()).toMatchObject({ outcome: 'confirmed' });
+    });
+
+    it('with the plain door never sending, Jito’s Failed is lost at once, as before', async () => {
+      const r = doors({ doors: [UNREAD], inflight: ['Failed'] });
+      expect(await r.send()).toMatchObject({ outcome: 'lost', jitoSaid: 'Failed', plain: 'unread' });
+      expect(r.clock()).toBe(1_000);
+    });
+
+    it('is sent all the same when no block engine takes it but the plain door does', async () => {
+      const r = doors({ doors: [SENT], bundleStatus: 429, status: confirmedFrom(2_000) });
+      expect(await r.send()).toMatchObject({ outcome: 'confirmed', bundle: null, took: 0, asked: 1, jitoSaid: null, plain: 'sent' });
+    });
+
+    it('throws when no block engine takes it and the plain door sends nothing: nothing was sent', async () => {
+      await expect(doors({ doors: [REFUSED], bundleStatus: 429 }).send()).rejects.toThrow(/429/);
+      await expect(doors({ doors: [UNREAD], bundleStatus: 429 }).send()).rejects.toThrow(/429/);
+    });
+
+    it('says nothing of a plain door when there is none (the setting off): the result is as it always was', async () => {
+      const r = rig({}, [null, { err: null, confirmationStatus: 'confirmed' }]);
+      const sent = await r.send(signed);
+      expect('plain' in sent).toBe(false);
+      expect(jitoNote(sent)).toBe("Jito's last word: Pending");
     });
   });
 });

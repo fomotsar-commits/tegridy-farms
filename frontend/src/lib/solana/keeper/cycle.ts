@@ -22,7 +22,7 @@ import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
 import { MAX_TRIP_UNITS, PLAIN_AFTER_DROP_MS, coinBounds, tokenGate, type TripBans } from './rule';
 import { KAMINO_LOOKUP_TABLE, canStartTrip, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
-import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
+import { JITO_LANDING_TIP_LAMPORTS, jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome, type PlainDoor } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
 import { DIRECT_LOOKUP_TABLES, directPlan, readDirectPools, type DirectIds, type DirectPool } from './direct';
@@ -79,7 +79,7 @@ export interface KeeperIo {
    * Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO.
    * 'lost': it never landed. `note`: how many regions took it and Jito's last word on it (jitoNote).
    */
-  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome; note?: string }>;
+  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome; note?: string; plain?: PlainDoor['door'] | null }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
   record?: (r: TripRecord) => void;
   /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
@@ -164,6 +164,20 @@ export interface KeeperSettings extends KeeperLimits {
    * never lands, so nothing is lost, but nothing is traded either.
    */
   freeSwaps: boolean;
+  /**
+   * The least tip a trip goes through Jito with; a smaller one goes the usual way, untipped
+   * (KEEPER_JITO_MIN_TIP_LAMPORTS; keeper/jito.ts JITO_LANDING_TIP_LAMPORTS by default, and what
+   * landed on 2026-11-14 is JITO_LANDING_TIP_MEASURED_2026_11_14).
+   */
+  jitoLeastTip: bigint;
+  /**
+   * Each Jito bundle's signed transaction also goes to the usual RPC at the same moment
+   * (KEEPER_TWO_DOORS, off by default; keeper/jito.ts PlainDoor): the sender (io.sendJito) does it,
+   * and this only tells the pass what follows from it. The fast path's test run alongside is left
+   * out (the plain door's own test run says the same), and a trip both doors tried and lost does
+   * not send its pools the usual way for PLAIN_AFTER_DROP_MS: it was not Jito that lost it.
+   */
+  twoDoors: boolean;
 }
 
 /**
@@ -198,6 +212,8 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   v1: false,
   fast: false,
   freeSwaps: false,
+  jitoLeastTip: JITO_LANDING_TIP_LAMPORTS,
+  twoDoors: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -1526,7 +1542,7 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
     const units = t.fast.units;
     // Plain SOL the trip leaves: the base fee, its priority fee and any new token account come out of it first.
     const costs = 5_000n + BigInt(Math.ceil((units * s.microLamports) / 1e6)) + (t.before.tokenExists ? 0n : NEW_ACCOUNT_RENT);
-    const tipLamports = jitoTip(t.fast.gain, t.floor, t.before.lamports - costs);
+    const tipLamports = jitoTip(t.fast.gain, t.floor, t.before.lamports - costs, s.jitoLeastTip);
     if (tipLamports !== null) {
       const tip = { lamports: tipLamports, account: pickTipAccount() };
       const final = await build(units, t.before.coin, tip);
@@ -1537,10 +1553,13 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
         // The same transaction test-run ALONGSIDE the send (2026-11-13: 2 of 4 fast trips that did
         // not land met no rival in their pools for 96 and 169 slots, and nothing said why). The send
         // goes first and never waits on it; it only says what the chain made of the trip just then.
-        const alongside = simulate(io.rpc, final, keys, 'processed').then(
-          (sim) => (sim.err ? `refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}` : `ran clean, the ${t.coin.symbol} account grows ${amt(sim.after.coin - t.before.coin)} (in ${sim.units} units of ${units})`),
-          (e) => `not run (${e instanceof Error ? e.message : String(e)})`,
-        ).then((said) => io.log(`${t.name}: its test run alongside the send: ${said}`));
+        // With two doors the plain door's own test run says the same in the sent line: no second call.
+        const alongside = s.twoDoors
+          ? Promise.resolve()
+          : simulate(io.rpc, final, keys, 'processed').then(
+              (sim) => (sim.err ? `refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}` : `ran clean, the ${t.coin.symbol} account grows ${amt(sim.after.coin - t.before.coin)} (in ${sim.units} units of ${units})`),
+              (e) => `not run (${e instanceof Error ? e.message : String(e)})`,
+            ).then((said) => io.log(`${t.name}: its test run alongside the send: ${said}`));
         const tried = await sending;
         await alongside;
         return tried;
@@ -1579,7 +1598,7 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
   if (plainOnly) io.log(`${t.name}: goes the usual way, no tip: a Jito bundle through it did not land in the last ${PLAIN_AFTER_DROP_MS / 60_000} min`);
   // A version 1 trip goes the usual way: Jito is not asked to carry one.
   if (s.jito && sim.v1 && t.coin.mint === SOL_QUOTE.mint) io.log(`${t.name}: goes the usual way, no tip: a version 1 transaction is not sent through Jito`);
-  const tipLamports = s.jito && !plainOnly && !sim.v1 && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  const tipLamports = s.jito && !plainOnly && !sim.v1 && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter, s.jitoLeastTip) : null;
   const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
   if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
@@ -1603,7 +1622,11 @@ async function sendAndRecord(io: KeeperIo, t: Trip, pools: string[], keys: Publi
   if (!io.send) return 'not-sent';
   const r = tip && io.sendJito && !isV1(final) ? await io.sendJito(final) : await io.send(final);
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
-  if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());
+  // A bundle that did not land sends its pools the usual way for a while, unless the plain door
+  // answered for the same trip too (KEEPER_TWO_DOORS: sent by it, or refused by its test run):
+  // then both doors had it and the trip itself was lost, not Jito's carrying of it.
+  const bothDoors = 'plain' in r && (r.plain === 'sent' || r.plain === 'refused');
+  if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown') && !bothDoors) io.bans?.jitoDropped(pools, Date.now());
   const note = 'note' in r && typeof r.note === 'string' && r.note ? ` (${r.note})` : '';
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}${note}`);
   if (r.outcome === 'lost') {

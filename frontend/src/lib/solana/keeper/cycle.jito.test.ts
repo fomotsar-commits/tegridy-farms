@@ -169,6 +169,45 @@ describe('sendChecked with KEEPER_JITO', () => {
     }
   });
 
+  it.each([
+    ['sent by the plain door too', 'sent' as const, true],
+    ['refused by the plain door’s test run', 'refused' as const, true],
+    ['with the plain door not reached', 'unread' as const, false],
+  ])('with two doors, a bundle lost %s leaves the pool on Jito only when both doors had the trip', async (_, plainSaid, staysOnJito) => {
+    const first = rig(SOL_QUOTE, { coin: HELD, lamports: LAMPORTS });
+    first.io.send = vi.fn();
+    first.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'lost' as const, plain: plainSaid }));
+    expect(await sendChecked(first.io, { ...settings(true), twoDoors: true }, first.trip)).toBe('race-lost');
+    const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    r.io.bans = first.io.bans;
+    r.io.send = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const }));
+    r.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const, plain: 'sent' as const }));
+    expect(await sendChecked(r.io, { ...settings(true), twoDoors: true }, r.trip)).toBe('sent');
+    expect(r.io.sendJito).toHaveBeenCalledTimes(staysOnJito ? 1 : 0);
+    expect(r.io.send).toHaveBeenCalledTimes(staysOnJito ? 0 : 1);
+  });
+
+  it('holds the tip to the least tip set (KEEPER_JITO_MIN_TIP_LAMPORTS): under it, the usual way with no tip', async () => {
+    // The gain leaves 45,000 lamports past the floor: a tip that went through Jito at 20,000, and goes the usual way at 50,000.
+    const through = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    through.trip.floor = GAIN - 45_000n;
+    through.io.send = vi.fn();
+    through.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const }));
+    expect(await sendChecked(through.io, settings(true), through.trip)).toBe('sent');
+    expect(through.io.sendJito).toHaveBeenCalledTimes(1);
+
+    const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    r.trip.floor = GAIN - 45_000n;
+    r.io.sendJito = vi.fn();
+    r.io.send = vi.fn(async (tx: VersionedTransaction) => {
+      r.sent.push(tx);
+      return { signature: 'sig', outcome: 'confirmed' as const };
+    });
+    expect(await sendChecked(r.io, { ...settings(true), jitoLeastTip: 50_000n }, r.trip)).toBe('sent');
+    expect(r.io.sendJito).not.toHaveBeenCalled();
+    expect(r.instructionsOf(r.sent[0]!).some((ix) => ix.programId.toBase58() === SYSTEM)).toBe(false);
+  });
+
   it('keeps sending through Jito after a bundle that landed', async () => {
     const first = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
     first.io.send = vi.fn();
