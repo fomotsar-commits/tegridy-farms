@@ -1,5 +1,5 @@
 import type { PoolView } from './poolFinder';
-import { SOL_QUOTE, quoteCoin, type QuoteCoin } from './quotes';
+import { SOL_QUOTE, isWithdrawOnly, quoteCoin, type QuoteCoin } from './quotes';
 
 /**
  * "PRICED IN X" (spec 2026-11-14, community quote coins, phase 1). A coin's community shares
@@ -13,11 +13,13 @@ import { SOL_QUOTE, quoteCoin, type QuoteCoin } from './quotes';
  * The coin whose "Priced in" list a ?mint= opens: any pairing coin but SOL, so USDC and the
  * island's coins. SOL ranks first (quotes.ts), so every pool that holds SOL is priced in SOL:
  * that is most of the venue, the full list already puts those pools first, and a SOL link is
- * refused by the finder anyway (mintInput.ts). Null for any other mint, and for none.
+ * refused by the finder anyway (mintInput.ts). Null for any other mint, and for none. Null too
+ * for a delisted coin (quotes.ts `isWithdrawOnly`): it is no longer a pairing coin here, so its
+ * link opens every pool, where each pool priced in it is tagged withdraw-only.
  */
 export function pricedInCoin(mint: string | null): QuoteCoin | null {
   const coin = mint ? quoteCoin(mint) : null;
-  return coin && coin.mint !== SOL_QUOTE.mint ? coin : null;
+  return coin && coin.mint !== SOL_QUOTE.mint && !isWithdrawOnly(coin) ? coin : null;
 }
 
 /**

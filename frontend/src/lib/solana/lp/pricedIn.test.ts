@@ -7,6 +7,7 @@ import { PublicKey } from '@solana/web3.js';
 import { BAYLA_QUOTE, BOBO_QUOTE, QUOTE_COINS, RIZZ_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { everyPoolSearch, pricedInCoin, pricedInPools } from './pricedIn';
 import { buildPool, key, viewOf } from './testkit.fixture';
+import { whileDelisted } from './delisted.fixture';
 import type { PoolView } from './poolFinder';
 
 function pool(mint: PublicKey | string, quote: QuoteCoin, openTime: bigint, address?: PublicKey): PoolView {
@@ -24,6 +25,14 @@ describe('pricedInCoin: which ?mint= opens a "Priced in" list', () => {
     expect(pricedInCoin(SOL_QUOTE.mint)).toBeNull();
     expect(pricedInCoin(key().toBase58())).toBeNull();
     expect(pricedInCoin(null)).toBeNull();
+  });
+
+  it('none for a delisted coin: it is no longer a pairing coin here, and its pools show in every pool as withdraw-only', async () => {
+    await whileDelisted(BOBO_QUOTE, () => {
+      expect(pricedInCoin(BOBO_QUOTE.mint)).toBeNull();
+      expect(pricedInCoin(BAYLA_QUOTE.mint)).toBe(BAYLA_QUOTE);
+    });
+    expect(pricedInCoin(BOBO_QUOTE.mint)).toBe(BOBO_QUOTE);
   });
 });
 
