@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import { VenueStats, POLL_MS } from './VenueStats';
 import { parseVenueVolume, VENUE_VOLUME_URL } from '../lib/venueVolume';
 import { parseVenueTvl, VENUE_TVL_URL } from '../lib/venueTvl';
+import { ISLAND_QUOTES, orList } from '../lib/solana/lp/quotes';
 
 const NOW = Date.parse('2026-10-19T16:30:00Z');
 const volume = (over: Record<string, unknown> = {}) => ({
@@ -173,6 +174,19 @@ describe('<VenueStats />', () => {
     expect(await screen.findByText(/TVL at least/)).toBeTruthy();
     expect(screen.getByTestId('venue-tvl-staking').textContent).toBe('Staked: Solana $22,440 · Ethereum $65 · Base could not be read just now');
     expect(screen.getByText('A staked coin with no market price just now is left out.')).toBeTruthy();
+  });
+
+  // The small print writes the island coins out by hand: this pins them to the pairing list, so a coin
+  // added there and not here fails CI instead of leaving the sentence stale.
+  it('names every island coin a pool counts at, as the pairing list has them (quotes.ts)', async () => {
+    const left = chains();
+    left[0].unvalued = 1;
+    serve({ tvl: [tvl({ state: 'partial', chains: left }), 200], volume: [volume(), 200] });
+    const { container } = render(<VenueStats />);
+    expect(await screen.findByText(/TVL at least/)).toBeTruthy();
+    const text = (container.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain(`twice the island coin it is paired with (${orList(ISLAND_QUOTES.map((q) => q.symbol))}, each at its market price on Jupiter`);
+    expect(screen.getByText('Pools paired with an island coin with no usable market price just now are left out.')).toBeTruthy();
   });
 
   it('says a late volume count is not up to date', async () => {
