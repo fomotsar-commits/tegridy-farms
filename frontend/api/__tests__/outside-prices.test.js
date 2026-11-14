@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
 
 import handler from "../outside-prices.js";
-import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, pricingOrder, FIRST_MINTS, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, pricingOrder, readUsd, FIRST_MINTS, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
 import { BUNGALOWS } from "../../src/lib/bungalows.ts";
 import { CP_SWAP_PROGRAM, WSOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, OFFSETS } from "../_lib/pool-index.js";
 import { base58 } from "@scure/base";
@@ -366,6 +366,29 @@ describe("GET /api/outside-prices", () => {
       else process.env.VERCEL_ENV = was;
     }
     expect(w.fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("the dollar read asks Jupiter for at most 50 coins a call", () => {
+  const ids = Array.from({ length: 60 }, (_, i) => base58.encode(Uint8Array.from({ length: 32 }, (_, j) => (j === 0 ? i + 1 : 3))));
+  const up = { base: "https://lite-api.jup.ag", headers: {}, fallback: null };
+
+  it("splits a longer list into calls of 50 at most, one after another, and puts the answers together", async () => {
+    const w = world({ pools: [] });
+    const paced = vi.fn(async () => {});
+    const usd = await readUsd(up, ids, w.fetchImpl, paced);
+    expect(w.jupiterCalls.map((c) => new URL(c.url).searchParams.get("ids").split(",").length)).toEqual([50, 10]);
+    expect(paced).toHaveBeenCalledTimes(2);
+    expect(Object.keys(usd).sort()).toEqual([...ids].sort());
+  });
+
+  it("is no answer at all when any one call is refused, never half a list read as whole", async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      const asked = new URL(String(url)).searchParams.get("ids").split(",");
+      if (asked.includes(ids[59])) return new Response("refused", { status: 500 });
+      return new Response(JSON.stringify(Object.fromEntries(asked.map((m) => [m, { usdPrice: 1 }]))), { status: 200 });
+    });
+    expect(await readUsd(up, ids, fetchImpl, async () => {})).toBeNull();
   });
 });
 

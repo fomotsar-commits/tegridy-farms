@@ -1,16 +1,20 @@
 // ?resource=venue-tvl: what our pools hold and what is staked with us on every chain, for the
 // home page. The rules under test are the ones a visitor relies on: only SOL, USDC, the island's
-// coins and ETH add dollars in a pool (so a pile of worthless pools adds nothing), a range pool's own price
-// is never trusted, a staking pool counts at its own count of what is staked and its coin at the
+// coins and ETH add dollars in a pool (so a pile of worthless pools adds nothing), an island coin
+// counts at its market price and never at a price in our own pools, a range pool's own price is
+// never trusted, a staking pool counts at its own count of what is staked and its coin at the
 // market's price, a chain that cannot be read is named and left out instead of counted as zero,
 // and a good answer is cached so a visitor costs the chains nothing.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { base58 } from "@scure/base";
 import STAKE_POOL_IDL from "@streamflow/staking/solana/idl/stake_pool.json";
 import { toFunctionSelector } from "viem";
 import { EVM_CHAINS } from "../../../scripts/lib/venue-volume-chain.mjs";
 import REGISTRY from "../../../scripts/addresses.json";
-import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN } from "../pool-index.js";
+import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, QUOTE_COINS } from "../pool-index.js";
 import { RANGE_PROGRAM_ADDRESS } from "../../../src/lib/solana/clmm/programId.ts";
 import { ACCOUNT_POOL_STATE, POOL_STATE_LEN as RANGE_LEN_TS, POOL_STATE_OFFSETS } from "../../../src/lib/solana/clmm/program.ts";
 import { ACCOUNT_DISCRIMINATOR, POOL_SIZE as LADDER_POOL_SIZE, decodeLadderPool } from "../../../src/lib/ladder/program.ts";
@@ -24,6 +28,8 @@ vi.mock("../ratelimit.js", () => ({
 const {
   handleVenueTvl,
   readVenueTvl,
+  readSolana,
+  readMarketPrices,
   __resetVenueTvl,
   RANGE_PROGRAM,
   RANGE_POOL_LEN,
@@ -36,12 +42,14 @@ const {
   STAKE_CHAINS,
   NFT_COLLECTIONS,
   NFT_HOLDERS,
+  MARKET_DEPTH_USD,
 } = await import("../venueTvl.js");
 
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+const SOY = "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const key = (n) => base58.encode(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 7)));
@@ -71,6 +79,8 @@ function world() {
   w.mints = new Map(SOLANA_STAKE_POOLS.map((p) => [p.mint, { owner: p.mint === BAYLA ? TOKEN22 : TOKEN, decimals: 6 }]));
   w.evmStakes = {};
   w.jup = {};
+  // The liquidity Jupiter reports beside each price: deep by default; set to undefined for none at all.
+  w.depth = {};
   w.llama = {};
   w.priceCalls = [];
   let n = 10;
@@ -108,7 +118,8 @@ function world() {
         return json({ coins: Object.fromEntries(asked.filter((k) => k in w.llama).map((k) => [k, { price: w.llama[k], confidence: 0.99 }])) });
       }
       const ids = new URL(u).searchParams.get("ids").split(",");
-      return json(Object.fromEntries(ids.filter((m) => m in w.jup).map((m) => [m, { usdPrice: w.jup[m] }])));
+      const depth = (m) => (m in w.depth ? (w.depth[m] === undefined ? {} : { liquidity: w.depth[m] }) : { liquidity: 1e6 });
+      return json(Object.fromEntries(ids.filter((m) => m in w.jup).map((m) => [m, { usdPrice: w.jup[m], ...depth(m) }])));
     }
     const body = JSON.parse(init.body);
     w.calls.push(body.method);
@@ -195,36 +206,80 @@ describe("the range-pool program, as copied from src/lib/solana/clmm", () => {
 });
 
 describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
-  it("values a pool at twice its top coin, and BAYLA at its price in our deepest BAYLA/SOL pool", async () => {
+  it("values a pool at twice its top coin, and BAYLA at its market price on Jupiter, never at a price in our pools", async () => {
     const w = world();
+    w.jup[BAYLA] = 0.5;
     w.pool(CP, [SOL, 2], [MEME, 1_000_000]); // 2 SOL: $400
     w.pool(CP, [USDC, 50], [MEME, 9_000]); // 50 USDC: $100
-    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // the deepest BAYLA/SOL: BAYLA = $1; the pool itself $2,000
-    w.pool(CP, [SOL, 1], [BAYLA, 10]); // a shallow one quoting BAYLA at $10, never used for its price
-    w.pool(CP, [BAYLA, 30], [MEME, 5]); // 30 BAYLA: $60
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // twice its SOL: $2,000; the $1 it says BAYLA is worth is never used
+    w.pool(CP, [SOL, 1], [BAYLA, 10]); // twice its SOL: $200
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // 30 BAYLA at Jupiter's $0.50: $30
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2760, pools: 5, unvalued: 0 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2730, pools: 5, unvalued: 0 });
   });
 
-  it("values every other island coin the same way: BOBO at its price in our deepest BOBO/SOL pool, and a pool of two island coins at twice its higher-ranked one", async () => {
+  it("values every other island coin the same way: BOBO at its market price, and a pool of two island coins at twice its higher-ranked one", async () => {
     const w = world();
-    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // BAYLA = $1; the pool itself $2,000
-    w.pool(CP, [USDC, 20], [BOBO, 400]); // a USDC pool: $40. Not BOBO's price: a SOL pool of it exists
-    w.pool(CP, [SOL, 1], [BOBO, 4_000]); // the deepest BOBO/SOL: BOBO = $0.025; the pool itself $200
-    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $50
+    w.jup[BAYLA] = 1;
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // $2,000
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // $40
+    w.pool(CP, [SOL, 1], [BOBO, 4_000]); // $200; the $0.025 it says BOBO is worth is never used
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO at $0.05: $100
     w.pool(CP, [BAYLA, 10], [BOBO, 100]); // two island coins: twice its BAYLA, $20; its BOBO side counts nothing
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2310, pools: 5, unvalued: 0 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2360, pools: 5, unvalued: 0 });
   });
 
-  it("prices an island coin from its USDC pool when it has no SOL pool, and leaves its pools out with neither", async () => {
+  it("leaves out the pools an island coin would value while Jupiter has no price for it, whatever our pools say, and says so", async () => {
     const w = world();
-    w.pool(CP, [USDC, 20], [BOBO, 400]); // BOBO = $0.05; the pool itself $40
-    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $100
-    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA has no SOL or USDC pool here: left out
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // a SOL pool, $2,000, whatever BAYLA is worth
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // $40
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // $100
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA has no market price: left out, though our pool above says $2
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 140, pools: 2, unvalued: 1 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2140, pools: 3, unvalued: 1 });
     expect(body.state).toBe("partial");
+  });
+
+  // Anyone can open a pool here at any ratio. Priced from our own pools, 0.01 SOL against 0.0001
+  // BAYLA said BAYLA was worth $10,000, so one BAYLA beside a junk token was a $20,000 pool:
+  // on the home page's total, and the junk token on the swap's list of our coins.
+  it("a lopsided pool of ours moves neither the total nor the $200 mark", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0.001;
+    w.pool(CP, [SOL, 0.01], [BAYLA, 0.0001]); // twice its SOL: $2
+    w.pool(CP, [BAYLA, 1], [JUNK, 1e9]); // 1 BAYLA at Jupiter's $0.001: $0.002
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2, pools: 2, unvalued: 0 });
+    expect(body.usd).toBe(2);
+    expect(body.poolCoins).toEqual([]);
+  });
+
+  it("still counts the SOL and USDC pools when Jupiter cannot be read, and leaves out the island coins' with the answer partial", async () => {
+    const w = world();
+    w.down.add("lite-api.jup.ag");
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // twice its SOL: $2,000
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // no market price could be read: left out
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2200, pools: 2, unvalued: 1 });
+    expect(body.state).toBe("partial");
+  });
+
+  it("asks Jupiter once for the island coins, for the pools and the staking pools together", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0.25;
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [BAYLA, 40], [MEME, 5]); // 40 BAYLA: $20
+    w.stake(SOLANA_STAKE_POOLS[0].pool, 4_000_000n); // 4 BAYLA: $1
+    const bobo = SOLANA_STAKE_POOLS.find((p) => p.mint === BOBO);
+    w.stake(bobo.pool, 20_000_000n); // 20 BOBO: $1
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 20, unvalued: 0 });
+    expect(staked(body, "solana")).toMatchObject({ read: true, usd: 2, unvalued: 0 });
+    expect(w.priceCalls.filter((c) => c.url.includes("/price/v3"))).toHaveLength(1);
   });
 
   it("names each coin with one pool worth $200 or more, at its deepest pool, deepest first", async () => {
@@ -240,6 +295,29 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     w.pool(CP, [JUNK, 1e12], [MEME, 1e12]); // no coin: worth nothing here
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(body.poolCoins).toEqual([{ mint: MEME, usd: 600 }, { mint: BIG, usd: 500 }]);
+  });
+
+  // The browser takes whatever list it reads as the whole list (poolCoins.ts). Jupiter not
+  // answering left every coin priced in an island coin off it, for minutes, on a read that failed.
+  it("sends no $200 list at all while Jupiter cannot be read, never a shorter one", async () => {
+    const w = world();
+    w.down.add("lite-api.jup.ag");
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200, whatever Jupiter says
+    w.pool(CP, [BAYLA, 1e6], [JUNK, 5]); // the pool this answer could not value
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, unvalued: 1 });
+    expect(body.state).toBe("partial");
+    expect("poolCoins" in body).toBe(false);
+  });
+
+  it("still sends the list when Jupiter answers with no price for a coin: that coin's pools are left off it", async () => {
+    const w = world();
+    w.jup[BOBO] = 0.05; // BAYLA has none
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [BAYLA, 1e6], [JUNK, 5]); // left out: BAYLA has no market price
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.state).toBe("partial");
+    expect(body.poolCoins).toEqual([{ mint: MEME, usd: 200 }]);
   });
 
   it("names no coin while Solana's pools are not read", async () => {
@@ -269,10 +347,60 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     expect(chain(body, "solana")).toMatchObject({ read: true, usd: 440, pools: 2 });
   });
 
-  it("leaves out the pools BAYLA would value when no pool gives BAYLA a price, and says so", async () => {
+  it("leaves out the pools BAYLA would value when Jupiter has no price for BAYLA, and says so", async () => {
     const w = world();
     w.pool(CP, [SOL, 1], [MEME, 5]);
     w.pool(CP, [BAYLA, 30], [MEME, 5]);
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, pools: 1, unvalued: 1 });
+    expect(body.state).toBe("partial");
+  });
+
+  // A thin market's price is cheap to push for a minute, and every pool priced in that coin
+  // would move the total and the $200 mark with it (spec 2026-11-14, sections 5 and 6).
+  it("prices an island coin only while Jupiter reports MARKET_DEPTH_USD or more of liquidity for it", async () => {
+    const w = world();
+    const BIG = key(3);
+    w.jup[BAYLA] = 1;
+    w.depth[BAYLA] = MARKET_DEPTH_USD - 0.01; // just under the floor: left out
+    w.jup[BOBO] = 1;
+    w.depth[BOBO] = MARKET_DEPTH_USD; // at the floor: counted
+    w.jup[SOY] = 1;
+    w.depth[SOY] = undefined; // no figure at all: left out
+    w.pool(CP, [BAYLA, 300], [MEME, 5]); // would be $600
+    w.pool(CP, [BOBO, 150], [BIG, 5]); // $300
+    w.pool(CP, [SOY, 300], [JUNK, 5]); // would be $600
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 300, pools: 1, unvalued: 2 });
+    expect(body.state).toBe("partial");
+    expect(body.poolCoins).toEqual([{ mint: BIG, usd: 300 }]);
+  });
+
+  it("names the floor in the home page's small print", () => {
+    const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "src", "components", "VenueStats.tsx"), "utf8");
+    expect(text).toContain(`$${MARKET_DEPTH_USD.toLocaleString("en-US")} or more of liquidity`);
+  });
+
+  // A delisted coin's pools are withdraw-only (quotes.ts `delisted`): a swap in them is refused,
+  // so the swap must not list a token as ours on the strength of one.
+  it("names no coin for a pool priced in a delisted coin, though the money in it still counts", async () => {
+    const w = world();
+    const BIG = key(3);
+    const coins = QUOTE_COINS.map((c) => (c.mint === BOBO ? { ...c, delisted: true } : c));
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // twice 1,000 BOBO at $1: $2,000, priced in a delisted coin
+    w.pool(RANGE, [BOBO, 500], [JUNK, 5]); // 500 BOBO: $500, priced in it too
+    w.pool(CP, [SOL, 1], [BIG, 5]); // $200, priced in SOL
+    const marketPrices = async (_chain, mints) => new Map(mints.map((m) => [m, { usd: 1, liquidity: 1e6 }]));
+    const r = await readSolana({ fetchImpl: w.fetchImpl, priceOf: async () => 100, marketPrices, coins });
+    expect(r).toMatchObject({ usd: 2700, pools: 3, unvalued: 0 });
+    expect(r.poolCoins).toEqual([{ mint: BIG, usd: 200 }]);
+  });
+
+  it("leaves out the pools of an island coin Jupiter prices at zero, never counting them at $0, and says so", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0;
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // a price of 0 is no price
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, pools: 1, unvalued: 1 });
     expect(body.state).toBe("partial");
@@ -552,6 +680,17 @@ describe("staking: each pool's own count of what is staked, at the market's pric
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(staked(body, "solana")).toEqual({ chain: "solana", read: false });
     expect(body.state).toBe("partial");
+  });
+
+  it("asks Jupiter for at most 50 coins at a time, and puts the answers together", async () => {
+    const w = world();
+    const coins = Array.from({ length: 120 }, (_, i) => key(100 + i));
+    for (const c of coins) w.jup[c] = 2;
+    const got = await readMarketPrices("solana", coins, w.fetchImpl);
+    expect(w.priceCalls.map((c) => new URL(c.url).searchParams.get("ids").split(",").length)).toEqual([50, 50, 20]);
+    expect([...got.keys()].sort()).toEqual([...coins].sort());
+    // Each with the liquidity Jupiter reports beside its price.
+    expect([...got.values()]).toEqual(coins.map(() => ({ usd: 2, liquidity: 1e6 })));
   });
 
   it("asks Jupiter's keyed host when its key is set, and the keyless one when that refuses", async () => {

@@ -418,6 +418,15 @@ describe('boardPrices', () => {
     expect(price.mock.calls[1]).toEqual([['Stranger']]);
   });
 
+  // A wallet with shares in many pools: price/v3 takes at most 50 ids, and the proxy passes a longer list on as it is.
+  it('asks for coins off the list at most 50 at a time', async () => {
+    const strangers = Array.from({ length: 120 }, (_, i) => `Stranger${i}`);
+    price.mockImplementation(async (ids: string[]) => Object.fromEntries(ids.map((m) => [m, 1])));
+    const got = await boardPrices(strangers);
+    expect(price.mock.calls.slice(1).map(([ids]) => ids.length)).toEqual([50, 50, 20]);
+    for (const m of strangers) expect(got[m]).toBe(1);
+  });
+
   it('does not hold a failed read: the next leg asks again', async () => {
     price.mockRejectedValueOnce(new Error('price/v3 503')).mockResolvedValueOnce({ [WSOL_MINT]: 200 });
     await expect(boardPrices([WSOL_MINT])).rejects.toThrow('503');

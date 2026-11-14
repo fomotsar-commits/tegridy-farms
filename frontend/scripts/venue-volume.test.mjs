@@ -12,6 +12,7 @@ import {
   JUPITER_FEE_ACCOUNTS,
   LOAN_EMITTED_TOPIC,
   NFT_LENDING,
+  PRICE_IDS_MAX,
   listPairs,
   loanEmitted,
   readNftLoans,
@@ -881,6 +882,33 @@ describe("island coins: a swap with no SOL, USDC or USDT leg is valued on its is
   it("names the same island coins as the pool index, in its order", async () => {
     const { QUOTE_COINS } = await import("../api/_lib/pool-index.js");
     expect(ISLAND_COINS.map((c) => c.mint)).toEqual(QUOTE_COINS.slice(2).map((c) => c.mint));
+  });
+
+  it("gives each island coin its mint's own decimals, as the site's pairing coins have them", async () => {
+    const { QUOTE_COINS } = await import("../src/lib/solana/lp/quotes.ts");
+    expect(ISLAND_COINS.map((c) => [c.symbol, c.decimals])).toEqual(QUOTE_COINS.slice(2).map((q) => [q.symbol, q.decimals]));
+  });
+
+  // Every coin had 6 decimals, so 6 was written once for all of them: a coin with 9 would have
+  // been counted a thousand times over in the one volume figure.
+  it("values an island coin's leg at that coin's own decimals, never a fixed 6", () => {
+    const nineDecimalSoy = ISLAND_COINS.map((c) => (c.mint === SOY ? { ...c, decimals: 9 } : c));
+    expect(legUsd({ mint: SOY, raw: 2_000_000_000n }, { [SOY]: 0.5 }, nineDecimalSoy)).toBe(1);
+    expect(legUsd({ mint: SOY, raw: 2_000_000n }, { [SOY]: 0.5 })).toBe(1);
+  });
+
+  it("asks Jupiter for at most 50 coins at a time, and puts the answers together", async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({ symbol: `C${i}`, mint: base58(Buffer.from(Array.from({ length: 32 }, (_, j) => (j === 0 ? i + 1 : 5)))), decimals: 6 }));
+    const asked = [];
+    const fetchImpl = async (url) => {
+      const ids = new URL(url).searchParams.get("ids").split(",");
+      asked.push(ids.length);
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((m) => [m, { usdPrice: 2 }]))));
+    };
+    const prices = await islandPrices(fetchImpl, "", many);
+    expect(asked).toEqual([50, 50, 20]);
+    expect(Object.values(prices)).toEqual(many.map(() => 2));
+    expect(PRICE_IDS_MAX).toBe(50);
   });
 
   it("gives an island-coin pool's swap its higher-ranked coin as the leg, at that coin's market price", async () => {

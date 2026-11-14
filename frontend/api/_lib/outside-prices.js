@@ -24,6 +24,7 @@ import { readBoundedText } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 import { CP_SWAP_PROGRAM, OFFSETS, POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, WSOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from "./pool-index.js";
 import { RANGE_PROGRAM } from "./venueTvl.js";
+import { PRICE_IDS_MAX } from "../../scripts/lib/venue-volume-chain.mjs";
 
 /** The buy's size, as outsidePrice.ts has it. */
 export const PROBE_LAMPORTS = 50_000_000n;
@@ -312,9 +313,23 @@ async function quoteWithFallback(up, inputMint, outputMint, amount, fetchImpl, p
   return answer;
 }
 
-/** Waits so that calls are at least `spacing` apart; `atLeast` asks for that long a pause before this one, from now. */
-/** Every token's dollar price and SOL's in ONE price/v3 call, for the list's $ figures (poolList.ts readMarketPrices). Null when it could not be read; a 429 is tried once more after a pause. */
+/**
+ * Every token's dollar price and SOL's, for the list's $ figures (poolList.ts readMarketPrices):
+ * one price/v3 call, or one per PRICE_IDS_MAX ids for a longer list, paced like every other call.
+ * Null when any call could not be read, so a list half read is never taken for a whole one; a
+ * 429 is tried once more after a pause.
+ */
 export async function readUsd(up, ids, fetchImpl, pace) {
+  const out = {};
+  for (let i = 0; i < ids.length; i += PRICE_IDS_MAX) {
+    const usd = await readUsdTurn(up, ids.slice(i, i + PRICE_IDS_MAX), fetchImpl, pace);
+    if (!usd) return null;
+    Object.assign(out, usd);
+  }
+  return out;
+}
+
+async function readUsdTurn(up, ids, fetchImpl, pace) {
   const ask = async (host, atLeast = 0) => {
     await pace(atLeast);
     let res;
@@ -342,6 +357,7 @@ export async function readUsd(up, ids, fetchImpl, pace) {
   return a.kind === "ok" ? a.usd : null;
 }
 
+/** Waits so that calls are at least `spacing` apart; `atLeast` asks for that long a pause before this one, from now. */
 function pacer(spacing, sleep) {
   let last = 0;
   return async (atLeast = 0) => {
