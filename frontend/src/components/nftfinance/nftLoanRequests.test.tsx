@@ -215,6 +215,8 @@ describe('borrow: asking for a loan', () => {
     fillAsk('321', '1', '36.5');
     // 1 WETH at 36.5% a year for 30 days = 0.03 WETH interest.
     expect(screen.getByTestId('ask-at-most').textContent).toMatch(/costs 1\.030000 WETH for 1\.0000 WETH borrowed/);
+    // "Less" read as less WETH, which no answering offer can be: only the rate can be lower.
+    expect(screen.getByTestId('ask-at-most').textContent).toMatch(/A lender may offer a lower rate\./);
   });
 
   it('lists the wallet\'s own open request and withdraws it with a signed cancel', async () => {

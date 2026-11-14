@@ -372,7 +372,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
           {atMost !== null && principalWei !== null && (
             <p className="text-white/85 text-[12px]" style={LABEL_STYLE} data-testid="ask-at-most">
               At your highest rate, repaying at the end costs {fmtWeth(atMost, 6)} WETH for {fmtWeth(principalWei)} WETH borrowed. A lender may
-              offer less.
+              offer a lower rate.
             </p>
           )}
 
