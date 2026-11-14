@@ -1,10 +1,10 @@
-// Add, remove and open, step by step, in the order the swap's press runs its guards
-// (swapFlow.ts): a fresh read of the pool and the chain, the quote held against the one on
-// screen, the build, the check of the built bytes, the wallet's signature spliced on, a note
-// written before anything leaves, then the send.
+// Add, remove, open and cancel, step by step, in the order the swap's press runs its guards
+// (swapFlow.ts): a fresh read of the pool (or the order) and the chain, the quote held against
+// the one on screen, the build, the check of the built bytes, the wallet's signature spliced
+// on, a note written before anything leaves, then the send.
 
 import type { Csl } from '../csl';
-import { readProtocolParams, readTip } from '../chain';
+import { readProtocolParams, readTip, readUtxo } from '../chain';
 import { MAINNET_NETWORK_ID, type ParsedAddress } from '../address';
 import { sortWalletError, type Cip30Api } from '../cip30';
 import { ADA, lpAsset, lpAssetName, type CardanoAsset, type PoolState } from '../minswapV2';
@@ -15,7 +15,8 @@ import { factorySlotFor, findOwnPool, readFactoryEntries, readGlobalSetting, rea
 import { quoteDeposit, quoteWithdraw, type DepositQuote, type WithdrawQuote } from './lpMath';
 import { buildLpOrderTx, checkLpOrderTx, type LpOrderPlan } from './lpTx';
 import { assembleSignedOpen, buildOpenPoolTx, checkOpenPoolTx, type CheckedOpenPool, type OpenPoolPlan } from './openPoolTx';
-import { markLpSubmitted, writeLpNote, type LpOrderNote } from './lpWatch';
+import { assembleSignedLpCancel, buildLpCancelTx, checkLpCancelTx, type CheckedLpCancel, type LpCancelPlan } from './cancelTx';
+import { markLpCancelSent, markLpSubmitted, writeLpNote, type LpCancelNote, type LpOrderNote } from './lpWatch';
 
 export type LpPrepared =
   | { kind: 'review'; action: 'deposit'; plan: Extract<LpOrderPlan, { kind: 'deposit' }>; quote: DepositQuote; txHex: string; checked: CheckedOrder }
@@ -235,5 +236,60 @@ export async function signAndSendLp(csl: Csl, dep: OwnPools, api: Cip30Api, prep
       kept,
       message: 'The wallet reported a problem sending it. It may still have gone through: this page follows it until it shows, or until well past its expiry, when it never can.',
     };
+  }
+}
+
+export type LpPreparedCancel = { kind: 'review'; plan: LpCancelPlan; txHex: string; checked: CheckedLpCancel } | { kind: 'stop'; message: string; problems?: string[] };
+
+/** Reads the order as it stands now, builds its cancel, and checks it. Stops, with nothing to sign, on any doubt. */
+export async function prepareLpCancel(csl: Csl, dep: OwnPools, api: Cip30Api, trader: ParsedAddress, note: LpOrderNote): Promise<LpPreparedCancel> {
+  const no = (message: string, problems?: string[]): LpPreparedCancel => ({ kind: 'stop', message, problems });
+  if (note.kind === 'open') return no('A pool opening is not an order: there is nothing to cancel.');
+  if (note.traderHex !== trader.hex) return no('This order was placed from another account. Connect that one to cancel it. Nothing was built.');
+  const [order, plutus] = await Promise.all([readUtxo(note.txHash, note.orderIndex), readPlutusParams()]);
+  if (order.status !== 'ok') return no(`The order could not be read just now (${order.reason}). Nothing was built.`);
+  if (order.data === null) return no('The chain does not show this order yet. Nothing was built.');
+  if (order.data.spent) return no('The order is no longer open: the venue’s batcher filled or returned it. Nothing was built.');
+  if (plutus.status !== 'ok') return no(`The chain’s script prices could not be read (${plutus.reason}). Nothing was built.`);
+  const env = await paramsAndTip();
+  if (!env.ok) return no(env.message);
+  const w = await walletCoins(csl, api, trader);
+  if (!w.ok) return no(w.message);
+  const plan: LpCancelPlan = { trader, order: order.data.utxo, tipSlot: env.tipSlot };
+  let built;
+  try {
+    built = buildLpCancelTx(csl, dep, env.params, plutus.data, w.utxos, plan);
+  } catch (err) {
+    return no(err instanceof Error ? err.message : 'The cancel could not be built.');
+  }
+  const check = checkLpCancelTx(csl, dep, built.txHex, plan, w.utxos, env.params, plutus.data);
+  if (!check.ok) return no('The built cancel is not the one planned, so it was not offered for signing.', check.problems);
+  return { kind: 'review', plan, txHex: built.txHex, checked: check.cancel };
+}
+
+export type LpCancelSendResult =
+  | { kind: 'sent'; cancel: LpCancelNote }
+  | { kind: 'declined' }
+  | { kind: 'not-sent'; message: string }
+  /** The wallet errored while sending: the cancel may or may not be on its way. */
+  | { kind: 'unsure'; cancel: LpCancelNote; message: string };
+
+export async function signAndSendLpCancel(csl: Csl, api: Cip30Api, orderTx: string, prepared: Extract<LpPreparedCancel, { kind: 'review' }>): Promise<LpCancelSendResult> {
+  let witnessHex: string;
+  try {
+    witnessHex = await api.signTx(prepared.txHex, true);
+  } catch (err) {
+    return sortWalletError(err, 'sign') === 'declined' ? { kind: 'declined' } : { kind: 'not-sent', message: 'The wallet did not sign. Nothing was sent.' };
+  }
+  const assembled = assembleSignedLpCancel(csl, prepared.txHex, witnessHex, prepared.checked.txHash, prepared.plan.trader.payment.hash);
+  if (!assembled.ok) return { kind: 'not-sent', message: `${assembled.reason} Nothing was sent.` };
+  // Noted before the first byte leaves: a reload mid-send still knows a cancel is on its way.
+  const cancel: LpCancelNote = { txHash: assembled.txHash, sentAt: Date.now(), ttlSlot: prepared.plan.tipSlot + TTL_SLOTS };
+  markLpCancelSent(orderTx, cancel);
+  try {
+    await api.submitTx(assembled.signedHex);
+    return { kind: 'sent', cancel };
+  } catch {
+    return { kind: 'unsure', cancel, message: 'The wallet reported a problem sending the cancel. It may still have gone through: the order shows Returned once it lands.' };
   }
 }

@@ -1,7 +1,7 @@
 // Test-only. The venue's own pools as the batcher's test world has them (feat/cardano-batcher
 // cardano/batcher/test/world.ts, our contracts compiled with TEST parameters: a made-up seed,
 // nothing on any network), written to __fixtures__/own-pools-test-world.json from that branch.
-// The test deployment compiles no factory, so its hash, the two reference UTxOs and the budgets
+// The test deployment compiles no factory, so its hash, the reference UTxOs and the budgets
 // below are made up too. The treasury is the venue's real one: a record may name no other.
 import type { OwnPoolsDeploymentRecord } from '../../../../api/_lib/cardano-own-pools';
 import { parseAddressBech32, type ParsedAddress } from '../address';
@@ -40,6 +40,7 @@ export const TEST_RECORD: OwnPoolsDeploymentRecord = {
   factoryScriptHash: 'fa'.repeat(28),
   factoryRef: { ref: `${'f1'.repeat(32)}#0`, scriptSize: 3400 },
   authenRef: { ref: `${'f2'.repeat(32)}#0`, scriptSize: WORLD.scripts.authen.size },
+  orderRef: { ref: `${'f3'.repeat(32)}#0`, scriptSize: WORLD.scripts.order.size },
   openingFeeLovelace: '73000000',
   treasury: VENUE_TREASURY.bech32,
   batcherFeeLovelace: '2000000',

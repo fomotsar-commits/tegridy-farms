@@ -52,6 +52,7 @@ export interface OwnPools extends DexScripts {
   factoryScriptHash: string;
   factoryRef: ScriptRef;
   authenRef: ScriptRef;
+  orderRef: ScriptRef;
   openingFee: bigint;
   treasury: ParsedAddress;
   batcherFee: bigint;
@@ -88,8 +89,9 @@ export function readOwnPoolsDeployment(raw: OwnPoolsDeploymentRecord | null = OW
   if (poolAddress.stake?.hash === MINSWAP_STAKE_KEY) return no('the pool address carries Minswap’s stake key');
   const factoryRef = scriptRef(raw.factoryRef);
   const authenRef = scriptRef(raw.authenRef);
-  if (!factoryRef || !authenRef) return no('a reference script is not "txhash#index" with its size');
-  if (MINSWAP_REF_TXS.has(factoryRef.txHash) || MINSWAP_REF_TXS.has(authenRef.txHash)) return no('a reference script is one of Minswap’s');
+  const orderRef = scriptRef(raw.orderRef);
+  if (!factoryRef || !authenRef || !orderRef) return no('a reference script is not "txhash#index" with its size');
+  if ([factoryRef, authenRef, orderRef].some((r) => MINSWAP_REF_TXS.has(r.txHash))) return no('a reference script is one of Minswap’s');
   const treasury = parseAddressBech32(raw.treasury);
   if (!treasury || treasury.network !== MAINNET_NETWORK_ID) return no('the treasury is not a mainnet address');
   if (raw.treasury !== CARDANO_VENUE_FEE_ADDRESS) return no('the treasury is not the venue’s two-key treasury');
@@ -116,6 +118,7 @@ export function readOwnPoolsDeployment(raw: OwnPoolsDeploymentRecord | null = OW
       factoryScriptHash: raw.factoryScriptHash,
       factoryRef,
       authenRef,
+      orderRef,
       openingFee,
       treasury,
       batcherFee,

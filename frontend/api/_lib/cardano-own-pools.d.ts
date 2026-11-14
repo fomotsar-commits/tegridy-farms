@@ -1,6 +1,6 @@
 // Types for cardano-own-pools.js, shared by the API and the browser.
 
-/** A reference-script UTxO the pool-opening transaction reads, and its script's size in bytes. */
+/** A reference-script UTxO the site's own transactions read, and its script's size in bytes. */
 export interface ScriptRefRecord {
   /** "txhash#index". */
   ref: string;
@@ -16,6 +16,8 @@ export interface OwnPoolsDeploymentRecord {
   /** The factory's `pool_address` parameter, whole bech32: our pool script with the venue's stake part. */
   poolAddress: string;
   orderScriptHash: string;
+  /** Our order script as a reference script: an owner's cancel of an add or remove order reads it here. */
+  orderRef: ScriptRefRecord;
   factoryScriptHash: string;
   factoryRef: ScriptRefRecord;
   authenRef: ScriptRefRecord;
