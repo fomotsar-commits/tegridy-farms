@@ -64,6 +64,12 @@ describe("cardano-ops", () => {
     expect(JSON.parse(r.init.body)).toEqual({ _asset_list: [[MINSWAP_V2_AUTHEN_POLICY, LP]], _extended: true });
   });
 
+  it("reads one UTxO extended: an order's coins and datum come only that way, and a cancel spends exactly those", () => {
+    const r = buildKoiosRequest("utxo", { ref: `${TX}#0` }, "");
+    expect(r.url).toBe("https://api.koios.rest/api/v1/utxo_info");
+    expect(JSON.parse(r.init.body)).toEqual({ _utxo_refs: [`${TX}#0`], _extended: true });
+  });
+
   it("builds a pasted policy id's and asset1… id's reads itself, the caller's id the only text in them", () => {
     const policy = buildKoiosRequest("policy", { policy: POLICY }, "");
     expect(policy.url).toBe(

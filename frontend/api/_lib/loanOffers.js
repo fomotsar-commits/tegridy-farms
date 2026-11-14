@@ -12,6 +12,10 @@
 //                      No auth: the chain is the authority, so anyone may ask.
 //   loan-record        reads a transaction receipt and records the loans in it (opened,
 //                      repaid, liquidated, refinanced). No auth, same reason.
+//   loan-sync          a loan the book holds open but the chain has closed somewhere the
+//                      site did not see (repaid elsewhere, claimed, taken over by another
+//                      lender): finds the block it closed in and records that transaction,
+//                      as loan-record does. No auth, same reason.
 //   loan-offers (GET)  open offers, newest terms first. The site re-checks each on chain.
 //   loans (GET)        a wallet's loans. The site checks each against getLoanHash.
 //
@@ -42,7 +46,7 @@ import {
 } from "../../src/lib/gondi/loanOffer.js";
 
 export const LOAN_GET_ACTIONS = new Set(["loan-offers", "loans"]);
-export const LOAN_POST_ACTIONS = new Set(["loan-offer-create", "loan-offer-sync", "loan-record"]);
+export const LOAN_POST_ACTIONS = new Set(["loan-offer-create", "loan-offer-sync", "loan-record", "loan-sync"]);
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const UINT_RE = /^(0|[1-9][0-9]{0,77})$/;
@@ -74,6 +78,9 @@ const ERC1271 = [
     outputs: [{ name: "", type: "bytes4" }],
   },
 ];
+const ERC721_OWNER = [
+  { type: "function", name: "ownerOf", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ name: "", type: "address" }] },
+];
 const LOAN_EVENTS = GONDI_LOAN_ABI.filter((e) => e.type === "event");
 
 let _client = null;
@@ -97,6 +104,24 @@ export function makeChain(getClient) {
           getClient().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [digest, sig] }),
       });
     },
+    verifyDigest({ signer, digest, signature }) {
+      return checkDigestSignature(signer, digest, signature, {
+        getCode: (address) => getClient().getCode({ address }),
+        isValidSignature: (address, hash, sig) =>
+          getClient().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [hash, sig] }),
+      });
+    },
+    /** Who holds an NFT now, or null when the collection says there is no such token. */
+    async ownerOf({ collection, tokenId }) {
+      try {
+        return await getClient().readContract({ address: collection, abi: ERC721_OWNER, functionName: "ownerOf", args: [BigInt(tokenId)] });
+      } catch (err) {
+        // A revert is the collection's own answer; anything else is an outage and is thrown.
+        const reverted = err?.walk?.((e) => e?.name === "ContractFunctionRevertedError" || e?.name === "ContractFunctionZeroDataError");
+        if (reverted) return null;
+        throw err;
+      }
+    },
     async readOfferState({ lender, offerId, loanAddress }) {
       const [cancelled, used, balance, allowance] = await getClient().multicall({
         allowFailure: false,
@@ -117,6 +142,24 @@ export function makeChain(getClient) {
         throw err;
       }
     },
+    /** getLoanHash as of a past block (an archive read): zero once the loan has closed. */
+    loanHashAt({ loanAddress, loanId, blockNumber }) {
+      return getClient().readContract({
+        address: loanAddress,
+        abi: GONDI_LOAN_ABI,
+        functionName: "getLoanHash",
+        args: [BigInt(loanId)],
+        blockNumber,
+      });
+    },
+    latestBlock() {
+      return getClient().getBlockNumber();
+    },
+    /** Every transaction that logged anything from the loan contract in one block. */
+    async loanTxsInBlock({ loanAddress, blockNumber }) {
+      const logs = await getClient().getLogs({ address: loanAddress, fromBlock: blockNumber, toBlock: blockNumber });
+      return [...new Set(logs.map((l) => l.transactionHash))];
+    },
   };
 }
 
@@ -134,16 +177,21 @@ export async function checkOfferSignature(offer, signature, loanAddress, reads) 
     primaryType: "LoanOffer",
     message: offerToMessage(offer),
   });
-  const code = await reads.getCode(offer.lender);
+  return checkDigestSignature(offer.lender, digest, signature, reads);
+}
+
+/** The signer rule above, for any digest: the loan request book (loanRequests.js) uses it too. */
+export async function checkDigestSignature(signer, digest, signature, reads) {
+  const code = await reads.getCode(signer);
   if (code && code !== "0x") {
     try {
-      return (await reads.isValidSignature(offer.lender, digest, signature)) === MAGICVALUE_1271;
+      return (await reads.isValidSignature(signer, digest, signature)) === MAGICVALUE_1271;
     } catch {
       return false;
     }
   }
   try {
-    return sameAddress(await recoverAddress({ hash: digest, signature }), offer.lender);
+    return sameAddress(await recoverAddress({ hash: digest, signature }), signer);
   } catch {
     return false;
   }
@@ -166,6 +214,7 @@ export async function handleLoanAction(req, res, deps) {
     if (action === "loans") return await queryLoans(req.query, res, supabase);
     if (action === "loan-offer-create") return await createOffer(req.body, res, supabase, chain, now, loanAddress);
     if (action === "loan-offer-sync") return await syncOffer(req.body, res, supabase, chain, loanAddress);
+    if (action === "loan-sync") return await syncLoan(req.body, res, supabase, chain, loanAddress);
     return await recordLoans(req.body, res, supabase, chain, loanAddress);
   } catch (err) {
     console.error(`[loanOffers] ${action} failed:`, err?.message ?? err);
@@ -265,9 +314,16 @@ async function closeOffer(supabase, lender, offerId) {
 async function recordLoans(body, res, supabase, chain, loanAddress) {
   const txHash = body?.txHash;
   if (typeof txHash !== "string" || !TX_HASH_RE.test(txHash)) return send(res, 400, { error: "Invalid transaction hash" });
+  const out = await recordTx(supabase, chain, loanAddress, txHash);
+  if (out.error) return send(res, out.status, { error: out.error });
+  return send(res, 200, { loans: out.touched });
+}
+
+/** One transaction's loan events into the book. Returns { touched } or { status, error }. */
+async function recordTx(supabase, chain, loanAddress, txHash) {
   const receipt = await chain.getReceipt(txHash);
-  if (!receipt) return send(res, 404, { error: "That transaction is not on chain yet" });
-  if (receipt.status !== "success") return send(res, 400, { error: "That transaction reverted, so it opened or closed no loan" });
+  if (!receipt) return { status: 404, error: "That transaction is not on chain yet" };
+  if (receipt.status !== "success") return { status: 400, error: "That transaction reverted, so it opened or closed no loan" };
 
   const touched = [];
   for (const log of receipt.logs) {
@@ -296,8 +352,54 @@ async function recordLoans(body, res, supabase, chain, loanAddress) {
       touched.push({ loanId: a.loanId.toString(), status: "liquidated" });
     }
   }
-  if (touched.length === 0) return send(res, 400, { error: "That transaction opened or closed no loan on this venue" });
-  return send(res, 200, { loans: touched });
+  if (touched.length === 0) return { status: 400, error: "That transaction opened or closed no loan on this venue" };
+  return { touched };
+}
+
+const isZeroHash = (h) => typeof h === "string" && /^0x0*$/.test(h);
+
+/**
+ * The block a loan closed in: its hash is set as of the block that opened it and zero now, so
+ * halve the range between them with archive reads (about 25 for a year of blocks). Null while
+ * the hash is still set. Gondi emits no indexed loan id, so a log filter cannot find it.
+ */
+export async function findCloseBlock(chain, loanAddress, loanId, openedBlock) {
+  const zeroAt = async (blockNumber) => isZeroHash(await chain.loanHashAt({ loanAddress, loanId, blockNumber }));
+  const latest = BigInt(await chain.latestBlock());
+  if (!(await zeroAt(latest))) return null;
+  if (await zeroAt(openedBlock)) return openedBlock;
+  let set = openedBlock;
+  let zero = latest;
+  for (let i = 0; i < 64 && zero - set > 1n; i++) {
+    const mid = set + (zero - set) / 2n;
+    if (await zeroAt(mid)) zero = mid;
+    else set = mid;
+  }
+  return zero;
+}
+
+async function syncLoan(body, res, supabase, chain, loanAddress) {
+  const loanId = body?.loanId;
+  if (typeof loanId !== "string" || !UINT_RE.test(loanId)) return send(res, 400, { error: "Invalid loan id" });
+  const found = await supabase.from("nft_loans").select("status, emit_tx").eq("loan_id", loanId).limit(1);
+  if (found.error) throw new Error(found.error.message);
+  const row = found.data?.[0];
+  if (!row) return send(res, 404, { error: "No such loan in the book" });
+  if (row.status !== "open") return send(res, 200, { status: row.status, loans: [] });
+
+  const opened = await chain.getReceipt(row.emit_tx);
+  if (!opened) throw new Error("the transaction that opened the loan did not read back");
+  const closedAt = await findCloseBlock(chain, loanAddress, loanId, BigInt(opened.blockNumber));
+  if (closedAt === null) return send(res, 200, { status: "open", loans: [] });
+
+  const touched = [];
+  for (const txHash of await chain.loanTxsInBlock({ loanAddress, blockNumber: closedAt })) {
+    const out = await recordTx(supabase, chain, loanAddress, txHash);
+    if (out.touched) touched.push(...out.touched);
+  }
+  const after = await supabase.from("nft_loans").select("status").eq("loan_id", loanId).limit(1);
+  if (after.error) throw new Error(after.error.message);
+  return send(res, 200, { status: after.data?.[0]?.status ?? "open", loans: touched });
 }
 
 async function syncTakenOffer(supabase, chain, loanAddress, loan, offerId) {

@@ -51,17 +51,21 @@ import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
-import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
+import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank, requestAsLendForm } from '../../lib/gondi/lendDesk';
 import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
 import { LoanTimeline } from './LoanTimeline';
 import { LenderMarketPanel } from './LenderMarketPanel';
+import { AskForLoan, BorrowerRequests } from './LoanRequests';
+import { BoxHint, PresetRow } from './nftLendingBits';
+import { syncRequest, useRequestBookOpen } from '../../lib/gondi/requestBook';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
   CARD_BORDER,
   COLLECTIONS,
   COLLECTION_ART,
+  DURATION_PRESETS,
   EASE,
   FADED,
   LABEL_STYLE,
@@ -80,15 +84,6 @@ import {
   parseTokenId,
   shortenAddress,
 } from './nftLendingShared';
-
-const DURATION_PRESETS = [
-  { label: '7d', seconds: 7 * 86400 },
-  { label: '14d', seconds: 14 * 86400 },
-  { label: '30d', seconds: 30 * 86400 },
-  { label: '90d', seconds: 90 * 86400 },
-  { label: '180d', seconds: 180 * 86400 },
-  { label: '365d', seconds: 365 * 86400 },
-];
 
 // How long a signed offer stays takeable. The book takes 30 days at most.
 const OPEN_PRESETS = [
@@ -175,7 +170,7 @@ export function NFTLendingSection() {
             value: feeBps !== null ? `${bpsToPercent(feeBps)}%` : feeUnread ? 'Unavailable' : '–',
             tooltip:
               feeBps !== null
-                ? 'The venue keeps this share of the interest a lender earns. The lender keeps the rest.'
+                ? 'The venue keeps this share of the interest a lender is paid, when a loan is repaid or another lender takes it over. The lender keeps the rest. A loan that is not repaid pays no interest, so the venue gets nothing from it.'
                 : 'The fee could not be read from the loan contract, so none is shown. It is unknown right now, not zero.',
             art: pageArt('nft-lending', 2),
           },
@@ -186,8 +181,12 @@ export function NFTLendingSection() {
             art: pageArt('nft-lending', 3),
           },
         ].map((s) => (
-          <div key={s.label} className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
-            <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+          // Only the art is clipped to the rounded tile: a clipping tile hid its own tooltip.
+          // The tile with a tooltip open sits above its neighbours.
+          <div key={s.label} className="relative rounded-xl [&:has([role=tooltip])]:z-20" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0 overflow-hidden rounded-[11px]">
+              <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+            </div>
             <div
               className="relative z-10 m-2 rounded-lg p-3 md:p-4"
               style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -532,6 +531,22 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
 
       <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} setPrincipal={setPrincipal} />
 
+      {/* Borrowers asking for a loan on this collection (nothing renders while there are none).
+          Pressing one fills the form below with their NFT and terms; the lender can still change them. */}
+      <BorrowerRequests
+        collection={selectedCollection}
+        onOffer={(r) => {
+          const f = requestAsLendForm(r);
+          setSelectedCollection(r.nftCollateralAddress);
+          setAnyToken(false);
+          setTokenId(f.tokenId);
+          setPrincipal(f.principal);
+          setAprPct(f.aprPct);
+          setDuration(f.duration);
+          setLoanCount('1');
+        }}
+      />
+
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -746,54 +761,13 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
           when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
         </p>
+        {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
+            new lender take the loan over, unlocked from 15% to 85% of the term. */}
+        <p className="mt-1">
+          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a lower rate without asking you or the borrower. You then get
+          your WETH back plus the interest so far, less the venue&apos;s share of that interest.
+        </p>
       </FinePrint>
-    </div>
-  );
-}
-
-/** Under a box whose text the offer cannot use: the values it takes. */
-function BoxHint({ id, testId, text }: { id: string; testId: string; text: string }) {
-  return (
-    <p id={id} className="text-amber-300 text-[11px] mt-1" style={LABEL_STYLE} data-testid={testId}>
-      {text}
-    </p>
-  );
-}
-
-function PresetRow({
-  label,
-  tooltip,
-  presets,
-  value,
-  onChange,
-}: {
-  label: string;
-  tooltip?: string;
-  presets: { label: string; seconds: number }[];
-  value: number;
-  onChange: (s: number) => void;
-}) {
-  return (
-    <div>
-      <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
-      </label>
-      <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
-        {presets.map((d) => (
-          <button
-            key={d.seconds}
-            aria-pressed={value === d.seconds}
-            onClick={() => onChange(d.seconds)}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
-              value === d.seconds ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
-            }`}
-            style={{ background: value === d.seconds ? SELECTED_BG : CARD_BG }}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -809,6 +783,8 @@ function BorrowTab() {
   const collection = filter === 'all' ? undefined : COLLECTIONS.find((c) => c.symbol === filter)?.address;
   const book = useBookOffers({ collection, enabled: LENDING_LIVE });
   const rows = useMemo(() => book.data?.offers ?? [], [book.data]);
+  // The ask card below shows only while the request book is open; the empty line follows it.
+  const bookOpen = useRequestBookOpen(LENDING_LIVE);
 
   // Every listed offer is re-read on chain: unused, and backed by WETH the lender still
   // holds and has approved. The book cannot vouch for either.
@@ -900,7 +876,7 @@ function BorrowTab() {
       ) : shown.length === 0 ? (
         <EmptyCard
           title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
-          line="Lenders make the offers. Send one this page."
+          line={bookOpen ? 'Lenders make the offers. Ask for one below, or send a lender this page.' : 'Lenders make the offers. Send one this page.'}
           action={{
             label: 'Copy link for a lender',
             onClick: () => {
@@ -928,6 +904,8 @@ function BorrowTab() {
           })}
         </div>
       )}
+
+      {LENDING_LIVE && <AskForLoan filterCollection={collection} liveOffers={live} />}
     </div>
   );
 }
@@ -969,6 +947,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   const pledgedId = anyToken ? parseTokenId(pickedId) : BigInt(offer.nftCollateralTokenId);
   const takesIt = pledgedId !== null && acceptsToken(offer, pledgedId);
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
+  // The same words where they start a sentence ("your NAKA" before a token is picked).
+  const collateralAtStart = collateralLabel.charAt(0).toUpperCase() + collateralLabel.slice(1);
 
   const ownerQuery = useReadContract({
     address: offer.nftCollateralAddress,
@@ -1030,6 +1010,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
       .catch(() => toast.error('Loan opened, but it could not be saved to My Loans. Use "Find a loan" there with the transaction hash.'))
       .finally(() => {
         void syncOffer(offer.lender, offer.offerId).catch(() => undefined);
+        // The NFT is locked now, so a request the borrower had open on it is over.
+        if (pledgedId !== null) void syncRequest(offer.nftCollateralAddress, pledgedId.toString()).catch(() => undefined);
         refreshBook();
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per confirmed tx
@@ -1202,7 +1184,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                     : ownsPledged
                     ? `You own ${collateralLabel}.`
                     : knownNotOwned
-                    ? `${collateralLabel} is not in your wallet.`
+                    ? `${collateralAtStart} is not in your wallet.`
                     : `Couldn't find ${collateralLabel}. Check the token ID.`}
                 </p>
               )}
@@ -1231,8 +1213,13 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
                   <p>
-                    {collateralLabel} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
+                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
                     repaid by then, the lender can take it, permanently.
+                  </p>
+                  <p className="mt-1">
+                    From 15% to 85% of the term, another lender can take this loan over at a lower rate without asking you. The loan then
+                    has a new number and its deadline can only move later. If the new lender lends more, the extra WETH is sent to you
+                    and you owe it too.
                   </p>
                 </FinePrint>
               </RiskBanner>

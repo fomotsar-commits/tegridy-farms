@@ -589,12 +589,12 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             </button>
           )}
 
-          {/* NFT Finance funnel: owner-only, and only for a collection the
-              deployed TegridyNFTLending accepts (loanDeskAccepts). */}
+          {/* NFT Finance funnel: owner-only, and only for a collection the loan contract
+              takes (loanDeskAccepts). */}
           {loanDeskAccepts(collection) && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
             <Link
               to="/nft-finance"
-              aria-label="Borrow ETH against this NFT in NFT Finance"
+              aria-label="Borrow WETH against this NFT in NFT Finance"
               style={{
                 display: "block", textAlign: "center", textDecoration: "none",
                 marginTop: 10, fontFamily: "var(--mono)", fontSize: 10,

@@ -1,5 +1,7 @@
 // Small pure helpers for the Lend form and the Borrow tab's empty state.
+import { formatEther } from 'viem';
 import { LENDING_COLLECTIONS } from './loanOffer.js';
+import type { LoanRequestJson } from './loanRequest.js';
 
 /** The shares of the floor the Lend form offers as one-tap amounts. */
 export const FLOOR_SHARES = [60, 75, 90] as const;
@@ -49,4 +51,16 @@ export function lendLinkCollection(search: string): { symbol: string; address: s
     (c) => c.symbol.toLowerCase() === wanted!.toLowerCase(),
   );
   return hit ? { symbol: hit.symbol, address: hit.address } : null;
+}
+
+/** A request's terms as the Lend form's own text boxes take them. */
+export function requestAsLendForm(r: LoanRequestJson): { tokenId: string; principal: string; aprPct: string; duration: number } {
+  const bps = BigInt(r.maxAprBps);
+  const cents = (bps % 100n).toString().padStart(2, '0');
+  return {
+    tokenId: r.nftCollateralTokenId,
+    principal: formatEther(BigInt(r.principalAmount)),
+    aprPct: cents === '00' ? (bps / 100n).toString() : `${bps / 100n}.${cents}`,
+    duration: Number(r.duration),
+  };
 }

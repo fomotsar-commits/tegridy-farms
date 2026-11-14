@@ -2,7 +2,11 @@
 // nothing without CRON_SECRET or with the wrong bearer, gives each source a short budget,
 // reads Solana through the keyed RPC, and never logs a secret.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import handler from "../venue-volume-count.js";
+import { DB_TIMEOUT_MS } from "../../scripts/venue-volume.mjs";
 
 function makeReq(headers = {}, method = "GET") {
   return { method, query: {}, headers };
@@ -50,7 +54,7 @@ describe("venue-volume-count", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("runs the count with the service key, a 20-second budget per source, and the keyed Solana RPC", async () => {
+  it("runs the count with the service key, 20 seconds per source inside a run that ends before maxDuration, and the keyed Solana RPC", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: [] }), { status: 200 }));
     const run = vi.fn(async (opts) => {
@@ -64,6 +68,9 @@ describe("venue-volume-count", () => {
     const opts = run.mock.calls[0][0];
     expect(opts.env).toEqual({ SUPABASE_URL: "https://db.test", SUPABASE_SERVICE_KEY: "service-key-for-tests" });
     expect(opts.budgetMs).toBe(20_000);
+    // The run's time plus the two database calls that may follow it end inside maxDuration.
+    const vercel = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "vercel.json"), "utf-8"));
+    expect(opts.runMs + 2 * DB_TIMEOUT_MS).toBeLessThan(vercel.functions["api/venue-volume-count.js"].maxDuration * 1000);
     expect(String(fetchImpl.mock.calls[0][0])).toBe("https://keyed.test/?api-key=k");
   });
 
