@@ -131,9 +131,12 @@ describe('the automation claim is on screen before anything else', () => {
     expect(screen.getByText(/It does not repay anything/i)).toBeTruthy();
   });
 
-  it('states that no partial repay, top-up or deleverage exists on these loans', () => {
+  // Gondi can move a loan to another lender's new offer (refinanceFromLoanExecutionData); this
+  // site does not build that, so the panel says the smaller moves are missing HERE.
+  it('states that no partial repay or top-up exists, and that moving the loan is not built here', () => {
     mount(buildSnapshot([raw()], NOW));
-    expect(screen.getByText(/no partial repayment, no collateral top-up and no deleverage/i)).toBeTruthy();
+    expect(screen.getByText(/no partial repayment and no collateral top-up/i)).toBeTruthy();
+    expect(screen.getByText(/this site does not build that/i)).toBeTruthy();
   });
 
   it('renders the sentence alongside the signing button, not on another screen', () => {

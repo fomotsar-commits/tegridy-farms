@@ -5,7 +5,7 @@ import { CHAIN_ID, isDeployed } from '../lib/constants';
 import { GONDI_LOAN_ABI } from '../lib/gondi/abi.js';
 import { GONDI_LOAN_ADDRESS, sameAddress } from '../lib/gondi/loanOffer.js';
 import { loanEnd, loanFromJson, loanHash, type Loan } from '../lib/gondi/loanMath';
-import { useBookLoans } from '../lib/gondi/offerBook';
+import { useBookLoans, useSyncClosedLoans } from '../lib/gondi/offerBook';
 
 // The wallet's open NFT loans, for the dashboard.
 //
@@ -13,7 +13,7 @@ import { useBookLoans } from '../lib/gondi/offerBook';
 // the loans come from the offer book's records (lib/gondi/offerBook.ts), and each open one
 // is checked against `getLoanHash` on mainnet, exactly as My Loans does
 // (components/nftfinance/NFTLendingLoans.tsx). A zero hash is a loan closed on chain that
-// the book has not heard about yet, and it is left out. A hash that does not match, or that
+// the book has not heard about yet: it is left out, and the book is asked how it closed. A hash that does not match, or that
 // could not be read, is UNREAD: counted, never shown as a loan and never dropped silently.
 
 /** Re-evaluate overdue on a minute tick, so a loan passing its due time flips without a reload. */
@@ -91,6 +91,10 @@ export function useMyLoans() {
     }) as const),
     query: { enabled: deployed && openRows.length > 0, refetchInterval: REFETCH_MS },
   });
+
+  // A zero hash on an open record: the loan closed, or moved to a new lender, where the site
+  // did not see it. The book finds out how, and a moved loan comes back as its new loan.
+  useSyncClosedLoans(openRows, hashes.data);
 
   const [statusTick, setStatusTick] = useState(0);
   useEffect(() => {

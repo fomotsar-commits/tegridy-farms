@@ -1,0 +1,22 @@
+{
+  "name": "@memetics/cardano-batcher",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The batcher for memetics.finance's own Cardano pools (a Minswap V2 copy): applies queued orders to a pool in one transaction.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@emurgo/cardano-serialization-lib-nodejs": "17.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.10.1"
+  }
+}
