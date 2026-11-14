@@ -138,6 +138,16 @@ beforeEach(() => {
 });
 
 describe('how a range position earns', () => {
+  it('How it works says fees wait until you collect them, and how a reward is shared and paid for, with no venue cut', async () => {
+    show(readers());
+    const card = await screen.findByTestId('range-earns');
+    await waitFor(() => expect(card.textContent).toContain('stay with your position until you collect them.'));
+    const reward = within(card).getByText(
+      'If a pool runs a reward, positions in range share it by their liquidity. Whoever starts a reward pays for all of it up front, and the venue takes no cut of it.',
+    );
+    expect(reward.closest('details')).not.toBeNull();
+  });
+
   it('says what LPs keep and what the venue keeps, from the pool’s fee tier, and that out of range earns nothing', async () => {
     show(readers());
     const card = await screen.findByTestId('range-earns');
@@ -656,6 +666,7 @@ describe('your positions', () => {
     await waitFor(() => expect((within(row).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(false));
     expect((within(row).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(row).getByRole('button', { name: 'Close' }));
+    expect(row.textContent).toContain('Takes everything out, fees and rewards included, then burns');
     fireEvent.click(within(row).getByRole('button', { name: 'Review: close the position' }));
     await waitFor(() => expect(api.prepareRangeClose).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeClose).mock.calls[0]![3].position.toBase58()).toBe(w.position.address);
@@ -687,7 +698,7 @@ describe('your positions', () => {
     const row = await screen.findByTestId('range-position');
     expect(within(row).getByText('Fees earned').parentElement).toHaveTextContent('0 BAYLA and 0 SOL');
     expect(within(row).getByText('Rewards earned').parentElement).toHaveTextContent('48.2 BAYLA');
-    expect(within(row).getByTestId('range-position-read-at').textContent).toBe('As of 14:02:11 UTC, the chain’s clock. Review shows the exact amounts.');
+    expect(within(row).getByTestId('range-position-read-at').textContent).toBe('As of 14:02:11 UTC, the chain’s clock. Review reads them again.');
     const collect = within(row).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(collect);
@@ -729,6 +740,20 @@ describe('your positions', () => {
     expect(within(rows[0]!).getByText('Rewards earned').parentElement).toHaveTextContent('could not be worked out just now; Collect pays them in full all the same');
     await waitFor(() => expect((within(rows[0]!).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(false));
     expect(within(rows[1]!).getByText('Rewards earned').parentElement).toHaveTextContent(`1500 smallest units of Unknown token · ${unknown}`);
+  });
+
+  it('a reward coin off the site’s list is named by the ticker its own check read, with its whole address', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const koko = key(78).toBase58();
+    const rp = poolOn(tier(), { rewards: [{ mint: new PublicKey(koko), vault: key(32) }] });
+    const w = positionOf({ n: 9, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 0, mint: koko, owed: 2_500_000n, decimals: 6, feeOnTransfer: false }] }, rp);
+    const r = readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } }, checks: [claims(koko, 'KOKO')] });
+    show(r);
+    const row = await screen.findByTestId('range-position');
+    await waitFor(() => expect(within(row).getByText('Rewards earned').parentElement).toHaveTextContent(`2.5 KOKO · ${koko}`));
+    // Its check is read with the positions' own tokens, in the one read.
+    expect(vi.mocked(r.tokenSafety).mock.calls.some(([mints]) => mints.includes(koko))).toBe(true);
   });
 
   // The vault paused removal: the program brings nothing up to date, so a collect pays only the record's figures.

@@ -211,7 +211,7 @@ describe('a collect’s review', () => {
 
   it('a reward’s vault holding less than is owed: what it pays, by the coin’s ticker, and the rest stays owed', () => {
     render(<RangeRows summary={collect([paid({ owed: 999_999n, amount: 400_000n })])} />);
-    expect(screen.getByText('This reward’s vault holds less than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed to it.')).toBeInTheDocument();
+    expect(screen.getByText('This reward’s vault holds less than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed.')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(BAYLA.toBase58());
   });
 
@@ -240,6 +240,18 @@ describe('a collect’s review', () => {
     expect(screen.getByText('Fees it has earned').parentElement).toHaveTextContent('12.5 BAYLA and 0.0042 SOL');
     expect(screen.getByText('Test run: your BAYLA changes by').parentElement).toHaveTextContent('+60.7');
     expect(screen.queryByText(/tokens/)).toBeNull();
+  });
+
+  it('a reward coin off the site’s list: named by its own ticker and whole address, beside the amount, and the label can shrink', () => {
+    const koko = key(78);
+    const base = collect([paid({ mint: koko, amount: 1_500_000n, owed: 1_500_000n })]) as Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>;
+    const p = prepared(base, { simulated: { signerLamportsDelta: -17_000n, tokenDeltas: [{ mint: koko, account: key(72), delta: 1_500_000n, decimals: 6 }] } });
+    render(<TxReview prepared={p} decimals={6} display={(x) => x} coinName={(m) => (m === koko.toBase58() ? 'KOKO' : null)} />);
+    expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent(`1.5 KOKO · ${koko.toBase58()}`);
+    const label = screen.getByText('Test run: your reward coin changes by');
+    expect(label.parentElement).toHaveTextContent(`+1.5 KOKO · ${koko.toBase58()}`);
+    // A flex item shrinks below its content only with min-width 0: else a long label runs past the row at 390.
+    expect(label.className).toContain('min-w-0');
   });
 
   it('a take-out of some liquidity keeps its own title', () => {

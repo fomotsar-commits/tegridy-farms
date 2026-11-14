@@ -44,15 +44,23 @@ export function bothAmounts(p: NamedPair, amount0: bigint, amount1: bigint): str
   return `${tokenAmount(p, token)} and ${coinAmount(p, coin)}`;
 }
 
-/** A reward coin as the site names it: its ticker from the site's own list, else "Unknown token · <whole address>". */
-export function rewardCoin(mint: string): string {
-  return quoteCoin(mint)?.symbol ?? registryToken(mint)?.symbol ?? `Unknown token · ${mint}`;
+/** One of the site's own coins (a pairing coin or a listed room's), by its ticker alone; null for any other. */
+export function siteCoin(mint: string): string | null {
+  return quoteCoin(mint)?.symbol ?? registryToken(mint)?.symbol ?? null;
+}
+
+/**
+ * A reward coin as the site names it: its ticker from the site's own list, else the ticker its
+ * own check read (`ticker`, "fake X" for a copy) or "Unknown token", with its whole address.
+ */
+export function rewardCoin(mint: string, ticker?: string | null): string {
+  return siteCoin(mint) ?? `${ticker ?? 'Unknown token'} · ${mint}`;
 }
 
 /** "48.2 BAYLA". With its mint unread, the amount in the coin's smallest units, said so. */
-export function rewardAmount(amount: bigint, decimals: number | null, mint: string): string {
-  if (decimals === null) return `${amount} smallest units of ${rewardCoin(mint)}`;
-  return `${formatTokenAmount(amount, decimals, 6).text} ${rewardCoin(mint)}`;
+export function rewardAmount(amount: bigint, decimals: number | null, mint: string, ticker?: string | null): string {
+  if (decimals === null) return `${amount} smallest units of ${rewardCoin(mint, ticker)}`;
+  return `${formatTokenAmount(amount, decimals, 6).text} ${rewardCoin(mint, ticker)}`;
 }
 
 /** A chain time (unix seconds) as "14:02:11 UTC". */

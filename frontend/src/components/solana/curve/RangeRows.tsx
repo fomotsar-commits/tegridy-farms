@@ -17,7 +17,7 @@ import { rewardAmount, rewardCoin } from '../range/rangeText';
 const coinText = (v: bigint, decimals: number, symbol: string, native: boolean) =>
   native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, decimals, decimals).text} ${symbol}`;
 
-export function RangeRows({ summary: s }: { summary: RangeSummary }) {
+export function RangeRows({ summary: s, coinName }: { summary: RangeSummary; coinName?: (mint: string) => string | null }) {
   const l = s.poolLine;
   const q = l.quote;
   const venue = rangeVenueEarns(l, l.feeCeiling);
@@ -72,14 +72,14 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
             <Row label="Rewards it pays" value="could not be worked out just now; what it is owed is paid out all the same" mono={false} />
           ) : (
             // A running reward grows each second, so this line moves with the chain's clock alone.
-            s.rewards.length > 0 && <Row label="Rewards it pays" value={s.rewards.map((r) => rewardAmount(r.amount, r.decimals, r.mint.toBase58())).join(' and ')} mono={false} line="clock" />
+            s.rewards.length > 0 && <Row label="Rewards it pays" value={s.rewards.map((r) => rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))).join(' and ')} mono={false} line="clock" />
           )}
           {s.rewards?.map((r) => {
-            const coin = rewardCoin(r.mint.toBase58());
+            const coin = rewardCoin(r.mint.toBase58(), coinName?.(r.mint.toBase58()));
             return (
               <Fragment key={r.mint.toBase58()}>
                 {r.amount < r.owed && (
-                  <Notice tone="warn">{`This reward’s vault holds less than the position is owed, so it pays ${rewardAmount(r.amount, r.decimals, r.mint.toBase58())} now and the rest stays owed to it.`}</Notice>
+                  <Notice tone="warn">{`This reward’s vault holds less than the position is owed, so it pays ${rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))} now and the rest stays owed.`}</Notice>
                 )}
                 {r.feeOnTransfer === true && <Notice tone="warn">{`${coin} takes its own fee out of each transfer, so less ${coin} than this arrives in your wallet.`}</Notice>}
                 {r.feeOnTransfer === null && <Notice tone="warn">{`${coin}’s mint could not be read just now, so whether it takes a fee out of each transfer is not known.`}</Notice>}

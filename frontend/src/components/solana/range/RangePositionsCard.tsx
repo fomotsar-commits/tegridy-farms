@@ -151,10 +151,10 @@ function PositionRow(p: {
       <Notice tone={status.tone}>{status.text}</Notice>
       <Row label="Holds now" value={w.amounts ? both(w.amounts.amount0, w.amounts.amount1) : 'could not be worked out just now'} mono={false} />
       <Row label="Fees earned" value={w.fees ? both(w.fees.fee0, w.fees.fee1) : `could not be worked out just now${inFull(paused)}`} mono={false} />
-      <Row label="Rewards earned" value={rewardsText(w, hasRewards, inFull(paused))} mono={false} />
+      <Row label="Rewards earned" value={rewardsText(w, hasRewards, inFull(paused), p.nameOf)} mono={false} />
       {w.chainTime !== null && (
         <p className="text-white/45 text-[10px]" data-testid="range-position-read-at">
-          {`As of ${utcClock(w.chainTime)}, the chain’s clock. Review shows the exact amounts.`}
+          {`As of ${utcClock(w.chainTime)}, the chain’s clock. Review reads them again.`}
         </p>
       )}
       {paused.map((t) => (
@@ -198,6 +198,7 @@ function PositionRow(p: {
 function ActionPanel(p: {
   w: WalletPosition;
   pair: Pair | null;
+  nameOf: (mint: string) => string | null;
   action: Action;
   onClose: () => void;
   write: { api: RangeWriteApi; cfg: CurveWriteConfig } | null;
@@ -215,6 +216,7 @@ function ActionPanel(p: {
 function ActionInner(p: {
   w: WalletPosition;
   pair: Pair | null;
+  nameOf: (mint: string) => string | null;
   action: Action;
   onClose: () => void;
   write: { api: RangeWriteApi; cfg: CurveWriteConfig };
@@ -252,6 +254,7 @@ function ActionInner(p: {
         cluster={cfg.cluster}
         decimals={p.pair?.tokenDecimals ?? null}
         signer={signer}
+        coinName={p.nameOf}
         preparingText="Reading the position again and test-running it on the network…"
       />
     );
@@ -260,7 +263,7 @@ function ActionInner(p: {
     <div className="space-y-2 pt-1" data-testid={`range-${kind}-panel`}>
       <p className="text-white font-semibold text-[12px]">{title}</p>
       {kind === 'collect' && <p className="text-white/70">Pays out what it has earned. The liquidity stays in.</p>}
-      {kind === 'close' && <p className="text-white/70">Takes everything out, fees included, then burns the position’s NFT and closes its record, so its deposits come back to you too.</p>}
+      {kind === 'close' && <p className="text-white/70">Takes everything out, fees and rewards included, then burns the position’s NFT and closes its record, so its deposits come back to you too.</p>}
       {kind === 'remove' && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="How much to take out">
           {PERCENTS.map((x) => (
@@ -294,10 +297,10 @@ function ActionInner(p: {
 const inFull = (paused: string[]) => (paused.length === 0 ? '; Collect pays them in full all the same' : '');
 
 /** "48.2 BAYLA", each running reward by its coin; said when the pool runs none or it did not work out, never 0. */
-function rewardsText(w: WalletPosition, hasRewards: boolean, tail: string): string {
+function rewardsText(w: WalletPosition, hasRewards: boolean, tail: string, nameOf: (mint: string) => string | null): string {
   if (!hasRewards) return 'none: this pool runs no reward';
   if (w.rewards === null) return `could not be worked out just now${tail}`;
   return w.rewards
-    .map((r) => rewardAmount(r.owed, r.decimals, r.mint) + (r.feeOnTransfer ? ` (${rewardCoin(r.mint)} takes a fee out of each transfer, so less arrives)` : ''))
+    .map((r) => rewardAmount(r.owed, r.decimals, r.mint, nameOf(r.mint)) + (r.feeOnTransfer ? ` (${rewardCoin(r.mint, nameOf(r.mint))} takes a fee out of each transfer, so less arrives)` : ''))
     .join(' and ');
 }
