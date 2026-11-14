@@ -4,9 +4,9 @@ import { GNSS_SPECIES, TRAIT_LORE } from "../constants";
 
 /* ── Tier config ── */
 const TIERS = [
-  { key: "legendary", label: "LEGENDARY", color: "var(--gold)",      bg: "rgba(200,168,80,0.10)", border: "rgba(200,168,80,0.25)" },
-  { key: "rare",      label: "RARE",      color: "var(--naka-blue)", bg: "rgba(111,168,220,0.08)", border: "rgba(111,168,220,0.20)" },
-  { key: "uncommon",  label: "UNCOMMON",   color: "var(--green)",     bg: "rgba(74,222,128,0.06)",  border: "rgba(74,222,128,0.18)" },
+  { key: "legendary", label: "LEGENDARY", color: "var(--gold)",      bg: "rgba(255,255,255,0.07)", border: "rgba(255,255,255,0.16)" },
+  { key: "rare",      label: "RARE",      color: "var(--naka-blue)", bg: "rgba(255,255,255,0.056)", border: "rgba(255,255,255,0.16)" },
+  { key: "uncommon",  label: "UNCOMMON",   color: "var(--green)",     bg: "rgba(47,217,139,0.06)",  border: "rgba(47,217,139,0.18)" },
   { key: "common",    label: "COMMON",     color: "var(--text-dim)",  bg: "rgba(255,255,255,0.02)", border: "rgba(255,255,255,0.06)" },
 ];
 
@@ -16,7 +16,7 @@ const TIER_MAP = Object.fromEntries(TIERS.map(t => [t.key, t]));
 const ALIGNMENT_DISPLAY = {
   XEN:    { hex: "#a855f7", confirmed: true },
   RADI:   { hex: "#f97316", confirmed: false },
-  LIT:    { hex: "#facc15", confirmed: false },
+  LIT:    { hex: "#f2c14e", confirmed: false },
   SILI:   { hex: "#6ee7b7", confirmed: false },
   MAGN:   { hex: "#60a5fa", confirmed: false },
   NIO:    { hex: "#f472b6", confirmed: false },
@@ -33,15 +33,17 @@ const S = {
     marginTop: 48,
   },
   sectionTitle: {
-    fontFamily: "var(--pixel)",
-    fontSize: 11,
-    color: "var(--naka-blue)",
-    letterSpacing: "0.06em",
+    fontFamily: "var(--heading)",
+    fontSize: 15,
+    color: "var(--text)",
     marginBottom: 24,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   sectionSubtitle: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-muted)",
     marginBottom: 20,
     marginTop: -16,
@@ -54,10 +56,10 @@ const S = {
   tierLabel: (color, bg) => ({
     display: "inline-block",
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     letterSpacing: "0.1em",
     padding: "3px 10px",
-    borderRadius: 4,
+    borderRadius: 3,
     color,
     background: bg,
     marginBottom: 10,
@@ -71,10 +73,10 @@ const S = {
   /* Species card */
   card: (tier) => ({
     background: tier === "legendary"
-      ? "linear-gradient(135deg, rgba(200,168,80,0.12), rgba(200,168,80,0.04))"
+      ? "linear-gradient(135deg, rgba(255,255,255,0.054), rgba(255,255,255,0.028))"
       : "var(--surface)",
     border: `1px solid ${TIER_MAP[tier]?.border || "rgba(255,255,255,0.04)"}`,
-    borderRadius: 10,
+    borderRadius: 6,
     padding: "16px 14px",
     cursor: "pointer",
     transition: "transform .15s, box-shadow .15s",
@@ -97,32 +99,32 @@ const S = {
   }),
   letterBadge: (color) => ({
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     padding: "2px 8px",
-    borderRadius: 4,
+    borderRadius: 3,
     background: `${color}15`,
     color,
     fontWeight: 600,
   }),
   tierBadge: (color) => ({
     fontFamily: "var(--mono)",
-    fontSize: 8,
+    fontSize: 10,
     padding: "2px 6px",
-    borderRadius: 4,
+    borderRadius: 3,
     background: `${color}15`,
     color,
     textTransform: "uppercase",
   }),
   visualDesc: {
     fontFamily: "var(--display)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-dim)",
     lineHeight: 1.6,
     marginBottom: 6,
   },
   supplyLine: (color) => ({
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color,
     letterSpacing: "0.04em",
   }),
@@ -135,7 +137,7 @@ const S = {
   },
   detailLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--text-muted)",
     letterSpacing: "0.06em",
     marginBottom: 4,
@@ -149,11 +151,11 @@ const S = {
   },
   subspecieTag: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     padding: "2px 8px",
-    borderRadius: 4,
-    background: "rgba(200,168,80,0.06)",
-    border: "1px solid rgba(200,168,80,0.12)",
+    borderRadius: 3,
+    background: "rgba(255,255,255,0.042)",
+    border: "1px solid rgba(255,255,255,0.09)",
     color: "var(--gold)",
   },
   galleryBtn: {
@@ -161,12 +163,12 @@ const S = {
     alignItems: "center",
     gap: 5,
     padding: "6px 12px",
-    borderRadius: 6,
+    borderRadius: 4,
     border: "1px solid var(--naka-blue)",
-    background: "rgba(111,168,220,0.08)",
+    background: "rgba(255,255,255,0.056)",
     color: "var(--naka-blue)",
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     cursor: "pointer",
     transition: "background .15s, color .15s",
     marginTop: 6,
@@ -181,7 +183,7 @@ const S = {
   alignmentCard: {
     background: "var(--surface)",
     border: "1px solid rgba(255,255,255,0.04)",
-    borderRadius: 10,
+    borderRadius: 6,
     padding: "14px 14px",
     display: "flex",
     gap: 12,
@@ -190,21 +192,21 @@ const S = {
   colorSwatch: (hex) => ({
     width: 28,
     height: 28,
-    borderRadius: 6,
+    borderRadius: 4,
     background: hex,
     flexShrink: 0,
     boxShadow: `0 0 12px ${hex}40`,
   }),
   alignName: {
     fontFamily: "var(--display)",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 600,
     color: "var(--text)",
     marginBottom: 2,
   },
   alignStatus: (confirmed) => ({
     fontFamily: "var(--mono)",
-    fontSize: 8,
+    fontSize: 10,
     color: confirmed ? "var(--green)" : "var(--text-muted)",
     letterSpacing: "0.06em",
     textTransform: "uppercase",
@@ -212,7 +214,7 @@ const S = {
   }),
   alignDesc: {
     fontFamily: "var(--display)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     lineHeight: 1.5,
   },
@@ -226,19 +228,19 @@ const S = {
   paramCard: {
     background: "var(--surface)",
     padding: "14px 16px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: "1px solid rgba(255,255,255,0.04)",
   },
   paramName: {
     fontFamily: "var(--display)",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 600,
     color: "var(--text)",
     marginBottom: 4,
   },
   paramDesc: {
     fontFamily: "var(--display)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     lineHeight: 1.6,
   },
@@ -257,27 +259,27 @@ const S = {
   },
   chartLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text)",
     textAlign: "right",
   },
   chartBarOuter: {
     height: 16,
-    borderRadius: 4,
+    borderRadius: 3,
     background: "rgba(255,255,255,0.03)",
     overflow: "hidden",
   },
   chartBarInner: (pct, color) => ({
     height: "100%",
     width: `${Math.max(pct, 0.5)}%`,
-    borderRadius: 4,
+    borderRadius: 3,
     background: color,
     transition: "width .4s ease",
     boxShadow: color === "var(--gold)" ? "0 0 8px var(--gold)" : "none",
   }),
   chartCount: (color) => ({
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color,
     textAlign: "left",
   }),
@@ -411,14 +413,14 @@ export default function SpeciesEncyclopedia({ onNavigateGallery }) {
                               </span>
                             ))}
                           </div>
-                          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginBottom: 8 }}>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginBottom: 8 }}>
                             Naming convention: {SUBSPECIES_NAMES.join(" \u2192 ")}
                           </div>
                         </>
                       )}
 
                       {sp.subspecies.length === 0 && (
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginBottom: 8 }}>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
                           Pure form only -- no subspecies variations.
                         </div>
                       )}
@@ -428,7 +430,7 @@ export default function SpeciesEncyclopedia({ onNavigateGallery }) {
                         style={S.galleryBtn}
                         onClick={(e) => { e.stopPropagation(); handleViewInGallery(sp.name); }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--naka-blue)"; e.currentTarget.style.color = "#fff"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(111,168,220,0.08)"; e.currentTarget.style.color = "var(--naka-blue)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.056)"; e.currentTarget.style.color = "var(--naka-blue)"; }}
                       >
                         View in Gallery {"\u2192"}
                       </button>

@@ -35,10 +35,6 @@ function injectKeyframes() {
   keyframesInjected.current = true;
   const sheet = document.createElement("style");
   sheet.textContent = `
-    @keyframes snipeGlow {
-      0%, 100% { box-shadow: 0 0 8px rgba(255,215,0,0.2); }
-      50% { box-shadow: 0 0 22px rgba(255,215,0,0.5); }
-    }
     @keyframes snipeSpin {
       to { transform: rotate(360deg); }
     }
@@ -52,7 +48,7 @@ const s = {
   panel: {
     background: "var(--surface)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: 20,
     fontFamily: "var(--mono)",
   },
@@ -63,15 +59,17 @@ const s = {
     marginBottom: 16,
   },
   title: {
-    fontFamily: "var(--pixel)",
-    fontSize: 16,
-    color: "var(--gold)",
+    fontFamily: "var(--heading)",
+    fontSize: 20,
+    color: "var(--text)",
     margin: 0,
-    letterSpacing: 1,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   summary: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
     marginBottom: 14,
     lineHeight: 1.6,
@@ -85,7 +83,7 @@ const s = {
     padding: "12px 14px",
     background: "var(--card)",
     border: "1px solid var(--border)",
-    borderRadius: 8,
+    borderRadius: 4,
   },
   filterGroup: {
     display: "flex",
@@ -96,7 +94,7 @@ const s = {
   },
   filterLabel: {
     fontFamily: "var(--pixel)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -104,7 +102,7 @@ const s = {
   input: {
     background: "var(--surface)",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "6px 10px",
     color: "inherit",
     fontFamily: "var(--mono)",
@@ -120,7 +118,7 @@ const s = {
   },
   th: {
     fontFamily: "var(--pixel)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     textTransform: "uppercase",
     textAlign: "left",
@@ -131,10 +129,9 @@ const s = {
   row: (isTop) => ({
     background: "var(--card)",
     border: "1px solid var(--border)",
-    borderRadius: 8,
+    borderRadius: 4,
     cursor: "pointer",
-    transition: "box-shadow 0.3s, border-color 0.3s",
-    animation: isTop ? "snipeGlow 2s ease-in-out infinite" : "none",
+    transition: "border-color 0.15s",
     borderColor: isTop ? "var(--gold)" : "var(--border)",
   }),
   td: {
@@ -146,7 +143,7 @@ const s = {
   thumb: {
     width: 36,
     height: 36,
-    borderRadius: 6,
+    borderRadius: 4,
     objectFit: "cover",
   },
   scoreBar: {
@@ -156,23 +153,23 @@ const s = {
     maxWidth: 80,
   },
   cartBtn: {
-    background: "var(--naka-blue)",
-    color: "#fff",
+    background: "var(--accent)",
+    color: "var(--on-accent)",
     border: "none",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "5px 10px",
     fontFamily: "var(--pixel)",
-    fontSize: 10,
+    fontSize: 11,
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
   refreshBtn: {
     background: "transparent",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "4px 10px",
     fontFamily: "var(--pixel)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     cursor: "pointer",
     display: "inline-flex",
@@ -183,7 +180,7 @@ const s = {
   empty: {
     textAlign: "center",
     fontFamily: "var(--pixel)",
-    fontSize: 12,
+    fontSize: 13,
     padding: "48px 20px",
     color: "var(--text-dim)",
   },
@@ -201,7 +198,7 @@ const s = {
   },
   emptyHint: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-dim)",
     lineHeight: 1.5,
   },
@@ -368,7 +365,7 @@ export default function RaritySniper({
       <div style={s.header}>
         <h3 style={s.title}>RARITY SNIPER</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
             {filtered.length} / {opportunities.length} opportunities
           </span>
           {onRefresh && (
@@ -398,17 +395,17 @@ export default function RaritySniper({
           {filtered.length} sniping {filtered.length === 1 ? "opportunity" : "opportunities"} found
         </span>
         {!hasRarity && filtered.length > 0 && (
-          <span style={{ color: "var(--text-dim)", marginLeft: 8, fontSize: 11 }}>
+          <span style={{ color: "var(--text-dim)", marginLeft: 8, fontSize: 12 }}>
             (no trait data for {collectionName} — ranked by price)
           </span>
         )}
         {hasRarity && opportunities.length > 0 && rankedCount < opportunities.length && (
-          <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 11 }}>
+          <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 12 }}>
             (rarity ranks known for {rankedCount} of {opportunities.length} listed tokens — the rest are scored on price only)
           </span>
         )}
         {isApproximate && (
-          <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 11 }}>
+          <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 12 }}>
             (ranks approximate — computed from the {tokens.length} {collectionName} tokens loaded so far)
           </span>
         )}
@@ -533,7 +530,7 @@ export default function RaritySniper({
                         </span>
                         {item.scoredBy === "price" && (
                           <span
-                            style={{ fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}
+                            style={{ fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}
                             title="No rarity rank loaded for this token — scored on price alone"
                           >
                             price only

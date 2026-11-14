@@ -13,7 +13,6 @@ import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { copyToClipboard, fulfillSeaportOrder, fetchTokenSalesHistory, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
-import { pageArt } from "../../lib/artConfig";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
@@ -39,13 +38,13 @@ function FairValueBadge({ nft, floorPrice, supply }) {
 
   return (
     <div style={{
-      fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+      fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
       marginTop: 8, display: "flex", alignItems: "center", gap: 8,
     }}>
       <span>Est. Fair Value: <Eth size={10} /> {formatPrice(fairValue)}</span>
       {label && (
         <span style={{
-          fontSize: 8, fontWeight: 700, color, background: `${color}15`,
+          fontSize: 10, fontWeight: 700, color, background: `${color}15`,
           border: `1px solid ${color}30`, borderRadius: 3, padding: "1px 6px",
           letterSpacing: "0.06em",
         }}>{label}</span>
@@ -79,7 +78,7 @@ function PriceHistoryChart({ tokenId, contract }) {
   const sales = current ? result.sales : null;
 
   if (current && result.failed) return (
-    <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+    <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
       Sales history for this token is unavailable right now
     </div>
   );
@@ -88,13 +87,13 @@ function PriceHistoryChart({ tokenId, contract }) {
   // and content below don't shift when the chart pops in (F804).
   if (!sales) return (
     <div
-      style={{ marginTop: 12, height: 110, borderRadius: 8, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+      style={{ marginTop: 12, height: 110, borderRadius: 4, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
       aria-busy="true"
       aria-label="Loading price history"
     />
   );
   if (sales.length === 0) return (
-    <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
       No sales history for this token
     </div>
   );
@@ -113,7 +112,7 @@ function PriceHistoryChart({ tokenId, contract }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 8 }}>
         PRICE HISTORY ({sales.length} sale{sales.length !== 1 ? "s" : ""})
       </div>
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Price history sparkline, ${sales.length} sale${sales.length !== 1 ? "s" : ""}`} style={{ display: "block", opacity: 0.8, maxWidth: w }}>
@@ -138,7 +137,7 @@ function PriceHistoryChart({ tokenId, contract }) {
           );
         })}
       </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
         <span><Eth size={9} /> {formatPrice(minP)}</span>
         <span>Avg: <Eth size={9} /> {prices.length > 0 ? formatPrice(prices.reduce((a, b) => a + b, 0) / prices.length) : "0"}</span>
         <span><Eth size={9} /> {formatPrice(maxP)}</span>
@@ -301,28 +300,14 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           </button>
         </div>
 
-        {/* Details Side.
-            Art backs ONLY this column, never `.modal-image-side` — the NFT is the
-            hero on the left and a second image behind it would compete with the
-            collection's own artwork. Scrim is the lightest of the three popups
-            (0.78->0.86) because this column is large type with generous spacing.
-            Safe under both named themes: `theme-midnight`/`theme-sovereign` override
-            `.modal-content` border and box-shadow with !important but never
-            `background`, and neither themes `.modal-details` at all. */}
-        <div
-          className="modal-details"
-          style={{
-            background: `linear-gradient(180deg, rgba(10,16,32,0.78) 0%, rgba(10,16,32,0.86) 100%), url(${pageArt("nft-detail", 0).src}) center / cover no-repeat`,
-            textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
-          }}
-        >
+        <div className="modal-details">
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <h2 style={{ fontFamily: "var(--display)", fontSize: "clamp(16px, 5vw, 26px)", fontWeight: 700, color: "var(--text)", letterSpacing: "-0.03em" }}>
                 {displayName}
               </h2>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 6, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 6, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span
                   onClick={() => handleCopy(nft.id, "id")}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCopy(nft.id, "id"); } }}
@@ -405,7 +390,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           {/* Price */}
           {nft.price != null && nft.price > 0 && (
             <div className="price-box">
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 10 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 10 }}>
                 CURRENT PRICE
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -416,7 +401,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 <Usd eth={Number(nft.price)} size={13} />
               </div>
               {nft.lastSale != null && nft.lastSale > 0 && (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
                   Last sale: <Eth size={11} /> {formatPrice(Number(nft.lastSale))}
                 </div>
               )}
@@ -426,14 +411,14 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                   buyer sees what the price actually includes before signing. */}
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                 <span style={{
-                  fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.03em",
-                  padding: "2px 7px", borderRadius: 5, border: "1px solid var(--border)",
+                  fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.03em",
+                  padding: "2px 7px", borderRadius: 4, border: "1px solid var(--border)",
                   background: nft.isNative ? "rgba(96,165,250,0.12)" : "rgba(255,255,255,0.05)",
                   color: nft.isNative ? "var(--naka-blue)" : "var(--text-dim)",
                 }}>
                   {nft.isNative ? `Tegridy order book · incl. ${PLATFORM_FEE_BPS / 100}% fee` : "OpenSea listing"}
                 </span>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                   + network gas
                 </span>
               </div>
@@ -452,9 +437,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               warning that protects them must not be suppressed for them. */}
           {orderWarning && (
             <div style={{
-              background: orderWarning.status === "red" ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.08)",
-              border: `1px solid ${orderWarning.status === "red" ? "rgba(248,113,113,0.2)" : "rgba(251,191,36,0.2)"}`,
-              borderRadius: 8,
+              background: orderWarning.status === "red" ? "rgba(255,92,92,0.08)" : "rgba(242,193,78,0.08)",
+              border: `1px solid ${orderWarning.status === "red" ? "rgba(255,92,92,0.2)" : "rgba(242,193,78,0.2)"}`,
+              borderRadius: 4,
               padding: "8px 12px",
               marginBottom: 4,
               display: "flex",
@@ -466,19 +451,19 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               </span>
               <div style={{ flex: 1 }}>
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 10,
-                  color: orderWarning.status === "red" ? "var(--red, #f87171)" : "var(--yellow, #fbbf24)",
+                  fontFamily: "var(--mono)", fontSize: 11,
+                  color: orderWarning.status === "red" ? "var(--red, #ff5c5c)" : "var(--yellow, #f2c14e)",
                   letterSpacing: "0.04em", fontWeight: 700,
                 }}>
                   {orderWarning.status === "red" ? "ORDER INVALID" : "ORDER WARNING"}
                 </div>
                 {orderWarning.reason && (
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
                     {orderWarning.reason}
                   </div>
                 )}
                 {orderWarning.warnings?.length > 0 && !orderWarning.reason && (
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
                     {orderWarning.warnings.join("; ")}
                   </div>
                 )}
@@ -562,7 +547,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           {wallet && nft?.owner && wallet.toLowerCase() !== nft.owner.toLowerCase() && (
             <button
               className="btn-secondary"
-              style={{ width: "100%", marginTop: 10, fontSize: 11 }}
+              style={{ width: "100%", marginTop: 10, fontSize: 12 }}
               aria-label="Offer the owner an NFT-for-NFT trade"
               onClick={() => setShowTradeWindow(true)}
             >
@@ -581,7 +566,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             <button
               type="button"
               className="btn-secondary"
-              style={{ width: "100%", marginTop: 10, fontSize: 11 }}
+              style={{ width: "100%", marginTop: 10, fontSize: 12 }}
               aria-label="List this NFT for sale on the Tegridy order book"
               onClick={onList}
             >
@@ -597,11 +582,11 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               aria-label="Borrow ETH against this NFT in NFT Finance"
               style={{
                 display: "block", textAlign: "center", textDecoration: "none",
-                marginTop: 10, fontFamily: "var(--mono)", fontSize: 10,
+                marginTop: 10, fontFamily: "var(--mono)", fontSize: 11,
                 letterSpacing: "0.04em", color: "var(--gold)",
-                background: "rgba(212,168,67,0.06)",
-                border: "1px solid rgba(212,168,67,0.15)",
-                borderRadius: 8, padding: "10px 14px",
+                background: "rgba(255,255,255,0.042)",
+                border: "1px solid rgba(255,255,255,0.16)",
+                borderRadius: 4, padding: "10px 14px",
               }}
             >
               You own this one. Borrow WETH against it in NFT Finance instead of selling {"→"}
@@ -643,9 +628,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             const tierLabel = legendary ? "LEGENDARY 1/1" : charType ? (charType.count <= 36 ? "ULTRA RARE" : charType.count <= 868 ? "RARE TYPE" : null) : species?.rarityTier?.toUpperCase();
             return (
               <div style={{
-                background: isUltra ? "linear-gradient(135deg, rgba(200,168,80,0.10), rgba(200,168,80,0.03))" : "var(--surface)",
-                border: isUltra ? "1px solid rgba(200,168,80,0.25)" : "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 10, padding: "12px 14px", marginBottom: 12,
+                background: isUltra ? "linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025))" : "var(--surface)",
+                border: isUltra ? "1px solid rgba(255,255,255,0.16)" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 6, padding: "12px 14px", marginBottom: 12,
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                   <span style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 600, color: isUltra ? "var(--gold)" : "var(--text)" }}>
@@ -653,19 +638,19 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                   </span>
                   {tierLabel && (
                     <span style={{
-                      fontFamily: "var(--mono)", fontSize: 8, padding: "2px 6px", borderRadius: 4,
-                      background: isUltra ? "rgba(200,168,80,0.15)" : "rgba(100,160,255,0.1)",
+                      fontFamily: "var(--mono)", fontSize: 10, padding: "2px 6px", borderRadius: 3,
+                      background: isUltra ? "rgba(255,255,255,0.068)" : "rgba(255,255,255,0.07)",
                       color: isUltra ? "var(--gold)" : "var(--naka-blue)",
                     }}>
                       {tierLabel}
                     </span>
                   )}
                 </div>
-                <div style={{ fontFamily: "var(--display)", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
                   {charType?.description || species?.visualDescription || legendary?.description}
                 </div>
                 {(charType?.count || species?.supply) && (
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
                     {charType ? `${charType.count.toLocaleString()} exist (${charType.percentage}%)` : species?.supply ? `${species.supply.toLocaleString()} beings` : ""}
                   </div>
                 )}
@@ -675,10 +660,10 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
 
           {/* Traits */}
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 10 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 10 }}>
               TRAITS {Array.isArray(nft.attributes) && nft.attributes.length > 0 ? `(${nft.attributes.length})` : ""}
               {traitRarityApprox && Array.isArray(nft.attributes) && nft.attributes.length > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 9, color: "var(--text-muted)", fontWeight: 400 }}>
+                <span style={{ marginLeft: 6, fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
                   (based on {loadedCount.toLocaleString()}/{supplyForRarity.toLocaleString()} loaded)
                 </span>
               )}
@@ -705,7 +690,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 })}
               </div>
             ) : (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)" }}>
                 No traits available for this token
               </div>
             )}

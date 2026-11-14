@@ -17,16 +17,16 @@ function DistributionBar({ data, maxValue }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {data.map((item) => (
         <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 56, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", textAlign: "right", flexShrink: 0 }}>
+          <div style={{ width: 56, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", textAlign: "right", flexShrink: 0 }}>
             {item.label}
           </div>
-          <div style={{ flex: 1, height: 18, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden", position: "relative" }}>
+          <div style={{ flex: 1, height: 18, borderRadius: 3, background: "rgba(255,255,255,0.04)", overflow: "hidden", position: "relative" }}>
             <div style={{
               height: "100%",
               width: `${Math.max((item.value / maxValue) * 100, 1)}%`,
-              borderRadius: 4,
-              background: item.color || "#818cf8",
-              transition: "width 0.5s ease",
+              borderRadius: 3,
+              background: item.color || "#a48bff",
+              transition: "width 0.15s ease",
             }} />
             <span style={{
               position: "absolute",
@@ -34,7 +34,7 @@ function DistributionBar({ data, maxValue }) {
               top: "50%",
               transform: "translateY(-50%)",
               fontFamily: "var(--mono)",
-              fontSize: 9,
+              fontSize: 11,
               color: "var(--text)",
               fontWeight: 600,
             }}>
@@ -84,7 +84,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
     return DISTRIBUTION_BUCKETS.map((bucket, i) => ({
       label: bucket.label,
       value: holders.filter((h) => h.count >= bucket.min && h.count <= bucket.max).length,
-      color: ["#4ade80", "#34d399", "#22d3ee", "#818cf8", "#a78bfa", "#f472b6", "#fbbf24"][i],
+      color: ["#2fd98b", "#2fd98b", "#22d3ee", "#a48bff", "#a48bff", "#f472b6", "#f2c14e"][i],
     }));
   }, [holders]);
 
@@ -116,11 +116,11 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {Array.from({ length: 7 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 18, borderRadius: 4, animationDelay: `${i * 50}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 18, borderRadius: 3, animationDelay: `${i * 50}ms` }} />
           ))}
         </div>
       ) : !holders.length ? (
-        <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+        <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"\uD83D\uDCCA"}</div>
           <div className="empty-state-title">{unavailable ? "Holder Data Unavailable" : "No Holder Data"}</div>
           <div className="empty-state-text">
@@ -141,7 +141,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
                   { label: "WHALES (50+)", value: stats.whales, color: "var(--red)" },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ textAlign: "center" }}>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 4 }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 4 }}>
                       {label}
                     </div>
                     <div style={{ fontFamily: "var(--display)", fontSize: 16, fontWeight: 700, color }}>
@@ -152,7 +152,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
               </div>
               <div style={{
                 fontFamily: "var(--mono)",
-                fontSize: 9,
+                fontSize: 11,
                 color: "var(--text-muted)",
                 textAlign: "center",
                 marginBottom: 16,

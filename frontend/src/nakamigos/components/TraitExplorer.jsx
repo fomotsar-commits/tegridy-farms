@@ -29,24 +29,25 @@ const S = {
   page: {
     position: "relative",
     zIndex: 1,
-    maxWidth: 1440,
+    maxWidth: "var(--page)",
     margin: "0 auto",
-    padding: "0 16px 80px",
+    padding: "32px var(--gutter) 72px",
   },
   header: {
-    textAlign: "center",
     marginBottom: 32,
   },
   title: {
-    fontFamily: "var(--pixel)",
-    fontSize: 28,
-    letterSpacing: 3,
-    color: "var(--gold)",
+    fontFamily: "var(--heading)",
+    fontSize: 30,
+    color: "var(--text)",
     marginBottom: 4,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   subtitle: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
   },
 
@@ -55,21 +56,20 @@ const S = {
     display: "flex",
     flexWrap: "wrap",
     gap: 16,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     marginBottom: 28,
   },
   statCard: {
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: "14px 22px",
     textAlign: "center",
     minWidth: 140,
   },
   statLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     color: "var(--text-muted)",
@@ -115,7 +115,7 @@ const S = {
     width: "100%",
     boxSizing: "border-box",
     padding: "10px 12px 10px 34px",
-    borderRadius: 10,
+    borderRadius: 6,
     border: "1px solid var(--border)",
     background: "var(--surface)",
     color: "var(--text)",
@@ -125,12 +125,12 @@ const S = {
   },
   sortSelect: {
     padding: "10px 14px",
-    borderRadius: 10,
+    borderRadius: 6,
     border: "1px solid var(--border)",
     background: "var(--surface)",
     color: "var(--text)",
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     outline: "none",
   },
@@ -145,9 +145,8 @@ const S = {
   /* ── Category card ── */
   card: {
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 16,
+    borderRadius: 8,
     overflow: "hidden",
     transition: "transform .15s, box-shadow .15s",
   },
@@ -168,10 +167,10 @@ const S = {
   },
   categoryBadge: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-dim)",
     background: "var(--surface)",
-    borderRadius: 8,
+    borderRadius: 4,
     padding: "3px 10px",
   },
   cardBody: {
@@ -201,21 +200,21 @@ const S = {
   },
   rarityBadge: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     minWidth: 48,
     textAlign: "right",
   },
   countText: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-muted)",
     textAlign: "right",
     minWidth: 40,
   },
   floorText: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     textAlign: "right",
     minWidth: 70,
@@ -225,7 +224,7 @@ const S = {
   barOuter: {
     gridColumn: "1 / -1",
     height: 4,
-    borderRadius: 2,
+    borderRadius: 3,
     background: "rgba(255,255,255,0.05)",
     overflow: "hidden",
     marginTop: 2,
@@ -233,7 +232,7 @@ const S = {
   barInner: (pct, color) => ({
     height: "100%",
     width: `${Math.max(pct, 1)}%`,
-    borderRadius: 2,
+    borderRadius: 3,
     background: color,
     transition: "width .3s ease",
     boxShadow: color === "var(--gold)" ? "0 0 8px var(--gold)" : "none",
@@ -249,7 +248,7 @@ const S = {
     background: "transparent",
     color: "var(--naka-blue)",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     textAlign: "center",
     letterSpacing: 0.5,
@@ -258,11 +257,11 @@ const S = {
   offerBtn: {
     padding: "4px 10px",
     border: "1px solid var(--gold)",
-    borderRadius: 6,
+    borderRadius: 4,
     background: "transparent",
     color: "var(--gold)",
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     cursor: "pointer",
     whiteSpace: "nowrap",
     transition: "background .15s, color .15s",
@@ -272,12 +271,12 @@ const S = {
     alignItems: "center",
     gap: 6,
     padding: "8px 16px",
-    borderRadius: 10,
+    borderRadius: 6,
     border: "1px solid var(--naka-blue)",
-    background: "rgba(111,168,220,0.1)",
+    background: "rgba(255,255,255,0.07)",
     color: "var(--naka-blue)",
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     transition: "background .15s, color .15s",
     whiteSpace: "nowrap",
@@ -289,13 +288,12 @@ const S = {
     alignItems: "center",
     gap: 6,
     padding: "8px 16px",
-    borderRadius: 10,
+    borderRadius: 6,
     border: "1px solid var(--border)",
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     color: "var(--text)",
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     marginBottom: 16,
     transition: "background .12s",
@@ -309,13 +307,13 @@ const S = {
   },
   selectedBadge: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     color: "var(--naka-blue)",
-    background: "rgba(111,168,220,0.12)",
+    background: "rgba(255,255,255,0.054)",
     padding: "4px 12px",
-    borderRadius: 8,
+    borderRadius: 4,
   },
   selectedValue: {
     fontFamily: "var(--display)",
@@ -325,7 +323,7 @@ const S = {
   },
   selectedCount: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
   },
   nftGrid: {
@@ -335,7 +333,7 @@ const S = {
     marginTop: 12,
   },
   nftItem: {
-    borderRadius: 10,
+    borderRadius: 6,
     overflow: "hidden",
     border: "1px solid var(--border)",
     background: "var(--surface-glass)",
@@ -344,7 +342,7 @@ const S = {
   },
   nftName: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     padding: "6px 8px",
     textAlign: "center",
@@ -557,7 +555,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
               style={S.filterGalleryBtn}
               onClick={() => onFilterGallery(selected.key, selected.value)}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--naka-blue)"; e.currentTarget.style.color = "#fff"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(111,168,220,0.1)"; e.currentTarget.style.color = "var(--naka-blue)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "var(--naka-blue)"; }}
             >
               {"\u2192"} Filter Gallery
             </button>
@@ -735,7 +733,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)" }}>
           {displayedCategories.length} categories
         </div>
       </div>
@@ -763,7 +761,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
                     const desc = TRAIT_LORE[slug]?.categories?.[category.key]
                       || TRAIT_LORE[slug]?.traitParams?.[category.key];
                     return desc ? (
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.4, maxWidth: 220 }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.4, maxWidth: 220 }}>
                         {desc}
                       </div>
                     ) : null;

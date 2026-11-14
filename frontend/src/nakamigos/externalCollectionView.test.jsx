@@ -62,7 +62,6 @@ vi.mock("./contexts/WalletContext", () => {
     HAS_WC_PROJECT_ID: false,
   };
 });
-vi.mock("./components/Background", () => ({ default: () => null }));
 vi.mock("./components/InstallPrompt", () => ({ default: () => null }));
 vi.mock("./hooks/useOpenSeaStream", () => ({
   default: vi.fn(() => ({ listings: [], sales: [], bids: [], cancellations: [], isConnected: false })),

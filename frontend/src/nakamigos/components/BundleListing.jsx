@@ -209,7 +209,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--card)", border: "1px solid var(--border)",
-          borderRadius: 14, maxWidth: 520, width: "94%", margin: "auto",
+          borderRadius: 6, maxWidth: 520, width: "94%", margin: "auto",
           padding: "28px 24px", position: "relative",
           maxHeight: "85vh", overflowY: "auto",
         }}
@@ -224,7 +224,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
 
         {/* Type label */}
         <div style={{
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold, #c8a850)",
+          fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold, #c6f432)",
           letterSpacing: "0.1em", marginBottom: 6,
         }}>
           BUNDLE LISTING
@@ -241,7 +241,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         {/* ═══ NFT SELECTION GRID ═══ */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
               {/* State the maximum. Clicks past the cap are silently ignored, so without
                   it the UI just stops responding with no stated reason. */}
               SELECT NFTS ({selected.size} selected{selected.size < MIN_BUNDLE_SIZE ? `, min ${MIN_BUNDLE_SIZE}` : ""}
@@ -252,7 +252,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
               disabled={isSubmitting}
               style={{
                 background: "none", border: "none", cursor: "pointer",
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", textDecoration: "underline",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", textDecoration: "underline",
               }}
             >
               {atCap ? "Deselect All" : `Select ${selectable}`}
@@ -260,14 +260,14 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
           </div>
 
           {allNfts.length === 0 ? (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>
               No NFTs available for bundling.
             </div>
           ) : (
             <div style={{
               display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
               gap: 8, maxHeight: 240, overflowY: "auto",
-              background: "rgba(0,0,0,0.15)", borderRadius: 10, padding: 10,
+              background: "rgba(0,0,0,0.15)", borderRadius: 6, padding: 10,
               border: "1px solid var(--border)",
             }}>
               {allNfts.map((nft) => {
@@ -280,7 +280,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
                     title={listedAlone ? `#${nft.id} already has an active single listing` : undefined}
                     style={{
                       position: "relative", cursor: isSubmitting ? "wait" : "pointer",
-                      borderRadius: 8, overflow: "hidden",
+                      borderRadius: 4, overflow: "hidden",
                       border: sel
                         ? `2px solid ${listedAlone ? "var(--gold)" : "var(--naka-blue)"}`
                         : "2px solid transparent",
@@ -291,7 +291,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
                       <div style={{
                         position: "absolute", top: 4, left: 4, zIndex: 1,
                         background: "var(--gold)", color: "#000", borderRadius: 3,
-                        fontFamily: "var(--mono)", fontSize: 8, fontWeight: 700,
+                        fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700,
                         padding: "1px 3px", letterSpacing: "0.04em",
                       }}>
                         LISTED
@@ -299,18 +299,18 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
                     )}
                     <NftImage nft={nft} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
                     <div style={{
-                      position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 4,
-                      background: sel ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
+                      position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 3,
+                      background: sel ? "var(--accent)" : "rgba(0,0,0,0.5)",
                       border: sel ? "none" : "1px solid var(--border)",
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, color: "#fff", fontWeight: 700,
+                      fontSize: 12, color: "var(--on-accent)", fontWeight: 700,
                     }}>
                       {sel ? "\u2713" : ""}
                     </div>
                     <div style={{
                       position: "absolute", bottom: 0, left: 0, right: 0,
                       background: "rgba(0,0,0,0.65)", padding: "2px 4px",
-                      fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                      fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                       textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                     }}>
                       #{nft.id}
@@ -325,14 +325,14 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         {/* ═══ BUNDLE PRICE INPUT ═══ */}
         <div style={{ marginBottom: 14 }}>
           <label style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
             letterSpacing: "0.06em", display: "block", marginBottom: 6,
           }}>
             BUNDLE PRICE (ETH)
           </label>
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
-            background: "rgba(0,0,0,0.15)", borderRadius: 8, padding: "8px 12px",
+            background: "rgba(0,0,0,0.15)", borderRadius: 4, padding: "8px 12px",
             border: "1px solid var(--border)",
           }}>
             <Eth size={16} />
@@ -355,7 +355,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
           {/* Per-item breakdown */}
           {selected.size >= MIN_BUNDLE_SIZE && priceEth > 0 && (
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               marginTop: 6, display: "flex", justifyContent: "space-between",
             }}>
               <span>~{formatPrice(perItemPrice)} ETH per item</span>
@@ -367,7 +367,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         {/* ═══ DURATION SELECTOR ═══ */}
         <div style={{ marginBottom: 14 }}>
           <label style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
             letterSpacing: "0.06em", display: "block", marginBottom: 6,
           }}>
             DURATION
@@ -379,7 +379,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
             style={{
               width: "100%", padding: "8px 12px",
               background: "rgba(0,0,0,0.15)", border: "1px solid var(--border)",
-              borderRadius: 8, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12,
+              borderRadius: 4, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 13,
               cursor: "pointer", outline: "none",
             }}
           >
@@ -394,26 +394,26 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         {/* ═══ FEE BREAKDOWN ═══ */}
         {priceEth > 0 && (
           <div style={{
-            background: "rgba(0,0,0,0.1)", borderRadius: 8, padding: "10px 12px",
+            background: "rgba(0,0,0,0.1)", borderRadius: 4, padding: "10px 12px",
             border: "1px solid var(--border)", marginBottom: 16,
           }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
               FEE BREAKDOWN
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
                 Bundle Price
               </span>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>
                 <Eth size={10} /> {formatPrice(priceEth)}
               </span>
             </div>
             {HAS_PLATFORM_FEE && (
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
                   Platform Fee ({PLATFORM_FEE_BPS / 100}%)
                 </span>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
                   -{formatPrice(fees.platformFee)}
                 </span>
               </div>
@@ -422,10 +422,10 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
               display: "flex", justifyContent: "space-between",
               borderTop: "1px solid var(--border)", paddingTop: 6, marginTop: 4,
             }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold, #c8a850)", fontWeight: 600 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold, #c6f432)", fontWeight: 600 }}>
                 You Receive
               </span>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold, #c8a850)", fontWeight: 600 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold, #c6f432)", fontWeight: 600 }}>
                 <Eth size={10} /> {formatPrice(fees.revenue)}
               </span>
             </div>
@@ -435,7 +435,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         {/* ═══ VALIDATION HINTS ═══ */}
         {selected.size > 0 && selected.size < MIN_BUNDLE_SIZE && (
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--warning, #e8a040)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--warning, #e8a040)",
             textAlign: "center", marginBottom: 10,
           }}>
             Select at least {MIN_BUNDLE_SIZE} NFTs to create a bundle.
@@ -444,9 +444,9 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
 
         {conflicting.length > 0 && (
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold, #c8a850)",
-            marginBottom: 10, padding: "8px 10px", borderRadius: 8, lineHeight: 1.5,
-            background: "rgba(200,168,80,0.08)", border: "1px solid rgba(200,168,80,0.25)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold, #c6f432)",
+            marginBottom: 10, padding: "8px 10px", borderRadius: 4, lineHeight: 1.5,
+            background: "rgba(255,255,255,0.056)", border: "1px solid rgba(255,255,255,0.16)",
           }}>
             {conflicting.length === 1
               ? `#${conflicting[0]} is already listed on its own.`
@@ -459,9 +459,9 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
 
         {!BUNDLE_LISTING_ENABLED && (
           <div style={{
-            fontSize: 11, color: "var(--gold, #c8a850)", textAlign: "center",
-            marginBottom: 10, padding: "8px 10px", borderRadius: 8,
-            background: "rgba(200,168,80,0.08)", border: "1px solid rgba(200,168,80,0.25)",
+            fontSize: 12, color: "var(--gold, #c6f432)", textAlign: "center",
+            marginBottom: 10, padding: "8px 10px", borderRadius: 4,
+            background: "rgba(255,255,255,0.056)", border: "1px solid rgba(255,255,255,0.16)",
           }}>
             Bundle listing is coming soon. You can set one up to preview the fees, but it
             isn't live yet — nothing will be listed.
@@ -474,7 +474,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
           disabled={!canSubmit || !BUNDLE_LISTING_ENABLED}
           onClick={handleSubmit}
           style={{
-            width: "100%", textAlign: "center", fontSize: 12,
+            width: "100%", textAlign: "center", fontSize: 13,
             opacity: canSubmit && BUNDLE_LISTING_ENABLED ? 1 : 0.5,
             cursor: canSubmit && BUNDLE_LISTING_ENABLED ? "pointer" : "not-allowed",
           }}
@@ -490,8 +490,8 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
           disabled={isSubmitting}
           style={{
             width: "100%", textAlign: "center", marginTop: 8,
-            background: "none", border: "1px solid var(--border)", borderRadius: 8,
-            padding: "8px 0", fontFamily: "var(--mono)", fontSize: 11,
+            background: "none", border: "1px solid var(--border)", borderRadius: 4,
+            padding: "8px 0", fontFamily: "var(--mono)", fontSize: 12,
             color: "var(--text-dim)", cursor: "pointer",
           }}
         >

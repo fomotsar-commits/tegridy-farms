@@ -19,45 +19,45 @@ const S = {
   page: {
     position: "relative",
     zIndex: 1,
-    maxWidth: 1440,
+    maxWidth: "var(--page)",
     margin: "0 auto",
-    padding: "0 16px 80px",
+    padding: "32px var(--gutter) 72px",
   },
   header: {
-    textAlign: "center",
     marginBottom: 32,
   },
   title: {
-    fontFamily: "var(--pixel)",
-    fontSize: 28,
-    letterSpacing: 3,
-    color: "var(--gold)",
+    fontFamily: "var(--heading)",
+    fontSize: 30,
+    color: "var(--text)",
     marginBottom: 4,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   subtitle: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
   },
   statsRow: {
     display: "flex",
     flexWrap: "wrap",
     gap: 16,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     marginBottom: 28,
   },
   statCard: {
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: "14px 22px",
     textAlign: "center",
     minWidth: 130,
   },
   statLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     color: "var(--text-muted)",
@@ -77,9 +77,8 @@ const S = {
     marginBottom: 24,
     padding: "12px 16px",
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
   },
   filterGroup: {
     display: "flex",
@@ -88,7 +87,7 @@ const S = {
   },
   filterLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1,
     color: "var(--text-muted)",
@@ -97,22 +96,22 @@ const S = {
   filterInput: {
     width: 80,
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: "1px solid var(--border)",
     background: "var(--surface)",
     color: "var(--text)",
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     outline: "none",
   },
   filterSelect: {
     padding: "6px 10px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: "1px solid var(--border)",
     background: "var(--surface)",
     color: "var(--text)",
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     outline: "none",
   },
@@ -121,12 +120,12 @@ const S = {
     alignItems: "center",
     gap: 6,
     padding: "6px 14px",
-    borderRadius: 8,
-    background: "rgba(46,204,113,0.15)",
-    border: "1px solid rgba(46,204,113,0.4)",
-    color: "var(--green, #2ecc71)",
+    borderRadius: 4,
+    background: "rgba(47,217,139,0.15)",
+    border: "1px solid rgba(47,217,139,0.4)",
+    color: "var(--green, #2fd98b)",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     animation: "pulse 2s infinite",
   },
@@ -137,7 +136,7 @@ const S = {
   },
   th: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     color: "var(--text-muted)",
@@ -157,26 +156,25 @@ const S = {
   },
   row: {
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     cursor: "pointer",
     transition: "background 0.12s, transform 0.12s",
-    borderRadius: 10,
+    borderRadius: 6,
   },
   dealBadge: {
     display: "inline-block",
     padding: "3px 8px",
-    borderRadius: 6,
+    borderRadius: 4,
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 700,
     letterSpacing: 0.5,
   },
   buyBtn: {
     padding: "6px 14px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: "none",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
     transition: "background 0.15s, transform 0.1s",
@@ -187,15 +185,14 @@ const S = {
     width: "100%",
     height: 400,
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 16,
+    borderRadius: 8,
     marginBottom: 32,
     overflow: "hidden",
   },
   canvasLabel: {
     fontFamily: "var(--pixel)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
     letterSpacing: 1,
     padding: "12px 16px",
@@ -211,9 +208,9 @@ const S = {
 
 /* ── Deal badge color by discount ── */
 function dealColor(discount) {
-  if (discount >= 30) return { bg: "rgba(231,76,60,0.2)", border: "rgba(231,76,60,0.5)", text: "#e74c3c" };
-  if (discount >= 20) return { bg: "rgba(243,156,18,0.2)", border: "rgba(243,156,18,0.5)", text: "#f39c12" };
-  return { bg: "rgba(46,204,113,0.2)", border: "rgba(46,204,113,0.5)", text: "#2ecc71" };
+  if (discount >= 30) return { bg: "rgba(255,92,92,0.2)", border: "rgba(255,92,92,0.5)", text: "#ff5c5c" };
+  if (discount >= 20) return { bg: "rgba(242,193,78,0.2)", border: "rgba(242,193,78,0.5)", text: "#f39c12" };
+  return { bg: "rgba(47,217,139,0.2)", border: "rgba(47,217,139,0.5)", text: "#2fd98b" };
 }
 
 /* ══════════════════════════════════════════════
@@ -272,14 +269,14 @@ function ScatterPlot({ deals, allListedNfts, onPick }) {
       ctx.stroke();
 
       ctx.fillStyle = "rgba(255,255,255,0.3)";
-      ctx.font = "10px monospace";
+      ctx.font = "11px 'JetBrains Mono', monospace";
       ctx.textAlign = "right";
       ctx.fillText(yVal.toFixed(2), pad.left - 8, py + 3);
     }
 
     // Axis labels
     ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.font = "10px monospace";
+    ctx.font = "11px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
     ctx.fillText("Rarity Rank", w / 2, h - 8);
     ctx.save();
@@ -320,13 +317,13 @@ function ScatterPlot({ deals, allListedNfts, onPick }) {
       ctx.beginPath();
       ctx.arc(px, py, d.isDeal ? 5 : 3, 0, Math.PI * 2);
       if (d.isDeal) {
-        ctx.fillStyle = "rgba(46,204,113,0.8)";
-        ctx.strokeStyle = "#2ecc71";
+        ctx.fillStyle = "rgba(47,217,139,0.8)";
+        ctx.strokeStyle = "#2fd98b";
         ctx.lineWidth = 1.5;
         ctx.fill();
         ctx.stroke();
       } else {
-        ctx.fillStyle = "rgba(111,168,220,0.4)";
+        ctx.fillStyle = "rgba(255,255,255,0.62)";
         ctx.fill();
       }
     }
@@ -418,11 +415,11 @@ function ScatterPlot({ deals, allListedNfts, onPick }) {
           display: "none",
           position: "absolute",
           padding: "4px 10px",
-          borderRadius: 6,
+          borderRadius: 4,
           background: "rgba(0,0,0,0.85)",
           color: "#fff",
           fontFamily: "var(--mono)",
-          fontSize: 11,
+          fontSize: 12,
           pointerEvents: "none",
           whiteSpace: "nowrap",
           zIndex: 10,
@@ -746,7 +743,7 @@ export default function Deals({
           <div className="spinner" style={{ margin: "0 auto 16px" }} />
           Loading listings and trait data...
           {slowLoad && (
-            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)" }}>
+            <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-dim)" }}>
               Marketplace data is responding slowly right now — still trying.
               Deals appear as soon as the first listings land.
             </div>
@@ -793,7 +790,7 @@ export default function Deals({
               Scanning for deals&hellip; {tokens.length.toLocaleString()}
               {collection.supply ? ` of ${collection.supply.toLocaleString()}` : ""} tokens analyzed.
               <br />
-              <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
                 Trait floors sharpen as more of the collection loads — deals can
                 surface at any moment.
               </span>
@@ -802,7 +799,7 @@ export default function Deals({
             <>
               No deals found right now. All listings are priced at or above their trait floors.
               <br />
-              <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
                 Deals auto-refresh every 60 seconds. Check back soon!
               </span>
             </>
@@ -824,7 +821,7 @@ export default function Deals({
           NFTs listed below their trait floor value &mdash; {collection.name}
         </div>
         {hasMore && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
             Scanning: {tokens.length.toLocaleString()}
             {collection.supply ? ` / ${collection.supply.toLocaleString()}` : ""} tokens
             loaded &mdash; results refine live
@@ -836,7 +833,7 @@ export default function Deals({
       <div style={S.statsRow}>
         <div style={S.statCard}>
           <div style={S.statLabel}>Deals Found</div>
-          <div style={{ ...S.statValue, color: "var(--green, #2ecc71)" }}>{summaryStats.count}</div>
+          <div style={{ ...S.statValue, color: "var(--green, #2fd98b)" }}>{summaryStats.count}</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statLabel}>Avg Discount</div>
@@ -844,11 +841,11 @@ export default function Deals({
         </div>
         <div style={S.statCard}>
           <div style={S.statLabel}>Best Deal</div>
-          <div style={{ ...S.statValue, color: "#e74c3c" }}>
+          <div style={{ ...S.statValue, color: "#ff5c5c" }}>
             {summaryStats.bestDeal ? `${summaryStats.bestDeal.discount.toFixed(0)}% off` : "--"}
           </div>
           {summaryStats.bestDeal && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
               #{summaryStats.bestDeal.id}
             </div>
           )}
@@ -856,7 +853,7 @@ export default function Deals({
         <div style={S.statCard}>
           <div style={S.statLabel}>Total Savings</div>
           <div style={S.statValue}>
-            {summaryStats.totalValue.toFixed(2)} <span style={{ fontSize: 12 }}>ETH</span>
+            {summaryStats.totalValue.toFixed(2)} <span style={{ fontSize: 13 }}>ETH</span>
           </div>
         </div>
       </div>
@@ -892,7 +889,7 @@ export default function Deals({
             step="0.01"
             min="0"
           />
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>-</span>
+          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>-</span>
           <input
             type="number"
             placeholder="Max"
@@ -916,7 +913,7 @@ export default function Deals({
             min="0"
             max="100"
           />
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>%</span>
+          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>%</span>
         </div>
 
         <div style={S.filterGroup}>
@@ -943,7 +940,7 @@ export default function Deals({
             style={{ ...S.filterInput, width: 70 }}
             min="1"
           />
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>-</span>
+          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>-</span>
           <input
             type="number"
             placeholder="Max"
@@ -954,7 +951,7 @@ export default function Deals({
           />
         </div>
 
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
           {filteredDeals.length} deal{filteredDeals.length !== 1 ? "s" : ""}
         </div>
       </div>
@@ -990,7 +987,7 @@ export default function Deals({
                   onMouseLeave={() => setHoveredRow(null)}
                 >
                   <td style={S.td}>
-                    <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 4, overflow: "hidden", border: "1px solid var(--border)" }}>
                       <NftImage nft={deal} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     </div>
                   </td>
@@ -1024,10 +1021,10 @@ export default function Deals({
                           key={i}
                           style={{
                             padding: "2px 6px",
-                            borderRadius: 4,
+                            borderRadius: 3,
                             background: "rgba(255,255,255,0.06)",
                             fontFamily: "var(--mono)",
-                            fontSize: 10,
+                            fontSize: 11,
                             color: "var(--text-dim)",
                             whiteSpace: "nowrap",
                           }}
@@ -1046,7 +1043,7 @@ export default function Deals({
                       <button
                         style={{
                           ...S.buyBtn,
-                          background: "var(--green, #2ecc71)",
+                          background: "var(--green, #2fd98b)",
                           color: "#000",
                         }}
                         disabled={buying === deal.id}
@@ -1061,7 +1058,7 @@ export default function Deals({
                         rel="noopener noreferrer"
                         style={{
                           ...S.buyBtn,
-                          background: "rgba(111,168,220,0.15)",
+                          background: "rgba(255,255,255,0.068)",
                           color: "var(--naka-blue)",
                           textDecoration: "none",
                           display: "inline-block",

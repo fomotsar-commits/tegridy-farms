@@ -6,7 +6,6 @@ import { explorerAddressUrl, marketCollectionUrl } from "../../lib/venue";
 import useExternalCollection from "../../hooks/useExternalCollection";
 import useBuyHereListings from "../../hooks/useBuyHereListings";
 import { useOpensAtTheTop } from "../../../hooks/useOpensAtTheTop";
-import Background from "../Background";
 import Header from "../Header";
 import MobileNav from "../MobileNav";
 import Toast from "../Toast";
@@ -123,9 +122,8 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
   const explorerUrl = explorerAddressUrl(collection);
 
   return (
-    <div className="ext-view" style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative", paddingBottom: 60 }}>
+    <div className="ext-view">
       <a href="#main-content" className="skip-nav">Skip to main content</a>
-      <Background />
       <Header
         tab={tab}
         setTab={handleTabChange}
@@ -173,15 +171,15 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
       <Toast toasts={toasts} onRemove={removeToast} />
       <MobileNav tab={tab} onTabChange={handleTabChange} allowedTabs={EXTERNAL_TABS} />
 
-      <footer className="footer-full pixel-border-top">
+      <footer className="footer-full">
         <div className="footer-inner">
           <div className="footer-brand">
             {collection.image && (
-              <img src={collection.image} alt="" className="header-logo-icon" style={{ width: 30, height: 30, objectFit: "cover" }} />
+              <img src={collection.image} alt="" />
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-              <div className="ext-footer-name">{collection.name.toUpperCase()}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="footer-name ext-footer-name">{collection.name.toUpperCase()}</div>
+              <div className="footer-kind">
                 {collection.market ? `Browsed here, traded on ${collection.market.name}` : "Facts only; no market read here"}
               </div>
             </div>

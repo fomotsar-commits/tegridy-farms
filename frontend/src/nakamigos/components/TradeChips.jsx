@@ -36,7 +36,7 @@ export function ItemChips({ items, accent }) {
         return (
           <span key={i} title={fullName || undefined} style={{
             position: "relative",
-            fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 5,
+            fontFamily: "var(--mono)", fontSize: 11, padding: "3px 7px", borderRadius: 4,
             background: "rgba(0,0,0,0.3)", border: `1px solid ${accent}30`, color: accent,
             letterSpacing: "0.03em",
             ...(it.any ? { borderStyle: "dashed" } : {}),
@@ -85,23 +85,23 @@ export function TradeSummary({ trade, viewer }) {
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <div style={{ flex: "1 1 130px" }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GIVE</div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GIVE</div>
         <ItemChips items={youGive} accent="var(--gold)" />
         {isTarget && ethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
         )}
         {!isTarget && wethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
         )}
       </div>
       <div style={{ flex: "1 1 130px" }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GET</div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GET</div>
         <ItemChips items={youGet} accent="var(--green)" />
         {isTarget && wethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
         )}
         {!isTarget && ethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
         )}
       </div>
     </div>

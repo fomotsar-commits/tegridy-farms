@@ -11,8 +11,8 @@ import { Eth } from "./Icons";
 
 /* ── Nakamigos type boundaries (approximate rank ranges) ── */
 const NAKAMIGOS_TYPES = [
-  { label: "Ghost", maxRank: 200, color: "rgba(168,130,255,0.25)" },
-  { label: "Balloon", maxRank: 800, color: "rgba(255,200,60,0.2)" },
+  { label: "Ghost", maxRank: 200, color: "rgba(164,139,255,0.25)" },
+  { label: "Balloon", maxRank: 800, color: "rgba(255,255,255,0.62)" },
   { label: "Alien", maxRank: 1800, color: "rgba(80,220,160,0.18)" },
   { label: "Ape", maxRank: 3500, color: "rgba(220,160,80,0.15)" },
   { label: "Zombie", maxRank: 5500, color: "rgba(130,200,100,0.12)" },
@@ -23,7 +23,7 @@ const NAKAMIGOS_TYPES = [
 /* ── GNSS Art species tier bands ── */
 const GNSS_TIERS = [
   { label: "Legendary", maxRank: 100, color: "rgba(255,215,0,0.25)" },
-  { label: "Rare", maxRank: 500, color: "rgba(168,130,255,0.2)" },
+  { label: "Rare", maxRank: 500, color: "rgba(164,139,255,0.2)" },
   { label: "Uncommon", maxRank: 2000, color: "rgba(80,180,220,0.15)" },
   { label: "Common", maxRank: 9696, color: "rgba(200,200,200,0.08)" },
 ];
@@ -67,9 +67,8 @@ function pearsonR(points) {
 const S = {
   wrapper: {
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 16,
+    borderRadius: 8,
     marginTop: 24,
     overflow: "hidden",
   },
@@ -92,12 +91,12 @@ const S = {
     alignItems: "center",
     gap: 6,
     padding: "4px 12px",
-    borderRadius: 8,
-    background: "rgba(46,204,113,0.15)",
-    border: "1px solid rgba(46,204,113,0.4)",
-    color: "var(--green, #2ecc71)",
+    borderRadius: 4,
+    background: "rgba(47,217,139,0.15)",
+    border: "1px solid rgba(47,217,139,0.4)",
+    color: "var(--green, #2fd98b)",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
   },
   controls: {
@@ -109,23 +108,23 @@ const S = {
   },
   select: {
     padding: "5px 10px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: "1px solid var(--border)",
     background: "var(--surface)",
     color: "var(--text)",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     outline: "none",
   },
   toggleBtn: (active) => ({
     padding: "5px 12px",
-    borderRadius: 8,
+    borderRadius: 4,
     border: `1px solid ${active ? "var(--gold)" : "var(--border)"}`,
-    background: active ? "rgba(200,168,80,0.15)" : "var(--surface)",
+    background: active ? "rgba(255,255,255,0.068)" : "var(--surface)",
     color: active ? "var(--gold)" : "var(--text-dim)",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     outline: "none",
     transition: "all 0.15s",
@@ -140,11 +139,11 @@ const S = {
     display: "none",
     position: "absolute",
     padding: "8px 14px",
-    borderRadius: 8,
+    borderRadius: 4,
     background: "rgba(0,0,0,0.92)",
     color: "#fff",
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     pointerEvents: "none",
     whiteSpace: "nowrap",
     zIndex: 10,
@@ -161,12 +160,12 @@ const S = {
   statCard: {
     background: "rgba(255,255,255,0.03)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
+    borderRadius: 6,
     padding: "12px 16px",
   },
   statLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 1.5,
     color: "var(--text-muted)",
@@ -387,7 +386,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
 
       // Label
       ctx.fillStyle = "rgba(255,255,255,0.2)";
-      ctx.font = "9px monospace";
+      ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
       const midX = (x1 + x2) / 2;
       if (midX > pad.left && midX < w - pad.right) {
@@ -441,7 +440,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
       ctx.setLineDash([]);
 
       // Underpriced zone (15% below trend) — subtle fill
-      ctx.fillStyle = "rgba(46,204,113,0.04)";
+      ctx.fillStyle = "rgba(47,217,139,0.04)";
       ctx.beginPath();
       const steps = 40;
       for (let i = 0; i <= steps; i++) {
@@ -465,9 +464,9 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
       const py = scaleY(d.price);
       ctx.beginPath();
       ctx.arc(px, py, 4, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,200,60,0.25)";
+      ctx.fillStyle = "rgba(255,255,255,0.62)";
       ctx.fill();
-      ctx.strokeStyle = "rgba(255,200,60,0.4)";
+      ctx.strokeStyle = "rgba(255,255,255,0.62)";
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -485,7 +484,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
 
       if (isDeal) {
         // Green glow
-        ctx.shadowColor = "rgba(46,204,113,0.6)";
+        ctx.shadowColor = "rgba(0,0,0,0.6)";
         ctx.shadowBlur = 10;
       }
 
@@ -493,17 +492,17 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
       ctx.arc(px, py, radius, 0, Math.PI * 2);
 
       if (isDeal) {
-        ctx.fillStyle = "rgba(46,204,113,0.85)";
-        ctx.strokeStyle = "#2ecc71";
+        ctx.fillStyle = "rgba(47,217,139,0.85)";
+        ctx.strokeStyle = "#2fd98b";
         ctx.lineWidth = 1.5;
         ctx.fill();
         ctx.stroke();
         ctx.shadowBlur = 0;
       } else if (isOverpriced) {
-        ctx.fillStyle = "rgba(231,76,60,0.5)";
+        ctx.fillStyle = "rgba(255,92,92,0.5)";
         ctx.fill();
       } else {
-        ctx.fillStyle = "rgba(111,168,220,0.5)";
+        ctx.fillStyle = "rgba(255,255,255,0.62)";
         ctx.fill();
       }
     }
@@ -513,7 +512,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
 
     // Axes labels
     ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.font = "10px monospace";
+    ctx.font = "11px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
     ctx.fillText("Rarity Rank (1 = rarest)", w / 2, h - 8);
     ctx.save();
@@ -524,7 +523,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
 
     // Y-axis tick labels
     ctx.fillStyle = "rgba(255,255,255,0.3)";
-    ctx.font = "10px monospace";
+    ctx.font = "11px 'JetBrains Mono', monospace";
     ctx.textAlign = "right";
     for (let i = 0; i <= 5; i++) {
       const yVal = yMin + (yMax - yMin) * (i / 5);
@@ -548,19 +547,19 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
     const legendY = h - 10;
     const legendX = w - pad.right;
     ctx.textAlign = "right";
-    ctx.font = "9px monospace";
-    ctx.fillStyle = "rgba(46,204,113,0.85)";
+    ctx.font = "10px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "rgba(47,217,139,0.85)";
     ctx.fillRect(legendX - 130, legendY - 6, 8, 8);
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.fillText("Underpriced", legendX - 75, legendY + 1);
 
-    ctx.fillStyle = "rgba(231,76,60,0.5)";
+    ctx.fillStyle = "rgba(255,92,92,0.5)";
     ctx.fillRect(legendX - 68, legendY - 6, 8, 8);
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.fillText("Overpriced", legendX - 15, legendY + 1);
 
     if (salesData.length > 0) {
-      ctx.fillStyle = "rgba(255,200,60,0.4)";
+      ctx.fillStyle = "rgba(255,255,255,0.62)";
       ctx.fillRect(legendX - 200, legendY - 6, 8, 8);
       ctx.fillStyle = "rgba(255,255,255,0.4)";
       ctx.textAlign = "right";
@@ -695,11 +694,11 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         </div>
         <div style={{
           textAlign: "center", padding: "40px 20px", fontFamily: "var(--mono)",
-          fontSize: 12, color: "var(--text-muted)",
+          fontSize: 13, color: "var(--text-muted)",
         }}>
           Need at least 3 listed items with rarity data to render scatter plot.
           <br />
-          <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
+          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
             Load more tokens or wait for listing data.
           </span>
         </div>
@@ -758,7 +757,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
           </button>
         )}
 
-        <div style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+        <div style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
           {points.length} listed &middot; scroll to zoom
         </div>
       </div>
@@ -789,7 +788,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
             <div style={S.statValue}>
               <Eth size={12} /> {q.avg.toFixed(4)}
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
               {q.count} item{q.count !== 1 ? "s" : ""}
             </div>
           </div>
@@ -804,7 +803,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
           }}>
             {correlation.toFixed(3)}
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
             {Math.abs(correlation) > 0.7 ? "Strong" : Math.abs(correlation) > 0.4 ? "Moderate" : "Weak"} correlation
           </div>
         </div>
@@ -812,14 +811,14 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         {/* Best value */}
         {bestValue && (
           <div
-            style={{ ...S.statCard, borderColor: "rgba(46,204,113,0.3)", cursor: onPick ? "pointer" : "default" }}
+            style={{ ...S.statCard, borderColor: "rgba(47,217,139,0.3)", cursor: onPick ? "pointer" : "default" }}
             onClick={() => onPick?.(bestValue.token)}
           >
             <div style={S.statLabel}>Best Value</div>
-            <div style={{ ...S.statValue, color: "var(--green, #2ecc71)" }}>
+            <div style={{ ...S.statValue, color: "var(--green, #2fd98b)" }}>
               #{bestValue.id}
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
               <Eth size={10} /> {bestValue.price.toFixed(4)} &middot; {(bestValue.deviation * -100).toFixed(0)}% below trend
             </div>
           </div>

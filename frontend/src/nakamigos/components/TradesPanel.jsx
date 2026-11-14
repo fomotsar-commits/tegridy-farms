@@ -22,7 +22,7 @@ function PushToggle({ wallet, addToast }) {
   return (
     <button
       className="btn-secondary"
-      style={{ fontSize: 10, padding: "10px 14px", color: on ? "var(--green)" : "var(--text-dim)" }}
+      style={{ fontSize: 11, padding: "10px 14px", color: on ? "var(--green)" : "var(--text-dim)" }}
       disabled={busy}
       title={on ? "Push alerts for trade offers and settlements are on (click to disable on all devices)" : "Get a push notification when someone sends or accepts a trade"}
       onClick={async () => {
@@ -105,40 +105,40 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
   return (
     <div className="modal-bg" onClick={onClose} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label="Accept open trade">
       <div onClick={(e) => e.stopPropagation()} style={{
-        background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 14,
+        background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 6,
         width: "min(680px, 94vw)", maxHeight: "88vh", overflowY: "auto", padding: "18px 20px", margin: "5vh auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--green)", letterSpacing: "0.1em" }}>ACCEPT OPEN TRADE</span>
-          <button aria-label="Close modal" onClick={onClose} className="btn-secondary" style={{ padding: "5px 11px", fontSize: 12 }}>{"✕"}</button>
+          <span style={{ fontFamily: "var(--pixel)", fontSize: 12, color: "var(--green)", letterSpacing: "0.1em" }}>ACCEPT OPEN TRADE</span>
+          <button aria-label="Close modal" onClick={onClose} className="btn-secondary" style={{ padding: "5px 11px", fontSize: 13 }}>{"✕"}</button>
         </div>
         <TradeSummary trade={trade} viewer={wallet} />
-        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", margin: "12px 0 6px", letterSpacing: "0.06em" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", margin: "12px 0 6px", letterSpacing: "0.06em" }}>
           PICK THE TOKEN{slots.length !== 1 ? "S" : ""} YOU'LL GIVE
         </div>
         {loading ? (
-          <div className="skeleton" style={{ height: 90, borderRadius: 10 }} />
+          <div className="skeleton" style={{ height: 90, borderRadius: 6 }} />
         ) : slots.map((slot, slotPos) => {
           const c = COLLECTION_BY_CONTRACT[slot.contract];
           const tokens = inventory[slot.contract] || [];
           return (
             <div key={slot.index} style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginBottom: 6 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginBottom: 6 }}>
                 Slot {slotPos + 1}: any {c?.name || "NFT"}
                 {tokens.length > 0 && inventoryPartial[slot.contract] && (
-                  <span style={{ color: "var(--yellow, #fbbf24)", marginLeft: 6 }}>
+                  <span style={{ color: "var(--yellow, #f2c14e)", marginLeft: 6 }}>
                     (partial inventory — not all your holdings loaded)
                   </span>
                 )}
               </div>
               {tokens.length === 0 ? (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: inventoryPartial[slot.contract] ? "var(--yellow, #fbbf24)" : "var(--red)", padding: "8px 0" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: inventoryPartial[slot.contract] ? "var(--yellow, #f2c14e)" : "var(--red)", padding: "8px 0" }}>
                   {inventoryPartial[slot.contract]
                     ? `Couldn't load your ${c?.name || "tokens from this collection"} — whether you can fill this slot is unknown.`
                     : `You don't hold any ${c?.name || "tokens from this collection"} — you can't fill this slot.`}
                 </div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(64px, 1fr))", gap: 6, maxHeight: 150, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(64px, 1fr))", gap: 6, maxHeight: 150, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 4, padding: 8 }}>
                   {tokens.map((t) => {
                     const id = String(t.id);
                     const isMine = selections[slot.index] === id;
@@ -153,13 +153,13 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
                         onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !usedElsewhere) { e.preventDefault(); setSelections((s) => ({ ...s, [slot.index]: id })); } }}
                         style={{
                           position: "relative", cursor: usedElsewhere ? "not-allowed" : "pointer",
-                          borderRadius: 8, overflow: "hidden", opacity: usedElsewhere ? 0.35 : 1,
+                          borderRadius: 4, overflow: "hidden", opacity: usedElsewhere ? 0.35 : 1,
                           border: isMine ? "2px solid var(--green)" : "2px solid transparent",
                         }}
                         title={`#${id}${usedElsewhere ? " (already used for another slot)" : ""}`}
                       >
                         <NftImage nft={t} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
-                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontFamily: "var(--mono)", fontSize: 8, padding: "1px 3px", background: "rgba(0,0,0,0.7)", color: isMine ? "var(--green)" : "var(--text-dim)" }}>
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontFamily: "var(--mono)", fontSize: 10, padding: "1px 3px", background: "rgba(0,0,0,0.7)", color: isMine ? "var(--green)" : "var(--text-dim)" }}>
                           #{id}
                         </div>
                       </div>
@@ -246,15 +246,15 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
 
   return (
     <div style={{
-      border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px",
+      border: "1px solid var(--border)", borderRadius: 6, padding: "14px 16px",
       background: "var(--surface-glass)", marginBottom: 10,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
           {isIncoming ? "FROM" : "TO"}{" "}
           <button
             onClick={() => onPickProfile?.(other)}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)" }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)" }}
           >
             {short(other)}
           </button>
@@ -265,41 +265,41 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
             onClick={() => onMessage?.(trade)}
             title="Message this wallet about the trade"
             style={{
-              fontFamily: "var(--mono)", fontSize: 9, padding: "3px 10px", borderRadius: 6,
+              fontFamily: "var(--mono)", fontSize: 11, padding: "3px 10px", borderRadius: 4,
               background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)",
               cursor: "pointer", letterSpacing: "0.04em",
             }}
           >
             {"✉"} Message
           </button>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: STATUS_COLOR[trade.status] || "var(--text-dim)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: STATUS_COLOR[trade.status] || "var(--text-dim)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
             {trade.status}
           </span>
           {isActive && (
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>{timeLeft(trade.expires_at)}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>{timeLeft(trade.expires_at)}</span>
           )}
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GIVE</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GIVE</div>
           <ItemChips items={youGive} accent="var(--gold)" />
           {isIncoming && ethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
           )}
           {!isIncoming && wethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
           )}
         </div>
         <div style={{ flex: "1 1 220px" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GET</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GET</div>
           <ItemChips items={youGet} accent="var(--green)" />
           {isIncoming && wethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
           )}
           {!isIncoming && ethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
           )}
         </div>
       </div>
@@ -311,20 +311,20 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
               {confirming ? (
                 <button
                   className="btn-primary"
-                  style={{ fontSize: 10, padding: "8px 16px" }}
+                  style={{ fontSize: 11, padding: "8px 16px" }}
                   disabled={!!busy}
                   onClick={() => run("accept", () => acceptTrade(trade), "Trade executed!")}
                 >
                   {busy === "accept" ? "Trading…" : `Confirm — sign & ${ethTopup ? `pay ${ethTopup} ETH` : "execute"}`}
                 </button>
               ) : (
-                <button className="btn-primary" style={{ fontSize: 10, padding: "8px 16px" }} onClick={() => setConfirming(true)}>
+                <button className="btn-primary" style={{ fontSize: 11, padding: "8px 16px" }} onClick={() => setConfirming(true)}>
                   Accept trade
                 </button>
               )}
               <button
                 className="btn-secondary"
-                style={{ fontSize: 10, padding: "8px 16px" }}
+                style={{ fontSize: 11, padding: "8px 16px" }}
                 disabled={!!busy}
                 onClick={() => onCounter?.(trade)}
               >
@@ -332,7 +332,7 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
               </button>
               <button
                 className="btn-secondary"
-                style={{ fontSize: 10, padding: "8px 16px", color: "var(--red)" }}
+                style={{ fontSize: 11, padding: "8px 16px", color: "var(--red)" }}
                 disabled={!!busy}
                 onClick={() => run("decline", () => updateTradeStatus(trade, "trade-decline"), "Trade declined")}
               >
@@ -343,7 +343,7 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
             <>
               <button
                 className="btn-secondary"
-                style={{ fontSize: 10, padding: "8px 16px" }}
+                style={{ fontSize: 11, padding: "8px 16px" }}
                 disabled={!!busy}
                 onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), "Trade cancelled")}
                 title="Free — removes it from their inbox. The signature itself stays valid until expiry."
@@ -352,7 +352,7 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
               </button>
               <button
                 className="btn-secondary"
-                style={{ fontSize: 10, padding: "8px 16px", color: "var(--red)" }}
+                style={{ fontSize: 11, padding: "8px 16px", color: "var(--red)" }}
                 disabled={!!busy}
                 onClick={() => run("revoke", () => cancelTradeOnChain(trade), "Order revoked on-chain")}
                 title="Gas transaction — hard-revokes the signed Seaport order immediately"
@@ -367,7 +367,7 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
         <a
           href={`https://etherscan.io/tx/${trade.accepted_tx}`}
           target="_blank" rel="noopener noreferrer"
-          style={{ display: "inline-block", marginTop: 10, fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", textDecoration: "none" }}
+          style={{ display: "inline-block", marginTop: 10, fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", textDecoration: "none" }}
         >
           View settlement on Etherscan {"↗"}
         </a>
@@ -391,7 +391,7 @@ function BoardOwnerActions({ trade, addToast, onChanged }) {
     <>
       <button
         className="btn-secondary"
-        style={{ fontSize: 10, padding: "8px 16px" }}
+        style={{ fontSize: 11, padding: "8px 16px" }}
         disabled={!!busy}
         onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), "Post removed")}
         title="Free — removes it from the board. The signature stays valid until expiry."
@@ -400,7 +400,7 @@ function BoardOwnerActions({ trade, addToast, onChanged }) {
       </button>
       <button
         className="btn-secondary"
-        style={{ fontSize: 10, padding: "8px 16px", color: "var(--red)" }}
+        style={{ fontSize: 11, padding: "8px 16px", color: "var(--red)" }}
         disabled={!!busy}
         onClick={() => run("revoke", () => cancelTradeOnChain(trade), "Order revoked on-chain")}
         title="Gas transaction — hard-revokes the signed Seaport order immediately"
@@ -515,7 +515,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
   if (!wallet) {
     return (
       <section style={{ padding: "28px 32px" }}>
-        <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+        <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"⇄"}</div>
           <div className="empty-state-title">P2P Trades</div>
           <div className="empty-state-text">Connect your wallet to send and receive NFT-for-NFT trade offers.</div>
@@ -530,16 +530,16 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
         <div>
           <div style={{ fontFamily: "var(--pixel)", fontSize: 13, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>P2P TRADES</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 5 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 5 }}>
             NFT-for-NFT swaps, settled atomically on Seaport. Pure NFT swaps are fee-free.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <PushToggle wallet={wallet} addToast={addToast} />
-          <button className="btn-secondary" style={{ fontSize: 11, padding: "10px 20px" }} onClick={() => setBoardBuilderOpen(true)}>
+          <button className="btn-secondary" style={{ fontSize: 12, padding: "10px 20px" }} onClick={() => setBoardBuilderOpen(true)}>
             + Post to board
           </button>
-          <button className="btn-primary" style={{ fontSize: 11, padding: "10px 20px" }} onClick={() => setBuilderOpen(true)}>
+          <button className="btn-primary" style={{ fontSize: 12, padding: "10px 20px" }} onClick={() => setBuilderOpen(true)}>
             + New trade offer
           </button>
         </div>
@@ -551,7 +551,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
             key={d}
             onClick={() => setDirection(d)}
             className={direction === d ? "btn-primary" : "btn-secondary"}
-            style={{ fontSize: 10, padding: "7px 16px", textTransform: "capitalize" }}
+            style={{ fontSize: 11, padding: "7px 16px", textTransform: "capitalize" }}
           >
             {d}
           </button>
@@ -561,7 +561,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
           onChange={(e) => setStatusFilter(e.target.value)}
           aria-label="Filter trades by status"
           style={{
-            fontFamily: "var(--mono)", fontSize: 10, padding: "7px 10px", borderRadius: 8,
+            fontFamily: "var(--mono)", fontSize: 11, padding: "7px 10px", borderRadius: 4,
             border: "1px solid var(--border)", background: "var(--surface-glass)", color: "var(--text)",
           }}
         >
@@ -573,7 +573,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
 
       {direction === "board" && fillableTotal > 0 && (
         <div style={{
-          marginBottom: 12, fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)",
+          marginBottom: 12, fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)",
           display: "flex", alignItems: "center", gap: 6,
         }}>
           {"✓"} {fillableTotal} open trade{fillableTotal === 1 ? "" : "s"} you can fill — floated to the top
@@ -590,11 +590,11 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
       {loading && trades.length === 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 110, borderRadius: 10 }} />
+            <div key={i} className="skeleton" style={{ height: 110, borderRadius: 6 }} />
           ))}
         </div>
       ) : error && trades.length === 0 ? null : trades.length === 0 ? (
-        <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+        <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"⇄"}</div>
           <div className="empty-state-title">No {statusFilter === "all" ? "" : statusFilter + " "}trades</div>
           <div className="empty-state-text">
@@ -612,24 +612,24 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
           const youHold = mine ? 0 : fillableCount(t);
           return (
             <div key={t.id} style={{
-              border: `1px solid ${youHold > 0 ? "rgba(74,222,128,0.35)" : "var(--border)"}`, borderRadius: 10, padding: "14px 16px",
+              border: `1px solid ${youHold > 0 ? "rgba(47,217,139,0.35)" : "var(--border)"}`, borderRadius: 6, padding: "14px 16px",
               background: "var(--surface-glass)", marginBottom: 10,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
-                  {mine ? "YOUR POST" : <>BY <button onClick={() => onViewProfile?.(t.offerer)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)" }}>{short(t.offerer)}</button></>}
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                  {mine ? "YOUR POST" : <>BY <button onClick={() => onViewProfile?.(t.offerer)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)" }}>{short(t.offerer)}</button></>}
                 </span>
                 <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: STATUS_COLOR[t.status] || "var(--text-dim)", letterSpacing: "0.06em", textTransform: "uppercase" }}>{t.status}</span>
-                  {isActive && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>{timeLeft(t.expires_at)}</span>}
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: STATUS_COLOR[t.status] || "var(--text-dim)", letterSpacing: "0.06em", textTransform: "uppercase" }}>{t.status}</span>
+                  {isActive && <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>{timeLeft(t.expires_at)}</span>}
                 </span>
               </div>
               {youHold > 0 && (
                 <div style={{
                   display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 10,
-                  fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.04em",
-                  padding: "3px 9px", borderRadius: 6,
-                  background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", color: "var(--green)",
+                  fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
+                  padding: "3px 9px", borderRadius: 4,
+                  background: "rgba(47,217,139,0.12)", border: "1px solid rgba(47,217,139,0.3)", color: "var(--green)",
                 }}>
                   {"✓"} You can fill this — you hold {youHold}
                 </div>
@@ -640,7 +640,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
                   {mine ? (
                     <BoardOwnerActions trade={t} addToast={addToast} onChanged={load} />
                   ) : (
-                    <button className="btn-primary" style={{ fontSize: 10, padding: "8px 16px" }} onClick={() => setAcceptTarget(t)}>
+                    <button className="btn-primary" style={{ fontSize: 11, padding: "8px 16px" }} onClick={() => setAcceptTarget(t)}>
                       Accept this trade
                     </button>
                   )}
@@ -648,7 +648,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
               )}
               {t.status === "accepted" && t.accepted_tx && (
                 <a href={`https://etherscan.io/tx/${t.accepted_tx}`} target="_blank" rel="noopener noreferrer"
-                  style={{ display: "inline-block", marginTop: 10, fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", textDecoration: "none" }}>
+                  style={{ display: "inline-block", marginTop: 10, fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", textDecoration: "none" }}>
                   View settlement on Etherscan {"↗"}
                 </a>
               )}
@@ -679,14 +679,14 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 14,
+              background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 6,
               width: "min(720px, 94vw)", maxHeight: "86vh", overflowY: "auto",
               padding: "18px 20px", margin: "6vh auto",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>MESSAGES</span>
-              <button aria-label="Close modal" onClick={() => setDmContext(null)} className="btn-secondary" style={{ padding: "5px 11px", fontSize: 12 }}>{"✕"}</button>
+              <span style={{ fontFamily: "var(--pixel)", fontSize: 12, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>MESSAGES</span>
+              <button aria-label="Close modal" onClick={() => setDmContext(null)} className="btn-secondary" style={{ padding: "5px 11px", fontSize: 13 }}>{"✕"}</button>
             </div>
             <DirectMessages
               wallet={wallet}

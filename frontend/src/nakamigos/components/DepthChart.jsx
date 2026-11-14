@@ -290,12 +290,12 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
 
           {/* Bid area (green/teal) */}
           {bidPath && (
-            <path d={bidPath} fill="rgba(74, 222, 128, 0.15)" stroke="var(--green)" strokeWidth="1.5" />
+            <path d={bidPath} fill="rgba(47,217,139,0.15)" stroke="var(--green)" strokeWidth="1.5" />
           )}
 
           {/* Ask area (red/orange) */}
           {askPath && (
-            <path d={askPath} fill="rgba(255, 100, 100, 0.15)" stroke="var(--red)" strokeWidth="1.5" />
+            <path d={askPath} fill="rgba(255,92,92,0.15)" stroke="var(--red)" strokeWidth="1.5" />
           )}
 
           {/* Spread zone */}
@@ -321,7 +321,7 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
                 stroke="var(--gold)" strokeWidth="1" strokeDasharray="6 3"
               />
               <text x={xScale(floorPrice)} y={PAD.top - 6}
-                textAnchor="middle" fill="var(--gold)" fontSize="8"
+                textAnchor="middle" fill="var(--gold)" fontSize="10"
                 fontFamily="var(--mono)" fontWeight="600">
                 FLOOR
               </text>
@@ -337,7 +337,7 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
                 stroke="var(--green)" strokeWidth="1" strokeDasharray="6 3"
               />
               <text x={xScale(bestBid)} y={PAD.top - 6}
-                textAnchor="middle" fill="var(--green)" fontSize="8"
+                textAnchor="middle" fill="var(--green)" fontSize="10"
                 fontFamily="var(--mono)" fontWeight="600">
                 BEST BID
               </text>
@@ -347,13 +347,13 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
           {/* X-axis labels */}
           {xTicks.map((t, i) => (
             <text key={i} x={t.x} y={PAD.top + INNER_H + 16}
-              textAnchor="middle" fill="var(--text-muted)" fontSize="7"
+              textAnchor="middle" fill="var(--text-muted)" fontSize="10"
               fontFamily="var(--mono)">
               {t.price.toFixed(3)}
             </text>
           ))}
           <text x={PAD.left + INNER_W / 2} y={CHART_H - 2}
-            textAnchor="middle" fill="var(--text-dim)" fontSize="7"
+            textAnchor="middle" fill="var(--text-dim)" fontSize="10"
             fontFamily="var(--mono)" letterSpacing="0.06em">
             PRICE (ETH)
           </text>
@@ -361,23 +361,23 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
           {/* Y-axis labels */}
           {yTicks.map((t, i) => (
             <text key={i} x={PAD.left - 6} y={t.y + 3}
-              textAnchor="end" fill="var(--text-muted)" fontSize="7"
+              textAnchor="end" fill="var(--text-muted)" fontSize="10"
               fontFamily="var(--mono)">
               {t.val}
             </text>
           ))}
           <text x={12} y={PAD.top + INNER_H / 2}
-            textAnchor="middle" fill="var(--text-dim)" fontSize="7"
+            textAnchor="middle" fill="var(--text-dim)" fontSize="10"
             fontFamily="var(--mono)" letterSpacing="0.06em"
             transform={`rotate(-90, 12, ${PAD.top + INNER_H / 2})`}>
             CUMULATIVE
           </text>
 
           {/* Legend */}
-          <rect x={PAD.left + 8} y={PAD.top + 4} width={8} height={8} rx="1" fill="rgba(255, 100, 100, 0.4)" stroke="var(--red)" strokeWidth="0.5" />
-          <text x={PAD.left + 20} y={PAD.top + 11} fill="var(--text-dim)" fontSize="7" fontFamily="var(--mono)">Listings</text>
-          <rect x={PAD.left + 68} y={PAD.top + 4} width={8} height={8} rx="1" fill="rgba(74, 222, 128, 0.4)" stroke="var(--green)" strokeWidth="0.5" />
-          <text x={PAD.left + 80} y={PAD.top + 11} fill="var(--text-dim)" fontSize="7" fontFamily="var(--mono)">Bids</text>
+          <rect x={PAD.left + 8} y={PAD.top + 4} width={8} height={8} rx="1" fill="rgba(255,92,92,0.4)" stroke="var(--red)" strokeWidth="0.5" />
+          <text x={PAD.left + 20} y={PAD.top + 11} fill="var(--text-dim)" fontSize="10" fontFamily="var(--mono)">Listings</text>
+          <rect x={PAD.left + 68} y={PAD.top + 4} width={8} height={8} rx="1" fill="rgba(47,217,139,0.4)" stroke="var(--green)" strokeWidth="0.5" />
+          <text x={PAD.left + 80} y={PAD.top + 11} fill="var(--text-dim)" fontSize="10" fontFamily="var(--mono)">Bids</text>
         </svg>
 
         {/* Tooltip */}

@@ -127,7 +127,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
           onClick={(e) => e.stopPropagation()}
           style={{
             background: "var(--card)", border: "1px solid var(--border)",
-            borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
+            borderRadius: 6, maxWidth: 420, width: "90%", margin: "auto",
             padding: "28px 24px", position: "relative",
           }}
         >
@@ -166,7 +166,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--card)", border: "1px solid var(--border)",
-          borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
+          borderRadius: 6, maxWidth: 420, width: "90%", margin: "auto",
           padding: "28px 24px", position: "relative",
         }}
       >
@@ -183,7 +183,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
 
         {/* Type label */}
         <div style={{
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)",
+          fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)",
           letterSpacing: "0.1em", marginBottom: 6,
         }}>
           EDIT PROFILE
@@ -200,9 +200,9 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "24px 0" }}>
             <div className="skeleton" style={{ width: 80, height: 80, borderRadius: "50%", margin: "0 auto" }} />
-            <div className="skeleton" style={{ height: 40, borderRadius: 10 }} />
-            <div className="skeleton" style={{ height: 80, borderRadius: 10, animationDelay: "60ms" }} />
-            <div className="skeleton" style={{ height: 40, borderRadius: 10, animationDelay: "120ms" }} />
+            <div className="skeleton" style={{ height: 40, borderRadius: 6 }} />
+            <div className="skeleton" style={{ height: 80, borderRadius: 6, animationDelay: "60ms" }} />
+            <div className="skeleton" style={{ height: 40, borderRadius: 6, animationDelay: "120ms" }} />
           </div>
         ) : (
           <>
@@ -214,7 +214,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
                 border: "2px solid var(--border)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontFamily: "var(--display)", fontSize: 24, fontWeight: 700,
-                color: "#fff", textShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                color: "#fff",
               }}>
                 {(displayName || wallet || "?").slice(0, 2).toUpperCase()}
               </div>
@@ -229,7 +229,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
             {/* Display Name */}
             <div style={{ marginBottom: 16 }}>
               <label htmlFor="display-name-input" style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.06em", display: "block", marginBottom: 6,
               }}>
                 DISPLAY NAME
@@ -244,7 +244,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
                 style={{
                   width: "100%", boxSizing: "border-box",
                   background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)",
-                  borderRadius: 8, padding: "10px 14px",
+                  borderRadius: 4, padding: "10px 14px",
                   fontFamily: "var(--mono)", fontSize: 14, color: "var(--text)",
                   outline: "none",
                 }}
@@ -258,13 +258,13 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
                 marginBottom: 6,
               }}>
                 <label htmlFor="bio-textarea" style={{
-                  fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                   letterSpacing: "0.06em",
                 }}>
                   BIO
                 </label>
                 <span style={{
-                  fontFamily: "var(--mono)", fontSize: 10,
+                  fontFamily: "var(--mono)", fontSize: 11,
                   color: bio.length > 140 ? "var(--gold)" : "var(--text-muted)",
                 }}>
                   {bio.length}/160
@@ -280,7 +280,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
                 style={{
                   width: "100%", boxSizing: "border-box", resize: "vertical",
                   background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)",
-                  borderRadius: 8, padding: "10px 14px",
+                  borderRadius: 4, padding: "10px 14px",
                   fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)",
                   outline: "none", lineHeight: 1.5,
                 }}
@@ -290,7 +290,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
             {/* Twitter */}
             <div style={{ marginBottom: 24 }}>
               <label htmlFor="twitter-input" style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.06em", display: "block", marginBottom: 6,
               }}>
                 TWITTER
@@ -298,7 +298,7 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
               <div style={{
                 display: "flex", alignItems: "center", gap: 0,
                 background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)",
-                borderRadius: 8, overflow: "hidden",
+                borderRadius: 4, overflow: "hidden",
               }}>
                 <span style={{
                   padding: "10px 0 10px 14px",

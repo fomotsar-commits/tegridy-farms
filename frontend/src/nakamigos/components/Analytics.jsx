@@ -85,9 +85,9 @@ function DonutChart({ segments, size = 160 }) {
 }
 
 const TRAIT_COLORS = [
-  "#c8a850", "#4ade80", "#818cf8", "#fbbf24", "#f472b6",
-  "#22d3ee", "#fb923c", "#a78bfa", "#34d399", "#f87171",
-  "#e879f9", "#94a3b8", "#2dd4bf", "#facc15", "#f97316",
+  "#c6f432", "#2fd98b", "#a48bff", "#f2c14e", "#f472b6",
+  "#22d3ee", "#fb923c", "#a48bff", "#2fd98b", "#ff5c5c",
+  "#e879f9", "#94a3b8", "#2dd4bf", "#f2c14e", "#f97316",
   "#a3e635",
 ];
 
@@ -254,8 +254,8 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
           <button
             onClick={handleExportAnalytics}
             style={{
-              fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
-              borderRadius: 8, border: "1px solid var(--border)",
+              fontFamily: "var(--mono)", fontSize: 11, padding: "8px 16px",
+              borderRadius: 4, border: "1px solid var(--border)",
               background: "var(--surface-glass)", color: "var(--text-dim)",
               cursor: "pointer", letterSpacing: "0.04em",
             }}
@@ -267,7 +267,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
       <div style={{ width: 60, height: 2, background: "linear-gradient(90deg, var(--gold), transparent)", marginBottom: 32 }} />
 
       {tokens.length === 0 && !activities.length && stats.floor == null && (
-        <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)", marginBottom: 32 }}>
+        <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)", marginBottom: 32 }}>
           <div className="empty-state-icon">{"\uD83D\uDCCA"}</div>
           <div className="empty-state-title">No analytics data available for {collection.name} yet</div>
           <div className="empty-state-text">Analytics will populate once token and sales data is loaded.</div>
@@ -299,7 +299,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
           <div className="analytics-panel-header">
             <h3>Trait Distribution</h3>
             {isPartialLoad && traitDistributions.length > 0 && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
                 {tokens.length.toLocaleString()} of {resolvedSupply.toLocaleString()} loaded
               </span>
             )}
@@ -322,7 +322,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
                 maxValue={Math.max(...activeTrait.values.map(v => v.value))}
               />
               {activeTrait.values.length > 12 && (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
                   + {activeTrait.values.length - 12} more values
                 </div>
               )}
@@ -424,7 +424,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
             <div className="analytics-panel-header"><h3>Rarity vs Price</h3></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 0" }}>
               {Array.from({ length: 3 }, (_, i) => (
-                <div key={i} className="skeleton" style={{ height: 24, borderRadius: 4, animationDelay: `${i * 50}ms` }} />
+                <div key={i} className="skeleton" style={{ height: 24, borderRadius: 3, animationDelay: `${i * 50}ms` }} />
               ))}
             </div>
           </div>
@@ -446,7 +446,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
           <div className="analytics-panel-header"><h3>Collection Health</h3></div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 0" }}>
             {Array.from({ length: 4 }, (_, i) => (
-              <div key={i} className="skeleton" style={{ height: 24, borderRadius: 4, animationDelay: `${i * 50}ms` }} />
+              <div key={i} className="skeleton" style={{ height: 24, borderRadius: 3, animationDelay: `${i * 50}ms` }} />
             ))}
           </div>
         </div>
@@ -462,7 +462,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
           <div className="analytics-panel-header"><h3>Holder Distribution</h3></div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 0" }}>
             {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="skeleton" style={{ height: 18, borderRadius: 4, animationDelay: `${i * 50}ms` }} />
+              <div key={i} className="skeleton" style={{ height: 18, borderRadius: 3, animationDelay: `${i * 50}ms` }} />
             ))}
           </div>
         </div>
@@ -476,7 +476,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
         <div className="analytics-panel" style={{ marginTop: 24 }}>
           <div className="analytics-panel-header">
             <h3>Rarest Traits</h3>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
               {rarityIsPrecomputed ? "Precomputed rarity" : `Computed at runtime from ${tokens.length.toLocaleString()} loaded`}
             </span>
           </div>
@@ -488,18 +488,18 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
                   <div key={`${trait.type}-${trait.value}`} className="rarest-item card-reveal" style={{ animationDelay: `${i * 40}ms` }}>
                     <div className="rarest-rank">#{i + 1}</div>
                     <div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                         {trait.type}
                       </div>
-                      <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
+                      <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)", fontWeight: 500 }}>
                         {trait.value}
                       </div>
                     </div>
                     <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)", fontWeight: 600 }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)", fontWeight: 600 }}>
                         {trait.count}
                       </div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                         {pct}%{isPartialLoad ? " *" : ""}
                       </div>
                     </div>
@@ -508,7 +508,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
               })}
           </div>
           {isPartialLoad && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)", marginTop: 8, letterSpacing: "0.04em" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 8, letterSpacing: "0.04em" }}>
               * Percentages based on {tokens.length.toLocaleString()} loaded tokens
             </div>
           )}
