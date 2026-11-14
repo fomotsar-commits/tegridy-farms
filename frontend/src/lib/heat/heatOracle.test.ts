@@ -167,7 +167,14 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
       'This wallet reads 42.50° (Observer): 148 days to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
     );
     expect(gateDecision(ADDR, parseHeatReading(COLD), asOf).detail).toBe(
-      'This wallet reads 0.00°: about half a year to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
+      'This wallet reads 0.00°: about half a year to the door, from your first real buy. Residents launch here. Nobody can buy last year.',
+    );
+  });
+
+  it('COLD says “1 day” at one, in the singular (answer twenty-eight, §2.1)', () => {
+    const one = parseHeatReading({ ...WARM, degrees: 79.33, tier: 'Observer', as_of_unix: asOf, days_to_plant: 1 });
+    expect(gateDecision(ADDR, one, asOf).detail).toBe(
+      'This wallet reads 79.33° (Observer): 1 day to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
     );
   });
 

@@ -41,7 +41,7 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     function _mkSell(uint256[] memory tokenIds) internal returns (TegridyNFTPool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        address pool = factory.createPool(
+        address pool = factory.createPool{value: 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.SELL, SPOT_PRICE, DELTA, 0, tokenIds
         );
         vm.stopPrank();
@@ -51,7 +51,7 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     function _mkBuy(uint256 ethAmount) internal returns (TegridyNFTPool) {
         uint256[] memory empty = new uint256[](0);
         vm.prank(alice);
-        address pool = factory.createPool{value: ethAmount}(
+        address pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.BUY, SPOT_PRICE, DELTA, 0, empty
         );
         return TegridyNFTPool(payable(pool));
@@ -60,7 +60,7 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     function _mkTrade(uint256[] memory tokenIds, uint256 ethAmount) internal returns (TegridyNFTPool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        address pool = factory.createPool{value: ethAmount}(
+        address pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, tokenIds
         );
         vm.stopPrank();
@@ -366,10 +366,10 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
         nft.setApprovalForAll(address(f2), true);
-        address poolA = factory.createPool{value: 0.05 ether}(
+        address poolA = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.SELL, SPOT_PRICE, DELTA, 0, empty
         );
-        address poolB = f2.createPool{value: 0.05 ether}(
+        address poolB = f2.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.SELL, SPOT_PRICE, DELTA, 0, empty
         );
         vm.stopPrank();

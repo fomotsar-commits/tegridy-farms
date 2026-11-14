@@ -174,7 +174,7 @@ test.describe('a11y — shared chrome', () => {
     // second time and reporting a pass.
     await hamburger.or(bar).first().waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });
 
-    // The bar carries the five words at every width (Island · Swap · Add · Lock · Launch),
+    // The bar carries the five words at every width (Island · Swap · Add · Yield · Launch),
     // and the drawer carries the rest at every width, so both are asserted everywhere.
     const visibleBar = page.locator('nav[aria-label="Main navigation"]:visible');
     await expect(visibleBar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });

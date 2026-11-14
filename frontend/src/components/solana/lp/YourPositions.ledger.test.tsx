@@ -45,7 +45,7 @@ const TOK = 10n ** 6n;
 const DAY = 86_400;
 const BUTTON = 'Work out what this position earned';
 const READING = 'Working out what this position earned…';
-const FEES = 'Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.';
+const FEES = 'Fees you earn are added to your shares, and you receive them when you remove liquidity.';
 const AGAIN = 'Work it out again';
 const WORKED_OUT = 'Worked out.';
 const FEES_NOTE = 'Your part of this pool’s trading fees. Tokens sent straight into the pool count too.';
@@ -140,6 +140,8 @@ function figures(over: Partial<LedgerFigures> = {}): LedgerFigures {
     since: AT_SEC,
     provenShares: 10n * SOL,
     otherShares: null,
+    basis: 10n * SOL,
+    claimShares: 0n,
     ...over,
   };
 }
@@ -205,7 +207,7 @@ describe('the row, top to bottom', () => {
     expect(li.textContent).not.toMatch(/—/);
   });
 
-  it('says with no press that there is nothing to claim: once on every share whose pool was read, set aside or not, and with no reader for history at all', async () => {
+  it('says with no press that fees grow the shares and come out with them: once on every share whose pool was read, set aside or not, and with no reader for history at all', async () => {
     const mine = view();
     const refusedMint = key();
     const ofRefused = view({ mint: refusedMint });
@@ -434,7 +436,7 @@ describe('the earnings block, answered', () => {
         putIn: { token: 1_231_466_144_058n, coin: 5_603_960_397n, count: 3 }, takenOut: null, worthNow: { token, coin },
         holdWorth: 11_436_843_324n, nowAndOutWorth: 11_435_513_242n,
         versusHolding: amount(-1_330_082n), growth: amount(961_245n), priceEffect: amount(-2_291_314n),
-        locked: 13n, since: 1_791_055_083, provenShares: 83_072_784_230n, otherShares: null,
+        locked: 13n, since: 1_791_055_083, provenShares: 83_072_784_230n, otherShares: null, basis: 0n, claimShares: 0n,
       },
     };
     // The chain's clock at the read: 2026-10-10 02:31:00 UTC.

@@ -92,15 +92,12 @@ export interface LoanDeadlineFact {
   loanId: number;
   /** Lending contract the loan lives on, lower-cased. */
   contract: string;
-  /** Pause-adjusted deadline, unix seconds, as read from the contract. */
-  deadlineAt: number;
   /**
-   * Earliest unix second at which repayment could be refused and the collateral
-   * become claimable. A lower bound, not a closing time: the venue's lending
-   * contract extends its grace period by any time it spent paused, and that
-   * extension is not readable off-chain. Carried as context; never compared.
+   * The loan's deadline, unix seconds: `startTime + duration` of the loan the chain's
+   * `getLoanHash` confirmed. Gondi has no grace period, so from this second repayment is
+   * refused and the collateral can be claimed.
    */
-  graceEndsAt: number;
+  deadlineAt: number;
   /** Coarse urgency label from the shield's health model. Compared, not parsed. */
   band: string;
   /** One sentence naming what is lost if nothing is signed. Rendered verbatim. */

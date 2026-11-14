@@ -560,14 +560,15 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`; Dashboard's
-  // is NavDrawer.tsx DASHBOARD_ART). 0 is the menu's own, and the Records group's.
+  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`). 0 is the
+  // menu's own, and the Records group's. Off the menu since 2026-11-10, kept for their return:
+  // 2 (Check), 4 (Dashboard's own row; Dashboard is a page under Island) and 7 (Launch).
   { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu group: Pools' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu group: Check' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 5, label: 'MO3e — Menu group: Swap' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Lock' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Yield' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
   // "Buy all bungalows" on the swap card (IslandBasket.tsx).
@@ -749,6 +750,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 3, label: 'Your range positions' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 7, label: 'Open this pool (a fee tier, no pool for the pair yet)' },
 
   // Pools · Venue AMM
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },
@@ -852,6 +854,7 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 21, label: 'Pool unreachable card (error)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 27, label: 'Floor bid and who buys it card (Lend tab, picked collection)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 1, label: 'How this shield works notice' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 2, label: 'Not covered by this page notice' },

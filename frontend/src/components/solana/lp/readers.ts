@@ -4,7 +4,7 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
+import { findPools, readFeeTiers, readNameRecordCost, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { listedOutsidePrice, readLegQuote, readOutsidePrice, type LegQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
@@ -59,6 +59,12 @@ export interface LpReaders {
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
+  /**
+   * What an opening adds for its new share's name record (poolFinder.ts readNameRecordCost),
+   * for the Open a pool card's cost line; null when not read. Optional: a reader without
+   * it says the record without an amount, and every existing fake still fits.
+   */
+  nameRecordCost?(): Promise<bigint | null>;
   /**
    * The wallet's SOL, its token account for the pool's token, its wrapped-SOL account
    * and whether it has a pool-share account: for the panels' hints and Max buttons only.
@@ -135,6 +141,7 @@ export function browserLpReaders(): LpReaders | null {
     legQuote: (inputMint, outputMint, amount) => readLegQuote(inputMint, outputMint, amount, jupiter),
     positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
+    nameRecordCost: () => readNameRecordCost(rpc),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
     ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),

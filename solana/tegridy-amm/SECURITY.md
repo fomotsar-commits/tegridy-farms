@@ -33,7 +33,7 @@ one.
 
 | Component | Provenance | Audited? |
 |---|---|---|
-| `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06), and one added refusal in `initialize` (a public opening on fee tier 0; in source since 2026-10-19), both in the mainnet binary from the program's first upgrade (2026-10-23) until its roll-back (2026-10-24), CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction or the added refusal. |
+| `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06), and one added refusal in `initialize` (a public opening on fee tier 0; in source since 2026-10-19), both in the mainnet binary since the program's re-upgrade (and from its first upgrade, 2026-10-23, until its roll-back, 2026-10-24); and, in the mainnet binary since the upgrade of 2026-11, the fee rules of 2026-11-03 and the swap guard of 2026-11-10 (`TEGRIDY_FORK.md`). CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction, the added refusal, the fee rules or the swap guard. |
 | `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
 
 Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
@@ -43,5 +43,5 @@ Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
 ## If you are an auditor
 
 `AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap diff against
-audited upstream (four constants, one small added instruction, `create_lp_metadata`, and
-the program's own name and contact text); `tegridy-launch` is the real review.
+audited upstream (four constants, one small added instruction, `create_lp_metadata`, the
+program's own name and contact text, and since 2026-11 the fee rules and the swap guard); `tegridy-launch` is the real review.

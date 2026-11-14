@@ -12,7 +12,7 @@ import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, solanaToR
 import { timeAgo } from '../lib/solanaActivity';
 import { CHAIN_LABEL, hasLadder, rowTerms, venuePoolRows, type VenuePoolRow } from '../lib/venuePools';
 import {
-  WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
+  OTHER_COIN_MIN_USD, WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
   type HoldingRow, type HoldingShare, type NamedLeg, type PositionRow, type WalletChain,
 } from '../lib/wallet/walletRows';
 import { offIslandArt } from '../lib/wallet/offIslandCoins';
@@ -339,8 +339,10 @@ function PoolRow({ n, row, onShow, figKey, current }: { n: number; row: VenuePoo
 }
 
 /** A row's picture (artOf), or, for SOL and ETH, a square in the chain's color. */
-function Thumb({ roomId, mint, chain, className = '' }: { roomId: string | null; mint?: string; chain: WalletChain; className?: string }) {
+function Thumb({ roomId, mint, chain, symbol, className = '' }: { roomId: string | null; mint?: string; chain: WalletChain; symbol?: string; className?: string }) {
   const door = artOf(roomId, chain, mint);
+  // A coin with no picture of ours is drawn by its own ticker's first letters, never as the chain's coin.
+  const initials = mint && symbol ? symbol.replace(/^fake /, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 3).toUpperCase() : '';
   const set = door ? artSrcSet(door.src) : undefined;
   return (
     <span aria-hidden="true" className={`relative w-11 h-11 flex-shrink-0 overflow-hidden border border-white/15 ${className}`}
@@ -349,8 +351,8 @@ function Thumb({ roomId, mint, chain, className = '' }: { roomId: string | null;
         <img src={door.src} {...(set ? { srcSet: set, sizes: '44px' } : {})} alt="" loading="lazy" decoding="async" width={44} height={44}
           className="w-full h-full object-cover" style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
       ) : (
-        <span className="absolute inset-0 flex items-center justify-center font-black text-[18px] text-[#05080f]" style={HEADING_FONT}>
-          {chain === 'solana' ? '◎' : 'Ξ'}
+        <span className={`absolute inset-0 flex items-center justify-center font-black text-[#05080f] ${initials ? 'text-[13px] tracking-[-0.04em]' : 'text-[18px]'}`} style={HEADING_FONT}>
+          {initials || (chain === 'solana' ? '◎' : 'Ξ')}
         </span>
       )}
     </span>
@@ -409,13 +411,18 @@ function HoldingItem({ n, row, share, onShow, figKey, current }: { n: number; ro
     <>
       <RowRules accent={accentOf(row.roomId)} />
       <Index n={n} />
-      <Thumb roomId={row.roomId} mint={row.mint} chain={row.chain} />
+      <Thumb roomId={row.roomId} mint={row.mint} chain={row.chain} symbol={row.symbol} />
       <span className="min-w-0">
         {/* An upright iPad sets the board beside its frame, so the type steps down a size there. */}
         <span className={`block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[26px] lg:text-[30px] ${WORD_LIT}`} style={HEADING_FONT}>
           {row.symbol}
         </span>
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
+        {/* A coin with no room names itself: its whole address goes with its ticker, as on the pools.
+            One 44-letter word, so it breaks anywhere rather than run off a phone. */}
+        {row.mint && !row.roomId && (
+          <span data-testid="holding-address" className="mt-1 block font-mono text-[10px] text-[#f5e4b8]/55 [overflow-wrap:anywhere]">{row.mint}</span>
+        )}
       </span>
       <span className="text-right">
         <span className="block font-black leading-none tracking-[-0.03em] text-[20px] md:text-[22px] lg:text-[26px] tabular-nums" style={HEADING_FONT}>{row.amount}</span>
@@ -492,12 +499,16 @@ function Worth({ usd, text }: { usd: number | null; text: string }) {
 }
 
 /** A numbered part of the board: its rows, then whatever is still reading or could not be read. */
-function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: {
+function LegBlock<T extends { key: string }>({ n, title, legs, empty, render, note }: {
   n: number; title: string; legs: NamedLeg<T>[]; empty: ReactNode; render: (row: T, i: number) => ReactNode;
+  /** Small print under the part: what it leaves out. */
+  note?: ReactNode;
 }) {
   const rows = legs.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
   const loading = legs.some((l) => l.leg.status === 'loading');
   const unread = legs.filter((l) => l.leg.status === 'unread');
+  // Parts drawn from their last read because the new read failed (useWalletBoard useRemembered).
+  const stale = legs.filter((l) => l.failed !== undefined);
   return (
     <section aria-label={title} className="mt-6 first:mt-4">
       <h3 className="flex items-baseline gap-3 pb-2 border-b border-white/25 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/70">
@@ -509,17 +520,25 @@ function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: 
       {loading && (
         <p role="status" className="py-3 font-mono text-[11px] uppercase tracking-[0.14em] text-[#f5e4b8]/55">Reading the chain…</p>
       )}
+      {stale.map((l) => (
+        <p key={l.key} title={l.failed} data-testid="leg-stale"
+          className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/60 border-b border-white/[0.10]">
+          <span>{capFirst(l.what)} as read {l.readAt !== undefined ? timeAgo(l.readAt) : 'before'}. Reading again…</span>
+          <button type="button" onClick={l.retry} className="underline underline-offset-4 uppercase tracking-[0.14em]" style={{ color: EDITORIAL_INK }}>Now</button>
+        </p>
+      ))}
       {unread.map((l) => (
         // The reader's own reason, on hover: the line itself stays one sentence.
         <p key={l.key} title={l.leg.status === 'unread' ? l.leg.detail : undefined}
           className="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] border-b border-white/[0.10]" style={{ color: '#f0b26b' }}>
-          <span>Couldn&rsquo;t read {l.what} just now, so nothing is shown for them.</span>
+          <span>Couldn&rsquo;t read {l.what} just now, so nothing is shown for them. Reading again on its own.</span>
           <button type="button" onClick={l.retry} className="underline underline-offset-4" style={{ color: EDITORIAL_INK }}>Try again</button>
         </p>
       ))}
       {!loading && !unread.length && rows.length === 0 && (
         <p className="py-3 text-[13px] text-[#f5e4b8]/70">{empty}</p>
       )}
+      {note && <FinePrint summary="Which coins?" className="mt-2">{note}</FinePrint>}
     </section>
   );
 }
@@ -568,6 +587,11 @@ function WalletTape({ rows }: { rows: HoldingRow[] }) {
       </div>
     </div>
   );
+}
+
+/** "your Solana coins" -> "Your Solana coins", to start a line. */
+function capFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /** A whole worth, $0 for a read that found nothing, and a dash for one that is not whole (holdingsTotal). */
@@ -906,7 +930,8 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
           {connected ? (
             <>
               <LegBlock n={1} title="Holdings" legs={board.holdings}
-                empty="No SOL, ETH or island coins in this wallet."
+                empty="No SOL, ETH or coins worth $1 or more in this wallet."
+                note={<p>SOL, ETH and every island coin the wallet holds, then every other coin worth {fmtUsd(OTHER_COIN_MIN_USD)} or more at its market price (Jupiter on Solana, DefiLlama on Ethereum and Base). A coin under that, or with no market price, is left out. Each amount is read from the chain.</p>}
                 render={(r, i) => {
                   const f = holdingFig(r, i);
                   return <HoldingItem key={r.key} n={i + 1} row={r} share={shareOf.get(r.key)} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;

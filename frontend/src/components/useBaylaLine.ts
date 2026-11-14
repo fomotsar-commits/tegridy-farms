@@ -4,12 +4,14 @@ import { getActiveBungalow } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { useLastReading } from '../lib/heat/heatStore';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 import { useLanded } from '../lib/landed';
 import { LAUNCH_SECTION, poolsRoute } from '../lib/navConfig';
 import { isSolanaSwapLive } from '../lib/solana';
 import { useRoomSlow } from '../lib/solana/lp/roomPrice';
 import { useCurrentScreenMove } from '../lib/screenMove';
 import { sheetHref } from '../lib/sheet';
+import { roomOpensSheet } from '../lib/sheetRooms';
 
 /** The quiet button (answer twenty-five, §2): the same press, an edge and its words, no fill. */
 export const QUIET_BUTTON_STYLE = { background: 'transparent', border: '1px solid rgba(255,255,255,0.25)', color: 'rgba(255,255,255,0.78)' } as const;
@@ -32,12 +34,14 @@ export function useBaylaLine(): Line {
     reading,
     room: room ? { coin: room.symbol, solanaPool } : null,
     floor: heatLaunchFloor(),
+    doorOpen: isLaunchDoorOpen(),
     landed: landed?.kind ?? null,
     slow,
     screenMove,
     to: {
       pools: solanaPool && room.venueSolPool ? sheetHref(location.pathname, location.search, 'add') : poolsRoute(),
-      buy: isSolanaSwapLive() ? sheetHref(location.pathname, location.search, 'buy') : '/swap',
+      // In a room on Ethereum or Base the sheet opens on that network (ActionSheet reads the room's).
+      buy: isSolanaSwapLive() || roomOpensSheet(room, 'buy') ? sheetHref(location.pathname, location.search, 'buy') : '/swap',
       launch: LAUNCH_SECTION.primaryTo ?? LAUNCH_SECTION.hub,
       read: '/',
       pick: '/#hall',

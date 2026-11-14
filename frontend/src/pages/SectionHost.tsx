@@ -1,4 +1,4 @@
-import { Suspense, type ComponentType } from 'react';
+import { Suspense, type ComponentType, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { RouteTabs } from '../components/layout/RouteTabs';
@@ -29,6 +29,8 @@ export interface SectionHostProps {
   chains?: SectionChainCopy & { label: string };
   /** Where a tab's press goes, when not its own `to` (Lock's Staking tab follows the room). */
   tabTo?: (to: string) => string;
+  /** A panel's own fallback while its chunk arrives, by `item.to`. The page skeleton otherwise. */
+  fallbacks?: Partial<Record<string, ReactNode>>;
 }
 
 /** Does `pathname` belong to `to`? A segment test: a prefix test lights /launch for /launch-simulator. */
@@ -36,7 +38,7 @@ function matchesRoute(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-export function SectionHost({ section, idPrefix, ariaLabel, panels, chains, tabTo }: SectionHostProps) {
+export function SectionHost({ section, idPrefix, ariaLabel, panels, chains, tabTo, fallbacks }: SectionHostProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const items = section.items;
@@ -80,7 +82,7 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels, chains, tabT
         id={`${idPrefix}-panel`}
         aria-labelledby={tabDomId(idPrefix, active)}
       >
-        <Suspense fallback={<PageSkeleton />}>
+        <Suspense fallback={fallbacks?.[active] ?? <PageSkeleton />}>
           {/* pt-14: the strip lies over this padding, then scrolls away with it. */}
           {Panel && (
             <div className="pt-14">

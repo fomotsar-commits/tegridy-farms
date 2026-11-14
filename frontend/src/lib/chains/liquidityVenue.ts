@@ -62,3 +62,26 @@ export function liquidityVenueOn(chainId: number | undefined | null): LiquidityV
     weth,
   };
 }
+
+/** What opening a pool costs on `openingVenueOn`'s factory: TegridyFactory's POOL_OPENING_FEE, a constant 0.006 ether. */
+export const OPENING_FEE_TEXT = '0.006 ETH';
+
+/**
+ * The venue that NEW pools open on: the factory + router that charge 0.006 ETH to open a
+ * pool (owner ruling 2026-10-25). Null where they are not deployed, which keeps today's
+ * behaviour: pools open on `liquidityVenueOn`'s factory for free. A pool that already exists
+ * on the old factory stays there either way; useAddLiquidity picks between the two per pair.
+ *
+ * Null too until the SwapFeeRouter bound to the new router is set: a pool the site's swap
+ * cannot reach must not be opened from the site (swapVenue.ts `openingSwapVenue`).
+ */
+export function openingVenueOn(chainId: number | undefined | null): LiquidityVenue | null {
+  const config = getChainConfig(chainId);
+  const base = liquidityVenueOn(chainId);
+  if (!config || !base) return null;
+
+  const { openingFactory, openingRouter, openingSwapFeeRouter } = config.contracts;
+  if (!openingFactory || !openingRouter || !openingSwapFeeRouter) return null;
+
+  return { ...base, router: openingRouter, factory: openingFactory };
+}

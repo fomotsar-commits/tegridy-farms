@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { arrivalVoice, voiceAt, isToweliVoice, loaderIdentity, VENUE } from './arrival';
+import { arrivalVoice, voiceAt, isToweliVoice, loaderIdentity, VENUE, RECEIPT_WORDS, COUNTDOWN_WORDS } from './arrival';
 import { TOWELI_ROOM_PATHS } from './routeVoice';
 import { onboardingSteps } from '../components/onboarding/onboardingSteps';
 import { BUNGALOW_STORAGE_KEY } from './bungalows';
@@ -177,5 +177,43 @@ describe('VENUE copy walls', () => {
   it('carries no Tegridy branding in any venue-voice string', () => {
     const all = Object.values(VENUE).join(' ').toLowerCase();
     expect(all).not.toContain('tegridy');
+  });
+});
+
+// Island answer thirty-four: the words that say "$TICKER" name a coin by a ticker of its own, once.
+describe('the receipt card names a coin once, or not at all', () => {
+  it('the shore and its mark drop a ticker’s own $, as the floor and the post do', () => {
+    expect(RECEIPT_WORDS.shore('$WIF')).toBe("You're on $WIF's shore. Every light here holds it.");
+    expect(RECEIPT_WORDS.shoreMark('$WIF')).toBe("$WIF's shore.");
+    expect(RECEIPT_WORDS.shore('BAYLA')).toBe("You're on $BAYLA's shore. Every light here holds it.");
+    expect(RECEIPT_WORDS.shore('$WIF')).toContain(RECEIPT_WORDS.shoreMark('$WIF'));
+    expect(RECEIPT_WORDS.floor('$WIF')).toBe("You're part of $WIF's floor now. Every trade in the pool pays you.");
+    expect(RECEIPT_WORDS.lpPost('$WIF')).toContain('to $WIF. ');
+  });
+
+  it('the floor’s mark is the coin’s floor, inside the line', () => {
+    expect(RECEIPT_WORDS.floorMark('BAYLA')).toBe("$BAYLA's floor");
+    expect(RECEIPT_WORDS.floorMark('$WIF')).toBe("$WIF's floor");
+    for (const coin of ['BAYLA', '$WIF', 'BRAINLET']) expect(RECEIPT_WORDS.floor(coin)).toContain(RECEIPT_WORDS.floorMark(coin));
+  });
+
+  it('with no ticker of the coin’s own, the line and the post name none', () => {
+    expect(RECEIPT_WORDS.floor(null)).toBe("You're part of the floor now. Every trade in the pool pays you.");
+    expect(RECEIPT_WORDS.lpPost(null)).toBe("Just added liquidity. I'm part of the floor now. Every trade in the pool pays me.");
+    // One link a post (island answer thirty-five): the unnamed post names no site either.
+    expect(RECEIPT_WORDS.lpPost(null)).not.toMatch(/\.\p{L}{2,}/u);
+    const intent = new URL(RECEIPT_WORDS.lpIntent(null, 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'));
+    expect(intent.searchParams.get('text')).toBe(`${RECEIPT_WORDS.lpPost(null)} https://memetics.finance/lp/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm`);
+    for (const words of [RECEIPT_WORDS.floor(null), RECEIPT_WORDS.lpPost(null)]) {
+      expect(words).not.toContain('$');
+      expect(words).not.toMatch(/—/);
+    }
+  });
+});
+
+describe('the countdown’s line under its number', () => {
+  it('served days count from today; half a year counts from a first real buy', () => {
+    expect(COUNTDOWN_WORDS.under).toBe('to the door, if you hold from today.');
+    expect(COUNTDOWN_WORDS.underUnserved).toBe('to the door, from your first real buy.');
   });
 });

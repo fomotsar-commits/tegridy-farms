@@ -137,6 +137,31 @@ describe('artSrcSet', () => {
     expect(set).toContain(`${derivedUrl(src, 480)} 480w`);
   });
 
+  it('a phone card stops at the 960: the original is not offered, so it cannot be fetched', () => {
+    vi.stubEnv('PROD', true);
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), 'src', 'lib', 'artDerivatives.generated.json'), 'utf8'),
+    ) as Record<string, number | number[]>;
+    const entry = Object.keys(manifest).find((src) => widthsFor(src).includes(960));
+    if (!entry) return; // empty manifest in a fresh clone
+    const capped = artSrcSet(entry, { phoneCard: true })!;
+    expect(capped.endsWith(`${derivedUrl(entry, 960)} 960w`)).toBe(true);
+    expect(capped.split(', ').some((c) => c.startsWith(`${entry} `))).toBe(false);
+    // Every other surface is untouched: the original is still the widest candidate.
+    expect(artSrcSet(entry)!.split(', ').some((c) => c.startsWith(`${entry} `))).toBe(true);
+    expect(artSrcSet(entry, { phoneCard: false })).toBe(artSrcSet(entry));
+  });
+
+  it('a phone card whose source has no 960 keeps its original: never nothing wide enough', () => {
+    vi.stubEnv('PROD', true);
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), 'src', 'lib', 'artDerivatives.generated.json'), 'utf8'),
+    ) as Record<string, number | number[]>;
+    const entry = Object.keys(manifest).find((src) => widthsFor(src).length > 0 && !widthsFor(src).includes(960));
+    if (!entry) return; // every source has a 960: nothing to assert
+    expect(artSrcSet(entry, { phoneCard: true })).toBe(artSrcSet(entry));
+  });
+
   it('never offers a candidate wider than the original', () => {
     const manifest = JSON.parse(
       readFileSync(join(process.cwd(), 'src', 'lib', 'artDerivatives.generated.json'), 'utf8'),

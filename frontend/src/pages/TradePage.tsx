@@ -1,49 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { useAccount } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
-import { ClockLine } from '../components/ClockLine';
-import { getTxUrl } from '../lib/explorer';
-import { RealYieldProof } from '../components/RealYieldProof';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
-import { useSwap } from '../hooks/useSwap';
 import { useSwapChainId } from '../hooks/useSwapChainId';
 import { CHAIN_ID } from '../lib/constants';
-import { swapTokensFor } from '../lib/tokenList';
-import { useTOWELIPriceOptional } from '../contexts/PriceContext';
-import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
-import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
 import { DCATab } from '../components/swap/DCATab';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
-import { CowSwapPanel } from '../components/swap/CowSwapPanel';
+import { EvmSwapPanel } from '../components/swap/EvmSwapPanel';
 import { TwapOrderPanel } from '../components/swap/TwapOrderPanel';
 import { TriggerOrderTab } from '../components/swap/TriggerOrderTab';
-import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
-import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
-import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
-import { evmBasketFor } from '../lib/islandBasket';
-import { universalRouterOn } from '../lib/evm/universalRouter';
+import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { ArtImg } from '../components/ArtImg';
-import { CardArt } from '../components/ui/CardArt';
-import { FinePrint } from '../components/ui/FinePrint';
-import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'swap' | 'dca' | 'limit' | 'twap' | 'trigger';
-
-/**
- * Truncate to 6dp, never round up. The 50%/MAX quick-fills previously used
- * `Number(x.toFixed(6))`, which rounds HALF-UP — so for any balance whose 7th
- * decimal rounds up (common with 18-decimal tokens) MAX produced an amount
- * ABOVE the wallet balance, which fails the balance check and disables the
- * Swap button. Flooring can only ever under-fill, which is safe.
- */
-const floor6 = (n: number): number => Math.floor(n * 1e6) / 1e6;
 
 // AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. DCA is not
 // on-chain — it persists in browser localStorage and runs only while the tab is open,
@@ -92,7 +65,6 @@ function resolveInitialTab(searchParams: URLSearchParams): Tab {
 //   now, before this chunk loads — see the note there for why this was the wrong place.
 
 export default function TradePage() {
-  const { isConnected } = useAccount();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => resolveInitialTab(searchParams));
@@ -129,15 +101,6 @@ export default function TradePage() {
     twap: 'Split a buy into slices over time. Needs a Safe wallet.',
     trigger: 'Build a stop-loss, take-profit, trailing stop or OCO exit.',
   };
-  const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
-  const [showRouteDetails, setShowRouteDetails] = useState(false);
-  // F190: the custom-slippage field keeps its OWN string state while focused so
-  // a fractional value (0.3, 3.5) can be typed without each keystroke being
-  // round-tripped through swap.slippage.toFixed(2) (which collapsed "0.3" back
-  // to "0.00"). Committed/clamped on change-when-valid; re-synced from
-  // swap.slippage only while the field is NOT focused. Mirrors DCATab's pattern.
-  const [slippageFieldFocused, setSlippageFieldFocused] = useState(false);
-  const [slippageFieldStr, setSlippageFieldStr] = useState('');
 
   useEffect(() => { trackPageView('trade'); }, []);
 
@@ -172,78 +135,6 @@ export default function TradePage() {
 
   // The chain the Swap tab trades on: the wallet's, or `?c=` with no wallet.
   const swapChainId = useSwapChainId();
-  const swap = useSwap({ chainId: swapChainId });
-  const onEthereum = swap.swapChainId === CHAIN_ID;
-
-  // Best-effort USD estimate under the pay/receive amounts. ETH/WETH via ethUsd, TOWELI via
-  // priceInUsd; returns null (line hidden, never "$0.00") for unpriced tokens or missing data.
-  const priceCtx = useTOWELIPriceOptional();
-  const usdFor = (token: { isNative?: boolean; symbol?: string } | null | undefined, amountStr: string | undefined) => {
-    const amt = Number(amountStr);
-    if (!priceCtx || !token || !Number.isFinite(amt) || amt <= 0) return null;
-    // TOWELI lives on Ethereum only; a token of that name on another chain is not it.
-    const unit = token.isNative ? priceCtx.ethUsd : (token.symbol === 'TOWELI' && onEthereum ? priceCtx.priceInUsd : null);
-    if (!unit || !Number.isFinite(unit) || unit <= 0) return null;
-    return amt * unit;
-  };
-  const payUsd = usdFor(swap.fromToken, swap.inputAmount);
-  const receiveUsd = usdFor(swap.toToken, swap.outputFormatted);
-
-  // F226/F227/F235/F196: aggregator `amountOut` is WEI while the on-chain
-  // outputs are human token amounts — normalize before comparing/displaying.
-  // The pure math lives in `computeRouteSavings` (unit-tested): it also excludes
-  // degenerate-low (near-empty native pool) venues from the savings denominator
-  // and clamps the result so it can never render scientific notation.
-  const toDecimals = swap.toToken?.decimals ?? 18;
-  const tegridyOutputNum = swap.hasTegridyPair && swap.tegridyOutputFormatted
-    ? parseFloat(swap.tegridyOutputFormatted)
-    : null;
-
-  const { savingsPct: routeSavingsPct, tegridyIsLowLiquidity } = useMemo(
-    () =>
-      computeRouteSavings({
-        tegridyOutput: tegridyOutputNum,
-        uniOutput: swap.uniOutputFormatted ? parseFloat(swap.uniOutputFormatted) : null,
-        aggQuotes: swap.allAggQuotes ?? [],
-        toDecimals,
-      }),
-    [tegridyOutputNum, swap.uniOutputFormatted, swap.allAggQuotes, toDecimals],
-  );
-
-  // F196: the "Compare all N routes" count must reflect the rows that actually
-  // render (the Tegridy + Uniswap rows are conditional), not a hardcoded +2.
-  const routeRowCount = useMemo(
-    () =>
-      (swap.allAggQuotes?.length ?? 0) +
-      (swap.hasTegridyPair && swap.tegridyOutputFormatted ? 1 : 0) +
-      (swap.uniOutputFormatted ? 1 : 0),
-    [swap.allAggQuotes, swap.hasTegridyPair, swap.tegridyOutputFormatted, swap.uniOutputFormatted],
-  );
-
-  // Towelie nudge: warn before user fires a swap with high price impact.
-  // Urgent so it jumps the queue. Dedup `key` so we don't spam every tick;
-  // when impact drops back under 5% the dedup naturally clears once consumed.
-  const { say } = useTowelie();
-  useEffect(() => {
-    if (tab !== 'swap') return;
-    // OUTAGE-AS-ZERO. `> 5` was armed by a figure that collapsed to 0 whenever the
-    // pair reserves did not land, so the loudest warning on the page fell silent on
-    // precisely the quotes nobody could vet. Unread is its own nudge, not silence.
-    if (swap.priceImpactUnread) {
-      say(`Price impact couldn't be read. Refresh the quote before you sign.`, { priority: 'urgent', key: 'price-impact-unread' });
-      return;
-    }
-    if (swap.priceImpact !== null && swap.priceImpact > 5) {
-      say(`Price impact is ${swap.priceImpact.toFixed(1)}%. You sure?`, { priority: 'urgent', key: 'high-price-impact' });
-    }
-  }, [tab, swap.priceImpact, swap.priceImpactUnread, say]);
-
-  const handleTokenSelect = (token: typeof swap.fromToken) => {
-    if (!token) return;
-    if (showTokenSelect === 'from') swap.setFromToken(token);
-    else if (showTokenSelect === 'to') swap.setToToken(token);
-    setShowTokenSelect(null);
-  };
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -263,13 +154,24 @@ export default function TradePage() {
             an ETH swap that could not touch its token. */}
         <ChainSwitch />
 
-        {/* Why this form is empty, when the wallet is on a chain we serve but
-            cannot swap on. Renders nothing on Ethereum and nothing on an
+        {/* Why this form is empty, when the network picked (else the wallet's) is
+            one we serve but cannot swap on. Renders nothing on Ethereum and nothing on an
             unconfigured chain — the app-wide wrong-network banner owns that one.
             Placed ABOVE the tab strip on purpose: every tab under it (Liquidity,
             DCA, Limit, TWAP, Trigger) is pinned to mainnet by the same gate, so
             the explanation belongs to the surface, not to the swap tab. */}
         <ChainSwapAvailability chainId={swapChainId} swapTab={tab === 'swap'} />
+
+        {/* The page follows the network picked; a wallet left on another one is told here.
+            Swap signs on the page's network, and the other tabs on Ethereum only, so off
+            Ethereum those tabs are ChainSwapAvailability's to explain, not this banner's. */}
+        {(tab === 'swap' || swapChainId === CHAIN_ID) && (
+          <WrongChainBanner
+            requiredChainId={swapChainId}
+            message="Your wallet is on another network. Switch it to trade here."
+            className="mb-4"
+          />
+        )}
 
         {/* Tab Toggle */}
         <div
@@ -310,467 +212,7 @@ export default function TradePage() {
         </div>
 
         {/* Swap Tab */}
-        {tab === 'swap' && (
-          <m.div role="tabpanel" id="trade-panel-swap" aria-labelledby="trade-tab-swap" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
-            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <ArtImg pageId="trade" idx={1} fallbackPosition="center 15%" alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
-            </div>
-            <div className="relative p-5 flex flex-col min-h-[640px]">
-            {/* T7: the swap form (incl. live quotes) renders for everyone — every
-                quote read is public RPC, no wallet needed. Only the action button
-                gates on connect, so a visitor can price a swap before connecting. */}
-            <>
-                {/* One amount split across every island coin on this chain (owner, 2026-10-18).
-                    Only where the island has coins: Ethereum and Base. */}
-                {evmBasketFor(swapChainId) && (
-                  <div className="flex justify-end mb-3">
-                    <IslandBasketEvm chainId={swapChainId} slippagePct={swap.slippage} />
-                  </div>
-                )}
-                {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
-                    Custom tokens (anything not in DEFAULT_TOKENS) get a
-                    sticky reminder above the swap form so the user is
-                    re-warned every session, not just at import time. */}
-                {(swap.isFromTokenCustom || swap.isToTokenCustom) && (
-                  <div className="mb-3 px-3 py-2 rounded-lg flex items-start gap-2"
-                    style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}
-                    role="alert">
-                    <span className="text-warning text-[14px] leading-none mt-0.5" aria-hidden="true">&#9888;</span>
-                    <div className="text-warning text-[11px] leading-snug">
-                      <strong className="font-semibold">Unverified token</strong>
-                      {' — '}
-                      {[
-                        swap.isFromTokenCustom ? swap.fromToken?.symbol : null,
-                        swap.isToTokenCustom ? swap.toToken?.symbol : null,
-                      ].filter(Boolean).join(' / ')}
-                      {' '}
-                      is not on the default token list. Approvals are restricted to exact-amount; double-check the contract on {onEthereum ? 'Etherscan' : 'the block explorer'} before swapping.
-                    </div>
-                  </div>
-                )}
-
-                {/* From Token */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
-                    <span className="flex items-center gap-1.5 text-[10px] font-mono">
-                      <span className="text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.fromBalance)}</span>
-                      {Number(swap.fromBalance) > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            /* floor6, not toFixed: toFixed rounds HALF-UP, which for
-                               many balances produces an amount ABOVE the wallet
-                               balance and disables the Swap button. */
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(floor6(b * 0.5))); }}
-                            /* a11y 2026-08-28: 44px touch floor on mobile (~19x30 before); md keeps the compact desktop chip */
-                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
-                          >50%</button>
-                          <button
-                            type="button"
-                            /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(floor6(amt))); }}
-                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
-                          >MAX</button>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowTokenSelect('from')}
-                      aria-label={`Change token to pay with (currently ${swap.fromToken?.symbol ?? 'none selected'})`}
-                      aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
-                    >
-                      {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
-                      <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80" aria-hidden="true">▾</span>
-                    </button>
-                    <input
-                      type="number" inputMode="decimal" placeholder="0.0"
-                      aria-label={`Amount of ${swap.fromToken?.symbol ?? 'selected token'} to pay`}
-                      value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
-                      className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
-                    />
-                  </div>
-                  {payUsd != null && (
-                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${payUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                  )}
-                </div>
-
-                {/* Flip Button — solid Stan blue + thick white ring so it pops
-                    against any art the Swap card is layered over. */}
-                <div className="flex justify-center -my-2 relative z-10">
-                  <button onClick={swap.flipDirection}
-                    aria-label="Swap From/To tokens"
-                    className="w-11 h-11 rounded-full flex items-center justify-center transition-all"
-                    style={{
-                      background: 'var(--color-stan)',
-                      border: '2px solid rgba(255,255,255,0.95)',
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'rotate(180deg) scale(1.05)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'rotate(0deg) scale(1)'; }}
-                  >
-                    <span className="text-white text-[18px] font-bold leading-none">&#8645;</span>
-                  </button>
-                </div>
-
-                {/* To Token */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
-                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.toBalance)}</span>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowTokenSelect('to')}
-                      aria-label={`Change token to receive (currently ${swap.toToken?.symbol ?? 'none selected'})`}
-                      aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
-                    >
-                      {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
-                      <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80" aria-hidden="true">▾</span>
-                    </button>
-                    <div
-                      className="flex-1 text-right text-white text-[20px] font-mono font-medium"
-                      // F205: announce quote updates to assistive tech as they settle.
-                      aria-live="polite"
-                      aria-atomic="true"
-                      aria-label={`You receive ${swap.outputFormatted || '0'} ${swap.toToken?.symbol ?? ''}`}
-                    >
-                      {swap.isQuoteLoading ? (
-                        // F207: skeleton shimmer instead of a bare "..." while the quote loads.
-                        <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
-                      ) : swap.outputFormatted ? formatTokenAmountGrouped(swap.outputFormatted) : '0.0'}
-                    </div>
-                  </div>
-                  {receiveUsd != null && (
-                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${receiveUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                  )}
-                </div>
-
-                {/* Slippage tolerance — always visible so users can see + adjust
-                    before a quote loads. Fills the empty mid-card space.
-                    swap.slippage is a percent (0-20), not bps.
-                    AUDIT TRADE-UX: added a Custom input so users who need 0.3%
-                    or 3.5% aren't forced to pick one of 4 presets. The input
-                    is highlighted whenever the current value doesn't match a
-                    preset, so "custom" isn't a separate mode — it's just a
-                    free-form override. Clamped to 0-20% to match useSwap. */}
-                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="slippage-custom" className="text-white text-[11px] cursor-pointer" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</label>
-                    <span className="text-white/80 text-[10px] font-mono">{swap.slippage.toFixed(2)}%</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {[0.1, 0.5, 1.0, 2.0].map(pct => {
-                      const active = Math.abs(swap.slippage - pct) < 0.001;
-                      return (
-                        <button key={pct} onClick={() => swap.setSlippage(pct)} aria-pressed={active}
-                          className="flex-1 py-1.5 min-h-[44px] md:min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
-                          style={{
-                            background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                            border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                          }}>
-                          {pct.toFixed(1)}%
-                        </button>
-                      );
-                    })}
-                    {(() => {
-                      const isPreset = [0.1, 0.5, 1.0, 2.0].some(p => Math.abs(swap.slippage - p) < 0.001);
-                      return (
-                        <div className="flex items-center gap-1 py-1.5 px-2 min-h-[34px] rounded-lg"
-                          style={{
-                            background: isPreset ? 'rgba(0,0,0,0.45)' : 'var(--color-stan)',
-                            border: isPreset ? '1px solid rgba(255,255,255,0.12)' : '1px solid var(--color-stan)',
-                          }}
-                        >
-                          <input
-                            id="slippage-custom"
-                            type="number"
-                            inputMode="decimal"
-                            step="0.1"
-                            min={0}
-                            max={20}
-                            // F190: while focused, render the user's raw keystrokes so
-                            // partial fractions (0., 0.3) survive; while blurred, mirror
-                            // swap.slippage (blank when a preset is active).
-                            value={slippageFieldFocused ? slippageFieldStr : (isPreset ? '' : swap.slippage.toFixed(2))}
-                            placeholder="Custom"
-                            aria-label="Custom slippage tolerance percent"
-                            onFocus={() => {
-                              setSlippageFieldFocused(true);
-                              setSlippageFieldStr(isPreset ? '' : swap.slippage.toFixed(2));
-                            }}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setSlippageFieldStr(raw);
-                              if (raw === '') return;
-                              const n = parseFloat(raw);
-                              if (Number.isFinite(n)) {
-                                // Clamp to useSwap's own 0-20% envelope. The string
-                                // state still holds the raw text so the decimal can
-                                // be completed.
-                                swap.setSlippage(Math.max(0, Math.min(20, n)));
-                              }
-                            }}
-                            onBlur={() => {
-                              setSlippageFieldFocused(false);
-                              const n = parseFloat(slippageFieldStr);
-                              if (Number.isFinite(n)) {
-                                swap.setSlippage(Math.max(0, Math.min(20, n)));
-                              }
-                            }}
-                            className="w-14 bg-transparent text-center text-[11px] text-white font-mono outline-none"
-                          />
-                          <span className="text-[11px] text-white/80">%</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  {swap.slippage >= 5 && (
-                    <p className="mt-1.5 text-[10px] text-amber-300" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-                      High slippage tolerance — you may receive significantly less than quoted.
-                    </p>
-                  )}
-                </div>
-
-                {/* AUDIT M-6: Fee-on-Transfer opt-in toggle. Off by default; auto-enabled on
-                    InsufficientOutput reverts via the useSwap error handler. Users can also
-                    flip it manually for known FoT/reflection/deflationary tokens. */}
-                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-                      Fee-on-transfer support
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={swap.supportsFeeOnTransfer}
-                      onClick={() => swap.setSupportsFeeOnTransfer(!swap.supportsFeeOnTransfer)}
-                      className="relative inline-flex items-center h-5 rounded-full w-10 transition-colors"
-                      style={{
-                        background: swap.supportsFeeOnTransfer ? 'var(--color-stan)' : 'rgba(255,255,255,0.2)',
-                      }}
-                    >
-                      <span
-                        className="inline-block w-3.5 h-3.5 rounded-full bg-white transition-transform"
-                        style={{
-                          transform: swap.supportsFeeOnTransfer ? 'translateX(22px)' : 'translateX(4px)',
-                        }}
-                      />
-                    </button>
-                  </label>
-                  <FinePrint summary="Details">
-                    <p>
-                      Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
-                    </p>
-                  </FinePrint>
-                </div>
-
-                {/* MEV protection — one-time, user-confirmed opt-in to MEV Blocker's
-                    protected RPC. Additive; does not touch the audited swap path.
-                    MEV Blocker is an Ethereum RPC, so it is offered on Ethereum only. */}
-                {onEthereum && <MevProtectionPanel />}
-
-                {/* Swap via CoW — opt-in alternative route through CoW's batch auction
-                    (gasless signature, no sandwich surface). Self-gates: renders only
-                    when eligible (connected, right chain, ERC-20 sell, positive amount),
-                    and shows the live CoW quote beside the on-chain one — never fabricated.
-                    CoW is wired for Ethereum here, so it is offered only when the form is on
-                    Ethereum: its own gate reads the wallet, and a visitor with no wallet on
-                    /swap?c=8453 would otherwise be shown Ethereum's CoW under a Base form. */}
-                {onEthereum && (
-                  <CowSwapPanel
-                    fromToken={swap.fromToken}
-                    toToken={swap.toToken}
-                    inputAmount={swap.inputAmount}
-                    slippage={swap.slippage}
-                    onChainOutputFormatted={swap.outputFormatted}
-                  />
-                )}
-
-                {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
-                    Always renders; shows placeholder text when no amount entered so the
-                    card never feels empty mid-swap. */}
-                {swap.routeLabel && swap.inputAmount ? (
-                  <div className="mt-1 px-3 py-2.5 rounded-lg text-[11px]" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid var(--color-stan-40)' }}>
-                    <div className="flex justify-between">
-                      <span className="text-white">Route</span>
-                      <span className="font-medium" style={{ color: 'var(--color-stan)' }}>{swap.routeLabel}</span>
-                    </div>
-                    {routeSavingsPct >= 0.05 && (
-                      <div className="flex justify-between mt-1">
-                        <span className="text-white">Route Savings</span>
-                        <span className="font-mono text-emerald-300">+{routeSavingsPct >= 999 ? '>999' : routeSavingsPct.toFixed(2)}% vs worst venue</span>
-                      </div>
-                    )}
-                    {/* OUTAGE-AS-ZERO. Three branches, never two: still quoting, then
-                        unpriceable, then the figure. An impact we could not compute
-                        renders the en-dash; a MEASURED 0 (favorable fill, or too small
-                        to round up) keeps its old behaviour and stays hidden. */}
-                    {!swap.isQuoteLoading && (
-                      swap.priceImpact === null ? (
-                        <div className="flex justify-between mt-1">
-                          <span className="text-white">Price Impact</span>
-                          <span className="font-mono text-amber-300" title="Not read — this is not a claim that impact is low.">–</span>
-                        </div>
-                      ) : swap.priceImpact > 0 ? (
-                        <div className="flex justify-between mt-1">
-                          <span className="text-white">Price Impact</span>
-                          <span className={`font-mono ${swap.priceImpact > 3 ? 'text-red-300 font-semibold' : 'text-white'}`}>{swap.priceImpact.toFixed(2)}%</span>
-                        </div>
-                      ) : null
-                    )}
-                    {swap.minimumReceived && (
-                      <div className="flex justify-between mt-1">
-                        <span className="text-white">Min. Received</span>
-                        <span className="text-white font-mono">{formatTokenAmountGrouped(swap.minimumReceived)} {swap.toToken?.symbol}</span>
-                      </div>
-                    )}
-                    {swap.priceImpactUnread ? (
-                      <div
-                        className="mt-2 px-2 py-1.5 rounded text-[10px] text-amber-200 font-semibold"
-                        style={{ background: 'rgba(255,178,55,0.15)', border: '1px solid rgba(255,178,55,0.40)' }}
-                        data-testid="swap-price-impact-unread"
-                      >
-                        Price impact could not be read. This is not a statement that impact
-                        is low. Refresh the quote before you sign.
-                      </div>
-                    ) : swap.impactBlocked ? (
-                      <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }} data-testid="swap-impact-blocked">
-                        Blocked: this pool is too thin. You would get far less than {swap.fromToken?.symbol ?? 'this coin'} is worth.
-                      </div>
-                    ) : swap.priceImpact !== null && swap.priceImpact > 5 ? (
-                      <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }}>
-                        High price impact! Consider reducing your trade size.
-                      </div>
-                    ) : null}
-                    {swap.allAggQuotes && swap.allAggQuotes.length > 0 && (
-                      <div className="mt-2">
-                        <button onClick={() => setShowRouteDetails(!showRouteDetails)}
-                          className="text-[10px] text-white/90 hover:text-white underline underline-offset-2 transition-colors">
-                          {showRouteDetails ? 'Hide route details' : `Compare all ${routeRowCount} routes`}
-                        </button>
-                        {showRouteDetails && (
-                          <div className="mt-2 space-y-1">
-                            {swap.hasTegridyPair && swap.tegridyOutputFormatted && (
-                              <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'tegridy' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
-                                <span className="text-white/85">
-                                  Venue DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
-                                  {tegridyIsLowLiquidity && <span className="text-amber-300 ml-1" title="The native pool is thin pre-seed — its quote isn't representative yet.">low liquidity</span>}
-                                </span>
-                                <span className="text-white font-mono">{formatTokenAmountGrouped(swap.tegridyOutputFormatted)}</span>
-                              </div>
-                            )}
-                            {swap.uniOutputFormatted && (
-                              <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'uniswap' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
-                                <span className="text-white/85">Uniswap V2 {swap.selectedRoute === 'uniswap' && <span className="text-emerald-300 ml-1">Best</span>}</span>
-                                <span className="text-white font-mono">{formatTokenAmountGrouped(swap.uniOutputFormatted)}</span>
-                              </div>
-                            )}
-                            {/* F227: aggregator amountOut is WEI — normalize to token units before formatting. */}
-                            {swap.allAggQuotes.map((q: { source: string; amountOut: string }) => (
-                              <div key={q.source} className="flex justify-between text-[10px] px-2 py-1 rounded"
-                                style={{ background: swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
-                                <span className="text-white/85">{q.source} {swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source && <span className="text-emerald-300 ml-1">Best</span>}</span>
-                                <span className="text-white font-mono">{formatTokenAmountGrouped(aggOutUnits(q.amountOut, toDecimals))}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-1 px-3 py-2.5 rounded-lg text-[11px]" style={{ background: 'rgba(0,0,0,0.50)', border: '1px solid rgba(255,255,255,0.10)' }}>
-                    <div className="flex justify-between text-white/70">
-                      <span>Route</span>
-                      <span>Enter an amount</span>
-                    </div>
-                    <div className="flex justify-between text-white/70 mt-1">
-                      <span>Price Impact</span>
-                      <span>&mdash;</span>
-                    </div>
-                    <div className="flex justify-between text-white/70 mt-1">
-                      <span>Min. Received</span>
-                      <span>&mdash;</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Spacer — pushes the action button to the bottom of the tall card. */}
-                <div className="flex-1 min-h-[8px]" />
-
-                {/* Action Button — sits directly on the art, matching the Liquidity tab's pattern.
-                    T7: gated on connect — a disconnected visitor sees the live quote above
-                    and a Connect CTA here instead of the Approve/Swap actions. */}
-                {!isConnected ? (
-                  <div className="w-full flex flex-col items-center gap-2">
-                    <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
-                    <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
-                  </div>
-                ) : swap.needsApproval ? (
-                  // Mirror the Swap button's state machine: stay busy through the
-                  // approval's CONFIRMING phase too, not just the submit (isPending).
-                  <button onClick={swap.approve} disabled={swap.isPending || swap.isConfirming}
-                    className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl"
-                  >
-                    {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Approving...' : `Approve ${swap.fromToken?.symbol}`}
-                  </button>
-                ) : (
-                  <button onClick={swap.executeSwap}
-                    disabled={swap.isPending || swap.isConfirming || swap.insufficientBalance || swap.impactBlocked || !swap.inputAmount || swap.outputAmount === 0n}
-                    className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl disabled:opacity-40"
-                  >
-                    {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : swap.impactBlocked ? 'Price impact too high' : 'Swap'}
-                  </button>
-                )}
-
-                {/* WAVE SEVEN, element O: the commitment line. Driven by the
-                    latch, never by swap.isSuccess - that block below clears
-                    itself after four seconds, and the island ruled no timer. */}
-                <ClockLine />
-
-                {swap.isSuccess && swap.txHash && (
-                  <div className="mt-3 text-center text-emerald-400 text-[12px]">
-                    Swap confirmed! <a href={getTxUrl(swap.swapChainId, swap.txHash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
-                  </div>
-                )}
-            </>
-            </div>
-          </m.div>
-        )}
-        {tab === 'swap' && (
-          <>
-            {/* The venue story, where a competitor's user first lands: fees here
-                are REAL yield to stakers, and the curve pays creators 0.40% of
-                every trade — a checkable on-chain number, not a superlative
-                (the honesty-vocabulary bar). Both claims link to their
-                checkable surfaces. */}
-            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} islandV3={universalRouterOn(swap.swapChainId) !== null} />}
-            <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
-              <CardArt pageId="trade" idx={4} />
-              <p className="text-[13px] text-text-secondary leading-relaxed">
-                <span className="text-text-primary font-medium">Launching something?</span>{' '}
-                The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
-                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee).
-              </p>
-              <FinePrint summary="Details">
-                <p>
-                  The creator share is on-chain and claimable any time. The curve graduates into this venue with
-                  the LP burned. Every token here is{' '}
-                  <Link to="/scan" className="underline underline-offset-2 text-white hover:text-white/80">scannable</Link>.
-                </p>
-              </FinePrint>
-            </div>
-          </>
-        )}
+        {tab === 'swap' && <EvmSwapPanel chainId={swapChainId} page />}
 
         {/* DCA Tab */}
         {tab === 'dca' && (
@@ -826,39 +268,6 @@ export default function TradePage() {
           </m.div>
         )}
       </div>
-
-      {/* Token Select Modal */}
-      {showTokenSelect && (
-        <TokenSelectModal
-          open={true}
-          onSelect={handleTokenSelect}
-          onClose={() => setShowTokenSelect(null)}
-          disabledAddress={showTokenSelect === 'from' ? swap.toToken?.address : swap.fromToken?.address}
-          customTokens={swap.customTokens}
-          tokens={swapTokensFor(swap.swapChainId)}
-          chainId={swap.swapChainId}
-          onAddCustomToken={swap.addCustomToken}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * The Swap tab's money line off Ethereum, where RealYieldProof (fees paid to stakers)
- * would not be true: on Base and Robinhood Chain the venue fee lands in the fee Safe on
- * that chain (registry feeSink 'remittance'). Where Uniswap's Universal Router carries an
- * island coin's own V3 pool (Base), that route pays the same fee to the same Safe; a swap
- * routed to Uniswap V2 pays the venue nothing (useSwap.ts sends it straight to V2's router).
- */
-function L2FeeLine({ name, islandV3 }: { name: string; islandV3: boolean }) {
-  return (
-    <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
-      <CardArt pageId="trade" idx={6} />
-      <p className="text-[13px] text-text-secondary leading-relaxed">
-        <span className="text-text-primary font-medium">Where the fee goes on {name}.</span>{' '}
-        A swap through our pools{islandV3 ? <>, or through an island coin&apos;s own Uniswap V3 pool,</> : null} pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap{islandV3 ? ' V2' : ''} pays the venue nothing.
-      </p>
     </div>
   );
 }

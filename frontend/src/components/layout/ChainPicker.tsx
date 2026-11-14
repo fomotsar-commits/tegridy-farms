@@ -20,6 +20,8 @@ export interface ChainPickerProps {
   stretch?: boolean;
   /** 'end': the list opens from the button's right edge, for a picker near the screen's right side. */
   align?: 'start' | 'end';
+  /** Below 640 px wide the button is the network's mark and its caret, its name kept for screen readers (a sheet's row). */
+  compact?: boolean;
 }
 
 const PANEL_BG = 'rgba(13,21,48,0.97)';
@@ -37,7 +39,7 @@ const BOX = {
  * stays listed, greyed, with its reason; nothing here says Soon (docs/FACE_LAWS.md, law 23).
  * Presentational: the section's hook (useSectionChain) owns where a pick goes.
  */
-export function ChainPicker({ label, active, options, onPick, stretch = false, align = 'start' }: ChainPickerProps) {
+export function ChainPicker({ label, active, options, onPick, stretch = false, align = 'start', compact = false }: ChainPickerProps) {
   const [open, setOpen] = useState(false);
   const [focusIdx, setFocusIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,7 +82,10 @@ export function ChainPicker({ label, active, options, onPick, stretch = false, a
 
   const onListKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      // Escape closes this list and nothing under it: inside the Buy sheet, the sheet's own
+      // Escape (a window listener) would otherwise close the sheet too.
       e.preventDefault();
+      e.stopPropagation();
       close();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -114,7 +119,7 @@ export function ChainPicker({ label, active, options, onPick, stretch = false, a
         style={BOX}
       >
         <ChainIcon chain={active} size={20} />
-        <span>{current.short}</span>
+        <span className={compact ? 'max-sm:sr-only' : undefined}>{current.short}</span>
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className={`opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}>
           <path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>

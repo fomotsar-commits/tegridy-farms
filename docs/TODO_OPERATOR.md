@@ -29,6 +29,108 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-10: the pool program upgrade with the swap guard (two sittings; the pack is ready)
+
+Pull request #1177 merged on 2026-11-10. Nothing has been sent on mainnet. Your paper is
+`START-HERE.md` in `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-swap-guard-upgrade-2026-11`.
+
+**What it is.** Two vault proposals, signed in one sitting so their 48 hours run together.
+- **#32 upgrades the pool program** to `01fe923b…` (714,776 bytes, smaller than today's, so no
+  enlarge). It carries the swap guard, switched off, and the fee rules of 2026-11-03.
+- **#33 switches the guard on for both fee settings.** From then on a pool refuses a swap that
+  another program calls (error 6015). A wallet's own swap, the site and the price robot are not
+  affected. An aggregator, a trading app with its own program and a smart-contract wallet are.
+
+**Before you propose, one thing is for good.** After #32 the island's share of each fee
+setting goes to the address it has today, `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu` (read on
+mainnet 2026-11-10 on both fee settings), and the vault can no longer change that address or
+collect that share itself. Only another program upgrade could. If the island wants another
+address, that change runs before #32 does.
+
+**Sitting 1, about an hour:** send 3.70 SOL to the paying wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, then steps 1 to 12 of the paper. 3.63 SOL of it
+is parked for the upload and comes back when #32 executes. One `REFUSED` line is expected in
+step 3, about your own #30. Do not execute #30 between step 10 and step 11.
+
+**Sitting 2, 48 hours after member B's approvals:** steps 13 to 18. Execute #32, run the check,
+then the website release named below merges in the same hour, then execute #33 and run its check.
+
+**The website release.** Branch `release/swap-guard-site`. It names the new build everywhere
+the site and the registry name the pool program, so it must not merge before #32 executes: the
+registry's chain check and `poolProgramUpgradeRecord.test.ts` are red until then, on purpose.
+After the execute a session fills the four rows of `MAINNET_RUNBOOK.md` section 4b from
+`node frontend/scripts/solana-localnet/read-upgrade-record.mjs`, files the parked changelog
+line under that day, and asks you to merge.
+
+**Switching the guard off also takes 48 hours** (the page's step "Switch the swap guard OFF").
+A Jupiter listing needs it off for the listed fee settings, or a program change, first.
+
+## 🔴 2026-11-08: Phantom ticket #455104, the version 1 proof (PR #1154 is live)
+
+PR #1154 merged 2026-11-08 14:24 UTC and was live at 14:27 UTC. Every Solana write the site builds
+(add or remove liquidity, open a pool, range pools, a swap in our pools) now goes out as a version 1
+transaction when the wallet signs that format, with the compute limit, the loaded-account-data
+limit and the priority fee written into the message, which is what William asked for. Phantom's
+extension signs version 1; MetaMask's Solana side does not and keeps the legacy format. The
+island basket's multi-coin buy stays legacy for now.
+
+- ⬜ **One add from Phantom, in production.** Reload memetics.finance first: a tab opened before
+  14:27 UTC still runs the old build. Add the smallest amount to the BAYLA pool from Phantom, sign,
+  and copy the signature from the outcome card. On 2026-11-08 a signing was reported, but no version 1
+  transaction reached the chain (the pool program and wallet
+  `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` read at about 14:50 UTC). So read the card's words:
+  "not sent" means nothing went out, and a different Phantom account means a session needs that
+  address. Hand the signature to a session to read it back, or run this with it pasted in:
+
+```bash
+curl -s https://api.mainnet-beta.solana.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getTransaction","params":["PASTE_SIGNATURE_HERE",{"encoding":"base64","maxSupportedTransactionVersion":1,"commitment":"confirmed"}]}' | grep -o '"version":[^,}]*'
+```
+
+  **You should see** `"version":1`. Anything else, stop and say so.
+- ⬜ **Reply to William on ticket #455104** with `https://solscan.io/tx/` plus the signature, and
+  one line: the liquidity builder now makes Solana version 1 transactions with the compute and
+  loaded-account-data limits in the message, signed with signTransaction and sent by us with
+  preflight on.
+- ⬜ **Only if Phantom still blocks the connect itself:** William asked for a current screenshot,
+  the exact page URL and your Phantom version. Version 1 does not touch that block.
+
+Being done by sessions (nothing from you):
+
+- The new "E2E Solana (local validator)" check (from #1152) is red on `mvp-launch` itself: four
+  pool-opening tests still expect the card's words from before #1094 (one pool per pair and fee
+  tier). The openings themselves land. A session is fixing the tests on branch
+  `claude/ecstatic-dubinsky-502ab3`.
+- Not owned yet: trunk's `solana-ci` failed on 2026-11-08 at 09:28 UTC because Anza's installer
+  answered "Unknown release: 2.3.0" for the Solana CLI. Check its next run before calling it
+  broken; if it repeats, the CLI download needs another route.
+
+---
+
+## 2026-11-08: opening a pool on Ethereum, Base and Robinhood costs 0.006 ETH (deployed; three Safe batches left)
+
+Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools; on 2026-11-07
+"Add Base + Robinhood too", with the fee there going to the treasury Safe `0x796c…38C0`. You
+deployed all three on 2026-11-08; the addresses are in [`CONTRACTS.md`](CONTRACTS.md) and
+[`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md).
+
+- ✅ **How the site swaps the new coin pools** (your word 2026-10-27, "do whats best"): through a
+  second SwapFeeRouter bound to the new router, with the same 0.5% to the venue.
+- ✅ **Deployed on Ethereum, Base and Robinhood** (2026-11-08, your key; Robinhood by cast replay).
+  On Ethereum the treasury Safe `0x7D26…Bd7d` holds the factory's fee setting and is offered the
+  SwapFeeRouter (your pick 2026-11-08, over `0xA360`, whose 2 of 3 two delegated signers can meet).
+- ⬜ **Each Safe accepts ownership, by 2026-11-22** (one batch per chain, two calls, each with data
+  `0x79ba5097` = `acceptOwnership()`):
+  - Ethereum, treasury Safe `0x7D26…Bd7d`: `0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4` and
+    `0x5c109a51B786473DCDE2De41a133d42515f60590`.
+  - Base, multisig `0xBC4E…Be5B`: `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` and
+    `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37`.
+  - Robinhood, multisig `0xBC4E…Be5B`: `0x85AB297793e14283b54347C92C6AEFBaa20d1492` and
+    `0xe9c38b477573c7f386892E3CE15Ccb38f637e23e`.
+- ⬜ **NFT pools (Ethereum):** the NFT pool factory redeploy below now charges 0.006 ETH to open a
+  pool too. Nothing extra to run.
+
+---
+
 ## 🔴 2026-11-07: Cardano pools, everything left before you can add liquidity
 
 Your ask (2026-11-07): what is left before you can add liquidity on Cardano on memetics.finance.
@@ -66,11 +168,12 @@ Steps 1 to 7 can all run at once. Steps 2, 3 and 6 only you can start, and step 
 
 ---
 
-## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
+## 🔴 2026-11-05: NFT lending on Gondi's loan contract (DEPLOYED 2026-11-07; one database file and three merges from you)
 
 Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
 Everything that can be done without you is done and waiting as drafts: the contracts (#1038), the site (#1039), and
-the loan shield with due-date alerts (#1127, built on #1039). Nothing is deployed yet. The first lending contract,
+the loan shield with due-date alerts (#1127, built on #1039). **The contracts are deployed on Ethereum (2026-11-07,
+step 2); the site goes live when #1039 merges.** The first lending contract,
 `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`, never held an offer or a loan (read 2026-11-05: 0 offers, 0 loans,
 0 ETH), so nobody is left behind; the site now lists it as retired.
 
@@ -81,17 +184,19 @@ points), paid to the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` 
 grace period: from the due second the lender can take the NFT** (a loan funded by several lenders goes to a 3-day
 auction instead). The contract is Gondi's v3.2, unchanged.
 
-**Who owns it.** The treasury Safe, your pick on 2026-11-05. For the loan contract and its liquidator that takes a
-second step two days after the deploy (step 6); until then your deployer wallet owns those two.
+**Who owns it.** The treasury Safe, your pick on 2026-11-05. Since 2026-11-10 (step 6) it owns all six contracts,
+the loan contract and its liquidator included; the deployer wallet owns none of them.
 
 | Step | When (UTC) | What | Who |
 |---|---|---|---|
-| ⬜ 1 | now | Send about 0.01 ETH to the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`. It held 0.0013117 ETH on 2026-11-05. The deploy needs about 0.006 ETH (13,479,232 gas in the 2026-11-05 rehearsal, at forge's padded price); the rest covers a gas spike. | you |
-| ⬜ 2 | after step 1 | Deploy: the commands below, test first, then send. | you |
-| ⬜ 3 | after step 2 | A session checks the contracts on chain (same bytes as Gondi's, 500 basis points to the treasury, the Safe set as next owner), verifies them on Etherscan, puts the loan contract's address into the site, reruns the browser tests and pushes. | a session |
-| ⬜ 4 | any time | Run `frontend/supabase/migrations/030_nft_loan_offers.sql` in Supabase's SQL editor. It makes the table the offer book keeps offers in. Sessions can't run SQL on production. | you |
+| ✅ 1 | done 2026-11-07 | Funded the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`: it held 0.0450 ETH before the deploy. | you |
+| ✅ 2 | done 2026-11-07, ~21:43 UTC | Deployed: 14 transactions, all succeeded, 0.000468 ETH paid (10,343,112 gas at 0.043 gwei). Loan contract (MultiSourceLoan) `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` (tx `0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f`); liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6`; liquidation distributor `0x5a3B60b2a53245462dF2F6791a6A3aA0B6B1f2Df`; currency list `0x5d917E12C1Ac3dBc0c75a6554807ABde0b8FAFC4`; collection list `0x9F9c3F7c4f2a65Bab54BF78a64bb32468F1E4Eb3`; registry `0xc9464734068449EF5284D6BaCbe0371b87070F32`. Record: `contracts/broadcast/DeployGondiLending.s.sol/1/` on #1039. **Do not run the deploy commands below again: a second run deploys a second set.** | you |
+| ✅ 3 | done 2026-11-07 | Checked on chain: all six contracts' code equals Gondi's build byte for byte (deploy-time settings masked); the fee is 500 basis points to the treasury Safe; WETH is the only currency; Jungle Bay, Nakamigos and GNSS are the only collections; the registry, both lists and the distributor are owned by the Safe; the Safe is the pending owner of the loan contract and the liquidator. All six show their source on Etherscan. The address is in the site (#1039 `f4dc31d90`), and the borrow-then-repay browser test passed against the real contract on a copy of mainnet. | a session |
+| ✅ 4 | done 2026-11-07 | `frontend/supabase/migrations/030_nft_loan_offers.sql` ran in Supabase's SQL editor ("Success. No rows returned"). Checked after: the ledger has its row, both tables have row security on with no policies, the public and signed-in roles have no access, and both shape checks and all three indexes exist. The server role holds every table right (the schema's default grants from 008), not only the three the file grants. Do not run it again (it is safe to, but there is no need). | a session, on your word |
 | ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
-| ⬜ 6 | two days after step 2 | The treasury Safe calls `transferOwnership()` on the loan contract and on the liquidator (the deploy prints both addresses). A session prepares both transactions for the Safe; both signers sign. | you |
+| ✅ 6 | done 2026-11-10 | The treasury Safe called `transferOwnership()` on the loan contract `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` and on the liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6`, in one batch at Safe nonce 1 (tx `0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487`, block 26,384,182), signed by both signers. Read after on two RPCs: `owner()` is the Safe and `pendingOwner()` is zero on both. A stray `pause()` on TegridyNFTPoolFactory sits in the Safe's queue at nonce 2: it cannot execute (that factory's owner is `0xA36053477568Fb5382492F3A5970D35Fe896b7F8`, and it is already paused), so the next real Safe transaction at nonce 2 replaces it. | you, both signers |
+
+**✅ Step 2 is done (2026-11-07). The commands below are kept as a record. Do not run them again.**
 
 **Before step 2: your keystore must be the deployer.**
 
@@ -268,6 +373,11 @@ member A's balance for the old four-proposal plan and #30, both covered above).
 4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
    `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
    must end `RESULT: the upgrade is live and both pools are untouched.`
+   ✅ **Done 2026-11-06:** #31 executed at 15:13:03 UTC by member B from the page (slot 466,155,644,
+   transaction `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK`).
+   The check ended `RESULT: the upgrade is live and both pools are untouched.` The upload's 3.684732
+   SOL went back to the paying wallet. 0 pools were opened on the launch tier while it was open.
+   #30 is now safe to run; #18 and #3 can never run.
 5. The same hour: #1107 (it says `1e55bcdc` is live; it must not merge before). Until then the
    registry's `88b98aa9` pin is right again.
 
@@ -298,7 +408,7 @@ lamports.
 |---|---|---|---|---|---|
 | **#22** | Range upgrade: opening a range pool costs 0.5 SOL, paid to the vault | `6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3` (`1e896e1e`) | 7.758 SOL to the deploy wallet, at the execute | 2026-11-02 19:52:54 | execute, 1st |
 | **#23** | Pool re-upgrade | `Dh3uiriV6E7NToAoY8VorXXWVFNEfop9eLkYtphFFCTV` (`1e55bcdc`) | 3.685 SOL to the deploy wallet, at the execute | 2026-11-02 19:50:49 | execute, 2nd |
-| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build running now) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
+| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build #23 replaces) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
 | **#25** | Ladder upgrade: stakers can extend a running lock, and the vault can raise the per-wallet limit | `G2Ss3jvX9HFSDR1BYecYq4pvXZWSwF2RM79XsfTHj53J` (`1b91609c`) | 2.705 SOL to the ladder deploy wallet, at the execute | 2026-11-02 19:47:33 | execute, 3rd |
 | **#26** | Ladder per-wallet limit, 2,000,000 to 10,000,000 BAYLA (it can only ever go up) | none | none | 2026-11-02 19:49:35, and only after #25 | execute, 4th |
 
@@ -1026,6 +1136,14 @@ nothing is lost.
   `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
   run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
   the job counts nothing and stays green, and the home page says the volume could not be read.
+- ✅ **Done 2026-11-13 10:47 UTC** (on your word, in the SQL editor; checked by query: the rule
+  names all seven sources, the ledger has 031, the five rows untouched).
+  **Migration 031, BEFORE the "TVL and volume count everything" PR merges** (free). Paste
+  `frontend/supabase/migrations/031_venue_volume_nft_sources.sql` in the SQL editor (it needs
+  028 only). It lets the volume counter write two more rows: new loans on NFT Lending and sales
+  on our own NFT order book. Merged before 031, the home page's volume line reads "could not be
+  read" until 031 is in. After the merge, the next five-minute count writes both rows; check
+  with `select source, swaps, usd, unpriced, last_error from venue_volume order by source;`.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568
@@ -1040,6 +1158,8 @@ nothing is lost.
 - ⬜ **Phantom's review form** for the "could be malicious" warning (pack:
   `phantom-flag-dispute.md`) and **Jupiter's verify form** for BAYLA. If either is filed, say so.
   [was O-1009-6]
+- ⬜ **Phantom ticket #455104 (version 1 transactions).** PR #1154 merged 2026-11-08; what is
+  left is in the 2026-11-08 section at the top.
 - ⬜ **A free Jupiter developer key.** `lite-api.jup.ag` is being retired; another session's #839
   keeps swaps working without one, but a key is the lasting answer. [was O-1009-18]
 - ⬜ **Small, whenever:** delete the stale Vercel project `tegridyfarms` (confirm on its Domains tab
@@ -1779,14 +1899,16 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. Off chain again since the roll-back of 2026-10-24
+### ⬜ O-0929-10: four `security_txt!` fields. On chain again since the re-upgrade; one look left
 
-**2026-10-24: rolled back.** The pre-staged roll-back, proposal #16, executed at 17:03:00 UTC
-(slot 460,927,956), so mainnet runs the 2026-09-29 build `88b98aa9…` again and the explorer's
-security tab shows the old text. Do not tick this box until the re-upgrade has executed and the
-tab shows the new values. The paragraph below was true from 2026-10-23 until the roll-back.
+**Rolled back, then upgraded again.** The pre-staged roll-back, proposal #16, executed on
+2026-10-24 at 17:03:00 UTC (slot 460,927,956), and mainnet ran the 2026-09-29 build `88b98aa9…`
+with the old text until proposal #23 put the build below back (runbook section 4b, under the
+roll-back). The same happened once more: roll-back #24 ran by mistake on 2026-11-04 at 02:52:42
+UTC, and proposal #31 put the build back on 2026-11-06 at 15:13:03 UTC. The paragraph below is
+true again.
 
-**Where it stood from 2026-10-23: the upgrade had executed.** The pool program on mainnet was the build
+**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
 that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
 closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
 the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website

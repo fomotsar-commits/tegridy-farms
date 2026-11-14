@@ -329,6 +329,12 @@ export default async function handler(req, res) {
     const { handlePoolIndex } = await import("./_lib/pool-index.js");
     return handlePoolIndex(req, res);
   }
+  // `?resource=gt&endpoint=…`: GeckoTerminal's four indexer endpoints for our pool program,
+  // behind the /api/gt/:endpoint rewrite (api/_lib/geckoterminal.js). Above `const provider`.
+  if (req.query.resource === "gt") {
+    const { handleGeckoTerminal } = await import("./_lib/geckoterminal.js");
+    return handleGeckoTerminal(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);
@@ -476,6 +482,15 @@ export default async function handler(req, res) {
     return handlePosition(req, res);
   }
 
+  // `?resource=mint` answers a pool share's link, `/mint/:mint.json` (a vercel.json rewrite),
+  // for a share with no committed file in public/mint/: its pair's words and picture, read
+  // from chain. Every pool share keeps that link forever, and anything that is not one of our
+  // shares answers the default file, as every unknown link did before. See _lib/share-name.js.
+  if (req.query.resource === "mint") {
+    const { handleShareName } = await import("./_lib/share-name.js");
+    return handleShareName(req, res);
+  }
+
   // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
   // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
   // referee counts and claimable balances are ReferralSplitter's state and are read
@@ -541,6 +556,11 @@ export default async function handler(req, res) {
   if (req.query.resource === "venue-tvl") {
     const { handleVenueTvl } = await import("./_lib/venueTvl.js");
     return handleVenueTvl(req, res);
+  }
+  // `?resource=wallet-coins`: which ERC-20s a wallet holds on Ethereum or Base, and their prices.
+  if (req.query.resource === "wallet-coins") {
+    const { handleWalletCoins } = await import("./_lib/walletCoins.js");
+    return handleWalletCoins(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

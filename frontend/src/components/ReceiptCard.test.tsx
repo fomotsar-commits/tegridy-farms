@@ -2,15 +2,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { ReceiptCard } from './ReceiptCard';
-import { clearReceipt, clockFor, raiseReceipt, settleReceipt, type Receipt } from '../lib/receipt';
+import { clearReceipt, clockFor, holdersFor, raiseReceipt, settleReceipt, type Receipt } from '../lib/receipt';
 import { clearScreenMoves, useCurrentScreenMove } from '../lib/screenMove';
 import { clearLanded, lastLanded } from '../lib/landed';
 import type { HeatReading } from '../lib/heat/heatOracle';
+import { startShoreMoment } from '../lib/shoreMoment';
 
 const confetti = vi.hoisted(() => ({ fire: vi.fn() }));
 // The venue's confetti, as the provider gives it. The card never calls it (island answer
 // twenty-nine: the flame catches in the ring instead); the farm keeps its own.
 vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: () => confetti.fire() }) }));
+// The shore's engine draws on canvases jsdom does not have (FlameCatch.test.tsx proves the wiring).
+vi.mock('../lib/shoreMoment', () => ({ startShoreMoment: vi.fn(() => () => {}) }));
 
 const SIG = '5Kq3' + 'x'.repeat(80) + '9xWz';
 const WALLET = '8SxYtKrtPZoEwtgpkXmn7TrS7VGa1qSiGPHnYjfFWQuv';
@@ -23,10 +26,13 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     wallet: WALLET,
     action: 'bought',
     coin: { symbol: 'BAYLA', mint: BAYLA },
+    island: true,
     title: null,
     under: null,
     fee: { kind: 'reading' },
     clock: 'day1',
+    holders: null,
+    lps: null,
     ...over,
   };
 }
@@ -105,6 +111,35 @@ describe('the receipt card', () => {
     expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
   });
 
+  it('the landing adds one line under the title (island answer thirty), and nothing else on the card moves', async () => {
+    act(() => raiseReceipt(receipt()));
+    act(() => settleReceipt(SIG, { title: 'Bought 25,623 BAYLA', under: 'for 0.122 SOL, on the venue', fee: { kind: 'pool', unit: 'SOL', fee: '0.00122 SOL', lps: '0.001025 SOL', venue: '0.000195 SOL', creator: null } }));
+    // The rise, then the card up: one move of the clock each, so the card arms the second on a re-render.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    const onLanded = vi.mocked(startShoreMoment).mock.lastCall?.[0].onLanded;
+    expect(onLanded).toBeTypeOf('function');
+    act(() => onLanded?.());
+    expect(screen.getByTestId('receipt-card').textContent).toBe(
+      [
+        'Bought 25,623 BAYLA',
+        'for 0.122 SOL, on the venue',
+        "You're on $BAYLA's shore. Every light here holds it.",
+        'Fee0.00122 SOL',
+        "To this pool's LPs0.001025 SOL",
+        'To the venue and the island0.000195 SOL',
+        'Signature5Kq3 … 9xWz ↗',
+        'Day 1 of your clock on BAYLA starts tonight.',
+        'Share your card',
+        'Back to the room',
+      ].join(''),
+    );
+  });
+
   it('a swap in our pool: what was done, the fee, the LPs’ part and the venue and island’s part, as read', () => {
     act(() => raiseReceipt(receipt()));
     act(() =>
@@ -132,7 +167,7 @@ describe('the receipt card', () => {
   });
 
   it('an add of both coins pays the pool no fee: the network’s cost instead; its clock counts double', () => {
-    act(() => raiseReceipt(receipt({ action: 'added', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } })));
+    act(() => raiseReceipt(receipt({ action: 'added', pairing: 'SOL', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } })));
     expect(lastLanded()?.kind).toBe('add');
     const card = screen.getByRole('dialog', { name: 'Added SOL + BAYLA' });
     expect(within(card).getByTestId('receipt-rows')).toHaveTextContent('No venue fee on an add0.000005 SOL');
@@ -171,8 +206,68 @@ describe('the receipt card', () => {
   });
 });
 
+// Island answer thirty-one: after an add, any token, the green button is Share on X with the post
+// written. Its link unfurls the island's card (middleware.js) and sends a person to the Add.
+describe('an add shares on X', () => {
+  const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
+  // One link a post (island answer thirty-five): the sentence names no site, so X draws the add's own card.
+  const POST = (coin: string) => `Just added liquidity to $${coin}. I'm part of the floor now. Every trade in the pool pays me.`;
+  const added = (coin = { symbol: 'BAYLA', mint: BAYLA }) =>
+    receipt({ action: 'added', coin, clock: 'double', under: `to the SOL + ${coin.symbol} pool`, fee: { kind: 'add', network: '0.000005 SOL' } });
+  const posted = (href: string | null) => {
+    const u = new URL(href ?? '');
+    expect(`${u.origin}${u.pathname}`).toBe('https://x.com/intent/post');
+    return u.searchParams.get('text');
+  };
+
+  it('an add in a room: Share on X, the post written, its link the room', () => {
+    act(() => raiseReceipt(added()));
+    const card = screen.getByTestId('receipt-card');
+    const share = within(card).getByRole('link', { name: 'Share on X' });
+    expect(posted(share.getAttribute('href'))).toBe(`${POST('BAYLA')} https://memetics.finance/lp/bayla`);
+    expect(share).toHaveAttribute('target', '_blank');
+    expect(share).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(card).queryByRole('link', { name: 'Share your card' })).toBeNull();
+    expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
+  });
+
+  it('an add of a coin with no room: its link carries the mint', () => {
+    act(() => raiseReceipt(added({ symbol: 'WIF', mint: WIF })));
+    const share = screen.getByRole('link', { name: 'Share on X' });
+    expect(posted(share.getAttribute('href'))).toBe(`${POST('WIF')} https://memetics.finance/lp/${WIF}`);
+  });
+
+  it('a ticker that carries its own $ is posted with one', () => {
+    act(() => raiseReceipt(added({ symbol: '$WIF', mint: WIF })));
+    const text = posted(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href'));
+    expect(text).toBe(`${POST('WIF')} https://memetics.finance/lp/${WIF}`);
+  });
+
+  it('the post fits X with its link, for the longest ticker the venue prints', () => {
+    // X counts any link as 23 characters; the venue prints a ticker of at most 12 (identity.ts),
+    // a copy as "fake " and the ticker.
+    const longest = `fake ${'W'.repeat(12)}`;
+    act(() => raiseReceipt(added({ symbol: longest, mint: WIF })));
+    const text = posted(screen.getByRole('link', { name: 'Share on X' }).getAttribute('href')) ?? '';
+    const link = `https://memetics.finance/lp/${WIF}`;
+    expect(text.endsWith(` ${link}`)).toBe(true);
+    expect(text.length - link.length + 23).toBeLessThanOrEqual(280);
+    expect(text).not.toMatch(/—/);
+  });
+
+  it.each([
+    ['a buy', 'bought'],
+    ['a sale', 'sold'],
+  ] as const)('%s keeps Share your card', (_name, action) => {
+    act(() => raiseReceipt(receipt({ action })));
+    const share = screen.getByRole('link', { name: 'Share your card' });
+    expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
+    expect(screen.queryByRole('link', { name: 'Share on X' })).toBeNull();
+  });
+});
+
 describe('the clock line', () => {
-  const reading = (rows: string[], address = WALLET): HeatReading => ({
+  const reading =(rows: string[], address = WALLET): HeatReading => ({
     address,
     degrees: 12,
     tier: 'Observer',
@@ -196,5 +291,35 @@ describe('the clock line', () => {
     ['a coin the island does not measure: nothing said', 'bought', reading([]), false, null],
   ] as const)('%s', (_name, action, read, island, line) => {
     expect(clockFor(action, BAYLA, WALLET, read, island)).toBe(line);
+  });
+});
+
+describe('the shore’s holders (island answer thirty)', () => {
+  const reading = (rows: { tokenAddress: string; roomHolders: number | null }[], address = WALLET): HeatReading => ({
+    address,
+    degrees: 12,
+    tier: 'Observer',
+    isCold: false,
+    heldSinceUnix: 1,
+    asOfUnix: 1,
+    tokenCount: rows.length,
+    breakdown: rows.map(({ tokenAddress, roomHolders }) => ({ tokenAddress, chain: 'solana', name: '', symbol: '', degrees: 1, firstSeenAtUnix: 1, lastTransferAtUnix: null, retired: false, roomRank: null, roomHolders })),
+    observedAt: 1,
+    xHandle: null,
+    daysToNextTier: null,
+    daysToPlant: null,
+    earlierThanPct: null,
+  });
+  it.each([
+    ['the coin’s room_holders on this wallet’s reading', reading([{ tokenAddress: 'other', roomHolders: 9 }, { tokenAddress: BAYLA, roomHolders: 412 }]), 412],
+    ['the coin’s row without a count: not read', reading([{ tokenAddress: BAYLA, roomHolders: null }]), null],
+    ['no row for the coin (a first buy): not read', reading([{ tokenAddress: 'other', roomHolders: 9 }]), null],
+    ['another wallet’s reading: not read', reading([{ tokenAddress: BAYLA, roomHolders: 412 }], 'someone else'), null],
+    ['no reading at all: not read', null, null],
+  ] as const)('%s', (_name, read, holders) => {
+    expect(holdersFor(BAYLA, WALLET, read)).toBe(holders);
+  });
+  it('the wallet is matched as the reading writes it, any case', () => {
+    expect(holdersFor(BAYLA, WALLET.toLowerCase(), reading([{ tokenAddress: BAYLA, roomHolders: 7 }]))).toBe(7);
   });
 });

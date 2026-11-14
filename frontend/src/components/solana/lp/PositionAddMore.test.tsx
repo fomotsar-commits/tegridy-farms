@@ -31,7 +31,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { LAUNCH_TIER_POOL, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -247,7 +247,7 @@ describe('Add more liquidity is on a position', () => {
     // The fold's label is short; why they are set aside is the first line inside it.
     expect(aside.querySelector('summary')).toHaveTextContent(/^3 other pool shares, set aside$/);
     expect(aside).toHaveTextContent(
-      'Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm.',
+      `Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with ${QUOTE_COINS_OR}, or pools we could not confirm.`,
     );
     const refusedRow = within(aside).getAllByTestId('lp-position').find((el) => el.getAttribute('data-pool') === ofBlocked.address)!;
     expect(refusedRow).toHaveTextContent('Set aside: this site does not open or add to pools for its token.');
@@ -412,8 +412,16 @@ describe('the press is the finder’s own lookup, and it ends in that pool’s A
 describe('it goes to that pool or to nowhere', () => {
   // Each of these has a deeper pool that takes deposits right beside it, and an
   // Open-a-pool card that can offer: both are what the press must NOT end in.
-  const cases: { name: string; mine: () => PoolView; lp?: bigint; hold?: boolean; offer: string; says: RegExp; why: RegExp }[] = [
-    { name: 'refuses deposits (it cannot trade yet)', mine: () => view({ openTime: 10n ** 10n }), offer: 'checks', says: /Deposits: refused here/, why: /this pool does not pass the checks a deposit needs\. \S/ },
+  // `reason`: a failed check's, said once on the card, under Deposits; the line under the heading points there.
+  const cases: { name: string; mine: () => PoolView; lp?: bigint; hold?: boolean; offer: string; says: RegExp; why: RegExp; reason?: string }[] = [
+    {
+      name: 'refuses deposits (it cannot trade yet)',
+      mine: () => view({ openTime: 10n ** 10n }),
+      offer: 'checks',
+      says: /Deposits: refused here/,
+      why: /this pool does not pass the checks a deposit needs \(see Deposits, below\)\.$/,
+      reason: 'Liquidity added before then earns nothing.',
+    },
     // Audit CM-2, 2026-11-03: everyone else has left. 1,100 shares, the locked 100 among them
     // and the holder's 1,000, over 3,480 lamports and 348 units: the market's own 0.01 SOL a token.
     {
@@ -422,9 +430,17 @@ describe('it goes to that pool or to nowhere', () => {
       lp: 1_000n,
       offer: 'checks',
       says: /Deposits: refused here/,
-      why: /this pool does not pass the checks a deposit needs\. This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set\./,
+      why: /this pool does not pass the checks a deposit needs \(see Deposits, below\)\.$/,
+      reason: 'This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
     },
-    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: a check did not run/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
+    {
+      name: 'could not be checked (its fee settings were not read)',
+      mine: () => view({ noConfig: true }),
+      offer: 'checks',
+      says: /Deposits: a check did not run/,
+      why: /the checks a deposit needs could not be run on this pool \(see Deposits, below\)\.$/,
+      reason: 'We could not read this pool’s fee settings.',
+    },
     { name: 'has a deposit still pending', mine: () => view(), hold: true, offer: 'held', says: /A deposit you sent to this pool is not confirmed yet/, why: /a deposit you sent to this pool is not confirmed yet\./ },
   ];
   it.each(cases)('the position’s pool $name: its card comes onto the screen with its own reason, and no form opens anywhere', async (c) => {
@@ -447,7 +463,13 @@ describe('it goes to that pool or to nowhere', () => {
     const why = within(its).getByTestId('lp-wish-why');
     expect(why).toHaveTextContent('This is your position’s pool. Its Add form stays closed:');
     expect(why).toHaveTextContent(c.why);
-    expect(heading).toHaveAttribute('aria-describedby', why.id);
+    const described = heading.getAttribute('aria-describedby')!.split(' ');
+    expect(described[0]).toBe(why.id);
+    if (c.reason) {
+      expect(why).not.toHaveTextContent(c.reason);
+      expect(its.textContent!.split(c.reason)).toHaveLength(2);
+      expect(document.getElementById(described[1]!)).toHaveTextContent(c.reason);
+    } else expect(described).toHaveLength(1);
     expect(screen.getAllByTestId('lp-wish-why')).toHaveLength(1);
     // The pool beside it would have taken the deposit. It was not asked, and not shown.
     expect(card(deep.address)).toHaveAttribute('data-add', 'offer');

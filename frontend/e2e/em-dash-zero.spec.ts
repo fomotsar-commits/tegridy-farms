@@ -65,7 +65,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/tax': 13,
   '/curve-launch': 0,
   '/eth-curve': 6,
-  '/alerts': 16,
+  '/alerts': 14,
   '/yield': 21,
   '/launch': 0,
   // The lore tab of LearnPage. The census gives it TOWELI's voice (it is the TOWELI room's own story),
@@ -246,8 +246,9 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 11,
-  '/towelie': 11,
+  // 11 -> 9 on 2026-11-08: NFT lending's move to Gondi rewrote copy TOWELI's room shows.
+  '/toweli': 9,
+  '/towelie': 9,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,

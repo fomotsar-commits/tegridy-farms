@@ -23,7 +23,7 @@ import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, POOL_READ_FAILED, accountCheck, coinAccount, feeLine, poolPins, readPoolForWrite, tokenFeeAt, type AccountWant } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { AggregatorSeen, IntentStep, Prepared, SwapOpenGate, TxSummary, WatchList, WriteRpc } from './types';
+import type { AggregatorSeen, IntentStep, Prepared, SwapOpenGate, TxSummary, TxVersion, WatchList, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 export const VENUE_SWAP_COPY = {
@@ -46,6 +46,8 @@ export const VENUE_SWAP_COPY = {
 
 export interface VenueSwapArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   /** One of our pools for this pair, as the route chose it. Read again here, whole. */
   pool: PublicKey;
   inputMint: PublicKey;
@@ -242,6 +244,7 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
   // 8. Simulate twice and compare.
   return buildAndSimulate(rpc, {
     kind: 'venue-swap',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'venue-swap', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins, inputMint: a.inputMint },

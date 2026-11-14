@@ -35,6 +35,7 @@ const createSummary = (): TxSummary => ({
   createFee: 150_000_000n,
   feeReceiver: KEY(8),
   rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+  nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
   price: { state: 'agrees', pool: 0.2, reference: 0.2, against: 'outside', diff: 0 },
   tokenWarnings: [],
   unwrapsWsol: true,

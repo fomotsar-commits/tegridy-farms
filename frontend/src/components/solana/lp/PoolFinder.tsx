@@ -5,10 +5,10 @@ import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearch, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
-import { BUNGALOWS } from '../../../lib/bungalows';
+import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
+import { siteTokens } from '../../../lib/solana/lp/siteTokens';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
@@ -117,17 +117,6 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
     : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
-}
-
-/**
- * The tokens with a room on this site whose mint is on Solana, by the addresses in the
- * site's own registry (lib/bungalows.ts). A phone has no token address to paste: these
- * are picked by a press, and what is looked up is the address, never the name.
- */
-function siteTokens(roomId: string | null): { id: string; symbol: string; mint: string }[] {
-  const all = BUNGALOWS.flatMap((b) => (b.chain === 'solana' && b.address ? [{ id: b.id, symbol: b.symbol, mint: b.address }] : []));
-  // The visitor's own room first.
-  return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
 }
 
 // "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
@@ -294,7 +283,7 @@ export function PoolFinder({
   const reread = useCallback(() => again(true), [again]);
   // The home card reads again by itself when a read failed, a few times and spaced out: a busy
   // RPC answers a later ask more often than not, and the card has no field to press Find in.
-  // Each try is a fresh lookup. After the last, Read again and the Venue AMM tab stay on screen.
+  // Each try is a fresh lookup. After the last, Read again and the Pools page link stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
@@ -307,6 +296,16 @@ export function PoolFinder({
     }, ONLY_RETRY_MS[autoTries.current]);
     return () => clearTimeout(t);
   }, [onlyFailed, state, again]);
+  // A pool opened here opens one second after it lands, and the page reads it the moment
+  // the opening confirms. Read in that second it is "not open yet": it takes no deposits,
+  // so its pair reads as free and the card offered a second pool for it. One more read
+  // when such a pool opens, with nothing pressed (`opensIn`; a far-off open time is not waited for).
+  const opensIn = state.status === 'done' && !state.refreshing && state.pools.kind === 'ok' ? opensInSeconds(state.pools.search) : null;
+  useEffect(() => {
+    if (opensIn === null) return;
+    const t = setTimeout(() => again(false), Number(opensIn) * 1000);
+    return () => clearTimeout(t);
+  }, [opensIn, again]);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -801,7 +800,7 @@ function SearchResults({
           ) : (
             // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
             <div hidden={sheet || undefined}>
-            <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+            <ul className="space-y-3" aria-label={only ? 'The pool' : `Pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
@@ -851,6 +850,7 @@ function SearchResults({
         outside={outside}
         outsideAt={outsideAt}
         feeTiers={feeTiers}
+        readNameRecordCost={readers.nameRecordCost}
         onReread={onReread}
         refreshing={state.refreshing === true}
         openNow={openCreate}
@@ -863,8 +863,27 @@ function SearchResults({
 /** How long the home card waits before each read it tries again by itself (PoolFinder `only`). */
 const ONLY_RETRY_MS = [2_000, 6_000, 15_000] as const;
 
+/** A pool opening within this many seconds of the read is read again when it opens; one opening later is a blocked pool, not a wait. */
+const OPENS_SOON_SECS = 120n;
+
 /**
- * The home card's way on when a read failed: read again here, or add on the Venue AMM tab,
+ * Seconds from the search's chain clock to one past the soonest open time among its pools
+ * that are not open yet and open within OPENS_SOON_SECS; null when there is none (or no clock).
+ */
+function opensInSeconds(search: PoolSearch): bigint | null {
+  const now = search.chainNow;
+  if (now === null) return null;
+  let soonest: bigint | null = null;
+  for (const e of search.pools) {
+    if (e.kind !== 'pool') continue;
+    const at = e.view.snapshot.pool.openTime;
+    if (at > now && at - now <= OPENS_SOON_SECS && (soonest === null || at < soonest)) soonest = at;
+  }
+  return soonest === null ? null : soonest - now + 1n;
+}
+
+/**
+ * The home card's way on when a read failed: read again here, or add on the Pools page (/pools),
  * where the LP door opens Add with one coin on this pool (SolanaLpSection, `task=add`).
  */
 function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetry?: () => void }) {
@@ -880,7 +899,7 @@ function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetr
         className="inline-flex items-center min-h-[44px] px-1 text-[13px] underline underline-offset-4"
         style={{ color: 'var(--color-kyle)' }}
       >
-        Add on the Venue AMM tab
+        Add on the Pools page
       </Link>
     </div>
   );

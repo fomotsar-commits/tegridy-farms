@@ -21,6 +21,8 @@ import {
   minOutFor,
   planDeposit,
   planWithdraw,
+  planWithdrawShares,
+  claimableShares,
   spendableSol,
   type PlanProblem,
   type WithdrawPlan,
@@ -706,5 +708,60 @@ describe('planCreate with a transfer fee: the pool counts what reaches its vault
     expect(planCreate({ ...a, tokenFee: fee(9_000) })).toMatchObject({ problem: 'lock-too-large' });
     // One unit sent, one unit kept: nothing reaches the vault.
     expect(planCreate({ ...a, token: 1n, tokenFee: fee(1) })).toMatchObject({ problem: 'too-small' });
+  });
+});
+
+describe('claimableShares and planWithdrawShares: Claim fees', () => {
+  // The file's `snap` takes the supply first: snap(S, R0, R1). Here the reserves come first.
+  const pool = (r0: bigint, r1: bigint, S: bigint) => snap(S, r0, r1);
+
+  it('nothing at opening ratio, nothing for an empty pool, nothing for no shares', () => {
+    // isqrt(r0 * r1) = S: each share holds exactly one unit of liquidity.
+    const s = pool(4_000_000n, 9_000_000n, 6_000_000n);
+    expect(claimableShares(s, { basis: 1_000n, provenShares: 1_000n })).toBe(0n);
+    expect(claimableShares(pool(0n, 9_000_000n, 6_000_000n), { basis: 1n, provenShares: 1_000n })).toBe(0n);
+    expect(claimableShares(pool(4_000_000n, 9_000_000n, 0n), { basis: 1n, provenShares: 1_000n })).toBe(0n);
+    expect(claimableShares(s, { basis: 0n, provenShares: 0n })).toBe(0n);
+    // A basis above what the shares hold (deposit rounding) is nothing, never a negative count.
+    expect(claimableShares(s, { basis: 1_001n, provenShares: 1_000n })).toBe(0n);
+  });
+
+  it('after growth: the shares beyond the basis, the kept ones rounded up so what was put in never leaves', () => {
+    // The pool grew 1% in liquidity per share: isqrt(r0 * r1) = 6,060,000 over 6,000,000 shares.
+    const s = pool(4_040_000n, 9_090_000n, 6_000_000n);
+    // 1,000,000 shares bought 1,000,000 of liquidity; they hold 1,010,000 now. Kept: ceil(1e6 * 6e6 / 6.06e6) = 990,100.
+    expect(claimableShares(s, { basis: 1_000_000n, provenShares: 1_000_000n })).toBe(9_900n);
+  });
+
+  it('fuzzed: the kept shares always hold the basis, and one share fewer never does', () => {
+    let seed = 7n;
+    const next = (mod: bigint) => {
+      seed = (seed * 6364136223846793005n + 1442695040888963407n) % 2n ** 64n;
+      return (seed % mod) + 1n;
+    };
+    for (let i = 0; i < 2_000; i++) {
+      const r0 = next(10n ** 15n);
+      const r1 = next(10n ** 15n);
+      const S = next(10n ** 12n);
+      const L = isqrt(r0 * r1);
+      const shares = next(S);
+      const held = (shares * L) / S;
+      const basis = held === 0n ? 0n : next(held);
+      const c = claimableShares(pool(r0, r1, S), { basis, provenShares: shares });
+      const kept = shares - c;
+      expect(c >= 0n && c <= shares).toBe(true);
+      expect(kept * L >= basis * S).toBe(true);
+      if (c > 0n) expect((kept - 1n) * L < basis * S).toBe(true);
+    }
+  });
+
+  it('planWithdrawShares takes exactly the shares asked, and never more than are held', () => {
+    const s = pool(10n ** 12n, 10n ** 12n, 10n ** 9n);
+    const p = ok<WithdrawPlan>(planWithdrawShares(s, { held: 1_000_000n, lp: 12_345n, bps: 100n }));
+    expect([p.lp, p.keep, p.all]).toEqual([12_345n, 987_655n, false]);
+    expect(planWithdrawShares(s, { held: 1_000_000n, lp: 1_000_001n, bps: 100n })).toEqual({ problem: 'nothing-held' });
+    expect(planWithdrawShares(s, { held: 0n, lp: 1n, bps: 100n })).toEqual({ problem: 'nothing-held' });
+    // Remove's percent is the same plan, by way of the share count.
+    expect(planWithdraw(s, { held: 1_000_000n, pctBps: 2_500n, bps: 100n })).toEqual(planWithdrawShares(s, { held: 1_000_000n, lp: 250_000n, bps: 100n }));
   });
 });

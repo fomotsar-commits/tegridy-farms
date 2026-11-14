@@ -5,7 +5,7 @@
 // own words wherever the pipeline explains one (the test run, the first send, a
 // landed refusal, and Check again). The launch-program kinds are pinned, unedited,
 // in submit.test.ts and prepare.test.ts.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { WalletSignTransactionError } from '@solana/wallet-adapter-base';
 import { Keypair, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
@@ -54,7 +54,7 @@ function withdrawFor(p: PoolPins) {
   });
 }
 
-async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean } = {}) {
+async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean; version?: 1 | 'legacy' } = {}) {
   const chain = FakeChain.healthy();
   chain.fund(ME, 10_000_000_000);
   const pins = pinsFor();
@@ -65,10 +65,12 @@ async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean } = 
           err: null,
           logs: [],
           unitsConsumed: 40_000,
+          loadedAccountsDataSize: 90_000,
           ...(config?.accounts ? { accounts: chain.post(config.accounts.addresses, {}) } : {}),
         };
   const intent: PoolIntent = { kind: 'lp-withdraw', signer: ME, cfg: cfgLocal, maxPriorityLamports: 1_000_000n, pins };
   const r = await buildAndSimulate(W(chain), {
+    version: o.version,
     kind: 'lp-withdraw',
     body: [withdrawFor(pins)],
     extraSigners: [],
@@ -102,8 +104,8 @@ const walletSigner = (edit?: (tx: Transaction) => Transaction): TxSigner => ({
 
 const deps = { sleep: async () => {}, intervalMs: 1 };
 
-const ready = async () => {
-  const { chain, r, pins } = await preparedWithdraw();
+const ready = async (o: Parameters<typeof preparedWithdraw>[0] = {}) => {
+  const { chain, r, pins } = await preparedWithdraw(o);
   if (!r.ok) throw new Error(r.outcome.message);
   return { chain, p: r.prepared as PreparedTx, pins };
 };
@@ -225,5 +227,95 @@ describe('Check again on a liquidity withdrawal', () => {
     reverted(c);
     const o = await recheckOutcome(W(c), sig, { lastValidBlockHeight: 1_000, cfg: cfgLocal, kind: 'lp-withdraw' });
     expect(o).toMatchObject({ status: 'reverted', message: WITHDRAW_OFF });
+  });
+});
+
+// ── version 1 (SIMD-0385) ───────────────────────────────────────────────────────
+import { ed25519 } from '@noble/curves/ed25519';
+import { address, compileTransaction, decompileTransactionMessage, getCompiledTransactionMessageDecoder, getTransactionDecoder, getTransactionEncoder, type TransactionMessageWithBlockhashLifetime } from '@solana/kit';
+
+const decodeMessage = (bytes: Uint8Array) => {
+  const compiled = getCompiledTransactionMessageDecoder().decode(bytes);
+  if (compiled.version !== 1) throw new Error('not a version 1 message');
+  const m = decompileTransactionMessage(compiled);
+  if (!('blockhash' in m.lifetimeConstraint)) throw new Error('not a blockhash lifetime');
+  return m as Extract<typeof m, TransactionMessageWithBlockhashLifetime>;
+};
+type V1Message = ReturnType<typeof decodeMessage>;
+
+const v1Wallet = (edit?: (m: V1Message) => V1Message): TxSigner => ({
+  publicKey: ME,
+  signTransaction: async () => {
+    throw new Error('a version 1 wallet is handed bytes, never a Transaction');
+  },
+  async signV1(bytes) {
+    const given = getTransactionDecoder().decode(bytes);
+    const base = edit ? compileTransaction(edit(decodeMessage(new Uint8Array(given.messageBytes)))) : given;
+    const sig = ed25519.sign(new Uint8Array(base.messageBytes), WALLET.secretKey.slice(0, 32));
+    return new Uint8Array(getTransactionEncoder().encode({ messageBytes: base.messageBytes, signatures: { ...base.signatures, [ME.toBase58()]: sig } }));
+  },
+});
+
+describe('a version 1 liquidity withdrawal through the shared pipeline', () => {
+  it('is built as version 1 with the budget in its config, and decodes into one pool-withdraw step', async () => {
+    const { p } = await ready({ version: 1 });
+    expect(p.wire.version).toBe(1);
+    if (p.wire.version !== 1) return;
+    expect(p.wire.bytes[0]).toBe(129);
+    // ceil(40,000 x 1.15) units; 90,000 bytes x 1.25, rounded up to 32 KiB pages; the fee line's own lamports.
+    expect(p.wire.config).toEqual({ computeUnitLimit: 46_000, loadedAccountsDataSizeLimit: 131_072, priorityFeeLamports: p.fees.priorityLamports });
+    expect(p.fees.priorityLamports).toBe(460n);
+    expect(p.steps.map((s) => s.kind)).toEqual(['pool-withdraw']);
+  });
+
+  it('the pins hold on the bytes the wallet hands back: payout slot 4 swapped for a stranger is refused, nothing sent', async () => {
+    const { chain, p, pins } = await ready({ version: 1 });
+    const strangerAta = address(associatedTokenAddress(pins.token0Mint, STRANGER).toBase58());
+    const o = await submitPrepared(
+      W(chain),
+      v1Wallet((m) => ({
+        ...m,
+        instructions: m.instructions.map((ix) =>
+          ix.programAddress === CP ? { ...ix, accounts: (ix.accounts ?? []).map((a, i) => (i === 4 ? { ...a, address: strangerAta } : a)) } : ix,
+        ),
+      })),
+      p,
+      deps,
+    );
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).toMatch(/pays out to an account that is not yours/);
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a refusal of the version the wallet handed back is said in the withdrawal words', async () => {
+    const { chain, p } = await ready({ version: 1 });
+    chain.simulate = () => ({ err: { InstructionError: [2, { Custom: 6000 }] }, logs: [failed(6000)], unitsConsumed: 1 });
+    const guard = { programAddress: address(LIGHTHOUSE_PROGRAM_ID.toBase58()), accounts: [], data: new Uint8Array([1]) };
+    const o = await submitPrepared(W(chain), v1Wallet((m) => ({ ...m, instructions: [...m.instructions, guard] })), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).toContain(WITHDRAW_OFF);
+  });
+
+  it('landed and refused: said in the withdrawal words, its logs read at version 1', async () => {
+    const { chain, p } = await ready({ version: 1 });
+    chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [2, { Custom: 6000 }] }, confirmationStatus: 'confirmed', slot: 9 }] });
+    (chain as unknown as { rpcEndpoint: string }).rpcEndpoint = 'http://rpc.test/';
+    vi.stubGlobal('fetch', async (_url: unknown, init?: { body?: string }) => {
+      const req = JSON.parse(init?.body ?? '{}') as { id?: unknown };
+      const result = {
+        slot: 9,
+        blockTime: null,
+        version: 1,
+        transaction: ['', 'base64'],
+        meta: { err: { InstructionError: [2, { Custom: 6000 }] }, fee: 5000, logMessages: [failed(6000)] },
+      };
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }), { headers: { 'content-type': 'application/json' } });
+    });
+    try {
+      const o = await submitPrepared(W(chain), v1Wallet(), p, deps);
+      expect(o).toMatchObject({ status: 'reverted', program: 'cp-swap', code: 6000, message: WITHDRAW_OFF });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

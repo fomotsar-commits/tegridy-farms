@@ -130,24 +130,24 @@ contract TegridyFactoryTest is Test {
     // ===== CREATE PAIR =====
 
     function test_createPair() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         assertGt(pair.code.length, 0);
         assertEq(factory.allPairsLength(), 1);
     }
 
     function test_revert_createPair_duplicate() public {
-        factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.expectRevert("PAIR_EXISTS");
-        factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
     }
 
     function test_revert_createPair_identicalAddresses() public {
         vm.expectRevert("IDENTICAL_ADDRESSES");
-        factory.createPair(address(tokenA), address(tokenA));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenA));
     }
 
     function test_getPair_bidirectional() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         assertEq(factory.getPair(address(tokenA), address(tokenB)), pair);
         assertEq(factory.getPair(address(tokenB), address(tokenA)), pair);
     }
@@ -171,7 +171,7 @@ contract TegridyFactoryTest is Test {
         vm.stopPrank();
 
         vm.expectRevert("TOKEN_BLOCKED");
-        factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
     }
 
     function test_unblockToken_allowsCreatePair() public {
@@ -189,7 +189,7 @@ contract TegridyFactoryTest is Test {
         factory.executeTokenBlocked(address(tokenA));
         vm.stopPrank();
 
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         assertGt(pair.code.length, 0);
     }
 
@@ -204,13 +204,13 @@ contract TegridyFactoryTest is Test {
     function test_revert_createPair_erc777WithGranularity() public {
         MockERC777WithGranularity erc777 = new MockERC777WithGranularity();
         vm.expectRevert("ERC777_NOT_SUPPORTED");
-        factory.createPair(address(erc777), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(erc777), address(tokenB));
     }
 
     // ===== M-13: DISABLED PAIRS =====
 
     function test_proposePairDisabled() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -219,7 +219,7 @@ contract TegridyFactoryTest is Test {
     }
 
     function test_executePairDisabled() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -232,7 +232,7 @@ contract TegridyFactoryTest is Test {
     }
 
     function test_reEnablePair() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         // Disable
         vm.prank(admin);
@@ -252,7 +252,7 @@ contract TegridyFactoryTest is Test {
     }
 
     function test_revert_executePairDisabled_timelockNotElapsed() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -265,7 +265,7 @@ contract TegridyFactoryTest is Test {
     }
 
     function test_revert_executePairDisabled_noPending() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         bytes32 pairKey = keccak256(abi.encodePacked(factory.PAIR_DISABLE_CHANGE(), pair));
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, pairKey));
@@ -273,7 +273,7 @@ contract TegridyFactoryTest is Test {
     }
 
     function test_revert_proposePairDisabled_notSetter() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.prank(random);
         vm.expectRevert("FORBIDDEN");
         factory.proposePairDisabled(pair, true);
@@ -331,7 +331,7 @@ contract TegridyFactoryTest is Test {
 
     /// @notice AUDIT NEW-A2: guardian can INSTANTLY disable a pair, no timelock.
     function test_NEWA2_guardianEmergencyDisableInstant() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         // admin is the initial guardian (set at construction).
         assertFalse(factory.disabledPairs(pair));
         vm.prank(admin);
@@ -341,7 +341,7 @@ contract TegridyFactoryTest is Test {
 
     /// @notice AUDIT NEW-A2: feeToSetter can also call emergencyDisablePair.
     function test_NEWA2_setterCanEmergencyDisable() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.prank(admin);
         factory.emergencyDisablePair(pair);
         assertTrue(factory.disabledPairs(pair));
@@ -349,7 +349,7 @@ contract TegridyFactoryTest is Test {
 
     /// @notice AUDIT NEW-A2: random address cannot emergencyDisablePair.
     function test_NEWA2_randomCannotEmergencyDisable() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.prank(random);
         vm.expectRevert("NOT_GUARDIAN");
         factory.emergencyDisablePair(pair);
@@ -357,7 +357,7 @@ contract TegridyFactoryTest is Test {
 
     /// @notice AUDIT NEW-A2: emergencyDisablePair force-cancels a pending re-enable.
     function test_NEWA2_emergencyDisableCancelsPendingReEnable() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
         vm.warp(block.timestamp + 48 hours);
@@ -393,10 +393,10 @@ contract TegridyFactoryTest is Test {
         MockERC20Factory tokenD = new MockERC20Factory("Token D", "TKD");
         MockERC20Factory tokenE = new MockERC20Factory("Token E", "TKE");
         address[] memory pairs = new address[](4);
-        pairs[0] = factory.createPair(address(tokenA), address(tokenB));
-        pairs[1] = factory.createPair(address(tokenA), address(tokenC));
-        pairs[2] = factory.createPair(address(tokenA), address(tokenD));
-        pairs[3] = factory.createPair(address(tokenA), address(tokenE));
+        pairs[0] = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
+        pairs[1] = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
+        pairs[2] = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenD));
+        pairs[3] = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenE));
 
         // First 3 disables in same day succeed.
         vm.startPrank(admin);
@@ -425,8 +425,8 @@ contract TegridyFactoryTest is Test {
         MockERC20Factory tokenA = new MockERC20Factory("Token A", "TKA");
         MockERC20Factory tokenB = new MockERC20Factory("Token B", "TKB");
         MockERC20Factory tokenC = new MockERC20Factory("Token C", "TKC");
-        address victim = factory.createPair(address(tokenA), address(tokenB));
-        address real = factory.createPair(address(tokenA), address(tokenC));
+        address victim = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
+        address real = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
 
         vm.startPrank(admin);
         factory.emergencyDisablePair(victim); // slot 1 — a real disable
@@ -448,10 +448,10 @@ contract TegridyFactoryTest is Test {
     function test_TF031_realDisablesStillHitTheDailyCap() public {
         MockERC20Factory a = new MockERC20Factory("A", "A");
         address[] memory p = new address[](4);
-        p[0] = factory.createPair(address(a), address(new MockERC20Factory("B", "B")));
-        p[1] = factory.createPair(address(a), address(new MockERC20Factory("C", "C")));
-        p[2] = factory.createPair(address(a), address(new MockERC20Factory("D", "D")));
-        p[3] = factory.createPair(address(a), address(new MockERC20Factory("E", "E")));
+        p[0] = factory.createPair{value: 0.006 ether}(address(a), address(new MockERC20Factory("B", "B")));
+        p[1] = factory.createPair{value: 0.006 ether}(address(a), address(new MockERC20Factory("C", "C")));
+        p[2] = factory.createPair{value: 0.006 ether}(address(a), address(new MockERC20Factory("D", "D")));
+        p[3] = factory.createPair{value: 0.006 ether}(address(a), address(new MockERC20Factory("E", "E")));
 
         vm.startPrank(admin);
         factory.emergencyDisablePair(p[0]);

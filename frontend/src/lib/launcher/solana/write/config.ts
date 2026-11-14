@@ -216,6 +216,8 @@ export function browserGateRpc(rpc: SolanaRpc = browserRpc()): GateRpc {
   const base = browserCurveRpc(rpc);
   return {
     getAccountInfo: base.getAccountInfo,
+    // The data-less read too: readDeployment asks about ProgramData without its bytecode.
+    getAccountMeta: base.getAccountMeta,
     getMinimumBalanceForRentExemption: base.getMinimumBalanceForRentExemption,
     async getGenesisHash() {
       const v = await rpc('getGenesisHash', []);

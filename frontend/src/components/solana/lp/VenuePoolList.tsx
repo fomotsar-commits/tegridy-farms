@@ -2,11 +2,11 @@ import type { Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
-import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { CoinName } from '../../ui/CoinName';
@@ -79,7 +79,7 @@ export function VenuePoolList({
             <p>
               The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
               {QUOTE_COINS_OR} side, since anyone can print more of their own coin, and a coin Jupiter does not price is counted at the
-              pool’s own price. Until Jupiter’s prices are read, SOL pools come first, then USDC, then BAYLA, the deepest of each first.
+              pool’s own price. Until Jupiter’s prices are read, {QUOTE_COINS_IN_TURN}, the deepest of each first.
             </p>
             <p>Anyone can open a pool, at any price. View one to see its checks before adding to it. Swap opens the swap page on the pair.</p>
             <p>
@@ -95,7 +95,7 @@ export function VenuePoolList({
               the exact gap, which can differ by a few points on a thinly traded coin; what that trade makes, and for whom, is on the
               Arbitrage card below. Trading not open yet: its trading starts later,
               maybe years from now. Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no
-              deposit here. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
+              deposit here. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in an island coin never gets this tag). No
               trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
               not a pool that passed: its full price check is on its card, when you View it.
             </p>
@@ -127,7 +127,7 @@ function PoolRows({
     <div className="space-y-3">
       {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
       {pools.length > 0 && (
-        <ul className="space-y-2" aria-label={usd ? 'All pools: the most money in first' : 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+        <ul className="space-y-2" aria-label={usd ? 'All pools: the most money in first' : `All pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`}>
           {pools.map((view) => (
             <PoolRow
               key={view.address}
@@ -184,6 +184,7 @@ function PoolRow({
   const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
   // What the pool holds in dollars, at Jupiter's listed prices: only when both coins have one, never $0.
   const worth = usd ? poolWorthUsd(view, usd) : null;
+  const refused = refusesDeposits(view, chainNow, safety);
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -232,7 +233,14 @@ function PoolRow({
       {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
       <div className="relative flex gap-2">
         {onAdd && (
-          <button type="button" className="btn-primary min-h-[44px] px-4 text-[13px]" aria-label={`Add to ${label}`} onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}>
+          // A pool that refuses deposits: switched off to the eye and to a screen reader, and still a press to its card, which says why.
+          <button
+            type="button"
+            className={`${refused ? 'btn-secondary' : 'btn-primary'} min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60`}
+            aria-disabled={refused || undefined}
+            aria-label={`Add to ${label}`}
+            onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}
+          >
             Add
           </button>
         )}

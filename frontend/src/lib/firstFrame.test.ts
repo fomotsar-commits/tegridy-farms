@@ -121,6 +121,18 @@ const cssSize = (cls: string) => {
   return (v.startsWith('[') ? v.slice(1, -1).replace(/_/g, ' ') : NAMED_SIZE[v] ?? `unknown size ${v}`).replace(/\s+/g, '');
 };
 
+// Island answer thirty-four (the owner's word, 11-06: a glitch flash on his phone). In the layout the
+// frame was only as tall as its heading, so the footer was painted 446 px down a phone's screen until
+// the page's chunk landed. e2e/door-first-frame.spec.ts walks it; this pins the rule that holds it.
+describe("React's fallback holds the screen while the page arrives", () => {
+  it('the in-layout frame is at least a screen tall, as the page that replaces it is (min-h-screen)', () => {
+    const rule = /\.ff-in-layout\{([^}]*)\}/.exec(html)?.[1] ?? '';
+    expect(rule.split(';')).toContain('min-height:100vh');
+    // It still starts under the header, where the static frame painted it.
+    expect(rule).toContain('margin-top:calc(-1 * var(--app-header-h, 3.5rem))');
+  });
+});
+
 describe("the frame's heading is sized by the rule of the hero that replaces it", () => {
   const style = Array.from(doc.querySelectorAll('head style')).map((s) => s.textContent ?? '').join('\n').replace(/\s+/g, '');
   const frameBase = /\.ff-h1\{[^}]*?font-size:([^;}]+)/.exec(style)?.[1];

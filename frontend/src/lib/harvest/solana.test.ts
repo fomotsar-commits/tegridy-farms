@@ -15,6 +15,9 @@ import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
 import { notSignedCopy } from '../solana/walletThrow';
 import type { ClaimResult } from './types';
 import { ladderResult, planLadder, planStreamflow, sendClaimsTogether, signsAll, streamflowResult, type SolanaClaim, type SignsAll } from './solana';
+import { SystemProgram } from '@solana/web3.js';
+import { decodeV1, loadedDataLimitFromSimulation, MAX_LOADED_ACCOUNTS_DATA_SIZE, signV1WithKeypairs, assembleV1, V1_VERSION_BYTE } from '../launcher/solana/write/v1';
+import { v1ComputeLimit } from '../solana/v1Send';
 
 const LADDER_PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
 const built = vi.hoisted(() => ({ claim: vi.fn() }));
@@ -401,5 +404,154 @@ describe('sendClaimsTogether: several claims, ONE wallet prompt, one transaction
     expect(signsAll({ publicKey: owner.publicKey, signAllTransactions: async (t: unknown) => t })).not.toBeNull();
     expect(signsAll({ publicKey: owner.publicKey, signTransaction: async (t: unknown) => t })).toBeNull();
     expect(signsAll(null)).toBeNull();
+  });
+});
+
+describe('sendClaimsTogether for a wallet that signs version 1: version 1 claims, still ONE prompt (Phantom, ticket #455104)', () => {
+  // Each test below fails on the pre-change solana.ts, which put version 0 claims with no
+  // limits to the wallet (MUTATION-CHECKED), except the last, which guards the old way.
+  const owner = Keypair.generate();
+  const PROGRAM = Keypair.generate().publicKey;
+  const FRESH = Keypair.generate().publicKey.toBase58();
+  const claimOf = (n: number, over: Partial<SolanaClaim> = {}): SolanaClaim => ({
+    key: `c${n}`, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: null, amountRaw: 1n, decimals: 6, caution: null,
+    send: vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' })),
+    build: async (o) => [new TransactionInstruction({ programId: PROGRAM, keys: [{ pubkey: o, isSigner: true, isWritable: true }], data: Buffer.from([n]) })],
+    refused: (logs) => `refused: ${logs.join(' | ')}`,
+    ...over,
+  });
+  const tagOf = (bytes: Uint8Array) => decodeV1(bytes).instructions.find((ix) => ix.programId.equals(PROGRAM))!.data[0]!;
+  const sigOf = (bytes: Uint8Array) => base58.encode(decodeV1(bytes).signatures.get(owner.publicKey.toBase58())!);
+
+  function rpc(o: { refuse?: number[]; testRunDown?: boolean } = {}) {
+    const ran: number[] = [];
+    const sent = new Map<string, number>();
+    const conn = {
+      simulateTransaction: vi.fn(async (tx: { serialize(): Uint8Array }, _config?: object) => {
+        const t = tagOf(tx.serialize());
+        ran.push(t);
+        if (o.testRunDown) throw new Error('429 Too Many Requests');
+        const no = o.refuse?.includes(t);
+        return { context: { slot: 1 }, value: { err: no ? { InstructionError: [0, { Custom: 6012 }] } : null, logs: no ? [`log ${t}`] : [], unitsConsumed: 20_000, loadedAccountsDataSize: 50_000 } };
+      }),
+      getLatestBlockhash: vi.fn(async () => ({ blockhash: FRESH, lastValidBlockHeight: 9 })),
+      sendRawTransaction: vi.fn(async (raw: Uint8Array, _options?: object) => {
+        sent.set(sigOf(raw), tagOf(raw));
+        return sigOf(raw);
+      }),
+      getSignatureStatuses: vi.fn(async () => ({ context: { slot: 1 }, value: [{ slot: 5, confirmations: 1, err: null, confirmationStatus: 'confirmed' }] })),
+    };
+    return { conn, ran, sent };
+  }
+
+  /** A Wallet Standard wallet behind wallet-adapter's StandardWalletAdapter, as Phantom's extension is. */
+  function walletOf(o: { sign?: (bytes: Uint8Array) => Uint8Array; answer?: (outs: { signedTransaction: Uint8Array }[]) => unknown; versions?: ReadonlyArray<'legacy' | 0 | 1> } = {}) {
+    const prompts: Uint8Array[][] = [];
+    const sign = o.sign ?? ((bytes: Uint8Array) => signV1WithKeypairs(bytes, [owner]));
+    const signTransaction = vi.fn(async (...inputs: { transaction: Uint8Array; chain: string }[]) => {
+      prompts.push(inputs.map((i) => i.transaction));
+      expect(inputs.every((i) => i.chain === 'solana:mainnet')).toBe(true);
+      const outs = inputs.map((i) => ({ signedTransaction: sign(i.transaction) }));
+      return o.answer ? o.answer(outs) : outs;
+    });
+    const account = { address: owner.publicKey.toBase58(), publicKey: owner.publicKey.toBytes(), chains: ['solana:mainnet'], features: ['solana:signTransaction'] };
+    const signAllTransactions = vi.fn(async (txs: VersionedTransaction[]) => {
+      for (const t of txs) t.sign([owner]);
+      return txs;
+    });
+    const w = {
+      publicKey: owner.publicKey, standard: true, signAllTransactions,
+      wallet: { accounts: [account], features: { 'solana:signTransaction': { version: '1.0.0', supportedTransactionVersions: o.versions ?? ['legacy', 0, 1], signTransaction } } },
+    } as unknown as SignsAll;
+    return { w, prompts, signTransaction, signAllTransactions };
+  }
+
+  async function run(claims: SolanaClaim[], w: SignsAll, conn: ReturnType<typeof rpc>['conn']) {
+    const got = new Map<string, ClaimResult>();
+    await sendClaimsTogether(claims, w, (k, r) => got.set(k, r), conn as never, 5_000);
+    return got;
+  }
+
+  it('three claims: one prompt of three version 1 messages, each with its measured limits, each test-run twice first, each sent and claimed', async () => {
+    const r = rpc();
+    const wallet = walletOf();
+    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
+    expect(wallet.signAllTransactions).not.toHaveBeenCalled();
+    expect(wallet.prompts).toHaveLength(1);
+    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 2, 3]);
+    for (const bytes of wallet.prompts[0]!) {
+      expect(bytes[0]).toBe(V1_VERSION_BYTE);
+      const w = decodeV1(bytes);
+      expect(w.blockhash).toBe(FRESH);
+      expect(w.payer.equals(owner.publicKey)).toBe(true);
+      expect(w.config).toEqual({ computeUnitLimit: v1ComputeLimit(20_000), loadedAccountsDataSizeLimit: loadedDataLimitFromSimulation(50_000), priorityFeeLamports: 0n });
+    }
+    expect(r.ran).toEqual([1, 1, 2, 2, 3, 3]);
+    expect(Math.max(...r.conn.simulateTransaction.mock.invocationCallOrder)).toBeLessThan(wallet.signTransaction.mock.invocationCallOrder[0]!);
+    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
+    expect([...r.sent.values()].sort()).toEqual([1, 2, 3]);
+    for (const bytes of wallet.prompts[0]!) expect(got.get(`c${tagOf(bytes)}`)).toEqual({ kind: 'claimed', tx: sigOf(signV1WithKeypairs(bytes, [owner])) });
+  });
+
+  it('a claim its test run refuses is said in its pool’s words and never put to the wallet; the rest go', async () => {
+    const r = rpc({ refuse: [2] });
+    const wallet = walletOf();
+    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
+    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 3]);
+    expect(got.get('c2')).toEqual({ kind: 'unconfirmed', reason: 'refused: log 2' });
+    expect([...r.sent.values()].sort()).toEqual([1, 3]);
+  });
+
+  it('a test run that did not answer is no verdict: the claim goes at the ceiling, and its first send is checked by the network', async () => {
+    const r = rpc({ testRunDown: true });
+    const wallet = walletOf();
+    const got = await run([claimOf(1)], wallet.w, r.conn);
+    expect(decodeV1(wallet.prompts[0]![0]!).config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: MAX_LOADED_ACCOUNTS_DATA_SIZE, priorityFeeLamports: 0n });
+    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
+    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
+  });
+
+  it('a cancel in the wallet: every claim cancelled, nothing sent', async () => {
+    const r = rpc();
+    const wallet = walletOf({ sign: () => { throw Object.assign(new Error('User rejected the request.'), { code: 4001 }); } });
+    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
+    expect(got.get('c1')).toEqual({ kind: 'declined' });
+    expect(got.get('c2')).toEqual({ kind: 'declined' });
+    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a wallet that answers with fewer signed claims than it was given: nothing is sent, none is matched to another', async () => {
+    const r = rpc();
+    const wallet = walletOf({ answer: (outs) => outs.slice(0, 1) });
+    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
+    expect(got.get('c1')).toMatchObject({ kind: 'unconfirmed', reason: expect.stringMatching(/did not sign/i) });
+    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a claim the wallet changed past the rules is not sent; the others are', async () => {
+    const r = rpc();
+    const wallet = walletOf({
+      sign: (bytes) => {
+        const w = decodeV1(bytes);
+        if (tagOf(bytes) !== 2) return signV1WithKeypairs(bytes, [owner]);
+        const extra = SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 });
+        return signV1WithKeypairs(assembleV1(w.payer, w.blockhash, 9, w.config, [...w.instructions, extra]), [owner]);
+      },
+    });
+    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
+    expect(got.get('c2')).toEqual({ kind: 'unconfirmed', reason: 'Your wallet added something to this transaction that this page cannot check, so nothing was sent.' });
+    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
+    expect([...r.sent.values()]).toEqual([1]);
+  });
+
+  it('a wallet that does not list version 1 keeps the version 0 way: its signAllTransactions, as before', async () => {
+    const r = rpc();
+    const wallet = walletOf({ versions: ['legacy', 0] });
+    // The version 0 test run hands web3.js transactions, not version 1 bytes: only count the prompt.
+    r.conn.simulateTransaction.mockImplementation(async () => ({ context: { slot: 1 }, value: { err: null, logs: [], unitsConsumed: 1, loadedAccountsDataSize: 1 } }));
+    r.conn.sendRawTransaction.mockImplementation(async (raw: Uint8Array) => base58.encode(VersionedTransaction.deserialize(raw).signatures[0]!));
+    await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
+    expect(wallet.signAllTransactions).toHaveBeenCalledTimes(1);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 });

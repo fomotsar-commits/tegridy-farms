@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, m } from 'framer-motion';
 import { useEffect, useRef, useState, type Ref } from 'react';
-import { DASHBOARD_NAV, INDEX_GROUPS, indexName, type IndexGroup, type NavItem } from '../../lib/navConfig';
+import { DASHBOARD_NAV, INDEX_GROUPS, ISLAND_SECTION, indexName, type IndexGroup, type NavItem } from '../../lib/navConfig';
 import { VENUE } from '../../lib/arrival';
 import { ArtImg } from '../ArtImg';
 // The menu's own look (lib/editorial.ts), the same in both themes. A full-screen index that opens
@@ -9,8 +9,7 @@ import { ArtImg } from '../ArtImg';
 import { EDITORIAL_BG as BG, EDITORIAL_INK as INK, EDITORIAL_EASE as EASE, EDITORIAL_GRAIN as GRAIN, HEADING_FONT, pad2 as pad } from '../../lib/editorial';
 
 // Each group's picture is `nav-drawer:N` in /art-studio (artSurfaces.ts): navConfig's INDEX_GROUPS
-// carry theirs; 0 is the menu's own; Dashboard's row, once a wallet connects, is 4.
-const DASHBOARD_ART = 4;
+// carry theirs; 0 is the menu's own. Dashboard's own row (4) is retired: it is a page under Island.
 
 /** What the big frame shows: a picture and its caption. */
 interface Shown {
@@ -25,11 +24,14 @@ function groupHere(groups: readonly IndexGroup[], pathname: string): IndexGroup 
   return groups.find((g) => g.items.some((i) => isHere(i.to, pathname)) || (g.to !== undefined && isHere(g.to, pathname)));
 }
 
-/** The index's groups: navConfig's, Dashboard once a wallet connects, and Admin for its holder. */
+/**
+ * The index's groups: navConfig's, Dashboard under Island once a wallet connects (owner,
+ * 2026-11-10), and Admin for its holder.
+ */
 function groupsFor(isConnected: boolean, showAdmin: boolean): IndexGroup[] {
-  const groups = [...INDEX_GROUPS];
+  const groups = INDEX_GROUPS.map((g) =>
+    isConnected && g.heading === ISLAND_SECTION.heading ? { ...g, items: [...g.items, DASHBOARD_NAV] } : g);
   const records = groups.pop()!;
-  if (isConnected) groups.push({ heading: DASHBOARD_NAV.label, to: DASHBOARD_NAV.to, items: [], art: DASHBOARD_ART });
   groups.push(showAdmin ? { ...records, items: [...records.items, { to: '/admin', label: 'Admin' }] } : records);
   return groups;
 }
@@ -52,8 +54,8 @@ function narrow(groups: readonly IndexGroup[], q: string): IndexGroup[] {
  */
 function IndexLink({ n, name, item, here, onHover, onGo }: { n: number; name: string; item: NavItem; here: boolean; onHover: () => void; onGo: () => void }) {
   return (
-    // 44px rows on a phone and an iPad; 38px from 900px, where a pointer taps.
-    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 min-[900px]:min-h-[38px] min-[900px]:py-1 border-b border-white/[0.09]" onMouseEnter={onHover}>
+    // 44px rows wherever a finger taps, an iPad on its side included; 38px only from 900px with a mouse.
+    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 min-[900px]:pointer-fine:min-h-[38px] min-[900px]:pointer-fine:py-1 border-b border-white/[0.09]" onMouseEnter={onHover}>
       <Link to={item.to} onClick={onGo} onFocus={onHover} aria-current={here ? 'page' : undefined}
         className={`min-w-0 truncate font-black leading-tight tracking-[-0.03em] text-[17px] min-[900px]:text-[16px] transition-colors after:absolute after:inset-0 after:z-10 after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-[#22c55e] ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8] group-hover/page:text-white'}`}
         style={HEADING_FONT}>
@@ -258,8 +260,9 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
               </kbd>
             </div>
 
-            {/* The index: every section with its pages, in the order a visitor moves (navConfig
-                INDEX_GROUPS); Dashboard once a wallet connects; the records last. The groups run
+            {/* The index: the sections the menu keeps, with their pages, in the order a visitor
+                moves (navConfig INDEX_GROUPS); Dashboard under Island once a wallet connects; the
+                records last. The groups run
                 in one column on a phone, two from 600px and three from 1100px. */}
             <nav aria-label="Site index" onMouseLeave={() => setHover(null)}>
               {groups.length === 0 ? (
