@@ -7,7 +7,7 @@ import { LiquidityTab, type LiquidityPick } from '../components/swap/LiquidityTa
 import { useLiquidityChainId } from '../hooks/useLiquidityChainId';
 import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
-import { liquidityVenueOn } from '../lib/chains/liquidityVenue';
+import { liquidityVenueOn, OPENING_FEE_TEXT, openingVenueOn } from '../lib/chains/liquidityVenue';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
@@ -16,11 +16,11 @@ import { FinePrint } from '../components/ui/FinePrint';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
-/** What the Venue AMM tab can do follows LP's own switch, so the pointer never promises more. */
+/** What Solana's Add / Remove tab (/pools) can do follows LP's own switch, so the pointer never promises more. */
 const SOLANA_POINTER: Record<LpWriteMode, string> = {
-  on: 'On Solana? Create, add or remove on the Venue AMM tab',
-  'withdraw-only': 'On Solana? Take liquidity out on the Venue AMM tab',
-  off: 'On Solana? Find a pool on the Venue AMM tab',
+  on: 'On Solana? Create, add or remove Solana pools',
+  'withdraw-only': 'On Solana? Take liquidity out of Solana pools',
+  off: 'On Solana? Find a Solana pool',
 };
 
 /**
@@ -71,6 +71,18 @@ export default function LiquidityPage() {
   const headerChainId = liquidityVenueOn(liquidityChainId) ? liquidityChainId : CHAIN_ID;
   const onMainnet = headerChainId === CHAIN_ID;
   const chainName = getChainConfig(headerChainId)?.name ?? 'Ethereum';
+  // Where new pools open on the factory that charges to open one, the money line says so before
+  // any wallet is asked (law-25 read of #1169), in 8 words: the page sits at its word ceiling
+  // (e2e/word-budget.spec.ts, 140). Where it goes and that adding costs nothing is in How it works;
+  // the form says it all again once the pair is new.
+  const opensForFee = openingVenueOn(headerChainId) !== null;
+  const openingLine = opensForFee ? ` Opening a pool pays the venue ${OPENING_FEE_TEXT}.` : '';
+  const openingDetail = opensForFee && (
+    <p>
+      Opening a new pool pays {OPENING_FEE_TEXT} to the venue&apos;s treasury, on top of the deposit and
+      not part of your liquidity. Adding to a pool already open costs nothing extra.
+    </p>
+  );
   // A pool picked from the list, and a count that remounts the form on every pick.
   const [pick, setPick] = useState<{ pool: LiquidityPick; n: number } | null>(null);
   const onPick = (pool: LiquidityPick) => setPick((prev) => ({ pool, n: (prev?.n ?? 0) + 1 }));
@@ -106,17 +118,19 @@ export default function LiquidityPage() {
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
             Ethereum pools. Swap fee 0.3%. On TOWELI/ETH: 0.25% to providers, 0.05% to the
             venue&apos;s treasury (read 17 October 2026). Swaps made through this site pay the venue a
-            separate fee.
+            separate fee.{openingLine}
           </p>
         ) : (
-          /* Base and Robinhood Chain: the same factory code, and each factory's feeTo is the
-             venue's FEE_REMITTANCE Safe 0xfc5D…fbf1. Neither has a pair yet (read 2026-10-17),
+          /* Base and Robinhood Chain: the same factory code, and each OLD factory's feeTo is the
+             venue's FEE_REMITTANCE Safe 0xfc5D…fbf1; the factory new pools open on since
+             2026-11-08 pays the TREASURY Safe 0x796c…38C0, so the line says only "the venue".
+             Neither had a pair yet (read 2026-10-17),
              and a new pair starts with kLast = 0, so its cut stays off until the feeToSetter
              (Base: the venue's L2 multisig 0xBC4E…Be5B; Robinhood: the owner wallet) switches
              it on. Our swap does not route on either chain, so the line claims no swap fee. */
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
             {chainName} pools. Swap fee 0.3%, all to providers until the venue switches on its
-            one-sixth cut for that pool, which goes to the venue&apos;s fee Safe (read 17 October 2026).
+            one-sixth cut for that pool, which goes to the venue as new pool shares (read 17 October 2026).{openingLine}
           </p>
         )}
         <FinePrint summary="How it works">
@@ -131,10 +145,11 @@ export default function LiquidityPage() {
           ) : (
             <p>
               Providers split the 0.3% swap fee by pool share. The venue can take one sixth of it,
-              paid to its fee Safe as new pool shares, but only on a pool where it has switched that
+              paid to the venue as new pool shares, but only on a pool where it has switched that
               on. Each pool in the list says whether it has.
             </p>
           )}
+          {openingDetail}
           <p>
             Pair two tokens into a pool and every swap that routes through it pays you a share of
             its fee, in proportion to how much of the pool is yours. Your position is an ERC-20

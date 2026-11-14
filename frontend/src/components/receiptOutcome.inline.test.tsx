@@ -27,6 +27,8 @@ const w = vi.hoisted(() => ({
   /** The wallet replaced the tx: viem RESOLVES with this other tx's success receipt. */
   replacedReason: undefined as 'cancelled' | 'replaced' | 'repriced' | undefined,
   reads: new Map<string, unknown>(),
+  /** useReadContract answers, by functionName (the shield card's WETH reads). */
+  single: new Map<string, unknown>(),
 }));
 
 vi.mock('wagmi', async () => {
@@ -36,7 +38,7 @@ vi.mock('wagmi', async () => {
     useAccount: () => ({ address: USER, isConnected: true }),
     useChainId: () => w.chainId,
     useSwitchChain: () => ({ switchChain: () => {} }),
-    useReadContract: () => ({ data: undefined, refetch: v.fn() }),
+    useReadContract: ({ functionName }: { functionName: string }) => ({ data: w.single.get(functionName), refetch: v.fn() }),
     useReadContracts: ({ contracts }: { contracts: { functionName: string }[] }) => ({
       data: contracts.map((q) =>
         w.reads.has(q.functionName)
@@ -52,7 +54,7 @@ vi.mock('wagmi', async () => {
       data: HASH,
       isPending: false,
     }),
-    useSendTransaction: () => ({ sendTransaction: v.fn(), data: HASH, isPending: false, error: null }),
+    useSendTransaction: () => ({ sendTransaction: v.fn(), data: HASH, isPending: false, error: null, reset: v.fn() }),
     useWaitForTransactionReceipt: ({ hash, onReplaced }: { hash?: string; onReplaced?: (r: unknown) => void }) => {
       if (hash && w.replacedReason) {
         onReplaced?.({ reason: w.replacedReason, replacedTransaction: { hash } });
@@ -80,8 +82,7 @@ import { Step5_Deploy } from './launchpad/wizard/Step5_Deploy';
 import { initialState } from './launchpad/wizard/wizardReducer';
 import { EvmLighthousePoolLive } from './bungalow/EvmLighthousePoolLive';
 import { EvmLadderPoolLive } from './bungalow/EvmLadderPoolLive';
-import { assessDeadlineHealth } from '../lib/shield/health';
-import type { ShieldPosition } from '../lib/shield/positions';
+import { buildSnapshot } from '../lib/shield/positions';
 import type { Bungalow } from '../lib/bungalows';
 
 const REVERT = () => new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {});
@@ -93,29 +94,45 @@ beforeEach(() => {
   w.receiptError = undefined;
   w.replacedReason = undefined;
   w.reads = new Map();
+  w.single = new Map();
 });
 
 describe('ShieldPositionCard', () => {
   const now = Math.floor(Date.now() / 1000);
-  const position: ShieldPosition = {
-    loanId: 4,
-    venue: 'tegridy-nft-lending' as ShieldPosition['venue'],
-    lendingContract: LENDING,
-    collateralContract: null,
-    tokenId: 7n,
-    principal: parseEther('1'),
-    borrower: USER,
-    repaid: false,
-    defaultClaimed: false,
-    health: assessDeadlineHealth({
-      effectiveDeadlineUnix: now + 7200,
-      minGraceSeconds: 3600,
-      defaultedOnChain: false,
-      nowUnix: now,
-    }),
-    quotedRepayWei: parseEther('1.01'),
-    quoteDetail: null,
-  };
+  const start = BigInt(now - 86_400);
+  // A Gondi loan due in 2 h, as useMyLoans hands it over after the getLoanHash check.
+  const position = buildSnapshot(
+    [
+      {
+        loanId: 4,
+        venue: 'tegridy-nft-lending',
+        lendingContract: LENDING,
+        loan: {
+          borrower: USER,
+          nftCollateralTokenId: 7n,
+          nftCollateralAddress: TOKEN,
+          principalAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+          principalAmount: parseEther('1'),
+          startTime: start,
+          duration: BigInt(86_400 + 7200),
+          tranche: [{ loanId: 4n, floor: 0n, principalAmount: parseEther('1'), lender: LENDING, accruedInterest: 0n, startTime: start, aprBps: 1000n }],
+          protocolFee: 500n,
+          lenderRefinanceDisabled: false,
+        },
+      },
+    ],
+    now,
+  ).positions[0]!;
+
+  // WETH held and approved, so the card reaches the repayment step, where the receipt lines live.
+  beforeEach(() => {
+    w.single = new Map<string, unknown>([['balanceOf', parseEther('5')], ['allowance', parseEther('5')]]);
+  });
+
+  it("reaches the repayment step, so the lines below are the repay's own", () => {
+    render(<ShieldPositionCard position={position} />);
+    expect(screen.getByRole('button', { name: 'Review and sign repayment' })).toBeInTheDocument();
+  });
 
   it('a thrown revert shows the "reverted, nothing was repaid" line', () => {
     w.receiptError = REVERT();

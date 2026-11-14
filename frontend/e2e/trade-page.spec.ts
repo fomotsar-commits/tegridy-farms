@@ -28,7 +28,7 @@ test.describe('TradePage', () => {
     // TradePage.tsx:55 is the source of truth. Match the union.
     await expect(page.locator('h1')).toContainText(/Swap|Liquidity|Recurring Swap|Price Alert|Trade/i);
     // Swap tab is the default; disconnected state must show the gate copy.
-    await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('evm-swap-connect')).toBeVisible();
   });
 
   test('tab toggle switches between Swap, Recurring Swap, and Limit Order', async ({ page, walletMock: _w }) => {
@@ -54,11 +54,11 @@ test.describe('TradePage', () => {
     // to swap" should no longer be in the DOM. Use an exact match to avoid
     // colliding with the Recurring Swap tab's own "Connect Ethereum wallet" CTA.
     await dcaTab.click();
-    await expect(page.getByText('Connect your wallet to swap', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('evm-swap-connect')).toHaveCount(0);
 
     // Switch back to Swap — the gate re-appears.
     await swapTab.click();
-    await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('evm-swap-connect')).toBeVisible();
   });
 
   test('page loads without unhandled page errors', async ({ page, walletMock: _w }) => {

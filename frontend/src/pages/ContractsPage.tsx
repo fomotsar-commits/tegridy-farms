@@ -38,6 +38,7 @@ import {
   SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { getChainConfig } from '../lib/chains/registry';
 
 // Source links come from SOURCE_URL (lib/constants.ts), never a git-host URL: the
@@ -215,9 +216,17 @@ const GROUPS: ContractGroup[] = [
         source: 'contracts/src/TegridyNFTPoolFactory.sol',
       },
       {
-        label: 'NFT Lending',
+        label: "NFT Lending (Gondi's v3.2, unchanged)",
+        address: GONDI_LOAN_ADDRESS,
+        source: 'contracts/vendor/gondi-v3.2/sources/src/lib/loans/MultiSourceLoan.sol',
+        status: isDeployed(GONDI_LOAN_ADDRESS) ? undefined : 'pending',
+      },
+      {
+        label: 'NFT Lending, first version (retired)',
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         source: 'contracts/src/TegridyNFTLending.sol',
+        status: 'deprecated',
+        note: "Retired: replaced by Gondi's loan contract. It never held an offer or a loan.",
       },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TegridyTokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },

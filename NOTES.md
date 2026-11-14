@@ -15,6 +15,252 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-13: `page.setViewportSize` returns before the page has the new width
+
+**Believed:** after `await page.setViewportSize({ width })` the next read lays out at `width`.
+
+**Measured** (PR #1214. wide-screen.spec.ts, the most frequent CI flake after the splash spec: 278 flaky
+attempts across its three tests from 2026-10-21 to 11-13, chromium only): the failing reads
+are two widths in one step. The market box read 864px (the 1919px layout) and the burn's
+496px (the 1920px one): 864/496 = 1.74194, CI printed 1.7419354838709677. 1024/562.67
+(2559px against 2560px) = 1.820, CI printed 1.8205 and 1.8199. On 11-13 the whole page still
+had the 1535px stack at 1536px. Playwright's Chromium code awaits only the CDP replies
+(`Emulation.setDeviceMetricsOverride`, `Browser.setWindowBounds`); the page gets the size on
+another channel. Its WebKit code even sleeps 500ms after a resize on Ubuntu 22.04 and Debian 12.
+It never reproduced here (Windows or WSL Linux, a busy page included: 0 stale of 528 reads); making
+the resize land 300ms late reproduced CI's messages in 12 of 12, and the wait below cleared
+them in 12 of 12.
+
+**Do:** resize with `resizeViewport` (e2e/fixtures/pageWidth.ts): it waits until
+`matchMedia('(width: Wpx) and (height: Hpx)')` matches. A ratio of two boxes that no layout
+can produce means the reads straddled a resize.
+
+## 2026-11-13: a readiness probe on `aria-busy` waits for the chain, not for the page
+
+**Believed:** gotoRoute's probe ("no `[aria-busy="true"]` in main") waits for the lazy chunk.
+
+**Measured:** a section reading the chain is busy too. With every outside host held, the probe
+could not mount /earn/toweli (the LP farm's read) or a connected /dashboard (inline Skeletons);
+the other 63 audited routes mounted. That is what failed gauge-voting.spec.ts and
+page-width.spec.ts three attempts in a row on ipad-safari on 2026-10-22: the live Ethereum
+RPC was slow that hour. Only route fallbacks now carry `data-route-loading`, and the probe
+waits on that (pinned by e2e/route-mount-probe.spec.ts, both ways).
+
+**Do:** a census beats a guess: hold every outside host (`page.route(u => u.host !== own,
+() => {})`) and run the probe over every route. Whatever it cannot mount is waiting on
+someone else's server.
+
+## 2026-11-13: to press mid-fade, hold the fade; do not try to catch it
+
+**Believed:** sampling a 200ms CSS fade once a frame lands at least one sample inside it.
+
+**Measured** (phone-layout.spec.ts, the corner stepping aside, iPhone WebKit): under load
+WebKit drew a frame every 200 to 970ms, so the fade often fell between two samples (1.00,
+then 0.00): 3 of 10 failed here at 100% CPU, 14 of 20 on WSL Linux WebKit. Injected costs did
+not reproduce it: a 250ms spin inside each frame made every sample land mid-fade (WebKit
+resolves a pending transition's start after the slow frame), and long tasks or late rAF
+callbacks did not either.
+
+**Do:** a MutationObserver on the element's ancestors fires in the microtask after React's
+commit, before any frame. `document.getAnimations()` there flushes style, so the new
+`CSSTransition` is already listed: `pause()` it and set `currentTime`. The moment under test
+then exists on every run, whatever the frame rate.
+
+## 2026-11-11: a local `vite preview` of the build no longer reads /pools the way the site does, and its errors name the wrong cause
+
+**Believed:** `npm run build` then `vite preview` walks /pools against mainnet as production
+does: `vite.config.ts` proxies `/api/solrpc` to the keyless public node and `/api/jupiter` to
+Jupiter, so only the host differs.
+
+**Measured** (walking Open a pool on this branch's build at 390, 2026-11-11):
+`api.mainnet-beta.solana.com` answered every proxied call 403, "This request has a browser
+User-Agent but not the headers that a browser sends" (the proxy strips Origin and Referer, as
+production's function never sends them), so the page said "The chain could not be read".
+With the RPC hop's User-Agent set to a plain one (Playwright `page.route` on `/api/solrpc`,
+nothing else changed), all 13 load calls answered 200. Next, vite preview has no
+`/api/pools` (a Vercel function): `readPoolIndex` turns that 404 into "the pool index says
+this address is not a token mint", for a token that is one. Answering that path from
+`https://memetics.finance/api/pools` cleared it. Jupiter's keyless API then answered 429 to
+the price read twice; the card's own Refresh got a price within a minute.
+
+**Do:** in a walk script, route `/api/solrpc` with a plain User-Agent and `/api/pools` to
+production's endpoint, and say so with the result. A local "not a token mint" or "could not be
+read" is the stand-in host first: check the network tab before the code.
+
+## 2026-11-11: a cleanup trap that `cd`s first restores nothing, and `git diff --quiet` on a missing path says "clean"
+
+**Believed:** `trap restore EXIT` with `restore() { git checkout HEAD -- $(cat files); git diff
+--quiet HEAD -- frontend/src && echo RESTORED; }` puts the files back however a mutant run ends.
+
+**Measured** (a red-first run of an e2e spec on trunk's source, 2026-11-11): the script had
+`cd frontend` before the run, so at exit the repo-root paths matched nothing ("pathspec did
+not match any file(s) known to git"), and `git diff --quiet HEAD -- frontend/src` from inside
+`frontend/` asked about `frontend/frontend/src`, which does not exist, and exited 0. It printed
+RESTORED over 14 files still holding trunk's code. The same check from the repo root showed
+them.
+
+**Do:** in a restore, `cd` to the repo root first (or use `git -C <root>` and `:/`-rooted
+pathspecs), and prove it with a check that fails on a wrong path: `git diff --stat` printed,
+or a grep for a line only the restored version has.
+
+---
+
+## 2026-11-11: a shared test chain hides a bug that depends on the clock
+
+**Believed:** the Anvil money-path job proves a borrow-and-repay flow works, so a green run
+means a borrower can repay.
+
+**Measured:** `e2e/lending.spec.ts` passed in CI for days while the live repay button could
+never get past "Approve WETH to repay". Run ALONE on a fresh fork it stuck at that step
+every time; in CI it passed every time. The CI job runs five specs on one fork, and an
+earlier one calls `evm_increaseTime`. After that the chain's clock is ahead of the browser's,
+a loan's start is "in the future" to the page, and the interest it computes is zero. The bug
+needed interest that grows every second.
+
+**So:** a spec about anything time-dependent is only proven when it is run alone on a fresh
+fork, where chain time is wall time as it is on mainnet:
+`E2E_REQUIRE_ANVIL=1 ANVIL_FORK_URL=https://eth.drpc.org npm run e2e -- --project=chromium e2e/<spec>`.
+
+### The bug itself: one moving figure sized the action and checked it
+
+The approval was sized to "what is owed 10 minutes from now", and the next step was offered
+only when the allowance covered "what is owed 10 minutes from now", recomputed each second.
+The figure had moved by the time the approval confirmed, so the same approval was asked for
+again, without end. A figure that grows needs two numbers: aim the ACTION well ahead, CHECK
+against something nearer (10 minutes and 2 here), and the gap is how long the action stays
+good.
+
+## 2026-11-11: a `manualChunks` rule naming a whole package welds in what it loads on demand
+
+**Believed:** grouping a vendor package into one named chunk only decides which file its
+code lands in.
+
+**Measured:** `id.includes('node_modules/@rainbow-me') => 'vendor-wagmi'` produced a 1,931 KB
+chunk (291 KB gzipped) in the entry's static closure. RainbowKit's `index.js` has 77
+`import()` calls: 18 language files (1.8 MB unpacked), each wallet's and chain's icon, its
+install illustrations. Naming the modules assigned every one of them to the eager chunk.
+Pinning only what the package imports statically (`index.js`, `chunk-*.js`, its css) gave
+340 KB (87 KB gzipped) and left the rest as chunks fetched when asked for.
+
+**So:** a `manualChunks` rule should match the files a package imports statically, never the
+package. Check any such rule by counting `import(` in the package's entry file.
+
+## 2026-11-11: the widest `srcset` candidate just under slot times density fetches the original
+
+**Believed:** with 128, 480 and 960 pixel derivatives and `sizes="auto"`, a phone gets a
+derivative.
+
+**Measured** (live site, 390px viewport, 3 device pixels per CSS pixel): a 356px-wide card
+wants 1,068 pixels. 960 is under that, so the browser skipped it and took the next candidate,
+the original: 590, 481 and 372 KB for three cards whose 960 webps are 134, 98 and 149 KB.
+Images on that page went from 1,839 KB to 740 KB once the original was left out of the
+candidates for scrimmed card backgrounds on phone-width viewports.
+
+**So:** the widest derivative has to clear slot width times the highest density you serve, or
+the original must not be a candidate where full resolution cannot be seen.
+
+## 2026-11-11: asking whether an account exists does not need the account
+
+**Believed:** `getAccountInfo` is a cheap read.
+
+**Measured:** the check that a Solana program is still deployed reads its ProgramData
+account's lamports. That account is the program's bytecode: 223 KB of base64, fetched twice
+on every pools visit. `getAccountInfo(address, { encoding: 'base64', dataSlice: { offset: 0,
+length: 0 } })` returns lamports, owner and the executable flag with empty data: under 1 KB.
+
+## 2026-11-11: a test double that builds a component per property access remounts the tree
+
+**Believed:** `new Proxy({}, { get: () => (props) => <div {...props} /> })` is a harmless
+stand-in for `framer-motion`'s `m`.
+
+**Measured:** every access to `m.div` returns a NEW function, so React sees a different
+component type on each parent render and remounts everything under it. A form's state
+vanished between `findByRole` resolving and the click that followed, in the full file only
+(alone, the parent did not re-render in between). Cache the stand-in per key, or re-query and
+act inside `waitFor`.
+
+---
+
+## 2026-11-10: the public Solana node can answer `null` for a finalized transaction it has just listed
+
+**Believed:** `getTransaction` on `api.mainnet-beta.solana.com` either returns a finalized
+transaction or errors, so a `null` for a signature that `getSignaturesForAddress` (finalized)
+just listed means something is wrong with the signature.
+
+**Measured** (three from-zero dry runs of `frontend/scripts/venue-volume.mjs` on 2026-11-10,
+about 2,160 transactions over 25 pools and 3 fee accounts): the node answered `result: null`
+three times, for `5Tw9SxuCpnWi3GdKtmquUUYEYMFBQCXkDLjbpd5U6fuycte6Uxe4uZ5wTpu6o1RR1G3q5GkieGRrxYVViuj4XnPP`
+(slot 466,192,174), `fm4ocLrrWsySscMearUJkgisMAQnqwMF6MoSyowKssqGdMaTRfz3vjZiGHwQL6eedovcB8kwnEneHSTJjywM3rn`
+(from 2026-10-03) and one more. Each came back whole when asked again seconds later.
+
+**So:** the counter's `getTx` throws on `null` on purpose (a cursor never moves past a swap it
+did not read), which costs the five-minute run nothing: the next run asks again. A read from
+zero (a dry run, a backfill) stops at the first one instead. Such a read asks again a few
+times, with a wait, before it calls a transaction missing, and never reads `null` as "no swap".
+
+## 2026-11-08: under one pool per pair and fee tier, a front-runner's pool at ten times the market takes the pair, so Start over opens nothing
+
+**Believed:** after a front-run at the standard tier-1 address (a stranger opens the pool while
+the review is on screen), Start over opens the pool at a one-off address with a second signer, as
+P5 and P16 of `frontend/e2e-solana/lp-create.spec.ts` held and the outcome line promised ("the
+site will use a new address").
+
+**Measured** (the E2E Solana job on trunk `cea65ce5a`, run 42478603075: 143 passed, 4 failed, every
+one card copy after an opening that landed; then the same tests on this machine's WSL validator):
+a pool more than 3% off its reference is `allowed` with a warning (ruling 2026-10-04), and
+`pairTaken` falls back to such a pool when it is the only one, so a squat at ten times the market
+with `openTimeFromNow: 0` takes the SOL pair: after Start over the form stays on SOL, names the
+squatter's pool as "takes deposits, with a warning", and Review stays off with the amounts still
+typed. A squat with `openTimeFromNow: TEN_YEARS` is refused ("Swaps are blocked until …"), takes
+nothing, and P4 and P18 still open at a one-off address. Against the card, panel and offers from
+before #1094 (its diff reversed onto the tree), the rewritten P1, P5 and P16 failed at exactly
+the new assertions, in 12 minutes (one build; group B's fixtures made once per failure); restored
+byte for byte, the same four runs passed in 4.7 minutes of tests.
+
+Then train 3's run of the job (42523708267) failed the rewritten P1 once, on chromium only: the
+page reads a token's pools the moment an opening confirms, and that read fell in the second before
+the new pool's open time (it opens one second after it lands). Its card said "Swaps open at …
+Deposits wait until then", so it took no pair, and the Open a pool card offered a second pool for
+the pool just opened; nothing read again until something was pressed. The finder now reads once
+more when a pool it read opens within two minutes (`PoolFinder.tsx` `opensInSeconds`), pinned in
+`CreatePoolCard.test.tsx` with fake timers.
+
+**Do:** when an e2e squat should leave a pair free, give it a far-future open time or no deposits;
+when it should take the pair, open it at or off the market. An outcome that says what Start over
+will do must say both cases. A read taken as a thing lands can land in the second before it
+counts: schedule the next read from the chain's own clock instead of trusting the first. The validator starts from a worktree under a path with a space when
+the script path is quoted inside `bash -lc` (`E2E_RPC_PORT=18899`, READY in under a minute); run
+the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and its own
+`E2E_SOLANA_OUT`, so another checkout's run is never built over. Stop it when done: with CI's
+`E2E_LIMIT_LEDGER_SIZE=4000000` the ledger folder still measured 13 GB (`du -sh`) after about 40
+minutes of two three-test runs, since that cap bounds the shred store and not the accounts and
+snapshots beside it.
+## 2026-11-08: a hand-written `transition` replaces a Tailwind transition utility, and `focus()` scrolls a tall dialog to its foot
+
+**Wrong belief 1:** a rule like `.receipt-card[data-floor] { transition: border-color 0.6s ease, box-shadow 0.6s ease; }`
+animates the card's edge while the card's own `motion-safe:transition-[opacity,transform] motion-safe:duration-300`
+keeps sliding it up.
+
+**Measured (2026-11-08, Chromium at 390x664, island answer 32's walk on the dev server):** the add's card read
+`transitionProperty: "border-color, box-shadow"`, and its opacity went from 0 to 1 between two samples 70 ms apart: no
+slide at all. `transition` is a shorthand that sets the whole list, and the class-plus-attribute selector outranks the
+one utility class, so the utility's entries are simply gone. With `opacity 0.3s` and `transform 0.3s` added to the
+rule's own list, the same samples read 0, 0.08, 0.59, 0.88 over 300 ms.
+
+**Do instead:** a rule that sets `transition` on an element that also carries a Tailwind transition utility repeats
+the utility's entries in its own list. Check with `getComputedStyle(el).transitionProperty`, not by eye.
+
+**Wrong belief 2:** focusing a dialog's container (`useFocusTrap(true, { focusContainer: true })`) leaves its scrolling
+layer where layout put it.
+
+**Measured (same day, a bare page in Chromium at 390x664: a fixed `overflow-y: auto` layer, a card with 16 px
+margins):** after a plain `card.focus()`, a 660 px card's layer was scrolled to its maximum (28 px), so the card's top
+sat above the screen; with `focus({ preventScroll: true })` it stayed at 0; a 430 px card did not scroll at all. On
+the venue that cut off the head of the add's receipt card, where its moment plays, on an iPhone 14 sized screen.
+
+**Do instead:** a dialog that can be taller than the screen either focuses with `{ preventScroll: true }` or puts the
+layer back to its top once it is up (what `ReceiptCard.tsx` does for an add).
+
 ## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
 
 **Believed:** a CI runner with no release folder can rebuild one by dumping each program from

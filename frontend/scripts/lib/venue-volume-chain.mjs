@@ -1,35 +1,56 @@
 // The chain readers behind the all-time volume counter (scripts/venue-volume.mjs).
 // Each reader starts from its cursor, reads only what is new, and returns the new swaps
-// with their SOL, USDC or WETH leg. It values nothing: the caller prices each swap once,
-// when first seen. A reader that cannot finish throws, so its cursor never moves past a
-// swap it did not read. Keyless endpoints only; every address is pinned to
+// with their SOL, USDC, USDT or WETH leg. It values nothing: the caller prices each swap
+// once, when first seen. A reader that cannot finish throws, so its cursor never moves past
+// a swap it did not read. Keyless endpoints only; every address is pinned to
 // scripts/addresses.json by venue-volume.test.mjs.
 
 export const VENUE_PROGRAM = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT";
 export const JUPITER_PROGRAM = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
-// The Squads vault's WSOL and USDC accounts: the site's Jupiter fee lands in these.
+// The Squads vault's WSOL, USDC and USDT accounts: the site's Jupiter fee lands in one of
+// these (src/lib/jupiter.ts picks the fee mint). An account added here is read from its
+// first signature, since the cursor has no entry for it.
 export const JUPITER_FEE_ACCOUNTS = [
   "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa",
   "3gGzyz6cushQWNTAYRj4qJoQJyGcqdctXh98vNwBRvZ6",
+  "GT8LWC8xwwXGE9FatRyMDZccSYBqYNRMZkz2SCdgV6dj",
 ];
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+// The island's coins, the pairing coins after SOL and USDC (api/_lib/pool-index.js's
+// QUOTE_COINS; a test pins the two together), all with 6 decimals. A swap with no SOL, USDC
+// or USDT leg is valued on one of these, at its market price when it is counted.
+export const ISLAND_COINS = Object.freeze([
+  Object.freeze({ symbol: "BAYLA", mint: "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump" }),
+  Object.freeze({ symbol: "BOBO", mint: "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump" }),
+  Object.freeze({ symbol: "SOY", mint: "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump" }),
+  Object.freeze({ symbol: "BRAINLET", mint: "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump" }),
+  Object.freeze({ symbol: "RIZZ", mint: "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k" }),
+]);
+export const ISLAND_DECIMALS = 6;
 export const SOLANA_RPC = "https://api.mainnet-beta.solana.com";
-// Counted apart (bot_swaps, bot_usd) so a "without bots" figure needs no rescan.
-export const SOLANA_BOTS = new Set(["CzacL7gUCr4HYz6a2TGJjnmAR3Uxc65WEkKy6rU8w5bf"]);
+// Counted apart (bot_swaps, bot_usd) so a "without bots" figure needs no rescan: an outside
+// arbitrage wallet, and the venue's own price keeper (scripts/price-keeper.mjs).
+export const SOLANA_BOTS = new Set([
+  "CzacL7gUCr4HYz6a2TGJjnmAR3Uxc65WEkKy6rU8w5bf",
+  "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz",
+]);
 const POOL_SIZE = 637;
 
 export const EVM_SWAP_TOPIC = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822";
-// Our factories. The SwapFeeRouter is not read: it swaps through these pairs, so its
-// swaps are already their Swap logs (the 2026-10-19 hand read counted one twice).
-// startBlock is where a first run reads from when the factory already has pairs. The RPCs
-// serve only recent logs (publicnode about a day on Base, two on Ethereum; drpc any age,
-// 100 blocks a call), so older ranges come from Blockscout, or from drpc a little at a time.
+// Our factories on each chain: the first one, then the one that charges to open a pool
+// (live 2026-11-09), where every new pool opens. The SwapFeeRouter is not read: it swaps
+// through these pairs, so its swaps are already their Swap logs (the 2026-10-19 hand read
+// counted one twice). startBlock is where a first run reads from when a factory already
+// has pairs; the opening factories were made after it on every chain. The RPCs serve only
+// recent logs (publicnode about a day on Base, two on Ethereum; drpc any age, 100 blocks a
+// call), so older ranges come from Blockscout, or from drpc a little at a time.
 export const EVM_CHAINS = {
   ethereum: {
     rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"],
     blockscout: "https://eth.blockscout.com",
-    factory: "0xa24C7287eC56A7DEFDc70033803451240e267a52",
+    factories: ["0xa24C7287eC56A7DEFDc70033803451240e267a52", "0xf73C993A1303Fe3612c5F878783CEf63D080834E"],
     weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     startBlock: 25263332,
     bots: new Set(["0x6338afee3ff32599bff2ce3d8b7604bd6d6a41a7"]),
@@ -37,7 +58,7 @@ export const EVM_CHAINS = {
   base: {
     rpcs: ["https://base-rpc.publicnode.com", "https://base.drpc.org", "https://base.gateway.tenderly.co", "https://mainnet.base.org"],
     blockscout: "https://base.blockscout.com",
-    factory: "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
+    factories: ["0x12a249A027AA7DdF184E824b4bb63ba031A39fEC", "0x09E1B43f90cb6488063BB91310FD40c4339027e6"],
     weth: "0x4200000000000000000000000000000000000006",
     // Its first pair, BRB/WETH, was created here (tx 0x3795131f…039d, 2026-10-21); none before.
     startBlock: 52884793,
@@ -46,12 +67,32 @@ export const EVM_CHAINS = {
   robinhood: {
     rpcs: ["https://rpc.mainnet.chain.robinhood.com"],
     blockscout: "https://robinhoodchain.blockscout.com",
-    factory: "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
-    weth: null,
-    startBlock: null,
+    factories: ["0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3", "0xB62BaD165997E95C503044787b2Dcc85DC6D83F1"],
+    // The routers' WETH (src/lib/chains/registry.ts). Unset until 2026-11-13, so the
+    // WETH/DODO pair's swaps were counted with no dollar value and its pool added $0 to TVL.
+    weth: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    // Its first pair, WETH/DODO, was created here; none before.
+    startBlock: 109405136,
+    // Its RPC answers up to 10,000,000 blocks a call, and makes a block every quarter second.
+    logSpan: 1_000_000,
     bots: new Set(),
   },
 };
+
+// NFT Lending: our Gondi v3.2 loan contract on Ethereum (scripts/addresses.json gondi-loan,
+// deployed in block 26365735). Its new loans are volume: the WETH a lender paid out.
+// A refinance is not counted again: its event carries the whole loan, not the part re-lent.
+export const NFT_LENDING = Object.freeze({
+  rpcs: EVM_CHAINS.ethereum.rpcs,
+  blockscout: EVM_CHAINS.ethereum.blockscout,
+  loan: "0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630",
+  weth: EVM_CHAINS.ethereum.weth,
+  startBlock: 26365735,
+});
+// keccak256 of LoanEmitted(uint256,uint256[],(address,uint256,address,address,uint256,uint256,
+// uint256,(uint256,uint256,uint256,address,uint256,uint256,uint256)[],uint256,bool),uint256);
+// a test checks it against the ABI in src/lib/gondi/abi.js. Nothing in it is indexed.
+export const LOAN_EMITTED_TOPIC = "0x539d6c095c91e90f7790c6e3b4d5cf0d47330259a392b73829d928b9a7a324a9";
 const LOG_SPAN = 5000;
 const MIN_LOG_SPAN = 100;
 
@@ -107,17 +148,18 @@ function tokenDelta(tx, index) {
   };
   return pick(tx.meta.postTokenBalances) - pick(tx.meta.preTokenBalances);
 }
-// Value on USDC when the swap has a USDC leg, else on SOL.
+// Value on a dollar leg (USDC, then USDT) when the swap has one, else on SOL, else on an
+// island coin (the first in rank order).
+const LEG_MINTS = [USDC_MINT, USDT_MINT, SOL_MINT, ...ISLAND_COINS.map((c) => c.mint)];
 function pickLeg(amounts) {
-  if (amounts[USDC_MINT] > 0n) return { mint: USDC_MINT, raw: amounts[USDC_MINT] };
-  if (amounts[SOL_MINT] > 0n) return { mint: SOL_MINT, raw: amounts[SOL_MINT] };
-  return null;
+  const mint = LEG_MINTS.find((m) => amounts[m] > 0n);
+  return mint ? { mint, raw: amounts[mint] } : null;
 }
 
 /**
  * A swap in one of our pools: one vault rose and the other fell. Deposits (both rise),
  * withdrawals (both fall) and fee collection are not swaps. Returns null for those, or
- * { leg, payer } where leg is the SOL or USDC side (null when the pool has neither).
+ * { leg, payer } where leg is the USDC, USDT or SOL side (null when the pool has none).
  */
 export function poolSwap(tx, pool) {
   if (tx.meta.err) return null;
@@ -144,9 +186,9 @@ const SWAPS_HOP = 112;
 /**
  * A Jupiter swap that paid our fee into `feeAccount`, read from Jupiter's own events:
  * FeeEvent (V1) or the fee account's own balance change (V2) says what our fee was; the
- * SwapEvents or the SwapsEvent give each hop. The leg is the swap's net SOL or USDC across
- * hops, with a fee taken from the input added back: what the trader put in or got out
- * before our fee. Null when no fee reached `feeAccount`; throws when one did with no hops.
+ * SwapEvents or the SwapsEvent give each hop. The leg is the swap's net USDC, USDT or SOL
+ * across hops, with a fee taken from the input added back: what the trader put in or got
+ * out before our fee. Null when no fee reached `feeAccount`; throws when one did with no hops.
  */
 export function jupiterSwap(tx, feeAccount) {
   if (tx.meta.err) return null;
@@ -196,7 +238,7 @@ export function jupiterSwap(tx, feeAccount) {
   if (!fee) return null;
   if (hops === 0) throw new Error(`a Jupiter fee with no SwapEvent (new event shape?): ${tx.transaction.signatures?.[0] ?? "?"}`);
   const amounts = {};
-  for (const m of [USDC_MINT, SOL_MINT]) {
+  for (const m of LEG_MINTS) {
     const n = net[m] ?? 0n;
     amounts[m] = n < 0n ? -n + (fee.mint === m ? fee.amount : 0n) : n;
   }
@@ -366,15 +408,16 @@ export function evmRpc({ fetchImpl = globalThis.fetch, rpcs, wait = sleep, pause
 }
 
 /**
- * Swap logs in [from, to]. Each window goes to the RPCs. When they refuse one (old blocks),
- * Blockscout reads up to the block it has indexed and the RPCs take the rest; without a
- * Blockscout answer the window shrinks to 100 blocks (drpc's free limit). When even that
- * fails, or the run's time is up, it returns what it read so far: `through` is the last
- * block read and `stopped` says why, so the caller can save that much and resume.
+ * Logs with `topic` (a Swap log unless said) in [from, to]. Each window goes to the RPCs.
+ * When they refuse one (old blocks), Blockscout reads up to the block it has indexed and
+ * the RPCs take the rest; without a Blockscout answer the window shrinks to 100 blocks
+ * (drpc's free limit). When even that fails, or the run's time is up, it returns what it
+ * read so far: `through` is the last block read and `stopped` says why, so the caller can
+ * save that much and resume.
  */
-async function swapLogs(call, chain, addresses, from, to, { fetchImpl, deadline = Infinity, now = Date.now }) {
+async function swapLogs(call, chain, addresses, from, to, { fetchImpl, deadline = Infinity, now = Date.now, topic = EVM_SWAP_TOPIC }) {
   const logs = [];
-  let span = LOG_SPAN;
+  let span = chain.logSpan ?? LOG_SPAN;
   let blockscoutDown = !chain.blockscout;
   while (from <= to) {
     if (now() > deadline) return { logs, through: from - 1, stopped: "out of time for this run" };
@@ -382,13 +425,13 @@ async function swapLogs(call, chain, addresses, from, to, { fetchImpl, deadline 
     try {
       logs.push(
         ...(await call("eth_getLogs", [
-          { address: addresses, topics: [EVM_SWAP_TOPIC], fromBlock: "0x" + from.toString(16), toBlock: "0x" + end.toString(16) },
+          { address: addresses, topics: [topic], fromBlock: "0x" + from.toString(16), toBlock: "0x" + end.toString(16) },
         ])),
       );
       from = end + 1;
       continue;
     } catch (e) {
-      const got = blockscoutDown ? null : await fromBlockscout(chain.blockscout, addresses, from, to, fetchImpl).catch(() => null);
+      const got = blockscoutDown ? null : await fromBlockscout(chain.blockscout, addresses, from, to, fetchImpl, topic).catch(() => null);
       if (got) {
         logs.push(...got.logs);
         from = got.through + 1;
@@ -402,12 +445,12 @@ async function swapLogs(call, chain, addresses, from, to, { fetchImpl, deadline 
   return { logs, through: to, stopped: null };
 }
 
-/** Every pair's logs from Blockscout for [from, the block it has indexed], or null. */
-async function fromBlockscout(base, addresses, from, to, fetchImpl) {
+/** Every address's logs from Blockscout for [from, the block it has indexed], or null. */
+async function fromBlockscout(base, addresses, from, to, fetchImpl, topic = EVM_SWAP_TOPIC) {
   const through = Math.min(to, await blockscoutIndexed(base, fetchImpl));
   if (through < from) return null;
   const logs = [];
-  for (const a of addresses) logs.push(...(await blockscoutLogs(base, a, from, through, fetchImpl)));
+  for (const a of addresses) logs.push(...(await blockscoutLogs(base, a, from, through, fetchImpl, topic)));
   return { logs, through };
 }
 
@@ -429,11 +472,11 @@ export async function blockscoutIndexed(base, fetchImpl) {
  * found" with none) and only up to the block it has indexed: a rate-limited or lagging
  * answer must never read as a range with no swaps. Halves the range at its 1,000 cap.
  */
-export async function blockscoutLogs(base, address, from, to, fetchImpl) {
+export async function blockscoutLogs(base, address, from, to, fetchImpl, topic = EVM_SWAP_TOPIC) {
   const indexed = await blockscoutIndexed(base, fetchImpl);
   if (!(indexed >= to)) throw new Error(`blockscout has indexed to ${indexed}, not ${to}`);
   const read = async (a, b) => {
-    const j = await blockscoutGet(`${base}/api?module=logs&action=getLogs&address=${address}&topic0=${EVM_SWAP_TOPIC}&fromBlock=${a}&toBlock=${b}`, fetchImpl);
+    const j = await blockscoutGet(`${base}/api?module=logs&action=getLogs&address=${address}&topic0=${topic}&fromBlock=${a}&toBlock=${b}`, fetchImpl);
     const ok = j?.status === "1" && j.message === "OK" && Array.isArray(j.result);
     const none = j?.status === "0" && j.message === "No logs found" && Array.isArray(j.result) && j.result.length === 0;
     if (!ok && !none) throw new Error(`blockscout getLogs: ${JSON.stringify(j).slice(0, 120)}`);
@@ -449,38 +492,128 @@ const ethCall = (call, to, data) => call("eth_call", [{ to, data }, "latest"]);
 const addrWord = (hex) => "0x" + hex.slice(-40).toLowerCase();
 
 /**
- * One chain's new Swap logs on every pair of our factory, up to its finalized block.
+ * Every pair of every factory on the chain, with its two coins and its WETH side. The
+ * cursor's pairs are kept and only new ones are read. A pair saved before 2026-11-13 names
+ * no factory (it is the first one's) and no coins: a pair of those with no WETH side has
+ * its coins read once more, since Robinhood's WETH was unset when its pair was first seen.
+ */
+export async function listPairs(call, chain, saved) {
+  const weth = chain.weth?.toLowerCase() ?? null;
+  const first = chain.factories[0].toLowerCase();
+  const coins = async (address) => [addrWord(await ethCall(call, address, "0x0dfe1681")), addrWord(await ethCall(call, address, "0xd21220a7"))];
+  const sideOf = (tokens) => (weth === null ? null : tokens.indexOf(weth) >= 0 ? tokens.indexOf(weth) : null);
+  const out = [];
+  for (const factory of chain.factories.map((f) => f.toLowerCase())) {
+    const mine = [];
+    for (const p of saved.filter((s) => (s.factory ?? first) === factory)) {
+      const tokens = p.tokens ?? (p.wethSide === null ? await coins(p.address) : null);
+      mine.push({ address: p.address, factory, ...(tokens ? { tokens } : {}), wethSide: tokens ? sideOf(tokens) : p.wethSide });
+    }
+    const total = Number(BigInt(await ethCall(call, factory, "0x574f2ba3")));
+    for (let i = mine.length; i < total; i++) {
+      const address = addrWord(await ethCall(call, factory, "0x1e3dd18b" + i.toString(16).padStart(64, "0")));
+      const tokens = await coins(address);
+      mine.push({ address, factory, tokens, wethSide: sideOf(tokens) });
+    }
+    out.push(...mine);
+  }
+  return out;
+}
+
+/** Swap logs as swaps: each with its WETH leg (none for a pair with no WETH side) and its sender. */
+function toSwaps(logs, pairs) {
+  const side = new Map(pairs.map((p) => [p.address, p.wethSide]));
+  const out = [];
+  for (const log of logs) {
+    if (log.removed) continue;
+    const { raw, sender } = evmSwapLeg(log, side.get(log.address.toLowerCase()));
+    out.push({ leg: raw === null ? null : { mint: "WETH", raw }, payer: sender, id: `${log.transactionHash}:${log.logIndex}` });
+  }
+  return out;
+}
+
+/**
+ * One chain's new Swap logs on every pair of our factories, up to its finalized block.
  * Pairs are listed at "latest", which is past the finalized block, so a pair born in
  * a window is known before its window is read. No pairs: the cursor jumps to the head.
  * A read that stops short returns its swaps, a cursor at the last block read, no
  * countedTo, and `incomplete` saying why.
+ *
+ * A saved pair that had no WETH side and has one now (Robinhood's, once its WETH was set)
+ * had every swap up to the cursor counted with no dollars. Those swaps come back once as
+ * `repriced`: the caller adds their dollars and takes them off the unpriced count, in the
+ * same write that saves the pair's WETH side, so it happens once. Their old range is read
+ * whole or the chain is not counted this run.
  */
 export async function readEvmChain(call, chain, cursor, { fetchImpl = globalThis.fetch, deadline, now } = {}) {
   const head = await call("eth_getBlockByNumber", ["finalized", false]);
   const headBlock = Number(BigInt(head.number));
   const countedTo = new Date(Number(BigInt(head.timestamp)) * 1000).toISOString();
-  const pairs = [...(cursor?.pairs ?? [])];
-  const total = Number(BigInt(await ethCall(call, chain.factory, "0x574f2ba3")));
-  const weth = chain.weth?.toLowerCase() ?? null;
-  for (let i = pairs.length; i < total; i++) {
-    const pair = addrWord(await ethCall(call, chain.factory, "0x1e3dd18b" + i.toString(16).padStart(64, "0")));
-    const t0 = addrWord(await ethCall(call, pair, "0x0dfe1681"));
-    const t1 = addrWord(await ethCall(call, pair, "0xd21220a7"));
-    pairs.push({ address: pair, wethSide: weth === t0 ? 0 : weth === t1 ? 1 : null });
-  }
+  const saved = cursor?.pairs ?? [];
+  const pairs = await listPairs(call, chain, saved);
   let from = cursor ? cursor.block + 1 : chain.startBlock;
   if (pairs.length && from == null) throw new Error("this factory has pairs and no start block to read them from");
-  const swaps = [];
+  const wasUnpriced = new Set(saved.filter((p) => p.wethSide === null && !p.tokens).map((p) => p.address));
+  const repricedPairs = pairs.filter((p) => wasUnpriced.has(p.address) && p.wethSide !== null);
+  let repriced = [];
+  if (repricedPairs.length && cursor && chain.startBlock != null && chain.startBlock <= cursor.block) {
+    const old = await swapLogs(call, chain, repricedPairs.map((p) => p.address), chain.startBlock, cursor.block, { fetchImpl, now });
+    if (old.stopped) throw new Error(`the swaps to reprice could not all be read: ${old.stopped}`);
+    repriced = toSwaps(old.logs, repricedPairs);
+  }
+  let swaps = [];
   let read = { logs: [], through: headBlock, stopped: null };
   if (pairs.length && from <= headBlock) {
-    const side = new Map(pairs.map((p) => [p.address, p.wethSide]));
     read = await swapLogs(call, chain, pairs.map((p) => p.address), from, headBlock, { fetchImpl, deadline, now });
+    swaps = toSwaps(read.logs, pairs);
+  }
+  const more = repriced.length ? { repriced } : {};
+  if (read.stopped) return { swaps, ...more, cursor: { block: read.through, pairs }, countedTo: null, incomplete: read.stopped };
+  return { swaps, ...more, cursor: { block: headBlock, pairs }, countedTo };
+}
+
+/**
+ * A LoanEmitted log's borrower and principal. Its data is (loanId, offerId[], loan, fee),
+ * the loan a tuple with a dynamic tranche list, so its third word is where the loan starts;
+ * the loan's first word is the borrower, its fourth the principal's coin and its fifth the
+ * principal. Throws on a log too short to hold them.
+ */
+export function loanEmitted(log) {
+  const d = log.data.slice(2);
+  const word = (k) => {
+    const hex = d.slice(64 * k, 64 * k + 64);
+    if (hex.length !== 64) throw new Error(`a LoanEmitted log too short to read: ${log.transactionHash}`);
+    return BigInt("0x" + hex);
+  };
+  const at = Number(word(2) / 32n);
+  return {
+    borrower: "0x" + word(at).toString(16).padStart(40, "0"),
+    coin: "0x" + word(at + 3).toString(16).padStart(40, "0"),
+    principal: word(at + 4),
+  };
+}
+
+/**
+ * New loans on NFT Lending since the cursor, up to the finalized block, each with its
+ * principal as the WETH leg (a loan in any other coin has no leg). The same windows,
+ * Blockscout fallback and resume as a chain's swaps.
+ */
+export async function readNftLoans(call, cursor, { fetchImpl = globalThis.fetch, deadline, now, lending = NFT_LENDING } = {}) {
+  const head = await call("eth_getBlockByNumber", ["finalized", false]);
+  const headBlock = Number(BigInt(head.number));
+  const countedTo = new Date(Number(BigInt(head.timestamp)) * 1000).toISOString();
+  const from = cursor ? cursor.block + 1 : lending.startBlock;
+  const weth = lending.weth.toLowerCase();
+  const swaps = [];
+  let read = { logs: [], through: headBlock, stopped: null };
+  if (from <= headBlock) {
+    read = await swapLogs(call, lending, [lending.loan.toLowerCase()], from, headBlock, { fetchImpl, deadline, now, topic: LOAN_EMITTED_TOPIC });
     for (const log of read.logs) {
-      if (log.removed) continue;
-      const { raw, sender } = evmSwapLeg(log, side.get(log.address.toLowerCase()));
-      swaps.push({ leg: raw === null ? null : { mint: "WETH", raw }, payer: sender, id: `${log.transactionHash}:${log.logIndex}` });
+      if (log.removed || log.address.toLowerCase() !== lending.loan.toLowerCase() || log.topics?.[0] !== LOAN_EMITTED_TOPIC) continue;
+      const loan = loanEmitted(log);
+      swaps.push({ leg: loan.coin === weth ? { mint: "WETH", raw: loan.principal } : null, payer: loan.borrower, id: `${log.transactionHash}:${log.logIndex}` });
     }
   }
-  if (read.stopped) return { swaps, cursor: { block: read.through, pairs }, countedTo: null, incomplete: read.stopped };
-  return { swaps, cursor: { block: headBlock, pairs }, countedTo };
+  if (read.stopped) return { swaps, cursor: { block: read.through }, countedTo: null, incomplete: read.stopped };
+  return { swaps, cursor: { block: headBlock }, countedTo };
 }

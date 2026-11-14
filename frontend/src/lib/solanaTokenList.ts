@@ -50,6 +50,8 @@ export const SOL: SolToken = {
   symbol: 'SOL',
   name: 'Solana',
   decimals: 9,
+  // The site's own files (public/tokens): the lists drew these three as a letter (owner, 2026-11-11).
+  logoURI: '/tokens/sol.svg',
   verified: true,
 };
 
@@ -58,6 +60,7 @@ export const USDC: SolToken = {
   symbol: 'USDC',
   name: 'USD Coin',
   decimals: 6,
+  logoURI: '/tokens/usdc.png',
   verified: true,
 };
 
@@ -66,6 +69,7 @@ export const USDT: SolToken = {
   symbol: 'USDT',
   name: 'Tether USD',
   decimals: 6,
+  logoURI: '/tokens/usdt.png',
   verified: true,
 };
 
@@ -97,7 +101,11 @@ export const BUY_TOKENS: SolToken[] = [
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
 ];
 
-/** The coins this venue's own pools pair a token with: SOL, USDC and the venue's BAYLA. */
+/**
+ * The venue's own coins: SOL, USDC and the venue's BAYLA. Our pools pair a token with these and
+ * with every island coin (lib/solana/lp/quotes.ts; a test pins the two lists together); the
+ * island's other coins are vouched for as ISLAND_TOKENS below, with their own mark.
+ */
 export const VENUE_COINS: readonly SolToken[] = [SOL, USDC, BAYLA];
 const VENUE_COIN_MINTS: ReadonlySet<string> = new Set(VENUE_COINS.map((t) => t.mint));
 

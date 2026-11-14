@@ -8,6 +8,7 @@ import { useRevealSelectedTab } from './tabStripScroll';
  * The tab strip every tabbed host shares, keyed by route, in the page's flow (pinned, it covered
  * fields once a page scrolled). An entry off today (`soon`) is not listed and nothing says Soon
  * (docs/FACE_LAWS.md, law 23); on its own page, reached by URL, its tab is listed and lit.
+ * An entry the owner took off its strip (`unlisted`) is shown the same way.
  * A host owns its path-to-tab rule and its panel; this renders the list and the active route.
  */
 export interface RouteTabsProps {
@@ -43,7 +44,7 @@ function TabLabel({ item }: { item: NavItem }) {
 }
 
 export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect, leading }: RouteTabsProps) {
-  const items = all.filter((i) => !i.soon || i.to === active);
+  const items = all.filter((i) => (!i.soon && !i.unlisted) || i.to === active);
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
   const listRef = useRevealSelectedTab(active, keys.join(' '));

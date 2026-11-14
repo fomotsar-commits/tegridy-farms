@@ -16,6 +16,15 @@ import './lib/solanaPolyfill';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+// The Solana wallet list's stylesheet rides the entry's own, ahead of index.css, where it sat in
+// the document before. It used to arrive with the lazy Solana chunk, and WebKit (the engine under
+// Safari and under every browser on an iPhone, a wallet app's own included) does not draw what a
+// page adds while such a stylesheet is still loading: the home and every room's door mounted and
+// went blank for about a second, the bar and the footer with nothing between (recorded in
+// Playwright's WebKit, 0.76 to 2.0 s; the owner met the flash on his iPhone, 2026-11-06 and
+// 2026-11-11). Chromium never does it. scripts/check-dist-graph.mjs G keeps every stylesheet in
+// the first HTML.
+import './styles/wallet-adapter-ui.css';
 import './index.css';
 import App from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';

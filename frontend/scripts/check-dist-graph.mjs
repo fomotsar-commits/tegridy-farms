@@ -47,6 +47,8 @@
 // And one for the Cardano swap (2026-10-24):
 //   E. EMURGO's serialization library (vendor-cardano, plus its .wasm) stays LAZY: the chunk
 //      exists, is outside the entry's static closure, and is never preloaded.
+// And one for WebKit, the engine under every iPhone browser (2026-11-11):
+//   G. No stylesheet arrives with a lazy chunk: every .css in dist/assets is one index.html links.
 //
 // Silent-gate discipline: this script FAILS on a missing/empty dist, on an
 // unreadable entry, and on a suspiciously tiny closure — "checked nothing"
@@ -240,9 +242,62 @@ if (preloadedCardano.length) {
   die(`index.html preloads ${preloadedCardano.join(', ')} — the Cardano library must stay lazy`);
 }
 
+// F. THE EVM WALLET CHUNK CARRIES ONLY WHAT IT LOADS UP FRONT.
+//
+// vendor-wagmi rides in the entry's static closure: every page, on every chain, downloads
+// and parses it. RainbowKit ships 18 language files (1.8 MB unpacked), every wallet's and
+// chain's icon and its install illustrations as modules it imports ON DEMAND. A manualChunks
+// rule that named the whole package 'vendor-wagmi' welded all of them into this chunk:
+// 1,874 KB unpacked (291 KB gzipped), measured on the live site 2026-11-11. With only its
+// statically imported files pinned it is about 340 KB. The ceiling sits well above that and
+// far below the welded size, so the weld cannot come back unseen.
+const WAGMI_CHUNK_CEILING = 700 * 1024;
+const wagmiChunks = chunkFiles.filter((f) => f.startsWith('vendor-wagmi'));
+if (wagmiChunks.length === 0) die('no vendor-wagmi chunk in dist/assets — invariant F checked nothing');
+for (const f of wagmiChunks) {
+  const bytes = Buffer.byteLength(read(f), 'utf8');
+  if (bytes > WAGMI_CHUNK_CEILING) {
+    die(
+      `${f} is ${Math.round(bytes / 1024)} KB unpacked, over the ${WAGMI_CHUNK_CEILING / 1024} KB ceiling — ` +
+        "RainbowKit's on-demand modules (language files, wallet icons) have been welded into the chunk every page loads; " +
+        'see the @rainbow-me rule in vite.config.ts manualChunks',
+    );
+  }
+}
+const wagmiKb = wagmiChunks.map((f) => `${Math.round(Buffer.byteLength(read(f), 'utf8') / 1024)} KB`).join(', ');
+
+// G. NO STYLESHEET ARRIVES WITH A LAZY CHUNK (2026-11-11).
+//
+// CSS a lazy chunk imports is a file of its own (vite.config.ts cssCodeSplit), fetched by a <link>
+// Vite adds to the document when the chunk is asked for. WebKit, the engine under Safari and under
+// every browser on an iPhone (a wallet app's own included), does not draw what a page adds while
+// such a stylesheet is still loading. So a page that mounted as such a chunk was asked for went
+// blank for about a second: the bar, nothing, then the footer (recorded in Playwright's WebKit,
+// 0.76 to 2.0 s, and never with the stylesheet already there; a script that reads layout while it
+// loads hides the blank, so only a recording shows it). It was the home and every room's door,
+// with src/styles/wallet-adapter-ui.css imported by the lazy SolanaProviders; the owner met the
+// flash on his iPhone. Chromium never does this, so no Chromium rig will see it come back. Every
+// stylesheet the build emits must be one the first HTML already links; a module that needs CSS of
+// its own gets it imported from src/main.tsx, as that file's note says.
+const styleFiles = readdirSync(ASSETS).filter((f) => f.endsWith('.css'));
+if (styleFiles.length === 0) die('no stylesheet in dist/assets — invariant G checked nothing');
+const linkedStyles = (html.match(/<link\b[^>]*>/g) ?? [])
+  .filter((tag) => /\brel="stylesheet"/.test(tag))
+  .map((tag) => /\bhref="\/?assets\/([^"]+\.css)"/.exec(tag)?.[1])
+  .filter(Boolean);
+const lazyStyles = styleFiles.filter((f) => !linkedStyles.includes(f));
+if (lazyStyles.length) {
+  die(
+    `${lazyStyles.join(', ')} is a stylesheet index.html does not link, so it arrives with a lazy chunk. ` +
+      `WebKit does not draw a page's new content while such a stylesheet loads (Safari, every iPhone browser, a wallet app's own included): ` +
+      `the page goes blank between its first frame and itself. Import that CSS from src/main.tsx, so it rides the entry's stylesheet.`,
+  );
+}
+
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
     `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
     `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}; ` +
-    `Cardano library lazy (${cardanoChunks.join(', ')}).`,
+    `Cardano library lazy (${cardanoChunks.join(', ')}); vendor-wagmi ${wagmiKb}. ` +
+    `Every stylesheet is in the first HTML (${styleFiles.join(', ')}).`,
 );

@@ -1,6 +1,7 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
 import { POOLS_SECTION } from '../lib/navConfig';
+import { PoolsFallback } from '../components/PoolsFrame';
 
 // Add / remove liquidity on the venue's own Uniswap-V2-fork pairs (TEGRIDY_ROUTER).
 const LiquidityPage = lazy(() => import('./LiquidityPage'));
@@ -12,6 +13,9 @@ const RangePoolsPage = lazy(() => import('./RangePoolsPage'));
 const ZapPage = lazy(() => import('../components/zap/ZapPage'));
 // The venue's own Cardano pools: positions, add, remove, open (lib/cardano/ownPools/).
 const CardanoPoolsPage = lazy(() => import('./CardanoPoolsPage'));
+
+// /pools keeps its heading on screen between the host's chunk and the page's (PoolsFrame.tsx).
+const POOLS_FALLBACKS = { '/pools': <PoolsFallback panel /> };
 
 /**
  * Pools, the section for providing liquidity: one tab per way in, from POOLS_SECTION
@@ -33,6 +37,7 @@ export default function PoolsHostPage() {
         '/zap': ZapPage,
         '/cardano-pools': CardanoPoolsPage,
       }}
+      fallbacks={POOLS_FALLBACKS}
     />
   );
 }

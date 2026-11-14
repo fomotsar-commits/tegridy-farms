@@ -67,7 +67,7 @@ describe('the screen for a cold wallet, as drawn', () => {
       'THE LAUNCH DOOR · NOT OPEN YET',
       '0.00°',
       'about half a year',
-      'to the door, if you hold from today.',
+      'to the door, from your first real buy.',
       '0° today',
       '80° · the door',
       'Residents launch here. Nobody can buy last year.',
@@ -116,18 +116,32 @@ describe('the number', () => {
     expect(number.parentElement?.className).toMatch(/\bitems-baseline\b/);
     expect(text()).toContain('to the door, if you hold from today.');
     expect(text()).not.toContain('about half a year');
+    expect(text()).not.toContain('from your first real buy');
   });
 
   it('is the words “about half a year” until served, for a wallet starting from nothing', () => {
     mount(<Countdown reading={COLD} look="screen" />);
     expect(screen.getByText('about half a year')).toBeInTheDocument();
-    expect(text()).toContain('to the door, if you hold from today.');
+    // Half a year is true from a real position, and a cold wallet holds none today (island answer thirty-four).
+    expect(text()).toContain('to the door, from your first real buy.');
+    expect(text()).not.toContain('if you hold from today');
+  });
+
+  it('a wallet at 0° that is not cold (it holds a dust bag) reads the same: from its first real buy', () => {
+    const dust = reading(0, 'Drifter', { is_cold: false, token_count: 1 });
+    expect(dust.isCold).toBe(false);
+    expect(dust.daysToPlant).toBeNull();
+    mount(<Countdown reading={dust} look="screen" />);
+    expect(screen.getByText('about half a year')).toBeInTheDocument();
+    expect(text()).toContain('to the door, from your first real buy.');
+    expect(text()).not.toContain('if you hold from today');
   });
 
   it('is left out for a warm wallet the island has served no days for: the venue never works them out', () => {
     mount(<Countdown reading={reading(41.2, 'Observer')} look="screen" />);
     expect(text()).not.toContain('about half a year');
     expect(text()).not.toContain('to the door, if you hold from today.');
+    expect(text()).not.toContain('from your first real buy');
     expect(text()).not.toMatch(/\d+\s*days/);
     // The line, the green button and the track still stand.
     expect(text()).toContain('Residents launch here. Nobody can buy last year.');
@@ -285,7 +299,9 @@ describe('the door is not open yet (island answer twenty-six)', () => {
     expect(box().dataset.state).toBe('unread');
     expect(box().querySelector('[data-standing]')).toBeNull();
     expect(text()).toContain('about half a year');
-    expect(text()).toContain('to the door, if you hold from today.');
+    // A stranger holds nothing yet: the half year counts from a first real buy, never "from today".
+    expect(text()).toContain('to the door, from your first real buy.');
+    expect(text()).not.toContain('if you hold from today');
     expect(text()).not.toContain('0° today');
     expect(screen.getByRole('link', { name: 'Start the clock' })).toBeTruthy();
   });

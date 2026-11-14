@@ -30,6 +30,7 @@ async function build(): Promise<RangeWriteApi> {
   return {
     rangeWriteConfig: () => config.lpWriteConfig(),
     prepareRangeOpen: range.prepareRangeOpen,
+    prepareRangeCreate: range.prepareRangeCreate,
     prepareRangeRemove: range.prepareRangeRemove,
     prepareRangeClose: range.prepareRangeClose,
     submitPrepared: submit.submitPrepared,

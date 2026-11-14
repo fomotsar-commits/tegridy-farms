@@ -297,8 +297,8 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
   });
 }
 
-/** A mint's freeze authority (null for none), or why the address is not a token mint at all. */
-export type MintFreeze = { kind: 'mint'; freezeAuthority: string | null } | { kind: 'not-a-mint'; detail: string };
+/** A mint's freeze authority (null for none) and decimals, or why the address is not a token mint at all. */
+export type MintFreeze = { kind: 'mint'; freezeAuthority: string | null; decimals: number } | { kind: 'not-a-mint'; detail: string };
 
 /**
  * A token's freeze authority as the chain has it: what the LP deposit's token check reads.
@@ -310,7 +310,7 @@ export function readFreezeAuthority(rpc: SolanaRpc, mint: string): Promise<Read<
     const [a] = await getMultipleAccounts(rpc, [mint]);
     if (!a) return { kind: 'not-a-mint', detail: 'there is no account at this address' };
     const d = decodeMintAccount(a.owner, a.data);
-    return d.ok ? { kind: 'mint', freezeAuthority: d.value.freezeAuthority } : { kind: 'not-a-mint', detail: d.reason };
+    return d.ok ? { kind: 'mint', freezeAuthority: d.value.freezeAuthority, decimals: d.value.decimals } : { kind: 'not-a-mint', detail: d.reason };
   });
 }
 

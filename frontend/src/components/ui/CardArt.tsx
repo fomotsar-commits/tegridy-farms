@@ -76,6 +76,7 @@ export function CardArt({
         pageId={pageId}
         idx={idx}
         fallbackPosition={fallbackPosition}
+        phoneCard
         alt=""
         className="w-full h-full object-cover"
       />

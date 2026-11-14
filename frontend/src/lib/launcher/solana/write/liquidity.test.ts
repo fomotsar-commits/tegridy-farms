@@ -19,6 +19,7 @@ import {
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
+import { forgetClaimsSent, noteClaimSent } from '../../../solana/lp/claimed';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
 import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
@@ -37,6 +38,7 @@ import {
   readPoolForWrite,
   tokenAccountSize,
   withdrawStepsProblem,
+  type LpClaimBasis,
   type LpPrepareReads,
   type WriteSnapshot,
 } from './liquidity';
@@ -1619,5 +1621,68 @@ describe('a credit between the balance read and the test run does not block; a s
     const short = world();
     skewTestRun(short.chain, short.lpAta, -1n);
     expect(outcome(await deposit(short))).toMatchObject(BLOCKED);
+  });
+});
+
+describe('prepareLpWithdraw: a claim (Claim fees)', () => {
+  // The test pool's liquidity, isqrt(SOL_RESERVE x TOKEN_RESERVE), over its LP_SUPPLY shares.
+  const L = isqrt(SOL_RESERVE * TOKEN_RESERVE);
+  const HELD = LP_SUPPLY / 10n;
+  /** The liquidity `shares` hold, rounded down. */
+  const liq = (shares: bigint) => (shares * L) / LP_SUPPLY;
+  // Deposits that bought 99% of the liquidity the shares hold now: 1% of the shares are growth.
+  const basisOf = (o: Partial<LpClaimBasis> = {}): LpClaimBasis => ({ basis: (liq(HELD) * 99n) / 100n, provenShares: HELD, heldAtRead: HELD, ...o });
+
+  it('takes out exactly the shares that are growth at the fresh read, and what was put in stays', async () => {
+    const w = holding();
+    const p = ok(await withdraw(w, { pctBps: undefined, claim: basisOf() }));
+    const s = p.summary as LpWithdrawSummary;
+    expect(s.claim).toBe(true);
+    expect(s.lpAmount + s.keep).toBe(HELD);
+    expect(s.lpAmount >= HELD / 100n - 1n && s.lpAmount <= HELD / 100n).toBe(true);
+    expect(s.all).toBe(false);
+    // The shares kept hold at least the liquidity the deposits bought, and one share fewer would not.
+    expect((s.keep * L) / LP_SUPPLY + 1n > basisOf().basis && ((s.keep - 1n) * L) / LP_SUPPLY < basisOf().basis).toBe(true);
+    expect(s.keep * L >= basisOf().basis * LP_SUPPLY).toBe(true);
+    expect(p.steps.filter((x) => x.kind === 'pool-withdraw')).toHaveLength(1);
+    // Remove's percent is not read on a claim.
+    const withPct = ok(await withdraw(holding(), { pctBps: 10_000n, claim: basisOf() })).summary as LpWithdrawSummary;
+    expect(withPct.lpAmount).toBe(s.lpAmount);
+    // Remove is not a claim.
+    expect((ok(await withdraw(holding())).summary as LpWithdrawSummary).claim).toBeUndefined();
+  });
+
+  it('refuses a claim on a balance a claim was already sent on: once it lands, a node behind it still answers that balance', async () => {
+    const w = holding();
+    noteClaimSent(w.lpAta.toBase58(), HELD);
+    try {
+      expect(refused(await withdraw(w, { claim: basisOf() }))).toBe(LP_COPY.claimSharesChanged);
+    } finally {
+      forgetClaimsSent();
+    }
+    // Remove is not a claim, and another balance is not the one it landed on.
+    ok(await withdraw(holding()));
+  });
+
+  it('refuses shares that changed since the figures were worked out, either way', async () => {
+    expect(refused(await withdraw(holding(), { claim: basisOf({ heldAtRead: HELD + 1n }) }))).toBe(LP_COPY.claimSharesChanged);
+    expect(refused(await withdraw(holding({ heldLp: HELD + 1n }), { claim: basisOf() }))).toBe(LP_COPY.claimSharesChanged);
+    expect(refused(await withdraw(holding(), { claim: basisOf({ provenShares: HELD + 1n, heldAtRead: HELD }) }))).toBe(LP_COPY.claimSharesChanged);
+  });
+
+  it('says there is nothing to take out when the shares hold no more than what was put in', async () => {
+    // The basis exactly what the shares hold (rounded up to whole liquidity).
+    expect(refused(await withdraw(holding(), { claim: basisOf({ basis: (HELD * L + LP_SUPPLY - 1n) / LP_SUPPLY }) }))).toBe(LP_COPY.nothingToClaim);
+    // Deposits round a few units in the pool's favour: a basis just above the shares is nothing, never a negative claim.
+    expect(refused(await withdraw(holding(), { claim: basisOf({ basis: liq(HELD) + 7n }) }))).toBe(LP_COPY.nothingToClaim);
+  });
+
+  it('growth too small to pay both sides says so in its own words', async () => {
+    // 1,000 lamports over 10^9 shares: a side pays 1 only from 10^6 shares, and the claim here is ten.
+    const thinHeld = 1_500_000n;
+    const thin = world({ sol: 1_000n, tokens: 10n ** 12n, heldLp: thinHeld });
+    const thinL = isqrt(1_000n * 10n ** 12n);
+    const basis = ((thinHeld - 10n) * thinL) / LP_SUPPLY;
+    expect(refused(await withdraw(thin, { claim: { basis, provenShares: thinHeld, heldAtRead: thinHeld } }))).toBe(LP_COPY.claimTooSmall);
   });
 });

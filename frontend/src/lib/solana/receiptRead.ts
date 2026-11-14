@@ -258,8 +258,11 @@ export async function settleAddReceipt(
     fee = legMeta && !legMeta.err ? swapFee(legMeta, ask.leg.route, ask.leg.paid) : { kind: 'unread' };
   }
   settleReceipt(signature, {
-    title: quoteIn !== null && tokenIn !== null ? RECEIPT_WORDS.added(amountText(quoteIn, ask.quote.decimals), amountText(tokenIn, ask.token.decimals), ask.token.symbol) : null,
-    under: RECEIPT_WORDS.addedTo(ask.token.symbol),
+    title:
+      quoteIn !== null && tokenIn !== null
+        ? RECEIPT_WORDS.added(amountText(quoteIn, ask.quote.decimals), ask.quote.symbol, amountText(tokenIn, ask.token.decimals), ask.token.symbol)
+        : null,
+    under: RECEIPT_WORDS.addedTo(ask.quote.symbol, ask.token.symbol),
     fee,
   });
 }

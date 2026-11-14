@@ -24,18 +24,29 @@ import {
   shieldAutomationState,
 } from './automation';
 import { NO_HEALTH_FACTOR_DETAIL, assessDeadlineHealth } from './health';
-import { prepareRepay } from './preparedAction';
+import { prepareRepay, type PreparedRepayInput } from './preparedAction';
 import { SHIELD_VENUES, shieldVenueReadiness } from './venues';
-import {
-  IDLE_DETAIL,
-  LOADING_DETAIL,
-  QUOTE_UNREADABLE_DETAIL,
-  READ_FAILED_DETAIL,
-} from './positions';
+import { IDLE_DETAIL, LOADING_DETAIL, READ_FAILED_DETAIL } from './positions';
+import type { Loan } from '../gondi/loanMath';
 
 const BORROWER = '0x1111111111111111111111111111111111111111' as const;
 const LENDING = '0x2222222222222222222222222222222222222222' as const;
 const NOW = 1_700_000_000;
+const ONE = 1_000_000_000_000_000_000n;
+
+const startTime = BigInt(NOW - 86_400);
+const LOAN: Loan = {
+  borrower: BORROWER,
+  nftCollateralTokenId: 3n,
+  nftCollateralAddress: '0x4444444444444444444444444444444444444444',
+  principalAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+  principalAmount: ONE,
+  startTime,
+  duration: BigInt(86_400 + 3600),
+  tranche: [{ loanId: 3n, floor: 0n, principalAmount: ONE, lender: '0x3333333333333333333333333333333333333333', accruedInterest: 0n, startTime, aprBps: 1000n }],
+  protocolFee: 500n,
+  lenderRefinanceDisabled: false,
+};
 
 /**
  * Phrases that promise an execution nobody performs. Matched case-insensitively
@@ -58,12 +69,12 @@ const BANNED_PROMISES: RegExp[] = [
 /** Every user-facing sentence the shield can render, gathered from the real code. */
 function everyShieldSentence(): string[] {
   const out: string[] = [
-    ...Object.values(SHIELD_COPY),
+    // signButton is one label per repayment step; every label is swept.
+    ...Object.values(SHIELD_COPY).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v))),
     ...F4_REQUIREMENTS,
     NO_HEALTH_FACTOR_DETAIL,
     IDLE_DETAIL,
     LOADING_DETAIL,
-    QUOTE_UNREADABLE_DETAIL,
     READ_FAILED_DETAIL,
     shieldAutomationState().statusDetail,
   ];
@@ -75,81 +86,38 @@ function everyShieldSentence(): string[] {
     if (readiness.detail) out.push(readiness.detail);
   }
 
-  // Health copy is generated, so it is generated here rather than transcribed.
-  // Both verdicts are swept at every offset, so the pause-extended-grace copy —
-  // past the constant, contract still accepting — is covered like the rest.
+  // Health copy is generated, so it is generated here rather than transcribed,
+  // at every band: past the deadline, at it, urgent, watch and safe.
   const offsets = [-100_000, -5_000, -60, 0, 3600, 40 * 3600, 100 * 3600];
   for (const offset of offsets) {
-    for (const defaultedOnChain of [false, true]) {
-      const health = assessDeadlineHealth({
-        effectiveDeadlineUnix: NOW + offset,
-        minGraceSeconds: 3600,
-        defaultedOnChain,
-        nowUnix: NOW,
-      });
-      if (health.status === 'read') {
-        out.push(health.headline, health.consequence, health.healthFactorDetail);
-      } else {
-        out.push(health.detail);
-      }
-    }
+    const health = assessDeadlineHealth({ deadlineUnix: NOW + offset, nowUnix: NOW });
+    out.push(health.headline, health.consequence, health.healthFactorDetail);
   }
-  out.push(
-    (assessDeadlineHealth({
-      effectiveDeadlineUnix: null,
-      minGraceSeconds: null,
-      defaultedOnChain: null,
-      nowUnix: NOW,
-    }) as { detail: string })
-      .detail,
-  );
 
-  // Prepared-action copy: the disclosure on the happy path and every refusal.
-  const base = {
+  // Prepared-action copy: the disclosure of every step and every refusal.
+  const base: PreparedRepayInput = {
     loanId: 3,
+    loan: LOAN,
     lendingContract: LENDING,
     chainId: 1,
     expectedChainId: 1,
     account: BORROWER,
-    borrower: BORROWER,
-    repaid: false,
-    defaultClaimed: false,
-    quotedRepayWei: 1_000_000_000_000_000_000n,
-    health: assessDeadlineHealth({
-      effectiveDeadlineUnix: NOW + 3600,
-      minGraceSeconds: 3600,
-      defaultedOnChain: false,
-      nowUnix: NOW,
-    }),
-  } as const;
+    health: assessDeadlineHealth({ deadlineUnix: NOW + 3600, nowUnix: NOW }),
+    nowUnix: NOW,
+    wethBalance: 2n * ONE,
+    wethAllowance: 2n * ONE,
+  };
 
-  const variants = [
+  const variants: PreparedRepayInput[] = [
     base,
+    { ...base, wethBalance: 0n },
+    { ...base, wethAllowance: 0n },
     { ...base, lendingContract: null },
     { ...base, account: null },
     { ...base, chainId: 8453 },
-    { ...base, account: '0x9999999999999999999999999999999999999999' as const },
-    { ...base, repaid: true },
-    { ...base, defaultClaimed: true },
-    { ...base, quotedRepayWei: null },
-    {
-      ...base,
-      health: assessDeadlineHealth({
-        effectiveDeadlineUnix: null,
-        minGraceSeconds: null,
-        defaultedOnChain: null,
-        nowUnix: NOW,
-      }),
-    },
-    {
-      ...base,
-      health: assessDeadlineHealth({
-        effectiveDeadlineUnix: NOW - 100_000,
-        minGraceSeconds: 3600,
-        defaultedOnChain: true,
-        nowUnix: NOW,
-      }),
-    },
+    { ...base, account: '0x9999999999999999999999999999999999999999' },
+    { ...base, wethBalance: null },
+    { ...base, health: assessDeadlineHealth({ deadlineUnix: NOW - 100_000, nowUnix: NOW }) },
   ];
   for (const v of variants) {
     const result = prepareRepay(v);
@@ -191,9 +159,9 @@ describe('the shield never claims an execution nobody performs', () => {
   });
 
   it('says the smaller moves a borrower would look for do not exist here', () => {
-    // `repayLoan` is the only debt-side function and reverts under the full
-    // amount. A user hunting for a partial repay or a deleverage is hunting for
-    // something that is not there, with a deadline running.
+    // A borrower's `repayLoan` on Gondi's loan contract repays every tranche whole.
+    // A user hunting for a partial repay or a deleverage is hunting for something
+    // that is not there, with a deadline running.
     expect(ONLY_FULL_REPAYMENT).toMatch(/no partial repayment/i);
     expect(ONLY_FULL_REPAYMENT).toMatch(/no collateral top-up/i);
     expect(ONLY_FULL_REPAYMENT).toMatch(/no deleverage/i);
@@ -228,5 +196,12 @@ describe('what F4 must supply is stated, not implied', () => {
 
   it('names receipts for failures, so a save that did not happen is visible', () => {
     expect(F4_REQUIREMENTS.join(' ')).toMatch(/including failures/i);
+  });
+
+  it('names Gondi’s deadline rule: a save must land BEFORE it, since there is no grace period', () => {
+    const all = F4_REQUIREMENTS.join(' ');
+    expect(all).toMatch(/no grace period/i);
+    expect(all).toMatch(/before the deadline/i);
+    expect(all).not.toMatch(/isDefaulted|effectiveDeadline|GRACE_PERIOD/);
   });
 });

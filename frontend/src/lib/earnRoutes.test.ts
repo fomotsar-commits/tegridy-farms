@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from './bungalows';
 import { EARN_PATH, earnPoolPath, isEarnPoolId, legacyFarmTarget, TOWELI_EARN_PATH } from './earnRoutes';
-import { BAR_NAV, LOCK_SECTION } from './navConfig';
+import { BAR_NAV, YIELD_SECTION } from './navConfig';
 
 const live = BUNGALOWS.find((b) => b.live && b.id !== DEFAULT_BUNGALOW_ID)!;
 const retired = BUNGALOWS.find((b) => !b.live);
 
 describe("Earn's addresses", () => {
-  it('the Lock word and its first tab go to the list, never to one pool', () => {
+  it('the Yield word and its first tab go to the list, never to one pool', () => {
     // Owner, 2026-09-30: from inside a pool the word "stays on the same page" when it points
     // at an address whose content the active room chose.
-    expect(BAR_NAV.find((n) => n.label === 'Lock')?.to).toBe(EARN_PATH);
-    expect(LOCK_SECTION.hub).toBe(EARN_PATH);
-    expect(LOCK_SECTION.items[0]?.to).toBe(EARN_PATH);
+    expect(BAR_NAV.find((n) => n.label === 'Yield')?.to).toBe(EARN_PATH);
+    expect(YIELD_SECTION.hub).toBe(EARN_PATH);
+    expect(YIELD_SECTION.items[0]?.to).toBe(EARN_PATH);
     expect(EARN_PATH).toBe('/earn');
   });
 

@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { readFire, type FireWeek } from '../lib/fire';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAccount } from 'wagmi';
 import { intelLine } from '../lib/baylaLine';
 import { QUIET_BUTTON_STYLE, useBaylaLine } from './useBaylaLine';
 import { voiceAt } from '../lib/arrival';
 import { BUNGALOWS } from '../lib/bungalows';
 import { fetchHeat, isSupportedHeatAddress } from '../lib/heat/heatClient';
 import { setLastReading, useLastReading } from '../lib/heat/heatStore';
-import { useSolanaSurface } from '../lib/solanaSurface';
+import { useConnectedHeatSubject } from '../hooks/useConnectedHeatSubject';
 import { opensSheet, SHEET_PRESS } from '../lib/sheet';
 import { reopenReceipt } from '../lib/receipt';
 import { tick } from '../lib/tick';
@@ -45,12 +44,11 @@ export function BaylaLine() {
   const reading = useLastReading();
   const fireWeek = useFire();
   const line = useBaylaLine();
-  const { address: evm } = useAccount();
-  const sol = useSolanaSurface().surface?.address ?? null;
 
-  // A connected wallet with no reading yet is read once here; the card's cache shares it.
+  // A connected wallet with no reading yet is read once here; the card's cache shares it. It is the
+  // wallet the heat card reads too, whichever wallets the hand holds (hooks/useConnectedHeatSubject.ts).
   const asked = useRef<string | null>(null);
-  const connected = sol ?? evm ?? null;
+  const connected = useConnectedHeatSubject();
   useEffect(() => {
     if (!connected || !isSupportedHeatAddress(connected) || asked.current === connected) return;
     if (reading && reading.address.toLowerCase() === connected.toLowerCase()) return;

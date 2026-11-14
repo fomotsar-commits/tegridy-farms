@@ -13,7 +13,10 @@ import { clearReceipt, closeReceipt, raiseReceipt, useReceipt } from '../lib/rec
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 vi.mock('wagmi', () => ({ useAccount: () => ({ address: undefined }) }));
-vi.mock('../lib/solanaSurface', () => ({ useSolanaSurface: () => ({ surface: null }) }));
+vi.mock('../lib/solanaSurface', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/solanaSurface')>()),
+  useSolanaSurface: () => ({ surface: null }),
+}));
 
 const reading: HeatReading = {
   address: '0x1111111111111111111111111111111111111111',
@@ -86,7 +89,7 @@ describe('BaylaLine', () => {
     const press = screen.getByRole('button', { name: 'Receipt' });
     // Island answer twenty-five, build 6: the card that was raised, closed, then asked for again.
     act(() => {
-      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, title: null, under: null, fee: { kind: 'reading' }, clock: null });
+      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, island: true, title: null, under: null, fee: { kind: 'reading' }, clock: null, holders: null, lps: null });
       closeReceipt();
     });
     expect(screen.getByTestId('receipt-open')).toHaveTextContent('false');

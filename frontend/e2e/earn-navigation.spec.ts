@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// /earn is the list of every pool and /earn/<id> one pool. The bar's Lock word and the Staking
+// /earn is the list of every pool and /earn/<id> one pool. The bar's Yield word and the Staking
 // tab open the room's own pool (owner, 2026-10-15: "only show the bungalow selected"), the list
 // with no room; each pool's "Back to Earn" leads to the list (owner, 2026-09-30). The word was
 // Earn until the bar became Heat · Rooms · Lock · Launch · Swap (2026-10-15).
@@ -16,12 +16,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-/** The Lock word in whichever bar this viewport shows. */
+/** The Yield word (Lock until 2026-11-11) in whichever bar this viewport shows. */
 function earnWord(page: Page) {
-  return page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
+  return page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Yield$/ }).first();
 }
 
-test("the Lock word, in BAYLA's room, opens BAYLA's pool and only that one", async ({ page }) => {
+test("the Yield word, in BAYLA's room, opens BAYLA's pool and only that one", async ({ page }) => {
   await page.addInitScript(() => {
     try { localStorage.setItem('tegridy-bungalow', 'bayla'); } catch { /* private mode */ }
   });
@@ -33,7 +33,7 @@ test("the Lock word, in BAYLA's room, opens BAYLA's pool and only that one", asy
   await expect(page.getByRole('link', { name: 'Open PEPE' })).toHaveCount(0);
 });
 
-test('with no room chosen, the Lock word opens the list of every pool', async ({ page }) => {
+test('with no room chosen, the Yield word opens the list of every pool', async ({ page }) => {
   await page.goto('/island');
   await expect(earnWord(page)).toHaveAttribute('href', '/earn', { timeout: 30_000 });
   await earnWord(page).click();

@@ -17,7 +17,7 @@ import { pageArt } from "../../lib/artConfig";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
-import { formatPrice, formatListingPrice } from "../lib/formatPrice";
+import { formatPrice, formatListingPrice, listingPriceTitle } from "../lib/formatPrice";
 import { excludeSelfSales } from "../lib/washTrade";
 import Usd from "./Usd";
 import useEns from "../hooks/useEns";
@@ -410,7 +410,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                 <Eth size={20} />
-                <span style={{ fontFamily: "var(--display)", fontSize: 34, fontWeight: 700, color: "var(--text)" }}>
+                <span style={{ fontFamily: "var(--display)", fontSize: 34, fontWeight: 700, color: "var(--text)" }} title={listingPriceTitle(nft)}>
                   {formatListingPrice(nft)}
                 </span>
                 <Usd eth={Number(nft.price)} size={13} />
@@ -604,7 +604,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 borderRadius: 8, padding: "10px 14px",
               }}
             >
-              You own this one. Borrow ETH against it in NFT Finance instead of selling {"→"}
+              You own this one. Borrow WETH against it in NFT Finance instead of selling {"→"}
             </Link>
           )}
 
