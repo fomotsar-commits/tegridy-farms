@@ -31,6 +31,57 @@ is the first step to any reward.
 build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
 read the deployed commit with `git show <commit>:<path>`.
 
+## 2026-11-13: `page.setViewportSize` returns before the page has the new width
+
+**Believed:** after `await page.setViewportSize({ width })` the next read lays out at `width`.
+
+**Measured** (PR #1214. wide-screen.spec.ts, the most frequent CI flake after the splash spec: 278 flaky
+attempts across its three tests from 2026-10-21 to 11-13, chromium only): the failing reads
+are two widths in one step. The market box read 864px (the 1919px layout) and the burn's
+496px (the 1920px one): 864/496 = 1.74194, CI printed 1.7419354838709677. 1024/562.67
+(2559px against 2560px) = 1.820, CI printed 1.8205 and 1.8199. On 11-13 the whole page still
+had the 1535px stack at 1536px. Playwright's Chromium code awaits only the CDP replies
+(`Emulation.setDeviceMetricsOverride`, `Browser.setWindowBounds`); the page gets the size on
+another channel. Its WebKit code even sleeps 500ms after a resize on Ubuntu 22.04 and Debian 12.
+It never reproduced here (Windows or WSL Linux, a busy page included: 0 stale of 528 reads); making
+the resize land 300ms late reproduced CI's messages in 12 of 12, and the wait below cleared
+them in 12 of 12.
+
+**Do:** resize with `resizeViewport` (e2e/fixtures/pageWidth.ts): it waits until
+`matchMedia('(width: Wpx) and (height: Hpx)')` matches. A ratio of two boxes that no layout
+can produce means the reads straddled a resize.
+
+## 2026-11-13: a readiness probe on `aria-busy` waits for the chain, not for the page
+
+**Believed:** gotoRoute's probe ("no `[aria-busy="true"]` in main") waits for the lazy chunk.
+
+**Measured:** a section reading the chain is busy too. With every outside host held, the probe
+could not mount /earn/toweli (the LP farm's read) or a connected /dashboard (inline Skeletons);
+the other 63 audited routes mounted. That is what failed gauge-voting.spec.ts and
+page-width.spec.ts three attempts in a row on ipad-safari on 2026-10-22: the live Ethereum
+RPC was slow that hour. Only route fallbacks now carry `data-route-loading`, and the probe
+waits on that (pinned by e2e/route-mount-probe.spec.ts, both ways).
+
+**Do:** a census beats a guess: hold every outside host (`page.route(u => u.host !== own,
+() => {})`) and run the probe over every route. Whatever it cannot mount is waiting on
+someone else's server.
+
+## 2026-11-13: to press mid-fade, hold the fade; do not try to catch it
+
+**Believed:** sampling a 200ms CSS fade once a frame lands at least one sample inside it.
+
+**Measured** (phone-layout.spec.ts, the corner stepping aside, iPhone WebKit): under load
+WebKit drew a frame every 200 to 970ms, so the fade often fell between two samples (1.00,
+then 0.00): 3 of 10 failed here at 100% CPU, 14 of 20 on WSL Linux WebKit. Injected costs did
+not reproduce it: a 250ms spin inside each frame made every sample land mid-fade (WebKit
+resolves a pending transition's start after the slow frame), and long tasks or late rAF
+callbacks did not either.
+
+**Do:** a MutationObserver on the element's ancestors fires in the microtask after React's
+commit, before any frame. `document.getAnimations()` there flushes style, so the new
+`CSSTransition` is already listed: `pause()` it and set `currentTime`. The moment under test
+then exists on every run, whatever the frame rate.
+
 ## 2026-11-11: a local `vite preview` of the build no longer reads /pools the way the site does, and its errors name the wrong cause
 
 **Believed:** `npm run build` then `vite preview` walks /pools against mainnet as production
