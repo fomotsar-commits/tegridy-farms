@@ -752,6 +752,8 @@ describe('your positions', () => {
     show(r);
     const row = await screen.findByTestId('range-position');
     await waitFor(() => expect(within(row).getByText('Rewards earned').parentElement).toHaveTextContent(`2.5 KOKO · ${koko}`));
+    // Its whole address wraps onto a line of its own, never split mid-way at 390.
+    expect(within(row).getByText('Rewards earned').nextElementSibling?.className).toContain('font-mono [overflow-wrap:anywhere]');
     // Its check is read with the positions' own tokens, in the one read.
     expect(vi.mocked(r.tokenSafety).mock.calls.some(([mints]) => mints.includes(koko))).toBe(true);
   });

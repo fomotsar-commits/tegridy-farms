@@ -17,7 +17,7 @@ import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { siteNamed } from '../../../lib/solana/lp/identity';
-import { PAUSED_TEXT, bothAmounts, priceText, rewardAmount, rewardCoin, tokenWord, utcClock, withTokenLabel } from './rangeText';
+import { PAUSED_TEXT, bothAmounts, priceText, rewardAmount, rewardCoin, siteCoin, tokenWord, utcClock, withTokenLabel } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TAKE_HINT = 'If the price moves more than this before your withdrawal runs, it is refused and only the network fee is spent.';
@@ -151,7 +151,8 @@ function PositionRow(p: {
       <Notice tone={status.tone}>{status.text}</Notice>
       <Row label="Holds now" value={w.amounts ? both(w.amounts.amount0, w.amounts.amount1) : 'could not be worked out just now'} mono={false} />
       <Row label="Fees earned" value={w.fees ? both(w.fees.fee0, w.fees.fee1) : `could not be worked out just now${inFull(paused)}`} mono={false} />
-      <Row label="Rewards earned" value={rewardsText(w, hasRewards, inFull(paused), p.nameOf)} mono={false} />
+      {/* A coin off the site's list carries its whole address: set in mono, it wraps whole onto its own line. */}
+      <Row label="Rewards earned" value={rewardsText(w, hasRewards, inFull(paused), p.nameOf)} mono={(w.rewards ?? []).some((r) => !siteCoin(r.mint))} words />
       {w.chainTime !== null && (
         <p className="text-white/45 text-[10px]" data-testid="range-position-read-at">
           {`As of ${utcClock(w.chainTime)}, the chain’s clock. Review reads them again.`}

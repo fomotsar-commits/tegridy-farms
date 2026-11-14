@@ -6,7 +6,7 @@ import { feeSplit } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { Notice, Row } from './ui';
 import type { RangeCreateSummary, RangeSummary } from './ports';
-import { rewardAmount, rewardCoin } from '../range/rangeText';
+import { rewardAmount, rewardCoin, siteCoin } from '../range/rangeText';
 
 /**
  * The review of a range-position transaction. Every amount is the prepared transaction's:
@@ -72,7 +72,7 @@ export function RangeRows({ summary: s, coinName }: { summary: RangeSummary; coi
             <Row label="Rewards it pays" value="could not be worked out just now; what it is owed is paid out all the same" mono={false} />
           ) : (
             // A running reward grows each second, so this line moves with the chain's clock alone.
-            s.rewards.length > 0 && <Row label="Rewards it pays" value={s.rewards.map((r) => rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))).join(' and ')} mono={false} line="clock" />
+            s.rewards.length > 0 && <Row label="Rewards it pays" value={s.rewards.map((r) => rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))).join(' and ')} mono={s.rewards.some((r) => !siteCoin(r.mint.toBase58()))} words line="clock" />
           )}
           {s.rewards?.map((r) => {
             const coin = rewardCoin(r.mint.toBase58(), coinName?.(r.mint.toBase58()));

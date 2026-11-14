@@ -863,7 +863,7 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
     const paid = `${sign}${tokenText(amount, t.decimals ?? null)}`;
     return own
       ? { label: `Test run: your ${own} changes by`, value: paid }
-      : { label: 'Test run: your reward coin changes by', value: `${paid} ${rewardCoin(mint, coinName?.(mint))}` };
+      : { label: 'Test run: your reward coin changes by', value: `${paid} ${rewardCoin(mint, coinName?.(mint))}`, words: true };
   }
   // A range pool's token, when it is one of the site's own coins: by its ticker.
   const ownTicker = t.role === 'token' && 'poolLine' in summary && t.mint.equals(summary.poolLine.tokenMint) ? tokenTicker(t.mint.toBase58()) : null;

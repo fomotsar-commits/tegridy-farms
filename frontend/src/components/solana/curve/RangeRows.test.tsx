@@ -252,6 +252,9 @@ describe('a collect’s review', () => {
     expect(label.parentElement).toHaveTextContent(`+1.5 KOKO · ${koko.toBase58()}`);
     // A flex item shrinks below its content only with min-width 0: else a long label runs past the row at 390.
     expect(label.className).toContain('min-w-0');
+    // Its whole address wraps onto a line of its own (mono, broken at spaces first), never split mid-way at 390.
+    expect(label.nextElementSibling?.className).toContain('font-mono [overflow-wrap:anywhere]');
+    expect(screen.getByText('Rewards it pays').nextElementSibling?.className).toContain('font-mono [overflow-wrap:anywhere]');
   });
 
   it('a take-out of some liquidity keeps its own title', () => {
