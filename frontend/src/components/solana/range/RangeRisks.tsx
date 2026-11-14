@@ -14,6 +14,7 @@ const LINES = [
   "The range program is Raydium's concentrated-liquidity program with the venue's own changes, such as who holds its keys and its fee ceilings. Those changes have not had an outside review.",
   'A change to a fee tier’s rates applies to positions already open in its pools, yours too.',
   'If the vault switched off withdrawals on a pool, you could not take your money out until it switched them back on. Every vault action waits 48 hours, a pause too.',
+  'If a pool runs a reward, the team’s vault can lower its rate or end it early. What the reward has not paid out goes back to whoever started it.',
   'Jupiter does not send trades to range pools. This site’s own swap sends a trade to one only when it pays the trader at least as much as Jupiter does, so fees can be small.',
   'Anyone can open a range pool for any pair, at any price. Review checks this pool’s price against Jupiter’s.',
   'When the price moves, you can end up with less than if you had just held both coins.',

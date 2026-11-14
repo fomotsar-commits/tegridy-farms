@@ -858,6 +858,9 @@ describe('the risks, beside the deposit and on the review', () => {
     expect(risks).toHaveTextContent(/Jupiter does not send trades to range pools/);
     // With range pools in the swap route, the site's own swap is where their trades come from.
     expect(risks).toHaveTextContent(/This site’s own swap sends a trade to one only when it pays the trader at least as much as Jupiter does/);
+    // set_reward_params lets the vault lower a running reward's rate or move its end sooner, with
+    // no 7-to-90-day floor; the rest goes back to whoever started it (collect_remaining_rewards).
+    expect(risks).toHaveTextContent(/If a pool runs a reward, the team’s vault can lower its rate or end it early\. What the reward has not paid out goes back to whoever started it\./);
     const earns = screen.getByTestId('range-earns');
     expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
     expect(earns).not.toHaveTextContent(/refundable/);
