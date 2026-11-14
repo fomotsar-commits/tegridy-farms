@@ -206,7 +206,9 @@ describe('a delisted coin: its pools are withdraw-only', () => {
     const token = stranger();
     await whileDelisted(BOBO_QUOTE, () => {
       expect(isWithdrawOnly(BOBO_QUOTE)).toBe(true);
-      expect(isWithdrawOnly({ ...BOBO_QUOTE, delisted: undefined })).toBe(true);
+      // A copy of the row with the flag dropped: a variable, so the copy keeps the row's own type.
+      const unflagged = { ...BOBO_QUOTE, delisted: undefined };
+      expect(isWithdrawOnly(unflagged)).toBe(true);
       expect(isWithdrawOnly({ mint: BOBO })).toBe(true);
       expect(QUOTE_COINS.filter(isWithdrawOnly)).toEqual([BOBO_QUOTE]);
       // Still a pairing coin in its place: its pools read as before, so their holders find them and can leave.
