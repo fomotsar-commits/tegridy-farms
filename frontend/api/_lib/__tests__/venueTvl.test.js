@@ -5,6 +5,9 @@
 // never trusted, a staking pool counts at its own count of what is staked and its coin at the
 // market's price, a chain that cannot be read is named and left out instead of counted as zero,
 // and a good answer is cached so a visitor costs the chains nothing.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { base58 } from "@scure/base";
 import STAKE_POOL_IDL from "@streamflow/staking/solana/idl/stake_pool.json";
@@ -38,12 +41,14 @@ const {
   STAKE_CHAINS,
   NFT_COLLECTIONS,
   NFT_HOLDERS,
+  MARKET_DEPTH_USD,
 } = await import("../venueTvl.js");
 
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+const SOY = "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const key = (n) => base58.encode(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 7)));
@@ -73,6 +78,8 @@ function world() {
   w.mints = new Map(SOLANA_STAKE_POOLS.map((p) => [p.mint, { owner: p.mint === BAYLA ? TOKEN22 : TOKEN, decimals: 6 }]));
   w.evmStakes = {};
   w.jup = {};
+  // The liquidity Jupiter reports beside each price: deep by default; set to undefined for none at all.
+  w.depth = {};
   w.llama = {};
   w.priceCalls = [];
   let n = 10;
@@ -110,7 +117,8 @@ function world() {
         return json({ coins: Object.fromEntries(asked.filter((k) => k in w.llama).map((k) => [k, { price: w.llama[k], confidence: 0.99 }])) });
       }
       const ids = new URL(u).searchParams.get("ids").split(",");
-      return json(Object.fromEntries(ids.filter((m) => m in w.jup).map((m) => [m, { usdPrice: w.jup[m] }])));
+      const depth = (m) => (m in w.depth ? (w.depth[m] === undefined ? {} : { liquidity: w.depth[m] }) : { liquidity: 1e6 });
+      return json(Object.fromEntries(ids.filter((m) => m in w.jup).map((m) => [m, { usdPrice: w.jup[m], ...depth(m) }])));
     }
     const body = JSON.parse(init.body);
     w.calls.push(body.method);
@@ -345,6 +353,31 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, pools: 1, unvalued: 1 });
     expect(body.state).toBe("partial");
+  });
+
+  // A thin market's price is cheap to push for a minute, and every pool priced in that coin
+  // would move the total and the $200 mark with it (spec 2026-11-14, sections 5 and 6).
+  it("prices an island coin only while Jupiter reports MARKET_DEPTH_USD or more of liquidity for it", async () => {
+    const w = world();
+    const BIG = key(3);
+    w.jup[BAYLA] = 1;
+    w.depth[BAYLA] = MARKET_DEPTH_USD - 0.01; // just under the floor: left out
+    w.jup[BOBO] = 1;
+    w.depth[BOBO] = MARKET_DEPTH_USD; // at the floor: counted
+    w.jup[SOY] = 1;
+    w.depth[SOY] = undefined; // no figure at all: left out
+    w.pool(CP, [BAYLA, 300], [MEME, 5]); // would be $600
+    w.pool(CP, [BOBO, 150], [BIG, 5]); // $300
+    w.pool(CP, [SOY, 300], [JUNK, 5]); // would be $600
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 300, pools: 1, unvalued: 2 });
+    expect(body.state).toBe("partial");
+    expect(body.poolCoins).toEqual([{ mint: BIG, usd: 300 }]);
+  });
+
+  it("names the floor in the home page's small print", () => {
+    const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "src", "components", "VenueStats.tsx"), "utf8");
+    expect(text).toContain(`$${MARKET_DEPTH_USD.toLocaleString("en-US")} or more of liquidity`);
   });
 
   it("leaves out the pools of an island coin Jupiter prices at zero, never counting them at $0, and says so", async () => {
@@ -640,7 +673,8 @@ describe("staking: each pool's own count of what is staked, at the market's pric
     const got = await readMarketPrices("solana", coins, w.fetchImpl);
     expect(w.priceCalls.map((c) => new URL(c.url).searchParams.get("ids").split(",").length)).toEqual([50, 50, 20]);
     expect([...got.keys()].sort()).toEqual([...coins].sort());
-    expect([...got.values()].every((v) => v === 2)).toBe(true);
+    // Each with the liquidity Jupiter reports beside its price.
+    expect([...got.values()]).toEqual(coins.map(() => ({ usd: 2, liquidity: 1e6 })));
   });
 
   it("asks Jupiter's keyed host when its key is set, and the keyless one when that refuses", async () => {

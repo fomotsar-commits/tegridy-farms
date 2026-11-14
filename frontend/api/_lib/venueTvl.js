@@ -25,9 +25,11 @@
 // a dollar. An island coin is valued at its market price on Jupiter (`readMarketPrices`, the
 // read the staking pools use), never at a price in our own pools: anyone can open a pool here
 // at any ratio, so one lopsided pool would set the total and could hand a junk token the $200
-// mark. A coin Jupiter has no price for, or every island coin while Jupiter cannot be read,
-// leaves the pools it would value out, and the answer says it is partial. No floor is set yet
-// on the liquidity Jupiter reports beside its price.
+// mark. Only while Jupiter reports MARKET_DEPTH_USD or more of liquidity beside that price: a
+// thinner market's price is cheap to push for the minute this answer is kept. A coin Jupiter
+// has no price for, or too thin a market, or every island coin while Jupiter cannot be read,
+// leaves the pools it would value out, and the answer says it is partial. (The staking pools
+// below take Jupiter's price with no floor, as they did before.)
 //
 // WHAT IS STAKED, AND AT WHAT VALUE (owner 2026-10-30: the total left out the staking pools)
 //   - Every staking pool we run, live or retired (a retired pool keeps what people staked until
@@ -184,6 +186,12 @@ export const MAX_PAIRS = 1000;
 export const POOL_COIN_USD = 200;
 /** At most this many in the answer, deepest first. */
 export const MAX_POOL_COINS = 100;
+/**
+ * An island coin's Jupiter price is used in a pool only while Jupiter reports at least this
+ * much liquidity for the coin, in dollars (its `liquidity`, beside `usdPrice`). The depth bar of
+ * spec 2026-11-14, section 5; the owner sets the number. VenueStats.tsx says it (a test pins it).
+ */
+export const MARKET_DEPTH_USD = 5_000;
 const SCAN_CAP_BYTES = 8 * 1024 * 1024;
 const RPC_TIMEOUT_MS = 8000;
 const VAULT_CHUNK = 100;
@@ -327,7 +335,10 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
       islandUnread = true;
       console.error("[venue-tvl] island coin prices not read:", logSafe(err));
     }
-    for (const mint of ISLAND_MINTS) usd[mint] = market.get(mint) ?? null;
+    for (const mint of ISLAND_MINTS) {
+      const m = market.get(mint);
+      usd[mint] = m && m.liquidity >= MARKET_DEPTH_USD ? m.usd : null;
+    }
   }
 
   let total = 0;
@@ -412,7 +423,7 @@ function valueStakes(stakes, prices) {
   let usd = 0;
   let unvalued = 0;
   for (const s of stakes) {
-    const price = prices.get(s.coin);
+    const price = prices.get(s.coin)?.usd;
     if (!(price > 0)) unvalued++;
     else usd += (Number(s.raw) / 10 ** s.decimals) * price;
   }
@@ -509,9 +520,11 @@ async function fetchJson(url, fetchImpl, headers = {}) {
 }
 
 /**
- * Market prices in dollars for coins on one chain: Jupiter's on Solana (the keyed host when its
- * server-only key is set, as the swap proxy does; PRICE_IDS_MAX coins a read), DefiLlama's
- * elsewhere. A coin with no price is missing from the map. Throws when the source cannot be read.
+ * Market prices in dollars for coins on one chain, each `{ usd, liquidity }`: Jupiter's on Solana
+ * (the keyed host when its server-only key is set, as the swap proxy does; PRICE_IDS_MAX coins a
+ * read), with the liquidity it reports beside each price (null when it reports none), and
+ * DefiLlama's elsewhere (liquidity null). A coin with no price is missing from the map. Throws
+ * when the source cannot be read.
  */
 export async function readMarketPrices(chain, coins, fetchImpl) {
   const out = new Map();
@@ -531,12 +544,14 @@ export async function readMarketPrices(chain, coins, fetchImpl) {
         }
       }
       if (!j) throw last;
-      for (const c of turn) if (Number.isFinite(j?.[c]?.usdPrice)) out.set(c, j[c].usdPrice);
+      for (const c of turn) {
+        if (Number.isFinite(j?.[c]?.usdPrice)) out.set(c, { usd: j[c].usdPrice, liquidity: Number.isFinite(j[c].liquidity) ? j[c].liquidity : null });
+      }
     }
     return out;
   }
   const j = await fetchJson(`https://coins.llama.fi/prices/current/${coins.map((c) => `${chain}:${c}`).join(",")}`, fetchImpl);
-  for (const c of coins) if (Number.isFinite(j?.coins?.[`${chain}:${c}`]?.price)) out.set(c, j.coins[`${chain}:${c}`].price);
+  for (const c of coins) if (Number.isFinite(j?.coins?.[`${chain}:${c}`]?.price)) out.set(c, { usd: j.coins[`${chain}:${c}`].price, liquidity: null });
   return out;
 }
 
@@ -561,13 +576,18 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     const missing = [...new Set([...coins, ...(chain === "solana" ? ISLAND_MINTS : [])])].filter((c) => !fresh(c) && !pending.has(`${chain}:${c}`));
     if (missing.length) {
       const read = readMarketPrices(chain, missing, fetchImpl).then((got) => {
-        for (const c of missing) priceCache.set(`${chain}:${c}`, { at: now, usd: got.get(c) ?? null });
+        for (const c of missing) priceCache.set(`${chain}:${c}`, { at: now, usd: got.get(c)?.usd ?? null, liquidity: got.get(c)?.liquidity ?? null });
       });
       read.catch(() => {}); // each reader awaiting it is told; nobody else need be
       for (const c of missing) pending.set(`${chain}:${c}`, read);
     }
     await Promise.all(coins.map((c) => pending.get(`${chain}:${c}`)));
-    return new Map(coins.map((c) => [c, priceCache.get(`${chain}:${c}`).usd]));
+    return new Map(
+      coins.map((c) => {
+        const { usd, liquidity } = priceCache.get(`${chain}:${c}`);
+        return [c, { usd, liquidity }];
+      }),
+    );
   };
   const settle = (what, readers, count) =>
     Promise.all(
