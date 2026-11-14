@@ -146,8 +146,9 @@ jobs:
         run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs
 
   # The batcher (cardano/batcher), two gates more:
-  #   batcher - its tests, every one but the live ones and at least MIN_PASS of them, on the Node
-  #     its image runs, with the Aiken above as its offline script runner; its scripts typechecked.
+  #   batcher - its tests, every one but the live ones and at least MIN_PASS of them, on the
+  #     repo's Node major (the image's own), with the Aiken above as its offline script runner;
+  #     its scripts typechecked.
   #   batcher-image - the image Railway builds: it holds only the batcher and its one runtime
   #     dependency, refuses a key anywhere but the top of a mounted volume, makes it there as `node`
   #     alone with every privilege dropped, shows only the key's hash, finds the same key at every
@@ -165,16 +166,19 @@ jobs:
       MIN_PASS: 229
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: The Node the image runs, from the Dockerfile's pinned base
-        id: node
+      # Every setup-node names the repo's major (nodeRuntime.test.ts); the image's exact Node is
+      # batcher-image's to run. This holds the two to one major.
+      - name: The image's Node, pinned by digest, is the repo's major
         run: |
           set -euo pipefail
           v=$(sed -n 's/^FROM node:\([0-9]*\.[0-9]*\.[0-9]*\)-bookworm-slim@sha256:[0-9a-f]\{64\}$/\1/p' cardano/batcher/Dockerfile)
           [ -n "$v" ] || { echo "::error::the Dockerfile's FROM names no exact Node version pinned by digest"; exit 1; }
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          major=$(cat .nvmrc)
+          [ "${v%%.*}" = "$major" ] || { echo "::error::the image runs Node $v, but the repo's major (.nvmrc) is $major"; exit 1; }
+          echo "image Node $v, repo major $major"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ steps.node.outputs.version }}
+          node-version: 24
       - name: Install Aiken ${{ env.AIKEN_VERSION }} from its pinned release tarball
         run: |
           set -euo pipefail
