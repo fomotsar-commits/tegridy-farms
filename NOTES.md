@@ -731,6 +731,34 @@ owner's word; the owner's "merge it" then found nothing to merge. The tell was i
 `mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
 `gh pr merge`, read `state` once more: the merge word can arrive after the merge.
 
+## 2026-10-30: CSL's `PlutusScript.from_bytes_v2` gave an Aiken script the wrong hash
+
+**Believed:** an Aiken `plutus.json` `compiledCode` loads into CSL 17 with
+`PlutusScript.from_bytes_v2(bytes)`. **Measured:** the batcher's test-world order script
+(`feat/cardano-batcher` `test/fixtures/test-deployment.json`) hashed to `53ed6f4e…` that way, not its
+real `e9690f33…`, so a reference UTxO made from it would have run nothing of ours.
+`PlutusScript.new_with_version(bytes, Language.new_plutus_v2())` gave `e9690f33…`, as the batcher's
+`test/world.ts` loads it. **Do:** load compiled code with `new_with_version`, and check the hash
+before trusting a simulate run against it (`aiken tx simulate`, Aiken 1.0.24, is in WSL at
+`/root/aiken-1.0.24/aiken`).
+
+## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
+
+**Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers
+are set. **Measured:** building our pool opening (one factory spend, one mint, both from
+reference scripts) in `ownPools/openPoolTx.ts`. Called before `add_inputs_from_and_change`, the
+hash covered redeemer index 0; the wallet's coins then sorted in ahead of the factory input,
+`build_tx` wrote the redeemer with its real index, and the hash no longer matched (our read-back
+caught it: "its script data does not match its own instructions"). Called only after, CSL's fee
+missed the hash's own bytes ("Fee is less than the minimum fee. Min fee: 534840, Fee: 533476").
+**Do:** call it before the coin selection (so the fee counts it) AND again after (the index is
+final only then); the hash is 32 bytes either way, so the fee holds.
+
+**Believed:** a developer-facing error string is not user-facing copy. **Measured:**
+`src/lib/heat/islandClaims.test.ts` "states no a formula line" reads every string literal in
+shipped source; `throw new Error('square root of a negative number')` in a Cardano maths file
+failed it. **Do:** name the contract function (`calculate_sqrt`) in error strings, never the maths.
+
 ## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
 
 **Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.

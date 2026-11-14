@@ -65,3 +65,7 @@ f0e23d57fad9d1faa8cf2b10b1ab76682ab75d33:frontend/src/lib/solana/keeper/rule.tes
 # `generic-api-key` rule. It is no key, and no real one matches it. The constant is renamed
 # `STUB` in the commit that adds these lines.
 8fba682e726006f780a34257507c517037fb2c3a:frontend/api/__tests__/walletCoins.test.js:generic-api-key:17
+
+# Minswap V2 public pool stake key hash, named in the own-pool deployment check so a record
+# carrying it is refused (deployment.ts). A public Cardano key hash, not a secret.
+a88f8f15dd628b457ac6ce6c42610be134c78249:frontend/src/lib/cardano/ownPools/deployment.ts:generic-api-key:23

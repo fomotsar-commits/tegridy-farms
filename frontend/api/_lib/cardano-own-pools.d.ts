@@ -1,0 +1,38 @@
+// Types for cardano-own-pools.js, shared by the API and the browser.
+
+/** A reference-script UTxO the site's own transactions read, and its script's size in bytes. */
+export interface ScriptRefRecord {
+  /** "txhash#index". */
+  ref: string;
+  scriptSize: number;
+}
+
+export interface OwnPoolsDeploymentRecord {
+  /** The authen minting policy (also the global-setting script): mints MSF, MSP, MSGS and every LP token. */
+  authenPolicy: string;
+  poolScriptHash: string;
+  /** The pool-batching script: every pool datum's stake credential. */
+  poolBatchingScriptHash: string;
+  /** The factory's `pool_address` parameter, whole bech32: our pool script with the venue's stake part. */
+  poolAddress: string;
+  orderScriptHash: string;
+  /** Our order script as a reference script: an owner's cancel of an add or remove order reads it here. */
+  orderRef: ScriptRefRecord;
+  factoryScriptHash: string;
+  factoryRef: ScriptRefRecord;
+  authenRef: ScriptRefRecord;
+  /** The first GlobalSetting's pool_creation_fee, lovelace, decimal: "73000000". */
+  openingFeeLovelace: string;
+  /** pool_creation_fee_receiver, whole bech32: exactly venueFee.ts CARDANO_VENUE_FEE_ADDRESS, the two-key treasury; any other is refused. */
+  treasury: string;
+  /**
+   * The max_batcher_fee every order this site writes carries, lovelace. AT LEAST the batcher's own
+   * settings `batcherFee`: the batcher skips any order allowing less (cardano/batcher src/select.ts),
+   * and such an order waits until its owner cancels it.
+   */
+  batcherFeeLovelace: string;
+  /** What a pool opening's two scripts may use, measured with the node's evaluator at the deploy, with headroom. */
+  openPoolBudget: { factory: { mem: number; steps: number }; authen: { mem: number; steps: number } };
+}
+
+export declare const OWN_POOLS_DEPLOYMENT: OwnPoolsDeploymentRecord | null;

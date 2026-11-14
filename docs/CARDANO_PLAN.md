@@ -105,9 +105,31 @@ pays every trader at least their minimum. It is also audit scope.
   pools' ADA (which since the Plomin hard fork need a DRep delegation to withdraw).
 - **The split** is off chain, quarterly from the treasury, as on EVM (30/35/35, later 10/45/45).
 - **The treasury** exists and is proven (2026-11-07): `CARDANO_VENUE_FEE_ADDRESS` names it, and
-  the pools' deploy must name the same address as the opening fee's receiver.
+  the pools' deploy must name the same address as the opening fee's receiver; the LP screens refuse
+  a record naming any other.
 
 **Order of work:** (1) vendor the contracts at the pinned commit with a provenance check like
 `solana/guards/provenance.mjs`, and prove our build matches Minswap's mainnet script bytes before
 changing any parameter; (2) the 48-hour role validator; (3) the batcher; (4) the LP screens,
 behind their own switch; (5) the audit, owner-procured; (6) the deploy, with the owner's keys.
+
+**Step 4, the LP screens (draft, 2026-10-30):** `/cardano-pools`, a Pools tab: your positions, add,
+remove, open a pool. Off (`CARDANO_OWN_POOLS_OPEN = false` in `frontend/src/lib/cardano/flags.ts`);
+walked in a `--mode cardano-preview` build. Every hash, address and fee comes from ONE record,
+`frontend/api/_lib/cardano-own-pools.js`, null until the deploy: while null the screens say the
+pools are not open, build nothing, and the API has no own-pool reads. The record refuses any of
+Minswap's script hashes, its pool stake key and its reference UTxOs, and any treasury but the
+proven two-key one (`CARDANO_VENUE_FEE_ADDRESS`, exactly). Add and remove are orders at
+our order script for our batcher; opening spends our factory entry and pays the opening fee to the
+treasury, checked against the chain's global setting before anything is built. An add or remove
+order still open can be taken back by its owner (Cancel order, under Your pool orders): it spends
+the order with `CancelOrderByOwner`, reads our order script from the record's `orderRef`, and
+pays all of it back less the network fee. It is built exactly as a real Minswap V2 owner cancel
+on mainnet: given that cancel's order, coin and budget with Minswap's hashes, the builder returns
+its bytes, transaction hash included (`ownPools/cancelTx.test.ts`). The deploy owes, for these screens: fill the record
+from the deploy's own output, `orderRef` included; measure the pool opening's two script budgets
+with the node's evaluator (the record's `openPoolBudget`, with headroom); re-measure the cancel's
+pinned budget (`LP_CANCEL_EX_UNITS` in `ownPools/cancelTx.ts`, measured on the test world's order
+script) if the order script's code changed; and keep the record's `batcherFeeLovelace` at least
+the batcher's own `batcherFee`, or the batcher skips every order and each waits for its owner to
+cancel it.

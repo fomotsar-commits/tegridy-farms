@@ -21,7 +21,7 @@ import type { Csl } from './csl';
 import type { ProtocolParams, Ratio, ScriptParams } from './chain';
 import { bytesToHex, hexToBytes, type ParsedAddress } from './address';
 import { cancelRedeemer, MINSWAP_V2, orderAddressFor, readOrderOwner, type ChainUtxo } from './minswapV2';
-import { MAX_NETWORK_FEE, TTL_SLOTS, VKEY_WITNESS_BYTES, WITNESS_SET_OVERHEAD, tokenEntries, txBuilderConfig, type WalletUtxo } from './swapTx';
+import { MAX_NETWORK_FEE, TTL_SLOTS, VKEY_WITNESS_BYTES, WITNESS_SET_OVERHEAD, tokenEntries, txBuilderConfig, type WalletUtxo } from './orderTx';
 
 /**
  * The script budget the cancel carries, pinned: the order script's owner-cancel path measured on
@@ -99,7 +99,7 @@ const COLLATERAL_TRIES = 8;
  * (one signature), then plain-ADA coins, then the smallest.
  */
 export function buildCancelTx(csl: Csl, params: ProtocolParams, script: ScriptParams, walletUtxos: WalletUtxo[], plan: CancelPlan): BuiltCancel {
-  const config = txBuilderConfig(csl, params, csl.ExUnitPrices.new(unitInterval(csl, script.priceMem), unitInterval(csl, script.priceStep)));
+  const config = txBuilderConfig(csl, params).ex_unit_prices(csl.ExUnitPrices.new(unitInterval(csl, script.priceMem), unitInterval(csl, script.priceStep))).build();
   const traderAddress = csl.Address.from_bytes(hexToBytes(plan.trader.hex));
   const orderInput = csl.TransactionInput.new(csl.TransactionHash.from_hex(plan.order.txHash), plan.order.index);
   const ref = csl.TransactionInput.new(csl.TransactionHash.from_hex(MINSWAP_V2.orderScriptRef.txHash), MINSWAP_V2.orderScriptRef.index);
