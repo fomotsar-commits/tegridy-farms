@@ -806,10 +806,15 @@ behind each item: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md).
   `sweep`: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md) section 4 names it whole.
 - ⬜ **The licence.** Minswap's files say GPL-3.0 in one place and Apache-2.0 in another. A
   lawyer's read is owed before any deploy.
-- ⬜ **Who holds the lock's two owner keys.**
-- ⬜ **Where the batcher runs** and who holds its hot key (it is not written yet).
+- ✅ **Who holds the lock's two owner keys** (you: "Use your picks", 2026-11-08): mem2 (key A) and
+  mem (key B).
+- ✅ **Where the batcher runs** (your ruling of 2026-10-25): a new Railway project, its key made on
+  the server and never copied. The project exists since 2026-11-08.
 - ⬜ **Which auditor.** The scope is the one-line patch and the pool validator it changes, the
   lock, the deploy parameters and the batcher.
+
+The licence and the auditor are steps 3 and 6 of the 2026-11-07 section at the top, with
+everything else left.
 
 ---
 
