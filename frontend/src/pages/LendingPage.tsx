@@ -359,7 +359,9 @@ export default function LendingPage() {
                     <div className="absolute inset-0">
                       <img src={card.art.src} {...artImgProps(card.art.src)} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" style={artStyle(card.art)} />
                     </div>
-                    <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.7)' }}>
+                    {/* 0.5 + a text shadow, not 0.7: at 0.7 a dark photo (the NFT Lending
+                        card's black-and-white stairwell, 2026-11-14) read as a plain dark box. */}
+                    <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.5)', textShadow: '0 1px 3px rgba(0, 0, 0, 0.9)' }}>
                     <div className="flex items-start gap-3">
                       <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
                         <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
