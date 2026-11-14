@@ -249,12 +249,35 @@ export interface WithdrawPlan {
 
 /** A withdrawal of `pctBps` (1 to 10000) of `held`. 10000 is exactly `held`. */
 export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint; bps: bigint; fees?: PoolFees }): WithdrawPlan | PlanProblem {
-  const fees = a.fees ?? NO_FEES;
   // 1. Inputs.
   if (a.pctBps < 1n || a.pctBps > BPS) return { problem: 'bad-percent' };
   if (a.held < 1n) return { problem: 'nothing-held' };
   // 2. The shares.
   const lp = a.pctBps === BPS ? a.held : (a.held * a.pctBps) / BPS;
+  return planWithdrawShares(s, { held: a.held, lp, bps: a.bps, fees: a.fees });
+}
+
+/**
+ * The shares of a position that are fee growth alone (a claim): what `provenShares` hold
+ * beyond `basis`, the liquidity its deposits still have in the pool (ledger.ts). A share
+ * holds isqrt(reserve0 · reserve1) / supply of liquidity, which trades only ever raise, so
+ * the shares kept are rounded UP and what was put in never leaves on a claim. 0 when the
+ * shares hold no more than their basis (deposits round a few units in the pool's favour).
+ */
+export function claimableShares(s: PoolSnapshot, a: { basis: bigint; provenShares: bigint }): bigint {
+  const S = s.pool.lpSupply;
+  const L = isqrt(s.reserve0 * s.reserve1);
+  if (S <= 0n || L <= 0n || a.provenShares <= 0n || a.basis < 0n) return 0n;
+  const keep = (a.basis * S + L - 1n) / L;
+  return a.provenShares > keep ? a.provenShares - keep : 0n;
+}
+
+/** A withdrawal of exactly `lp` of `held` shares: Remove's percent, or a claim's fee shares. */
+export function planWithdrawShares(s: PoolSnapshot, a: { held: bigint; lp: bigint; bps: bigint; fees?: PoolFees }): WithdrawPlan | PlanProblem {
+  const fees = a.fees ?? NO_FEES;
+  if (a.held < 1n) return { problem: 'nothing-held' };
+  const lp = a.lp;
+  if (lp > a.held) return { problem: 'nothing-held' };
   const minLp = minLpForBothSides(s, fees);
   if (lp < 1n) return { problem: 'too-small', minLp };
   // 3. What they pay, the program's way, and what reaches the wallet of it: withdraw.rs

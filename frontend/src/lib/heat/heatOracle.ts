@@ -268,7 +268,7 @@ export function gateDecision(
   const until =
     timer === null
       ? '.'
-      : `: ${'days' in timer ? `${timer.days} ${COUNTDOWN_WORDS.days}` : COUNTDOWN_WORDS.unserved} ${COUNTDOWN_WORDS.under}`;
+      : `: ${'days' in timer ? `${timer.days} ${COUNTDOWN_WORDS.days(timer.days)} ${COUNTDOWN_WORDS.under}` : `${COUNTDOWN_WORDS.unserved} ${COUNTDOWN_WORDS.underUnserved}`}`;
   return {
     ...base,
     ...measured,

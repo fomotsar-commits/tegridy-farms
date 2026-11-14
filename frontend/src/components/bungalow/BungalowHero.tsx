@@ -3,6 +3,7 @@ import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowLpDoor, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { roomSheetHref, sheetRoom, SHEET_PRESS } from '../../lib/sheet';
+import { roomSheetOr } from '../../lib/sheetRooms';
 import { CoinName } from '../ui/CoinName';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -22,7 +23,10 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   // Where the coin has its SOL pool on the venue, both doors raise the sheet over this room
   // (island answer twenty-five, build 3): Trade its Buy, the LP door its Add. Never the pools page.
   const sheetable = sheetRoom(bungalow.id) !== null;
-  const tradeTo = sheetable && trade && 'to' in trade ? roomSheetHref(bungalow, 'buy') : null;
+  // A room on Ethereum or Base whose coin the venue's swap lists trades here too, in the sheet on its own
+  // network (owner, 2026-11-11), instead of leaving for a chart on another site.
+  const evmTradeTo = sheetable ? null : roomSheetOr(bungalow, 'buy');
+  const tradeTo = sheetable && trade && 'to' in trade ? roomSheetHref(bungalow, 'buy') : evmTradeTo;
   const lpTo = sheetable && lpDoor ? roomSheetHref(bungalow, 'add') : lpDoor?.to;
   const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
@@ -44,7 +48,11 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
       </p>
 
       <div className="flex flex-wrap gap-3">
-        {trade && ('to' in trade ? (
+        {evmTradeTo ? (
+          <Link to={evmTradeTo} state={SHEET_PRESS} className={tradeClass} style={tradeStyle}>
+            Trade {bungalow.symbol}
+          </Link>
+        ) : trade && ('to' in trade ? (
           <Link to={tradeTo ?? trade.to} state={tradeTo ? SHEET_PRESS : undefined} className={tradeClass} style={tradeStyle}>
             Trade {bungalow.symbol}
           </Link>

@@ -11,7 +11,9 @@ import { lpFetch } from '../../../lib/solana/lp/readFetch';
 import { listedOutsidePrice, readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
+import { siteTokens } from '../../../lib/solana/lp/siteTokens';
+import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
+import { quoteCoin, quotesFor } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
@@ -20,7 +22,7 @@ import { freezeWarning, readTokenSafety, type TokenSafety } from '../../../lib/s
 import { siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
-import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
+import { RANGE_OPENING_FEE_TEXT, rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -28,10 +30,12 @@ import { CoinRiskNotice } from '../lp/LpDisclosures';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { RANGE_PENDING_SCOPE } from '../curve/pendingTrade';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
-import { Card, Notice, Row } from '../curve/ui';
+import { Card, Field, Notice, Row } from '../curve/ui';
+import { inputCls, inputStyle } from '../curve/uiFormat';
 import { useCurveSigner } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature } from '../curve/usePendingTrades';
 import type { RangeWriteApi, WriteRpc } from '../curve/ports';
+import { RangeCreateCard } from './RangeCreateCard';
 import { RangeOpenCard } from './RangeOpenCard';
 import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
@@ -44,7 +48,8 @@ import { useChainRead, useRangeWrites } from './useRangeData';
  * the range program at the address `clmm/programId.ts` names, over `/api/solrpc`. Writes
  * follow LP's own switch: 'on' opens positions and takes out, 'withdraw-only' only takes
  * out, 'off' fetches no write code at all. `?mint=` picks the token; nothing else is read
- * from the address.
+ * from the address. The token buttons and the address box write `?mint=`, so a press reads
+ * exactly as a link to that token would.
  */
 export default function RangeSection() {
   const readers = useMemo(() => browserRangeReaders(withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })), 'confirmed'), RANGE_PROGRAM_ID), []);
@@ -104,7 +109,11 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
   const tokenMint = parsed?.ok ? parsed.mint : BAYLA_MINT;
-  const coins = QUOTE_COINS.filter((q) => q.mint !== tokenMint);
+  // A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
+  // index). Offered one ranked below it, the pair's token is that other coin and the opening card
+  // called both coins by this page's ticker. Only SOL has none above it, and parseMintInput
+  // already turns a SOL link away.
+  const coins = quotesFor(tokenMint);
   const [coinMint, setCoinMint] = useState(coins[0]!.mint);
   const coin = coins.find((q) => q.mint === coinMint) ?? coins[0]!;
 
@@ -129,6 +138,12 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const tokenCheck = useChainRead(`check:${tokenMint}`, 0, () => checksOf(readers, [tokenMint]));
   const tokenLabel = tokenTicker(tokenMint, tokenCheck.read?.kind === 'ok' ? tokenCheck.read.value.get(tokenMint) : null);
   const named: NamedPair | null = useMemo(() => (pair ? withTokenLabel(pair, tokenLabel) : null), [pair, tokenLabel]);
+  // No pool for the pair yet: it can be opened on fee tier 0, the 1% tier, and only there.
+  const openTier = tierList && poolList?.length === 0 ? (tierList.find((t) => t.index === 0) ?? null) : null;
+  const tokenDecimals =
+    quoteCoin(tokenMint)?.decimals ?? (freeze.read?.kind === 'ok' ? (freeze.read.value.kind === 'mint' ? freeze.read.value.decimals : 'not-a-mint') : freeze.read ? 'unread' : null);
+  // The "Open this pool" card shows, so the empty notice points to it (on a phone it is a screen below).
+  const canCreate = openTier !== null && tokenDecimals !== 'not-a-mint';
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
@@ -163,12 +178,28 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
     setCoinMint(mint);
     setChosen(null);
   };
-  const clearToken = () =>
+  // The token: one press for a coin with a room here (a phone has no address to paste), or any
+  // coin by its mint address. Both write `?mint=` (BAYLA, the default, leaves the address bare),
+  // and a new token starts on its first pairing coin, SOL.
+  const roomId = useActiveBungalowId();
+  const tokens = useMemo(() => siteTokens(roomId), [roomId]);
+  const [typed, setTyped] = useState('');
+  const [typedError, setTypedError] = useState<string | null>(null);
+  const pickToken = (mint: string) => {
+    setTypedError(null);
+    pickCoin(quotesFor(mint)[0]!.mint);
     setParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.delete('mint');
+      if (mint === BAYLA_MINT) next.delete('mint');
+      else next.set('mint', mint);
       return next;
     });
+  };
+  const submitTyped = () => {
+    const p = parseMintInput(typed);
+    if (!p.ok) setTypedError(p.reason);
+    else pickToken(p.mint);
+  };
 
   return (
     <div className="space-y-4">
@@ -191,16 +222,48 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
       )}
 
       <Card title="Pick a pool" testId="range-pools" art={<CardArt pageId="range-pools" idx={1} />}>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Token">
+          {tokens.map((t) => (
+            <button key={t.mint} type="button" aria-pressed={t.mint === tokenMint} disabled={busy} className={chipCls(t.mint === tokenMint)} onClick={() => pickToken(t.mint)}>
+              {t.symbol}
+            </button>
+          ))}
+        </div>
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitTyped();
+          }}
+        >
+          {/* The warning on names stays on screen at the field, as on the Pools tab: a copied name is how a fake token gets in. */}
+          <Field label="Or any token’s mint address" hint="The token’s address, not its name: anyone can copy a name." error={typedError}>
+            {(a11y) => (
+              <input
+                {...a11y}
+                className={`${inputCls} font-mono`}
+                style={inputStyle}
+                value={typed}
+                onChange={(e) => {
+                  setTyped(e.target.value);
+                  // The refusal was about the text that was there: it does not stay over a new one.
+                  setTypedError(null);
+                }}
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="text"
+              />
+            )}
+          </Field>
+          <button type="submit" disabled={busy} className="btn-secondary min-h-[44px] px-4 text-[12px]">
+            Show its pools
+          </button>
+        </form>
         <Row label="Token" value={tokenLabel ?? tokenMint} mono={tokenLabel === null} />
         {/* A ticker off the site's own list is the coin's claim: its whole address goes with it. */}
         {tokenLabel !== null && !siteNamed(tokenMint) && <Row label="Token address" value={tokenMint} />}
         <TokenFreezeNotice mint={tokenMint} read={freeze.read} />
         {raw && parsed && !parsed.ok && <Notice tone="warn">{`The token in the link is not one this page can read (${parsed.reason}). Showing BAYLA.`}</Notice>}
-        {parsed?.ok && tokenMint !== BAYLA_MINT && (
-          <button type="button" className="underline text-white/70 min-h-[44px]" onClick={clearToken}>
-            Back to BAYLA
-          </button>
-        )}
         <div className="flex flex-wrap gap-2" role="group" aria-label="Paired with">
           {coins.map((q) => (
             <button
@@ -208,7 +271,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
               type="button"
               aria-pressed={q.mint === coin.mint}
               disabled={busy}
-              className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${q.mint === coin.mint ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
+              className={chipCls(q.mint === coin.mint)}
               onClick={() => pickCoin(q.mint)}
             >
               With {q.symbol}
@@ -229,7 +292,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         ) : tierList.length === 0 ? (
           <Notice>The range program has no fee tiers on this network yet, so there is no pool to put liquidity in.</Notice>
         ) : poolList.length === 0 ? (
-          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.`}</Notice>
+          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.${canCreate ? ' Open it below.' : ''}`}</Notice>
         ) : (
           <div className="space-y-2" role="group" aria-label="Pools by fee">
             {poolList.map((x) => {
@@ -276,6 +339,30 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         />
       )}
 
+      {canCreate && openTier && (
+        <RangeCreateCard
+          key={`${tokenMint}:${coin.mint}`}
+          tier={openTier}
+          tokenMint={tokenMint}
+          tokenLabel={tokenLabel}
+          tokenDecimals={tokenDecimals === 'unread' ? null : tokenDecimals}
+          tokenUnread={tokenDecimals === 'unread'}
+          onReadAgain={finished}
+          coin={coin}
+          canOpen={canOpen}
+          why={why}
+          write={write}
+          rpc={writeRpc}
+          programId={programId}
+          reads={readers}
+          signerState={signerState}
+          pending={pending}
+          held={held || busyBy.positions}
+          onBusy={openBusy}
+          onFinished={finished}
+        />
+      )}
+
       <RangePositionsCard
         read={positions.read}
         nameOf={nameOf}
@@ -296,10 +383,15 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   );
 }
 
+/** A token or pairing-coin button, lit while it is the one picked. */
+const chipCls = (on: boolean) =>
+  `min-h-[44px] px-3 rounded-lg border text-[12px] ${on ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`;
+
 const NOTE_WHAT = {
   'range-open': 'opening a range position',
   'range-remove': 'taking liquidity or fees out of a range position',
   'range-close': 'closing a range position',
+  'range-create': 'opening a range pool and its first position',
 } as const;
 
 /**
@@ -362,6 +454,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
           Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
+      <p className="text-white/85">{RANGE_OPENING_FEE_TEXT}</p>
       {/* Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10). */}
       {venue?.elsewhere && (
         <div data-testid="range-venue-elsewhere" className="space-y-1">

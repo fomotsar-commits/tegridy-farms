@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
 import { pageArt } from '../../lib/artConfig';
-import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
+import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo, tokenArt } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
+import { BUNGALOWS } from '../../lib/bungalows';
 
 /**
  * THE FRONT ROW. Chain-neutral majors only.
@@ -35,7 +36,7 @@ function FallbackIcon({ symbol, size, bg }: { symbol: string; size: string; bg: 
 function SafeTokenImg({ src, symbol, size, fallbackBg }: { src: string; symbol: string; size: string; fallbackBg: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <FallbackIcon symbol={symbol} size={size} bg={fallbackBg} />;
-  return <img src={src} alt="" className={`${size} rounded-full`} onError={() => setFailed(true)} />;
+  return <img src={src} alt="" className={`${size} rounded-full object-cover`} onError={() => setFailed(true)} />;
 }
 
 interface TokenSelectModalProps {
@@ -94,6 +95,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   const modalRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [recentAddresses, setRecentAddresses] = useState<string[]>(getRecentTokens);
+  // The island's coins on this chain that this list carries, first in the picker (owner,
+  // 2026-11-01: "these are the tokens we want to be always showcasing for swaps"). By address:
+  // a symbol can be copied.
+  const islandTokens = useMemo(() => {
+    const chain = readChainId === 1 ? 'ethereum' : readChainId === 8453 ? 'base' : null;
+    const ours = new Set(BUNGALOWS.filter((b) => b.live && b.chain === chain && b.address).map((b) => b.address!.toLowerCase()));
+    return tokens.filter((t) => ours.has(t.address.toLowerCase()));
+  }, [tokens, readChainId]);
 
   useEffect(() => {
     if (open) {
@@ -312,7 +321,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-0">
             <h3 id="token-select-title" className="text-white text-[15px] font-semibold">Select Token</h3>
-            <button onClick={onClose} aria-label="Close token selector" className="text-white hover:text-white transition-colors p-1 cursor-pointer">
+            <button onClick={onClose} aria-label="Close token selector" className="-mr-2.5 w-11 h-11 flex items-center justify-center rounded-full text-white hover:bg-white/10 transition-colors cursor-pointer">
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
@@ -336,28 +345,27 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             />
           </div>
 
-          {/* Popular quick-select chips */}
-          <div className="px-4 pb-2 flex flex-wrap gap-1.5">
-            {POPULAR_TOKEN_SYMBOLS.map(sym => {
-              const token = tokens.find(t => t.symbol === sym);
-              if (!token) return null;
+          {/* The island's coins, then the popular quick-select chips */}
+          <div className="px-4 pb-2 flex flex-wrap gap-1.5" data-testid="token-chips">
+            {[...islandTokens, ...POPULAR_TOKEN_SYMBOLS.map(sym => tokens.find(t => t.symbol === sym)).filter((t): t is TokenInfo => Boolean(t) && !islandTokens.includes(t!))].map(token => {
+              const sym = token.symbol;
               const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
               return (
                 <button
-                  key={sym}
+                  key={token.address}
                   onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-[13px] font-semibold transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
                   style={{
                     background: 'var(--color-purple-75)',
                     border: '1px solid var(--color-purple-75)',
                     color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
                   }}
                 >
-                  {token.logoURI ? (
-                    <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="var(--color-purple-75)" />
+                  {tokenArt(token) ? (
+                    <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-5 h-5" fallbackBg="var(--color-purple-75)" />
                   ) : (
-                    <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="var(--color-purple-75)" />
+                    <FallbackIcon symbol={token.symbol} size="w-5 h-5" bg="var(--color-purple-75)" />
                   )}
                   {sym}
                 </button>
@@ -386,8 +394,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                         color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.7)',
                       }}
                     >
-                      {token.logoURI ? (
-                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(212,160,23,0.15)" />
+                      {tokenArt(token) ? (
+                        <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(212,160,23,0.15)" />
                       ) : (
                         <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(212,160,23,0.15)" />
                       )}
@@ -434,8 +442,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   >
                     <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
                       style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                      {token.logoURI ? (
-                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
+                      {tokenArt(token) ? (
+                        <SafeTokenImg src={tokenArt(token)} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
                       ) : (
                         <span className="text-[11px] font-bold text-white">{token.symbol.charAt(0)}</span>
                       )}

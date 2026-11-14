@@ -1,4 +1,5 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+import { SITE_URL } from './constants';
 import { roomSpeaksOn } from './routeVoice';
 // Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
 import type { HeatTier } from './heat/heatOracle';
@@ -118,16 +119,20 @@ export const VENUE = {
 /** A wallet's degrees and the tier word the venue prints for it, when it prints one (heatOracle.ts printedTier). */
 const degreesAndTier = (degrees: string, tier: string | null) => (tier ? `${degrees}° ${tier}` : `${degrees}°`);
 
+/** The unit beside a count, in plain English: the singular at one, the plural otherwise ("1 day",
+ *  "2 days", "0 days") (island answer twenty-eight, §2.1). */
+export const dayWord = (n: number) => (n === 1 ? 'day' : 'days');
+
 export const BAYLA_LINES = {
   noWallet: 'Your held time already has a number. Paste any wallet.',
   cold: '0\u00b0 today. Hold any island coin and your clock starts tonight.',
   warmInRoom: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Every day in this pool counts double.`,
-  warmDays: (degrees: string, tier: string | null, days: number) => `${degreesAndTier(degrees, tier)}. Resident in ${days} days.`,
+  warmDays: (degrees: string, tier: string | null, days: number) => `${degreesAndTier(degrees, tier)}. Resident in ${days} ${dayWord(days)}.`,
   warmPick: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Pick a bungalow and add to its pool.`,
   // The door is not open yet, on any screen (answer twenty-six, §2.7).
   open: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Warm enough. The door opens on the island's word.`,
   // On the launch door's own screen, under the floor: the degrees alone (answer twenty-six, §2.7).
-  doorDays: (degrees: string, days: number) => `${degrees}°. Resident in ${days} days.`,
+  doorDays: (degrees: string, days: number) => `${degrees}°. Resident in ${days} ${dayWord(days)}.`,
   doorWarming: (degrees: string) => `${degrees}°. Every held day counts toward the door.`,
   slow: (price: string, age: string) => `Jupiter is slow. The pool's own price is ${price}, read ${age} ago. Adding stays open.`,
   done: 'Done. Your fee went to the island. Read it.',
@@ -168,14 +173,18 @@ export const COUNTDOWN_WORDS = {
   eyebrow: 'THE LAUNCH DOOR · NOT OPEN YET',
   /** The wallet's degrees alone, never a tier word (answer twenty-six, §2.4). */
   standing: (degrees: string) => `${degrees}°`,
-  days: 'days',
+  days: dayWord,
   unserved: 'about half a year',
   under: 'to the door, if you hold from today.',
+  /** Under `unserved` (island answer thirty-four): half a year counts from a real position, and a
+   *  stranger, a cold wallet and a dust bag at 0° hold none today. */
+  underUnserved: 'to the door, from your first real buy.',
   today: '0° today',
   door: (floor: number) => `${floor}° · the door`,
   line: 'Residents launch here. Nobody can buy last year.',
   button: 'Start the clock',
-  roster: (n: number) => `${n} flames are warming toward the door right now.`,
+  roster: (n: number) =>
+    n === 1 ? '1 flame is warming toward the door right now.' : `${n} flames are warming toward the door right now.`,
   /** At the floor and up, the door closed (answer twenty-six, §2.6): the number is the wallet's degrees. */
   warmUnder: "warm enough. The door opens on the island's word.",
   warmLine: 'You are on the list the day it opens.',
@@ -190,13 +199,29 @@ export const HEAT_WORDS = {
   ladderCold: 'Cold',
 } as const;
 
+/** A ticker as the card's words print it after their own "$": one "$" of the coin's own is dropped
+ *  (GeckoTerminal reads WIF as "$WIF"). */
+const bare = (coin: string) => coin.replace(/^\$/, '');
+/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. `null`: the
+ *  venue read no ticker of the coin's own (none at all, or a copy's), and the post names no coin (answer thirty-four).
+ *  ONE LINK A POST (island answer thirty-five): the sentence names no site. X draws one card a post, the
+ *  FIRST link's, and links a bare "memetics.finance" by itself: with the site named here, every posted add
+ *  drew the front page's card and never the add's own. The link below and its card name the site. */
+const LP_POST = (coin: string | null) =>
+  coin === null
+    ? "Just added liquidity. I'm part of the floor now. Every trade in the pool pays me."
+    : `Just added liquidity to $${bare(coin)}. I'm part of the floor now. Every trade in the pool pays me.`;
+/** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
+const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
+
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
   /** The venue's own word for a sale (the swap page's "Sold"); the island drew the buy and the add. */
   sold: (amount: string, coin: string) => `Sold ${amount} ${coin}`,
-  added: (sol: string, amount: string, coin: string) => `Added ${sol} SOL + ${amount} ${coin}`,
-  addedTo: (coin: string) => `to the SOL + ${coin} pool`,
+  /** `quote` is the pool's pairing coin (any of `QUOTE_COINS`: SOL, USDC or an island coin), `pair` what went in of it. */
+  added: (pair: string, quote: string, amount: string, coin: string) => `Added ${pair} ${quote} + ${amount} ${coin}`,
+  addedTo: (quote: string, coin: string) => `to the ${quote} + ${coin} pool`,
   fee: 'Fee',
   toLps: "To this pool's LPs",
   toVenue: 'To the venue and the island',
@@ -205,9 +230,26 @@ export const RECEIPT_WORDS = {
   dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  /** Under the title once the buyer's light lands on the shore (island answer thirty, §2). */
+  shore: (coin: string) => `You're on $${bare(coin)}'s shore. Every light here holds it.`,
+  /** The words of `shore` the island's drawing marks, bold in the shore's green. */
+  shoreMark: (coin: string) => `$${bare(coin)}'s shore.`,
+  /** A sale: the light stays on the shore, cooling (island answer thirty, §1). */
+  shoreCooling: 'Your light stays on the shore, cooling. The island remembers every day you held.',
+  /** The line under an add's title from the landing on (island answer thirty-two). `null`: no ticker of
+   *  the coin's own was read, and the line names no coin (answer thirty-four). */
+  floor: (coin: string | null) =>
+    coin === null ? "You're part of the floor now. Every trade in the pool pays you." : `You're part of $${bare(coin)}'s floor now. Every trade in the pool pays you.`,
+  /** The words of `floor` the island's drawing marks, bold in the token's hue. */
+  floorMark: (coin: string) => `$${bare(coin)}'s floor`,
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
+  shareX: 'Share on X',
+  lpPost: LP_POST,
+  lpLink: LP_LINK,
+  /** X's composer with the post written: nothing is published until the person posts it. */
+  lpIntent: (coin: string | null, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
 } as const;
 
 export const TRENCHER_WORDS = {

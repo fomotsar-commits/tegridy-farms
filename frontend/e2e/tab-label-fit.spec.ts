@@ -103,7 +103,8 @@ for (const { name, use, reads } of [
 ]) {
   test.describe(`Earn strip at ${name}`, () => {
     test.use(use);
-    for (const path of ['/copy-trading', '/earn']) {
+    // Only on its own page since 2026-11-11: /earn's strip no longer lists it (navConfig unlisted).
+    for (const path of ['/copy-trading']) {
       test(`${path}: the Copy Trading tab reads ${reads} and no Earn tab paints past its own edge`, async ({
         page,
         walletMock: _w,

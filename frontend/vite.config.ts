@@ -617,8 +617,25 @@ export default defineConfig(({ command, mode }) => {
             if (id.includes('node_modules/viem')) {
               return 'vendor-viem';
             }
-            if (id.includes('node_modules/wagmi') || id.includes('node_modules/@rainbow-me')) {
+            if (id.includes('node_modules/wagmi')) {
               return 'vendor-wagmi';
+            }
+            if (id.includes('node_modules/@rainbow-me')) {
+              // ONLY WHAT RAINBOWKIT IMPORTS STATICALLY IS PINNED HERE.
+              //
+              // RainbowKit loads the rest on demand, with its own import(): 18 language
+              // files (1.8 MB unpacked), every wallet's and chain's icon, and the install
+              // illustrations: 77 dynamic imports in its index.js. Naming them all
+              // 'vendor-wagmi' welded every one into the chunk the app shell loads on every
+              // page, on every chain: 1,874 KB unpacked, 291 KB gzipped, measured 2026-11-11.
+              // Left unassigned they stay what RainbowKit made them: small chunks fetched
+              // when the connect window asks for one. Its entry files and their shared
+              // chunks (index.js, chunk-*.js) and its stylesheet stay pinned.
+              const file = id.split('/').pop() ?? '';
+              if (!id.includes('/rainbowkit/dist/') || /^(index|chunk-[A-Za-z0-9]+)\.(js|mjs|css)(\?.*)?$/.test(file)) {
+                return 'vendor-wagmi';
+              }
+              return undefined;
             }
             if (id.includes('node_modules/@tanstack/react-query')) {
               return 'vendor-query';

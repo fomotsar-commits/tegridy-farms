@@ -13,12 +13,12 @@ import {
   TEGRIDY_STAKING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TREASURY_ADDRESS,
   SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { artImgProps } from '../lib/artSrcSet';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
@@ -31,7 +31,8 @@ const CONTRACTS = [
   { name: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS },
   { name: 'TegridyFactory', address: TEGRIDY_FACTORY_ADDRESS },
   { name: 'TegridyRouter', address: TEGRIDY_ROUTER_ADDRESS },
-  { name: 'TegridyNFTLending', address: TEGRIDY_NFT_LENDING_ADDRESS },
+  // NFT lending is Gondi's v3.2 loan contract, unchanged (zero until it is deployed).
+  { name: 'MultiSourceLoan (Gondi v3.2)', address: GONDI_LOAN_ADDRESS },
   { name: 'TegridyNFTPoolFactory', address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS },
 ];
 

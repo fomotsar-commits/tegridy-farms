@@ -5,16 +5,20 @@
 // the one with a red row and a big button on it. A constant nobody renders proves
 // nothing about what a borrower was told.
 //
-// The two states asserted hardest are the ones that decide whether this feature
+// The states asserted hardest are the ones that decide whether this feature
 // helps or harms:
 //
-//   unreadable  — the RPC could not answer. This must NOT render as "no positions
-//                 at risk". A calm screen during an outage is the failure mode.
+//   unreadable  — the loans could not be read. This must NOT render as "no
+//                 positions at risk". A calm screen during an outage is the failure mode.
 //   at-risk     — a loan hours from its deadline. The "you execute this yourself"
 //                 sentence must be on screen alongside the button, not a tab away.
+//   overdue     — Gondi refuses repayment from the deadline second on
+//                 (LoanExpiredError), so no signature may be offered past it.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { parseEther, type Address } from 'viem';
+import type { Loan } from '../../lib/gondi/loanMath';
 import {
   buildSnapshot,
   idleSnapshot,
@@ -25,12 +29,17 @@ import {
 } from '../../lib/shield/positions';
 
 const NOW = Math.floor(Date.now() / 1000);
-const BORROWER = '0x1111111111111111111111111111111111111111';
-const LENDING = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F';
+const BORROWER = '0x1111111111111111111111111111111111111111' as Address;
+const LENDER = '0x2222222222222222222222222222222222222222' as Address;
+const LENDING = '0x5555555555555555555555555555555555555555' as Address;
+const NAKA = '0xd774557b647330C91Bf44cfEAB205095f7E6c367' as Address;
+const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address;
 
 const state = vi.hoisted(() => ({
   snapshot: null as unknown,
   chainId: 1,
+  /** useReadContract answers, by functionName. Undefined = the read has not answered. */
+  reads: {} as Record<string, bigint | undefined>,
   alerts: {
     rules: [] as unknown[],
     evaluations: [] as unknown[],
@@ -55,29 +64,34 @@ vi.mock('../../hooks/useShieldAlerts', () => ({
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: BORROWER }),
   useChainId: () => state.chainId,
-  useSendTransaction: () => ({ sendTransaction: vi.fn(), data: undefined, isPending: false, error: null }),
+  useReadContract: ({ functionName }: { functionName: string }) => ({ data: state.reads[functionName], refetch: vi.fn() }),
+  useSendTransaction: () => ({ sendTransaction: vi.fn(), data: undefined, isPending: false, error: null, reset: vi.fn() }),
   useWaitForTransactionReceipt: () => ({ isLoading: false, isSuccess: false, isError: false }),
 }));
 
 import { ShieldPanel } from './ShieldPanel';
 
-function raw(over: Partial<RawLoanRead> = {}): RawLoanRead {
+/** A 1 WETH loan, 10% APR, due `dueIn` seconds from NOW (negative = overdue). */
+function gondiLoan(dueIn = 3 * 3600): Loan {
+  const startTime = BigInt(NOW - 86_400);
   return {
-    loanId: 4,
-    venue: 'tegridy-nft-lending',
-    lendingContract: LENDING as `0x${string}`,
-    collateralContract: '0x4444444444444444444444444444444444444444',
-    tokenId: 77n,
-    principal: 1_000_000_000_000_000_000n,
     borrower: BORROWER,
-    repaid: false,
-    defaultClaimed: false,
-    effectiveDeadlineUnix: NOW + 3 * 3600,
-    minGraceSeconds: 3600,
-    defaultedOnChain: false,
-    quotedRepayWei: 1_010_000_000_000_000_000n,
-    ...over,
+    nftCollateralTokenId: 77n,
+    nftCollateralAddress: NAKA,
+    principalAddress: WETH,
+    principalAmount: parseEther('1'),
+    startTime,
+    duration: BigInt(86_400 + dueIn),
+    tranche: [
+      { loanId: 4n, floor: 0n, principalAmount: parseEther('1'), lender: LENDER, accruedInterest: 0n, startTime, aprBps: 1000n },
+    ],
+    protocolFee: 500n,
+    lenderRefinanceDisabled: false,
   };
+}
+
+function raw(dueIn?: number): RawLoanRead {
+  return { loanId: 4, venue: 'tegridy-nft-lending', lendingContract: LENDING, loan: gondiLoan(dueIn) };
 }
 
 function mount(snapshot: ShieldPositionsSnapshot) {
@@ -87,6 +101,8 @@ function mount(snapshot: ShieldPositionsSnapshot) {
 
 beforeEach(() => {
   state.chainId = 1;
+  // Enough WETH, approved: the next step is the repayment itself.
+  state.reads = { balanceOf: parseEther('5'), allowance: parseEther('5') };
   state.alerts.rules = [];
   state.alerts.evaluations = [];
   state.alerts.storeProblem = null;
@@ -142,44 +158,68 @@ describe('an outage never renders as calm', () => {
     mount(buildSnapshot([], NOW));
     expect(screen.getByText(/no open borrow on the venue/i)).toBeTruthy();
   });
-
-  it('shows a loan whose deadline could not be read as unknown, not as safe', () => {
-    mount(buildSnapshot([raw({ effectiveDeadlineUnix: null })], NOW));
-    expect(screen.getByText('Unknown')).toBeTruthy();
-    // Twice on purpose: once as the row's health, once as the reason no
-    // transaction was prepared. Neither may be dropped for tidiness.
-    expect(screen.getAllByText(/failed read, not a loan that is fine/i).length).toBe(2);
-    expect(screen.queryByRole('button', { name: /Review and sign repayment/i })).toBeNull();
-  });
 });
 
 describe('the prepared transaction is shown before it is signed', () => {
-  it('names the call, the target and the amount that will leave the wallet', () => {
+  it('names the call, the target and the WETH the repayment needs', () => {
     mount(buildSnapshot([raw()], NOW));
-    expect(screen.getByText('repayLoan(4)')).toBeTruthy();
+    expect(screen.getByText(`repayLoan(4) on ${LENDING}`)).toBeTruthy();
     expect(screen.getByText(LENDING)).toBeTruthy();
-    expect(screen.getByText(/Accrual buffer/i)).toBeTruthy();
+    expect(screen.getByText(/WETH needed \(owed in 10 min\)/i)).toBeTruthy();
+    // Repaid in WETH, pulled by the contract: the call itself sends no ETH.
+    expect(screen.getByText('0 ETH')).toBeTruthy();
   });
 
-  it('refuses to offer a signature once the contract reports the loan defaulted', () => {
-    mount(buildSnapshot([raw({ effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true })], NOW));
-    expect(screen.getAllByText(/repayment window has closed/i).length).toBeGreaterThan(0);
+  it('shows the deadline and what is owed now, in WETH', () => {
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByText(/Deadline imminent — 3h 0m left/)).toBeTruthy();
+    expect(screen.getByText(/Borrowed 1 WETH · owed now 1\.\d+ WETH/)).toBeTruthy();
+  });
+
+  it('a wallet short of WETH is offered the wrap first, for exactly the shortfall', () => {
+    state.reads = { balanceOf: 0n, allowance: 0n };
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByRole('button', { name: 'Review and sign: wrap ETH to WETH' })).toBeTruthy();
+    expect(screen.getByText(/^deposit\(\) on WETH/)).toBeTruthy();
+    // With no WETH held, the shortfall is everything the repayment needs, and the wrap
+    // sends exactly that: the "Sends" ETH equals the "WETH needed".
+    const row = (label: RegExp) => screen.getByText(label).nextElementSibling?.textContent ?? '';
+    const needed = row(/WETH needed/).replace(' WETH', '');
+    expect(row(/^Sends$/)).toBe(`${needed} ETH`);
+    expect(Number(needed)).toBeGreaterThan(1);
     expect(screen.queryByRole('button', { name: /Review and sign repayment/i })).toBeNull();
   });
 
-  // The screen a borrower sees during the pause-extended grace. Before the fix
-  // this rendered the "collateral is the lender's" refusal and no button, on a
-  // loan the contract would still have accepted a repayment for.
-  it('still offers the signature past the minimum grace while the contract reports no default', () => {
-    mount(buildSnapshot([raw({ effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: false })], NOW));
-    expect(screen.getByRole('button', { name: /Review and sign repayment/i })).toBeTruthy();
-    expect(screen.queryByText(/repayment window has closed/i)).toBeNull();
-    expect(screen.getByText(/how much longer is unknown/i)).toBeTruthy();
+  it('a wallet holding the WETH but not approving it is offered the approval', () => {
+    state.reads = { balanceOf: parseEther('5'), allowance: 0n };
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByRole('button', { name: 'Review and sign: approve WETH' })).toBeTruthy();
+    expect(screen.getByText(`approve(${LENDING}) on WETH ${WETH}`)).toBeTruthy();
   });
 
-  it('never claims a health factor for these loans', () => {
+  it('an unread WETH balance prepares nothing, rather than guessing the step', () => {
+    state.reads = { balanceOf: undefined, allowance: parseEther('5') };
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByText(/WETH balance or approval could not be read/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Review and sign/i })).toBeNull();
+  });
+
+  // Gondi's repayLoan reverts with LoanExpiredError from startTime + duration on. A
+  // button here would spend gas on a repayment the contract refuses.
+  it('an overdue loan says repayment is no longer accepted, and offers no signature', () => {
+    mount(buildSnapshot([raw(-600)], NOW));
+    // The badge and the headline.
+    expect(screen.getAllByText('Repayment window closed')).toHaveLength(2);
+    expect(screen.getByText(/no longer accepts repayment/i)).toBeTruthy();
+    // prepareRepay's refusal, in place of the button.
+    expect(screen.getByText(/The deadline has passed, so the loan contract refuses repayment/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Review and sign/i })).toBeNull();
+  });
+
+  it('never claims a health factor for these loans, and says there is no grace period', () => {
     mount(buildSnapshot([raw()], NOW));
     expect(screen.getByText(/This loan has no health factor/i)).toBeTruthy();
+    expect(screen.getByText(/There is no grace period either/i)).toBeTruthy();
   });
 });
 
@@ -240,8 +280,8 @@ describe('alert gaps are shown as gaps', () => {
   });
 });
 
-// useShieldPositions no longer stops at the wallet's chain, so these rows now render for
-// a wallet on Base or Robinhood Chain. Repaying still needs mainnet, and what keeps the
+// useShieldPositions does not stop at the wallet's chain, so these rows render for a
+// wallet on Base or Robinhood Chain. Repaying still needs mainnet, and what keeps the
 // signature off this screen there is prepareRepay's chain check, which
 // ShieldPositionCard feeds the wallet's chain.
 describe('a borrower whose wallet is on another chain', () => {
@@ -253,8 +293,8 @@ describe('a borrower whose wallet is on another chain', () => {
 
     state.chainId = chainId;
     mount(buildSnapshot([raw()], NOW));
-    expect(screen.getByText(/Borrowed 1 ETH/)).toBeTruthy();
+    expect(screen.getByText(/Borrowed 1 WETH/)).toBeTruthy();
     expect(screen.getByText(/a repayment built for another chain would not reach it/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Review and sign repayment/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Review and sign/i })).toBeNull();
   });
 });

@@ -24,6 +24,14 @@ const SOLANA_RPC_UPSTREAM =
 // JSON-RPC requests are small (a signed tx is a few KB; batches a bit more).
 const MAX_REQUEST_BODY_SIZE = 64 * 1024;
 
+// One deadline for the upstream's headers and body together (aggregator-proxy.js's 8 s, a
+// starting number: the keyed upstream's slow tail is not measured). It is answered by the
+// catches below IN THE SAME WORDS on purpose: giving up on a sendTransaction proves nothing,
+// and the browser's senders read a send error by its words (submit.ts, ladder/write.ts,
+// islandBasketSol.ts, walletThrow.ts); "Upstream RPC error" already falls through to the
+// watch. Pinned in __tests__/solrpc.stall.test.js.
+const UPSTREAM_TIMEOUT_MS = 8000;
+
 // AUDIT 2026-07-12 (backend audit, L-1): JSON-RPC method allowlist. Without it,
 // the Origin header (a browser-CSRF control any non-browser client sets trivially)
 // was the ONLY content gate, turning this into an open, arbitrary-method proxy to
@@ -210,6 +218,8 @@ export default async function handler(req, res) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: raw,
+      // Stays armed through the bounded read below.
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
     console.error("[solrpc] fetch error:", logSafe(err));

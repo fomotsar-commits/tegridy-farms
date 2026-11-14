@@ -14,6 +14,7 @@ import { WalletNeeded } from './WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
 import type { ActionAvailability, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 
 const BLOCKED_COPY = {
   paused: 'Graduation is paused by the protocol right now. Selling still works.',
@@ -117,7 +118,7 @@ export function GraduationPanel({
           disabled={!signer || !actions.migrate || flow.locked}
           onClick={() => {
             if (!signer) return;
-            void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }), { repeatable: true });
+            void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve, txVersion: txVersionOf(signer) }), { repeatable: true });
           }}
         >
           Review: finish graduation

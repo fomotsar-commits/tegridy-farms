@@ -3,7 +3,7 @@
 // makes. Imported by *.test.ts only; nothing in the app imports it.
 
 import { Buffer } from 'buffer';
-import { ComputeBudgetProgram, Keypair, PublicKey, type VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Keypair, PublicKey, type Transaction, type VersionedTransaction } from '@solana/web3.js';
 import {
   ACCOUNT_DISCRIMINATOR,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -28,7 +28,10 @@ import {
   AMM_CONFIG_OFFSETS,
   CREATOR_FEE_ON_TOKEN_0,
   CREATOR_FEE_ON_TOKEN_1,
+  IX_CREATE_LP_METADATA,
   IX_INITIALIZE,
+  LP_NAME_RECORD_LEN,
+  METAPLEX_CREATE_FEE_LAMPORTS,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
   decodeAmmConfig,
@@ -47,6 +50,8 @@ import { epochFee, feeOf, type TransferFee } from '../../../solana/lp/transferFe
 import { associatedTokenAddress } from '../curve/ix';
 import { priorityLamports } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
+import type { PreparedTx } from './types';
+import { decodeV1 } from './v1';
 import {
   BAYLA_MINT,
   PLANT_BURN_RAW,
@@ -751,8 +756,22 @@ export function openAccount(chain: FakeChain, address: PublicKey, size = 165): {
   return { paid: Math.max(0, rent(size) - a.lamports), lamports: Math.max(a.lamports, rent(size)) };
 }
 
-/** The fee a cluster takes from the fee payer before anything runs: 5,000 a signature, plus the priority fee. */
+/**
+ * The instructions a simulation was handed. A version 1 message reaches the node as its
+ * wire bytes alone (prepare.ts asWire), so it is read with kit.
+ */
+export function simInstructions(vtx: VersionedTransaction): Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }> {
+  if (!vtx.message) return decodeV1(vtx.serialize()).instructions.map((ix) => ({ program: ix.programId, accounts: ix.keys.map((k) => k.pubkey), data: new Uint8Array(ix.data) }));
+  const keys = vtx.message.staticAccountKeys;
+  return vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+}
+
+/** The fee a cluster takes from the fee payer before anything runs: 5,000 a signature, plus the priority fee (a version 1 config's, or the budget instructions'). */
 export function networkFeeOf(vtx: VersionedTransaction): number {
+  if (!vtx.message) {
+    const v = decodeV1(vtx.serialize());
+    return v.signers.length * 5_000 + Number(v.config.priorityFeeLamports);
+  }
   const keys = vtx.message.staticAccountKeys;
   let limit = 0;
   let price = 0n;
@@ -827,8 +846,7 @@ function storedReserve(data: Uint8Array): bigint | null {
  */
 export function createSimulator(o: CreateSimOptions = {}): SimHandler {
   return (vtx, config, chain) => {
-    const keys = vtx.message.staticAccountKeys;
-    const ixs = vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+    const ixs = simInstructions(vtx);
     const open = ixs.find((i) => i.program.equals(CPSWAP) && IX_INITIALIZE.every((b, j) => i.data[j] === b));
     if (!open) return { err: 'no initialize', logs: [], unitsConsumed: 1 };
     const d = open.data;
@@ -855,7 +873,7 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     if (supply < 100n) return cpFail(6009);
     const signer = at(0);
     if (!at(4).equals(WSOL_MINT) && !at(5).equals(WSOL_MINT)) {
-      return coinInitialize(o, vtx, config, chain, { index: ixs.indexOf(open), accounts: open.accounts, init0, init1, supply, fee: tier.createPoolFee });
+      return coinInitialize(o, vtx, config, chain, { index: ixs.indexOf(open), accounts: open.accounts, init0, init1, supply, fee: tier.createPoolFee, ixs });
     }
     const wsolAta = associatedTokenAddress(WSOL_MINT, signer);
     const solIs0 = at(4).equals(WSOL_MINT);
@@ -882,7 +900,7 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     // fallen, and the site refuses a rise rather than modelling it).
     const synced = (k: PublicKey, lamportsIn: bigint, lamportsOut: bigint): bigint | null => syncedBalance(chain, o, k, lamportsIn, lamportsOut);
     const wsolAfter = (closes ? null : synced(wsolAta, wrapped, sol)) ?? wsolBefore + wrapped - sol;
-    const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid;
+    const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid + namePaid(ixs, chain);
     // The close hands back every lamport in the account: what it held, plus what was wrapped and not used.
     const refund = closes ? wsolOpen.lamports + Number(wrapped - sol) : 0;
     const signerDelta = -Number(wrapped) - wsolOpen.paid - Number(charged) - poolRents + refund - (o.networkFee ? networkFeeOf(vtx) : 0);
@@ -897,6 +915,17 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     };
     return { err: null, logs: [], unitsConsumed: 120_000, accounts: chain.post(config.accounts.addresses, changes) };
   };
+}
+
+/**
+ * What cp-swap's `create_lp_metadata` takes from its payer when the transaction holds it:
+ * the record's deposit (607 bytes) and Metaplex's fee for making a record, which stays in it.
+ * Metaplex refuses a second record for the same mint, so a record already there is an error.
+ */
+function namePaid(ixs: Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }>, chain: FakeChain): number {
+  const names = ixs.filter((i) => i.program.equals(CPSWAP) && IX_CREATE_LP_METADATA.every((b, j) => i.data[j] === b));
+  for (const n of names) if (chain.accounts.has(n.accounts[4]!.toBase58())) throw new Error('a name record is already there');
+  return names.length * (rent(LP_NAME_RECORD_LEN) + Number(METAPLEX_CREATE_FEE_LAMPORTS));
 }
 
 /** A native account's balance after a sync, once `lamportsIn` arrived and `lamportsOut` left; null when it is not native. */
@@ -924,7 +953,7 @@ function coinInitialize(
   vtx: VersionedTransaction,
   config: { accounts?: { addresses: string[] } } | undefined,
   chain: FakeChain,
-  open: { index: number; accounts: PublicKey[]; init0: bigint; init1: bigint; supply: bigint; fee: bigint },
+  open: { index: number; accounts: PublicKey[]; init0: bigint; init1: bigint; supply: bigint; fee: bigint; ixs: Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }> },
 ): ReturnType<SimHandler> {
   const at = (i: number) => open.accounts[i]!;
   const signer = at(0);
@@ -939,7 +968,7 @@ function coinInitialize(
     }
   }
   const charged = o.feeCharged ? o.feeCharged(open.fee) : open.fee;
-  const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid;
+  const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid + namePaid(open.ixs, chain);
   const paid = Number(charged) + poolRents + (o.networkFee ? networkFeeOf(vtx) : 0);
   const left = (chain.accounts.get(signer.toBase58())?.lamports ?? 0) - paid;
   if (left < 0) {
@@ -1023,4 +1052,10 @@ export function tokenFeeOnChain(chain: FakeChain, mint: PublicKey): TransferFee 
 export function tokenFeeTaken(chain: FakeChain, mint: PublicKey, amount: bigint): bigint {
   const f = tokenFeeOnChain(chain, mint);
   return f ? feeOf(f, amount) : 0n;
+}
+
+/** The legacy transaction a prepared result carries. Throws for a version 1 one: these tests build it on purpose. */
+export function legacyTx(p: PreparedTx): Transaction {
+  if (p.wire.version !== 'legacy') throw new Error('expected a legacy transaction');
+  return p.wire.tx;
 }

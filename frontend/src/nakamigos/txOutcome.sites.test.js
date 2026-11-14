@@ -214,7 +214,7 @@ const SITES = [
     final: true,
     reverted: { error: "failed", message: "Transaction reverted on-chain" },
     run: async () => (await import("./api")).fulfillSeaportOrder(
-      { orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET },
+      { tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET },
     ),
   },
   {

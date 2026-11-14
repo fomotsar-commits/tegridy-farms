@@ -33,6 +33,7 @@ import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import { noteKey, readPendingTrades, swapPendingScope } from '../curve/pendingTrade';
 import type { Prepared } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { TxFlowView } from '../curve/TxFlowView';
 import { Field, Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, baseUnitsToInput, impactWarning, inputCls, inputStyle } from '../curve/uiFormat';
@@ -112,7 +113,7 @@ type Phase =
   | { kind: 'own'; plan: Plan }
   | { kind: 'sending'; plan: Plan }
   | { kind: 'waiting'; plan: Plan; signature: string }
-  | { kind: 'step2'; view: PoolView; note: StepTwoNote; initial: { side: Side; text: string; bps: bigint } | null; done: boolean };
+  | { kind: 'step2'; view: PoolView; note: StepTwoNote; initial: { side: Side; text: string; bps: bigint; review: true } | null; done: boolean };
 
 type Said = { title: string; text: string; tone: 'warn' | 'bad' | 'info' };
 
@@ -258,7 +259,12 @@ function OneCoinInner({
       const r = await readPool();
       const v = r?.view ?? view;
       const two = stepTwo(v.snapshot, { quoteIsToken0: v.quoteIsToken0, paid: note.paid, kept: note.kept, got: note.got, bps: note.bps });
-      const initial = isPlanProblem(two) ? null : { side: two.driving, text: baseUnitsToInput(two.maxIn, two.driving === 'quote' ? coin.decimals : decimals), bps: note.bps };
+      // THE SECOND SIGNATURE IS THE SECOND TAP (island answer thirty-five): step 2 opens on its review,
+      // asked for from exactly these amounts, with nothing to type. Amounts that cannot be planned open
+      // the form empty, as before.
+      const initial = isPlanProblem(two)
+        ? null
+        : { side: two.driving, text: baseUnitsToInput(two.maxIn, two.driving === 'quote' ? coin.decimals : decimals), bps: note.bps, review: true as const };
       writes.setBusy(false);
       setPhase({ kind: 'step2', view: v, note, initial, done: false });
     },
@@ -274,7 +280,7 @@ function OneCoinInner({
     if (!ownerKey) return;
     // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
     markLanded('add');
-    const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now() };
+    const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now(), total: p.total };
     saveStepTwo(ownerKey, floor);
     const outIsSol = p.paid === 'token' && coin.native;
     const got = await receivedBy(connection, signature, ownerKey, p.outputMint, outIsSol);
@@ -402,6 +408,7 @@ function OneCoinInner({
     const buildIn = (address: string, aggregator: AggregatorSeen) =>
       ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
         owner,
+        txVersion: txVersionOf(signer),
         pool: new PublicKey(address),
         inputMint: new PublicKey(p.inputMint),
         outputMint: new PublicKey(p.outputMint),
@@ -628,6 +635,14 @@ function OneCoinInner({
   if (phase.kind === 'step2') {
     const n = phase.note;
     const got = n.gotExact ? about(other(n.paid), n.got) : `at least ${exact(other(n.paid), n.got)} (what it paid could not be read)`;
+    // The amount chosen, said back with where each part went (island answer thirty-five): on its own,
+    // what step 1 left reads as a wrong amount to someone who chose a larger one. Both parts of the paid
+    // coin are exact, as step 1's review and the form's box print them, so the two add up to the amount
+    // chosen. A note written before that answer holds no total and keeps the sentence it had.
+    const stepOne =
+      n.total !== undefined
+        ? `You chose ${exact(n.paid, n.total)}. Step 1 (${shortSig(n.signature)}) swapped ${exact(n.paid, n.total - n.kept)} of it for ${got}. That left ${exact(n.paid, n.kept)} and that ${name(other(n.paid))} for step 2: one more signature.`
+        : `Step 1 is done (${shortSig(n.signature)}). It left you ${about(n.paid, n.kept)} and ${got} to add.`;
     return (
       <AddLiquidityPanel
         // Opened again on a figure read later (another tab's step 1): its form starts from that.
@@ -649,7 +664,7 @@ function OneCoinInner({
         lead={
           <div data-testid="lp-one-step2" className="space-y-1.5">
             <Notice tone="good">
-              {phase.done ? 'Both steps are done.' : `Step 1 is done (${shortSig(n.signature)}). It left you ${about(n.paid, n.kept)} and ${got} to add.`}
+              {phase.done ? 'Both steps are done.' : stepOne}
             </Notice>
             {!phase.done && (
               <button

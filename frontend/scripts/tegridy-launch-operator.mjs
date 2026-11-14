@@ -1344,9 +1344,12 @@ async function cmdUpdateGlobal(flags) {
  * This is step 3 of the ordering above and the ONE outstanding blocker on graduation.
  * MAINNET_RUNBOOK §5 said "tooling that does not exist yet"; this is that tooling.
  *
- * ⚠️ THE PROGRAM VALIDATES NOTHING HERE. `create_amm_config` (create_config.rs:32-53)
- * assigns all six numbers straight onto the account with no `require!` of any kind.
- * `update_config` DOES assert (update_config.rs:42-59), and it asserts each new value
+ * ⚠️ UNTIL ITS UPGRADE OF 2026-11 THE PROGRAM VALIDATED NOTHING HERE: `create_amm_config`
+ * assigned all six numbers straight onto the account. The upgraded program asserts the fee
+ * ceilings itself (lib.rs, create_amm_config: a trade fee above 0, trade + creator at most
+ * 4%, protocol + fund at most 20% of the trade fee), and an `assert!` there panics, so the
+ * same three are checked below before anything is signed.
+ * `update_config` asserts too (update_config.rs), and it asserts each new value
  * against the STORED counterpart — so a config created outside those bounds cannot
  * necessarily be brought back inside them afterwards, and `assert!` panics rather than
  * returning an error, aborting the whole transaction. The AmmConfig is a PDA seeded by
@@ -1389,9 +1392,18 @@ async function cmdCreateAmmConfig(flags) {
   if (params.protocolFeeRate + params.fundFeeRate > FEE_RATE_DENOMINATOR) {
     problems.push(`protocol_fee_rate + fund_fee_rate = ${params.protocolFeeRate + params.fundFeeRate} > ${FEE_RATE_DENOMINATOR}`);
   }
-  // STRICTLY less than — update_config.rs:48 and :59 use `<`, not `<=`.
-  if (params.tradeFeeRate + params.creatorFeeRate >= FEE_RATE_DENOMINATOR) {
-    problems.push(`trade_fee_rate + creator_fee_rate = ${params.tradeFeeRate + params.creatorFeeRate} must be STRICTLY < ${FEE_RATE_DENOMINATOR}`);
+  // The pool program's own ceilings since its upgrade of 2026-11 (states/config.rs, asserted by
+  // create_amm_config in lib.rs and by update_config.rs): per million, like every rate here.
+  const MAX_FEE_RATE_NUMERATOR = 40_000n; // trade + creator fee: at most 4% of a swap
+  const MAX_PROTOCOL_AND_FUND_FEE_RATE = 200_000n; // protocol + fund: at most 20% of the trade fee
+  if (params.tradeFeeRate === 0n) {
+    problems.push('trade_fee_rate is 0: the program refuses it (a 0 fee made every swap into a public pool revert)');
+  }
+  if (params.tradeFeeRate + params.creatorFeeRate > MAX_FEE_RATE_NUMERATOR) {
+    problems.push(`trade_fee_rate + creator_fee_rate = ${params.tradeFeeRate + params.creatorFeeRate} > ${MAX_FEE_RATE_NUMERATOR} (4% of a swap, the program's ceiling)`);
+  }
+  if (params.protocolFeeRate + params.fundFeeRate > MAX_PROTOCOL_AND_FUND_FEE_RATE) {
+    problems.push(`protocol_fee_rate + fund_fee_rate = ${params.protocolFeeRate + params.fundFeeRate} > ${MAX_PROTOCOL_AND_FUND_FEE_RATE} (20% of the trade fee, the program's ceiling)`);
   }
 
   // 3. The create_pool_fee ceiling. This one is not cp-swap's rule at all — it is

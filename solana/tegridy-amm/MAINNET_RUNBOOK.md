@@ -96,7 +96,7 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
-| `raydium_cp_swap` | **Rolled back on 2026-10-24: on chain again is the 691,640 B build `88b98aa9…`, in the enlarged 725,221 B account.** **On chain from the upgrade of section 4b until then:** binary **725,176 B**, sha256 `1e55bcdc…` (the build with `create_lp_metadata` and the launch-tier refusal). Its ProgramData account was enlarged for it: 725,221 B if the enlarge was the exact 33,536 the pack asks for, which is 3,684,772,920 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `raydium_cp_swap` | **On chain since the re-upgrade of section 4b, and from the first upgrade until the roll-back of 2026-10-24 (the 691,640 B build `88b98aa9…` ran again in between):** binary **725,176 B**, sha256 `1e55bcdc…` (the build with `create_lp_metadata` and the launch-tier refusal). Its ProgramData account was enlarged for it: 725,221 B if the enlarge was the exact 33,536 the pack asks for, which is 3,684,772,920 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
 | `tegridy_launch` | binary **470,728 B** → ProgramData **470,773 B**: `tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-paid-at-create mainnet build (tag `wip/solana-reserve-at-create`), built twice byte-identical. Mainnet quoted 2,392,177,080 lamports for it on 2026-09-26. (The escrow build it replaces was 483,288 B.) | **~2.39 SOL** |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
@@ -319,9 +319,19 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 ## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
 
+**2026-11: the build moved on.** The vault's proposal #32 upgraded the program to `01fe923b…`
+(714,776 bytes): the swap guard, which is off until the vault's proposal #33 switches it on for
+both fee settings, and the fee rules of 2026-11-03 (`TEGRIDY_FORK.md` has a section for each).
+That round has its own block below, "Upgraded to the build with the swap guard: proposal #32",
+and its own pack and paper (`pool-swap-guard-upgrade-2026-11`, `START-HERE.md`). Everything else
+in this section is the record of the first upgrade and its roll-backs. There "the new build"
+means `1e55bcdc…`, which is the roll-back build since #32, and "the old build" means `88b98aa9…`.
+
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
-was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. **It was rolled
-back on 2026-10-24** (below the table). From 2026-10-23 until then mainnet ran
+was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. It was rolled back
+on 2026-10-24 and upgraded again with proposal #23, rolled back again by mistake on 2026-11-04
+(proposal #24) and upgraded a third time with proposal #31 on 2026-11-06 (all below the table).
+Mainnet now runs
 the new build, `1e55bcdc…` (725,176 bytes): the one with `create_lp_metadata`, the security
 text on `memetics.finance`, and the launch-tier refusal (a public `initialize` on fee tier 0
 is refused; "The build moved on 2026-10-19 and 2026-10-20" below). Until the execute it ran
@@ -343,14 +353,71 @@ does not have the shape of what it names.
 | Size of the program's data account afterwards (bytes) | `725,221` |
 
 **Rolled back on 2026-10-24.** The vault's pre-staged roll-back, proposal #16, executed at
-17:03:00 UTC: the program's last deployed slot is 460,927,956 (read at finalized slot
-460,929,168, with that slot's block time). The program is the 2026-09-29 build `88b98aa9…` again:
-its first 691,640 bytes hash to it, followed by zeros, in a data account that stays 725,221 bytes
-(E, "The roll-back"). The website went back with it, as E says: the harness pins, the registry's
-`expect.holdsProgram` and the four lines name the old build again. The table above stays as the
-record of the upgrade. A re-upgrade, a fresh upload and a new 48-hour round, is planned. When it
-executes, `read-upgrade-record.mjs` reads it once the registry's row names the upgrade's build
-again (it refuses while the row names the old one).
+17:03:00 UTC: the program's last deployed slot was 460,927,956 (read at finalized slot
+460,929,168, with that slot's block time). The program was the 2026-09-29 build `88b98aa9…` again:
+its first 691,640 bytes hashed to it, followed by zeros, in a data account that stayed 725,221
+bytes (E, "The roll-back"). The website went back with it, as E says (pull request #991): the
+harness pins, the registry's `expect.holdsProgram` and the four lines named the old build again.
+The table above stays as the record of the upgrade.
+
+**Upgraded again: proposal #23.** A fresh upload and a new 48-hour round put the build
+`1e55bcdc…` back (the pack's `RE-UPGRADE-2026-10-24.md`). The website moved with it in the same
+hour, by undoing #991; `read-upgrade-record.mjs` kept its refusal of a registry row that names the
+old build. Its four facts, read from mainnet by that script once the registry's row named the
+upgrade's build again:
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `2026-11-03` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `464,955,427` |
+| Transaction of the execute (its signature) | `4WEQiYHKkZggKbkaY4xfFyoJBq2p5dpMqj7VNzMGY96sUaGZoP826cgAQEZBwBEpjcM6W3n2oJkpS5zYwbvj5dqq` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
+
+**Rolled back again on 2026-11-04, by mistake: proposal #24.** #23's round had pre-staged a
+roll-back beside the upgrade, as the first round did. It was executed from the Squads app at
+02:52:42 UTC (the block's time; slot 465,140,701, transaction
+`4dERffNjSiQZdZUGJMsF6cujCVP7C2zsuSfVdWh9TXUg8kfTnuESD4wAvoQxtmRy7wSjdm2Aid4wQGdVprzgfA5M`),
+and the program was `88b98aa9…` again, so a public `initialize` on fee tier 0 was accepted again.
+No pool was opened there before the redo. Both buffers' SOL went back to the paying wallet. This
+time the website was NOT moved back: this pull request was still open, and it waited for the redo.
+From then on a roll-back is never approved in advance (`docs/TODO_OPERATOR.md`, 2026-11-04).
+
+**Upgraded a third time: proposal #31.** One proposal, with no roll-back beside it, from a fresh
+upload (`AnhZDtyYYygWDac4qDdhwZgXYeroWdF7r5atsWvQzFpW`, `1e55bcdc…`), approved by both members on
+2026-11-04 at 04:57:54 UTC and executed from the pack's own page after the 48 hours. The pack's
+check after the execute passed ("the upgrade is live and both pools are untouched"), and the
+upload's 3.684732 SOL went back to the paying wallet. Its four facts, read from mainnet by
+`read-upgrade-record.mjs` (the execute's block time: 15:13:03 UTC):
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `2026-11-06` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `466,155,644` |
+| Transaction of the execute (its signature) | `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
+
+**Upgraded to the build with the swap guard: proposal #32.** One proposal, with no roll-back
+beside it, from the pack `pool-swap-guard-upgrade-2026-11`. The build is `01fe923b…`, 714,776
+bytes, made from `mvp-launch` at the merge of pull request #1177 (`137862c6f`): two clean builds
+and CI's build job gave the same file, and the same toolchain rebuilt `1e55bcdc…` from its own
+commit. It is smaller than the build it replaced, so there was no enlarge: the data account
+stays 725,221 bytes, and the program in it is followed by zeros. It carries the swap guard, off
+on every fee setting, and the fee rules of 2026-11-03, which no earlier build had. In the same
+sitting the owner proposed and approved #33, which switches the guard on for both fee settings
+(`update_amm_config`, setting 8, value 1, on `BHMteE8u…` and on `CapqvAA9…`). The program on
+chain before the upgrade refuses that setting (6003 `InvalidInput`), so #33 could only run after
+#32. Rehearsed on a copy of mainnet on 2026-11-10 (the pack's `evidence/stage7-swap-guard`).
+Its four facts, read from mainnet by `read-upgrade-record.mjs`:
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `2026-11-14` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `469,177,891` |
+| Transaction of the execute (its signature) | `tCJvhHYnVPcYpMytLLMtg8arD3eACdy9vU7XaKNYgPaDUax5DY8VXw88CAsUYtDUiAiDzSN9NCoCDKN6CpRbe2p` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
+
+The switch-on, #33, is a setting and not an upgrade, so it has no row above. The pack's
+`scripts/7-verify-guard.mjs` reads it: both fee settings accounts hold 1 in bytes 116 to 124.
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the
@@ -1127,8 +1194,10 @@ source fix is not in the deployed bytecode, so this step remains blocked on a pr
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
 - `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
   (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).
-  Enforced bound: **`protocol_fee_rate + fund_fee_rate ≤ 1_000_000`** (there is NO "≤ trade_fee_rate"
-  rule — setting it to `2500` would collect ~0.0006% of volume, i.e. almost nothing).
+  Enforced bound: **`protocol_fee_rate + fund_fee_rate ≤ 200_000`**, 20% of the trade fee, since
+  the upgrade of 2026-11 (before it: `≤ 1_000_000`). The same upgrade refuses a `trade_fee_rate`
+  of 0 and holds `trade_fee_rate + creator_fee_rate ≤ 40_000`, 4% of a swap. (There is NO
+  "≤ trade_fee_rate" rule — setting it to `2500` would collect ~0.0006% of volume, i.e. almost nothing.)
 - `fund_fee_rate`, `create_pool_fee`.
 - **`create_pool_fee` receiver** must be a **WSOL token account** (`create_pool_fee_reveiver::ID`
   from step 2 = the treasury's WSOL ATA), not a wallet.
@@ -1137,6 +1206,12 @@ source fix is not in the deployed bytecode, so this step remains blocked on a pr
 there is no treasury parameter. To hand fee-collection authority to a *distinct* treasury, call
 `update_config` (param 3 = new protocol owner, param 4 = new fund owner) after this. Fees land at
 whatever token account you name at collection time regardless.
+
+**Param 4 works once per fee setting since the upgrade of 2026-11.** It is accepted only while
+the vault is still the fund owner. After the hand-over nobody can point that fee setting's fund
+fee anywhere else, the vault included (6001 `InvalidOwner`): only a program upgrade can. Both
+live fee settings were handed to the island's Workshop before that upgrade, so theirs is fixed.
+Since the same upgrade only the fund owner collects the fund fee; the vault cannot.
 
 ### ⚖️ OWNER DECISION — who holds `admin::ID`, knowing what it can do
 
@@ -1158,9 +1233,15 @@ and burning the LP does not protect a pool from any of them:
   `initialize_with_permission` then refuses every pool, so every graduation fails until it is
   set back. Same effect as closing the permission.
 - **Reprice every pool on the config** — `update_config` params 0 and 7 change the trade fee
-  and the creator fee, and swaps read both live. The only bound is trade + creator < 100%. This
+  and the creator fee, and swaps read both live. Since the upgrade of 2026-11 the bound is a trade
+  fee above 0 and trade + creator at most 4% of a swap (before it: trade + creator < 100%). This
   reaches graduated burned-LP pools too.
-- **Sweep accrued protocol and fund fees** to any recipient (the fallback collector).
+- **Sweep accrued protocol fees** to any recipient. Until the upgrade of 2026-11 it could sweep
+  fund fees too (the fallback collector); since then only a fee setting's fund owner collects them.
+- **Switch the swap guard on or off for a fee setting**: `update_config` param 8, since the
+  upgrade of 2026-11. On, every pool on that fee setting refuses a swap that another program
+  calls (6015 `SwapNotDirect`), an aggregator's included, and graduated burned-LP pools too.
+  Param 9 names the one signer the guard still lets through.
 
 Today the source bakes a single operator-held key (the comment on `admin::ID` in
 `programs/cp-swap/src/lib.rs` says why: to prove graduation before a 2-of-N ceremony). A

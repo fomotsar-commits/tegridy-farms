@@ -33,7 +33,7 @@ test.describe('Swap happy path', () => {
   test('disconnected → connect wallet CTA visible on swap surface', async ({ page, walletMock: _w }) => {
     await page.goto('/swap');
     await expect(page.locator('h1')).toContainText(/swap/i);
-    await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('evm-swap-connect')).toBeVisible();
   });
 
   test('connect → the app actually authorizes the wallet and swaps the gate for a CTA', async ({ page, walletMock }) => {
@@ -48,7 +48,7 @@ test.describe('Swap happy path', () => {
     await page.goto('/swap');
 
     await expect(page.getByRole('tab', { name: 'Swap', exact: true })).toBeVisible();
-    await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeHidden();
+    await expect(page.getByTestId('evm-swap-connect')).toBeHidden();
     await expect(page.getByRole('button', { name: /^swap$/i })).toBeVisible();
     expect(pageErrors).toEqual([]);
   });

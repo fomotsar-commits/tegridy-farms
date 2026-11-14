@@ -5,6 +5,7 @@ import {
   buildCowSwapQuoteBody,
   parseCowSwapQuote,
   buildCowSwapOrder,
+  quoteSellsTypedAmount,
   requiredSellBalance,
   cowSwapAmounts,
   cowApiUrl,
@@ -138,6 +139,7 @@ describe('buildCowSwapOrder', () => {
       buyToken: TOWELI,
       receiver: USER,
       quote,
+      typedSellAmount: 1_001_234n,
       slippageBps: 100n, // 1%
       now: 1_000_000, // ms
     });
@@ -160,11 +162,34 @@ describe('buildCowSwapOrder', () => {
       buyToken: TOWELI,
       receiver: USER,
       quote,
+      typedSellAmount: 1_001_234n,
       slippageBps: 0n,
       validTo: 42424242,
     });
     expect(order.validTo).toBe(42424242);
     expect(order.buyAmount).toBe(1_989_988n); // 0 slippage = the quote after the venue fee
+  });
+
+  // The signed sellAmount is CoW's sellAmount + feeAmount. A quote that answers a
+  // larger trade than the one typed would otherwise be signed as it stands, capped
+  // only by the wallet's balance.
+  it('refuses to sign a quote that sells more than the amount entered', () => {
+    expect(() =>
+      buildCowSwapOrder({
+        sellToken: WETH,
+        buyToken: TOWELI,
+        receiver: USER,
+        quote, // sells 1_001_234 in all
+        typedSellAmount: 1_000n,
+        slippageBps: 100n,
+      }),
+    ).toThrow(/different amount/);
+  });
+
+  it('refuses a quote that sells less than the amount entered, too', () => {
+    expect(quoteSellsTypedAmount(quote, 1_001_235n)).toBe(false);
+    expect(quoteSellsTypedAmount(quote, 1_001_234n)).toBe(true);
+    expect(quoteSellsTypedAmount(quote, 0n)).toBe(false);
   });
 });
 

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { loanDeskAccepts } from "../constants";
 import { fetchWalletNfts, shortenAddress } from "../api";
 import { fetchMyListings, cancelOrder } from "../api-offers";
-import { formatPrice } from "../lib/formatPrice";
+import { formatPrice, formatListingPrice } from "../lib/formatPrice";
 import { toastTxNotice } from "../lib/txOutcome";
 import { exportCSV } from "../lib/csv";
 import { Eth } from "./Icons";
@@ -422,7 +422,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
                   {token?.name || `#${listing.tokenId}`}
                 </div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", display: "flex", alignItems: "center", gap: 3 }}>
-                  <Eth size={10} /> {formatPrice(listing.price)}
+                  <Eth size={10} /> {formatListingPrice(listing)}
                 </div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>
                   {timeLeft(listing.expiry)}

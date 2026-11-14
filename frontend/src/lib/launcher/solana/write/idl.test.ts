@@ -3,12 +3,13 @@
 //
 // EVERY ACCOUNT LIST THE WRITE PATH SENDS, HELD AGAINST THE PROGRAMS' OWN IDLs.
 //
-// The IDLs are the ones emitted with the exact mainnet binaries
-// (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts), committed under
-// solana/tegridy-amm/idl/ and pinned here by sha256 against that release's
-// SHA256SUMS. One exception since 2026-10-06: the pool IDL also lists
-// `create_lp_metadata`, which the source has and mainnet does not run yet (see SHA256
-// below). The site sends no such instruction. For each instruction a transaction can carry we check, position by
+// The IDLs are the ones emitted with the exact mainnet binaries, committed under
+// solana/tegridy-amm/idl/ and pinned here by sha256: the launcher's against the
+// 2026-09-26 release's SHA256SUMS (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts),
+// the pool program's against the build mainnet runs since the upgrade that added the swap
+// guard (see SHA256 below; the upgrade before it added `create_lp_metadata`). The site sends
+// neither `create_lp_metadata` nor a guard setting. For each
+// instruction a transaction can carry we check, position by
 // position: the account's IDL name maps to the address we put there, and its signer
 // and writable flags equal the IDL's. Discriminators and argument layouts too.
 // An account list that only agrees with itself is how this repo shipped two
@@ -66,17 +67,23 @@ const LAUNCH_IDL_PATH = resolve(IDL_DIR, 'tegridy_launch.json');
 const CPSWAP_IDL_PATH = resolve(IDL_DIR, 'raydium_cp_swap.json');
 
 /**
- * `launch` and `cpswapRelease` are from the release's artifacts/SHA256SUMS: the IDLs of the
- * binaries mainnet runs. `cpswap` is the committed pool IDL, which is one instruction AHEAD of
- * that release: the source now has `create_lp_metadata` (it names a pool's share token), and
- * mainnet does not run it until the owner upgrades the pool program. The test below holds the
- * two together: take that one instruction out and the file is the release's, byte for byte.
+ * `launch` and `cpswap` are the IDLs of the binaries mainnet runs. `launch` is from the
+ * 2026-09-26 release's artifacts/SHA256SUMS. `cpswap` is the IDL of the build the pool
+ * program was upgraded to in 2026-11 (`01fe923b...`): the one with the swap guard and the fee
+ * rules of 2026-11-03. `cpswapBeforeSwapGuard` is the IDL of the build mainnet ran before
+ * that (`1e55bcdc...`, the one that added `create_lp_metadata`, which names a pool's share
+ * token). `cpswapBeforeUpgrade` is the IDL of the build mainnet ran from 2026-09-29 until the
+ * first upgrade (the release's own, in artifacts/SHA256SUMS). The test below holds the three
+ * together: undo what the swap-guard upgrade added and the file is the second, byte for
+ * byte; take `create_lp_metadata` out of that and it is the third. So each upgrade changed
+ * the program's interface by what is named there and by nothing else.
  */
 const SHA256 = {
   // The reserve-at-create build (artifacts/SHA256SUMS; d987fafe, the reserve-held build, is superseded).
   launch: 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
-  cpswap: '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
-  cpswapRelease: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
+  cpswap: 'de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889',
+  cpswapBeforeSwapGuard: '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
+  cpswapBeforeUpgrade: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
 };
 
 interface IdlAccount {
@@ -97,6 +104,18 @@ interface Idl {
   errors: Array<{ code: number; name: string }>;
 }
 
+/** The parts of the pool IDL the swap-guard upgrade touched, as far as the test below reads them. */
+interface GuardIdl {
+  instructions: Array<{ name: string; docs?: string[]; accounts: Array<{ name: string; docs?: string[] }> }>;
+  errors: Array<{ code: number; name: string; msg?: string }>;
+  types: Array<{ name: string; type: { fields?: Array<{ name: string; type: unknown }> } }>;
+}
+const ixOfPool = (idl: Idl, name: string): IdlIx => {
+  const ix = idl.instructions.find((i) => i.name === name);
+  if (!ix) throw new Error(`${name} is not in the pool IDL`);
+  return ix;
+};
+
 const load = (p: string): { raw: Buffer; idl: Idl } => {
   const raw = readFileSync(p);
   return { raw, idl: JSON.parse(raw.toString('utf8')) as Idl };
@@ -112,12 +131,57 @@ describe('the committed IDLs are the pinned ones', () => {
     expect(createHash('sha256').update(load(LAUNCH_IDL_PATH).raw).digest('hex')).toBe(SHA256.launch);
     expect(createHash('sha256').update(load(CPSWAP_IDL_PATH).raw).digest('hex')).toBe(SHA256.cpswap);
   });
-  it('the pool IDL is the release IDL plus create_lp_metadata, and nothing else', () => {
-    const { idl } = load(CPSWAP_IDL_PATH);
-    expect(idl.instructions.filter((i) => i.name === 'create_lp_metadata')).toHaveLength(1);
+  it('the pool IDL is the one from before the swap-guard upgrade plus what that upgrade added, and nothing else', () => {
+    // Everything the swap-guard upgrade changed in the interface, undone one piece at a time.
+    // A piece that is not exactly as written here fails before the hash is ever compared.
+    const idl = JSON.parse(load(CPSWAP_IDL_PATH).raw.toString('utf8')) as GuardIdl;
+    // 1. One error, appended last, so no earlier code moved.
+    expect(idl.errors.at(-1)).toEqual({ code: 6015, name: 'SwapNotDirect', msg: "This pool's swaps must be sent directly, not called by another program" });
+    idl.errors.pop();
+    // 2. Two fields of the fee settings account, where five of its fifteen spare u64 were
+    //    (8 bytes + 32 bytes), so the account keeps its size and every earlier field its place.
+    const fields = idl.types.find((t) => t.name === 'AmmConfig')?.type.fields ?? [];
+    const at = fields.findIndex((f) => f.name === 'swap_guard');
+    expect(fields.slice(at - 1).map((f) => [f.name, f.type])).toEqual([
+      ['creator_fee_rate', 'u64'],
+      ['swap_guard', 'u64'],
+      ['keeper', 'pubkey'],
+      ['padding', { array: ['u64', 10] }],
+    ]);
+    fields.splice(at, 2);
+    fields[at]!.type = { array: ['u64', 15] };
+    // 3. Comments only: three lines on update_amm_config that say what its settings 8 and 9
+    //    do, and the line on collect_fund_fee's signer, which the fee rules of 2026-11-03 made
+    //    "only the fund owner".
+    const update = idl.instructions.find((i) => i.name === 'update_amm_config')?.docs ?? [];
+    const first = update.findIndex((line) => line.startsWith('* memetics.finance, 2026-11-10: `param` 8 sets'));
+    expect(first).toBeGreaterThan(0);
+    expect(update.slice(first + 3)).toEqual(['']);
+    update.splice(first, 3);
+    const owner = idl.instructions.find((i) => i.name === 'collect_fund_fee')?.accounts.find((a) => a.name === 'owner');
+    expect(owner?.docs).toEqual(['Only fund_owner can collect fee now']);
+    owner!.docs = ['Only admin or fund_owner can collect fee now'];
     // The IDL tool writes two-space JSON with no final newline, which is what this re-emits.
+    expect(createHash('sha256').update(JSON.stringify(idl, null, 2)).digest('hex')).toBe(SHA256.cpswapBeforeSwapGuard);
+
+    // And that earlier IDL is the release's plus create_lp_metadata, and nothing else.
+    expect(idl.instructions.filter((i) => i.name === 'create_lp_metadata')).toHaveLength(1);
     const without = { ...idl, instructions: idl.instructions.filter((i) => i.name !== 'create_lp_metadata') };
-    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapRelease);
+    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapBeforeUpgrade);
+  });
+  it('the swap guard changed no instruction: same seventeen, same accounts, same arguments', () => {
+    // The guard is a refusal inside the two swaps and two settings of update_amm_config. No
+    // instruction gained or lost an account or an argument, so everything the site, the
+    // robot and a wallet send is built exactly as before.
+    const { idl } = load(CPSWAP_IDL_PATH);
+    expect(idl.instructions).toHaveLength(17);
+    for (const name of ['swap_base_input', 'swap_base_output'] as const) {
+      const ix = ixOfPool(idl, name);
+      expect(ix.accounts).toHaveLength(13);
+      expect(ix.accounts.filter((a) => a.signer).map((a) => a.name)).toEqual(['payer']);
+      expect(ix.args.map((a) => a.name)).toHaveLength(2);
+    }
+    expect(ixOfPool(idl, 'update_amm_config').args.map((a) => [a.name, a.type])).toEqual([['param', 'u8'], ['value', 'u64']]);
   });
   it('create_lp_metadata takes no argument and names nine accounts, with only the payer signing', () => {
     const ix = load(CPSWAP_IDL_PATH).idl.instructions.find((i) => i.name === 'create_lp_metadata');
@@ -354,7 +418,7 @@ describe('cp-swap swap_base_input matches the fork IDL', () => {
 describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
   // Deposit and withdraw have never run on the mainnet binary from this site; until
   // now only ix.test.ts held them, and it reads the Rust source. These hold them to
-  // the release's own IDL: the account list as data (name, order, flags), the built
+  // the program's own IDL: the account list as data (name, order, flags), the built
   // instruction position by position, the discriminators, and where each argument sits.
   const lpAccounts = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
   const lpPool = poolStatePda(MINT, LAUNCH);
@@ -407,7 +471,7 @@ describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
 
 describe('cp-swap initialize matches the committed mainnet IDL', () => {
   // Opening a pool from this site (lp-create). The decoder pins all 20 slots by name and
-  // order (intent.ts poolInitialize), so the list it pins is held to the release's IDL.
+  // order (intent.ts poolInitialize), so the list it pins is held to the program's own IDL.
   const flags = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
   const tier1 = publicTierConfig(CPSWAP);
   const [t0, t1] = sortMints(WSOL_MINT, MINT);
@@ -458,9 +522,9 @@ describe('error tables equal the IDLs, code for code', () => {
       expect(copy).not.toMatch(/\u2014/); // plain copy, no em dash
     }
   });
-  it('cp-swap: 6000-6014, every code has plain-English copy', () => {
+  it('cp-swap: 6000-6015, every code has plain-English copy', () => {
     const idl = cpIdl();
-    expect(idl.errors).toHaveLength(15);
+    expect(idl.errors).toHaveLength(16);
     for (const e of idl.errors) {
       expect((CP_SWAP_ERROR_CODES as Record<number, string>)[e.code], `code ${e.code}`).toBe(e.name);
       expect(CP_SWAP_ERROR_COPY[e.name as keyof typeof CP_SWAP_ERROR_COPY], e.name).toBeTruthy();

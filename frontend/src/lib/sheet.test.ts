@@ -24,12 +24,22 @@ describe('the rooms a sheet acts on', () => {
 
 describe('the address', () => {
   it('reads ?sheet=add and ?sheet=buy, with the coin when one is named, and nothing else', () => {
-    expect(readSheet('?sheet=add')).toEqual({ kind: 'add', coin: null });
-    expect(readSheet('?sheet=buy&coin=soy')).toEqual({ kind: 'buy', coin: sheetRoom('soy') });
-    expect(readSheet('?sheet=buy&coin=pepe')).toEqual({ kind: 'buy', coin: null });
+    expect(readSheet('?sheet=add')).toEqual({ kind: 'add', coin: null, net: null, all: false });
+    expect(readSheet('?sheet=buy&coin=soy')).toEqual({ kind: 'buy', coin: sheetRoom('soy'), net: null, all: false });
+    expect(readSheet('?sheet=buy&coin=pepe')).toEqual({ kind: 'buy', coin: null, net: null, all: false });
     expect(readSheet('?sheet=sell')).toBeNull();
     expect(readSheet('?coin=soy')).toBeNull();
     expect(readSheet('')).toBeNull();
+  });
+  it('holds the sheet’s own network and its every-pool view in the address; Solana, the sheet’s own, is never named', () => {
+    expect(readSheet('?sheet=buy&net=base')).toEqual({ kind: 'buy', coin: null, net: 'base', all: false });
+    expect(readSheet('?sheet=buy&net=dogechain')?.net).toBeNull();
+    expect(readSheet('?sheet=add&coin=all')).toEqual({ kind: 'add', coin: null, net: null, all: true });
+    expect(readSheet('?sheet=buy&coin=all')?.all, 'every pool is Add’s').toBe(false);
+    expect(sheetHref('/bayla', '?sheet=buy', 'buy', null, 'base')).toBe('/bayla?sheet=buy&net=base');
+    expect(sheetHref('/bayla', '?sheet=buy&net=base', 'buy', null, 'solana')).toBe('/bayla?sheet=buy');
+    expect(sheetHref('/bayla', '?sheet=buy&net=base', 'buy', 'bobo'), 'a coin picked is a Solana room’s').toBe('/bayla?sheet=buy&coin=bobo');
+    expect(withoutSheet('/bayla', '?sheet=add&coin=all&net=base&x=1')).toBe('/bayla?x=1');
   });
   it('opens over the page and keeps what the page had in its address; closing leaves the page as it was', () => {
     expect(sheetHref('/bayla', '', 'add')).toBe('/bayla?sheet=add');

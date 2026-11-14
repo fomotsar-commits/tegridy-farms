@@ -14,6 +14,9 @@
     "api/venue-volume-count.js": {
       "maxDuration": 120
     },
+    "api/aggregator.js": {
+      "maxDuration": 30
+    },
     "api/outside-prices.js": {
       "maxDuration": 60
     }
@@ -46,6 +49,12 @@
     },
     {
       "source": "/(bayla|toweli|towelie|pepe|qr|mfer|bnkr|drb|bobo|jbm|soy|brainlet|rizz|nb1)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/pools",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
@@ -100,6 +109,12 @@
     },
     {
       "source": "/splash/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/share/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
@@ -198,11 +213,13 @@
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
     { "source": "/api/pools", "destination": "/api/aggregator?resource=pools" },
+    { "source": "/api/gt/:endpoint", "destination": "/api/aggregator?resource=gt&endpoint=:endpoint" },
     { "source": "/api/cardano/:op", "destination": "/api/cardano?op=:op" },
     { "source": "/record/:chain/:ca.json", "destination": "/api/aggregator?resource=record&chain=:chain&ca=:ca" },
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
     { "source": "/position/:id.json", "destination": "/api/aggregator?resource=position&id=:id" },
     { "source": "/position/:path*", "destination": "/api/aggregator?resource=position&path=:path*" },
+    { "source": "/mint/:mint.json", "destination": "/api/aggregator?resource=mint&mint=:mint" },
     { "source": "/mint/(.*)", "destination": "/mint/default.json" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

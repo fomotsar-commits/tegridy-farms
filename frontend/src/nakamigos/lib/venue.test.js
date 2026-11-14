@@ -165,3 +165,56 @@ describe("constants.js stays data only", () => {
     expect(src).not.toMatch(/from\s+["']\.\/lib\/venue["']/);
   });
 });
+
+describe("canBuyOnVenue and buyChainFor: Bojungles and Seeds are bought here, on Base", () => {
+  it("a venue collection and the two venueBuy Base ERC-721s can be bought; no other family collection can", async () => {
+    const { canBuyOnVenue, canTradeOnVenue } = await venue();
+    for (const slug of ["nakamigos", "gnssart", "junglebay", "junglebaygoldcards", "bojungles", "memeticseeds"]) {
+      expect(canBuyOnVenue(COLLECTIONS[slug]), slug).toBe(true);
+    }
+    for (const slug of ["junglebaymemes", "raretowelie", "junglets"]) {
+      expect(canBuyOnVenue(COLLECTIONS[slug]), slug).toBe(false);
+    }
+    // Bought, never traded: the rest of the venue still refuses them.
+    expect(canTradeOnVenue(COLLECTIONS.bojungles)).toBe(false);
+    expect(canTradeOnVenue(COLLECTIONS.memeticseeds)).toBe(false);
+  });
+
+  it("venueBuy alone is not enough: it must be a Base ERC-721 with a real address", async () => {
+    const { canBuyOnVenue } = await venue();
+    const base721 = { chain: "base", standard: "erc721", venueBuy: true, contract: "0x" + "2".repeat(40) };
+    expect(canBuyOnVenue(base721)).toBe(true);
+    expect(canBuyOnVenue({ ...base721, venueBuy: "true" })).toBe(false);
+    expect(canBuyOnVenue({ ...base721, standard: "erc1155" })).toBe(false);
+    expect(canBuyOnVenue({ ...base721, chain: "solana" })).toBe(false);
+    expect(canBuyOnVenue({ ...base721, chain: "ethereum" })).toBe(false);
+    expect(canBuyOnVenue({ ...base721, contract: "0x123" })).toBe(false);
+    expect(canBuyOnVenue(null)).toBe(false);
+  });
+
+  it("names the chain from the registry, in any address case", async () => {
+    const { buyChainFor } = await venue();
+    expect(buyChainFor([ADDR.bojungles.toUpperCase().replace("0X", "0x")])).toEqual({ chain: "base", chainId: 8453 });
+    expect(buyChainFor([ADDR.memeticseeds, ADDR.bojungles])).toEqual({ chain: "base", chainId: 8453 });
+    expect(buyChainFor([ADDR.gnssart])).toEqual({ chain: "ethereum", chainId: 1 });
+  });
+
+  it("refuses an empty list, a non-buyable contract, and NFTs from two chains", async () => {
+    const { buyChainFor, NOT_VENUE_TRADEABLE } = await venue();
+    expect(buyChainFor([]).error).toBe(NOT_VENUE_TRADEABLE);
+    expect(buyChainFor(undefined).error).toBe(NOT_VENUE_TRADEABLE);
+    expect(buyChainFor([ADDR.junglebaymemes]).error).toBe(NOT_VENUE_TRADEABLE);
+    expect(buyChainFor([ADDR.bojungles, ADDR.junglebaymemes]).error).toBe(NOT_VENUE_TRADEABLE);
+    const mixed = buyChainFor([ADDR.bojungles, ADDR.gnssart]);
+    expect(mixed.error).toBe(NOT_VENUE_TRADEABLE);
+    expect(mixed.message).toMatch(/two chains/);
+  });
+
+  it("links a transaction to its own chain's explorer", async () => {
+    const { chainTxUrl, walletChainLabel } = await venue();
+    expect(chainTxUrl("base", "0xabc")).toBe("https://basescan.org/tx/0xabc");
+    expect(chainTxUrl("ethereum", "0xabc")).toBe("https://etherscan.io/tx/0xabc");
+    expect(chainTxUrl("solana", "0xabc")).toBeNull();
+    expect(walletChainLabel("base")).toBe("Base");
+  });
+});

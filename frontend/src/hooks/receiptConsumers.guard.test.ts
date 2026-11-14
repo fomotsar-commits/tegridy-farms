@@ -33,6 +33,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { code as withoutComments } from '../test/sourceCode';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -45,14 +46,23 @@ function walk(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-/** Source with comments removed, so a comment that NAMES a call is not the call. */
-function code(path: string): string {
-  return readFileSync(path, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
-}
+/** Source with comments removed (test/sourceCode.ts): a comment that NAMES a call is not the call, and no comment hides one. */
+const code = (path: string): string => withoutComments(readFileSync(path, 'utf8'));
 
 const count = (src: string, re: RegExp) => (src.match(re) ?? []).length;
+
+describe('the fence reads code, not comments', () => {
+  // A `//` line that names `/*` (41 files open with "any @solana/* import") is a line comment
+  // and nothing more. Read block comments first and it opens one that runs to the next `*/`,
+  // and a receipt wait inside that stretch is never counted (island answer thirty-three, §3).
+  it('a // line that names /* hides no receipt wait', () => {
+    const src = "// any @solana/* import\nconst r = useWaitForTransactionReceipt({ hash });\n/* a note */\n";
+    expect(count(withoutComments(src), WAIT)).toBe(1);
+  });
+  it('a comment that names a wait is still not one', () => {
+    expect(count(withoutComments('// useWaitForTransactionReceipt(\n/* useWaitForTransactionReceipt( */\n'), WAIT)).toBe(0);
+  });
+});
 
 const WAIT = /\buseWaitForTransactionReceipt\(/g;
 const SPLIT = /\b(?:receiptOutcome|useReceiptOutcome|isRevertedReceiptError)\(/g;

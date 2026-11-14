@@ -63,6 +63,10 @@ const KNOWN = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC",
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT",
   "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump": "BAYLA",
+  "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump": "BOBO",
+  "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump": "SOY",
+  "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump": "BRAINLET",
+  "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k": "RIZZ",
 };
 
 /** 32 bytes as base58. */

@@ -1,5 +1,5 @@
-// The shape of what the shield read, and the rules for turning raw contract reads
-// into it. Pure — the RPC lives in useShieldPositions.ts.
+// The shape of what the shield read, and the rules for turning it into positions. Pure: the
+// reads live in useMyLoans (the offer book's records, each checked against `getLoanHash`).
 //
 // The snapshot is four-valued for the same reason useIndexedQuery's and
 // useAlerts' state machines are: a two-state (loading / positions) shape cannot
@@ -9,6 +9,7 @@
 // something false.
 
 import type { Address } from 'viem';
+import { loanEnd, owedAt, type Loan } from '../gondi/loanMath';
 import { assessDeadlineHealth, healthSeverity, type ShieldHealth } from './health';
 import type { ShieldVenueId } from './venues';
 
@@ -16,17 +17,15 @@ export interface ShieldPosition {
   loanId: number;
   venue: ShieldVenueId;
   lendingContract: Address;
-  collateralContract: string | null;
+  collateralContract: string;
   tokenId: bigint;
   principal: bigint;
   borrower: string;
-  repaid: boolean;
-  defaultClaimed: boolean;
+  /** The loan as `getLoanHash` confirmed it. Repaying sends it back whole. */
+  loan: Loan;
   health: ShieldHealth;
-  /** `getRepaymentAmount(loanId)` in wei. Null when that read failed. */
-  quotedRepayWei: bigint | null;
-  /** Non-null exactly when `quotedRepayWei` is null. Says which read went missing. */
-  quoteDetail: string | null;
+  /** What repaying at `observedAt` costs, in WETH wei (`owedAt`, Gondi's own repayment math). */
+  owedNowWei: bigint;
 }
 
 export type ShieldSnapshotStatus = 'idle' | 'loading' | 'ready' | 'unreadable';
@@ -41,9 +40,6 @@ export interface ShieldPositionsSnapshot {
   observedAt: number;
 }
 
-export const QUOTE_UNREADABLE_DETAIL =
-  'The repayment amount could not be read from the lending contract for this loan.';
-
 export const IDLE_DETAIL =
   'Connect the borrowing wallet on Ethereum to read its loans. Nothing is watched until then.';
 
@@ -52,50 +48,27 @@ export const LOADING_DETAIL = 'Reading this wallet’s loans from the lending co
 export const READ_FAILED_DETAIL =
   'This wallet’s loans could not be read from the lending contract, so it is not known whether any deadline is close. This is a failed read, not an absence of debt.';
 
+/** One borrowed loan whose hash the chain confirmed. */
 export interface RawLoanRead {
   loanId: number;
   venue: ShieldVenueId;
   lendingContract: Address;
-  collateralContract: string | null;
-  tokenId: bigint;
-  principal: bigint;
-  borrower: string;
-  repaid: boolean;
-  defaultClaimed: boolean;
-  /** `effectiveDeadline(loanId)`, or null when the read failed. */
-  effectiveDeadlineUnix: number | null;
-  /** `GRACE_PERIOD()` — the minimum grace, not the operative one. Null on read failure. */
-  minGraceSeconds: number | null;
-  /** `isDefaulted(loanId)` — the contract's own closure verdict. Null on read failure. */
-  defaultedOnChain: boolean | null;
-  /** `getRepaymentAmount(loanId)`, or null when the read failed. */
-  quotedRepayWei: bigint | null;
+  loan: Loan;
 }
 
-/**
- * Assemble the ready snapshot. Sorted worst-first, with unreadable positions
- * ahead of every readable one — see healthSeverity for why.
- */
+/** Assemble the ready snapshot, sorted worst-first. */
 export function buildSnapshot(reads: readonly RawLoanRead[], nowUnix: number): ShieldPositionsSnapshot {
   const positions = reads.map<ShieldPosition>((r) => ({
     loanId: r.loanId,
     venue: r.venue,
     lendingContract: r.lendingContract,
-    collateralContract: r.collateralContract,
-    tokenId: r.tokenId,
-    principal: r.principal,
-    borrower: r.borrower,
-    repaid: r.repaid,
-    defaultClaimed: r.defaultClaimed,
-    health: assessDeadlineHealth({
-      effectiveDeadlineUnix: r.effectiveDeadlineUnix,
-      minGraceSeconds: r.minGraceSeconds,
-      defaultedOnChain: r.defaultedOnChain,
-      nowUnix,
-      unreadableDetail: `Loan #${r.loanId}’s deadline and default status could not be read from the lending contract, so its health is unknown. This is a failed read, not a loan that is fine.`,
-    }),
-    quotedRepayWei: r.quotedRepayWei,
-    quoteDetail: r.quotedRepayWei == null ? QUOTE_UNREADABLE_DETAIL : null,
+    collateralContract: r.loan.nftCollateralAddress,
+    tokenId: r.loan.nftCollateralTokenId,
+    principal: r.loan.principalAmount,
+    borrower: r.loan.borrower,
+    loan: r.loan,
+    health: assessDeadlineHealth({ deadlineUnix: Number(loanEnd(r.loan)), nowUnix }),
+    owedNowWei: owedAt(r.loan, BigInt(nowUnix)).total,
   }));
 
   positions.sort((a, b) => {

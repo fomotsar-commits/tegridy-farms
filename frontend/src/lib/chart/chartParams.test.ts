@@ -125,3 +125,28 @@ describe('several bad parameters at once', () => {
     expect(out.timeframe).toBe('1h');
   });
 });
+
+describe('inside a coin\'s room', () => {
+  // BAYLA's room, as the bungalow registry gives it. The walk of 2026-11-05 found
+  // /chart inside the BAYLA room opening on TOWELI / WETH.
+  const BAYLA_ROOM = { network: 'solana' as const, pool: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n' };
+
+  it('a link that names no pool opens on the room\'s own pool, quietly', () => {
+    const out = resolveChartParams(NONE, BAYLA_ROOM);
+    expect(out.market?.network).toBe('solana');
+    expect(out.market?.pool).toBe(BAYLA_ROOM.pool);
+    expect(out.refusals).toEqual([]);
+  });
+
+  it('a link that names a network or a pool still wins over the room', () => {
+    expect(resolveChartParams({ ...NONE, network: 'eth' }, BAYLA_ROOM).market?.pool).toBe(TOWELI_MARKET.pool);
+    const toweli = resolveChartParams({ ...NONE, network: 'eth', pool: TOWELI_MARKET.pool }, BAYLA_ROOM);
+    expect(toweli.market?.pool).toBe(TOWELI_MARKET.pool);
+  });
+
+  it('a room pool the chart does not list is not used as given', () => {
+    const out = resolveChartParams(NONE, { network: 'solana', pool: '..%2F..%2Fsearch' });
+    expect(out.market?.pool).toBe(TOWELI_MARKET.pool);
+    expect(out.refusals).toEqual([]);
+  });
+});

@@ -1,11 +1,13 @@
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
+import { isDeployed } from "../lib/constants";
+import { GONDI_LOAN_ADDRESS } from "../lib/gondi/loanOffer.js";
 import { IPFS_GATEWAYS } from "../lib/ipfsGateways";
 
 // CREDIBILITY GATING (same rule as lib/navConfig.ts): loan-desk CTAs render
-// only once the relaunch TegridyNFTLending address lands in lib/constants.ts.
+// only once Gondi's v3.2 loan contract is deployed for the venue (GONDI_LOAN_ADDRESS in
+// lib/gondi/loanOffer.js).
 // A borrow button that dead-ends in "Contract Not Deployed" costs more trust
 // than the funnel earns, so the CTAs light up on deploy with no code change.
-export const NFT_LOAN_DESK_LIVE = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+export const NFT_LOAN_DESK_LIVE = isDeployed(GONDI_LOAN_ADDRESS);
 
 // ═══ RANK TIER (F809) ═══
 // Single source of truth for rarity-rank thresholds. Three surfaces previously
@@ -28,8 +30,10 @@ export function rankTier(rank, supply) {
 // ═══ MULTI-COLLECTION CONFIG ═══
 // Every entry names its chain, standard and home market. venueTrade is true
 // only for an Ethereum ERC-721 (registry.test.js pins it), and lib/venue.js
-// canTradeOnVenue is the one rule money paths and surfaces read. This file
-// stays data only: it never imports lib/venue.js.
+// canTradeOnVenue is the one rule money paths and surfaces read. venueBuy is
+// narrower: a Base ERC-721 whose OpenSea listings are bought here, one at a
+// time, through Seaport on Base (lib/venue.js canBuyOnVenue). Nothing else
+// trades for it here. This file stays data only: it never imports lib/venue.js.
 export const COLLECTIONS = {
   nakamigos: {
     name: "Nakamigos",
@@ -208,6 +212,7 @@ export const COLLECTIONS = {
     chain: "base",
     standard: "erc721",
     venueTrade: false,
+    venueBuy: true,
     symbol: "SFTMG",
     supply: 369,
     burnedIds: [88], // held by 0x...dEaD: it cannot be bought
@@ -281,6 +286,7 @@ export const COLLECTIONS = {
     chain: "base",
     standard: "erc721",
     venueTrade: false,
+    venueBuy: true,
     symbol: "BOJUNG",
     supply: 250,
     supplyNote: "totalSupply() on Base at block 51695371 is 250 (ids 0 to 249).",
@@ -401,7 +407,12 @@ export const KNOWN_SEAPORT_ADDRESSES = new Set([
  * (callers MUST abort — never fall back to a default, which would silently
  * execute an order whose signed domain doesn't match where we're sending ETH).
  */
-export function resolveSeaportTarget(protocolAddress) {
+export function resolveSeaportTarget(protocolAddress, chainId = 1) {
+  // A Base order is signed for Seaport 1.6 on Base: that one contract only.
+  if (chainId === 8453) {
+    if (!protocolAddress) return SEAPORT_16_ADDRESS;
+    return String(protocolAddress).toLowerCase() === SEAPORT_16_ADDRESS.toLowerCase() ? protocolAddress : null;
+  }
   if (!protocolAddress) return SEAPORT_ADDRESS;
   return KNOWN_SEAPORT_ADDRESSES.has(String(protocolAddress).toLowerCase())
     ? protocolAddress
@@ -461,6 +472,24 @@ export const OPENSEA_FEE_BPS = 100;
 // RELAUNCH 2026-06-06: route to new 2-of-2 treasury Safe (was EOA 0xE9B7aB…, now only a Safe signer)
 export const PLATFORM_FEE_RECIPIENT = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
 export const PLATFORM_FEE_BPS = 50; // 0.5%
+
+// Per chain, by chain id: the Seaport an order is signed for, its EIP-712
+// domain, WETH and the venue's fee Safe. Ethereum is unchanged. Base orders
+// are Seaport 1.6 on Base (OpenSea's own Base orders are), and Base fees go to
+// the Base treasury Safe (src/lib/chains/registry.ts base.contracts.treasury):
+// the Ethereum fee Safe has no code on Base. api/_lib/platform-fee.js and
+// api/_lib/seaport-verify.js hold the server's copies; tests keep them equal.
+export const SEAPORT_16_ADDRESS = "0x0000000000000068F116a894984e2DB1123eB395";
+export const SEAPORT_ADDRESSES_BY_CHAIN = Object.freeze({ 1: SEAPORT_ADDRESS, 8453: SEAPORT_16_ADDRESS });
+export const SEAPORT_DOMAINS = Object.freeze({
+  1: SEAPORT_DOMAIN,
+  8453: Object.freeze({ name: "Seaport", version: "1.6", chainId: 8453, verifyingContract: SEAPORT_16_ADDRESS }),
+});
+export const WETH_BY_CHAIN = Object.freeze({ 1: WETH, 8453: "0x4200000000000000000000000000000000000006" });
+export const PLATFORM_FEE_RECIPIENTS = Object.freeze({
+  1: PLATFORM_FEE_RECIPIENT,
+  8453: "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
+});
 
 // ── Bundle listing feature flag ──────────────────────────────────────────────
 // Multi-NFT "list as a package" (one atomic Seaport order, one price). This is a

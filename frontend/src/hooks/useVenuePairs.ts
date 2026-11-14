@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useReadContract, useReadContracts } from 'wagmi';
 import { ERC20_ABI, TEGRIDY_FACTORY_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
-import { liquidityVenueOn } from '../lib/chains/liquidityVenue';
+import { liquidityVenueOn, openingVenueOn } from '../lib/chains/liquidityVenue';
 
 /** The most pools listed at once; a longer list says how many it left out. */
 export const VENUE_PAIRS_SHOWN = 50;
@@ -18,7 +18,10 @@ export interface VenuePairToken {
 
 /** One pool as read. Every null is a read that did not land, never a zero. */
 export interface VenuePair {
+  /** Its place in the list: the old factory's pools first, then the opening factory's. */
   readonly index: number;
+  /** The factory it was read from: the old one, or the one that charges 0.006 ETH to open. */
+  readonly factory: Hex;
   readonly address: Hex | null;
   readonly token0: VenuePairToken | null;
   readonly token1: VenuePairToken | null;
@@ -42,26 +45,48 @@ const ok = <T,>(r: Result): T | null => (r?.status === 'success' ? (r.result as 
 const PAIR_CALLS = ['token0', 'token1', 'getReserves', 'kLast'] as const;
 
 /**
- * Every pool in `chainId`'s own factory: allPairsLength(), then allPairs(i), then each pair's
- * tokens, reserves and kLast, then each token's symbol and decimals. Every read is pinned to
- * the venue's chain, so a wallet on another network never reads this factory's address there.
+ * Every pool in `chainId`'s own factories: the old one, and the one that charges 0.006 ETH to
+ * open a pool once it is deployed (owner ruling 2026-10-25). Each factory is read the same way
+ * (useFactoryPairs). The list is "empty" only when every factory answered 0, and "unread" when
+ * any did not answer: a pool list that silently drops a factory would read as complete.
  */
 export function useVenuePairs(chainId: number): VenuePairsRead {
   const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
-  const readChainId = venue?.chainId ?? 0;
-  const factory = venue?.factory ?? ZERO_ADDR;
+  const opening = useMemo(() => openingVenueOn(chainId), [chainId]);
+  const base = useFactoryPairs(venue?.factory ?? null, venue?.chainId ?? 0, 0);
+  const baseShown = base.status === 'listed' ? base.pairs.length : 0;
+  const fresh = useFactoryPairs(opening?.factory ?? null, opening?.chainId ?? 0, baseShown);
+
+  if (!venue) return { status: 'unread' };
+  if (!opening) return base;
+  if (base.status === 'unread' || fresh.status === 'unread') return { status: 'unread' };
+  if (base.status === 'loading' || fresh.status === 'loading') return { status: 'loading' };
+  if (base.status === 'empty') return fresh;
+  if (fresh.status === 'empty') return base;
+  return { status: 'listed', total: base.total + fresh.total, pairs: [...base.pairs, ...fresh.pairs] };
+}
+
+/**
+ * Every pool in one factory: allPairsLength(), then allPairs(i), then each pair's tokens,
+ * reserves and kLast, then each token's symbol and decimals. Every read is pinned to the
+ * venue's chain, so a wallet on another network never reads this factory's address there.
+ * `factory` null reads nothing and answers "unread". `indexOffset` numbers its pools after
+ * the ones listed before it.
+ */
+function useFactoryPairs(factoryOrNull: Hex | null, readChainId: number, indexOffset: number): VenuePairsRead {
+  const factory = factoryOrNull ?? ZERO_ADDR;
 
   const length = useReadContract({
     address: factory,
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'allPairsLength',
     chainId: readChainId,
-    query: { enabled: !!venue, refetchInterval: 60_000 },
+    query: { enabled: !!factoryOrNull, refetchInterval: 60_000 },
   });
   const total = typeof length.data === 'bigint' ? Number(length.data) : null;
   const shown = total === null ? 0 : Math.min(total, VENUE_PAIRS_SHOWN);
 
-  const addressesOn = !!venue && shown > 0;
+  const addressesOn = !!factoryOrNull && shown > 0;
   const addresses = useReadContracts({
     contracts: Array.from({ length: shown }, (_, i) => ({
       address: factory, abi: TEGRIDY_FACTORY_ABI, functionName: 'allPairs', args: [BigInt(i)], chainId: readChainId,
@@ -104,7 +129,7 @@ export function useVenuePairs(chainId: number): VenuePairsRead {
     query: { enabled: tokensOn },
   });
 
-  if (!venue || length.isError) return { status: 'unread' };
+  if (!factoryOrNull || length.isError) return { status: 'unread' };
   if (total === null) return { status: 'loading' };
   if (total === 0) return { status: 'empty' };
   if ((addressesOn && addresses.isPending) || (detailsOn && details.isPending) || (tokensOn && tokens.isPending)) {
@@ -125,10 +150,11 @@ export function useVenuePairs(chainId: number): VenuePairsRead {
 
   const pairs = pairAddrs.map((address, index): VenuePair => {
     const k = address ? knownPairs.indexOf(address) : -1;
-    if (k < 0) return { index, address: null, token0: null, token1: null, reserve0: null, reserve1: null, kLast: null };
+    if (k < 0) return { index: indexOffset + index, factory, address: null, token0: null, token1: null, reserve0: null, reserve1: null, kLast: null };
     const reserves = ok<readonly [bigint, bigint, number]>(detail(k, 'getReserves'));
     return {
-      index,
+      index: indexOffset + index,
+      factory,
       address,
       token0: tokenOf(ok<Hex>(detail(k, 'token0'))),
       token1: tokenOf(ok<Hex>(detail(k, 'token1'))),

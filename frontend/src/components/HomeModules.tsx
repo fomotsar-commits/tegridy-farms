@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { SolanaProviders } from './solana/SolanaProviders';
 import { SheetBodyOutlet } from './sheet/SheetOutlet';
@@ -9,9 +9,9 @@ import { LighthouseClaimStrip } from './bungalow/LighthousePoolLive';
 import { LpInner } from './solana/lp/SolanaLpSection';
 import { browserLpReaders, type LpReaders } from './solana/lp/readers';
 import { CardArt } from './ui/CardArt';
-import { ChainPicker } from './layout/ChainPicker';
-import { useSectionChain } from '../hooks/useSectionChain';
-import { POOLS_SECTION } from '../lib/navConfig';
+import { ModuleNetworkPicker, ModuleNetworkProvider } from './layout/moduleNetwork';
+import { OffSolanaPools, OffSolanaSwap } from './swap/NetworkForms';
+import type { VenueChain } from '../lib/sectionChains';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { isSolanaSwapLive } from '../lib/solana';
 import { BUNGALOWS, bungalowLpDoor, CARDS_ROOM_ID, stakePoolMembersOnly } from '../lib/bungalows';
@@ -20,14 +20,28 @@ import { BUNGALOWS, bungalowLpDoor, CARDS_ROOM_ID, stakePoolMembersOnly } from '
 const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
 
 /**
- * The LP card's network drop-down: the Pools tabs' own (PoolsHostPage), lit on Solana because the
- * card is /pools'. A pick leaves for that network's Pools tab (Base: /liquidity?c=8453).
+ * The LP card's network drop-down. A pick changes the card's form in place (owner, 2026-11-11):
+ * Solana's is /pools' form on the room's pool, an EVM network's is /liquidity's own add / remove form.
  * Its list opens leftward: the card is the row's last, and a list opening right ran 47px off a
  * 1280px screen.
  */
 function PoolsNetwork() {
-  const network = useSectionChain(POOLS_SECTION.items, '/pools', { missing: 'No pools here' });
-  return <ChainPicker label="Pools network" active={network.active} options={network.options} onPick={network.pick} align="end" />;
+  return <ModuleNetworkPicker section="pools" align="end" />;
+}
+
+/** A home card on a network that is not Solana: the card's frame and name, its network drop-down, that network's form. */
+function OffSolanaCard({ name, testId, section, network, children }: { name: string; testId: string; section: 'swap' | 'pools'; network: VenueChain; children: ReactNode }) {
+  return (
+    <section data-testid={testId} data-network={network} className="relative isolate min-w-0 rounded-2xl p-4" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h2 className="heading-luxury text-xl text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          {name}
+        </h2>
+        <ModuleNetworkPicker section={section} align={section === 'pools' ? 'end' : undefined} />
+      </div>
+      {children}
+    </section>
+  );
 }
 
 /**
@@ -57,6 +71,9 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
   const ladder = room?.ladderPool ? { ...room, ladderPool: room.ladderPool } : null;
   // As on /solana: no swap card where the swap is not live.
   const swap = isSolanaSwapLive();
+  // Each card's own network (not in the address: the home's is not a share link). Solana to start.
+  const [swapNet, setSwapNet] = useState<VenueChain>('solana');
+  const [poolsNet, setPoolsNet] = useState<VenueChain>('solana');
 
   return (
     // `mixed`: the home connects Ethereum too, so the top bar keeps its Solana-or-Ethereum sheet.
@@ -66,10 +83,18 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
       {(swap || ladder || lp) && (
         <div className="mt-6 mb-2 grid grid-cols-1 gap-4 lg:grid-cols-3 items-start" data-testid="home-modules">
           {swap && (
-            <div className="min-w-0" data-testid="home-swap">
-              <Suspense fallback={null}>
-                <SolanaSwapInner home />
-              </Suspense>
+            <div className="min-w-0" data-testid="home-swap" data-network={swapNet}>
+              <ModuleNetworkProvider active={swapNet} pick={setSwapNet}>
+                {swapNet === 'solana' ? (
+                  <Suspense fallback={null}>
+                    <SolanaSwapInner home />
+                  </Suspense>
+                ) : (
+                  <OffSolanaCard name="Swap" testId="home-swap-card" section="swap" network={swapNet}>
+                    <OffSolanaSwap chain={swapNet} />
+                  </OffSolanaCard>
+                )}
+              </ModuleNetworkProvider>
             </div>
           )}
           {ladder && (
@@ -78,7 +103,15 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
               {room && stakePoolMembersOnly(room) && <LighthouseClaimStrip bungalow={room} />}
             </div>
           )}
-          {lp && (
+          {lp && poolsNet !== 'solana' && poolsNet !== 'cardano' && (
+            <ModuleNetworkProvider active={poolsNet} pick={setPoolsNet}>
+              <OffSolanaCard name="Pools" testId="home-lp" section="pools" network={poolsNet}>
+                <OffSolanaPools chain={poolsNet} />
+              </OffSolanaCard>
+            </ModuleNetworkProvider>
+          )}
+          {lp && (poolsNet === 'solana' || poolsNet === 'cardano') && (
+            <ModuleNetworkProvider active="solana" pick={setPoolsNet}>
             <section
               aria-labelledby="home-lp-heading"
               data-testid="home-lp"
@@ -112,6 +145,7 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
                 </div>
               )}
             </section>
+            </ModuleNetworkProvider>
           )}
         </div>
       )}
