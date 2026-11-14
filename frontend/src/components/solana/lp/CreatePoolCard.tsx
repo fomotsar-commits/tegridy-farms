@@ -563,7 +563,7 @@ function OfferLines({
             const aPool = several || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
-                You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
+                You opened {aPool} for this token just now (<span className="font-mono [overflow-wrap:anywhere]">{pool.address}</span>). Your share is under
                 &apos;Your positions&apos;. {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'Adding to it keeps your liquidity in one place.'}
               </p>
             ) : (
@@ -573,7 +573,7 @@ function OfferLines({
                     after it is about the price alone (`adviceCaveat`). */}
                 This token already has {aPool} on the public fee tier{' '}
                 {warned ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
-                <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
+                <span className="font-mono [overflow-wrap:anywhere]">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
                 {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
             );

@@ -4,7 +4,7 @@ import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venu
 import { feeRateText } from '../../../lib/solana/lp/format';
 import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice, Row } from '../curve/ui';
-import { FinePrint } from '../../ui/FinePrint';
+import { DisclosureArrow, FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
@@ -17,9 +17,10 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // a public initialize that refuses fee tier 0, fee limits, and a swap guard the vault can
 // switch on. src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness
 // pins, so the two only move together (a roll-back too). It names no trader: the notice says
-// which routes exist, never who uses them.
+// which routes exist, never who uses them. It follows RISK_SHORT wherever it is drawn, so the
+// unaudited changes and the afford-to-lose clause are said there, once.
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.";
 /**
  * The risk in one sentence, first in every Risks drop-down (owner, 2026-10-17). The wait is said
  * as read: Squads multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock
@@ -27,9 +28,12 @@ const FORK_LINE =
  * print (SolanaLpSection.tsx) says it in full. It names no program change, so an upgrade leaves it true.
  */
 export const RISK_SHORT =
-  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
+  "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (as read on chain on 2026-11-14). Our changes to Raydium's program are unaudited. Only add what you can afford to lose.";
+// What the vault adds to RISK_SHORT, which is drawn above it on every list: that it is a
+// Squads multisig, the switch-offs RISK_SHORT does not name, that every action waits the
+// same, and what a switch-off of withdrawals does to a deposit.
 const VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault is a Squads multisig. It can also switch off deposits or swaps on this pool, and every action it takes has the same wait. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
@@ -38,9 +42,9 @@ const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if
 
 // ── opening a pool ──
 
-/** What the vault can do to a pool this site opens, and to the tier it opens on. */
+/** What the vault can do to a pool this site opens, and to the tier it opens on, beyond RISK_SHORT above it. */
 const CREATE_VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault is a Squads multisig. It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
@@ -54,18 +58,20 @@ export const MONEY_NOTE =
 const MONEY_LINE =
   "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does. Any other trade has to come from someone using our pool program directly. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
 
+/** Said on the opening form in place of the list's own line on it (`LpRisksDetails`), not beside it. */
 const NOT_THE_POOL_LINE = "Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.";
 
 /**
  * The liquidity providers' share of each trade, read from the pool's own fee tier just
  * now, and the creator fee traders pay on top when this pool's own switch is on: that
- * part goes to the pool's creator, so it is not part of what LPs keep.
+ * part goes to the pool's creator, so it is not part of what LPs keep. The wait for a
+ * change is RISK_SHORT's, drawn on the same screen: this line says only where a change lands.
  */
 function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): string {
   if (!config) return "This pool's fee settings could not be read, so what liquidity providers keep of each trade is not shown.";
   const creator = chargedCreatorFeeRate(config, enableCreatorFee);
   const creatorLine = creator > 0n ? ` Traders also pay this pool's creator ${feeRateText(creator)} of each trade on top; that part is not yours.` : '';
-  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates. A change waits 48 hours after both its keys approve, then applies to what you put in too.`;
+  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} If the vault changes that tier's rates, the change applies to what you put in too.`;
 }
 
 /**
@@ -99,14 +105,30 @@ export function LpBeforeYouAdd({
   );
 }
 
-/** The risks, one press away: the form's own lines (`children`) first, then the ones every form shares. */
-export function LpRisksDetails({ children }: { children?: ReactNode }) {
+/**
+ * A bordered LP drop-down's summary: the small print's arrow (FinePrint), so a closed one says
+ * it opens, and the 44px press. A `flex` summary draws no marker of the browser's own.
+ */
+export function LpSummary({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <summary className={`min-h-[44px] flex items-center gap-1.5 px-3 cursor-pointer text-white/75 list-none [&::-webkit-details-marker]:hidden ${className}`}>
+      <DisclosureArrow />
+      {children}
+    </summary>
+  );
+}
+
+/**
+ * The risks, one press away: the form's own lines (`children`) first, then the ones every form
+ * shares. `anyonePool`: the form's own words for "anyone can open a pool", said in the list's place.
+ */
+export function LpRisksDetails({ children, anyonePool }: { children?: ReactNode; anyonePool?: string }) {
   return (
     <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">Risks</summary>
+      <LpSummary>Risks</LpSummary>
       <ul className="list-disc pl-7 pr-3 pb-3 space-y-1 text-white/65">
         {children}
-        <li>Anyone can open a pool for any token, at any price, so being listed here does not make it &quot;the&quot; pool.</li>
+        <li>{anyonePool ?? 'Anyone can open a pool for any token, at any price, so being listed here does not make it "the" pool.'}</li>
         <li>Whether a token&apos;s creator can still freeze accounts is checked only when you look; it is not watched for you.</li>
         <li>When withdrawals are switched off on a pool, the pool program refuses every withdrawal from it.</li>
         <li>Adding and then removing costs at most one smallest unit per side in rounding, plus the network fees.</li>
@@ -165,7 +187,7 @@ export function LpBeforeYouOpen({
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
-      <LpRisksDetails>
+      <LpRisksDetails anyonePool={NOT_THE_POOL_LINE}>
         {!reviewing && <li>{RISK_SHORT}</li>}
         {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
@@ -175,7 +197,6 @@ export function LpBeforeYouOpen({
           {!coin.native && `${nameRecord !== null ? 'All of it is' : 'Both are'} paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
           {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
-        <li>{NOT_THE_POOL_LINE}</li>
       </LpRisksDetails>
     </div>
   );
@@ -222,7 +243,7 @@ export function LeaveWithoutThisSite({
 }) {
   return (
     <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }} data-testid="lp-leave-without-site">
-      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">Leaving without this site</summary>
+      <LpSummary>Leaving without this site</LpSummary>
       <div className="px-3 pb-3 space-y-1.5">
         <p className="text-white/65">
           The pool program lets you take your share out with its <code className="font-mono">withdraw</code> instruction. Any tool that

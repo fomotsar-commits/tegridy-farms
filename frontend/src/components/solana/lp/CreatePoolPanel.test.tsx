@@ -155,8 +155,8 @@ describe('the panel', () => {
     expect(within(panel).getByRole('heading', { name: 'Open a pool for this token' })).toHaveFocus();
     expect(panel).toHaveAccessibleName('Open a pool for this token');
     const before = within(panel).getByTestId('lp-before-you-open');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\./);
+    expect(before).toHaveTextContent(/It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait\./);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
     expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
@@ -168,7 +168,10 @@ describe('the panel', () => {
     expect(before).toHaveTextContent("Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.");
     expect(panel).not.toHaveTextContent(FORECAST_WORDS);
     expect(within(panel).getByText('Pool address').nextElementSibling).toHaveTextContent('the standard address for fee tier 1');
-    expect(within(panel).getByText('Fee tier').nextElementSibling).toHaveTextContent('1: traders pay 1% a trade; LPs keep 0.840% of each trade');
+    expect(within(panel).getByText('Fee tier').nextElementSibling).toHaveTextContent('Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade');
+    // Two whole phrases, so a phone breaks the row between them, never before "trade" (FeeTierValue.test.tsx).
+    const phrases = [...within(panel).getByText('Fee tier').nextElementSibling!.querySelectorAll(':scope > span.inline-block')].map((s) => s.textContent);
+    expect(phrases).toEqual(['Tier 1: traders pay 1% a trade;', 'LPs keep 0.840% of each trade']);
     // The wallet is read with the opening's own deposits.
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-create-panel')).toBeNull());
@@ -712,14 +715,14 @@ describe('what a trade on the new pool costs', () => {
     mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
     const { card, panel } = await openPanel();
     expect(card).toHaveTextContent('You can open the first one on the public fee tier (read just now): 1% a trade.');
-    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']);
+    expect(tierRow(panel)).toEqual(['Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade']);
     fireEvent.change(sol(panel), { target: { value: '1' } });
     fireEvent.click(matchButton(panel));
     await act(async () => {
       fireEvent.click(reviewButton(panel));
     });
     await within(panel).findByRole('heading', { name: 'Review: open a pool' });
-    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']));
+    expect(new Set(tierRow(panel))).toEqual(new Set(['Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade']));
   });
 
   it('on a tier with a creator rate set, still the trade fee alone, and it says the new pool charges no creator fee', async () => {
@@ -729,14 +732,14 @@ describe('what a trade on the new pool costs', () => {
     const { card, panel } = await openPanel();
     expect(card).toHaveTextContent('You can open the first one on the public fee tier (read just now): 1% a trade (no creator fee).');
     expect(card).not.toHaveTextContent(/1\.05%/);
-    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']);
+    expect(tierRow(panel)).toEqual(['Tier 1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']);
     fireEvent.change(sol(panel), { target: { value: '1' } });
     fireEvent.click(matchButton(panel));
     await act(async () => {
       fireEvent.click(reviewButton(panel));
     });
     await within(panel).findByRole('heading', { name: 'Review: open a pool' });
-    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']));
+    expect(new Set(tierRow(panel))).toEqual(new Set(['Tier 1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']));
   });
 });
 
@@ -759,12 +762,12 @@ describe('the review and a confirmed opening', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: open a pool' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveAttribute('data-kind', 'create');
-    expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
+    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(disclosure).toHaveTextContent(/It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait\./);
     expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     // The two risk notices stand once, above the rows (island, answer eighteen).
-    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/Our changes to Raydium's program are unaudited\./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait\./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(isCreatedPool(pool.toBase58())).toBe(false);
     await act(async () => {

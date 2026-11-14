@@ -27,7 +27,7 @@ import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import { AddressRow } from './AddressRow';
-import { LeaveWithoutThisSite } from './LpDisclosures';
+import { LeaveWithoutThisSite, LpSummary } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
 import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
@@ -288,9 +288,7 @@ function PositionsList({
       )}
       {aside.length > 0 && (
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-          <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
-            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside
-          </summary>
+          <LpSummary>{plural(aside.length, 'other pool share', 'other pool shares')}, set aside</LpSummary>
           <p className="px-3 text-white/70">
             Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with{' '}
             {QUOTE_COINS_OR}, or pools we could not confirm.
@@ -551,7 +549,7 @@ function PositionRow({
         onAllPools={onAllPools}
       />
       <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-        <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about this share</summary>
+        <LpSummary>More about this share</LpSummary>
         <div className="space-y-1.5 px-3 pb-3">
           {view && shareRows}
           {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
