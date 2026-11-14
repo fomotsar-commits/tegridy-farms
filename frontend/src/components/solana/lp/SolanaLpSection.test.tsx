@@ -533,6 +533,10 @@ describe('the order of the section', () => {
       'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
       'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
       'The vault can switch off adding, removing or trading on any pool.',
+      // Since the pool program's upgrade of 2026-11: the fee ceilings, the island's share, the guard.
+      'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
+      'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
+      'It can switch the swap guard on or off for a fee tier',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
       'you could not take your money out of that pool until it switched removing back on',
@@ -551,6 +555,8 @@ describe('the order of the section', () => {
     expect(full).toHaveTextContent(
       'Jupiter does not send trades to these pools yet, so a pool earns fees only from trades sent to it by this site’s own swap, or by someone using the pool program directly.',
     );
+    // The swap guard, said as a route that is closed while it is on, with no trader named.
+    expect(full).toHaveTextContent('While the swap guard is on, directly means sent by the wallet itself: the pool refuses a trade that another program makes.');
     expect(full).toHaveTextContent('When the price moves, liquidity providers can end up with less than if they had just held both tokens.');
     expect(full).not.toHaveTextContent(/\bbots?\b|arbitrage|most trades|mostly/i);
   });

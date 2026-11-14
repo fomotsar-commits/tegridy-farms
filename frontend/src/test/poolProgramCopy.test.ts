@@ -5,6 +5,10 @@
 // local harness pins the binary mainnet runs, so this ties the wording to that pin: the old
 // lines stand while it is the old binary, and once it is anything else none may stand and
 // each place names what the upgrade added (the instruction, and the launch-tier check).
+//
+// The upgrade of 2026-11 added the fee limits and the swap guard, and the same three places
+// name them. That wording is tied the same way: it must stand under the build that has the
+// guard, and it may not stand under either build from before it (a roll-back too).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -36,6 +40,28 @@ const TRUE_ONLY_BEFORE_THE_UPGRADE = [
     after: ['one added check'],
   },
 ] as const;
+
+/** The build of the first upgrade: it has the instruction and the check, and neither the fee limits nor the swap guard. */
+const BINARY_BEFORE_THE_SWAP_GUARD = '1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22';
+const BINARIES_WITHOUT_THE_SWAP_GUARD: readonly string[] = [BINARY_WITHOUT_THE_INSTRUCTION, BINARY_BEFORE_THE_SWAP_GUARD];
+
+/** What each place says only of a build that has the fee limits and the swap guard. */
+const TRUE_ONLY_WITH_THE_SWAP_GUARD = [
+  {
+    file: 'src/components/solana/lp/LpDisclosures.tsx',
+    says: ['added fee limits and an added swap guard', 'refuses one that another program makes'],
+  },
+  {
+    file: 'src/components/solana/lp/SolanaLpSection.tsx',
+    says: ['added fee limits and an added swap guard', 'While the swap guard is on', 'It can switch the swap guard on or off for a fee tier'],
+  },
+  {
+    file: 'src/components/solana/VenueProgramCard.tsx',
+    says: ['fee limits and a swap guard', 'A swap that another program makes is refused'],
+  },
+] as const;
+const guardSays = (file: string, phrase: string) => `${file}: mainnet runs the build with the swap guard, so it must say "${phrase}"`;
+const guardMustNotSay = (file: string, phrase: string) => `${file}: mainnet runs a build without the swap guard, so it must not say "${phrase}"`;
 
 /** The two places the local harness pins the pool binary that mainnet runs. */
 function harnessPins(): { genesis: string | undefined; validator: string | undefined } {
@@ -73,6 +99,15 @@ function problems(deployedBinary: string, source: (file: string) => string): str
       if (!text.includes(after)) out.push(`${line.file}: after the upgrade it must say "${after}"`);
     }
   }
+  const guarded = !BINARIES_WITHOUT_THE_SWAP_GUARD.includes(deployedBinary);
+  for (const line of TRUE_ONLY_WITH_THE_SWAP_GUARD) {
+    const text = source(line.file);
+    for (const phrase of line.says) {
+      const present = text.includes(phrase);
+      if (guarded && !present) out.push(guardSays(line.file, phrase));
+      if (!guarded && present) out.push(guardMustNotSay(line.file, phrase));
+    }
+  }
   return out;
 }
 
@@ -89,6 +124,17 @@ const AFTER_UPGRADE: Record<string, string> = {
     'Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches',
   'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction and one added check.',
 };
+
+/** The wording that ships with the swap-guard upgrade, one sample per file. */
+const WITH_THE_SWAP_GUARD: Record<string, string> = {
+  'src/components/solana/lp/LpDisclosures.tsx':
+    "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.",
+  'src/components/solana/lp/SolanaLpSection.tsx':
+    'Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. It can switch the swap guard on or off for a fee tier. While the swap guard is on, directly means sent by the wallet itself.',
+  'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction, one added check, fee limits and a swap guard. A swap that another program makes is refused.',
+};
+const everyGuardPhrase = (message: (file: string, phrase: string) => string) =>
+  TRUE_ONLY_WITH_THE_SWAP_GUARD.flatMap((line) => line.says.map((phrase) => message(line.file, phrase)));
 
 describe('site copy about the pool program on mainnet follows the binary the harness pins', () => {
   it('the harness pins one pool binary, in both places', () => {
@@ -127,15 +173,38 @@ describe('site copy about the pool program on mainnet follows the binary the har
     }
   });
 
-  it('accepts each wording under its own binary only, and refuses a line that leaves out what the upgrade added', () => {
+  // The swap-guard wording, the same two ways. Pin the build from before the guard (a
+  // roll-back) and every phrase about the fee limits and the guard is asked to go; under any
+  // build that is neither earlier one, every phrase is asked for.
+  it('refuses the swap-guard wording in the source once a build without the guard is pinned, and asks for it otherwise', () => {
+    const pinned = harnessPins().genesis ?? '';
+    const guarded = !BINARIES_WITHOUT_THE_SWAP_GUARD.includes(pinned);
+    if (guarded) {
+      // Under the first upgrade's build the rest of the wording is still right, so this is the whole list.
+      expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, read)).toEqual(everyGuardPhrase(guardMustNotSay));
+    } else {
+      expect(problems('f'.repeat(64), read)).toEqual(expect.arrayContaining(everyGuardPhrase(guardSays)));
+    }
+  });
+
+  it('accepts each wording under its own binary only, and refuses a line that leaves out what an upgrade added', () => {
     const another = 'f'.repeat(64);
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => BEFORE_UPGRADE[f] ?? '')).toEqual([]);
-    expect(problems(another, (f) => AFTER_UPGRADE[f] ?? '')).toEqual([]);
+    expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => AFTER_UPGRADE[f] ?? '')).toEqual([]);
+    expect(problems(another, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual([]);
     // Each wording under the other binary: every line is named.
-    expect(problems(another, (f) => BEFORE_UPGRADE[f] ?? '').filter((p) => p.includes('must not say'))).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
+    expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => BEFORE_UPGRADE[f] ?? '').filter((p) => p.includes('must not say'))).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => AFTER_UPGRADE[f] ?? '')).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
+    // The first upgrade's wording under the build with the guard: every guard phrase is asked for.
+    expect(problems(another, (f) => AFTER_UPGRADE[f] ?? '')).toEqual(everyGuardPhrase(guardSays));
+    // The swap-guard wording under either build from before it: every guard phrase is refused.
+    expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual(everyGuardPhrase(guardMustNotSay));
+    expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual(expect.arrayContaining(everyGuardPhrase(guardMustNotSay)));
+    // A line that names the guard and not what it refuses.
+    const noRefusal: Record<string, string> = { ...WITH_THE_SWAP_GUARD, 'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction, one added check, fee limits and a swap guard.' };
+    expect(problems(another, (f) => noRefusal[f] ?? '')).toEqual([guardSays('src/components/solana/VenueProgramCard.tsx', 'A swap that another program makes is refused')]);
     const silent: Record<string, string> = { ...AFTER_UPGRADE, 'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's." };
-    expect(problems(another, (f) => silent[f] ?? '')).toEqual([
+    expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => silent[f] ?? '')).toEqual([
       'src/components/solana/lp/LpDisclosures.tsx: after the upgrade it must say "one added instruction"',
       'src/components/solana/lp/LpDisclosures.tsx: after the upgrade it must say "one added check"',
     ]);
@@ -144,6 +213,6 @@ describe('site copy about the pool program on mainnet follows the binary the har
       ...AFTER_UPGRADE,
       'src/components/solana/VenueProgramCard.tsx': 'comments and one added instruction, which lets a pool’s share token carry a name',
     };
-    expect(problems(another, (f) => noCheck[f] ?? '')).toEqual(['src/components/solana/VenueProgramCard.tsx: after the upgrade it must say "one added check"']);
+    expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => noCheck[f] ?? '')).toEqual(['src/components/solana/VenueProgramCard.tsx: after the upgrade it must say "one added check"']);
   });
 });
