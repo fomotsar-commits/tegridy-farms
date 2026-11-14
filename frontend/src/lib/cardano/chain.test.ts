@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFingerprint, readPolicyCoins, readPoolCandidates, readUtxo } from './chain';
+import { readFingerprint, readPolicyCoins, readPoolCandidates, readScriptParams, readUtxo } from './chain';
 import { fixture } from './testkit.fixture';
 
 /** Answers every read with `rows`. */
@@ -26,6 +26,36 @@ describe('readPoolCandidates', () => {
     const broken = { ...real[1], value: 12.5 };
     stubPoolRows([broken]);
     expect((await readPoolCandidates('e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861')).status).toBe('unread');
+  });
+});
+
+describe('readScriptParams', () => {
+  const real = fixture<Record<string, unknown>>('koios-cli-protocol-params.json');
+
+  it('reads mainnet’s script prices exactly, and its Plutus V2 cost model whole', async () => {
+    stubPoolRows(real);
+    const r = await readScriptParams();
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+    expect(r.data.script.priceMem).toEqual({ numerator: 577n, denominator: 10_000n });
+    expect(r.data.script.priceStep).toEqual({ numerator: 721n, denominator: 10_000_000n });
+    expect(r.data.script.collateralPercent).toBe(150);
+    expect(r.data.script.maxCollateralInputs).toBe(3);
+    expect(r.data.script.plutusV2CostModel).toEqual((real.costModels as { PlutusV2: number[] }).PlutusV2);
+    expect(r.data.params.txFeeFixed).toBe(155381n);
+  });
+
+  it('says unread, never a guess, when a price or the cost model is missing or malformed', async () => {
+    for (const broken of [
+      { ...real, executionUnitPrices: { priceMemory: 1e-9, priceSteps: 0.0000721 } },
+      { ...real, executionUnitPrices: { priceMemory: '0.0577', priceSteps: 0.0000721 } },
+      { ...real, costModels: { PlutusV1: [1, 2] } },
+      { ...real, costModels: { PlutusV2: [1, 2.5] } },
+      { ...real, collateralPercentage: null },
+    ]) {
+      stubPoolRows(broken);
+      expect((await readScriptParams()).status).toBe('unread');
+    }
   });
 });
 
