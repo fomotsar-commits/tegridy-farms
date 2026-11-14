@@ -135,6 +135,8 @@ describe('borrow: asking for a loan', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByTestId('ask-for-loan')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ask lenders' })).toBeNull();
+    // The empty book's line must not point at a card that is not there.
+    expect(screen.queryByText(/Ask for one below/)).toBeNull();
   });
 
   it('a request says an offer matches only when that offer is live in the list above', async () => {
@@ -216,7 +218,7 @@ describe('borrow: asking for a loan', () => {
     // 1 WETH at 36.5% a year for 30 days = 0.03 WETH interest.
     expect(screen.getByTestId('ask-at-most').textContent).toMatch(/costs 1\.030000 WETH for 1\.0000 WETH borrowed/);
     // "Less" read as less WETH, which no answering offer can be: only the rate can be lower.
-    expect(screen.getByTestId('ask-at-most').textContent).toMatch(/A lender may offer a lower rate\./);
+    expect(screen.getByTestId('ask-at-most').textContent).toMatch(/Lenders see that rate and may offer a lower one\./);
   });
 
   it('lists the wallet\'s own open request and withdraws it with a signed cancel', async () => {

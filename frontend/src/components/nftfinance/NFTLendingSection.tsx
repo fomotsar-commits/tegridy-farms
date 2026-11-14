@@ -58,7 +58,7 @@ import { LoanTimeline } from './LoanTimeline';
 import { LenderMarketPanel } from './LenderMarketPanel';
 import { AskForLoan, BorrowerRequests } from './LoanRequests';
 import { BoxHint, PresetRow } from './nftLendingBits';
-import { syncRequest } from '../../lib/gondi/requestBook';
+import { syncRequest, useRequestBookOpen } from '../../lib/gondi/requestBook';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
@@ -773,6 +773,8 @@ function BorrowTab() {
   const collection = filter === 'all' ? undefined : COLLECTIONS.find((c) => c.symbol === filter)?.address;
   const book = useBookOffers({ collection, enabled: LENDING_LIVE });
   const rows = useMemo(() => book.data?.offers ?? [], [book.data]);
+  // The ask card below shows only while the request book is open; the empty line follows it.
+  const bookOpen = useRequestBookOpen(LENDING_LIVE);
 
   // Every listed offer is re-read on chain: unused, and backed by WETH the lender still
   // holds and has approved. The book cannot vouch for either.
@@ -864,7 +866,7 @@ function BorrowTab() {
       ) : shown.length === 0 ? (
         <EmptyCard
           title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
-          line="Lenders make the offers. Ask for one below, or send a lender this page."
+          line={bookOpen ? 'Lenders make the offers. Ask for one below, or send a lender this page.' : 'Lenders make the offers. Send one this page.'}
           action={{
             label: 'Copy link for a lender',
             onClick: () => {

@@ -351,7 +351,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
                 min="0"
                 max="1000"
                 inputMode="decimal"
-                placeholder="e.g. 40"
+                placeholder="e.g. 14"
                 aria-label="Highest APR you will pay (%)"
                 aria-invalid={typedBad.apr || undefined}
                 aria-describedby={typedBad.apr ? `${hint}-apr` : undefined}
@@ -361,7 +361,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
                 style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
               />
               {typedBad.apr && (
-                <BoxHint id={`${hint}-apr`} testId="ask-hint-apr" text="A yearly rate from 0.01 to 1000, at most two decimals: 40 means 40% a year." />
+                <BoxHint id={`${hint}-apr`} testId="ask-hint-apr" text="A yearly rate from 0.01 to 1000, at most two decimals: 14 means 14% a year." />
               )}
             </div>
           </div>
@@ -371,8 +371,8 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
 
           {atMost !== null && principalWei !== null && (
             <p className="text-white/85 text-[12px]" style={LABEL_STYLE} data-testid="ask-at-most">
-              At your highest rate, repaying at the end costs {fmtWeth(atMost, 6)} WETH for {fmtWeth(principalWei)} WETH borrowed. A lender may
-              offer a lower rate.
+              At your highest rate, repaying at the end costs {fmtWeth(atMost, 6)} WETH for {fmtWeth(principalWei)} WETH borrowed. Lenders see that
+              rate and may offer a lower one.
             </p>
           )}
 
