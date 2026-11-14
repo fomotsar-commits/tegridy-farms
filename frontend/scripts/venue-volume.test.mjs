@@ -565,15 +565,20 @@ describe("valuation: once, at the price of the run that first sees the swap", ()
 });
 
 // A fake PostgREST that keeps rows by source and honours `version=eq.N`.
-function fakeDb(initial = []) {
+// venue_volume's NOT NULL columns (028): Postgres refuses a null in any of them, so the fake does too.
+const NOT_NULL = ["source", "swaps", "usd", "unpriced", "bot_swaps", "bot_usd", "cursor", "version"];
+function fakeDb(initial = [], { orders = [] } = {}) {
   const rows = new Map(initial.map((r) => [r.source, { ...r }]));
   const writes = [];
   const fetchImpl = vi.fn(async (url, init = {}) => {
     const u = new URL(url);
     const method = init.method ?? "GET";
+    if (method === "GET" && u.pathname.endsWith("/native_orders")) return new Response(JSON.stringify(orders), { status: 200 });
     if (method === "GET") return new Response(JSON.stringify([...rows.values()]), { status: 200 });
     const body = JSON.parse(init.body);
     writes.push({ method, url: u.pathname + u.search, body });
+    const nulls = NOT_NULL.filter((k) => k in body && body[k] === null);
+    if (nulls.length) return new Response(JSON.stringify({ code: "23502", message: `null value in column "${nulls[0]}"` }), { status: 400 });
     if (method === "POST") {
       if (rows.has(body.source)) return new Response("{}", { status: 409 });
       rows.set(body.source, body);
@@ -908,10 +913,31 @@ describe("the NFT order book: each sale it marked filled, at its price", () => {
   it("is handed the counter's own database by main", async () => {
     const db = fakeDb();
     let got = null;
-    const readers = { "nft-orderbook": async (cursor, d) => ((got = d.db), reader([], null)()) };
+    const readers = { "nft-orderbook": async (cursor, d) => ((got = d.db), reader([], {})()) };
     expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], readers, ...quiet })).toBe(0);
     expect(typeof got).toBe("function");
     expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, version: 1 });
+  });
+
+  // 2026-11-14: with no sale yet the reader handed back a null cursor, Postgres refused the
+  // first write, the row never existed, and the home page showed no volume at all.
+  it("with no sale yet, the first run still writes its row, and the next run reads on from it", async () => {
+    const db = fakeDb();
+    const run = () => main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, unpriced: 0, cursor: {}, version: 1, last_error: null });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, cursor: {}, version: 2 });
+  });
+
+  it("the first sale after that is counted once", async () => {
+    const db = fakeDb([], { orders: [fill("0xa", T1, 10n ** 17n)] });
+    const quotes = async (url) => new Response(JSON.stringify(url.includes("coinbase") ? { data: { amount: "2000" } } : { ethereum: { usd: 2000 } }));
+    const fetchImpl = async (url, init) => (new URL(String(url)).host === "db.test" ? db.fetchImpl(url, init) : quotes(String(url)));
+    const run = () => main({ env, fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 1, usd: 200, cursor: { at: T1, orders: ["0xa"] }, version: 2 });
   });
 });
 
