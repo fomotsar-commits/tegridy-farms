@@ -25,7 +25,7 @@ export function VenueProgramCard() {
           upstream commit, refuses any differing file outside a reviewed list, and sha256-hashes
           the remaining delta against a pinned value. That delta is four authority constants,
           the program&rsquo;s own name and contact text, comments, one added instruction, one
-          added check, fee limits and a swap guard. The instruction lets a pool&rsquo;s share token carry a name and a
+          added check, fee limits, a swap guard and a fee exemption for a fee tier&rsquo;s keeper. The instruction lets a pool&rsquo;s share token carry a name and a
           picture in wallets. Its caller chooses nothing: the name and the link are fixed in
           the program. It has no way to move pool funds. Whoever calls it pays a small one-time fee
           for the record. The check keeps the launch fee tier for launches: opening a pool
@@ -40,6 +40,12 @@ export function VenueProgramCard() {
           program makes is refused: a router, a trading app or a smart wallet that trades
           through a program of its own. Swaps from this site are sent directly. Adding and
           removing liquidity are not guarded.
+          The keeper is one wallet our vault names for a fee tier. It pays no trade fee and no
+          creator fee on its own swaps, so those swaps pay nothing to the pool&rsquo;s
+          liquidity providers, the venue or the island, and the guard lets them through.
+          Everyone else pays as before. On both fee tiers open today the keeper is the
+          venue&rsquo;s own price robot, wallet{' '}
+          <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>.
           The curve, the swap maths, the deposit and withdraw paths and the fee maths are
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.
@@ -48,8 +54,8 @@ export function VenueProgramCard() {
             2026-11-04 to 11-06), a paragraph here said the program on Solana was built before that instruction
             was added. It went out with each upgrade, and src/test/poolProgramCopy.test.ts keeps it
             out for as long as the harness pins that build. The fee limits and the swap guard came
-            with the upgrade of 2026-11, and the same test takes them out again if the harness
-            pins an earlier build. */}
+            with the upgrade of 2026-11, the keeper's fee with the one after it, and the same test
+            takes each out again if the harness pins an earlier build. */}
         <p>
           A browser has no way to list pools itself: <code className="font-mono">getProgramAccounts</code> stays
           off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,

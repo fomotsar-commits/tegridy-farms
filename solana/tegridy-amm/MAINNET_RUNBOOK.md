@@ -325,7 +325,14 @@ both fee settings, and the fee rules of 2026-11-03 (`TEGRIDY_FORK.md` has a sect
 That round has its own block below, "Upgraded to the build with the swap guard: proposal #32",
 and its own pack and paper (`pool-swap-guard-upgrade-2026-11`, `START-HERE.md`). Everything else
 in this section is the record of the first upgrade and its roll-backs. There "the new build"
-means `1e55bcdc…`, which is the roll-back build since #32, and "the old build" means `88b98aa9…`.
+means `1e55bcdc…`, and "the old build" means `88b98aa9…`.
+
+**And again: the keeper's fee.** The vault's proposal #35 upgrades the program to `9f0150e3…`
+(715,224 bytes), the build #32 installed plus the keeper's fee (`TEGRIDY_FORK.md`, "The keeper's
+fee"), and its proposal #34 names the price robot keeper of both fee settings. That round has its
+own block below, "Upgraded to the build with the keeper's fee: proposal #35", and its own pack
+and paper (`pool-keeper-fee-upgrade-2026-11`, `START-HERE.md`, whose proposal numbers are the
+other way round). `01fe923b…` is the roll-back build since #35.
 
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
 was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. It was rolled back
@@ -418,6 +425,31 @@ Its four facts, read from mainnet by `read-upgrade-record.mjs`:
 
 The switch-on, #33, is a setting and not an upgrade, so it has no row above. The pack's
 `scripts/7-verify-guard.mjs` reads it: both fee settings accounts hold 1 in bytes 116 to 124.
+
+**Upgraded to the build with the keeper's fee: proposal #35.** One proposal, with no roll-back
+beside it, from the pack `pool-keeper-fee-upgrade-2026-11`. The build is `9f0150e3…`, 715,224
+bytes, made from `mvp-launch` at the merge of pull request #1198 (`c24947dfb`): two clean builds
+and CI's build job (solana-ci run 43252332496) gave the same file. It is the build #32 installed
+plus one change: on a fee setting that names a keeper, the keeper's own swaps pay no trade fee
+and no creator fee, so no protocol or fund share either. Everyone else pays as before, and with
+no keeper named nobody swaps free. It is 448 bytes larger than #32's build and still fits the
+data account, so there was no enlarge. In the same sitting, on 2026-11-14, the owner proposed
+and both members approved #34, which names the price robot's wallet
+`9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz` keeper of both fee settings (`update_amm_config`,
+setting 9, on `BHMteE8u…` and on `CapqvAA9…`). The pack's paper calls the upgrade #34 and the
+keeper #35: on chain it is the other way round. #35 is executable from 2026-11-16 05:13:35 UTC
+and #34 from 05:13:59 UTC. Its four facts, read from mainnet by `read-upgrade-record.mjs`:
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+
+The keeper, #34, is a setting and not an upgrade, so it has no row above. The pack's
+`scripts/8-verify-keeper.mjs` reads it: the robot's simulated buy gets the bare curve, and
+anyone else's the same buy less the fee.
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the
@@ -1241,7 +1273,10 @@ and burning the LP does not protect a pool from any of them:
 - **Switch the swap guard on or off for a fee setting**: `update_config` param 8, since the
   upgrade of 2026-11. On, every pool on that fee setting refuses a swap that another program
   calls (6015 `SwapNotDirect`), an aggregator's included, and graduated burned-LP pools too.
-  Param 9 names the one signer the guard still lets through.
+  Param 9 names the one signer the guard still lets through, the fee setting's keeper.
+- **Exempt one wallet from the fees on a fee setting**: since the keeper-fee upgrade the keeper
+  of param 9 swaps there free of the trade and creator fees, so its swaps earn the pools' LPs,
+  the protocol and the fund nothing. This reaches graduated burned-LP pools too.
 
 Today the source bakes a single operator-held key (the comment on `admin::ID` in
 `programs/cp-swap/src/lib.rs` says why: to prove graduation before a 2-of-N ceremony). A

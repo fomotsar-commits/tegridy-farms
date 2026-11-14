@@ -2351,7 +2351,8 @@
         "* `param`- The value can be 0 | 1 | 2 | 3 | 4, otherwise will report a error",
         "* memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,",
         "1 on, anything else is refused); `param` 9 sets the tier's keeper to the first",
-        "remaining account (the System Program's address clears it)",
+        "remaining account (the System Program's address clears it). Since 2026-11-11 the",
+        "keeper also swaps on the tier free of the trade and creator fees",
         ""
       ],
       "discriminator": [
@@ -2871,7 +2872,8 @@
             "name": "keeper",
             "docs": [
               "memetics.finance: the one signer whose swaps another program may still call while the",
-              "guard is on. The all-zero key, which every tier starts with, is nobody."
+              "guard is on, and who, since 2026-11-11, swaps on this tier free of the trade and creator",
+              "fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody."
             ],
             "type": "pubkey"
           },

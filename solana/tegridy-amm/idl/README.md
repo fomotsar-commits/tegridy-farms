@@ -140,7 +140,17 @@ superseded: that program had `release_platform_reserve` and an 8-account `create
 Both programs have been live on mainnet at those ids since 2026-09-29. No IDL has been
 written on chain.
 
-**Since the pool program's upgrade of 2026-11 `raydium_cp_swap.json` is the IDL of the build
+**Since the pool program's keeper-fee upgrade `raydium_cp_swap.json` is the IDL of the build
+with the keeper's fee** (`9f0150e3…`, proposal #35). It was emitted on 2026-11-13 with
+`anchor idl build` (anchor-cli 0.32.1) from a clean copy of a git archive of `mvp-launch` at
+the merge of pull request #1198 (`c24947dfb`), and it is byte for byte the upgrade pack's
+`binary-to-deploy/raydium_cp_swap.idl.json`. Against the file it replaced (`de4c6c7a…`, the IDL
+of the build `01fe923b…`) it differs only in words: the comment on `update_amm_config` and the
+one on `AmmConfig`'s `keeper` now say the keeper swaps free of the trade and creator fees. No
+instruction, account, argument, error or field changed. The next paragraph is about that
+earlier file.
+
+**From the upgrade of 2026-11-14 `raydium_cp_swap.json` was the IDL of the build
 with the swap guard** (`01fe923b…`). It was emitted on 2026-11-10 with
 `anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1, in WSL, no features) from `mvp-launch`
 at the merge of pull request #1177. Against the file it replaced (`1e8fd792…`, the IDL of the
@@ -167,7 +177,7 @@ change reproduces `939bc040…` exactly, which is the control for the new value.
 | file | sha256 | what it is |
 | --- | --- | --- |
 | `tegridy_launch.json` | `cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31` | the release's `artifacts/SHA256SUMS` |
-| `raydium_cp_swap.json` | `de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889` | the IDL of the pool program since its upgrade of 2026-11: the IDL before it (`1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736`, which is the 2026-09-26 release's IDL, `939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`, plus `create_lp_metadata`) plus the swap guard's error and two fields |
+| `raydium_cp_swap.json` | `09cf1cacc36949b411289f64fce04e02e31bf4de4ce673aa66b050ba50d3db36` | the IDL of the pool program since its keeper-fee upgrade: the IDL before it (`de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889`, the swap-guard build's) with two comments reworded; that one is the IDL before it (`1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736`, which is the 2026-09-26 release's IDL, `939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`, plus `create_lp_metadata`) plus the swap guard's error and two fields |
 
 **What keeps them honest:** `frontend/src/lib/launcher/solana/write/idl.test.ts` pins both
 hashes, then holds every instruction the /curve-launch write path can send
@@ -177,9 +187,10 @@ platform reserve, + its trailing launch-index key, `buy`, `sell`, `migrate_to_am
 account name → address, signer and writable flags, discriminator, argument order. It also
 requires the frontend's error tables to equal the IDLs' code for code. A changed program
 means a new IDL here, a new hash in that test, and whatever the parity check then says.
-For the pool IDL it also holds the facts above. Undo what the swap-guard upgrade added and the
+For the pool IDL it also holds the facts above. Undo the keeper fee's two comments and the file
+is `de4c6c7a…`, byte for byte; undo what the swap-guard upgrade added to that and the
 file is `1e8fd792…`, byte for byte; take `create_lp_metadata` out of that and it is the
-release's IDL, byte for byte. The swap guard changed no instruction, and `create_lp_metadata`
+release's IDL, byte for byte. Neither the swap guard nor the keeper's fee changed an instruction, and `create_lp_metadata`
 takes no argument and names nine accounts with only the payer signing. `frontend/scripts/solana-localnet/genesis-accounts.mjs`
 carries the same pin in `PINNED_SHA256`: one pin for this file and for the copy of it the
 local harness keeps beside the upgraded binary.

@@ -6,9 +6,9 @@
 // The IDLs are the ones emitted with the exact mainnet binaries, committed under
 // solana/tegridy-amm/idl/ and pinned here by sha256: the launcher's against the
 // 2026-09-26 release's SHA256SUMS (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts),
-// the pool program's against the build mainnet runs since the upgrade that added the swap
-// guard (see SHA256 below; the upgrade before it added `create_lp_metadata`). The site sends
-// neither `create_lp_metadata` nor a guard setting. For each
+// the pool program's against the build mainnet runs since the upgrade that added the
+// keeper's fee (see SHA256 below; the ones before it added the swap guard and
+// `create_lp_metadata`). The site sends neither `create_lp_metadata` nor a fee-tier setting. For each
 // instruction a transaction can carry we check, position by
 // position: the account's IDL name maps to the address we put there, and its signer
 // and writable flags equal the IDL's. Discriminators and argument layouts too.
@@ -69,19 +69,18 @@ const CPSWAP_IDL_PATH = resolve(IDL_DIR, 'raydium_cp_swap.json');
 /**
  * `launch` and `cpswap` are the IDLs of the binaries mainnet runs. `launch` is from the
  * 2026-09-26 release's artifacts/SHA256SUMS. `cpswap` is the IDL of the build the pool
- * program was upgraded to in 2026-11 (`01fe923b...`): the one with the swap guard and the fee
- * rules of 2026-11-03. `cpswapBeforeSwapGuard` is the IDL of the build mainnet ran before
- * that (`1e55bcdc...`, the one that added `create_lp_metadata`, which names a pool's share
- * token). `cpswapBeforeUpgrade` is the IDL of the build mainnet ran from 2026-09-29 until the
- * first upgrade (the release's own, in artifacts/SHA256SUMS). The test below holds the three
- * together: undo what the swap-guard upgrade added and the file is the second, byte for
- * byte; take `create_lp_metadata` out of that and it is the third. So each upgrade changed
- * the program's interface by what is named there and by nothing else.
+ * program was upgraded to with the keeper's fee (`9f0150e3...`). The three before it, each the
+ * IDL of the build mainnet ran before the next: `cpswapBeforeKeeperFee` (`01fe923b...`, the
+ * swap guard and the fee rules of 2026-11-03), `cpswapBeforeSwapGuard` (`1e55bcdc...`, which
+ * added `create_lp_metadata`) and `cpswapBeforeUpgrade` (the 2026-09-26 release's own). The
+ * tests below undo one upgrade at a time and hash what is left, so each upgrade changed the
+ * program's interface by what is named there and by nothing else.
  */
 const SHA256 = {
   // The reserve-at-create build (artifacts/SHA256SUMS; d987fafe, the reserve-held build, is superseded).
   launch: 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
-  cpswap: 'de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889',
+  cpswap: '09cf1cacc36949b411289f64fce04e02e31bf4de4ce673aa66b050ba50d3db36',
+  cpswapBeforeKeeperFee: 'de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889',
   cpswapBeforeSwapGuard: '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
   cpswapBeforeUpgrade: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
 };
@@ -104,12 +103,39 @@ interface Idl {
   errors: Array<{ code: number; name: string }>;
 }
 
-/** The parts of the pool IDL the swap-guard upgrade touched, as far as the test below reads them. */
+/** The parts of the pool IDL the last two upgrades touched, as far as the tests below read them. */
 interface GuardIdl {
   instructions: Array<{ name: string; docs?: string[]; accounts: Array<{ name: string; docs?: string[] }> }>;
   errors: Array<{ code: number; name: string; msg?: string }>;
-  types: Array<{ name: string; type: { fields?: Array<{ name: string; type: unknown }> } }>;
+  types: Array<{ name: string; type: { fields?: Array<{ name: string; docs?: string[]; type: unknown }> } }>;
 }
+
+/**
+ * Undoes, in place, what the keeper-fee upgrade changed in the pool IDL: words only, in two
+ * comments that now say the keeper swaps free of the trade and creator fees. A line that is
+ * not exactly as written here fails before any hash is compared.
+ */
+function undoKeeperFee(idl: GuardIdl): GuardIdl {
+  const update = idl.instructions.find((i) => i.name === 'update_amm_config')?.docs ?? [];
+  const at = update.indexOf("remaining account (the System Program's address clears it). Since 2026-11-11 the");
+  expect(at).toBeGreaterThan(0);
+  expect(update.slice(at + 1)).toEqual(['keeper also swaps on the tier free of the trade and creator fees', '']);
+  update.splice(at, 2, "remaining account (the System Program's address clears it)");
+  const keeper = idl.types.find((t) => t.name === 'AmmConfig')?.type.fields?.find((f) => f.name === 'keeper');
+  expect(keeper?.docs).toEqual([
+    'memetics.finance: the one signer whose swaps another program may still call while the',
+    'guard is on, and who, since 2026-11-11, swaps on this tier free of the trade and creator',
+    'fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody.',
+  ]);
+  keeper!.docs = [
+    'memetics.finance: the one signer whose swaps another program may still call while the',
+    'guard is on. The all-zero key, which every tier starts with, is nobody.',
+  ];
+  return idl;
+}
+const poolIdl = () => JSON.parse(load(CPSWAP_IDL_PATH).raw.toString('utf8')) as GuardIdl;
+// The IDL tool writes two-space JSON with no final newline, which is what this re-emits.
+const emitted = (idl: unknown) => createHash('sha256').update(JSON.stringify(idl, null, 2)).digest('hex');
 const ixOfPool = (idl: Idl, name: string): IdlIx => {
   const ix = idl.instructions.find((i) => i.name === name);
   if (!ix) throw new Error(`${name} is not in the pool IDL`);
@@ -131,10 +157,15 @@ describe('the committed IDLs are the pinned ones', () => {
     expect(createHash('sha256').update(load(LAUNCH_IDL_PATH).raw).digest('hex')).toBe(SHA256.launch);
     expect(createHash('sha256').update(load(CPSWAP_IDL_PATH).raw).digest('hex')).toBe(SHA256.cpswap);
   });
-  it('the pool IDL is the one from before the swap-guard upgrade plus what that upgrade added, and nothing else', () => {
+  it('the pool IDL is the one from before the keeper-fee upgrade with two comments reworded, and nothing else', () => {
+    // The keeper's fee is a rate of 0 handed to the same fee maths when the keeper signs a
+    // swap. No instruction, account, error or field changed: only the words that say so.
+    expect(emitted(undoKeeperFee(poolIdl()))).toBe(SHA256.cpswapBeforeKeeperFee);
+  });
+  it('the IDL before the keeper-fee upgrade is the one from before the swap-guard upgrade plus what that upgrade added, and nothing else', () => {
     // Everything the swap-guard upgrade changed in the interface, undone one piece at a time.
     // A piece that is not exactly as written here fails before the hash is ever compared.
-    const idl = JSON.parse(load(CPSWAP_IDL_PATH).raw.toString('utf8')) as GuardIdl;
+    const idl = undoKeeperFee(poolIdl());
     // 1. One error, appended last, so no earlier code moved.
     expect(idl.errors.at(-1)).toEqual({ code: 6015, name: 'SwapNotDirect', msg: "This pool's swaps must be sent directly, not called by another program" });
     idl.errors.pop();
@@ -161,18 +192,18 @@ describe('the committed IDLs are the pinned ones', () => {
     const owner = idl.instructions.find((i) => i.name === 'collect_fund_fee')?.accounts.find((a) => a.name === 'owner');
     expect(owner?.docs).toEqual(['Only fund_owner can collect fee now']);
     owner!.docs = ['Only admin or fund_owner can collect fee now'];
-    // The IDL tool writes two-space JSON with no final newline, which is what this re-emits.
-    expect(createHash('sha256').update(JSON.stringify(idl, null, 2)).digest('hex')).toBe(SHA256.cpswapBeforeSwapGuard);
+    expect(emitted(idl)).toBe(SHA256.cpswapBeforeSwapGuard);
 
     // And that earlier IDL is the release's plus create_lp_metadata, and nothing else.
     expect(idl.instructions.filter((i) => i.name === 'create_lp_metadata')).toHaveLength(1);
     const without = { ...idl, instructions: idl.instructions.filter((i) => i.name !== 'create_lp_metadata') };
-    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapBeforeUpgrade);
+    expect(emitted(without)).toBe(SHA256.cpswapBeforeUpgrade);
   });
-  it('the swap guard changed no instruction: same seventeen, same accounts, same arguments', () => {
-    // The guard is a refusal inside the two swaps and two settings of update_amm_config. No
-    // instruction gained or lost an account or an argument, so everything the site, the
-    // robot and a wallet send is built exactly as before.
+  it('neither the swap guard nor the keeper’s fee changed an instruction: same seventeen, same accounts, same arguments', () => {
+    // The guard is a refusal inside the two swaps and two settings of update_amm_config; the
+    // keeper's fee is a rate of 0 inside the same two swaps. No instruction gained or lost an
+    // account or an argument, so everything the site, the robot and a wallet send is built
+    // exactly as before.
     const { idl } = load(CPSWAP_IDL_PATH);
     expect(idl.instructions).toHaveLength(17);
     for (const name of ['swap_base_input', 'swap_base_output'] as const) {
