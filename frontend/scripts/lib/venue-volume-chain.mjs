@@ -19,16 +19,20 @@ export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 // The island's coins, the pairing coins after SOL and USDC (api/_lib/pool-index.js's
-// QUOTE_COINS; a test pins the two together), all with 6 decimals. A swap with no SOL, USDC
-// or USDT leg is valued on one of these, at its market price when it is counted.
+// QUOTE_COINS; a test pins the two together), each with its mint's own decimals (as
+// src/lib/solana/lp/quotes.ts has them; a test pins those too). A swap with no SOL, USDC or
+// USDT leg is valued on one of these, at its market price when it is counted.
 export const ISLAND_COINS = Object.freeze([
-  Object.freeze({ symbol: "BAYLA", mint: "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump" }),
-  Object.freeze({ symbol: "BOBO", mint: "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump" }),
-  Object.freeze({ symbol: "SOY", mint: "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump" }),
-  Object.freeze({ symbol: "BRAINLET", mint: "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump" }),
-  Object.freeze({ symbol: "RIZZ", mint: "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k" }),
+  Object.freeze({ symbol: "BAYLA", mint: "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump", decimals: 6 }),
+  Object.freeze({ symbol: "BOBO", mint: "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump", decimals: 6 }),
+  Object.freeze({ symbol: "SOY", mint: "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump", decimals: 6 }),
+  Object.freeze({ symbol: "BRAINLET", mint: "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump", decimals: 6 }),
+  Object.freeze({ symbol: "RIZZ", mint: "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k", decimals: 6 }),
 ]);
-export const ISLAND_DECIMALS = 6;
+// Jupiter's price read (price/v3) takes at most this many ids a call (the browser's
+// PRICE_IDS_MAX, src/lib/solana/lp/poolList.ts). Every server and script read of it asks in
+// turns of this many and puts the answers together.
+export const PRICE_IDS_MAX = 50;
 export const SOLANA_RPC = "https://api.mainnet-beta.solana.com";
 // Counted apart (bot_swaps, bot_usd) so a "without bots" figure needs no rescan: an outside
 // arbitrage wallet, and the venue's own price keeper (scripts/price-keeper.mjs).

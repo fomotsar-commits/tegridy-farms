@@ -56,7 +56,7 @@ import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 import { CP_SWAP_PROGRAM, OFFSETS, POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, QUOTE_COINS } from "./pool-index.js";
-import { EVM_CHAINS } from "../../scripts/lib/venue-volume-chain.mjs";
+import { EVM_CHAINS, PRICE_IDS_MAX } from "../../scripts/lib/venue-volume-chain.mjs";
 import { spotPrice } from "../../scripts/venue-volume.mjs";
 
 /** The range-pool program and its PoolState, copied from src/lib/solana/clmm (a test pins them). */
@@ -504,26 +504,29 @@ async function fetchJson(url, fetchImpl, headers = {}) {
 
 /**
  * Market prices in dollars for coins on one chain: Jupiter's on Solana (the keyed host when its
- * server-only key is set, as the swap proxy does), DefiLlama's elsewhere. A coin with no price is
- * missing from the map. Throws when the source cannot be read.
+ * server-only key is set, as the swap proxy does; PRICE_IDS_MAX coins a read), DefiLlama's
+ * elsewhere. A coin with no price is missing from the map. Throws when the source cannot be read.
  */
 export async function readMarketPrices(chain, coins, fetchImpl) {
   const out = new Map();
   if (chain === "solana") {
     const key = (process.env.JUPITER_API_KEY || "").trim();
     const hosts = key ? [["https://api.jup.ag", { "x-api-key": key }], ["https://lite-api.jup.ag", {}]] : [["https://lite-api.jup.ag", {}]];
-    let j = null;
-    let last = null;
-    for (const [host, headers] of hosts) {
-      try {
-        j = await fetchJson(`${host}/price/v3?ids=${coins.join(",")}`, fetchImpl, headers);
-        break;
-      } catch (e) {
-        last = e;
+    for (let i = 0; i < coins.length; i += PRICE_IDS_MAX) {
+      const turn = coins.slice(i, i + PRICE_IDS_MAX);
+      let j = null;
+      let last = null;
+      for (const [host, headers] of hosts) {
+        try {
+          j = await fetchJson(`${host}/price/v3?ids=${turn.join(",")}`, fetchImpl, headers);
+          break;
+        } catch (e) {
+          last = e;
+        }
       }
+      if (!j) throw last;
+      for (const c of turn) if (Number.isFinite(j?.[c]?.usdPrice)) out.set(c, j[c].usdPrice);
     }
-    if (!j) throw last;
-    for (const c of coins) if (Number.isFinite(j?.[c]?.usdPrice)) out.set(c, j[c].usdPrice);
     return out;
   }
   const j = await fetchJson(`https://coins.llama.fi/prices/current/${coins.map((c) => `${chain}:${c}`).join(",")}`, fetchImpl);

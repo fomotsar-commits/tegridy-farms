@@ -25,6 +25,7 @@ vi.mock("../ratelimit.js", () => ({
 const {
   handleVenueTvl,
   readVenueTvl,
+  readMarketPrices,
   __resetVenueTvl,
   RANGE_PROGRAM,
   RANGE_POOL_LEN,
@@ -597,6 +598,16 @@ describe("staking: each pool's own count of what is staked, at the market's pric
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(staked(body, "solana")).toEqual({ chain: "solana", read: false });
     expect(body.state).toBe("partial");
+  });
+
+  it("asks Jupiter for at most 50 coins at a time, and puts the answers together", async () => {
+    const w = world();
+    const coins = Array.from({ length: 120 }, (_, i) => key(100 + i));
+    for (const c of coins) w.jup[c] = 2;
+    const got = await readMarketPrices("solana", coins, w.fetchImpl);
+    expect(w.priceCalls.map((c) => new URL(c.url).searchParams.get("ids").split(",").length)).toEqual([50, 50, 20]);
+    expect([...got.keys()].sort()).toEqual([...coins].sort());
+    expect([...got.values()].every((v) => v === 2)).toBe(true);
   });
 
   it("asks Jupiter's keyed host when its key is set, and the keyless one when that refuses", async () => {
