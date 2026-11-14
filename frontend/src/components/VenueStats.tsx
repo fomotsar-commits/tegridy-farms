@@ -102,7 +102,7 @@ export function VenueStats() {
               <p data-testid="venue-tvl-staking">Staked: {byChain(tvlRead.staking)}</p>
               <p data-testid="venue-tvl-nfts">NFTs held: {byChain(tvlRead.nfts)}</p>
               {tvlRead.chains.some((c) => c.read && c.unvalued > 0) && (
-                <p>Pools paired with an island coin are left out while none of our pools gives that coin a price.</p>
+                <p>Pools paired with an island coin with no market price just now are left out.</p>
               )}
               {tvlRead.staking.some((c) => c.read && c.unvalued > 0) && <p>A staked coin with no market price just now is left out.</p>}
               {tvlRead.nfts.some((c) => c.read && c.unvalued > 0) && <p>An NFT whose collection has no OpenSea floor just now is left out.</p>}
@@ -110,7 +110,7 @@ export function VenueStats() {
                 TVL is what our pools hold, what is staked in our staking pools, and the NFTs our contracts hold, read
                 from each chain every minute.
                 A pool counts at twice its SOL, USDC or ETH, or twice the island coin it is paired with (BAYLA, BOBO, SOY,
-                BRAINLET or RIZZ, each priced from our deepest pool of it against SOL or USDC); a range pool counts only
+                BRAINLET or RIZZ, each at its market price on Jupiter, never a price in our own pools); a range pool counts only
                 those coins; other tokens in a pool never add to it. A staked coin counts at its market price: Jupiter's on
                 Solana, DefiLlama's on Ethereum and Base. An NFT held as a loan's collateral on NFT Lending, in a liquidation
                 auction, or in the JBAC staking vault counts at its collection's OpenSea floor; the WETH lent against it is

@@ -1,7 +1,8 @@
 // ?resource=venue-tvl: what our pools hold and what is staked with us on every chain, for the
 // home page. The rules under test are the ones a visitor relies on: only SOL, USDC, the island's
-// coins and ETH add dollars in a pool (so a pile of worthless pools adds nothing), a range pool's own price
-// is never trusted, a staking pool counts at its own count of what is staked and its coin at the
+// coins and ETH add dollars in a pool (so a pile of worthless pools adds nothing), an island coin
+// counts at its market price and never at a price in our own pools, a range pool's own price is
+// never trusted, a staking pool counts at its own count of what is staked and its coin at the
 // market's price, a chain that cannot be read is named and left out instead of counted as zero,
 // and a good answer is cached so a visitor costs the chains nothing.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -195,36 +196,80 @@ describe("the range-pool program, as copied from src/lib/solana/clmm", () => {
 });
 
 describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
-  it("values a pool at twice its top coin, and BAYLA at its price in our deepest BAYLA/SOL pool", async () => {
+  it("values a pool at twice its top coin, and BAYLA at its market price on Jupiter, never at a price in our pools", async () => {
     const w = world();
+    w.jup[BAYLA] = 0.5;
     w.pool(CP, [SOL, 2], [MEME, 1_000_000]); // 2 SOL: $400
     w.pool(CP, [USDC, 50], [MEME, 9_000]); // 50 USDC: $100
-    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // the deepest BAYLA/SOL: BAYLA = $1; the pool itself $2,000
-    w.pool(CP, [SOL, 1], [BAYLA, 10]); // a shallow one quoting BAYLA at $10, never used for its price
-    w.pool(CP, [BAYLA, 30], [MEME, 5]); // 30 BAYLA: $60
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // twice its SOL: $2,000; the $1 it says BAYLA is worth is never used
+    w.pool(CP, [SOL, 1], [BAYLA, 10]); // twice its SOL: $200
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // 30 BAYLA at Jupiter's $0.50: $30
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2760, pools: 5, unvalued: 0 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2730, pools: 5, unvalued: 0 });
   });
 
-  it("values every other island coin the same way: BOBO at its price in our deepest BOBO/SOL pool, and a pool of two island coins at twice its higher-ranked one", async () => {
+  it("values every other island coin the same way: BOBO at its market price, and a pool of two island coins at twice its higher-ranked one", async () => {
     const w = world();
-    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // BAYLA = $1; the pool itself $2,000
-    w.pool(CP, [USDC, 20], [BOBO, 400]); // a USDC pool: $40. Not BOBO's price: a SOL pool of it exists
-    w.pool(CP, [SOL, 1], [BOBO, 4_000]); // the deepest BOBO/SOL: BOBO = $0.025; the pool itself $200
-    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $50
+    w.jup[BAYLA] = 1;
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // $2,000
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // $40
+    w.pool(CP, [SOL, 1], [BOBO, 4_000]); // $200; the $0.025 it says BOBO is worth is never used
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO at $0.05: $100
     w.pool(CP, [BAYLA, 10], [BOBO, 100]); // two island coins: twice its BAYLA, $20; its BOBO side counts nothing
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2310, pools: 5, unvalued: 0 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2360, pools: 5, unvalued: 0 });
   });
 
-  it("prices an island coin from its USDC pool when it has no SOL pool, and leaves its pools out with neither", async () => {
+  it("leaves out the pools an island coin would value while Jupiter has no price for it, whatever our pools say, and says so", async () => {
     const w = world();
-    w.pool(CP, [USDC, 20], [BOBO, 400]); // BOBO = $0.05; the pool itself $40
-    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // 1,000 BOBO: $100
-    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA has no SOL or USDC pool here: left out
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // a SOL pool, $2,000, whatever BAYLA is worth
+    w.pool(CP, [USDC, 20], [BOBO, 400]); // $40
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // $100
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA has no market price: left out, though our pool above says $2
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 140, pools: 2, unvalued: 1 });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2140, pools: 3, unvalued: 1 });
     expect(body.state).toBe("partial");
+  });
+
+  // Anyone can open a pool here at any ratio. Priced from our own pools, 0.01 SOL against 0.0001
+  // BAYLA said BAYLA was worth $10,000, so one BAYLA beside a junk token was a $20,000 pool:
+  // on the home page's total, and the junk token on the swap's list of our coins.
+  it("a lopsided pool of ours moves neither the total nor the $200 mark", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0.001;
+    w.pool(CP, [SOL, 0.01], [BAYLA, 0.0001]); // twice its SOL: $2
+    w.pool(CP, [BAYLA, 1], [JUNK, 1e9]); // 1 BAYLA at Jupiter's $0.001: $0.002
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2, pools: 2, unvalued: 0 });
+    expect(body.usd).toBe(2);
+    expect(body.poolCoins).toEqual([]);
+  });
+
+  it("still counts the SOL and USDC pools when Jupiter cannot be read, and leaves out the island coins' with the answer partial", async () => {
+    const w = world();
+    w.down.add("lite-api.jup.ag");
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]); // twice its SOL: $2,000
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // no market price could be read: left out
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: true, usd: 2200, pools: 2, unvalued: 1 });
+    expect(body.state).toBe("partial");
+  });
+
+  it("asks Jupiter once for the island coins, for the pools and the staking pools together", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0.25;
+    w.jup[BOBO] = 0.05;
+    w.pool(CP, [BAYLA, 40], [MEME, 5]); // 40 BAYLA: $20
+    w.stake(SOLANA_STAKE_POOLS[0].pool, 4_000_000n); // 4 BAYLA: $1
+    const bobo = SOLANA_STAKE_POOLS.find((p) => p.mint === BOBO);
+    w.stake(bobo.pool, 20_000_000n); // 20 BOBO: $1
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 20, unvalued: 0 });
+    expect(staked(body, "solana")).toMatchObject({ read: true, usd: 2, unvalued: 0 });
+    expect(w.priceCalls.filter((c) => c.url.includes("/price/v3"))).toHaveLength(1);
   });
 
   it("names each coin with one pool worth $200 or more, at its deepest pool, deepest first", async () => {
@@ -269,7 +314,7 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     expect(chain(body, "solana")).toMatchObject({ read: true, usd: 440, pools: 2 });
   });
 
-  it("leaves out the pools BAYLA would value when no pool gives BAYLA a price, and says so", async () => {
+  it("leaves out the pools BAYLA would value when Jupiter has no price for BAYLA, and says so", async () => {
     const w = world();
     w.pool(CP, [SOL, 1], [MEME, 5]);
     w.pool(CP, [BAYLA, 30], [MEME, 5]);
