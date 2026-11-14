@@ -65,15 +65,15 @@ function RowContext({ order, floorPrice }) {
   const delta = floorDelta(order.price_eth, floorPrice);
   if (!expiry && !delta) return null;
   const chip = {
-    display: "inline-block", padding: "1px 5px", borderRadius: 4,
-    fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.03em",
+    display: "inline-block", padding: "1px 5px", borderRadius: 3,
+    fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.03em",
   };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 6, flexWrap: "wrap" }}>
       {delta && (
         <span style={{
           ...chip,
-          background: delta.below ? "rgba(76,175,80,0.10)" : "rgba(255,255,255,0.05)",
+          background: delta.below ? "rgba(47,217,139,0.1)" : "rgba(255,255,255,0.05)",
           color: delta.below ? "var(--green)" : "var(--text-muted)",
         }}>
           {delta.label}
@@ -95,7 +95,7 @@ const thStyle = {
   textAlign: "left",
   padding: "8px 10px",
   fontFamily: "var(--mono)",
-  fontSize: 9,
+  fontSize: 11,
   color: "var(--text-muted)",
   letterSpacing: "0.06em",
   fontWeight: 400,
@@ -109,9 +109,9 @@ function StatusBadge({ status }) {
   const active = status === "active" || !status;
   return (
     <span style={{
-      display: "inline-block", padding: "2px 6px", borderRadius: 4,
-      fontSize: 9, letterSpacing: "0.04em",
-      background: active ? "rgba(76,175,80,0.1)" : "rgba(255,255,255,0.05)",
+      display: "inline-block", padding: "2px 6px", borderRadius: 3,
+      fontSize: 11, letterSpacing: "0.04em",
+      background: active ? "rgba(47,217,139,0.1)" : "rgba(255,255,255,0.05)",
       color: active ? "var(--green)" : "var(--text-muted)",
     }}>
       {status?.toUpperCase() || "ACTIVE"}
@@ -129,14 +129,14 @@ function ActionButton({ order, wallet, isMine, buying, cancelling, onBuy, onCanc
         onClick={() => onCancel(order)}
         disabled={cancelling === order.order_hash}
         style={{
-          background: "rgba(248,113,113,0.06)",
+          background: "rgba(255,92,92,0.06)",
           color: "var(--red)",
-          border: "1px solid rgba(248,113,113,0.15)",
-          borderRadius: 6,
+          border: "1px solid rgba(255,92,92,0.15)",
+          borderRadius: 4,
           padding: full ? "9px 12px" : "5px 12px",
           cursor: cancelling === order.order_hash ? "wait" : "pointer",
           fontFamily: "var(--mono)",
-          fontSize: 9,
+          fontSize: 11,
           letterSpacing: "0.04em",
           opacity: cancelling === order.order_hash ? 0.6 : 1,
           ...width,
@@ -152,14 +152,14 @@ function ActionButton({ order, wallet, isMine, buying, cancelling, onBuy, onCanc
       onClick={() => onBuy(order)}
       disabled={isBuying || order.status !== "active"}
       style={{
-        background: isBuying ? "var(--surface)" : "var(--naka-blue)",
-        color: "#fff",
+        background: isBuying ? "var(--surface)" : "var(--accent)",
+        color: "var(--on-accent)",
         border: "none",
-        borderRadius: 6,
+        borderRadius: 4,
         padding: full ? "9px 14px" : "5px 14px",
         cursor: isBuying ? "wait" : "pointer",
         fontFamily: "var(--pixel)",
-        fontSize: 9,
+        fontSize: 11,
         letterSpacing: "0.04em",
         opacity: isBuying ? 0.6 : 1,
         transition: "opacity 0.15s",
@@ -185,7 +185,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
           const isMine = wallet && order.maker?.toLowerCase() === wallet.toLowerCase();
           return (
             <div key={order.order_hash} style={{
-              border: "1px solid var(--border)", borderRadius: 8, padding: "11px 13px",
+              border: "1px solid var(--border)", borderRadius: 4, padding: "11px 13px",
               background: "rgba(255,255,255,0.02)",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -196,7 +196,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
                   <Eth size={11} /> {Number(order.price_eth).toFixed(4)}
                 </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 7, fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 7, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                 <span>{isMine ? "You" : formatAddress(order.maker)} &middot; {formatDate(order.created_at)}</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                   <RowContext order={order} floorPrice={floorPrice} />
@@ -215,7 +215,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--mono)", fontSize: 11 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--mono)", fontSize: 12 }}>
         <thead>
           <tr style={{ borderBottom: "1px solid var(--border)" }}>
             <th style={thStyle}>Token</th>

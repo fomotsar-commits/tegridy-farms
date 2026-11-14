@@ -8,7 +8,6 @@ import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { getFriendlyError } from "../lib/errorMessages";
 import { toastTxNotice } from "../lib/txOutcome";
 import { sanitizeDecimalInput } from "../../lib/formatting";
-import { pageArt } from "../../lib/artConfig";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -249,23 +248,16 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         className="offer-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          // Art-backed panel. `--card` stays the final layer so a 404 on the art
-          // degrades to the old flat panel rather than transparent. Scrim is the
-          // heaviest of the three popups (0.86->0.9): this form shows BALANCES and
-          // an irreversible-offer warning, so legibility outranks how much of the
-          // piece reads through. `backgroundAttachment: local` keeps the art pinned
-          // to the panel while the form scrolls inside `overflowY: auto` — without
-          // it the image slides against the content on short viewports.
-          background: `linear-gradient(180deg, rgba(10,16,32,0.86) 0%, rgba(10,16,32,0.90) 100%), url(${pageArt("make-offer", 0).src}) center / cover no-repeat, var(--card)`,
-          backgroundAttachment: "local",
+          // A plain plane: this form shows balances and an irreversible-offer
+          // warning, so nothing sits behind the words.
+          background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
+          borderRadius: 6, maxWidth: 420, width: "90%", margin: "auto",
           padding: "28px 24px", position: "relative",
           // Match TradeWindow / BulkListingWizard so a tall offer form (balances,
           // warnings, expiry buttons) scrolls instead of clipping the close button
           // off the top of short viewports.
           maxHeight: "90vh", overflowY: "auto",
-          textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
         }}
       >
         <button
@@ -276,7 +268,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         >{"\u2715"}</button>
 
         <div style={{
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)",
+          fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)",
           letterSpacing: "0.1em", marginBottom: 6,
         }}>
           {typeLabel}
@@ -294,7 +286,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             <div style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--green)", marginBottom: 8 }}>
               Offer Submitted!
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
               Your offer is now live on OpenSea.
             </div>
             <button className="btn-primary" style={{ marginTop: 18, width: "100%" }} onClick={onClose}>
@@ -309,19 +301,19 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                 display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18,
               }}>
                 <div style={{
-                  background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.1)",
-                  borderRadius: 8, padding: "10px 12px",
+                  background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
+                  borderRadius: 4, padding: "10px 12px",
                 }}>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em" }}>ETH BALANCE</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>ETH BALANCE</div>
                   <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)", marginTop: 4 }}>
                     {ethBal !== null ? formatEth(ethBal) : "..."}
                   </div>
                 </div>
                 <div style={{
-                  background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.1)",
-                  borderRadius: 8, padding: "10px 12px",
+                  background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
+                  borderRadius: 4, padding: "10px 12px",
                 }}>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em" }}>WETH BALANCE</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>WETH BALANCE</div>
                   <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)", marginTop: 4 }}>
                     {wethBal !== null ? formatEth(wethBal) : "..."}
                   </div>
@@ -332,7 +324,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             {/* Price input */}
             <div style={{ marginBottom: 16 }}>
               <label htmlFor="offer-price-input" style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.06em", display: "block", marginBottom: 6,
               }}>
                 OFFER PRICE (WETH)
@@ -340,7 +332,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
                 background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)",
-                borderRadius: 8, padding: "10px 14px",
+                borderRadius: 4, padding: "10px 14px",
               }}>
                 <Eth size={14} />
                 <input
@@ -356,7 +348,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                     fontFamily: "var(--mono)", fontSize: 16, color: "var(--text)",
                   }}
                 />
-                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>WETH</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>WETH</span>
               </div>
               {price && wethBal !== null && parseFloat(price) > 0 && (() => {
                 const [whole = "0", frac = ""] = price.split(".");
@@ -364,8 +356,8 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                 const needsWrap = priceWei > wethBal;
                 return (
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 10, marginTop: 6,
-                  color: needsWrap ? "var(--red, #e74c3c)" : "var(--green)",
+                  fontFamily: "var(--mono)", fontSize: 11, marginTop: 6,
+                  color: needsWrap ? "var(--red, #ff5c5c)" : "var(--green)",
                 }}>
                   {needsWrap
                     ? "ETH will be auto-wrapped to WETH during submission"
@@ -385,10 +377,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               if (totalCommitted > availableBal) {
                 return (
                   <div role="alert" style={{
-                    fontFamily: "var(--mono)", fontSize: 10, marginBottom: 14,
-                    padding: "8px 12px", borderRadius: 8,
-                    background: "rgba(231,76,60,0.08)", border: "1px solid rgba(231,76,60,0.25)",
-                    color: "var(--red, #e74c3c)", lineHeight: 1.5,
+                    fontFamily: "var(--mono)", fontSize: 11, marginBottom: 14,
+                    padding: "8px 12px", borderRadius: 4,
+                    background: "rgba(255,92,92,0.08)", border: "1px solid rgba(255,92,92,0.25)",
+                    color: "var(--red, #ff5c5c)", lineHeight: 1.5,
                   }}>
                     Warning: Your active offers ({formatEth(activeOfferTotal)} WETH) plus this offer
                     would total {formatEth(totalCommitted)} WETH, exceeding your balance
@@ -403,7 +395,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             {/* Expiration */}
             <div style={{ marginBottom: 20 }}>
               <span id="expiration-label" style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.06em", display: "block", marginBottom: 6,
               }}>
                 EXPIRATION
@@ -416,13 +408,13 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                     disabled={step === "submitting"}
                     aria-pressed={expiration === opt.hours}
                     style={{
-                      padding: "6px 12px", borderRadius: 6,
-                      fontFamily: "var(--mono)", fontSize: 10,
+                      padding: "6px 12px", borderRadius: 4,
+                      fontFamily: "var(--mono)", fontSize: 11,
                       border: expiration === opt.hours
                         ? "1px solid var(--naka-blue)"
                         : "1px solid var(--border)",
                       background: expiration === opt.hours
-                        ? "rgba(111,168,220,0.1)"
+                        ? "rgba(255,255,255,0.07)"
                         : "rgba(0,0,0,0.2)",
                       color: expiration === opt.hours ? "var(--naka-blue)" : "var(--text-dim)",
                       cursor: step === "submitting" ? "wait" : "pointer",
@@ -436,7 +428,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
 
             {/* Info about offers */}
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
               marginBottom: 18, lineHeight: 1.6,
             }}>
               {infoText}
@@ -445,10 +437,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             {/* Wrong network warning */}
             {wallet && isWrongNetwork && (
               <div role="alert" style={{
-                fontFamily: "var(--mono)", fontSize: 11, marginBottom: 12,
-                padding: "10px 14px", borderRadius: 8,
-                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
-                color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+                fontFamily: "var(--mono)", fontSize: 12, marginBottom: 12,
+                padding: "10px 14px", borderRadius: 4,
+                background: "rgba(255,92,92,0.08)", border: "1px solid rgba(255,92,92,0.2)",
+                color: "var(--red, #ff5c5c)", textAlign: "center", lineHeight: 1.5,
               }}>
                 Wrong network detected.{" "}
                 <button
@@ -456,7 +448,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                   style={{
                     background: "none", border: "none", cursor: "pointer",
                     color: "var(--naka-blue)", textDecoration: "underline",
-                    fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+                    fontFamily: "var(--mono)", fontSize: 12, padding: 0,
                   }}
                 >
                   Switch to Ethereum Mainnet
@@ -468,7 +460,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             <button
               className="btn-primary"
               type="button"
-              style={{ width: "100%", textAlign: "center", fontSize: 12 }}
+              style={{ width: "100%", textAlign: "center", fontSize: 13 }}
               disabled={step === "submitting" || (wallet && isWrongNetwork)}
               aria-disabled={step === "submitting" || (wallet && isWrongNetwork)}
               onClick={handleSubmit}

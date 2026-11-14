@@ -2,68 +2,16 @@ import { createContext, useContext, useState, useEffect, useLayoutEffect, useCal
 
 const STORAGE_KEY = "nakamigos_theme";
 
+// The three colourways. Their colours live in App.css, keyed on the
+// `theme-<id>` class this provider puts on the app box and on <body> (the
+// pop-up menus are drawn at the end of <body>, outside the app box, and read
+// the class from there). Nothing is written as an inline custom property any
+// more, so `vars` is empty: the ids are kept because a visitor's saved choice
+// is stored under them.
 const themes = [
-  {
-    id: "default",
-    label: "Default",
-    vars: {
-      "--bg": "#09090b",
-      "--surface": "#101012",
-      "--surface-glass": "rgba(16, 16, 18, 0.6)",
-      "--surface-hover": "#151517",
-      "--border": "rgba(255, 255, 255, 0.04)",
-      "--border-gold": "rgba(200, 170, 100, 0.08)",
-      "--text": "#e5e5e5",
-      "--text-dim": "#888",
-      "--text-muted": "#6b6b6b",
-      "--text-faint": "#555",
-      "--card": "#131315",
-    },
-  },
-  {
-    id: "midnight",
-    label: "Midnight",
-    vars: {
-      "--bg": "#070810",
-      "--surface": "#0d0e16",
-      "--surface-glass": "rgba(12, 14, 22, 0.6)",
-      "--surface-hover": "#12131d",
-      "--border": "rgba(100, 160, 235, 0.06)",
-      "--border-gold": "rgba(100, 160, 235, 0.1)",
-      "--text": "#e0e8f0",
-      "--text-dim": "#5a6a80",
-      "--text-muted": "#3a4558",
-      "--text-faint": "#2a3345",
-      "--card": "#0a0b14",
-      "--gold": "#4fc3f7",
-      "--gold-dim": "#39a0d4",
-      "--gold-glow": "rgba(79, 195, 247, 0.25)",
-      "--naka-blue": "#81d4fa",
-      "--naka-sky": "#b3e5fc",
-      "--naka-glow": "rgba(79, 195, 247, 0.2)",
-      "--green": "#4ade80",
-      "--red": "#ff6b6b",
-      "--yellow": "#fdd835",
-      "--purple": "#b388ff",
-    },
-  },
-  {
-    id: "sovereign",
-    label: "Sovereign",
-    vars: {
-      "--bg": "#0a0e1a",
-      "--surface": "#0f1426",
-      "--surface-glass": "rgba(15, 20, 38, 0.7)",
-      "--surface-hover": "#141a30",
-      "--border": "rgba(200, 170, 100, 0.08)",
-      "--border-gold": "rgba(200, 170, 100, 0.15)",
-      "--text": "#e8dcc8",
-      "--text-dim": "#8a7e6a",
-      "--text-muted": "#5a5040",
-      "--text-faint": "#3a3228",
-      "--card": "#0d1220",
-    },
-  },
+  { id: "default", label: "Lime", vars: {} },
+  { id: "midnight", label: "Ice", vars: {} },
+  { id: "sovereign", label: "Amber", vars: {} },
 ];
 
 const themeIds = themes.map((t) => t.id);
@@ -81,7 +29,7 @@ function getInitialTheme() {
   return "default";
 }
 
-const THEME_BG = { default: "#09090b", midnight: "#070810", sovereign: "#0a0e1a" };
+const THEME_BG = { default: "#0a0b0d", midnight: "#090b10", sovereign: "#0c0b0a" };
 
 // Every custom property any theme writes. Used to snapshot/restore the fallback
 // target (document.body) — applyTheme falls back to it when `.nakamigos-app`
@@ -157,7 +105,8 @@ function applyTheme(themeId) {
       appEl.setAttribute("data-theme", themeId);
     }
 
-    // Also set on body for the Background component which reads document.body.className
+    // Also set on body: the pop-up menus are drawn at the end of <body>, outside
+    // the app box, and App.css gives them their colourway from this class.
     themeIds.forEach((id) => document.body.classList.remove(`theme-${id}`));
     document.body.classList.add(`theme-${themeId}`);
     document.documentElement.setAttribute("data-theme", themeId);

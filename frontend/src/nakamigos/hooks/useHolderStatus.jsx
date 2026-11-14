@@ -38,9 +38,9 @@ export function holderTierLabel(tier) {
 }
 
 export function holderTierColor(tier) {
-  if (tier === "whale") return "#d4a843";
-  if (tier === "collector") return "#6fa8dc";
-  if (tier === "holder") return "#4ade80";
+  if (tier === "whale") return "#c6f432";
+  if (tier === "collector") return "#ffffff";
+  if (tier === "holder") return "#2fd98b";
   return "var(--text-dim)";
 }
 
@@ -137,7 +137,7 @@ export function HolderBadge({ tier, size = "small", collectionName }) {
         color,
         background: `${color}15`,
         border: `1px solid ${color}30`,
-        borderRadius: 4,
+        borderRadius: 3,
         padding: isSmall ? "1px 5px" : "2px 8px",
         letterSpacing: "0.04em",
         whiteSpace: "nowrap",
