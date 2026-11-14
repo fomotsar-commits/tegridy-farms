@@ -52,15 +52,18 @@ export interface VenueEarns {
 const VAULT_CAN = 'which needs two signatures and can change the pool rates';
 const VAULT_LABEL = 'Team’s shared wallet';
 const WORKSHOP_LABEL = 'Island’s Workshop';
+/** What coin the venue's cut of a pool trade arrives in. */
+const PAID_IN = ', in the coin the trader pays.';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter
     ? `${pctText(jupiter.bps / 100)} of a swap sent through Jupiter, where the route allows it.`
     : 'No fee on a swap sent through Jupiter: none is set up.';
-  if (!tier) return { sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
+  // The cut is taken from what the trader pays in: SOL on a buy, the token on a sell, never always SOL.
+  if (!tier) return { sources: [`A cut of each trade in its pools${PAID_IN}`, 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
 
   const opening = tier.createPoolFee > 0n ? `${solOf(tier.createPoolFee)} SOL when a public pool is opened.` : 'No fee when a public pool is opened.';
-  const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool.`, opening, swap];
+  const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool${PAID_IN}`, opening, swap];
   const vault = PLATFORM_TREASURY_VAULT.toBase58();
   const workshop = WORKSHOP_WALLET.toBase58();
   // Each part follows the wallet that collects it (protocol owner, fund owner), summed when one
