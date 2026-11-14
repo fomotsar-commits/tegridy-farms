@@ -54,7 +54,17 @@ export const KNOWN_WALLETS = Object.freeze({
   '8tWhkQfchNW6HgZv1BgABf57NHxdFiFCi7RaEgiUoKtM': 'LiveiNLx bot 5',
   Cn8LrZZnFD6qpyUY5uxJqTYKJ131U1dQLspEJqsxBn34: 'loan bot 1 (Kamino + Jupiter)',
   GWYrYHremktV7jiL6GyrG7G8M2yN1nSWm1bEiogR5sdn: 'loan bot 2 (Kamino + Jupiter)',
+  // The loan bots' hub: it funded both on 2026-11-04 and takes their profits back (LOAN_BOT_HUB).
+  // These two it funded on 2026-11-14 06:27Z and 06:33Z; neither had traded anywhere when read.
+  Y2PRy1frYNj4UPLU2hGGHyLuw88RhzNHs94psGg2sj8: 'new wallet of the loan bots’ hub (funded 11-14)',
+  FFtEX3CYqSyv3Qs2haPjNdsgYbNK4eRQDfEy7AucrPrY: 'new wallet of the loan bots’ hub (funded 11-14)',
 });
+/**
+ * The wallet behind the loan bots: it sent Cn8LrZZn… and GWYrYHre… their first SOL on 2026-11-04
+ * and receives what they make. It runs more wallets the same way against other exchanges (one
+ * wallet an exchange: a Kamino loan, two swaps, the repayment). It never calls our program itself.
+ */
+export const LOAN_BOT_HUB = 'FQwUxowDQKwE8SbGR9RfXbHpy2PGFtE4qvpDP5wBFmVf';
 
 /** Our pool program's instructions, by the first 8 bytes of their data in hex (Anchor: sha256("global:<name>")). */
 export const OUR_INSTRUCTIONS = Object.freeze({
