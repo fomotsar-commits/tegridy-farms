@@ -1,12 +1,9 @@
 /**
- * /nft-finance: the section tabs scroll inside their own strip and never move
- * the page, and the selected tab is whole in view, clear of the strip's fade, on
- * landing and after a press. With a mouse, an arrow over each end that has tabs
- * past it moves the row; on a touch screen the row is swiped and has none. From
- * 480px up the three tabs fit (436px with the fade's padding) and nothing fades.
- * Measured from rendered boxes against the width the test asked for: a phone
- * browser widens its own window to fit a page that is too wide, so `innerWidth`
- * cannot be the ruler.
+ * /nft-finance: the section tabs scroll inside their own strip, never the page, and the
+ * selected tab is whole in view, clear of the strip's fade, on landing and after a press.
+ * With a mouse an arrow over each end with tabs past it moves the row; a touch screen swipes.
+ * From 480px up the three tabs fit. Measured against the width the test asked for: a phone
+ * browser widens its window to fit a page that is too wide, so `innerWidth` is no ruler.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
@@ -152,11 +149,10 @@ function readArrow(arrow: Element, { width, min }: { width: number; min: number 
 }
 
 /**
- * How wide the fade at the right edge of a tab's strip is, and how many px of the
- * tab lie under it (0 or less: the tab is wholly in the part that does not fade).
- * Both are read off the page: the fade from the mask the browser applied, which
- * spans the strip's border box, the tab and the strip from their rendered boxes.
- * No number here depends on how wide a font draws the tabs.
+ * How wide the fade at the right edge of a tab's strip is, and how many px of the tab lie
+ * under it (0 or less: wholly clear). Read off the page: the fade from the mask the browser
+ * applied (it spans the strip's border box), the tab and strip from their rendered boxes,
+ * so no number depends on how wide a font draws the tabs.
  */
 function readFade(tab: Element) {
   const list = tab.closest('[role="tablist"]')!;
@@ -236,6 +232,21 @@ function furthestShown(
 
 const frames = (page: Page) =>
   page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+/** Records where each press went, so a press that selected nothing says what took it. */
+function recordPresses() {
+  const trail: string[] = [];
+  (window as unknown as { __presses: string[] }).__presses = trail;
+  const t0 = performance.now();
+  for (const type of ['pointerdown', 'pointerup', 'click']) {
+    window.addEventListener(type, (e) => {
+      const el = e.target instanceof Element ? e.target : null;
+      const who = el?.closest('[role="tab"]')?.id ?? (el ? `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}` : 'nothing');
+      const at = `(${Math.round((e as MouseEvent).clientX)},${Math.round((e as MouseEvent).clientY)})`;
+      trail.push(`${Math.round(performance.now() - t0)}ms ${type} ${at} on ${who}`);
+    }, true);
+  }
+}
 
 /** Gives `tab` up to ~1s to sit whole in its strip, then the most it is cut over the next ten frames. */
 async function settledCut(page: Page, tab: Locator, width: number) {
@@ -470,6 +481,7 @@ for (const width of SCROLLING_WIDTHS) {
   }) => {
     test.skip(await hasMouse(page), 'with a mouse the arrows walk the strip: the arrow tests below');
     await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(recordPresses);
     await gotoRoute(page, '/nft-finance?section=lending');
     const list = page.getByRole('tablist', { name: 'NFT Finance sections' });
     const tabs = list.getByRole('tab');
@@ -496,7 +508,12 @@ for (const width of SCROLLING_WIDTHS) {
         // A bare mouse press: `locator.click()` would scroll the tab into view itself.
         await page.mouse.click(press.x, press.y);
         const tab = page.locator(`#${press.id}`);
-        await expect(tab, `${press.id} was pressed and is not the selected tab`).toHaveAttribute('aria-selected', 'true');
+        // 14 CI failures (2026-10-21 to 11-14, WebKit) were this line, never reproduced here: the trail names what took the press.
+        await expect(tab).toHaveAttribute('aria-selected', 'true').catch(async (e: Error) => {
+          const trail = await page.evaluate(() => (window as unknown as { __presses: string[] }).__presses.slice(-6));
+          const pressed = `${press.id} was pressed at (${Math.round(press.x)},${Math.round(press.y)}) and is not the selected tab`;
+          throw new Error(`${pressed}. The last presses:\n  ${trail.join('\n  ')}\n${e.message}`);
+        });
         const cut = await settledCut(page, tab, width);
         expect(
           cut,
