@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-14
+
+- Notice: no sooner than seven days from this day, a Solana swap through Jupiter between two of SOL, USDC, USDT and staked SOL pays memetics.finance 0.05% of the trade instead of 0.5%, and a CoW swap on Ethereum pays 0.25% of the trade instead of 0.5%, of which CoW DAO keeps a quarter and memetics.finance the rest. Every other Solana swap that pays the venue stays at 0.5%. The paid API plans on /developer become $49, $199 and $799 a month; billing is still off.
+
 ### 2026-11-13
 
 - Swap and Add sheets, and the home's swap and pools cards: the network drop-down changes the form where it stands instead of opening another page. Ethereum, Base, Robinhood Chain and Cardano each show their own swap form there, and Ethereum, Base and Robinhood Chain their add / remove form. A room on Ethereum or Base opens the sheet on its own network and coin. The Solana swap sheet gains the flip (so you can sell), slippage, speed and price impact. The Add sheet lets you pick another room's coin, or "Every pool" for the whole pools list with your positions, Remove, Claim fees and Open a pool. Swap and Add are one press apart. On a tablet or wider the sheet sits in the middle of the screen.
