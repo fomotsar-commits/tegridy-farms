@@ -48,6 +48,31 @@ test.describe('NFT lending surface', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  // The four stat tiles (Open Offers, Loans Made, Venue Fee, Collections) each explain
+  // themselves in a tooltip; the fee's says how the venue earns. Each tile clipped its own
+  // bubble (overflow-hidden for the rounded art), so none could be read. Checked by what the
+  // browser draws on top at the bubble's centre: jsdom has no layout.
+  test('each stat tile\'s explanation is drawn on top, not clipped by its tile', async ({ page, walletMock: _w }) => {
+    test.skip(!lendingLive, NOT_LIVE);
+    await page.goto('/nft-finance');
+    await expect(page.getByRole('heading', { name: /^NFT Lending$/i })).toBeVisible();
+    const more = page.getByRole('button', { name: 'More info' });
+    for (let i = 0; i < 4; i++) {
+      await more.nth(i).scrollIntoViewIfNeeded();
+      await more.nth(i).click();
+      const tip = page.getByRole('tooltip');
+      await expect(tip).toHaveCount(1);
+      const onTop = await tip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && (hit === el || el.contains(hit));
+      });
+      expect(onTop, `tile ${i + 1}'s tooltip is drawn under something else, so it cannot be read`).toBe(true);
+      await more.nth(i).click(); // closes it again
+      await expect(tip).toHaveCount(0);
+    }
+  });
+
   test('lend / borrow / my-loans sub-tabs switch', async ({ page, walletMock }) => {
     test.skip(!lendingLive, NOT_LIVE);
     await walletMock.connect();

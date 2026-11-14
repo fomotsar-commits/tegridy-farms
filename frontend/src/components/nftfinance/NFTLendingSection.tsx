@@ -186,8 +186,12 @@ export function NFTLendingSection() {
             art: pageArt('nft-lending', 3),
           },
         ].map((s) => (
-          <div key={s.label} className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
-            <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+          // Only the art is clipped to the rounded tile: a clipping tile hid its own tooltip.
+          // The tile with a tooltip open sits above its neighbours.
+          <div key={s.label} className="relative rounded-xl [&:has([role=tooltip])]:z-20" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0 overflow-hidden rounded-[11px]">
+              <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+            </div>
             <div
               className="relative z-10 m-2 rounded-lg p-3 md:p-4"
               style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
