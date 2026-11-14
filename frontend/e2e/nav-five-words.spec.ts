@@ -1,5 +1,5 @@
 // The island's venue review, item 1, as the owner took it on 2026-10-03: the bar reads
-// Island · Swap · Add · Yield · Launch at every width (Heat and Rooms became Island on 2026-10-18;
+// Island · Swap · Add · Earn · Launch at every width (Heat and Rooms became Island on 2026-10-18;
 // build 2 of the outside review brought Pools up from the menu as Add, 2026-11-01), one menu
 // opens at every width and is the site's index, every section's word with its pages under it
 // (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab strip says
@@ -8,7 +8,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
 
-const WORDS = ['Island', 'Swap', 'Add', 'Yield', 'Launch'];
+const WORDS = ['Island', 'Swap', 'Add', 'Earn', 'Launch'];
 
 const SIZES = [
   { name: 'phone', width: 390, height: 844 },
@@ -46,14 +46,14 @@ for (const size of SIZES) {
       await page.setViewportSize({ width: size.width, height: size.height });
     });
 
-    test('the bar reads Island · Swap · Add · Yield · Launch on every route, one word lit where it owns the page', async ({ page }) => {
+    test('the bar reads Island · Swap · Add · Earn · Launch on every route, one word lit where it owns the page', async ({ page }) => {
       test.slow();
       const expectLit: Record<string, string[]> = {
         '/': ['Island'],
         // Entering BAYLA's room makes Island her room's own page (owner, 2026-10-17).
         '/bayla': ['Island'],
         '/island': ['Island'],
-        '/earn': ['Yield'],
+        '/earn': ['Earn'],
         '/launch': ['Launch'],
         '/swap': ['Swap'],
         '/pools': ['Add'],
@@ -74,12 +74,12 @@ for (const size of SIZES) {
       await expect(drawer).toBeVisible();
       const index = drawer.getByRole('navigation', { name: 'Site index' });
       // Owner, 2026-11-10: the menu cut down; Launch and Check left as groups.
-      await expect(index.getByRole('heading', { level: 2 })).toHaveText(['Island', 'Swap', 'Pools', 'Yield', 'Records']);
-      for (const word of ['Island', 'Swap', 'Pools', 'Yield']) {
+      await expect(index.getByRole('heading', { level: 2 })).toHaveText(['Island', 'Swap', 'Pools', 'Earn', 'Records']);
+      for (const word of ['Island', 'Swap', 'Pools', 'Earn']) {
         await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
       // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
-      for (const [word, name] of [['Yield', 'NFT Loans'], ['Island', 'Lore'], ['Island', 'Launch'], ['Island', 'Marketplace']] as const) {
+      for (const [word, name] of [['Earn', 'NFT Loans'], ['Island', 'Lore'], ['Island', 'Launch'], ['Island', 'Marketplace']] as const) {
         await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
       for (const name of ['Charting', 'Copy Trading', 'Gallery']) await expect(index.getByRole('link', { name, exact: true }), name).toHaveCount(0);
