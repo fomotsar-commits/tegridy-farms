@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { pickTourTarget, placeTourCard } from "../lib/tourTarget";
 
 const STEPS = [
   {
@@ -63,7 +64,9 @@ function injectKeyframes() {
 }
 
 // ═══ Tooltip arrow helper ═══
-function arrowStyle(position) {
+// `left` is where the arrow sits along the card (px), so it points at the
+// target's middle even when the card is pushed in from the screen's edge.
+function arrowStyle(position, left) {
   const base = {
     position: "absolute",
     width: 0,
@@ -71,11 +74,12 @@ function arrowStyle(position) {
     borderLeft: "8px solid transparent",
     borderRight: "8px solid transparent",
   };
+  const along = left == null ? "50%" : left;
   if (position.startsWith("bottom")) {
     return {
       ...base,
       top: -8,
-      left: "50%",
+      left: along,
       transform: "translateX(-50%)",
       borderBottom: "8px solid rgba(17,19,22,0.96)",
     };
@@ -84,7 +88,7 @@ function arrowStyle(position) {
     return {
       ...base,
       bottom: -8,
-      left: "50%",
+      left: along,
       transform: "translateX(-50%)",
       borderTop: "8px solid rgba(17,19,22,0.96)",
     };
@@ -116,15 +120,6 @@ function arrowStyle(position) {
   return base;
 }
 
-// ═══ Resolve first matching selector ═══
-function resolveTarget(selectorGroup) {
-  for (const sel of selectorGroup.split(",")) {
-    const el = document.querySelector(sel.trim());
-    if (el) return el;
-  }
-  return null;
-}
-
 export default function Onboarding({ onComplete }) {
   const collection = useActiveCollection();
   // The tour steps (Gallery/Floor/Wallet/Cart/Shortcuts) are not
@@ -138,6 +133,9 @@ export default function Onboarding({ onComplete }) {
   const [active, setActive] = useState(false);
   const [step, setStep] = useState(0);
   const [tooltipPos, setTooltipPos] = useState(null);
+  // Which side of its target the card ended up on, and where its arrow sits;
+  // null when the step has no target on screen (the card is centred, arrowless).
+  const [cardSide, setCardSide] = useState(null);
   const [spotlightRect, setSpotlightRect] = useState(null);
   const tooltipRef = useRef(null);
 
@@ -158,12 +156,14 @@ export default function Onboarding({ onComplete }) {
     const cfg = STEPS[step];
     if (!cfg) return;
 
-    const el = resolveTarget(cfg.target);
-    const gap = 14;
+    // The first copy of the target the visitor can see (a phone hides the
+    // header's tab row and shows the bottom bar instead), or none at all.
+    const el = pickTourTarget(cfg.target);
 
     if (!el) {
-      // fallback: center on screen
+      // No target on screen: the card sits in the middle, with no arrow.
       setSpotlightRect(null);
+      setCardSide(null);
       setTooltipPos({
         top: "50%",
         left: "50%",
@@ -182,28 +182,13 @@ export default function Onboarding({ onComplete }) {
       borderRadius: 4,
     });
 
-    // calculate tooltip placement
-    const pos = {};
-    const position = cfg.position || "bottom";
-
-    if (position.startsWith("bottom")) {
-      pos.top = rect.bottom + gap;
-      pos.left = position === "bottom-end"
-        ? rect.right - 320
-        : rect.left + rect.width / 2 - 160;
-    } else if (position.startsWith("top")) {
-      pos.bottom = window.innerHeight - rect.top + gap;
-      pos.left = rect.left + rect.width / 2 - 160;
-    }
-
-    // clamp to viewport
-    if (pos.left !== undefined) {
-      pos.left = Math.max(16, Math.min(pos.left, window.innerWidth - 336));
-    }
-    if (pos.top !== undefined) {
-      pos.top = Math.max(16, Math.min(pos.top, window.innerHeight - 220));
-    }
-
+    // Below the target as the step asks, or above it when there is no room.
+    const { pos, side, arrowLeft } = placeTourCard(rect, cfg.position || "bottom", {
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      height: tooltipRef.current?.offsetHeight || 220,
+    });
+    setCardSide({ side, arrowLeft });
     setTooltipPos(pos);
   }, [step]);
 
@@ -419,8 +404,8 @@ export default function Onboarding({ onComplete }) {
 
       {/* Tooltip */}
       <div ref={tooltipRef} style={tooltipStyle} onClick={(e) => e.stopPropagation()}>
-        {/* Arrow */}
-        <div style={arrowStyle(cfg.position || "bottom")} />
+        {/* Arrow, toward the target; none when the card is centred */}
+        {cardSide && <div style={arrowStyle(cardSide.side, cardSide.arrowLeft)} />}
 
         {/* Step indicator */}
         <div style={stepCountStyle}>
