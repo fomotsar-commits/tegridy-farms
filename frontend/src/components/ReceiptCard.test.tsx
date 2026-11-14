@@ -18,6 +18,8 @@ vi.mock('../lib/shoreMoment', () => ({ startShoreMoment: vi.fn(() => () => {}) }
 const SIG = '5Kq3' + 'x'.repeat(80) + '9xWz';
 const WALLET = '8SxYtKrtPZoEwtgpkXmn7TrS7VGa1qSiGPHnYjfFWQuv';
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+// A buy in a room posts the shore's line and the room with its Buy open (island answer thirty-six).
+const BUY_INTENT = `https://x.com/intent/post?text=${encodeURIComponent("Just bought $BAYLA. I'm on the shore now. Every light here holds it. https://memetics.finance/bayla?sheet=buy")}`;
 
 function receipt(over: Partial<Receipt> = {}): Receipt {
   return {
@@ -41,8 +43,14 @@ function Move() {
   return <p data-testid="move">{useCurrentScreenMove() ?? 'none'}</p>;
 }
 
+// A buy or an add in a room fetches its GIF (island answer thirty-six): none, unless a test hands one.
+const fetchClip = vi.fn(async (_url: string) => new Response('none', { status: 404 }));
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  fetchClip.mockClear();
+  fetchClip.mockImplementation(async () => new Response('none', { status: 404 }));
+  vi.stubGlobal('fetch', fetchClip);
   clearReceipt();
   clearScreenMoves();
   clearLanded();
@@ -56,6 +64,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -65,7 +74,7 @@ describe('the receipt card', () => {
     expect(screen.getByTestId('move')).toHaveTextContent('none');
   });
 
-  it('rises with no confetti, says it is reading the fee, and holds one green button: Share your card', async () => {
+  it('rises with no confetti, says it is reading the fee, and holds one green button: Share on X, the shore’s GIF and the post', async () => {
     act(() => raiseReceipt(receipt()));
     expect(confetti.fire).not.toHaveBeenCalled();
     // Bayla's line says Done, and her Receipt goes quiet while the card is up.
@@ -76,8 +85,8 @@ describe('the receipt card', () => {
     const sig = within(card).getByRole('link', { name: /on the explorer/ });
     expect(sig).toHaveAttribute('href', `https://solscan.io/tx/${SIG}`);
     expect(sig).toHaveTextContent('5Kq3 … 9xWz');
-    const share = within(card).getByRole('link', { name: 'Share your card' });
-    expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
+    const share = within(card).getByRole('link', { name: 'Share on X' });
+    expect(share).toHaveAttribute('href', BUY_INTENT);
     expect(share).toHaveAttribute('target', '_blank');
     expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
     expect(share).toHaveClass('btn-primary');
@@ -104,7 +113,7 @@ describe('the receipt card', () => {
         'To the venue and the island0.000195 SOL',
         'Signature5Kq3 … 9xWz ↗',
         'Day 1 of your clock on BAYLA starts tonight.',
-        'Share your card',
+        'Share on X',
         'Back to the room',
       ].join(''),
     );
@@ -134,7 +143,7 @@ describe('the receipt card', () => {
         'To the venue and the island0.000195 SOL',
         'Signature5Kq3 … 9xWz ↗',
         'Day 1 of your clock on BAYLA starts tonight.',
-        'Share your card',
+        'Share on X',
         'Back to the room',
       ].join(''),
     );
@@ -256,13 +265,127 @@ describe('an add shares on X', () => {
   });
 
   it.each([
-    ['a buy', 'bought'],
-    ['a sale', 'sold'],
-  ] as const)('%s keeps Share your card', (_name, action) => {
-    act(() => raiseReceipt(receipt({ action })));
+    ['a sale', { action: 'sold' }],
+    ['a buy of a coin with no room', { action: 'bought', coin: { symbol: 'WIF', mint: WIF } }],
+  ] as const)('%s keeps Share your card', (_name, over) => {
+    act(() => raiseReceipt(receipt(over)));
     const share = screen.getByRole('link', { name: 'Share your card' });
     expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
     expect(screen.queryByRole('link', { name: 'Share on X' })).toBeNull();
+    expect(fetchClip).not.toHaveBeenCalled();
+  });
+});
+
+// Island answer thirty-six, the owner's word 11-14: a buy or an add in a room shares its moment as a GIF on the post.
+describe('the moment travels', () => {
+  const GIF = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+  const ADD_POST = "Just added liquidity to $BAYLA. I'm part of the floor now. Every trade in the pool pays me. https://memetics.finance/lp/bayla";
+  const BUY_POST = "Just bought $BAYLA. I'm on the shore now. Every light here holds it. https://memetics.finance/bayla?sheet=buy";
+  const added = () => receipt({ action: 'added', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } });
+  const gifAnswer = () => new Response(GIF, { status: 200, headers: { 'content-type': 'image/gif' } });
+  const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  let restore: (() => void) | null = null;
+  // A phone: a touch screen whose share sheet takes a GIF (or none, when `files` is false).
+  function phone(files = true) {
+    const share = vi.fn(async (_data: ShareData) => undefined);
+    const had = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q === '(pointer: coarse)', media: q, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
+    if (files) {
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    }
+    restore = () => {
+      window.matchMedia = had;
+      delete (navigator as { share?: unknown }).share;
+      delete (navigator as { canShare?: unknown }).canShare;
+    };
+    return share;
+  }
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it('a phone: one tap hands X the flash’s GIF and the post', async () => {
+    const share = phone();
+    fetchClip.mockImplementation(async () => gifAnswer());
+    act(() => raiseReceipt(added()));
+    await flush();
+    expect(fetchClip).toHaveBeenCalledWith('/share/moment/flash-bayla.gif');
+    fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
+    await flush();
+    expect(share).toHaveBeenCalledTimes(1);
+    const data = share.mock.calls[0]![0];
+    expect(data.text).toBe(ADD_POST);
+    expect(data.files?.[0]?.name).toBe('memetics-finance-flash-bayla.gif');
+    expect(data.files?.[0]?.type).toBe('image/gif');
+    expect(screen.queryByTestId('receipt-moment-note')).toBeNull();
+  });
+
+  it('a phone tapped before its GIF is in hand: it says so, and the next tap shares the shore', async () => {
+    const share = phone();
+    let answer: (r: Response) => void = () => {};
+    fetchClip.mockImplementation(() => new Promise<Response>((r) => { answer = r; }));
+    act(() => raiseReceipt(receipt()));
+    await flush();
+    expect(fetchClip).toHaveBeenCalledWith('/share/moment/shore-bayla.gif');
+    fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
+    expect(screen.getByTestId('receipt-moment-note')).toHaveTextContent('Getting your GIF…');
+    expect(share).not.toHaveBeenCalled();
+    await act(async () => {
+      answer(gifAnswer());
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    expect(screen.getByTestId('receipt-moment-note')).toHaveTextContent('Your GIF is ready. Tap Share on X.');
+    fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
+    await flush();
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(share.mock.calls[0]![0].text).toBe(BUY_POST);
+    expect(share.mock.calls[0]![0].files?.[0]?.name).toBe('memetics-finance-shore-bayla.gif');
+  });
+
+  it('a computer: X’s composer opens with the words, and the GIF is saved to drop in', async () => {
+    fetchClip.mockImplementation(async () => gifAnswer());
+    const had = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = vi.fn(() => 'blob:moment');
+    URL.revokeObjectURL = vi.fn();
+    const saved: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    try {
+      act(() => raiseReceipt(added()));
+      await flush();
+      const share = screen.getByRole('link', { name: 'Share on X' });
+      expect(new URL(share.getAttribute('href') ?? '').searchParams.get('text')).toBe(ADD_POST);
+      fireEvent.click(share);
+      expect(saved).toEqual(['memetics-finance-flash-bayla.gif']);
+      expect(screen.getByTestId('receipt-moment-note')).toHaveTextContent('Your GIF is saved. Add it to the post.');
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = had.create;
+      URL.revokeObjectURL = had.revoke;
+    }
+  });
+
+  it('no GIF on the island yet: the composer with the words, as before, and nothing else', async () => {
+    const share = phone();
+    act(() => raiseReceipt(added()));
+    await flush();
+    expect(fetchClip).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
+    await flush();
+    expect(share).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('receipt-moment-note')).toBeNull();
+  });
+
+  it('a phone with no share sheet for files fetches nothing: the composer, as before', async () => {
+    phone(false);
+    act(() => raiseReceipt(added()));
+    await flush();
+    expect(fetchClip).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
+    expect(screen.queryByTestId('receipt-moment-note')).toBeNull();
   });
 });
 
