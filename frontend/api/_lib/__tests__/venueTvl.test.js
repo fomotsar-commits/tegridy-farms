@@ -347,6 +347,16 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     expect(body.state).toBe("partial");
   });
 
+  it("leaves out the pools of an island coin Jupiter prices at zero, never counting them at $0, and says so", async () => {
+    const w = world();
+    w.jup[BAYLA] = 0;
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // a price of 0 is no price
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, pools: 1, unvalued: 1 });
+    expect(body.state).toBe("partial");
+  });
+
   it("reads a vault that does not hold its coin as unread, never as a number", async () => {
     const w = world();
     const { vault0 } = w.pool(CP, [SOL, 1], [MEME, 5]);
