@@ -34,6 +34,8 @@ const {
   SOLANA_STAKE_POOLS,
   EVM_STAKE_POOLS,
   STAKE_CHAINS,
+  NFT_COLLECTIONS,
+  NFT_HOLDERS,
 } = await import("../venueTvl.js");
 
 const SOL = "So11111111111111111111111111111111111111112";
@@ -50,7 +52,11 @@ const NOW = Date.parse("2026-10-25T02:00:00Z");
 
 /** A fake world: Solana pools and vaults, EVM pairs, every staking pool (nothing staked), and prices. */
 function world() {
-  const w = { pools: { [CP.program]: [], [RANGE.program]: [] }, vaults: new Map(), pairs: {}, sol: 100, eth: 2000, down: new Set(), calls: [] };
+  const w = { pools: { [CP.program]: [], [RANGE.program]: [] }, vaults: new Map(), pairs: {}, opening: {}, sol: 100, eth: 2000, down: new Set(), calls: [] };
+  // NFTs: each holder's count in each collection (`${collection}:${holder}`), and OpenSea's floors by slug.
+  w.nfts = new Map();
+  w.floors = {};
+  w.floorCalls = [];
   // Staking: each pool's account, each EVM contract's count, the mints, and the market's prices.
   w.stakes = new Map(
     SOLANA_STAKE_POOLS.map((p) => {
@@ -87,6 +93,12 @@ function world() {
     const u = String(url);
     const { host, pathname, search } = new URL(u);
     if (host === "api.coinbase.com") return json({ data: { amount: String(pathname.includes("SOL-USD") ? w.sol : w.eth) } });
+    if (host === "api.opensea.io") {
+      const slug = pathname.split("/")[4];
+      w.floorCalls.push({ slug, headers: init.headers ?? {} });
+      if (w.down.has(host)) return new Response("busy", { status: 429 });
+      return json({ total: { floor_price: w.floors[slug] ?? null, floor_price_symbol: slug in w.floors ? "ETH" : "" } });
+    }
     if (host === "api.coingecko.com") return json(search.includes("ids=solana") ? { solana: { usd: w.sol } } : { ethereum: { usd: w.eth } });
     if (host === "api.jup.ag" || host === "lite-api.jup.ag" || host === "coins.llama.fi") {
       w.priceCalls.push({ url: u, headers: init.headers ?? {} });
@@ -133,16 +145,20 @@ function world() {
       if (w.down.has(chain)) return new Response("busy", { status: 503 });
       const { to, data } = body.params[0];
       const c = EVM_CHAINS[chain];
-      const pairs = w.pairs[chain] ?? [];
-      if (to === c.factory && data === "0x574f2ba3") return json({ result: "0x" + word(pairs.length) });
-      if (to === c.factory && data.startsWith("0x1e3dd18b")) return json({ result: "0x" + word(BigInt(pairs[Number("0x" + data.slice(10))].address)) });
-      const pair = pairs.find((p) => p.address === to);
+      const made = [w.pairs[chain] ?? [], w.opening[chain] ?? []];
+      const f = c.factories.indexOf(to);
+      if (f >= 0 && data === "0x574f2ba3") return json({ result: "0x" + word(made[f].length) });
+      if (f >= 0 && data.startsWith("0x1e3dd18b")) return json({ result: "0x" + word(BigInt(made[f][Number("0x" + data.slice(10))].address)) });
+      const pair = made.flat().find((p) => p.address === to);
       if (pair && data === "0x0dfe1681") return json({ result: "0x" + word(BigInt(pair.t0)) });
       if (pair && data === "0xd21220a7") return json({ result: "0x" + word(BigInt(pair.t1)) });
       if (pair && data === "0x0902f1ac") return json({ result: "0x" + word(pair.r0) + word(pair.r1) + word(0) });
       const stake = EVM_STAKE_POOLS[chain]?.find((p) => p.address === to);
       if (stake && data === stake.staked) return json({ result: "0x" + word(w.evmStakes[to] ?? 0n) });
       if (data === toFunctionSelector("decimals()")) return json({ result: "0x" + word(18) });
+      if (chain === "ethereum" && data.startsWith(toFunctionSelector("balanceOf(address)")) && Object.values(NFT_COLLECTIONS).some((n) => n.address === to)) {
+        return json({ result: "0x" + word(w.nfts.get(`${to}:0x${data.slice(-40)}`) ?? 0) });
+      }
     }
     return new Response("not found", { status: 404 });
   });
@@ -286,6 +302,112 @@ describe("Ethereum, Base and Robinhood: our factory's pairs, at twice their WETH
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(chain(body, "base")).toEqual({ chain: "base", read: true, usd: 2400, pools: 2, unvalued: 0 });
     expect(chain(body, "robinhood")).toMatchObject({ read: true, usd: 0, pools: 0 });
+  });
+
+  // Every new pool opens on the factory that charges for it (live 2026-11-09); the total read only the first one.
+  it("counts the pairs of both factories on each chain: the first one and the one that charges to open a pool", async () => {
+    const w = world();
+    const weth = EVM_CHAINS.ethereum.weth.toLowerCase();
+    w.pairs.ethereum = [pair("0x00000000000000000000000000000000000000b1", weth, "0x00000000000000000000000000000000000000c1", 10n ** 17n, 1n)]; // $400
+    w.opening.ethereum = [pair("0x00000000000000000000000000000000000000b2", "0x00000000000000000000000000000000000000c2", weth, 1n, 2n * 10n ** 17n)]; // $800
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "ethereum")).toEqual({ chain: "ethereum", read: true, usd: 1200, pools: 2, unvalued: 0 });
+  });
+
+  // Robinhood's WETH was unset, so its WETH/DODO pair added $0 however much WETH it held.
+  it("values Robinhood's pairs at twice their WETH, the routers' WETH", async () => {
+    const w = world();
+    const weth = EVM_CHAINS.robinhood.weth.toLowerCase();
+    w.pairs.robinhood = [pair("0xfa04b2bbc847a322efaa3551bfc07b18f394c067", weth, "0x384b028739f8b2c5d187bca0bbe20bd04d72f00d", 68n * 10n ** 15n, 10n ** 24n)];
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "robinhood")).toEqual({ chain: "robinhood", read: true, usd: 272, pools: 1, unvalued: 0 });
+  });
+
+  it("reads each chain's factories and WETH as the registry and the site name them", () => {
+    for (const name of ["ethereum", "base", "robinhood"]) {
+      const rows = REGISTRY[name];
+      const at = (id) => rows.find((r) => r.id === id)?.address;
+      expect(EVM_CHAINS[name].factories).toEqual([at("tegridy-factory"), at("tegridy-opening-factory")]);
+    }
+  });
+
+  it("reads each chain's pairs against the WETH the site's routers use", async () => {
+    const { CHAINS } = await import("../../../src/lib/chains/registry.ts");
+    const wethOn = (id) => CHAINS[id].contracts.weth.toLowerCase();
+    expect(EVM_CHAINS.ethereum.weth.toLowerCase()).toBe(wethOn(1));
+    expect(EVM_CHAINS.base.weth.toLowerCase()).toBe(wethOn(8453));
+    expect(EVM_CHAINS.robinhood.weth.toLowerCase()).toBe(wethOn(4663));
+  });
+});
+
+describe("NFTs: what our Ethereum contracts hold for people, at the collection's floor", () => {
+  const LOAN = NFT_HOLDERS[0].holder;
+  const LIQUIDATOR = NFT_HOLDERS[1].holder;
+  const VAULT = NFT_HOLDERS[2].holder;
+  const { jbac, nakamigos, gnss } = NFT_COLLECTIONS;
+
+  it("counts NFT Lending's collateral, an auction's NFTs and the JBAC vault, each at its collection's OpenSea floor in ETH", async () => {
+    const w = world();
+    w.nfts.set(`${jbac.address}:${LOAN}`, 2);
+    w.nfts.set(`${jbac.address}:${VAULT}`, 1);
+    w.nfts.set(`${nakamigos.address}:${LIQUIDATOR}`, 1);
+    w.floors = { junglebay: 0.05, nakamigos: 0.2, gnssart: 9 };
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    // 3 JBAC at 0.05 + 1 Nakamigos at 0.2 = 0.35 ETH at $2,000.
+    expect(body.nfts).toEqual([{ chain: "ethereum", read: true, usd: 700, nfts: 4, unvalued: 0 }]);
+    expect(body).toMatchObject({ state: "current", usd: 700 });
+    // Only the collections something is held in: GNSS's floor is never asked for.
+    expect(w.floorCalls.map((c) => c.slug).sort()).toEqual(["junglebay", "nakamigos"]);
+  });
+
+  it("asks OpenSea nothing while no NFT is held", async () => {
+    const w = world();
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.nfts).toEqual([{ chain: "ethereum", read: true, usd: 0, nfts: 0, unvalued: 0 }]);
+    expect(w.floorCalls).toEqual([]);
+  });
+
+  it("leaves out a collection with no floor and says the total is partial", async () => {
+    const w = world();
+    w.nfts.set(`${gnss.address}:${LOAN}`, 1);
+    w.nfts.set(`${jbac.address}:${LOAN}`, 1);
+    w.floors = { junglebay: 0.05 };
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.nfts).toEqual([{ chain: "ethereum", read: true, usd: 100, nfts: 1, unvalued: 1 }]);
+    expect(body.state).toBe("partial");
+  });
+
+  it("reads the NFTs as unread, never as zero, when OpenSea cannot be read, and keeps the rest of the total", async () => {
+    const w = world();
+    w.nfts.set(`${jbac.address}:${LOAN}`, 1);
+    w.down.add("api.opensea.io");
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.nfts).toEqual([{ chain: "ethereum", read: false }]);
+    expect(body.state).toBe("partial");
+  });
+
+  it("sends OpenSea's key as a header when it is set", async () => {
+    process.env.OPENSEA_API_KEY = "test-key";
+    try {
+      const w = world();
+      w.nfts.set(`${jbac.address}:${LOAN}`, 1);
+      w.floors = { junglebay: 0.05 };
+      await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+      expect(w.floorCalls[0].headers).toMatchObject({ "x-api-key": "test-key" });
+    } finally {
+      delete process.env.OPENSEA_API_KEY;
+    }
+  });
+
+  it("names NFT Lending's contracts, the JBAC vault and the collections as the registry, the lending page and the marketplace do", async () => {
+    const at = (id) => REGISTRY.ethereum.find((r) => r.id === id)?.address.toLowerCase();
+    expect(NFT_HOLDERS.map((h) => h.holder)).toEqual([at("gondi-loan"), at("gondi-liquidator"), at("staking-jbac-vault")]);
+    const { LENDING_COLLECTIONS, GONDI_LOAN_ADDRESS } = await import("../../../src/lib/gondi/loanOffer.js");
+    expect(GONDI_LOAN_ADDRESS.toLowerCase()).toBe(LOAN);
+    expect(Object.values(NFT_COLLECTIONS).map((c) => c.address)).toEqual(LENDING_COLLECTIONS.map((c) => c.address.toLowerCase()));
+    const { VENUE_SLUG_CONTRACTS } = await import("../venue-registry.js");
+    for (const c of Object.values(NFT_COLLECTIONS)) expect(VENUE_SLUG_CONTRACTS[c.slug]).toBe(c.address);
+    expect(at("jbac-nft")).toBe(jbac.address);
   });
 });
 

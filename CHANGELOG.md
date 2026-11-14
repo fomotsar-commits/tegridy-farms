@@ -15,6 +15,8 @@ The site's Changelog tab shows both files.
 - Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
 - Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
 - Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
+- Home, TVL: now counts the NFTs our contracts hold (each NFT lent against on NFT Lending, one in a liquidation auction, and JBAC in the staking vault) at its collection's OpenSea floor, the Robinhood pool (it counted $0 because the site did not know Robinhood's WETH), and pools opened on the new pool-opening factories on Ethereum, Base and Robinhood.
+- Home, all-time volume: now counts new loans on NFT Lending (the WETH lent), sales on our own NFT order book, Robinhood's swaps (381 of them counted at $0 until now, priced once at today's ETH price), swaps in pools opened on the new factories, and swaps in pools of two island coins (at the coin's Jupiter price).
 
 ### 2026-11-12
 
