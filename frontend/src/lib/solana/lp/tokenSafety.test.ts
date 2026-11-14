@@ -316,6 +316,29 @@ describe('classifyToken', () => {
     );
   });
 
+  // Spec 2026-11-14: no NEW pool for a token with a transfer fee, at any rate, 0 included. The Open
+  // form says so before Review, as the opening's builder does (createPool.ts), and never asks the
+  // opener to weigh the risks of a pool it will not open. A deposit into a pool that exists is unchanged.
+  it('a token with a transfer-fee setting: no pool is opened for it, whatever the rate; a deposit is still only warned', () => {
+    const REFUSED = 'It uses a transfer-fee setting, which lets the token take a fee out of every transfer.';
+    const charging = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [feeExt({ configAuthority: key() })])), null);
+    // 0%, and nobody can change it: the token says nothing of a fee, yet the setting is there.
+    const zero = classifyToken(
+      mint.toBase58(),
+      acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [pointer(null, mint), feeExt({ configAuthority: null, older: [0n, 0n, 0], newer: [0n, 0n, 0] }), metadataExt(mint, null)])),
+      null,
+    );
+    expect(reasons(zero)).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+    for (const s of [charging, zero]) {
+      expect(tokenReasons(s, 'pools')).toEqual({ refused: [REFUSED], unchecked: [], warned: [] });
+      expect(tokenReasons(s, 'deposits').refused).toEqual([]);
+    }
+    expect(tokenReasons(charging, 'deposits').warned).toHaveLength(2);
+    // A token without the setting opens as before.
+    const plain = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [])), null);
+    expect(tokenReasons(plain, 'pools').refused).toEqual([]);
+  });
+
   it('warns on interest-bearing and scaled amounts, never blocks them, and says this site moves raw units', () => {
     const cases: [number, string, RegExp][] = [
       [ExtensionType.InterestBearingConfig, 'interest-bearing', /interest-bearing amounts/],

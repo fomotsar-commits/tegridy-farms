@@ -5,7 +5,7 @@ import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, TRUSTED_HISTORY_SECS, type OwnPrice } from './ownPrice';
 import { LAUNCH_TIER_POOL, type PoolView } from './poolFinder';
 import { WITHDRAW_ONLY_LINE, isWithdrawOnly, readPair, type QuoteCoin } from './quotes';
-import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
+import { EXTENSION, TOKEN_2022_NATIVE_MINT, extensionPlain, type SafetyReason, type TokenSafety } from './tokenSafety';
 import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
 
 /**
@@ -374,11 +374,18 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
       );
     }
-    if (has('transfer-fee')) {
-      warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
-    }
-    if (has('transfer-fee-mutable')) {
-      warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+    // Spec 2026-11-14: no NEW pool for a token with a transfer fee, at any rate, 0 included, as
+    // the opening's builder refuses it (createPool.ts). Said before the form, never after Review.
+    // A deposit into a pool that exists keeps the two warnings below.
+    const feeSetting = has('transfer-fee') || has('transfer-fee-mutable') || safety.facts?.extensions.includes(EXTENSION.TransferFeeConfig) === true;
+    if (action === 'pools' && feeSetting) refused.push(`It uses ${extensionPlain(EXTENSION.TransferFeeConfig)}.`);
+    else {
+      if (has('transfer-fee')) {
+        warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
+      }
+      if (has('transfer-fee-mutable')) {
+        warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+      }
     }
   }
   return { refused, unchecked, warned };
