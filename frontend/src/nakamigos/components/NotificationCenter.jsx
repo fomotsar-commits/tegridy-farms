@@ -151,7 +151,7 @@ function AlertSettings({ config, updateConfig }) {
               onChange={e => updateConfig({ quietHours: { ...config.quietHours, start: e.target.value } })}
               style={timeInputStyle}
             />
-            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>to</span>
+            <span style={{ fontSize: 12, color: "var(--text-dim)" }}>to</span>
             <input
               type="time"
               value={config.quietHours.end}
@@ -180,7 +180,7 @@ function SettingRow({ label, enabled, onToggle, children }) {
 function SettingInput({ label, value, onChange, min, max, step = 1 }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <span style={{ fontSize: 9, fontFamily: "var(--pixel)", color: "var(--text-dim)", letterSpacing: "0.02em" }}>{label}</span>
+      <span style={{ fontSize: 11, fontFamily: "var(--pixel)", color: "var(--text-dim)", letterSpacing: "0.02em" }}>{label}</span>
       <input
         type="number"
         value={value}
@@ -206,7 +206,7 @@ function ToggleSwitch({ checked, onChange }) {
       style={{
         width: 28,
         height: 16,
-        borderRadius: 8,
+        borderRadius: 4,
         border: "none",
         background: checked ? "var(--green)" : "var(--border)",
         position: "relative",
@@ -254,13 +254,13 @@ function NotificationItem({ notification, onRead, onRemove }) {
     >
       <div style={{ fontSize: 16, lineHeight: 1, flexShrink: 0, width: 20, textAlign: "center" }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 600, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 600, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {notification.title}
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.3 }}>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.3 }}>
           {notification.body}
         </div>
-        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 3, fontFamily: "var(--mono)" }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, fontFamily: "var(--mono)" }}>
           {timeAgo}{notification.collection ? ` \u00b7 ${notification.collection}` : ""}
         </div>
       </div>
@@ -340,8 +340,9 @@ export default memo(function NotificationCenter({
         <NotificationBell unreadCount={unreadCount} onClick={toggleOpen} />
       </div>
 
+      {/* Drawn at the end of <body>: .nakamigos-portal carries the app's tokens there. */}
       {open && createPortal(
-        <>
+        <div className="nakamigos-portal">
           {/* Backdrop */}
           <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={() => setOpen(false)} />
 
@@ -416,7 +417,7 @@ export default memo(function NotificationCenter({
               </>
             )}
           </div>
-        </>,
+        </div>,
         document.body
       )}
     </>
@@ -442,9 +443,8 @@ const bellBtnStyle = {
   width: 34,
   height: 34,
   border: "1px solid var(--border)",
-  borderRadius: 8,
+  borderRadius: 4,
   background: "var(--surface-glass)",
-  backdropFilter: "var(--glass-blur)",
   color: "var(--text)",
   cursor: "pointer",
   transition: "border-color 0.2s, background 0.2s",
@@ -457,18 +457,18 @@ const badgeStyle = {
   right: -5,
   minWidth: 16,
   height: 16,
-  borderRadius: 8,
-  background: "var(--red, #ef4444)",
+  borderRadius: 4,
+  background: "var(--red, #ff5c5c)",
   color: "#fff",
   fontFamily: "var(--mono)",
-  fontSize: 9,
+  fontSize: 11,
   fontWeight: 700,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "0 4px",
   lineHeight: 1,
-  boxShadow: "0 0 6px var(--red, #ef4444)",
+  boxShadow: "none",
 };
 
 const panelStyle = {
@@ -479,7 +479,7 @@ const panelStyle = {
   maxHeight: "calc(100vh - 80px)",
   background: "var(--surface)",
   border: "1px solid var(--border)",
-  borderRadius: 12,
+  borderRadius: 6,
   boxShadow: "0 12px 48px rgba(0,0,0,0.6)",
   display: "flex",
   flexDirection: "column",
@@ -500,10 +500,10 @@ const actionBtnStyle = {
   border: "none",
   color: "var(--text-dim)",
   fontFamily: "var(--pixel)",
-  fontSize: 9,
+  fontSize: 11,
   cursor: "pointer",
   padding: "4px 6px",
-  borderRadius: 4,
+  borderRadius: 3,
   display: "flex",
   alignItems: "center",
   gap: 4,
@@ -525,7 +525,7 @@ const tabBtnStyle = (active) => ({
   borderBottom: active ? "2px solid var(--gold)" : "2px solid transparent",
   color: active ? "var(--gold)" : "var(--text-dim)",
   fontFamily: "var(--pixel)",
-  fontSize: 9,
+  fontSize: 11,
   cursor: "pointer",
   transition: "color 0.2s, border-color 0.2s",
 });
@@ -563,7 +563,7 @@ const emptyStyle = {
   textAlign: "center",
   padding: "40px 16px",
   fontFamily: "var(--pixel)",
-  fontSize: 11,
+  fontSize: 12,
   color: "var(--text-dim)",
 };
 
@@ -575,7 +575,7 @@ const settingsContainerStyle = {
 
 const settingsTitleStyle = {
   fontFamily: "var(--pixel)",
-  fontSize: 10,
+  fontSize: 11,
   color: "var(--text-dim)",
   textTransform: "uppercase",
   letterSpacing: "0.06em",
@@ -590,7 +590,7 @@ const settingSectionStyle = {
 
 const settingLabelStyle = {
   fontFamily: "var(--display)",
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 600,
 };
 
@@ -599,10 +599,10 @@ const numInputStyle = {
   padding: "3px 6px",
   background: "var(--card)",
   border: "1px solid var(--border)",
-  borderRadius: 4,
+  borderRadius: 3,
   color: "inherit",
   fontFamily: "var(--mono)",
-  fontSize: 11,
+  fontSize: 12,
   outline: "none",
 };
 
@@ -610,21 +610,21 @@ const timeInputStyle = {
   padding: "3px 6px",
   background: "var(--card)",
   border: "1px solid var(--border)",
-  borderRadius: 4,
+  borderRadius: 3,
   color: "inherit",
   fontFamily: "var(--mono)",
-  fontSize: 11,
+  fontSize: 12,
   outline: "none",
 };
 
 const pillStyle = (active) => ({
   padding: "4px 10px",
-  borderRadius: 12,
+  borderRadius: 6,
   border: "1px solid " + (active ? "var(--gold)" : "var(--border)"),
   background: active ? "var(--gold)" : "var(--card)",
   color: active ? "#000" : "var(--text-dim)",
   fontFamily: "var(--pixel)",
-  fontSize: 9,
+  fontSize: 11,
   cursor: "pointer",
   transition: "all 0.2s",
 });

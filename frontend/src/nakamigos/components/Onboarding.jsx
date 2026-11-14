@@ -46,9 +46,9 @@ function injectKeyframes() {
   const sheet = document.createElement("style");
   sheet.textContent = `
     @keyframes onboarding-pulse {
-      0%   { box-shadow: 0 0 0 0 rgba(111,168,220,0.55); }
-      70%  { box-shadow: 0 0 0 14px rgba(111,168,220,0); }
-      100% { box-shadow: 0 0 0 0 rgba(111,168,220,0); }
+      0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0.55); }
+      70%  { box-shadow: 0 0 0 14px rgba(0,0,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
     }
     @keyframes onboarding-fade-in {
       from { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -77,7 +77,7 @@ function arrowStyle(position) {
       top: -8,
       left: "50%",
       transform: "translateX(-50%)",
-      borderBottom: "8px solid rgba(30,32,38,0.92)",
+      borderBottom: "8px solid rgba(17,19,22,0.96)",
     };
   }
   if (position.startsWith("top")) {
@@ -86,7 +86,7 @@ function arrowStyle(position) {
       bottom: -8,
       left: "50%",
       transform: "translateX(-50%)",
-      borderTop: "8px solid rgba(30,32,38,0.92)",
+      borderTop: "8px solid rgba(17,19,22,0.96)",
     };
   }
   if (position === "left") {
@@ -95,7 +95,7 @@ function arrowStyle(position) {
       right: -8,
       top: "50%",
       transform: "translateY(-50%)",
-      borderLeft: "8px solid rgba(30,32,38,0.92)",
+      borderLeft: "8px solid rgba(17,19,22,0.96)",
       borderTop: "8px solid transparent",
       borderBottom: "8px solid transparent",
       borderRight: "none",
@@ -107,7 +107,7 @@ function arrowStyle(position) {
       left: -8,
       top: "50%",
       transform: "translateY(-50%)",
-      borderRight: "8px solid rgba(30,32,38,0.92)",
+      borderRight: "8px solid rgba(17,19,22,0.96)",
       borderTop: "8px solid transparent",
       borderBottom: "8px solid transparent",
       borderLeft: "none",
@@ -179,7 +179,7 @@ export default function Onboarding({ onComplete }) {
       left: rect.left - pad,
       width: rect.width + pad * 2,
       height: rect.height + pad * 2,
-      borderRadius: 8,
+      borderRadius: 4,
     });
 
     // calculate tooltip placement
@@ -280,7 +280,7 @@ export default function Onboarding({ onComplete }) {
     zIndex: 99998,
     background: "rgba(0,0,0,0.72)",
     animation: "onboarding-spotlight 300ms ease-out",
-    transition: "clip-path 350ms cubic-bezier(.4,0,.2,1)",
+    transition: "clip-path 350ms ease",
     clipPath: spotlightRect
       ? `polygon(
           0% 0%, 0% 100%, 100% 100%, 100% 0%,
@@ -303,11 +303,11 @@ export default function Onboarding({ onComplete }) {
     width: spotlightRect.width,
     height: spotlightRect.height,
     borderRadius: spotlightRect.borderRadius,
-    border: "2px solid var(--naka-blue, #6fa8dc)",
+    border: "2px solid var(--naka-blue, #ffffff)",
     animation: "onboarding-pulse 1.8s ease-out infinite",
     pointerEvents: "none",
     zIndex: 99999,
-    transition: "all 350ms cubic-bezier(.4,0,.2,1)",
+    transition: "all 350ms ease",
   } : null;
 
   // ═══ Tooltip card ═══
@@ -316,16 +316,14 @@ export default function Onboarding({ onComplete }) {
     zIndex: 100000,
     width: 320,
     ...tooltipPos,
-    background: "rgba(30,32,38,0.92)",
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
+    background: "rgba(17,19,22,0.96)",
     border: "1px solid var(--border, rgba(255,255,255,0.08))",
-    borderRadius: 14,
+    borderRadius: 6,
     padding: "22px 22px 18px",
     color: "var(--text, #f0f0f0)",
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
     animation: "onboarding-fade-in 280ms ease-out",
-    boxShadow: "0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(111,168,220,0.12)",
+    boxShadow: "none",
   };
 
   const stepCountStyle = {
@@ -333,10 +331,10 @@ export default function Onboarding({ onComplete }) {
     alignItems: "center",
     gap: 6,
     marginBottom: 10,
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
-    color: "var(--naka-blue, #6fa8dc)",
+    color: "var(--naka-blue, #ffffff)",
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
   };
 
@@ -367,9 +365,9 @@ export default function Onboarding({ onComplete }) {
   const dotStyle = (i) => ({
     width: i === step ? 18 : 7,
     height: 7,
-    borderRadius: 4,
+    borderRadius: 3,
     background: i === step
-      ? "var(--naka-blue, #6fa8dc)"
+      ? "var(--naka-blue, #ffffff)"
       : "var(--text-muted, rgba(255,255,255,0.18))",
     transition: "all 300ms ease",
   });
@@ -387,7 +385,7 @@ export default function Onboarding({ onComplete }) {
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
     fontSize: 13,
     fontWeight: 600,
-    borderRadius: 8,
+    borderRadius: 4,
     padding: "8px 18px",
     transition: "all 180ms ease",
     letterSpacing: "0.02em",
@@ -407,7 +405,7 @@ export default function Onboarding({ onComplete }) {
 
   const nextBtnStyle = {
     ...btnBase,
-    background: "var(--naka-blue, #6fa8dc)",
+    background: "var(--naka-blue, #ffffff)",
     color: "var(--bg)",
   };
 
@@ -433,8 +431,8 @@ export default function Onboarding({ onComplete }) {
             width: 20,
             height: 20,
             borderRadius: "50%",
-            background: "rgba(111,168,220,0.15)",
-            fontSize: 11,
+            background: "rgba(255,255,255,0.068)",
+            fontSize: 12,
             fontWeight: 700,
           }}>
             {step + 1}

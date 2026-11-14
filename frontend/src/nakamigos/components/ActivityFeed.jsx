@@ -214,13 +214,13 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
-                fontSize: 9,
+                fontSize: 11,
                 fontFamily: "var(--mono)",
                 fontWeight: 700,
                 color: "var(--green)",
-                background: "rgba(74, 222, 128, 0.08)",
-                border: "1px solid rgba(74, 222, 128, 0.2)",
-                borderRadius: 4,
+                background: "rgba(47,217,139,0.08)",
+                border: "1px solid rgba(47,217,139,0.2)",
+                borderRadius: 3,
                 padding: "2px 6px",
                 letterSpacing: "0.05em",
               }}>
@@ -247,13 +247,13 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             <span style={{ color: "var(--green)", fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700 }}>
               {salesCount}
             </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>SALES</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>SALES</span>
           </div>
           <div className="activity-stat-mini">
             <span style={{ color: "var(--gold)", fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700 }}>
               <Eth size={12} /> {formatPrice(totalVolume)}
             </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>VOLUME</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>VOLUME</span>
           </div>
         </div>
       </div>
@@ -261,9 +261,9 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
       {/* Fallback data banner */}
       {isLive === false && activities?.length > 0 && (
         <div style={{
-          padding: "10px 16px", borderRadius: 8, marginBottom: 16,
-          background: "rgba(251, 191, 36, 0.04)", border: "1px solid rgba(251, 191, 36, 0.1)",
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)",
+          padding: "10px 16px", borderRadius: 4, marginBottom: 16,
+          background: "rgba(242,193,78,0.04)", border: "1px solid rgba(242,193,78,0.1)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow)",
           display: "flex", alignItems: "center", gap: 6,
         }}>
           {"\u26A0"} Showing cached example data — live API unavailable
@@ -275,7 +275,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
         <div style={{
           display: "inline-flex",
           gap: 0,
-          borderRadius: 8,
+          borderRadius: 4,
           overflow: "hidden",
           border: "1px solid var(--border)",
           marginRight: 12,
@@ -288,12 +288,12 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
               style={{
                 padding: "5px 10px",
                 fontFamily: "var(--pixel)",
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 600,
                 letterSpacing: "0.04em",
                 border: "none",
                 cursor: "pointer",
-                background: daysBack === opt.value ? "rgba(200,168,80,0.15)" : "transparent",
+                background: daysBack === opt.value ? "rgba(255,255,255,0.068)" : "transparent",
                 color: daysBack === opt.value ? "var(--gold)" : "var(--text-dim)",
                 borderRight: "1px solid var(--border)",
                 transition: "background 0.15s, color 0.15s",
@@ -327,12 +327,12 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
         {loadingFresh && filtered.length === 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="skeleton" style={{ height: 52, borderRadius: 10, animationDelay: `${i * 60}ms` }} />
+              <div key={i} className="skeleton" style={{ height: 52, borderRadius: 6, animationDelay: `${i * 60}ms` }} />
             ))}
           </div>
         )}
         {!loadingFresh && filtered.length === 0 && (
-          <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+          <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
             <div className="empty-state-icon">{"\uD83D\uDCCA"}</div>
             <div className="empty-state-title">
               {activities.length > 0
@@ -360,7 +360,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
                 style={{
                   marginTop: 12,
                   fontFamily: "var(--pixel)",
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 600,
                   color: "var(--naka-blue)",
                   textDecoration: "none",
@@ -391,13 +391,13 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
                 title="Same wallet on both sides of this sale — excluded from volume and average-price stats"
                 style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 8,
+                  fontSize: 10,
                   fontWeight: 700,
                   letterSpacing: "0.05em",
                   color: "var(--yellow)",
-                  background: "rgba(251, 191, 36, 0.08)",
-                  border: "1px solid rgba(251, 191, 36, 0.25)",
-                  borderRadius: 4,
+                  background: "rgba(242,193,78,0.08)",
+                  border: "1px solid rgba(242,193,78,0.25)",
+                  borderRadius: 3,
                   padding: "1px 5px",
                   whiteSpace: "nowrap",
                   alignSelf: "center",
@@ -466,10 +466,10 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             disabled={loadingMore}
             style={{
               fontFamily: "var(--pixel)",
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 600,
               padding: "8px 24px",
-              borderRadius: 8,
+              borderRadius: 4,
               border: "1px solid var(--border)",
               background: "var(--surface-glass)",
               color: loadingMore ? "var(--text-muted)" : "var(--gold)",
