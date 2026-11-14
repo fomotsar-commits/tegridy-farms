@@ -159,6 +159,7 @@ const PROTOCOL_LIMITS: Array<{
       { label: 'Venue fee', value: '5% of the interest', why: "Taken from the lender's interest, to the venue's treasury. The borrower pays only the agreed interest" },
       { label: 'Interest', value: 'For the days used', why: 'Repay early and the interest stops that day' },
       { label: 'Missed due date', value: 'No grace period', why: 'The moment a loan is due and unpaid, one lender can take the NFT; with several lenders it goes to a 3-day auction' },
+      { label: 'Admin', value: "Venue's 2-key Safe", why: 'With no wait, both keys together can stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid' },
     ],
   },
   {
