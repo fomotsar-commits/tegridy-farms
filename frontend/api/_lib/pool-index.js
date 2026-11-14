@@ -58,15 +58,21 @@
 // nothing is cached. A list missing one coin's pools would read as "this token has no
 // pools with that coin", which nobody read.
 //
-// RATE LIMITS, on cache MISSES only (a cache hit costs the upstream nothing):
-//   - per IP, counted per REQUEST: a visitor asked one question, whatever it costs us;
-//   - the global scan budget (POOLS_GLOBAL_RPM), counted per SCAN: a `?mint=` miss is
-//     charged once for each coin it scans (seven for an ordinary token), all of them
-//     before the first scan is sent. The budget exists to cap what the keyed RPC is
-//     asked for, and the scan is the costly call. Counted per request, the same number
-//     would let seven times the scans through that it was set to allow. The price: 600
-//     a minute now covers about 85 ordinary-token misses, not 600. Raise the env if real
-//     traffic needs more.
+// RATE LIMITS, on cache MISSES only (a cache hit costs the upstream nothing). Both count
+// SCANS, the costly call: a `?mint=` miss is one scan for each coin it searches (seven for an
+// ordinary token), an `?lpMint=` miss one, an `?all=1` miss two for each coin (fourteen).
+//   - per IP: a fifth of the scan budget (120 a minute at the default), the whole request's
+//     scans charged at once, before the mint check. Counted per request, as it was, 30 a
+//     minute let one address send 210 scans, so two or three addresses asking about random
+//     real tokens spent the whole budget and every other visitor was turned away. A key that
+//     turns out not to be a mint is charged what it would have cost: random keys spend an
+//     address's share as fast as real ones;
+//   - the global scan budget (POOLS_GLOBAL_RPM), once per scan, all of it before the first
+//     scan is sent. The budget exists to cap what the keyed RPC is asked for. 600 a minute
+//     covers about 85 ordinary-token misses. Raise the env if real traffic needs more; the
+//     per-IP share follows it.
+// The cache stays per instance. Vercel's edge already keeps each answer for every visitor
+// (s-maxage below), and a flood of new mints misses any cache, shared or not.
 //
 // Hardening: GET only; the shared request-origin gate; the query must be exactly one
 // base58 32-byte key (decoded, not pattern-matched); the key must be a token mint
@@ -132,11 +138,14 @@ const RPC_TIMEOUT_MS = 8000;
 const CACHE_TTL_MS = 30_000;
 const NOT_A_MINT_TTL_MS = 10 * 60_000;
 const CACHE_MAX = 500;
-const RATE = { limit: 30, windowSec: 60, identifier: "pools" };
 /** The cheap "is this a token mint" read has its own budget, so random keys cannot spend the scan budget. */
 const PRECHECK = { limit: Number(process.env.POOLS_PRECHECK_GLOBAL_RPM) || 3000, windowSec: 60, identifier: "pools-precheck" };
 /** The scan budget: charged once per SCAN, so once per coin on a `?mint=` miss (RATE LIMITS above). */
 const GLOBAL = { limit: Number(process.env.POOLS_GLOBAL_RPM) || 600, windowSec: 60, identifier: "pools" };
+/** The scans of one `?all=1` miss: each coin in either mint slot. */
+const ALL_SCANS = QUOTE_COINS.length * 2;
+/** Per IP, in SCANS too: a fifth of the scan budget, and never less than one `?all=1` miss (RATE LIMITS above). */
+const RATE = { limit: Math.max(ALL_SCANS, Math.floor(GLOBAL.limit / 5)), windowSec: 60, identifier: "pools" };
 
 const cache = new Map();
 
@@ -436,7 +445,9 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
   if (hit && hit.payload && Date.now() - hit.at < CACHE_TTL_MS) {
     payload = hit.payload;
   } else {
-    if (!(await checkRateLimit(req, res, RATE))) return;
+    // One scan per coin for a token, one for an LP mint (RATE LIMITS above).
+    const scans = coins ? coins.length : 1;
+    if (!(await checkRateLimit(req, res, { ...RATE, cost: scans }))) return;
     if (!(await checkGlobalLimit(res, PRECHECK))) return;
     let found;
     let truncated;
@@ -445,17 +456,16 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
         remember(cacheKey, { notAMint: true });
         return res.status(404).json({ error: "That address is not a token mint" });
       }
+      // One charge per scan, all taken before the first scan is sent (RATE LIMITS above).
+      for (let i = 0; i < scans; i++) {
+        if (!(await checkGlobalLimit(res, GLOBAL))) return;
+      }
       if (coins) {
-        // One charge per scan, all taken before the first scan is sent (RATE LIMITS above).
-        for (let i = 0; i < coins.length; i++) {
-          if (!(await checkGlobalLimit(res, GLOBAL))) return;
-        }
         const lists = await scanPools(key, coins, fetchImpl);
         const given = shareSlots(lists.map((l) => l.length));
         found = lists.flatMap((l, i) => l.slice(0, given[i]));
         truncated = lists.some((l, i) => l.length > given[i]);
       } else {
-        if (!(await checkGlobalLimit(res, GLOBAL))) return;
         const all = [...new Set(await scanLpMint(key, fetchImpl))].sort();
         found = all.slice(0, MAX_POOLS);
         truncated = all.length > MAX_POOLS;
@@ -487,13 +497,14 @@ function sendPayload(res, payload) {
  * `?all=1`: every pool paired with a coin, each coin's deepest first, the coins sharing
  * MAX_POOLS by promise (`shareSlots`), exactly as a `?mint=` answer is. One cache key for
  * everyone, so the scans run at most once per CACHE_TTL_MS per instance. Charged to the
- * scan budget once per scan. Any failed scan or vault read is a 502, never a short list.
+ * scan budget once per scan, and to the visitor all its scans at once. Any failed scan or
+ * vault read is a 502, never a short list.
  */
 async function answerAll(req, res, fetchImpl) {
   const hit = cache.get("all");
   if (hit && hit.payload && Date.now() - hit.at < CACHE_TTL_MS) return sendPayload(res, hit.payload);
-  if (!(await checkRateLimit(req, res, RATE))) return;
-  for (let i = 0; i < QUOTE_COINS.length * 2; i++) {
+  if (!(await checkRateLimit(req, res, { ...RATE, cost: ALL_SCANS }))) return;
+  for (let i = 0; i < ALL_SCANS; i++) {
     if (!(await checkGlobalLimit(res, GLOBAL))) return;
   }
   let lists;

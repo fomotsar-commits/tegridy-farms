@@ -363,6 +363,8 @@ const scannedPairs = (f) => calls(f, "getProgramAccounts").map((c) => c.params[1
 /** The coin each scan was for: the mint in its filter that is not the token asked about. */
 const scannedCoins = (f, token) => scannedPairs(f).map((pair) => pair.map((m) => m.bytes).find((b) => b !== token));
 const budgetCharges = () => rate.checkGlobalLimit.mock.calls.map(([, o]) => o.identifier);
+/** What each per-IP check charged the visitor, in scans. */
+const visitorCharges = () => rate.checkRateLimit.mock.calls.map(([, , o]) => o.cost ?? 1);
 const addresses = (list) => list.map((p) => p.address);
 
 describe("api/pools: the pairing coins", () => {
@@ -597,13 +599,14 @@ describe("api/pools: the pairing coins", () => {
     expect(ok.body.truncated).toBe(true);
   }, 60_000);
 
-  it("charges the scan budget once per scan, all of it before the first scan, and the visitor once per request", async () => {
+  it("charges the scan budget once per scan, all of it before the first scan, and the visitor every scan at once", async () => {
     const pools = COINS.flatMap((coin, c) => poolsOf(coin, 1, () => 1, 10 + 10 * c));
     const f = pairChain({ pools });
     const res = await ask({ mint: TOKEN_X }, f);
     expect(res.statusCode).toBe(200);
     expect(budgetCharges()).toEqual(["pools-precheck", ...COINS.map(() => "pools")]);
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(visitorCharges()).toEqual([COINS.length]);
 
     // A repeat question is a cache hit: no upstream call and no charge, however many coins.
     const n = f.mock.calls.length;
@@ -613,10 +616,17 @@ describe("api/pools: the pairing coins", () => {
     expect(budgetCharges()).toHaveLength(COINS.length + 1);
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
 
-    // An LP-mint lookup is one scan: one charge.
+    // An LP-mint lookup is one scan: one charge, to the budget and to the visitor.
     rate.checkGlobalLimit.mockClear();
+    rate.checkRateLimit.mockClear();
     await ask({ lpMint: LP }, chain({ lpPools: [k(5)] }));
     expect(budgetCharges()).toEqual(["pools-precheck", "pools"]);
+    expect(visitorCharges()).toEqual([1]);
+
+    // A pairing coin is searched with fewer coins, and charged only those scans: BAYLA with SOL and USDC.
+    rate.checkRateLimit.mockClear();
+    await ask({ mint: BAYLA }, pairChain({ token: BAYLA }));
+    expect(visitorCharges()).toEqual([2]);
 
     // The budget runs out on the THIRD scan's charge: no scan at all is sent.
     mod.__resetPoolIndexCache();
@@ -634,6 +644,36 @@ describe("api/pools: the pairing coins", () => {
     }
     expect(shed.statusCode).toBe(503);
     expect(calls(g, "getProgramAccounts")).toHaveLength(0);
+  });
+
+  // A ?mint= miss is seven scans, but the limit per address counted requests: 30 a minute let one
+  // address send 210 scans, so two or three addresses asking about random real tokens spent the
+  // site's whole budget of 600 and every other visitor got "busy".
+  it("counts each address's limit in scans: a fifth of the site's scan budget, so it takes at least five addresses to spend it", async () => {
+    const actual = await vi.importActual("../_lib/ratelimit.js");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    rate.checkRateLimit.mockImplementation(actual.checkRateLimit);
+    rate.checkGlobalLimit.mockImplementation(actual.checkGlobalLimit);
+    const from = (ip, mint) => {
+      const res = makeRes();
+      return mod.handlePoolIndex({ method: "GET", query: { mint }, headers: { "x-real-ip": ip } }, res, pairChain({ token: mint })).then(() => res.statusCode);
+    };
+    try {
+      const statuses = [];
+      for (let i = 0; i < 18; i++) statuses.push(await from("203.0.113.7", k(i, 30)));
+      // 17 ordinary tokens are 119 scans of the 120; the 18th would be 126.
+      expect(statuses).toEqual([...Array(17).fill(200), 429]);
+      // Another address has its own 120, and the site's budget is far from spent.
+      expect(await from("198.51.100.9", k(99, 30))).toBe(200);
+    } finally {
+      rate.checkRateLimit.mockImplementation(async () => true);
+      rate.checkGlobalLimit.mockImplementation(async () => true);
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
   });
 
   it("answers in the shape it always had, so a browser on older code keeps working", async () => {
@@ -758,12 +798,13 @@ describe("api/pools?all=1: every pool, before a token is picked", () => {
     }
   });
 
-  it("is cached for everyone, charges the scan budget once per scan before any scan, and the visitor once", async () => {
+  it("is cached for everyone, charges the scan budget once per scan before any scan, and the visitor every scan at once", async () => {
     const f = allChain({ pools: [pairPool(TOKEN_X, WSOL, 1, 1, 10)] });
     const res = await ask({ all: "1" }, f);
     // Two scans per coin (one per mint slot), each charged.
     expect(budgetCharges()).toEqual(COINS.flatMap(() => ["pools", "pools"]));
     expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(visitorCharges()).toEqual([COINS.length * 2]);
     const n = f.mock.calls.length;
     const again = await ask({ all: "1" }, f);
     expect(again.body).toEqual(res.body);
