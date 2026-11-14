@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import { register } from 'node:module';
 import { base58 } from '@scure/base';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 import { KNOWN_WALLETS, alertsFor, foldSentinel, howCalled, kindOf, payerSolChange, refusedByGuard, summarize } from './lib/rival-watch.mjs';
@@ -153,7 +154,7 @@ if (!has('watch')) {
   }
   let pools = [];
   let poolsAt = 0;
-  say(`Sentinel up: our pools read every ${EVERY / 1000} s from ${new URL(RPC).host}; ${Object.keys(state.payers).length} wallets remembered (${STATE}); read-only, no key`);
+  say(`Sentinel up: our pools read every ${EVERY / 1000} s from ${redactRpcUrl(RPC)}; ${Object.keys(state.payers).length} wallets remembered (${STATE}); read-only, no key`);
   for (let n = 0; !ROUNDS || n < ROUNDS; n++) {
     try {
       if (Date.now() - poolsAt > 3_600_000 || !pools.length) {
