@@ -388,7 +388,15 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       {/* A takeover (refinanceFull) or a change of terms gives the loan a new number. */}
       {view === 'moved' && (
         <p className="text-white/80 text-[11px]" data-testid="loan-moved">
-          Moved to a new loan: another lender took it over, or its terms changed. If you are in the new loan, it is listed here.
+          Moved to a new loan: another lender took it over, or its terms changed.{' '}
+          {isBorrower
+            ? 'Your NFT stays locked in the new loan, listed here with its own deadline.'
+            : "If you do not lend on the new loan, you were paid your WETH back plus the interest so far, less the venue's share."}
+        </p>
+      )}
+      {view === 'closed' && (
+        <p className="text-white/80 text-[11px]">
+          Closed on chain: repaid, claimed, or moved to a new loan. If it moved, the new loan shows here once found.
         </p>
       )}
 
