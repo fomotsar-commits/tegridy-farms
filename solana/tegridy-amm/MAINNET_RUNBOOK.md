@@ -411,10 +411,10 @@ Its four facts, read from mainnet by `read-upgrade-record.mjs`:
 
 | | |
 |---|---|
-| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Day of the execute (UTC) | `2026-11-14` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `469,177,891` |
+| Transaction of the execute (its signature) | `tCJvhHYnVPcYpMytLLMtg8arD3eACdy9vU7XaKNYgPaDUax5DY8VXw88CAsUYtDUiAiDzSN9NCoCDKN6CpRbe2p` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
 
 The switch-on, #33, is a setting and not an upgrade, so it has no row above. The pack's
 `scripts/7-verify-guard.mjs` reads it: both fee settings accounts hold 1 in bytes 116 to 124.
