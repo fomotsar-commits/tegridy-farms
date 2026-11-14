@@ -11,6 +11,14 @@ pub fn swap_base_output(
     max_amount_in: u64,
     amount_out_received: u64,
 ) -> Result<()> {
+    // memetics.finance: the swap guard, as in swap_base_input (states/config.rs refuses_swap).
+    require!(
+        !ctx.accounts.amm_config.refuses_swap(
+            solana_program::instruction::get_stack_height(),
+            ctx.accounts.payer.key
+        ),
+        ErrorCode::SwapNotDirect
+    );
     require_gt!(amount_out_received, 0);
     let block_timestamp = solana_program::clock::Clock::get()?.unix_timestamp as u64;
     let pool_id = ctx.accounts.pool_state.key();
@@ -43,17 +51,23 @@ pub fn swap_base_output(
         .checked_mul(u128::from(total_output_token_amount))
         .unwrap();
 
-    let creator_fee_rate =
-        pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
+    // memetics.finance, 2026-11-11: the tier's keeper swaps free of the trade and creator fees
+    // (states/config.rs swap_fee_rates); everyone else pays both, as upstream.
+    let (trade_fee_rate, creator_fee_rate, creator_fee_taken_on_input) =
+        ctx.accounts.amm_config.swap_fee_rates(
+            ctx.accounts.payer.key,
+            pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
+            is_creator_fee_on_input,
+        );
     let result = CurveCalculator::swap_base_output(
         u128::from(amount_out_with_transfer_fee),
         u128::from(total_input_token_amount),
         u128::from(total_output_token_amount),
-        ctx.accounts.amm_config.trade_fee_rate,
+        trade_fee_rate,
         creator_fee_rate,
         ctx.accounts.amm_config.protocol_fee_rate,
         ctx.accounts.amm_config.fund_fee_rate,
-        is_creator_fee_on_input,
+        creator_fee_taken_on_input,
     )
     .ok_or(ErrorCode::ZeroTradingTokens)?;
 

@@ -482,6 +482,15 @@ export default async function handler(req, res) {
     return handlePosition(req, res);
   }
 
+  // `?resource=mint` answers a pool share's link, `/mint/:mint.json` (a vercel.json rewrite),
+  // for a share with no committed file in public/mint/: its pair's words and picture, read
+  // from chain. Every pool share keeps that link forever, and anything that is not one of our
+  // shares answers the default file, as every unknown link did before. See _lib/share-name.js.
+  if (req.query.resource === "mint") {
+    const { handleShareName } = await import("./_lib/share-name.js");
+    return handleShareName(req, res);
+  }
+
   // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
   // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
   // referee counts and claimable balances are ReferralSplitter's state and are read

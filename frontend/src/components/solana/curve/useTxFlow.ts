@@ -77,7 +77,7 @@ export const PRICE_RUN = 0.03;
 /** How far the pool's price is from what it was checked against, when it was compared with anything. */
 function gapOf(p: PreparedTx): number | null {
   const s = p.summary;
-  if (s.kind === 'range-open') return s.price.state === 'agrees' || s.price.state === 'disagrees' ? Math.abs(s.price.diff) : null;
+  if (s.kind === 'range-open' || s.kind === 'range-create') return s.price.state === 'agrees' || s.price.state === 'disagrees' ? Math.abs(s.price.diff) : null;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return null;
   return s.price.state === 'agrees' || s.price.state === 'disagrees' ? Math.abs(s.price.diff) : null;
 }

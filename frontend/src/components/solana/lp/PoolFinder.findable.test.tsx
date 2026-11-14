@@ -24,7 +24,7 @@ import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
@@ -167,7 +167,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount();
     fireEvent.click(await task('Open a pool'));
     expect(await task('Open a pool')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick a token. You can pair it with SOL, USDC or BAYLA.');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent(`Pick a token. You can pair it with ${QUOTE_COINS_OR}.`);
     fireEvent.click(await task('Add liquidity'));
     expect(await task('Open a pool')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');

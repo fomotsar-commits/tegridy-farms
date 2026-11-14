@@ -13,12 +13,15 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
-// True of the pool program RUNNING on mainnet since its upgrade: that build has
-// create_lp_metadata, and its public initialize refuses fee tier 0. Before the upgrade this
-// said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
-// to the binary the local harness pins, so the two can only move together (a roll-back too).
+// True of the pool program RUNNING on mainnet since its upgrade of 2026-11: that build has
+// create_lp_metadata, its public initialize refuses fee tier 0, a fee tier's fees are held
+// inside limits, and a fee tier has a swap guard the vault can switch on. Before the first
+// upgrade this said "with only its admin keys changed", and until the 2026-11 one it named
+// the instruction and the check alone. src/test/poolProgramCopy.test.ts ties the wording to
+// the binary the local harness pins, so the two can only move together (a roll-back too).
+// It names no trader: the notice says which routes exist, never who uses them.
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
  * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
  * what the team's vault can do, that each change waits 48 hours after both keys approve
@@ -144,12 +147,15 @@ export function CoinRiskNotice({ coin, id }: { coin: QuoteCoin; id?: string }) {
 export function LpBeforeYouOpen({
   fee,
   neverRefunded,
+  nameRecord = null,
   walletConnected = true,
   coin = SOL_QUOTE,
   reviewing = false,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
+  /** What the new share token's name record costs (its deposit plus Metaplex's fee), read with the deposits. */
+  nameRecord?: bigint | null;
   /** The deposits are read with the wallet. With none connected they are not "unread": the page's fee tiers list has them. */
   walletConnected?: boolean;
   /** The coin the new pool is paired with. Left out, it is SOL. */
@@ -171,8 +177,8 @@ export function LpBeforeYouOpen({
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
         <li>
-          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}
-          {!coin.native && `Both are paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
+          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}{nameRecord !== null ? `, plus ${solExact(nameRecord)} for the pool share's name record (Metaplex's fee and the record's deposit)` : ''}.{' '}
+          {!coin.native && `${nameRecord !== null ? 'All of it is' : 'Both are'} paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
           {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
         <li>{NOT_THE_POOL_LINE}</li>

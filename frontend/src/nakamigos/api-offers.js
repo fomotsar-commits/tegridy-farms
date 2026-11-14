@@ -4,6 +4,8 @@ import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTION
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
+import { buysAnyTokenOrder } from "./lib/offerScope";
+import { NFT_ITEM_TYPES, collectionOfferQuantity, normalizeCollectionOffer, safePriceFromWei } from "./lib/offerNormalize";
 import { cancelChainFor, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal, buyChainFor, bookCollectionByContract } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { acceptTradeRefusal, decodeSeaportTrade } from "./lib/seaportTrade";
@@ -182,81 +184,49 @@ export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT } = {})
   }
 }
 
-// Seaport item types that can carry the NFT leg of a criteria offer:
-// 2/3 = ERC721/ERC1155, 4/5 = the *_WITH_CRITERIA variants a collection or
-// trait offer actually uses.
-const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
+// Moved to lib/offerNormalize.js (no wallet or Seaport code beside them, so a surface that only
+// reads bids does not pull this whole file); exported from here as before.
+export { collectionOfferQuantity, normalizeCollectionOffer };
 
-/**
- * How many NFTs a criteria offer is bidding for.
- *
- * A collection/trait offer for N items is a PARTIAL_OPEN order: the WETH offer
- * item holds N x price-per-item, and the NFT criteria consideration item holds
- * N, so each 1/N fill hands over one token for one unit price. Absent that
- * item the order is a single-item bid.
- */
-export function collectionOfferQuantity(parameters) {
-  for (const c of parameters?.consideration || []) {
-    if (!NFT_ITEM_TYPES.has(Number(c?.itemType))) continue;
-    const n = Number(c?.startAmount);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }
-  return 1;
-}
-
-/**
- * Normalize one `offers/collection/{slug}/all` entry to a PRICE PER ITEM.
- *
- * OpenSea's `price.value` is the whole-order total, so an N-item bid read
- * straight off it reports a bid N times higher than any single token could
- * actually be sold into. Every consumer — depth chart, best-bid tile, derived
- * trait bids — compares these against per-token ask prices, which is how a
- * 50-item bid ended up rendering above the floor and inverting the spread
- * (see DepthChart.computeSpread's "invalid" branch). Dividing at the source is
- * the fix; the panels then need no compensating filter of their own.
- *
- * The quantity is only knowable from `protocol_data.parameters`. When OpenSea
- * omits it there is nothing to divide by and the total is the best available
- * reading — `quantityKnown: false` marks that so a consumer can decline to
- * treat it as a verified unit price.
- */
-export function normalizeCollectionOffer(o) {
-  const params = o?.protocol_data?.parameters;
-  const quantityKnown = !!params;
-  const quantity = quantityKnown ? collectionOfferQuantity(params) : 1;
-  const totalWei = params?.offer?.[0]?.startAmount || o?.price?.value || null;
-  const totalEth = totalWei ? safePriceFromWei(totalWei) : null;
-  return {
-    price: totalEth != null ? totalEth / quantity : null,
-    priceTotal: totalEth,
-    quantity,
-    quantityKnown,
-    currency: o?.price?.currency,
-    maker: params?.offerer,
-    orderHash: o?.order_hash,
-    criteria: o?.criteria,
-  };
-}
-
+// The bids that buy ANY token of the collection: the best-collection-offer tile,
+// the order book and the depth chart. `offers/collection/{slug}/all` is NOT that
+// list, it mixes in offers on single tokens and on token lists. Read live
+// 2026-11-10, its first page held no collection-wide bid at all for JBAC or GNSS
+// (50 single-token offers each, 0.079 to 0.155 and 0.05 to 0.15 WETH against
+// floors of 0.0279 and 0.0109), and for Nakamigos 48 token-list bids at 3.0 to
+// 3.5 WETH against a 0.08 floor. `offers/collection/{slug}` holds the
+// collection-wide ones (best per item: JBAC 0.0209, GNSS 0.0082, NAKA 0.0758).
+// The lending card reads the same route through the same filter.
 export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
-    return (data.offers || []).map(normalizeCollectionOffer);
+    const data = await openseaGet(`offers/collection/${osSlug}`, {}, { signal });
+    return (data.offers || []).filter(buysAnyTokenOrder).map(normalizeCollectionOffer);
   } catch (err) {
     console.warn("Fetch collection offers failed:", err.message);
     return [];
   }
 }
 
+// The mixed feed, for the trait panels only: deriveTraitOffers keeps its trait
+// rows and drops the single-token and token-list ones.
+export async function fetchAllCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
+  const osSlug = openseaSlug || slug;
+  try {
+    const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
+    return (data.offers || []).map(normalizeCollectionOffer);
+  } catch (err) {
+    console.warn("Fetch all collection offers failed:", err.message);
+    return [];
+  }
+}
+
 // SELF-AUDIT 2026-05-27, resolved 2026-06-09: OpenSea's dedicated
 // `offers/collection/{slug}/traits` endpoint 400s on every `mode` value we
-// tried and has no public spec. But `offers/collection/{slug}/all` (already
-// fetched for the collection-offers panel) includes criteria offers, and
-// trait offers carry `criteria.trait = { type, value }` — so the per-trait
-// best bid is derived from data the app already has. Zero extra requests
-// against OpenSea's rate limit.
-// Input: normalized offers from fetchCollectionOffers (price in ETH).
+// tried and has no public spec. But `offers/collection/{slug}/all` includes
+// criteria offers, and trait offers carry `criteria.trait = { type, value }` —
+// so the per-trait best bid is derived from that one read.
+// Input: normalized offers from fetchAllCollectionOffers (price in ETH).
 // Output: { [traitType]: { [traitValue]: { priceEth, count } } }
 export function deriveTraitOffers(collectionOffers = []) {
   const map = {};
@@ -269,15 +239,6 @@ export function deriveTraitOffers(collectionOffers = []) {
     if (o.price > slot.priceEth) slot.priceEth = o.price;
   }
   return map;
-}
-
-function safePriceFromWei(wei) {
-  try {
-    if (!wei || wei === "0") return 0;
-    return Number(BigInt(wei) / BigInt(1e12)) / 1e6;
-  } catch {
-    return 0;
-  }
 }
 
 function normalizeOffer(order) {

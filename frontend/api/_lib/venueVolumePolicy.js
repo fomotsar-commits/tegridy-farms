@@ -2,8 +2,12 @@
 // job (scripts/venue-volume.mjs) and the public read (venueVolume.js). No imports: the job
 // runs with no npm install, next to the service key.
 
-/** Every source the total is made of. A row missing from this list is not counted. */
-export const VOLUME_SOURCES = Object.freeze(["solana-pools", "jupiter", "ethereum", "base", "robinhood"]);
+/**
+ * Every source the total is made of. A row missing from this list is not counted. The two
+ * NFT sources (new loans on NFT Lending, sales on our own NFT order book) need migration
+ * 031 before their rows can be written.
+ */
+export const VOLUME_SOURCES = Object.freeze(["solana-pools", "jupiter", "ethereum", "base", "robinhood", "nft-lending", "nft-orderbook"]);
 
 /**
  * The job is scheduled hourly, but GitHub ran this repo's hourly jobs up to 7.8 h apart

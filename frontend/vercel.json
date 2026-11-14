@@ -54,6 +54,12 @@
       ]
     },
     {
+      "source": "/pools",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
       "source": "/record/(.*)",
       "headers": [
         { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" },
@@ -103,6 +109,12 @@
     },
     {
       "source": "/splash/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/share/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
@@ -207,6 +219,7 @@
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
     { "source": "/position/:id.json", "destination": "/api/aggregator?resource=position&id=:id" },
     { "source": "/position/:path*", "destination": "/api/aggregator?resource=position&path=:path*" },
+    { "source": "/mint/:mint.json", "destination": "/api/aggregator?resource=mint&mint=:mint" },
     { "source": "/mint/(.*)", "destination": "/mint/default.json" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

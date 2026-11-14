@@ -14,11 +14,12 @@ import {
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
 import { TangemWalletAdapter, WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
-// VENDORED, not the package css: the upstream file opens with a Google-Fonts
-// @import that the CSP blocks, and Vite 8 turned that block into a fatal
-// CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
-// See the header in the vendored file before touching this.
-import '../../styles/wallet-adapter-ui.css';
+// THE WALLET LIST'S STYLESHEET IS NOT IMPORTED HERE (2026-11-11). src/main.tsx imports the vendored
+// styles/wallet-adapter-ui.css, so its rules ride the entry's stylesheet. Imported here it became a
+// stylesheet of this lazy chunk's own, fetched when the chunk was asked for, and WebKit (every
+// iPhone browser) does not draw what a page adds while such a stylesheet is still loading: every
+// page that mounts a Solana section went blank for about a second. scripts/check-dist-graph.mjs G.
+// Still VENDORED, not the package css: see the header in the vendored file before touching it.
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { opensInWalletApp } from '../../lib/solanaWalletOrder';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
@@ -35,9 +36,10 @@ import {
 
 /**
  * Solana wallet context — mounted once per Solana section, always lazily, so
- * the @solana/* deps + their CSS load with that chunk and never touch the main
- * bundle or the EVM surface. On a Solana page it also drives the top bar's
- * Connect, through SolanaSurfaceBridge below.
+ * the @solana/* deps load with that chunk and never touch the main bundle or
+ * the EVM surface (the wallet list's 5 KB of styles ride the entry's stylesheet:
+ * the note above the imports says why). On a Solana page it also drives the top
+ * bar's Connect, through SolanaSurfaceBridge below.
  *
  * Installed extensions (Phantom/Solflare/Backpack) register themselves via the
  * Wallet Standard, and that registration replaces an adapter of the same name

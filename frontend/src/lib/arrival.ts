@@ -1,4 +1,5 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+import { SITE_URL } from './constants';
 import { roomSpeaksOn } from './routeVoice';
 // Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
 import type { HeatTier } from './heat/heatOracle';
@@ -175,6 +176,9 @@ export const COUNTDOWN_WORDS = {
   days: dayWord,
   unserved: 'about half a year',
   under: 'to the door, if you hold from today.',
+  /** Under `unserved` (island answer thirty-four): half a year counts from a real position, and a
+   *  stranger, a cold wallet and a dust bag at 0° hold none today. */
+  underUnserved: 'to the door, from your first real buy.',
   today: '0° today',
   door: (floor: number) => `${floor}° · the door`,
   line: 'Residents launch here. Nobody can buy last year.',
@@ -195,13 +199,29 @@ export const HEAT_WORDS = {
   ladderCold: 'Cold',
 } as const;
 
+/** A ticker as the card's words print it after their own "$": one "$" of the coin's own is dropped
+ *  (GeckoTerminal reads WIF as "$WIF"). */
+const bare = (coin: string) => coin.replace(/^\$/, '');
+/** The add's post (island answer thirty-one): what they did, what they are now, what it pays. `null`: the
+ *  venue read no ticker of the coin's own (none at all, or a copy's), and the post names no coin (answer thirty-four).
+ *  ONE LINK A POST (island answer thirty-five): the sentence names no site. X draws one card a post, the
+ *  FIRST link's, and links a bare "memetics.finance" by itself: with the site named here, every posted add
+ *  drew the front page's card and never the add's own. The link below and its card name the site. */
+const LP_POST = (coin: string | null) =>
+  coin === null
+    ? "Just added liquidity. I'm part of the floor now. Every trade in the pool pays me."
+    : `Just added liquidity to $${bare(coin)}. I'm part of the floor now. Every trade in the pool pays me.`;
+/** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
+const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
+
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
   /** The venue's own word for a sale (the swap page's "Sold"); the island drew the buy and the add. */
   sold: (amount: string, coin: string) => `Sold ${amount} ${coin}`,
-  added: (sol: string, amount: string, coin: string) => `Added ${sol} SOL + ${amount} ${coin}`,
-  addedTo: (coin: string) => `to the SOL + ${coin} pool`,
+  /** `quote` is the pool's pairing coin (any of `QUOTE_COINS`: SOL, USDC or an island coin), `pair` what went in of it. */
+  added: (pair: string, quote: string, amount: string, coin: string) => `Added ${pair} ${quote} + ${amount} ${coin}`,
+  addedTo: (quote: string, coin: string) => `to the ${quote} + ${coin} pool`,
   fee: 'Fee',
   toLps: "To this pool's LPs",
   toVenue: 'To the venue and the island',
@@ -210,9 +230,26 @@ export const RECEIPT_WORDS = {
   dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
   double: 'Every day in this pool counts double from tomorrow.',
   kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  /** Under the title once the buyer's light lands on the shore (island answer thirty, §2). */
+  shore: (coin: string) => `You're on $${bare(coin)}'s shore. Every light here holds it.`,
+  /** The words of `shore` the island's drawing marks, bold in the shore's green. */
+  shoreMark: (coin: string) => `$${bare(coin)}'s shore.`,
+  /** A sale: the light stays on the shore, cooling (island answer thirty, §1). */
+  shoreCooling: 'Your light stays on the shore, cooling. The island remembers every day you held.',
+  /** The line under an add's title from the landing on (island answer thirty-two). `null`: no ticker of
+   *  the coin's own was read, and the line names no coin (answer thirty-four). */
+  floor: (coin: string | null) =>
+    coin === null ? "You're part of the floor now. Every trade in the pool pays you." : `You're part of $${bare(coin)}'s floor now. Every trade in the pool pays you.`,
+  /** The words of `floor` the island's drawing marks, bold in the token's hue. */
+  floorMark: (coin: string) => `$${bare(coin)}'s floor`,
   share: 'Share your card',
   back: 'Back to the room',
   cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
+  shareX: 'Share on X',
+  lpPost: LP_POST,
+  lpLink: LP_LINK,
+  /** X's composer with the post written: nothing is published until the person posts it. */
+  lpIntent: (coin: string | null, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
 } as const;
 
 export const TRENCHER_WORDS = {

@@ -276,6 +276,20 @@ describe('readEntries — an open entry whose accrual was not priced says so', (
     expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBeNull();
   });
 
+  // A dashboard load reads every Streamflow pool for the wallet, and most hold none of its
+  // stakes: the two reward-pool searches were two calls a pool that priced nothing.
+  it.each([
+    ['no stake here', []],
+    ['only closed stakes here', [closed]],
+  ])('with %s, the reward pools are never searched, and the read is whole', async (_case, found) => {
+    searchStakeEntries.mockResolvedValue(found);
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok && r.entries.map((e) => [e.address, e.pendingUnread])).toEqual(found.map((e) => [e.publicKey, undefined]));
+    expect(searchRewardPools).not.toHaveBeenCalled();
+    expect(dynamicRewardPoolAll).not.toHaveBeenCalled();
+    expect(searchRewardEntries).not.toHaveBeenCalled();
+  });
+
   it('both halves answered and no reward pool exists: a real zero, not unread', async () => {
     searchStakeEntries.mockResolvedValue([open(0)]);
     searchRewardPools.mockResolvedValue([]);

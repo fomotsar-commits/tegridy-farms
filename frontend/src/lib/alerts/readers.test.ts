@@ -31,6 +31,20 @@ const H = vi.hoisted(() => {
 
 const { fetchHeatMock, fetchLaunchRadarMock, fetchLauncherOutcomesMock, FakeHeatUnavailable } = H;
 
+// The REAL venue-lending gate runs: it opens on a deployed Gondi loan contract
+// (lib/shield/venues.ts). GONDI_LOAN_ADDRESS is zero until the deploy, so a stand-in is set
+// here; `gondiState` puts the zero back for the not-deployed case.
+const gondiState = vi.hoisted(() => ({ address: '0x5555555555555555555555555555555555555555' }));
+vi.mock('../gondi/loanOffer.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    get GONDI_LOAN_ADDRESS() {
+      return gondiState.address;
+    },
+  };
+});
+
 vi.mock('../heat/heatClient', () => ({
   fetchHeat: (...args: unknown[]) => H.fetchHeatMock(...args),
   HeatUnavailableError: H.FakeHeatUnavailable,
@@ -460,6 +474,19 @@ describe('the indexed kinds are dark, and say so', () => {
 });
 
 describe('a deadline rule with nothing wired to read it says so', () => {
+  it('before Gondi’s loan contract is deployed, refuses with that reason, never an empty list', async () => {
+    gondiState.address = '0x0000000000000000000000000000000000000000';
+    try {
+      const supplied = vi.fn();
+      const reading = await READERS['loan-deadline'](rule('loan-deadline'), { loanDeadlineReader: supplied });
+      expect(reading.status).toBe('unavailable');
+      if (reading.status === 'unavailable') expect(reading.detail).toMatch(/not deployed/i);
+      expect(supplied).not.toHaveBeenCalled();
+    } finally {
+      gondiState.address = '0x5555555555555555555555555555555555555555';
+    }
+  });
+
   it('refuses when no on-chain loan reader was supplied to the pass', async () => {
     const reading = await READERS['loan-deadline'](rule('loan-deadline'), {});
     expect(reading.status).toBe('unavailable');

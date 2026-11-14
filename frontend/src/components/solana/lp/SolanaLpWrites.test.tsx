@@ -24,6 +24,9 @@ import type { LpWriteApi, Prepared, TxOutcome, TxSummary } from '../curve/ports'
 import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, lpWithdrawSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { isqrt } from '../../../lib/solana/lp/liquidityMath';
+import type { LedgerFigures, LedgerRead } from '../../../lib/solana/lp/ledger';
+import { claimSentOn, forgetClaimsSent } from '../../../lib/solana/lp/claimed';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -326,7 +329,7 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
@@ -568,6 +571,196 @@ describe('Remove liquidity', () => {
     fireEvent.click(find);
     // The reader says a busy network in words (positions.ts), and the row prints them.
     expect(await within(row).findByText(/could not read the chain just now \(the network is busy; try again in a minute\)\. Your shares are safe/)).toBeInTheDocument();
+  });
+});
+
+describe('Claim fees', () => {
+  beforeEach(() => forgetClaimsSent());
+  const HELD = 250_000n;
+  /** The liquidity HELD shares hold in `v` now, less 1%: deposits that bought 99% of it. */
+  const basisIn = (v: PoolView) => ((HELD * isqrt(v.snapshot.reserve0 * v.snapshot.reserve1)) / v.snapshot.pool.lpSupply) * 99n / 100n;
+  const ledgerRead = (v: PoolView, over: Partial<LedgerFigures> = {}): LedgerRead => ({
+    kind: 'ok',
+    case: 'A',
+    entries: [],
+    window: { count: 1, oldest: 1_791_066_624, more: false },
+    figures: {
+      putIn: { token: 1_000n, coin: 1_000n, count: 1 },
+      takenOut: null,
+      worthNow: { token: 1_010n, coin: 1_010n },
+      holdWorth: 2_000n,
+      nowAndOutWorth: 2_020n,
+      versusHolding: { kind: 'amount', coin: 20n },
+      growth: { kind: 'amount', coin: 20n },
+      priceEffect: { kind: 'none-yet' },
+      locked: null,
+      since: 1_791_066_624,
+      provenShares: HELD,
+      otherShares: null,
+      basis: basisIn(v),
+      claimShares: HELD / 100n,
+      ...over,
+    },
+  });
+  const withLedger = (v: PoolView, read: LedgerRead) =>
+    readers({
+      positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [position(v, { lpAmount: HELD })] })),
+      ledger: vi.fn(async () => read),
+    });
+
+  it('is offered under Fees earned once the figures balance, opens without a percent, and sends the basis, never a percent', async () => {
+    const v = view();
+    const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'x' } })) });
+    mount(withLedger(v, ledgerRead(v)), { api });
+    const row = await screen.findByTestId('lp-position');
+    const claim = await within(row).findByRole('button', { name: 'Claim fees' });
+    fireEvent.click(claim);
+    const panel = await screen.findByTestId('lp-claim-panel');
+    expect(claim).toHaveAttribute('aria-expanded', 'true');
+    expect(within(panel).getByRole('heading', { name: 'Claim fees from this pool' })).toHaveFocus();
+    expect(within(panel).queryByRole('group', { name: 'How much to take out' })).toBeNull();
+    expect(panel).toHaveTextContent('Gives back just enough of your shares to pay out the fees they earned. The rest stay in the pool.');
+    // Remove is one panel too: while the claim is open, it opens nothing beside it.
+    expect(screen.queryByTestId('lp-remove-panel')).toBeNull();
+    const review = within(panel).getByRole('button', { name: 'Review: claim fees' });
+    expect(review).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review);
+    });
+    const args = vi.mocked(api.prepareLpWithdraw).mock.calls[0]![2];
+    expect(args).toMatchObject({ owner: OWNER, pool: new PublicKey(v.address), lpAccount: expect.any(PublicKey), claim: { basis: basisIn(v), provenShares: HELD, heldAtRead: HELD } });
+    expect(args.pctBps).toBeUndefined();
+  });
+
+  it('is not offered with nothing claimable, no growth, figures that do not balance, or with adding and removing off', async () => {
+    const v = view();
+    const cases: LedgerRead[] = [
+      ledgerRead(v, { claimShares: 0n }),
+      ledgerRead(v, { growth: { kind: 'none-yet' } }),
+      ledgerRead(v, { growth: { kind: 'amount', coin: -5n } }),
+      { kind: 'worth-only', why: 'shares-left', entries: [], window: { count: 1, oldest: 1_791_066_624, more: false } },
+      // Case B (shares that arrived another way): a claim would leave a withdrawal its books cannot balance.
+      { ...(ledgerRead(v) as Extract<LedgerRead, { kind: 'ok' }>), case: 'B' },
+    ];
+    for (const read of cases) {
+      const { unmount } = mount(withLedger(v, read));
+      const row = await screen.findByTestId('lp-position');
+      await waitFor(() => expect(within(row).getByTestId('lp-ledger')).toHaveAttribute('data-ledger', read.kind));
+      expect(within(row).queryByRole('button', { name: 'Claim fees' })).toBeNull();
+      unmount();
+    }
+    const off = mount(withLedger(v, ledgerRead(v)), { mode: 'off' });
+    const row = await screen.findByTestId('lp-position');
+    await waitFor(() => expect(within(row).getByTestId('lp-ledger')).toHaveAttribute('data-ledger', 'ok'));
+    expect(within(row).queryByRole('button', { name: 'Claim fees' })).toBeNull();
+    off.unmount();
+  });
+
+  it('is not offered for growth too small to pay out on both sides at the pool as read', async () => {
+    // 100 token units over 1,000,000 shares: one share pays none of the token.
+    const thin = view({ tok: 100n });
+    mount(withLedger(thin, ledgerRead(thin, { claimShares: 1n })));
+    const row = await screen.findByTestId('lp-position');
+    await waitFor(() => expect(within(row).getByTestId('lp-ledger')).toHaveAttribute('data-ledger', 'ok'));
+    expect(within(row).queryByRole('button', { name: 'Claim fees' })).toBeNull();
+  });
+
+  it('once a claim is sent, it is not offered again on the balance it was worked out for (a node behind it still reads that)', async () => {
+    const v = view();
+    const p = position(v, { lpAmount: HELD });
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    const api = fakeLpApi({
+      prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })),
+      submitPrepared: vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 })),
+    });
+    // The positions read after the claim still answers the old balance.
+    mount(
+      readers({
+        positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })),
+        ledger: vi.fn(async () => ledgerRead(v)),
+      }),
+      { api },
+    );
+    const row = await screen.findByTestId('lp-position');
+    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+    const panel = await screen.findByTestId('lp-claim-panel');
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(claimSentOn(p.lpAccount, HELD)).toBe(true);
+    // Close on the outcome, then the panel's own Close: the positions are read again between the two.
+    for (let i = 0; i < 2 && screen.queryByTestId('lp-claim-panel'); i++) {
+      await act(async () => {
+        fireEvent.click(within(screen.getByTestId('lp-claim-panel')).getByRole('button', { name: 'Close' }));
+      });
+    }
+    await waitFor(() => expect(screen.queryByTestId('lp-claim-panel')).toBeNull());
+    const again = await screen.findByTestId('lp-position');
+    await waitFor(() => expect(within(again).getByTestId('lp-ledger')).toHaveAttribute('data-ledger', 'ok'));
+    expect(within(again).queryByRole('button', { name: 'Claim fees' })).toBeNull();
+  });
+
+  it('a claim that did not land (its blockhash ran out) is offered again', async () => {
+    const v = view();
+    const p = position(v, { lpAmount: HELD });
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    const api = fakeLpApi({
+      prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })),
+      // Sent first (the flow draws 'sent' and the claim is noted), then its blockhash runs out.
+      submitPrepared: vi.fn(async (...args: unknown[]): Promise<TxOutcome> => {
+        (args[3] as { onSent?: (signature: string, lastValidBlockHeight: number) => void } | undefined)?.onSent?.(SIG, 1_000);
+        await new Promise((r) => setTimeout(r, 30));
+        return { status: 'expired', signature: SIG, message: 'gone' };
+      }),
+    });
+    mount(
+      readers({
+        positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })),
+        ledger: vi.fn(async () => ledgerRead(v)),
+      }),
+      { api },
+    );
+    const row = await screen.findByTestId('lp-position');
+    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+    const panel = await screen.findByTestId('lp-claim-panel');
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(true));
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'expired');
+    await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(false));
+    // Nothing is running now: the row's Claim fees is pressable again.
+    expect(within(row).getByRole('button', { name: 'Claim fees' })).toBeEnabled();
+  });
+
+  it('the review is titled a claim and says what stays in', async () => {
+    const v = view();
+    const p = position(v, { lpAmount: HELD });
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })) });
+    mount(
+      readers({
+        positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })),
+        ledger: vi.fn(async () => ledgerRead(v)),
+      }),
+      { api },
+    );
+    const row = await screen.findByTestId('lp-position');
+    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+    const panel = await screen.findByTestId('lp-claim-panel');
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
+    });
+    const review = await within(panel).findByTestId('tx-review');
+    expect(within(review).getByRole('heading', { name: 'Review: claim fees' })).toBeInTheDocument();
+    expect(review).toHaveTextContent('Just enough of your shares to pay out the fees they earned. The rest stay in the pool.');
   });
 });
 

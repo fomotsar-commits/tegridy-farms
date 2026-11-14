@@ -105,8 +105,11 @@ describe('isUnverified — the one verified/unverified decision', () => {
 describe('the venue knows its own coins by mint', () => {
   const copy: SolToken = { mint: 'CopyCopyCopyCopyCopyCopyCopyCopyCopyCopypump', symbol: 'BAYLA', name: 'BAYLA', decimals: 6 };
 
-  it('they are the three coins our pools pair with, and BAYLA is the bungalow mint', () => {
-    expect(VENUE_COINS.map((t) => t.mint).sort()).toEqual(QUOTE_COINS.map((q) => q.mint).sort());
+  it('with the island’s coins, they are exactly the coins our pools pair with; BAYLA is the bungalow mint', () => {
+    expect(VENUE_COINS.map((t) => t.mint)).toEqual([SOL.mint, USDC.mint, BAYLA.mint]);
+    // The pool screens' pairing list (quotes.ts): SOL, USDC and every island coin, and nothing else.
+    const vouched = new Set([...VENUE_COINS, ...ISLAND_TOKENS].map((t) => t.mint));
+    expect([...vouched].sort()).toEqual(QUOTE_COINS.map((q) => q.mint).sort());
     expect(BAYLA.mint).toBe(BAYLA_MINT);
     for (const t of VENUE_COINS) expect(isVenueCoin(t.mint)).toBe(true);
   });

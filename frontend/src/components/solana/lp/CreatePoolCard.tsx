@@ -24,19 +24,20 @@ const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here 
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
 
 /**
- * What opening a pool costs, in one line, beside its button: the tier's fee and the
- * account deposits (rent) the new pool's accounts keep for good. The fee goes to the
- * venue: cp-swap's `create_pool_fee_reveiver` is the team vault's wrapped-SOL account
- * (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and the opening's test run must show it
- * arrive there. `feeTiers` is the section's one read: null while it reads. A deposit
- * figure that was not read is said so, never 0. It names what costs: beside a pool to
- * add to, the line sits right under Go to that pool, which costs nothing.
+ * What opening a pool costs, in one line, beside its button: the tier's fee, the account
+ * deposits (rent) the new pool's accounts keep for good, and the new share's name record
+ * (`nameRecord`: its deposit and Metaplex's fee; undefined while it reads). The fee goes to
+ * the venue: `CP_CREATE_POOL_FEE_RECEIVER` is the vault's wrapped-SOL account. An amount
+ * not read is said so, never 0. Beside a pool to add to, it names what costs.
  */
-function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
+function costLine(fee: bigint, feeTiers: FeeTierRead | null, nameRecord: bigint | null | undefined): string {
   const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
   const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
-  if (deposits !== null) return `${venue} about ${solAbout(deposits)} account setup you do not get back.`;
-  return `${venue} account setup you do not get back (${feeTiers === null ? 'reading the amount…' : 'amount not read'}).`;
+  if (deposits !== null && typeof nameRecord === 'bigint') {
+    return `${venue} about ${solAbout(deposits + nameRecord)} you do not get back: account setup and the pool share's name record.`;
+  }
+  const reading = feeTiers === null || (nameRecord === undefined && deposits !== null);
+  return `${venue} account setup and the pool share's name record, which you do not get back (${reading ? 'reading the amount…' : 'amount not read'}).`;
 }
 
 /**
@@ -64,7 +65,7 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
  * absent or blocked is refused, in the words of the check that blocked it.
  *
  * ONE ANSWER PER PAIRING COIN (`pairFacts`). A new pool pairs the token with SOL, USDC or
- * BAYLA, and the pool to add to instead is one paired with the same coin. So each coin
+ * an island coin (quotes.ts), and the pool to add to instead is one paired with the same coin. So each coin
  * that has such a pool gets its own line and its own Add button, what a pool holds is
  * said in that pool's own coin, and the card says which coins have no pool yet. The coin
  * itself is chosen in the form.
@@ -80,6 +81,8 @@ export function CreatePoolCard(p: {
   outsideAt: number | null;
   /** The section's one read of the fee tiers, or null while it reads: the opening's account deposits. */
   feeTiers: FeeTierRead | null;
+  /** Reads what the new share's name record costs (LpReaders.nameRecordCost), once the card offers an opening. */
+  readNameRecordCost?: () => Promise<bigint | null>;
   /** Search the same token again (pools, token and price). */
   onReread: () => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
@@ -107,6 +110,7 @@ function CreateCard({
   outside,
   outsideAt,
   feeTiers,
+  readNameRecordCost,
   onReread,
   refreshing = false,
   openNow = 0,
@@ -128,6 +132,22 @@ function CreateCard({
     search,
     healths,
   });
+  // The name record's cost, read once the card offers an opening (not on load: /pools'
+  // first reads are the section's). Undefined while it reads; null when not read.
+  const [nameRecord, setNameRecord] = useState<bigint | null | undefined>(readNameRecordCost ? undefined : null);
+  useEffect(() => {
+    if (offer !== 'offer' || !readNameRecordCost || nameRecord !== undefined) return;
+    let live = true;
+    Promise.resolve()
+      .then(() => readNameRecordCost())
+      .then(
+        (v) => live && setNameRecord(v),
+        () => live && setNameRecord(null),
+      );
+    return () => {
+      live = false;
+    };
+  }, [offer, readNameRecordCost, nameRecord]);
   // One answer per coin the token can be paired with. A pool to add to is said beside an
   // offer only: a stopped card has its own line, and names no pool to add to.
   // Worked out on every render, not kept: what this tab opened can change between two reads.
@@ -272,7 +292,7 @@ function CreateCard({
             {/* The whole cost, on the screen, right above the press that pays it. */}
             {tier?.kind === 'ready' && (
               <p className="text-white/85" data-testid="lp-create-cost">
-                {costLine(tier.config.createPoolFee, feeTiers)}
+                {costLine(tier.config.createPoolFee, feeTiers, nameRecord)}
               </p>
             )}
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}

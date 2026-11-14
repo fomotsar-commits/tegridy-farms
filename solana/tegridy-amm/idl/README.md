@@ -140,7 +140,17 @@ superseded: that program had `release_platform_reserve` and an 8-account `create
 Both programs have been live on mainnet at those ids since 2026-09-29. No IDL has been
 written on chain.
 
-**`raydium_cp_swap.json` is the IDL of the pool program mainnet runs since its re-upgrade**
+**Since the pool program's upgrade of 2026-11 `raydium_cp_swap.json` is the IDL of the build
+with the swap guard** (`01fe923b…`). It was emitted on 2026-11-10 with
+`anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1, in WSL, no features) from `mvp-launch`
+at the merge of pull request #1177. Against the file it replaced (`1e8fd792…`, the IDL of the
+build `1e55bcdc…`) it has one more error (6015 `SwapNotDirect`), two fields of `AmmConfig` where
+five words of its padding were (`swap_guard`, `keeper`), three comment lines on
+`update_amm_config`, and one changed comment line on `collect_fund_fee`'s signer (the fee rules
+of 2026-11-03). No instruction, account list or argument changed. The next paragraph is about
+that earlier file.
+
+**Until then `raydium_cp_swap.json` was the IDL of the pool program mainnet ran since its re-upgrade**
 (it ran the same build from 2026-10-23 until a roll-back on 2026-10-24; from then until the
 re-upgrade it ran the release's build again, whose IDL is `939bc040…`). It
 was re-emitted on 2026-10-06 with `anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1,
@@ -157,7 +167,7 @@ change reproduces `939bc040…` exactly, which is the control for the new value.
 | file | sha256 | what it is |
 | --- | --- | --- |
 | `tegridy_launch.json` | `cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31` | the release's `artifacts/SHA256SUMS` |
-| `raydium_cp_swap.json` | `1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736` | the IDL of the upgraded pool program: the 2026-09-26 release's IDL (`939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`) plus `create_lp_metadata` |
+| `raydium_cp_swap.json` | `de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889` | the IDL of the pool program since its upgrade of 2026-11: the IDL before it (`1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736`, which is the 2026-09-26 release's IDL, `939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`, plus `create_lp_metadata`) plus the swap guard's error and two fields |
 
 **What keeps them honest:** `frontend/src/lib/launcher/solana/write/idl.test.ts` pins both
 hashes, then holds every instruction the /curve-launch write path can send
@@ -167,8 +177,9 @@ platform reserve, + its trailing launch-index key, `buy`, `sell`, `migrate_to_am
 account name → address, signer and writable flags, discriminator, argument order. It also
 requires the frontend's error tables to equal the IDLs' code for code. A changed program
 means a new IDL here, a new hash in that test, and whatever the parity check then says.
-For the pool IDL it also holds the two facts above: the file minus `create_lp_metadata` is
-the release's IDL byte for byte, and `create_lp_metadata` takes no argument and names nine
-accounts with only the payer signing. `frontend/scripts/solana-localnet/genesis-accounts.mjs`
+For the pool IDL it also holds the facts above. Undo what the swap-guard upgrade added and the
+file is `1e8fd792…`, byte for byte; take `create_lp_metadata` out of that and it is the
+release's IDL, byte for byte. The swap guard changed no instruction, and `create_lp_metadata`
+takes no argument and names nine accounts with only the payer signing. `frontend/scripts/solana-localnet/genesis-accounts.mjs`
 carries the same pin in `PINNED_SHA256`: one pin for this file and for the copy of it the
 local harness keeps beside the upgraded binary.

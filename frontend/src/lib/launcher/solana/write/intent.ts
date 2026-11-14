@@ -53,10 +53,12 @@ import {
   migrateToAmmIx,
 } from '../curve/ix';
 import {
+  IX_CREATE_LP_METADATA,
   IX_DEPOSIT,
   IX_INITIALIZE,
   IX_SWAP_BASE_INPUT,
   IX_WITHDRAW,
+  LP_NAME_EDITOR,
   deriveAmmConfig,
   deriveAuthority,
   deriveLpMint,
@@ -76,8 +78,17 @@ import {
 } from './metaplex';
 import { isLpKind } from './lpKinds';
 import { isRangeKind } from './rangeKinds';
-import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
-import { IX_CLOSE_POSITION, IX_DECREASE_LIQUIDITY_V2, IX_OPEN_POSITION_WITH_TOKEN22_NFT, IX_SWAP_V2, type RewardInfoView } from '../../../solana/clmm/program';
+import { closePositionIx, createPoolIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
+import {
+  IX_CLOSE_POSITION,
+  IX_CREATE_POOL,
+  IX_DECREASE_LIQUIDITY_V2,
+  IX_OPEN_POSITION_WITH_TOKEN22_NFT,
+  IX_SWAP_V2,
+  deriveAmmConfig as deriveRangeTier,
+  derivePool as deriveRangePool,
+  type RewardInfoView,
+} from '../../../solana/clmm/program';
 import { usableTickBounds } from '../../../solana/clmm/math';
 import {
   BAYLA_DECIMALS,
@@ -135,10 +146,10 @@ function asCurve(c: IntentContext): CurveIntent {
   return c;
 }
 
-/** A range opening in a SOL pool, or a range swap paying in SOL: the only range transactions that wrap SOL. */
+/** A range opening (in a pool or a new one) in SOL, or a range swap paying in SOL: the only range transactions that wrap SOL. */
 function rangePutsSolIn(ctx: RangeIntent): boolean {
   if (!pinnedQuote(ctx).native) return false;
-  return ctx.kind === 'range-open' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
+  return ctx.kind === 'range-open' || ctx.kind === 'range-create' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
 }
 
 /** Does this swap pay in SOL? Only then may it move SOL into the signer's wrapped-SOL account. */
@@ -562,7 +573,7 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       case 'lp-withdraw':
         return poolWithdraw(ix, ctx);
       case 'lp-create':
-        return poolInitialize(ix, ctx);
+        return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
@@ -744,6 +755,36 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };
 }
 
+const CREATE_LP_METADATA_KEY_COUNT = 9;
+
+/**
+ * cp-swap `create_lp_metadata`, sent right after the opening: the new pool share's name
+ * record. It takes no arguments, so the caller chooses no word. Every account is pinned:
+ * the signer pays, the pool is the one being opened and the token its own share token,
+ * the record is Metaplex's own address for that token, and the editor is the one the
+ * program compiles in, the team's vault.
+ */
+function poolName(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  if (ix.data.length !== IX_CREATE_LP_METADATA.length) refuse('the call that names the pool share carries data it never takes');
+  expectKeyCount(ix, CREATE_LP_METADATA_KEY_COUNT, 'naming the pool share');
+  const cp = ctx.cfg.cpSwapProgram;
+  const pool = ctx.pins.address;
+  const lpMint = deriveLpMint(cp, pool);
+  const checks: Array<[number, PublicKey, string]> = [
+    [0, ctx.signer, 'the pool share is named and paid for by someone else'],
+    [1, deriveAuthority(cp), 'naming the pool share names the wrong pool authority'],
+    [2, pool, 'it names the share of a different pool than the one opened'],
+    [3, lpMint, 'it names a different token than the new pool share'],
+    [4, metadataPda(lpMint), "the name record is written somewhere other than the pool share's own record address"],
+    [5, LP_NAME_EDITOR, "the name record would be editable by someone other than the team's vault"],
+    [6, METAPLEX_TOKEN_METADATA_ID, 'naming the pool share calls the wrong program'],
+    [7, SYSTEM_PROGRAM_ID, 'naming the pool share names the wrong system program'],
+    [8, SYSVAR_RENT_PUBKEY, 'naming the pool share names the wrong system program'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  return { kind: 'pool-name', pool, lpMint };
+}
+
 // ── range positions ──────────────────────────────────────────────────────────
 
 /**
@@ -806,8 +847,33 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   const same = (ref: TransactionInstruction, what: string) => {
     if (!sameKeys(ix, ref) || !sameBytes(d, ref.data)) refuse(`${what} names accounts or amounts this site did not check (such as someone else’s account)`);
   };
+  if (startsWith(d, IX_CREATE_POOL)) {
+    if (ctx.kind !== 'range-create' || !ctx.create) return refuse('it opens a new range pool, and this transaction is not for that');
+    if (d.length !== 8 + 16 + 8) refuse('a pool opening of the wrong size');
+    // Fee tier 0, the 1% tier, only: the site never opens a pool on any other tier.
+    if (!p.ammConfig.equals(deriveRangeTier(p.program, 0))) refuse('it opens a pool on a fee tier this site does not offer');
+    if (!p.address.equals(deriveRangePool(p.program, p.ammConfig, p.token0Mint, p.token1Mint))) refuse('the pool it opens is not the one its first position goes into');
+    const sqrtPriceX64 = u128(d, 8);
+    if (sqrtPriceX64 !== ctx.create.sqrtPriceX64) refuse('the pool would open at a price this site did not check');
+    if (u64(d, 24) !== 0n) refuse('the pool would open for trading later, not now');
+    // Rebuilt with the site's builder, which names the vault as the fee's only receiver.
+    same(
+      createPoolIx({
+        programId: p.program,
+        poolCreator: ctx.signer,
+        ammConfig: p.ammConfig,
+        mint0: p.token0Mint,
+        mint1: p.token1Mint,
+        tokenProgram0: p.token0Program,
+        tokenProgram1: p.token1Program,
+        sqrtPriceX64,
+      }),
+      'the pool opening',
+    );
+    return { kind: 'range-create-pool', pool: p.address, ammConfig: p.ammConfig, sqrtPriceX64 };
+  }
   if (startsWith(d, IX_OPEN_POSITION_WITH_TOKEN22_NFT)) {
-    if (ctx.kind !== 'range-open' || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
+    if ((ctx.kind !== 'range-open' && ctx.kind !== 'range-create') || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
     // A fixed liquidity and no base side (its option byte None: 58 bytes). With a base side the
     // program works the liquidity out at the price the opening lands at, a sandwich's price.
     if (d.length !== 8 + 16 + 16 + 16 + 1 + 1) refuse('an opening of the wrong size');
@@ -844,7 +910,7 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
     return { kind: 'range-open', pool: p.address, nftMint: ctx.nftMint, tickLower, tickUpper, liquidity, max0, max1 };
   }
   if (startsWith(d, IX_DECREASE_LIQUIDITY_V2)) {
-    if (ctx.kind === 'range-open' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');
+    if (ctx.kind === 'range-open' || ctx.kind === 'range-create' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');
     if (d.length !== 8 + 16 + 8 + 8) refuse('a withdrawal of the wrong size');
     const liquidity = u128(d, 8);
     const min0 = u64(d, 24);
@@ -939,6 +1005,9 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // A range opening wraps SOL for a SOL pool; taking out and closing only unwrap. The
   // position's NFT is made by the range program itself, so Token-2022 is never called here.
   'range-open': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
+  // A new pool and its first position: the same as an opening. The range program makes the
+  // pool's own accounts and pays the opening fee to the vault itself.
+  'range-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
   'range-remove': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
   'range-close': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
   // The swap page's swap in a range pool: as a swap in our other pools, in the range program.
@@ -1024,15 +1093,38 @@ export function decodeIntent(
       // shows one, and the balance check is sized for one.
       const own = OWN_STEP[ctx.kind];
       if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);
+      // An opening names its new pool share once, after the pool exists in the same
+      // transaction; no other liquidity change names anything.
+      const names = steps.filter((s) => s.kind === 'pool-name').length;
+      if (ctx.kind === 'lp-create' && (names !== 1 || steps.findIndex((s) => s.kind === 'pool-name') < steps.findIndex((s) => s.kind === 'pool-create'))) {
+        refuse('it does not name the new pool share exactly once, right after opening the pool');
+      }
+      if (ctx.kind !== 'lp-create' && names !== 0) refuse('it names a pool share, and only an opening does');
     }
     // One swap per transaction, for the same reasons.
     if (isSwapIntent(ctx) && steps.filter((s) => s.kind === 'pool-swap').length !== 1) refuse('it does not hold exactly one swap in the pool');
     // A range transaction holds its own steps once each, and nothing of the others'.
     if (isRangeIntent(ctx)) {
       const count = (k: IntentStep['kind']) => steps.filter((s) => s.kind === k).length;
-      const want = { 'range-open': [1, 0, 0, 0], 'range-remove': [0, 1, 0, 0], 'range-close': [0, 1, 1, 0], 'range-swap': [0, 0, 0, 1] }[ctx.kind];
-      if (count('range-open') !== want[0] || count('range-decrease') !== want[1] || count('range-close') !== want[2] || count('range-swap') !== want[3]) {
+      const want = {
+        'range-open': [1, 0, 0, 0, 0],
+        'range-remove': [0, 1, 0, 0, 0],
+        'range-close': [0, 1, 1, 0, 0],
+        'range-create': [1, 0, 0, 0, 1],
+        'range-swap': [0, 0, 0, 1, 0],
+      }[ctx.kind];
+      if (
+        count('range-open') !== want[0] ||
+        count('range-decrease') !== want[1] ||
+        count('range-close') !== want[2] ||
+        count('range-swap') !== want[3] ||
+        count('range-create-pool') !== want[4]
+      ) {
         refuse('it does not hold exactly the range-position steps it is for');
+      }
+      // The pool first, then its first position, in the order the review says them.
+      if (ctx.kind === 'range-create' && steps.findIndex((s) => s.kind === 'range-create-pool') > steps.findIndex((s) => s.kind === 'range-open')) {
+        refuse('it puts the first position in before the pool is opened');
       }
       const dec = steps.find((s) => s.kind === 'range-decrease');
       if (ctx.kind === 'range-close' && dec?.kind === 'range-decrease' && dec.liquidity !== ctx.position?.liquidity) {

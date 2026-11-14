@@ -23,7 +23,8 @@ function reading(over: Partial<HeatReading> = {}): HeatReading {
     ...over,
   };
 }
-const base = (over: Partial<BaylaInputs> = {}): BaylaInputs => ({ reading: null, room: null, floor: 80, landed: null, slow: null, to: TO, ...over });
+// The door is closed, as it is on the venue today (lib/launcher/door.ts): a test of the open door says so.
+const base = (over: Partial<BaylaInputs> = {}): BaylaInputs => ({ reading: null, room: null, floor: 80, doorOpen: false, landed: null, slow: null, to: TO, ...over });
 const BAYLA = { coin: 'BAYLA', solanaPool: true };
 
 describe('baylaLine: every state, the island’s words', () => {
@@ -55,11 +56,29 @@ describe('baylaLine: every state, the island’s words', () => {
   it('a room on an EVM rail with no Solana pool reads as no room', () => {
     expect(baylaLine(base({ reading: reading(), room: { coin: 'PEPE', solanaPool: false } })).button.label).toBe('Pick');
   });
-  it('at the floor and up: Launch, or Add in a room', () => {
-    const warm = reading({ degrees: 80, tier: 'Resident' });
-    expect(baylaLine(base({ reading: warm }))).toEqual({ text: "80.00° Resident. Warm enough. The door opens on the island's word.", button: { label: 'Launch', to: '/launch', move: 'launch' }, sameMove: false });
-    expect(baylaLine(base({ reading: warm, room: BAYLA })).button).toEqual({ label: 'Add BAYLA', to: TO.pools, move: 'add' });
+  it('at the floor and up, the door closed: the move that is live, never Launch (the owner, 2026-11-11)', () => {
+    const warm = reading({ degrees: 80, tier: 'Resident', daysToPlant: 0 });
+    expect(baylaLine(base({ reading: warm }))).toEqual({ text: '80.00° Resident. Pick a bungalow and add to its pool.', button: { label: 'Pick', to: '/#hall', move: 'pick' }, sameMove: false });
+    expect(baylaLine(base({ reading: warm, room: BAYLA }))).toEqual({ text: '80.00° Resident. Every day in this pool counts double.', button: { label: 'Add BAYLA', to: TO.pools, move: 'add' }, sameMove: false });
     expect(baylaLine(base({ reading: reading({ degrees: 79.99, tier: 'Observer' }) })).button.label).toBe('Pick');
+    // The owner's own screen: an Elder, on the home, in a room with a pool, and in a room with none.
+    const elder = reading({ degrees: 1862.42, tier: 'Elder', daysToPlant: 0 });
+    for (const room of [null, BAYLA, { coin: 'PEPE', solanaPool: false }]) {
+      const line = baylaLine(base({ reading: elder, room }));
+      expect(line.button.move, JSON.stringify(room)).not.toBe('launch');
+      expect(line.button.label, JSON.stringify(room)).not.toBe('Launch');
+      expect(line.text, JSON.stringify(room)).not.toMatch(/door|launch/i);
+      expect(line.text.startsWith('1862.42° Elder. '), line.text).toBe(true);
+    }
+    // At the floor no days are left to count, whatever is served.
+    expect(baylaLine(base({ reading: reading({ degrees: 80, tier: 'Resident', daysToPlant: 3 }) })).text).toBe('80.00° Resident. Pick a bungalow and add to its pool.');
+  });
+  it('at the floor and up, the door open: Launch, or Add in a room', () => {
+    const warm = reading({ degrees: 80, tier: 'Resident' });
+    expect(baylaLine(base({ reading: warm, doorOpen: true }))).toEqual({ text: "80.00° Resident. Warm enough. The door opens on the island's word.", button: { label: 'Launch', to: '/launch', move: 'launch' }, sameMove: false });
+    expect(baylaLine(base({ reading: warm, room: BAYLA, doorOpen: true })).button).toEqual({ label: 'Add BAYLA', to: TO.pools, move: 'add' });
+    // Under the floor an open door changes nothing.
+    expect(baylaLine(base({ reading: reading({ degrees: 79.99, tier: 'Observer' }), doorOpen: true })).button.label).toBe('Pick');
   });
   it('the outside price not read, in a room: the pool’s own price and its age, adding stays open', () => {
     expect(baylaLine(base({ reading: reading(), room: BAYLA, slow: { price: '0.00000474 SOL', age: '3 min' } }))).toEqual({
@@ -108,12 +127,12 @@ describe('sameMove: her button goes quiet wherever the screen draws its own gree
     ['the home after a read, under the floor: her Pick, another move', base({ reading: reading({ daysToPlant: 102 }), screenMove: 'start' }), true],
     ['the Add sheet, a cold wallet: her Start the clock, another move', base({ reading: cold, room: BAYLA, screenMove: 'add' }), true],
     ['the countdown, no wallet read', base({ screenMove: 'start' }), true],
-    ['the countdown, a Resident: her Launch, another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), true],
+    ['the countdown, a Resident: her Pick, another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), true],
     ['a screen with no green button of its own', base({ reading: cold, room: BAYLA }), false],
     ['a screen that says null', base({ reading: cold, room: BAYLA, screenMove: null }), false],
     ['the sheet, a stranger: her Read heat is under its veil', base({ screenMove: 'sheet' }), true],
     ['the sheet, a cold wallet', base({ reading: cold, room: BAYLA, screenMove: 'sheet' }), true],
-    ['the sheet, a Resident with no room: her Launch', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'sheet' }), true],
+    ['the sheet, a Resident with no room: her Pick', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'sheet' }), true],
   ] as const)('%s', (_name, inputs, quiet) => {
     expect(baylaLine(inputs).sameMove).toBe(quiet);
   });
@@ -152,11 +171,13 @@ describe('the door is not open yet (island answer twenty-six)', () => {
     expect(baylaLine(base({ reading: one, screenMove: 'door' })).text).toBe('79.33°. Resident in 1 day.');
   });
 
-  it('says the door is not open on every screen, never that it is', () => {
+  it('never says the door is open, and off the door’s own screen does not speak of it (the owner, 2026-11-11)', () => {
     for (const room of [null, BAYLA]) {
-      const line = baylaLine(base({ reading: reading({ degrees: 120, tier: 'Resident' }), room }));
-      expect(line.text).toBe("120.00° Resident. Warm enough. The door opens on the island's word.");
-      expect(line.text).not.toMatch(/open to you|lane is open/);
+      const off = baylaLine(base({ reading: reading({ degrees: 120, tier: 'Resident' }), room }));
+      expect(off.text).not.toMatch(/open to you|lane is open|door|launch/i);
+      expect(off.button.move).not.toBe('launch');
+      const on = baylaLine(base({ reading: reading({ degrees: 120, tier: 'Resident' }), room, screenMove: 'door' }));
+      expect(on.text).toBe("120.00° Resident. Warm enough. The door opens on the island's word.");
     }
   });
 

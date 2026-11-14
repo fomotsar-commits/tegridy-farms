@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { PublicKey } from '@solana/web3.js';
 import { formatSol, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
-import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
+import { METAPLEX_CREATE_FEE_LAMPORTS, sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
@@ -107,7 +107,7 @@ function firstLine(pair: PairFacts, cut: boolean): string | null {
 }
 
 const rentBand = (most: string) =>
-  `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`;
+  `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and the share's name record, and stay open on the network. The most you can put in from this wallet is ${most}.`;
 
 /** The locked part as a percent of the pool: three significant digits, more whenever three would read as 0.1 or less. */
 function lockPct(supply: bigint): string {
@@ -324,19 +324,20 @@ function CreateInner({
   const bad = (s: LpSide) => boxes[s].trim() !== '' && (s === 'quote' ? quoteRaw : tokRaw) === null && !(s === 'token' && decimals === null);
 
   // What the wallet must keep back in SOL: the fee to open, the pool's own account
-  // deposits, the pool-share account and two signatures' fees. A SOL opening also opens a
+  // deposits, the share token's name record, the pool-share account and two signatures' fees. A SOL opening also opens a
   // wrapped-SOL account; any other coin wraps nothing. Unread is null, never 0.
   const neverRefunded = facts?.kind === 'ok' ? (facts.rents.neverRefunded ?? null) : null;
+  const nameRecord = facts?.kind === 'ok' ? (facts.rents.nameRecord ?? null) : null;
   const lpRent = facts?.kind === 'ok' ? facts.rents.tokenAccount165 : null;
   const lamports = facts?.kind === 'ok' ? facts.lamports : null;
   const band =
-    facts?.kind === 'ok' && config && neverRefunded !== null
+    facts?.kind === 'ok' && config && neverRefunded !== null && nameRecord !== null
       ? {
           walletFloor: facts.rents.walletFloor,
           feeReserve: feeReserveFor(2),
           lpAccountRent: facts.rents.tokenAccount165,
           wsolCreateRent: coin.native && !facts.wsol.exists ? facts.rents.tokenAccount165 : 0n,
-          alsoPaid: config.createPoolFee + neverRefunded,
+          alsoPaid: config.createPoolFee + neverRefunded + nameRecord,
         }
       : null;
   const setAside = band ? solSetAside(band) : null;
@@ -359,7 +360,7 @@ function CreateInner({
   // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
   const cannotOpen = cannotFundText({
     doing: 'open a pool',
-    forWhat: 'the fee to open, the account deposits and network fees',
+    forWhat: 'the fee to open, the account deposits, the name record and network fees',
     quote: coin,
     lamports,
     setAside,
@@ -431,7 +432,7 @@ function CreateInner({
     if (coin.native) {
       return availableQuote === null
         ? `You have ${solExact(facts.lamports)}.`
-        : `You have ${solExact(facts.lamports)}. Up to ${solExact(availableQuote)} can go in after the fee to open, the account deposits and network fees.`;
+        : `You have ${solExact(facts.lamports)}. Up to ${solExact(availableQuote)} can go in after the fee to open, the account deposits, the name record and network fees.`;
     }
     return availableQuote === null ? `You have: could not read (this wallet’s ${coin.symbol} was not read)` : `You have ${coinExact(availableQuote, coin)}.`;
   };
@@ -633,8 +634,8 @@ function CreateInner({
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
   // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
   const own = quoteCoin(mint);
-  const lower = lowerCoins(mint).map((q) => q.symbol);
-  const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
+  const lower = orList(lowerCoins(mint).map((q) => q.symbol));
+  const otherSide = own && lower ? `. A pool of ${own.symbol} and ${lower} is opened from the other side: look up ${lower} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
@@ -688,8 +689,8 @@ function CreateInner({
                 Pair with
               </span>
               {/* Real radio buttons: one Tab stop, and the arrow keys move the choice. The
-                  whole label is the 44px target. `relative` keeps the input inside it. Three
-                  choices fit one row from 360 wide; narrower, the row wraps instead of spilling. */}
+                  whole label is the 44px target. `relative` keeps the input inside it. The seven
+                  choices wrap over two or three rows on a phone, each chip whole; none spills. */}
               <div className="flex flex-wrap gap-2">
                 {pairs.map(({ coin: q }) => (
                   <label
@@ -788,7 +789,7 @@ function CreateInner({
               down, it read as less than the balance printed beside it. */}
           {!coin.native && (
             <p data-testid="lp-create-paid-in-sol">
-              The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
+              The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits, the name record and the network fee are paid in SOL, whatever
               the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAboutUp(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
               Only your {coin.symbol} and your tokens go into the pool.
             </p>
@@ -866,6 +867,17 @@ function CreateInner({
                 }
                 mono={false}
               />
+              <Row
+                label="Name record"
+                value={
+                  nameRecord !== null
+                    ? `${solExact(nameRecord)} so your pool share shows its name and picture in wallets: ${solExact(METAPLEX_CREATE_FEE_LAMPORTS)} of it is Metaplex's fee, the rest stays in the record for good`
+                    : signer
+                      ? 'could not be read'
+                      : 'read once a wallet is connected'
+                }
+                mono={false}
+              />
               <Row label="You get" value={`${unitsExact(preview.lp, LP_DECIMALS)} pool shares`} mono={false} />
               <Row
                 label="Locked in the pool forever"
@@ -876,13 +888,13 @@ function CreateInner({
               <Row
                 label="In all, from your wallet"
                 value={
-                  neverRefunded !== null && lpRent !== null
+                  neverRefunded !== null && nameRecord !== null && lpRent !== null
                     ? coin.native
                       ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
-                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
+                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + nameRecord + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
                       : // Three things leave the wallet, and they are never added together. The SOL
                         // is what the wallet must pay, so it is rounded up like the need above.
-                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
+                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + nameRecord + lpRent)} for the fee to open, the account deposits and the name record, plus the network fee`
                     : signer
                       ? 'could not be worked out (the account deposits could not be read)'
                       : 'worked out once a wallet is connected'
@@ -978,7 +990,7 @@ function CreateInner({
           mono={false}
         />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} reviewing={flow.state.step === 'review'} />
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} nameRecord={nameRecord} walletConnected={!!signer} coin={coin} reviewing={flow.state.step === 'review'} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? [coinSaid, status].filter(Boolean).join(' ') : ''}
       </p>

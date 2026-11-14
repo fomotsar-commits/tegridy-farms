@@ -101,7 +101,6 @@ function firingReading(kind: AlertRuleKind, prior?: PriorSnapshot): SourceReadin
               loanId: 4,
               contract: SUBJECT,
               deadlineAt: NOW + 3600,
-              graceEndsAt: NOW + 7200,
               band: 'urgent',
               consequence: 'Repay within 1h or the lender can claim the collateral NFT and keep it.',
             },

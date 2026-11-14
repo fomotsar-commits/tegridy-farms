@@ -1632,3 +1632,34 @@ describe('compact: the home card', () => {
     expect(writes.stake).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ amountRaw: 200_000_000n, lockSecs: 30 * DAY }));
   });
 });
+
+/* ────────── an opened lock keeps its weight, and the row says so ────────── */
+
+// Owner, 2026-11-11: a position whose lock has ended keeps the weight it staked at until it
+// is withdrawn, and that is honoured. Stakers reported the earnings after their lock ended
+// as a bug because the rule was only inside "Upgrade risk". Red first: the row said only
+// "unlocked".
+describe('an opened lock says it keeps earning at its own weight', () => {
+  const opened = () => position({ lockEnd: BigInt(NOW - DAY), weight: weightForStake(500_000_000n, 30 * DAY) });
+
+  it('in a live window: still earning, at the weight it was staked at, until withdrawn', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    reads.wallet = { ok: true, value: walletView({ open: [opened()] }) };
+    draw();
+    expect(await screen.findByText(/unlocked · still earning at 0\.46× until you withdraw/)).toBeTruthy();
+  });
+
+  it('with no live window it promises the weight, never earnings', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [opened()] }) };
+    draw();
+    expect(await screen.findByText(/unlocked · keeps its 0\.46× weight until you withdraw/)).toBeTruthy();
+    expect(screen.queryByText(/still earning/)).toBeNull();
+  });
+
+  it('a lock still running says when it opens, and nothing about after', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    expect(await screen.findByText(/unlocks in/)).toBeTruthy();
+    expect(screen.queryByText(/until you withdraw/)).toBeNull();
+  });
+});

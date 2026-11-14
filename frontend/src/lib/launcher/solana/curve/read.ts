@@ -78,6 +78,14 @@ export interface AccountSnapshot {
 export interface CurveRpc {
   getAccountInfo(address: PublicKey): Promise<AccountSnapshot | null>;
   getMinimumBalanceForRentExemption(dataLength: number): Promise<number>;
+  /**
+   * The account WITHOUT its data: whether it exists, its lamports, owner and executable
+   * flag, with `data` empty. For a question about an account that is not about its
+   * contents (`readDeployment` asks only whether a program's ProgramData is there and
+   * funded; that account is the program's whole bytecode). Optional: a transport without
+   * it is asked with `getAccountInfo`, and every answer is the same.
+   */
+  getAccountMeta?(address: PublicKey): Promise<AccountSnapshot | null>;
 }
 
 // ── results ──────────────────────────────────────────────────────────────────
@@ -115,6 +123,20 @@ type Fetched =
 async function fetchAccount(rpc: CurveRpc, address: PublicKey): Promise<Fetched> {
   try {
     const info = await rpc.getAccountInfo(address);
+    return info ? { kind: 'ok', value: info } : { kind: 'absent' };
+  } catch (e) {
+    return { kind: 'unreadable', detail: clipDetail(e) };
+  }
+}
+
+/**
+ * The same three answers as `fetchAccount`, for a caller that will not read `data`.
+ * Uses the transport's data-less read when it has one.
+ */
+async function fetchAccountMeta(rpc: CurveRpc, address: PublicKey): Promise<Fetched> {
+  if (!rpc.getAccountMeta) return fetchAccount(rpc, address);
+  try {
+    const info = await rpc.getAccountMeta(address);
     return info ? { kind: 'ok', value: info } : { kind: 'absent' };
   } catch (e) {
     return { kind: 'unreadable', detail: clipDetail(e) };
@@ -215,7 +237,11 @@ export async function readDeployment(
   }
   const programData = new PublicKey(stub.slice(4, PROGRAM_STUB_LEN));
 
-  const pd = await fetchAccount(rpc, programData);
+  // ONLY ITS EXISTENCE AND ITS LAMPORTS ARE READ, so its bytes are not asked for.
+  // ProgramData is the program's whole bytecode: 223 KB of base64 for the venue's AMM,
+  // downloaded twice on every /pools visit (measured on the live site, 2026-11-11) to
+  // answer a question that never looks at one byte of it.
+  const pd = await fetchAccountMeta(rpc, programData);
   if (pd.kind === 'unreadable') {
     return {
       kind: 'unreadable',

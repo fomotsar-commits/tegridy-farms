@@ -94,7 +94,8 @@ describe('a door reaches the surfaces that outlive it', () => {
     // With no room Swap raises the Buy sheet over the home (answer twenty-seven); PEPE's room is on Ethereum.
     expect(swap().getAttribute('href')).toBe('/?sheet=buy');
     aDoorOpens('pepe');
-    expect(swap().getAttribute('href'), 'the Swap word still points at the other chain').toBe('/swap');
+    // PEPE's room raises the sheet too, on Ethereum (owner, 2026-11-11; lib/sheetRooms.ts).
+    expect(swap().getAttribute('href'), 'the Swap word still points at the other chain').toBe('/pepe?sheet=buy');
   });
 });
 
