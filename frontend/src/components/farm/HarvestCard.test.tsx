@@ -126,6 +126,33 @@ describe('Harvest card', () => {
     expect(evm.refetch).toHaveBeenCalled();
   });
 
+  it('the figure draws each claim as a plate, and after a run shows where each one stands', async () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [claim('qr', 'base', 10n ** 18n), claim('pepe', 'ethereum', 10n ** 18n)], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    evm.switchTo.mockResolvedValue({ kind: 'ok' });
+    evm.send.mockImplementation(async (c: EvmClaim): Promise<ClaimResult> =>
+      c.chain === 'base' ? { kind: 'claimed', tx: '0xfeed' } : { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: '0xbad' });
+    show();
+    const figure = screen.getByTestId('harvest-stack');
+    const plates = () => Object.fromEntries(Array.from(figure.querySelectorAll('[data-plate]')).map((g) => [g.getAttribute('data-plate'), g.getAttribute('data-state')]));
+    expect(plates()).toEqual({ 'evm:qr': 'ready', 'evm:pepe': 'ready' });
+    // A picture: what each claim came to is said in the ledger's words.
+    expect(figure.getAttribute('aria-hidden')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Harvest all · 2 claims' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+    expect(plates()).toEqual({ 'evm:qr': 'claimed', 'evm:pepe': 'reverted' });
+  });
+
+  it('while reading, and with nothing to claim, the figure holds no plate: nothing is drawn that was not read', () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: null, batchable: ONE_BY_ONE };
+    const reading = show();
+    expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+    reading.unmount();
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    show();
+    expect(screen.getByText('Nothing to claim right now.')).toBeTruthy();
+    expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+  });
+
   it('Check again reads the pools afresh: a pool read held from before the press is forgotten first', async () => {
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
     sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send)], held: [], unread: [] });
