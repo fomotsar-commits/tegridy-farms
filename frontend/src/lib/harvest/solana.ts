@@ -21,7 +21,8 @@ import {
 } from '../bungalowStaking';
 import type { LadderWalletView } from '../ladder/read';
 import { sharedEntries, sharedLadderPool, sharedLadderWallet, sharedPool, sharedVaultBalances } from '../wallet/poolReads';
-import { earnedNow, isLadderConfigured, ladderProgramId, type LadderPoolView } from '../ladder/program';
+import { aprLabel, earnedNow, isLadderConfigured, ladderProgramId, perDayAtTodaysRate, sharePct, type LadderPoolView } from '../ladder/program';
+import { basisBehindWrite, lastWriteFence } from '../ladder/writeFence';
 import {
   ladderClaim, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs, refusalReason,
   type LadderWriteCtx, type WriteResult,
@@ -34,7 +35,7 @@ import { v1SignAllOf } from '../solana/v1Signer';
 import { acceptSignedV1, prepareV1 } from '../solana/v1Send';
 import { ladderRooms, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, solanaStakePools, type StakeTarget } from '../wallet/walletRows';
-import type { ClaimResult, HarvestClaim, HarvestPlan, HarvestUnread } from './types';
+import type { ClaimResult, HarvestClaim, HarvestEarning, HarvestPlan, HarvestUnread } from './types';
 
 export interface SolanaClaim extends HarvestClaim {
   chain: 'solana';
@@ -137,12 +138,54 @@ export function planStreamflow(target: StakeTarget, pool: PoolView, entries: rea
 }
 
 /**
+ * What the wallet's open locks in one ladder earn a day at today's rate, and that as a yearly
+ * rate on the stake behind them: the two figures the ladder's own card prints under "You earn
+ * per day" (SolanaLadderPoolLive.tsx), worked out by the card's own rule, so Earn and the pool's
+ * page can never state two different numbers for one wallet.
+ *
+ *  - The share's two inputs come from ONE slot (`shareBasis`), and the separately read pool
+ *    total only bounds it: of the two readings the LOWER share is used, so the larger total
+ *    and the smaller daily figure. Either reading refused (a partial list, your weight above
+ *    the total, a zero total) is no figure.
+ *  - A read that may predate the wallet's own confirmed write (`stale`) is no figure.
+ *  - Each position's figure is its own weight's; the wallet's is their sum. One that cannot
+ *    be stated (no reward window, one that has ended, a pool under its weight floor) is no
+ *    figure for the wallet at all: a part left out would understate the rest.
+ * Null is "not stated", and the card draws nothing for it. Never a zero.
+ */
+export function ladderEarning(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, nowSecs: number, stale = false): HarvestEarning | null {
+  const stats = wallet.stats;
+  const basis = wallet.shareBasis;
+  if (!stats || !basis || stale || wallet.open.length === 0) return null;
+  if (pool.mint !== (room.address ?? '')) return null;
+  const partial = wallet.truncated || wallet.slots.some((s) => s.state === 'unreadable') || stats.openPositions > wallet.open.length;
+  const own = sharePct({ mineWeight: basis.mineWeight, totalWeighted: basis.totalWeighted, truncated: partial });
+  const bound = sharePct({ mineWeight: basis.mineWeight, totalWeighted: pool.totalWeighted, truncated: partial });
+  if (!own || !bound) return null;
+  const total = own.pct <= bound.pct ? basis.totalWeighted : pool.totalWeighted;
+  let perDayRaw = 0n;
+  let principalRaw = 0n;
+  for (const p of wallet.open) {
+    const day = perDayAtTodaysRate(p.weight, total, pool, nowSecs);
+    if (day === null) return null;
+    perDayRaw += day;
+    principalRaw += p.amountRaw;
+  }
+  const apr = aprLabel(perDayRaw, principalRaw);
+  if (apr === null) return null;
+  return {
+    key: `ladder:${pool.address}`, chain: 'solana', roomId: room.id, symbol: room.symbol, where: 'lock ladder',
+    decimals: pool.decimals, principalRaw, perDayRaw, apr, fundedToSecs: Number(pool.periodFinish),
+  };
+}
+
+/**
  * What the wallet's lock-ladder positions come to: one claim per open position with
  * something earned, plus one for rewards carried from a closed position. A ladder claim
  * pays `min(owed, reward vault)` and keeps the rest owed (invariant I-2), so an empty
  * vault is held and a short one is sent with a caution.
  */
-export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, vaultRewardRaw: bigint | null, nowSecs: number): Plan {
+export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, vaultRewardRaw: bigint | null, nowSecs: number, stale = false): Plan {
   const sym = room.symbol;
   const where = 'lock ladder';
   const plan = empty();
@@ -153,6 +196,10 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
   }
   const stats = wallet.stats;
   if (!stats) return plan;
+  // What the open locks earn a day, whether or not anything is claimable right now.
+  const earning = ladderEarning(room, pool, wallet, nowSecs, stale);
+  if (earning) plan.earning = [earning];
+  else if (stale && wallet.open.length > 0) plan.settling = true;
   // A read can succeed and still be partial (read.ts): the positions it found are claimed,
   // and the rest are named as not read.
   if (wallet.truncated || wallet.slots.some((s) => s.state === 'unreadable') || stats.openPositions > wallet.open.length) {
@@ -206,10 +253,13 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
 }
 
 function merge(plans: readonly Plan[]): Plan {
+  const earning = plans.flatMap((p) => p.earning ?? []);
   return {
     claims: plans.flatMap((p) => p.claims),
     held: plans.flatMap((p) => p.held),
     unread: plans.flatMap((p) => p.unread),
+    ...(earning.length ? { earning } : {}),
+    ...(plans.some((p) => p.settling) ? { settling: true as const } : {}),
   };
 }
 
@@ -242,7 +292,9 @@ async function readLadderHarvest(owner: string, room: Bungalow & { ladderPool: s
     if (!w.value.stats) return empty();
     if (!p.ok) return unread(p.reason);
     const vaults = await sharedVaultBalances(p.value);
-    return planLadder(room, p.value, w.value, vaults.rewardRaw, nowSecs);
+    // The wallet's own write on a ladder card fences the daily figure, as it does the card's share.
+    const stale = w.value.shareBasis !== null && basisBehindWrite(lastWriteFence(), owner, w.value.shareBasis.slot);
+    return planLadder(room, p.value, w.value, vaults.rewardRaw, nowSecs, stale);
   } catch (e) {
     return unread(clipReason(e));
   }

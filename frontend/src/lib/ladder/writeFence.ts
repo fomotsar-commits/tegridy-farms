@@ -21,6 +21,27 @@ export interface WriteFence {
   slot: number | null;
 }
 
+// The newest fence of this page load, for a reader that is not the card that wrote: Harvest
+// states a daily figure from the same share (lib/harvest/solana.ts ladderEarning), so the same
+// write fences it. One fence for every pool is enough: slots are the chain's own clock, so a
+// basis read at or past the write's slot is recent whichever pool it is of.
+let lastFence: WriteFence | null = null;
+
+/** A card's own write confirmed (or its slot is still being asked for: `slot` null, which fences everything). */
+export function noteWriteFence(fence: WriteFence): void {
+  lastFence = fence;
+}
+
+/** The newest write this page load knows of, or null. */
+export function lastWriteFence(): WriteFence | null {
+  return lastFence;
+}
+
+/** For tests: no write is known. */
+export function resetWriteFenceForTests(): void {
+  lastFence = null;
+}
+
 /** A slot as the RPC gave it, or null — never a guess. */
 export function slotOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
