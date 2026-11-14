@@ -98,5 +98,8 @@ describe('another lender can take a loan over', () => {
     const text = details.map((d) => d.textContent).join(' ');
     expect(text).toMatch(/another lender can take this loan over/i);
     expect(text).toMatch(/deadline can only move later/i);
+    // Before a token is picked the NFT is "your NAKA", and here it starts the paragraph.
+    expect(text).toMatch(/Your NAKA is locked in Gondi's loan contract/);
+    expect(text).not.toMatch(/your NAKA is locked/);
   });
 });

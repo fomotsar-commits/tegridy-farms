@@ -979,6 +979,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   const pledgedId = anyToken ? parseTokenId(pickedId) : BigInt(offer.nftCollateralTokenId);
   const takesIt = pledgedId !== null && acceptsToken(offer, pledgedId);
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
+  // The same words where they start a sentence ("your NAKA" before a token is picked).
+  const collateralAtStart = collateralLabel.charAt(0).toUpperCase() + collateralLabel.slice(1);
 
   const ownerQuery = useReadContract({
     address: offer.nftCollateralAddress,
@@ -1212,7 +1214,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                     : ownsPledged
                     ? `You own ${collateralLabel}.`
                     : knownNotOwned
-                    ? `${collateralLabel} is not in your wallet.`
+                    ? `${collateralAtStart} is not in your wallet.`
                     : `Couldn't find ${collateralLabel}. Check the token ID.`}
                 </p>
               )}
@@ -1241,7 +1243,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
                   <p>
-                    {collateralLabel} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
+                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
                     repaid by then, the lender can take it, permanently.
                   </p>
                   <p className="mt-1">
