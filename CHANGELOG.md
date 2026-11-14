@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Solana pools: the pool program was upgraded. Every fee tier's fees are now held inside limits: a trader pays at most 4% of a swap, and at most a fifth of that fee goes to the venue and the island together. Only the island's Workshop can collect the island's share. No coin is let in by name any more: every coin meets the same check. The program also has a swap guard our vault can switch on for a fee tier. While it is on, a pool takes a swap only when a wallet sends it directly and refuses one that another program makes, such as a router or a smart wallet. Swaps from this site are sent directly, and adding or removing liquidity is not guarded. The lines you read before adding liquidity or opening a pool, and "The program" on the Pools page, say so.
 - Home, all-time volume: shows again. From 02:21 UTC it read "not counted", because the NFT order book has had no sale yet and its first count was refused; it now starts at zero sales.
 - Notice: no sooner than seven days from this day, a Solana swap through Jupiter between two of SOL, USDC, USDT and staked SOL pays memetics.finance 0.05% of the trade instead of 0.5%, and a CoW swap on Ethereum pays 0.25% of the trade instead of 0.5%, of which CoW DAO keeps a quarter and memetics.finance the rest. Every other Solana swap that pays the venue stays at 0.5%. The paid API plans on /developer become $49, $199 and $799 a month; billing is still off.
 

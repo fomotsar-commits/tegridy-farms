@@ -159,22 +159,24 @@ export async function curveOwner(mint: PublicKey): Promise<PublicKey | null> {
 }
 
 /**
- * The two pool-program builds this harness knows, by sha256 and length: the 2026-09-26
- * release, and the upgrade's (PR #899's gate: a public `initialize` on fee tier 0 is refused).
+ * The three pool-program builds this harness knows, by sha256 and length: the 2026-09-26
+ * release, the first upgrade's (PR #899's gate: a public `initialize` on fee tier 0 is
+ * refused), and the swap-guard upgrade's (2026-11), which keeps that gate.
  */
 export const POOL_PROGRAM_BUILDS = [
   { sha256: '88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882', bytes: 691_640, launchTierClosed: false },
   { sha256: '1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22', bytes: 725_176, launchTierClosed: true },
+  { sha256: '01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938', bytes: 714_776, launchTierClosed: true },
 ] as const;
 
-/** Which of those the validator runs, read from its ProgramData (a 45-byte header, then the code). Neither throws. */
+/** Which of those the validator runs, read from its ProgramData (a 45-byte header, then the code). None of them throws. */
 export async function poolProgramBuild(): Promise<(typeof POOL_PROGRAM_BUILDS)[number]> {
   const [programData] = PublicKey.findProgramAddressSync([CP_SWAP_PROGRAM.toBuffer()], BPF_LOADER_UPGRADEABLE_ID);
   const a = await chain().getAccountInfo(programData, 'confirmed');
   if (!a) throw new Error(`no ProgramData at ${programData.toBase58()} for the pool program`);
   const code = Buffer.from(a.data).subarray(45);
   const hit = POOL_PROGRAM_BUILDS.find((b) => code.length >= b.bytes && createHash('sha256').update(code.subarray(0, b.bytes)).digest('hex') === b.sha256);
-  if (!hit) throw new Error('the pool program on the validator is neither known build (88b98aa9 or 1e55bcdc)');
+  if (!hit) throw new Error('the pool program on the validator is none of the known builds (88b98aa9, 1e55bcdc or 01fe923b)');
   return hit;
 }
 

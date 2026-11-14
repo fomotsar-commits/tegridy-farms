@@ -29,6 +29,42 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-10: the pool program upgrade with the swap guard (two sittings; the pack is ready)
+
+Pull request #1177 merged on 2026-11-10. Nothing has been sent on mainnet. Your paper is
+`START-HERE.md` in `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-swap-guard-upgrade-2026-11`.
+
+**What it is.** Two vault proposals, signed in one sitting so their 48 hours run together.
+- **#32 upgrades the pool program** to `01fe923b…` (714,776 bytes, smaller than today's, so no
+  enlarge). It carries the swap guard, switched off, and the fee rules of 2026-11-03.
+- **#33 switches the guard on for both fee settings.** From then on a pool refuses a swap that
+  another program calls (error 6015). A wallet's own swap, the site and the price robot are not
+  affected. An aggregator, a trading app with its own program and a smart-contract wallet are.
+
+**Before you propose, one thing is for good.** After #32 the island's share of each fee
+setting goes to the address it has today, `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu` (read on
+mainnet 2026-11-10 on both fee settings), and the vault can no longer change that address or
+collect that share itself. Only another program upgrade could. If the island wants another
+address, that change runs before #32 does.
+
+**Sitting 1, about an hour:** send 3.70 SOL to the paying wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, then steps 1 to 12 of the paper. 3.63 SOL of it
+is parked for the upload and comes back when #32 executes. One `REFUSED` line is expected in
+step 3, about your own #30. Do not execute #30 between step 10 and step 11.
+
+**Sitting 2, 48 hours after member B's approvals:** steps 13 to 18. Execute #32, run the check,
+then the website release named below merges in the same hour, then execute #33 and run its check.
+
+**The website release.** Branch `release/swap-guard-site`. It names the new build everywhere
+the site and the registry name the pool program, so it must not merge before #32 executes: the
+registry's chain check and `poolProgramUpgradeRecord.test.ts` are red until then, on purpose.
+After the execute a session fills the four rows of `MAINNET_RUNBOOK.md` section 4b from
+`node frontend/scripts/solana-localnet/read-upgrade-record.mjs`, files the parked changelog
+line under that day, and asks you to merge.
+
+**Switching the guard off also takes 48 hours** (the page's step "Switch the swap guard OFF").
+A Jupiter listing needs it off for the listed fee settings, or a program change, first.
+
 ## 🔴 2026-11-08: Phantom ticket #455104, the version 1 proof (PR #1154 is live)
 
 PR #1154 merged 2026-11-08 14:24 UTC and was live at 14:27 UTC. Every Solana write the site builds
