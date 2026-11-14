@@ -106,6 +106,47 @@ test.describe('NFT lending surface', () => {
    * and the spec posts that offer through the book's own create action, which checks
    * the signature and the lender's WETH against the fork.
    */
+  // Another lender can take a loan over on Gondi's contract without the site (refinanceFull);
+  // the book then holds the old id as "refinanced". My Loans must say it moved, not that it
+  // closed, and offer no button on it. The screenshot is attached for the reviewer's read.
+  test('a loan another lender took over reads "Moved" in My Loans', async ({ page, walletMock }) => {
+    test.skip(!lendingLive, NOT_LIVE);
+    const me = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
+    const now = Math.floor(Date.now() / 1000);
+    const loan = {
+      borrower: me,
+      nftCollateralTokenId: '4103',
+      nftCollateralAddress: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9',
+      principalAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+      principalAmount: '17400000000000000',
+      startTime: String(now - 5 * 86_400),
+      duration: String(30 * 86_400),
+      tranche: [{ loanId: '1', floor: '0', principalAmount: '17400000000000000', lender: '0x4444444444444444444444444444444444444444', accruedInterest: '0', startTime: String(now - 5 * 86_400), aprBps: '1000' }],
+      protocolFee: '500',
+      lenderRefinanceDisabled: false,
+    };
+    await page.route('**/api/orderbook**', async (route) => {
+      const action = new URL(route.request().url()).searchParams.get('action');
+      if (action === 'loans') {
+        return route.fulfill({
+          json: { loans: [{ loanId: '1', loan, status: 'refinanced', emitTx: `0x${'1'.repeat(64)}`, closeTx: `0x${'2'.repeat(64)}` }], live: true },
+        });
+      }
+      return route.fulfill({ json: { offers: [], count: 0, live: true } });
+    });
+    await walletMock.connect(me);
+    await page.goto('/nft-finance');
+    await page.getByRole('tab', { name: /^My Loans$/i }).click();
+    const moved = page.getByTestId('loan-moved');
+    await expect(moved).toBeVisible({ timeout: 20_000 });
+    await expect(moved).toContainText('another lender took it over');
+    await expect(page.getByText('Moved', { exact: true })).toBeVisible();
+    await moved.scrollIntoViewIfNeeded();
+    const shot = test.info().outputPath('my-loans-moved.png');
+    await page.screenshot({ path: shot });
+    await test.info().attach('my-loans-moved', { path: shot, contentType: 'image/png' });
+  });
+
   test('borrow → repay full cycle (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
     test.skip(!lendingLive, NOT_LIVE);

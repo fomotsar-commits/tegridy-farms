@@ -30,7 +30,8 @@ vi.mock('wagmi', () => ({
     return hashes;
   },
 }));
-vi.mock('../lib/gondi/offerBook', () => ({ useBookLoans: () => book }));
+const syncClosed = vi.fn();
+vi.mock('../lib/gondi/offerBook', () => ({ useBookLoans: () => book, useSyncClosedLoans: (...a: unknown[]) => syncClosed(...a) }));
 
 const { useMyLoans } = await import('./useMyLoans');
 
@@ -65,6 +66,7 @@ beforeEach(() => {
   book = { isLoading: false, isError: false };
   hashes = { isError: false };
   readArgs.length = 0;
+  syncClosed.mockClear();
 });
 
 describe('useMyLoans (Gondi)', () => {
@@ -106,6 +108,20 @@ describe('useMyLoans (Gondi)', () => {
     const { result } = renderHook(() => useMyLoans());
     expect(result.current.loans).toHaveLength(0);
     expect(result.current.loansUnread).toBe(false);
+  });
+
+  // A zero hash on an open record: closed, or moved to a new lender, where the site did not
+  // see it. Left out of the list, the dashboard must still ask the book how, or a loan another
+  // lender took over (its NFT still locked, new deadline) vanishes from it for good.
+  it('asks the book how a loan the chain has closed was closed', () => {
+    const j = loanJson();
+    book = { data: { loans: [row('1', j)] }, isLoading: false, isError: false };
+    hashes = { data: [{ status: 'success', result: ZERO_HASH }], isError: false };
+    renderHook(() => useMyLoans());
+    expect(syncClosed).toHaveBeenCalled();
+    const [rows, reads] = syncClosed.mock.calls.at(-1)!;
+    expect((rows as BookLoan[]).map((r) => r.loanId)).toEqual(['1']);
+    expect(reads).toEqual([{ status: 'success', result: ZERO_HASH }]);
   });
 
   it('counts a hash that does not match the book’s loan as unread, and does not show it', () => {
