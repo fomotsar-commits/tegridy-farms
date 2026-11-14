@@ -192,7 +192,7 @@ const RISKS = [
   },
   {
     title: '5. Liquidation Risk (NFT Lending)',
-    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan by the agreed-upon deadline will result in the lender claiming your NFT collateral. From the deadline, the lender can take your NFT at any moment, and the smart contract enforces it. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment.',
+    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan before the agreed-upon deadline will result in the lender claiming your NFT collateral. From the deadline, the lender can take your NFT at any moment, and the smart contract enforces it. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment. Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term (a window the venue\'s Safe can change at once).',
   },
   {
     title: '6. Oracle Risk',
@@ -204,7 +204,7 @@ const RISKS = [
   },
   {
     title: '8. Centralization Risk',
-    body: 'Certain administrative functions of the Protocol are controlled by admin keys held by the core team. These keys can pause contracts, modify fee parameters, and update contract configurations. Sensitive administrative actions (treasury, fee recipients, fees, emission budget, oracle floors) are subject to a 24-48 hour timelock to allow community review, but emergency pause and some operational setters take effect immediately, and this still represents a centralization vector. If admin keys were compromised, an attacker could execute the immediate actions at once and the timelocked ones after the delay.',
+    body: 'Certain administrative functions of the Protocol are controlled by admin keys held by the core team. These keys can pause contracts, modify fee parameters, and update contract configurations. On the Ethereum contracts, sensitive administrative actions (treasury, fee recipients, fees, emission budget, oracle floors) are subject to a 24-48 hour timelock to allow community review, but emergency pause and some operational setters take effect immediately, and this still represents a centralization vector. If admin keys were compromised, an attacker could execute the immediate actions at once and the timelocked ones after the delay.',
   },
   {
     title: '9. Network Risk',

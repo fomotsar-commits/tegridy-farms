@@ -39,6 +39,7 @@ import {
   type LoanOfferJson,
 } from '../../lib/gondi/loanOffer.js';
 import { interestFor } from '../../lib/gondi/loanMath';
+import { borrowerTakeoverLine, lenderTakeoverLine, takeoverWindow } from '../../lib/gondi/takeover';
 import { postOffer, recordLoanTx, syncOffer, useBookOffers, useRefreshBook, type BookOffer } from '../../lib/gondi/offerBook';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
@@ -96,6 +97,18 @@ const OPEN_PRESETS = [
 
 const TABS = ['Lend', 'Borrow', 'My Loans'] as const;
 type Tab = (typeof TABS)[number];
+
+/** When another lender may take a loan over, as the loan contract reads now (lib/gondi/takeover.ts). No read, no number. */
+function useTakeoverWindow() {
+  const { data, isLoading } = useReadContract({
+    address: GONDI_LOAN_ADDRESS,
+    abi: GONDI_LOAN_ABI,
+    functionName: 'getMinLockPeriod',
+    chainId: CHAIN_ID,
+    query: { enabled: LENDING_LIVE },
+  });
+  return takeoverWindow(data, isLoading);
+}
 
 /* ─── Main Component ────────────────────────────────────────────── */
 export function NFTLendingSection() {
@@ -308,6 +321,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   // "Now" for the offer's preview timeline, fixed for the visit so a scrub does not slide.
   const [previewStart] = useState(() => Number(nowSeconds()));
   const selectedSymbol = collectionSymbol(selectedCollection);
+  const takeover = useTakeoverWindow();
 
   const principalWei = parseAmount(principal);
   const aprValue = parseAprPercent(aprPct);
@@ -763,18 +777,19 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
       >
         {primary.label}
       </button>
-      <FinePrint summary="About signed offers">
-        <p>
-          The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
-          when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
-        </p>
-        {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
-            new lender take the loan over, unlocked from 15% to 85% of the term. */}
-        <p className="mt-1">
-          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a lower rate without asking you or the borrower. You then get
-          your WETH back plus the interest so far, less the venue&apos;s share of that interest.
-        </p>
-      </FinePrint>
+      {/* A card like the ones above it, so the small print reads over the page's art. */}
+      <div className="relative isolate rounded-xl px-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }} data-testid="lend-about-offers">
+        <CardArt pageId="nft-finance" idx={30} />
+        <FinePrint summary="About signed offers">
+          <p>
+            The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
+            when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
+          </p>
+          {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
+              new lender take the loan over inside the window the loan contract reads now. */}
+          <p className="mt-1">{lenderTakeoverLine(takeover)}</p>
+        </FinePrint>
+      </div>
     </div>
   );
 }
@@ -956,6 +971,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
   // The same words where they start a sentence ("your NAKA" before a token is picked).
   const collateralAtStart = collateralLabel.charAt(0).toUpperCase() + collateralLabel.slice(1);
+  const takeover = useTakeoverWindow();
 
   const ownerQuery = useReadContract({
     address: offer.nftCollateralAddress,
@@ -1221,13 +1237,9 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <FinePrint summary="Details">
                   <p>
                     {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
-                    repaid by then, the lender can take it, permanently.
+                    repaid before then, the lender can take it, permanently.
                   </p>
-                  <p className="mt-1">
-                    From 15% to 85% of the term, another lender can take this loan over at a lower rate without asking you. The loan then
-                    has a new number and its deadline can only move later. If the new lender lends more, the extra WETH is sent to you
-                    and you owe it too.
-                  </p>
+                  <p className="mt-1">{borrowerTakeoverLine(takeover)}</p>
                 </FinePrint>
               </RiskBanner>
 
