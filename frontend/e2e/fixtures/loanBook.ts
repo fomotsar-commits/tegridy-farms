@@ -7,19 +7,21 @@ import type { Page } from '@playwright/test';
 import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 import { handleLoanAction, makeChain } from '../../api/_lib/loanOffers.js';
+import { handleLoanRequestAction } from '../../api/_lib/loanRequests.js';
 import { GONDI_LOAN_ADDRESS, type LoanOfferJson } from '../../src/lib/gondi/loanOffer.js';
 
 type Row = Record<string, unknown>;
 
 /** Enough of supabase-js's query builder for loanOffers.js, over two arrays. */
 function memoryTables() {
-  const tables: Record<string, Row[]> = { nft_loan_offers: [], nft_loans: [] };
+  const tables: Record<string, Row[]> = { nft_loan_offers: [], nft_loans: [], nft_loan_requests: [] };
   const from = (table: string) => {
     let op: 'select' | 'update' = 'select';
     let patch: Row = {};
     let max: number | null = null;
     const filters: ((r: Row) => boolean)[] = [];
-    const key = (r: Row) => (table === 'nft_loan_offers' ? `${r.lender}:${r.offer_id}` : String(r.loan_id));
+    const key = (r: Row) =>
+      table === 'nft_loan_offers' ? `${r.lender}:${r.offer_id}` : table === 'nft_loan_requests' ? `${r.borrower}:${r.nonce}` : String(r.loan_id);
     const b = {
       select: () => b,
       insert: (row: Row) => {
@@ -86,7 +88,9 @@ export async function installLoanBook(page: Page, rpcUrl: string) {
         return res;
       },
     };
-    const handled = await handleLoanAction({ method, query, body }, res, deps);
+    // The offer book first, then the borrower request book: the same two handlers the API route tries.
+    const handled =
+      (await handleLoanAction({ method, query, body }, res, deps)) || (await handleLoanRequestAction({ method, query, body }, res, deps));
     return { handled, status, json };
   };
 

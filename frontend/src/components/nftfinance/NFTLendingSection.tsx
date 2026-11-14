@@ -51,17 +51,21 @@ import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
-import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
+import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank, requestAsLendForm } from '../../lib/gondi/lendDesk';
 import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
 import { LoanTimeline } from './LoanTimeline';
 import { LenderMarketPanel } from './LenderMarketPanel';
+import { AskForLoan, BorrowerRequests } from './LoanRequests';
+import { BoxHint, PresetRow } from './nftLendingBits';
+import { syncRequest } from '../../lib/gondi/requestBook';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
   CARD_BORDER,
   COLLECTIONS,
   COLLECTION_ART,
+  DURATION_PRESETS,
   EASE,
   FADED,
   LABEL_STYLE,
@@ -80,15 +84,6 @@ import {
   parseTokenId,
   shortenAddress,
 } from './nftLendingShared';
-
-const DURATION_PRESETS = [
-  { label: '7d', seconds: 7 * 86400 },
-  { label: '14d', seconds: 14 * 86400 },
-  { label: '30d', seconds: 30 * 86400 },
-  { label: '90d', seconds: 90 * 86400 },
-  { label: '180d', seconds: 180 * 86400 },
-  { label: '365d', seconds: 365 * 86400 },
-];
 
 // How long a signed offer stays takeable. The book takes 30 days at most.
 const OPEN_PRESETS = [
@@ -532,6 +527,22 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
 
       <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} setPrincipal={setPrincipal} />
 
+      {/* Borrowers asking for a loan on this collection (nothing renders while there are none).
+          Pressing one fills the form below with their NFT and terms; the lender can still change them. */}
+      <BorrowerRequests
+        collection={selectedCollection}
+        onOffer={(r) => {
+          const f = requestAsLendForm(r);
+          setSelectedCollection(r.nftCollateralAddress);
+          setAnyToken(false);
+          setTokenId(f.tokenId);
+          setPrincipal(f.principal);
+          setAprPct(f.aprPct);
+          setDuration(f.duration);
+          setLoanCount('1');
+        }}
+      />
+
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -751,53 +762,6 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   );
 }
 
-/** Under a box whose text the offer cannot use: the values it takes. */
-function BoxHint({ id, testId, text }: { id: string; testId: string; text: string }) {
-  return (
-    <p id={id} className="text-amber-300 text-[11px] mt-1" style={LABEL_STYLE} data-testid={testId}>
-      {text}
-    </p>
-  );
-}
-
-function PresetRow({
-  label,
-  tooltip,
-  presets,
-  value,
-  onChange,
-}: {
-  label: string;
-  tooltip?: string;
-  presets: { label: string; seconds: number }[];
-  value: number;
-  onChange: (s: number) => void;
-}) {
-  return (
-    <div>
-      <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
-      </label>
-      <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
-        {presets.map((d) => (
-          <button
-            key={d.seconds}
-            aria-pressed={value === d.seconds}
-            onClick={() => onChange(d.seconds)}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
-              value === d.seconds ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
-            }`}
-            style={{ background: value === d.seconds ? SELECTED_BG : CARD_BG }}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════════════════
    BORROW TAB
    ═══════════════════════════════════════════════════════════════════ */
@@ -900,7 +864,7 @@ function BorrowTab() {
       ) : shown.length === 0 ? (
         <EmptyCard
           title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
-          line="Lenders make the offers. Send one this page."
+          line="Lenders make the offers. Ask for one below, or send a lender this page."
           action={{
             label: 'Copy link for a lender',
             onClick: () => {
@@ -928,6 +892,8 @@ function BorrowTab() {
           })}
         </div>
       )}
+
+      {LENDING_LIVE && <AskForLoan filterCollection={collection} />}
     </div>
   );
 }
@@ -1030,6 +996,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
       .catch(() => toast.error('Loan opened, but it could not be saved to My Loans. Use "Find a loan" there with the transaction hash.'))
       .finally(() => {
         void syncOffer(offer.lender, offer.offerId).catch(() => undefined);
+        // The NFT is locked now, so a request the borrower had open on it is over.
+        if (pledgedId !== null) void syncRequest(offer.nftCollateralAddress, pledgedId.toString()).catch(() => undefined);
         refreshBook();
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per confirmed tx
