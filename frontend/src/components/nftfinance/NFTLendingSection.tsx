@@ -175,7 +175,7 @@ export function NFTLendingSection() {
             value: feeBps !== null ? `${bpsToPercent(feeBps)}%` : feeUnread ? 'Unavailable' : '–',
             tooltip:
               feeBps !== null
-                ? 'The venue keeps this share of the interest a lender earns. The lender keeps the rest.'
+                ? 'The venue keeps this share of the interest a lender is paid, when a loan is repaid or another lender takes it over. The lender keeps the rest. A loan that is not repaid pays no interest, so the venue gets nothing from it.'
                 : 'The fee could not be read from the loan contract, so none is shown. It is unknown right now, not zero.',
             art: pageArt('nft-lending', 2),
           },
@@ -746,6 +746,12 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
           when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
         </p>
+        {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
+            new lender take the loan over, unlocked from 15% to 85% of the term. */}
+        <p className="mt-1">
+          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a better rate for the borrower. You then get
+          your WETH back plus the interest so far, less the venue&apos;s share of that interest.
+        </p>
       </FinePrint>
     </div>
   );
@@ -1233,6 +1239,11 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                   <p>
                     {collateralLabel} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
                     repaid by then, the lender can take it, permanently.
+                  </p>
+                  <p className="mt-1">
+                    From 15% to 85% of the term, another lender can take this loan over at a lower rate without asking you. The loan then
+                    has a new number and its deadline can only move later. If the new lender lends more, the extra WETH is sent to you
+                    and you owe it too.
                   </p>
                 </FinePrint>
               </RiskBanner>

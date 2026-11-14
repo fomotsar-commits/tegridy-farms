@@ -47,7 +47,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Patched contracts not yet redeployed on-chain',
     status: 'Mitigated',
-    body: 'Resolved by the June 6, 2026 relaunch: the live protocol was redeployed from scratch from a new deployer, so every contract running on mainnet today carries fresh bytecode that includes the previously-merged fixes (including the autoMaxLock/getReward stuck-state fix and the Pass-7 remediations). Since then, four more went live from the audited 2026-07-16 batch and were un-gated on 2026-07-21: premium (Gold Card), NFT lending, the NFT pool factory, and the launchpad. Four more — gauge voting, vote incentives, community grants and meme bounties — are ALSO deployed on mainnet, from the same 2026-07-16 batch, and are unpaused; their addresses are still zeroed in this app, so the surfaces are gated here even though the contracts exist. Verify any of them on Etherscan from the Contracts page. Only ETH lending, restaking and the Pro Pass are genuinely not deployed: ETH lending waits on a price oracle, restaking on an external re-audit and multisig custody (its contract-size problem was solved 2026-08-19), and the Pro Pass is a collection that has not been minted. Nothing anywhere is running old bytecode.',
+    body: 'Resolved by the June 6, 2026 relaunch: the live protocol was redeployed from scratch from a new deployer, so every contract running on mainnet today carries fresh bytecode that includes the previously-merged fixes (including the autoMaxLock/getReward stuck-state fix and the Pass-7 remediations). Since then, four more went live from the audited 2026-07-16 batch and were un-gated on 2026-07-21: premium (Gold Card), NFT lending (since replaced by Gondi\'s own v3.2 loan contracts, deployed unchanged on 2026-11-07), the NFT pool factory, and the launchpad. Four more — gauge voting, vote incentives, community grants and meme bounties — are ALSO deployed on mainnet, from the same 2026-07-16 batch, and are unpaused; their addresses are still zeroed in this app, so the surfaces are gated here even though the contracts exist. Verify any of them on Etherscan from the Contracts page. Only ETH lending, restaking and the Pro Pass are genuinely not deployed: ETH lending waits on a price oracle, restaking on an external re-audit and multisig custody (its contract-size problem was solved 2026-08-19), and the Pro Pass is a collection that has not been minted. Nothing anywhere is running old bytecode.',
   },
   {
     title: 'Treasury is an EOA / multisig, not a smart contract',
@@ -97,7 +97,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'NFT collateral concentration',
     status: 'Active',
-    body: 'The staking boost multiplier and NFT lending surface tie into specific collections (JBAC, JBAY Gold, GNSS). If any of those collections become illiquid or lose marketplace support, the boost ceiling and NFT-loan market depth degrade silently — positions still function, but the economic assumptions behind them thin out.',
+    body: 'The staking boost multiplier (JBAC) and NFT lending (JBAC, Nakamigos and GNSS Art) tie into specific collections. If any of those collections become illiquid or lose marketplace support, the boost ceiling and NFT-loan market depth degrade silently — positions still function, but the economic assumptions behind them thin out.',
   },
 ];
 
@@ -191,7 +191,7 @@ const RISKS = [
   },
   {
     title: '5. Liquidation Risk (NFT Lending)',
-    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan by the agreed-upon deadline will result in the lender claiming your NFT collateral. This process is automatic and enforced by the smart contract. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment.',
+    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan by the agreed-upon deadline will result in the lender claiming your NFT collateral. From the deadline, the lender can take your NFT at any moment, and the smart contract enforces it. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment.',
   },
   {
     title: '6. Oracle Risk',
