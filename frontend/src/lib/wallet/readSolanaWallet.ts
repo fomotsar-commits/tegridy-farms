@@ -46,7 +46,7 @@ let heldPrices: { at: number; read: Promise<Record<string, number>> } | null = n
  * room the board lists (offIslandCoins.ts) are one fixed list, read at the proxy's shared 30 s
  * (getUsdPrices `shared`: display only, it sizes no trade) and held here as long, so every leg of a
  * board read shares one call: the free Jupiter key is one call a second, site-wide. A coin off that
- * list (a pool share in a coin the board does not list) is asked for on its own.
+ * list (a pool share in a coin the board does not list) is asked for on its own, PRICE_IDS_MAX at a time.
  */
 export async function boardPrices(mints: string[]): Promise<Record<string, number>> {
   const listed = [WSOL_MINT, USDC_MINT, ...islandCoinsOn('solana').map((c) => c.address!), ...offIslandCoinsOn('solana').map((c) => c.address)];
@@ -58,7 +58,7 @@ export async function boardPrices(mints: string[]): Promise<Record<string, numbe
   }
   const prices = await heldPrices.read;
   const others = mints.filter((m) => !listed.includes(m));
-  return others.length ? { ...prices, ...(await getUsdPrices(others)) } : prices;
+  return others.length ? { ...prices, ...(await pricesInTurn(others)) } : prices;
 }
 
 /** Test seam. A held price that survives between tests is a flake farm. */
