@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.
 - Pools, Range: the Risks list beside the deposit now says that if a pool runs a reward, the team's vault can lower its rate or end it early, and what the reward has not paid out goes back to whoever started it.
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
 - NFT Finance: the NFT Lending intro card shows a new photo, four apes leaning over a stairwell rail, and the three intro cards' dark layer is lighter so each card's picture shows.
