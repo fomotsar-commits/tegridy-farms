@@ -68,13 +68,35 @@ describe('the clip for a receipt', () => {
 });
 
 describe('vercel.json brings the island’s clips to this site', () => {
-  const config = JSON.parse(readFileSync(join(FRONTEND, 'vercel.json'), 'utf8')) as { rewrites: { source: string; destination: string }[] };
-  it('rewrites /share/moment/:file to memetics.wtf, before the app page takes every path', () => {
-    const ours = config.rewrites.findIndex((r) => r.source === `${MOMENT_PATH}/:file`);
+  type Rewrite = { source: string; destination: string; has?: { type: string; key: string; value?: string }[] };
+  const config = JSON.parse(readFileSync(join(FRONTEND, 'vercel.json'), 'utf8')) as { rewrites: Rewrite[] };
+  const ours = config.rewrites.findIndex((r) => r.destination === 'https://memetics.wtf/share/moment/:file');
+  const rule = config.rewrites[ours];
+  it('rewrites /share/moment/<clip> to memetics.wtf, before the app page takes every path', () => {
     const app = config.rewrites.findIndex((r) => r.destination === '/index.html');
-    expect(ours, 'no /share/moment/:file rewrite').toBeGreaterThanOrEqual(0);
-    expect(config.rewrites[ours]!.destination).toBe('https://memetics.wtf/share/moment/:file');
+    expect(ours, 'no rewrite to memetics.wtf/share/moment/:file').toBeGreaterThanOrEqual(0);
+    expect(rule!.source.startsWith(`${MOMENT_PATH}/:file(`)).toBe(true);
     expect(ours).toBeLessThan(app);
+    expect(config.rewrites.filter((r) => r.destination.startsWith('https://memetics.wtf')), 'one door to memetics.wtf').toHaveLength(1);
+  });
+
+  // The rewrite makes memetics.wtf's answer this site's own. Two gates keep that to the clips, read by fetch():
+  // only a clip's name passes (no other file of memetics.wtf, no %2F climbing out of the folder), and only a
+  // fetch() (Sec-Fetch-Dest: empty, which a page cannot forge). A page opened at the address, or a script tag
+  // pointed at it, gets this site's own app page instead, so nothing memetics.wtf serves runs as memetics.finance.
+  it('passes only a clip’s name, and only to fetch()', () => {
+    const name = new RegExp(`^${rule!.source.slice(`${MOMENT_PATH}/:file(`.length, -1)}$`);
+    for (const r of sheetRooms()) {
+      for (const action of ['bought', 'added'] as const) {
+        const clip = momentClip({ action, coin: { symbol: r.symbol, mint: r.address! } })!;
+        expect(clip.url.startsWith(`${MOMENT_PATH}/`)).toBe(true);
+        expect(clip.url.slice(MOMENT_PATH.length + 1)).toMatch(name);
+      }
+    }
+    for (const bad of ['index.html', 'shore-bayla.gif.html', 'shore-bayla.js', '..%2F..%2Findex.html', 'shore-..%2Fx.gif', 'shore-baylaXgif', 'Shore-bayla.gif', 'shore-.gif', 'moment.gif']) {
+      expect(bad, bad).not.toMatch(name);
+    }
+    expect(rule!.has).toEqual([{ type: 'header', key: 'sec-fetch-dest', value: 'empty' }]);
   });
 });
 

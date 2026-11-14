@@ -221,7 +221,7 @@
     { "source": "/position/:path*", "destination": "/api/aggregator?resource=position&path=:path*" },
     { "source": "/mint/:mint.json", "destination": "/api/aggregator?resource=mint&mint=:mint" },
     { "source": "/mint/(.*)", "destination": "/mint/default.json" },
-    { "source": "/share/moment/:file", "destination": "https://memetics.wtf/share/moment/:file" },
+    { "source": "/share/moment/:file((?:shore|flash)-[a-z0-9]+\\.gif)", "has": [{ "type": "header", "key": "sec-fetch-dest", "value": "empty" }], "destination": "https://memetics.wtf/share/moment/:file" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
