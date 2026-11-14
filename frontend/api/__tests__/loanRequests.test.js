@@ -227,10 +227,19 @@ describe("loan request book: reads and outages", () => {
     const deps = { supabase: fakeSupabase({ missing: true }), chain: fakeChain() };
     const list = await call("GET", { action: "loan-requests" }, deps);
     expect(list.res.statusCode).toBe(200);
-    expect(list.res.body).toEqual({ requests: [], count: 0, live: true });
+    // open: false is what keeps the Borrow tab from offering a form that would save nothing.
+    expect(list.res.body).toEqual({ requests: [], count: 0, live: true, open: false });
     const { res } = await post(deps);
     expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatch(/not open yet/);
+  });
+
+  it("says the book is open once its table exists, and shut while lending is not live", async () => {
+    const deps = { supabase: fakeSupabase(), chain: fakeChain() };
+    const open = await call("GET", { action: "loan-requests" }, deps);
+    expect(open.res.body).toEqual({ requests: [], count: 0, live: true, open: true });
+    const gated = await call("GET", { action: "loan-requests" }, { ...deps, loanAddress: "0x0000000000000000000000000000000000000000" });
+    expect(gated.res.body).toMatchObject({ requests: [], live: false, open: false });
   });
 
   it("a chain outage is a 503, never a stored request", async () => {

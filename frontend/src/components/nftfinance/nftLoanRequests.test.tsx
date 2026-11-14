@@ -34,15 +34,18 @@ const SIG = `0x${'ab'.repeat(65)}`;
 const NOW = Math.floor(Date.now() / 1000);
 
 let requests: { request: LoanRequestJson; signature: string; createdAt: string }[];
+let offers: { offer: LoanOfferJson; signature: string; createdAt: string }[];
+// False plays the book before its table exists (migration 032 not run yet).
+let requestBookOpen: boolean;
 const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   if (init?.method === 'POST') return new Response(JSON.stringify({ ok: true, loans: [], status: 'closed' }), { status: 201 });
   if (url.includes('action=loan-requests')) {
     const borrower = new URL(url, 'http://x').searchParams.get('borrower');
-    const hit = requests.filter((r) => !borrower || r.request.borrower.toLowerCase() === borrower.toLowerCase());
-    return new Response(JSON.stringify({ requests: hit, count: hit.length, live: true }));
+    const hit = requestBookOpen ? requests.filter((r) => !borrower || r.request.borrower.toLowerCase() === borrower.toLowerCase()) : [];
+    return new Response(JSON.stringify({ requests: hit, count: hit.length, live: true, open: requestBookOpen }));
   }
   if (url.includes('action=loans')) return new Response(JSON.stringify({ loans: [], live: true }));
-  return new Response(JSON.stringify({ offers: [], count: 0, live: true }));
+  return new Response(JSON.stringify({ offers, count: offers.length, live: true }));
 });
 vi.stubGlobal('fetch', fetchMock);
 
@@ -61,6 +64,37 @@ function bookRequest(overrides: Partial<LoanRequestJson> = {}) {
   return { request, signature: SIG, createdAt: new Date().toISOString() };
 }
 
+/** A lender's whole-collection NAKA offer that answers bookRequest()'s terms. */
+function bookOffer(overrides: Partial<LoanOfferJson> = {}) {
+  const offer: LoanOfferJson = {
+    offerId: '5',
+    lender: '0x8888888888888888888888888888888888888888',
+    fee: '0',
+    capacity: '0',
+    nftCollateralAddress: NAKA,
+    nftCollateralTokenId: '0',
+    principalAddress: WETH_ADDRESS,
+    principalAmount: parseEther('0.5').toString(),
+    aprBps: '3000',
+    expirationTime: String(NOW + 86400),
+    duration: String(14 * 86400),
+    maxSeniorRepayment: '0',
+    validators: [{ validator: '0x0000000000000000000000000000000000000000', arguments: '0x' }],
+    lenderRefinanceDisabled: false,
+    borrower: '0x0000000000000000000000000000000000000000',
+    ...overrides,
+  };
+  return { offer, signature: SIG, createdAt: new Date().toISOString() };
+}
+
+/** The chain's answers for one offer on the Borrow tab: unused, and backed by `weth`. */
+function offerReads(weth: bigint) {
+  wagmiMock.setReadResult({ functionName: 'isOfferCancelled', result: false });
+  wagmiMock.setReadResult({ functionName: 'getUsedCapacity', result: 0n });
+  wagmiMock.setReadResult({ functionName: 'balanceOf', address: WETH_ADDRESS, result: weth });
+  wagmiMock.setReadResult({ functionName: 'allowance', address: WETH_ADDRESS, result: weth });
+}
+
 const writes = () => wagmiMock.writeContract().mock.calls;
 const posts = () =>
   fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(String(init!.body)) as Record<string, unknown>);
@@ -75,6 +109,8 @@ beforeEach(() => {
   wagmiMock.signTypedData().mockResolvedValue(SIG);
   fetchMock.mockClear();
   requests = [];
+  offers = [];
+  requestBookOpen = true;
 });
 
 async function openAskForm() {
@@ -91,6 +127,50 @@ function fillAsk(token = '321', amount = '0.5', apr = '40') {
 }
 
 describe('borrow: asking for a loan', () => {
+  it('offers no "Ask for a loan" until the request book is open, so nobody signs a request it cannot keep', async () => {
+    requestBookOpen = false;
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes('action=loan-requests'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('ask-for-loan')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ask lenders' })).toBeNull();
+  });
+
+  it('a request says an offer matches only when that offer is live in the list above', async () => {
+    requests = [bookRequest({ borrower: WALLET, nonce: '77' })];
+    offers = [bookOffer()];
+    // The lender holds no WETH: the chain says the offer cannot pay out, so the list hides it.
+    offerReads(0n);
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    const mine = await screen.findByRole('list', { name: 'Your requests' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(within(mine).queryByText(/offers? match/)).toBeNull();
+    expect(within(mine).getByText(/Waiting for a lender/)).toBeTruthy();
+  });
+
+  it('a live answering offer is counted, and it is the one the list above shows', async () => {
+    requests = [bookRequest({ borrower: WALLET, nonce: '77' })];
+    offers = [bookOffer()];
+    offerReads(parseEther('5'));
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    const mine = await screen.findByRole('list', { name: 'Your requests' });
+    await waitFor(() => expect(within(mine).getByText(/1 offer matches/)).toBeTruthy());
+    expect(screen.getByText('NAKA · any NFT')).toBeTruthy();
+  });
+
+  it('with one collection picked, lists only the requests on that collection', async () => {
+    requests = [bookRequest({ borrower: WALLET, nonce: '77' })];
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Borrow' }));
+    await screen.findByRole('list', { name: 'Your requests' });
+    // The JBAC filter: a NAKA request (and any offer for it) is not on screen above.
+    fireEvent.click(screen.getAllByRole('button', { name: /Jungle Bay/ })[0]!);
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Your requests' })).toBeNull());
+  });
+
   it('signs the request under its own domain, for the NFT the wallet holds, and posts it with no transaction', async () => {
     wagmiMock.setReadResult({ functionName: 'ownerOf', address: NAKA, result: WALLET });
     await openAskForm();
@@ -100,7 +180,7 @@ describe('borrow: asking for a loan', () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
     const typed = signed()[0]!;
     // Not Gondi's domain, and no verifying contract: nothing on chain reads this signature.
-    expect(typed.domain).toEqual({ name: 'Tegridy Farms Loan Request', version: '1', chainId: 1 });
+    expect(typed.domain).toEqual({ name: 'memetics.finance loan request', version: '1', chainId: 1 });
     expect(typed.primaryType).toBe('LoanRequest');
     expect(typed.message).toMatchObject({
       borrower: WALLET,
@@ -149,7 +229,7 @@ describe('borrow: asking for a loan', () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
     const typed = signed()[0]!;
     expect(typed.primaryType).toBe('CancelLoanRequest');
-    expect(typed.domain).toEqual({ name: 'Tegridy Farms Loan Request', version: '1', chainId: 1 });
+    expect(typed.domain).toEqual({ name: 'memetics.finance loan request', version: '1', chainId: 1 });
     expect(typed.message).toEqual({ borrower: WALLET, nonce: 77n });
     expect(posts()[0]).toMatchObject({ action: 'loan-request-cancel', borrower: WALLET, nonce: '77', signature: SIG });
   });

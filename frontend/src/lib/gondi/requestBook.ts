@@ -3,6 +3,7 @@
 // re-checks who holds the NFT on chain before it shows one.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Address, Hex } from 'viem';
+import { ZERO_ADDRESS } from './loanOffer.js';
 import type { LoanRequestJson } from './loanRequest.js';
 
 const API = '/api/orderbook';
@@ -23,9 +24,10 @@ export async function fetchRequests(params: { collection?: Address; borrower?: A
   const q = new URLSearchParams({ action: 'loan-requests' });
   if (params.collection) q.set('collection', params.collection);
   if (params.borrower) q.set('borrower', params.borrower);
-  const body = await readJson<{ requests?: BookRequest[] }>(await fetch(`${API}?${q}`));
-  // A book that answers without a list (an older deploy, a stand-in) holds no requests.
-  return { requests: Array.isArray(body.requests) ? body.requests : [] };
+  const body = await readJson<{ requests?: BookRequest[]; open?: boolean }>(await fetch(`${API}?${q}`));
+  // A book that answers without a list (an older deploy, a stand-in) holds no requests, and
+  // one that does not say it is open takes none.
+  return { requests: Array.isArray(body.requests) ? body.requests : [], open: body.open === true };
 }
 
 async function post<T>(body: Record<string, unknown>): Promise<T> {
@@ -52,6 +54,22 @@ export function useBookRequests(params: { collection?: Address; borrower?: Addre
     refetchInterval: 30_000,
     retry: false,
   });
+}
+
+/**
+ * Whether the book takes requests: false until its table exists (migration 032). No request
+ * has the zero address as its borrower (validateRequestShape refuses one), so this reads the
+ * book's state and no rows.
+ */
+export function useRequestBookOpen(enabled: boolean) {
+  const q = useQuery({
+    queryKey: ['gondi-requests', 'open'],
+    queryFn: () => fetchRequests({ borrower: ZERO_ADDRESS as Address }),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+  return q.data?.open === true;
 }
 
 export function useRefreshRequests() {

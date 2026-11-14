@@ -893,7 +893,7 @@ function BorrowTab() {
         </div>
       )}
 
-      {LENDING_LIVE && <AskForLoan filterCollection={collection} />}
+      {LENDING_LIVE && <AskForLoan filterCollection={collection} liveOffers={live} />}
     </div>
   );
 }

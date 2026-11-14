@@ -9,6 +9,7 @@ import { mainnet } from 'viem/chains';
 import { handleLoanAction, makeChain } from '../../api/_lib/loanOffers.js';
 import { handleLoanRequestAction } from '../../api/_lib/loanRequests.js';
 import { GONDI_LOAN_ADDRESS, type LoanOfferJson } from '../../src/lib/gondi/loanOffer.js';
+import type { LoanRequestJson } from '../../src/lib/gondi/loanRequest.js';
 
 type Row = Record<string, unknown>;
 
@@ -107,5 +108,7 @@ export async function installLoanBook(page: Page, rpcUrl: string) {
     tables: db.tables,
     /** Post a signed offer through the book's own create action. */
     create: (offer: LoanOfferJson, signature: string) => call('POST', {}, { action: 'loan-offer-create', offer, signature }),
+    /** Post a borrower's signed request through the request book's own create action. */
+    ask: (request: LoanRequestJson, signature: string) => call('POST', {}, { action: 'loan-request-create', request, signature }),
   };
 }

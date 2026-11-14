@@ -21,8 +21,8 @@
 -- Apply by hand in the Supabase SQL editor (docs/TODO_OPERATOR.md). Needs the ledger,
 -- public.schema_migrations (000_base_schema.sql section 0). Touches no other table.
 -- Idempotent: re-running it is safe. Until it is applied the API answers an empty list
--- for reads and "not open yet" for writes. Numbered 032 because 031 is held by the open
--- venue-volume PR (#1207).
+-- with open: false for reads (the Borrow tab then offers no ask form) and "not open yet"
+-- for writes. 031 is 031_venue_volume_nft_sources.sql.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS nft_loan_requests (

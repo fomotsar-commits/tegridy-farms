@@ -6,10 +6,10 @@
 // NFT's holder wrote it, under its OWN signing domain: a different name from Gondi's, and no
 // verifying contract. No contract reads this domain, so the signature can lock nothing, lend
 // nothing and approve nothing. The venue and lenders earn only if a loan follows, exactly as
-// for any other offer.
+// for any other offer. The wallet shows the domain's name, so it is the venue's own.
 import { LENDING_COLLECTIONS, LOAN_CHAIN_ID, OFFER_LIMITS, ZERO_ADDRESS, acceptsToken, sameAddress } from './loanOffer.js';
 
-export const REQUEST_DOMAIN_NAME = 'Tegridy Farms Loan Request';
+export const REQUEST_DOMAIN_NAME = 'memetics.finance loan request';
 export const REQUEST_DOMAIN_VERSION = '1';
 
 export function requestDomain(chainId = LOAN_CHAIN_ID) {

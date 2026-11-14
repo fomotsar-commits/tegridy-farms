@@ -855,7 +855,7 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 27, label: 'Floor bid and who buys it card (Lend tab, picked collection)' },
-  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 28, label: 'Ask for a loan card (Borrow tab, lending live)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 28, label: 'Ask for a loan card (Borrow tab, once the request book is open)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 29, label: 'Borrowers asking card (Lend tab, once a borrower has asked)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 1, label: 'How this shield works notice' },

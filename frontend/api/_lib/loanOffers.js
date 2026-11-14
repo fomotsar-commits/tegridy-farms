@@ -77,7 +77,7 @@ const ERC1271 = [
 const ERC721_OWNER = [
   { type: "function", name: "ownerOf", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ name: "", type: "address" }] },
 ];
-const LOAN_EVENTS =GONDI_LOAN_ABI.filter((e) => e.type === "event");
+const LOAN_EVENTS = GONDI_LOAN_ABI.filter((e) => e.type === "event");
 
 let _client = null;
 function client() {

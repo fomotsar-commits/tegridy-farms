@@ -12,7 +12,7 @@ import type { Address } from 'viem';
 import { toast } from 'sonner';
 import { CHAIN_ID } from '../../lib/constants';
 import { ERC721_ABI } from '../../lib/contracts';
-import { sameAddress } from '../../lib/gondi/loanOffer.js';
+import { sameAddress, type LoanOfferJson } from '../../lib/gondi/loanOffer.js';
 import {
   CANCEL_REQUEST_TYPES,
   LOAN_REQUEST_TYPES,
@@ -23,8 +23,7 @@ import {
   type LoanRequestJson,
 } from '../../lib/gondi/loanRequest.js';
 import { interestFor } from '../../lib/gondi/loanMath';
-import { useBookOffers } from '../../lib/gondi/offerBook';
-import { cancelRequest, postRequest, syncRequest, useBookRequests, useRefreshRequests } from '../../lib/gondi/requestBook';
+import { cancelRequest, postRequest, syncRequest, useBookRequests, useRefreshRequests, useRequestBookOpen } from '../../lib/gondi/requestBook';
 import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { surfaceTxError } from '../../lib/txErrors';
@@ -74,8 +73,12 @@ function nftName(r: LoanRequestJson): string {
 }
 
 /* ─── Borrow tab: ask lenders for a loan ────────────────────────── */
-export function AskForLoan({ filterCollection }: { filterCollection?: Address }) {
+// `liveOffers` are the offers the Borrow tab lists above this card, each read on chain as
+// takeable now, so "an offer matches" always points at one the borrower can see and take.
+// Nothing renders until the book says it takes requests (lib/gondi/requestBook.ts).
+export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?: Address; liveOffers: readonly LoanOfferJson[] }) {
   const { address, isConnected } = useAccount();
+  const bookOpen = useRequestBookOpen(LENDING_LIVE);
   const openConnectModal = useSafeConnectModal();
   const chainId = useChainId();
   const refresh = useRefreshRequests();
@@ -114,10 +117,11 @@ export function AskForLoan({ filterCollection }: { filterCollection?: Address })
   const ownsIt = !!address && !!owner && sameAddress(owner, address);
   const knownNotOwned = !!address && !!owner && !ownsIt;
 
-  const mine = useBookRequests({ borrower: address, enabled: LENDING_LIVE && !!address });
-  const myRequests = mine.data?.requests ?? [];
-  // The same query the Borrow tab's "All" list reads, so no second request.
-  const offers = useBookOffers({ enabled: LENDING_LIVE && myRequests.length > 0 });
+  const mine = useBookRequests({ borrower: address, enabled: LENDING_LIVE && bookOpen && !!address });
+  // With one collection picked above, only its requests: the offers listed are that collection's.
+  const myRequests = (mine.data?.requests ?? []).filter(
+    ({ request: r }) => !filterCollection || sameAddress(r.nftCollateralAddress, filterCollection),
+  );
 
   const formReady = token !== null && token > 0n && principalWei !== null && aprValue !== null;
   const atMost = principalWei !== null && aprValue !== null ? principalWei + interestFor(principalWei, aprValue, BigInt(duration)) : null;
@@ -186,6 +190,8 @@ export function AskForLoan({ filterCollection }: { filterCollection?: Address })
 
   const askDisabled = isConnected ? busy || !formReady || !ownsIt : !openConnectModal;
 
+  if (!bookOpen) return null;
+
   return (
     <div
       className="relative isolate rounded-xl p-3 md:p-5 space-y-4"
@@ -206,7 +212,7 @@ export function AskForLoan({ filterCollection }: { filterCollection?: Address })
       {myRequests.length > 0 && (
         <ul className="space-y-2" aria-label="Your requests">
           {myRequests.map(({ request: r }) => {
-            const answers = (offers.data?.offers ?? []).filter((o) => offerAnswersRequest(o.offer, r)).length;
+            const answers = liveOffers.filter((o) => offerAnswersRequest(o, r)).length;
             return (
               <li
                 key={r.nonce}

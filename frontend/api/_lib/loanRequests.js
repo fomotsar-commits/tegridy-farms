@@ -14,11 +14,13 @@
 //   loan-request-sync    re-reads who holds the NFT and closes a request whose borrower no
 //                        longer does (sold, or locked in a loan). No auth: the chain is the
 //                        authority, so anyone may ask.
-//   loan-requests (GET)  open requests, newest first. The site re-checks each holder on chain.
+//   loan-requests (GET)  open requests, newest first, and `open`: whether the book takes
+//                        requests at all. The site re-checks each holder on chain.
 //
 // A closed request's row stays, so its signature cannot be posted again (the key is
 // borrower + nonce). Table: supabase/migrations/032_nft_loan_requests.sql. Until that file
-// is applied the table is missing: reads answer an empty list and writes say so.
+// is applied the table is missing: reads answer an empty list with `open: false`, so the
+// site offers no ask form, and writes say nothing was saved.
 
 import { hashTypedData } from "viem";
 import { defaultChain } from "./loanOffers.js";
@@ -61,7 +63,7 @@ export async function handleLoanRequestAction(req, res, deps) {
   if (!(isGet ? REQUEST_GET_ACTIONS : REQUEST_POST_ACTIONS).has(action)) return false;
 
   if (sameAddress(loanAddress, ZERO_ADDRESS)) {
-    if (isGet) return send(res, 200, { requests: [], count: 0, live: false });
+    if (isGet) return send(res, 200, { requests: [], count: 0, live: false, open: false });
     return send(res, 503, { error: "NFT lending is not live yet" });
   }
   try {
@@ -71,7 +73,7 @@ export async function handleLoanRequestAction(req, res, deps) {
     return await syncRequest(req.body, res, supabase, chain);
   } catch (err) {
     if (err instanceof NotOpenYet) {
-      if (isGet) return send(res, 200, { requests: [], count: 0, live: true });
+      if (isGet) return send(res, 200, { requests: [], count: 0, live: true, open: false });
       return send(res, 503, { error: "Loan requests are not open yet. Nothing was saved." });
     }
     console.error(`[loanRequests] ${action} failed:`, err?.message ?? err);
@@ -210,7 +212,7 @@ async function queryRequests(query, res, supabase, now) {
   const { data, error } = await q.order("created_at", { ascending: false }).limit(REQUEST_LIMIT);
   check(error);
   const requests = (data || []).map((r) => ({ request: r.request, signature: r.signature, createdAt: r.created_at }));
-  return send(res, 200, { requests, count: requests.length, live: true });
+  return send(res, 200, { requests, count: requests.length, live: true, open: true });
 }
 
 function send(res, status, body) {
