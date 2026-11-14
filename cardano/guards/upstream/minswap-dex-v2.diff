@@ -1,5 +1,42 @@
+=== lib/amm_dex_v2/types.ak ===
+342a343,346
+>   // The lovelace a Pool Creation Transaction must pay to open a pool, changed by the admin.
+>   pool_creation_fee: Int,
+>   // The address the pool creation fee is paid to.
+>   pool_creation_fee_receiver: Address,
 === lib/amm_dex_v2/utils.ak ===
 61c61
 < pub const min_fee_sharing_numerator = 1666
 ---
 > pub const min_fee_sharing_numerator = 1333
+=== validators/authen_minting_policy.ak ===
+249a250
+>     ..
+=== validators/factory_validator.ak ===
+27c27,28
+<     let Transaction { inputs, mint, outputs, .. } = transaction
+---
+>     let Transaction { inputs, mint, outputs, reference_inputs, .. } =
+>       transaction
+192a194,211
+>     let global_setting =
+>       pool_validation.get_and_validate_global_setting(
+>         reference_inputs,
+>         authen_policy_id,
+>       )
+>     let pool_creation_fee_paid =
+>       list.foldl(
+>         outputs,
+>         0,
+>         fn(output, paid) {
+>           let Output { address: out_addr, value: out_value, .. } = output
+>           if out_addr == global_setting.pool_creation_fee_receiver {
+>             paid + value.lovelace_of(out_value)
+>           } else {
+>             paid
+>           }
+>         },
+>       )
+231a251,252
+>       // Transaction must pay the Global Setting's pool creation fee to its receiver
+>       pool_creation_fee_paid >= global_setting.pool_creation_fee,
