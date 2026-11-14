@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
-- Pools: a link to a pairing coin (/pools?mint= with the whole address of USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ) lists every pool here priced in that coin, the oldest first, under the coin's whole address. "Every pool" goes back to the full list.
+- Pools: a link to a pairing coin (/pools?priced= with the whole address of USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ) opens on a list of every pool here priced in that coin, the oldest first, under the coin's whole address. "Every pool" goes back to the full list. Picking a token in the search never changes the list.
 - Pools: a new pool can no longer be opened for a token that takes a fee on every transfer, since its issuer would take that fee from every withdrawal and from the venue's cut. Pools that exist keep Add, Remove, Collect and Swap. The Rates details now say the venue's cut is paid in the coin the trader pays.
 - Home, total value: BAYLA, BOBO, SOY, BRAINLET and RIZZ in our pools are counted at Jupiter's market price, and only while Jupiter reports at least $5,000 of trading depth for the coin, never at a price in our own pools, so no pool can set the price it is counted at. The "$200 pool here" mark on the swap list follows the same prices.
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
