@@ -77,7 +77,8 @@ describe('vercel.json brings the island’s clips to this site', () => {
     expect(ours, 'no rewrite to memetics.wtf/share/moment/:file').toBeGreaterThanOrEqual(0);
     expect(rule!.source.startsWith(`${MOMENT_PATH}/:file(`)).toBe(true);
     expect(ours).toBeLessThan(app);
-    expect(config.rewrites.filter((r) => r.destination.startsWith('https://memetics.wtf')), 'one door to memetics.wtf').toHaveLength(1);
+    const toWtf = config.rewrites.filter((r) => /^https:\/\//.test(r.destination) && new URL(r.destination).host === 'memetics.wtf');
+    expect(toWtf, 'one door to memetics.wtf').toHaveLength(1);
   });
 
   // The rewrite makes memetics.wtf's answer this site's own. Two gates keep that to the clips, read by fetch():

@@ -30,7 +30,6 @@ import { expect, test, type Browser, type Page, type Route } from '@playwright/t
 import { PublicKey, type Keypair } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { RECEIPT_WORDS } from '../src/lib/arrival';
-import { momentClip } from '../src/lib/momentShare';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { BAYLA_MINT, bayla, giveBayla } from './fixtures/bayla';
 import { CP_SWAP_PROGRAM, WSOL, accountOwner, fundedKeypair, poolFacts, sol } from './fixtures/chain';
@@ -264,7 +263,10 @@ test("a buy of an island coin at 390, through its room's Buy sheet: the shore, t
   await expect(card(p).getByTestId('receipt-clock')).toHaveText(RECEIPT_WORDS.kept('BAYLA'));
   const share = card(p).getByTestId('receipt-share');
   await expect(share).toHaveText(RECEIPT_WORDS.shareX);
-  await expect(share).toHaveAttribute('href', momentClip({ action: 'bought', coin: { symbol: 'BAYLA', mint: BAYLA_MINT.toBase58() } })!.intent);
+  // Built from the words alone: lib/momentShare.ts reaches lib/solana.ts, which reads Vite's import.meta.env and
+  // cannot load in Playwright's Node.
+  const post = `${RECEIPT_WORDS.buyPost('BAYLA')} ${RECEIPT_WORDS.buyLink('bayla')}`;
+  await expect(share).toHaveAttribute('href', `https://x.com/intent/post?text=${encodeURIComponent(post)}`);
   await expect(card(p).getByTestId('receipt-title')).toHaveText(/^Bought (.+ )?BAYLA$/);
   await headOnScreen(p);
 
