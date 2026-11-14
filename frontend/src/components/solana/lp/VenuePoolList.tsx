@@ -59,7 +59,7 @@ export function VenuePoolList({
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
   /** Set by the section: "Add to another pool" after a withdrawal scrolls here and sends focus here. */
   sectionRef?: Ref<HTMLElement>;
-  /** The pairing coin of a ?mint= link (pricedIn.ts `pricedInCoin`): list only the pools priced in it. Null: every pool. */
+  /** The pairing coin of a ?priced= link (pricedIn.ts `pricedInCoin`): list only the pools priced in it. Null: every pool. */
   pricedIn?: QuoteCoin | null;
   /** Pressed with "Every pool", before it goes there: the section drops the coin it holds. */
   onEveryPool?: () => void;

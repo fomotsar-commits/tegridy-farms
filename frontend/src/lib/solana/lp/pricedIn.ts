@@ -3,17 +3,19 @@ import { SOL_QUOTE, isWithdrawOnly, quoteCoin, type QuoteCoin } from './quotes';
 
 /**
  * "PRICED IN X" (spec 2026-11-14, community quote coins, phase 1). A coin's community shares
- * /pools?mint=<the coin's whole address>; when that coin is a pairing coin, the pool list under
+ * /pools?priced=<the coin's whole address>; when that coin is a pairing coin, the pool list under
  * the finder shows every pool here priced in it, the oldest first, instead of every pool
- * (VenuePoolList.tsx). It filters the list the page already read (poolList.ts `listPools`, the
- * index's cached ?all=1 answer): no endpoint and no chain read of its own.
+ * (VenuePoolList.tsx). Its own parameter, not the finder's ?mint=, so a chip or a row's View
+ * never swaps the list, and one address always shows one list. It filters the list the page
+ * already read (poolList.ts `listPools`, the index's cached ?all=1 answer): no endpoint and no
+ * chain read of its own.
  */
 
 /**
- * The coin whose "Priced in" list a ?mint= opens: any pairing coin but SOL, so USDC and the
+ * The coin whose "Priced in" list a ?priced= opens: any pairing coin but SOL, so USDC and the
  * island's coins. SOL ranks first (quotes.ts), so every pool that holds SOL is priced in SOL:
- * that is most of the venue, the full list already puts those pools first, and a SOL link is
- * refused by the finder anyway (mintInput.ts). Null for any other mint, and for none. Null too
+ * that is most of the venue, and the full list already puts those pools first. Null for any other
+ * mint, and for none. Null too
  * for a delisted coin (quotes.ts `isWithdrawOnly`): it is no longer a pairing coin here, so its
  * link opens every pool, where each pool priced in it is tagged withdraw-only.
  */
@@ -41,12 +43,13 @@ export function pricedInPools(pools: readonly PoolView[], coin: QuoteCoin): Pool
 }
 
 /**
- * The address's query with no token in it: the list's "Every pool", back to every pool. The
- * LP door's `task` and `pool` go too, since they only ever name a token's pool.
+ * The address's query with no Priced-in coin: the list's "Every pool", back to every pool. Only
+ * `priced` goes: the finder's token (`mint`) and the LP door's `task` and `pool` are the finder's,
+ * and the finder keeps what it shows.
  */
 export function everyPoolSearch(search: string): string {
   const next = new URLSearchParams(search);
-  for (const name of ['mint', 'task', 'pool']) next.delete(name);
+  next.delete('priced');
   const s = next.toString();
   return s ? `?${s}` : '';
 }

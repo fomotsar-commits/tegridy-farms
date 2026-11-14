@@ -65,11 +65,12 @@ describe('pricedInPools: the pools whose quote side is the coin, the oldest firs
   });
 });
 
-describe('everyPoolSearch: the same page with no token', () => {
-  it('drops the token, and the LP door that names its pool, and keeps the rest', () => {
-    expect(everyPoolSearch(`?mint=${BAYLA_QUOTE.mint}`)).toBe('');
-    expect(everyPoolSearch(`?mint=${BAYLA_QUOTE.mint}&task=add&pool=abc`)).toBe('');
-    expect(everyPoolSearch(`?net=solana&mint=${BAYLA_QUOTE.mint}`)).toBe('?net=solana');
+describe('everyPoolSearch: the same page with no Priced-in coin', () => {
+  it('drops ?priced= and nothing else: the finder’s token and the LP door are the finder’s', () => {
+    expect(everyPoolSearch(`?priced=${BAYLA_QUOTE.mint}`)).toBe('');
+    expect(everyPoolSearch(`?priced=${BAYLA_QUOTE.mint}&mint=${BOBO_QUOTE.mint}`)).toBe(`?mint=${BOBO_QUOTE.mint}`);
+    expect(everyPoolSearch(`?net=solana&priced=${BAYLA_QUOTE.mint}`)).toBe('?net=solana');
+    expect(everyPoolSearch(`?mint=${BAYLA_QUOTE.mint}&task=add&pool=abc`)).toBe(`?mint=${BAYLA_QUOTE.mint}&task=add&pool=abc`);
     expect(everyPoolSearch('')).toBe('');
   });
 });
