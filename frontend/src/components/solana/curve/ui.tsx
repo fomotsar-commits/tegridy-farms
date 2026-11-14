@@ -69,8 +69,9 @@ export function Card({
  * is never split in the middle of a number (review of the phone fixes, 2026-10-04).
  */
 /**
- * `line`: on a review, what moves this row without the transaction changing (a market, or
- * the network's fees), so Sign on a review built again does not shut on it (reviewLines.ts).
+ * `line`: on a review, what moves this row without the transaction changing (a market, the
+ * network's fees, or the chain's clock), so Sign on a review built again does not shut on it
+ * (reviewLines.ts).
  */
 export function Row({
   label,
@@ -84,13 +85,13 @@ export function Row({
   value: ReactNode;
   mono?: boolean;
   words?: boolean;
-  line?: 'market' | 'fee';
+  line?: 'market' | 'fee' | 'clock';
   /** A value that is a warning, in `Notice`'s warning colour. */
   tone?: 'warn';
 }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-review-line={line}>
-      <span className="break-words">{label}</span>
+      <span className="break-words min-w-0">{label}</span>
       <span className={`text-right min-w-0 ${tone === 'warn' ? 'text-amber-300/90 ' : ''}${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
