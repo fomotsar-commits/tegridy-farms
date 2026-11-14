@@ -10,14 +10,50 @@ The site's Changelog tab shows both files.
 ### 2026-11-14
 
 - Solana pools: the pool program was upgraded. Every fee tier's fees are now held inside limits: a trader pays at most 4% of a swap, and at most a fifth of that fee goes to the venue and the island together. Only the island's Workshop can collect the island's share. No coin is let in by name any more: every coin meets the same check. The program also has a swap guard our vault can switch on for a fee tier. While it is on, a pool takes a swap only when a wallet sends it directly and refuses one that another program makes, such as a router or a smart wallet. Swaps from this site are sent directly, and adding or removing liquidity is not guarded. The lines you read before adding liquidity or opening a pool, and "The program" on the Pools page, say so.
+- Notice: no sooner than seven days from this day, a Solana swap through Jupiter between two of SOL, USDC, USDT and staked SOL pays memetics.finance 0.05% of the trade instead of 0.5%, and a CoW swap on Ethereum pays 0.25% of the trade instead of 0.5%, of which CoW DAO keeps a quarter and memetics.finance the rest. Every other Solana swap that pays the venue stays at 0.5%. The paid API plans on /developer become $49, $199 and $799 a month; billing is still off.
+
+### 2026-11-13
+
+- Swap and Add sheets, and the home's swap and pools cards: the network drop-down changes the form where it stands instead of opening another page. Ethereum, Base, Robinhood Chain and Cardano each show their own swap form there, and Ethereum, Base and Robinhood Chain their add / remove form. A room on Ethereum or Base opens the sheet on its own network and coin. The Solana swap sheet gains the flip (so you can sell), slippage, speed and price impact. The Add sheet lets you pick another room's coin, or "Every pool" for the whole pools list with your positions, Remove, Claim fees and Open a pool. Swap and Add are one press apart. On a tablet or wider the sheet sits in the middle of the screen.
+- Swap sheet: one coin chip with the coin's picture and a drop-down in place of the row of room chips, a Buy / Sell switch (a sale offers 25%, 50%, 75% and Max of what you hold), and larger "You pay" and "You get" boxes. Coin lists show pictures for SOL, USDC and USDT on Solana and for the island coins on Base. In the Add sheet, "Every pool" keeps the pool finder and your positions and drops the long lists (All pools, Arbitrage, Every position, Rates, Swap routes, Before you provide liquidity), which stay on the Pools page.
+- Ethereum, Base and Robinhood Chain swap: the form is drawn like the Solana one. "You pay" and "You receive" are large boxes with each coin's picture, quick amounts are 25%, 50%, 75% and MAX, and slippage with fee-on-transfer folds into one line that opens. Every check, route and fee is unchanged.
+- Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
+- Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
+- Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
+- Home, TVL: now counts the NFTs our contracts hold (each NFT lent against on NFT Lending, one in a liquidation auction, and JBAC in the staking vault) at its collection's OpenSea floor, the Robinhood pool (it counted $0 because the site did not know Robinhood's WETH), and pools opened on the new pool-opening factories on Ethereum, Base and Robinhood.
+- Home, all-time volume: now counts new loans on NFT Lending (the WETH lent), sales on our own NFT order book, Robinhood's swaps (381 of them counted at $0 until now, priced once at today's ETH price), swaps in pools opened on the new factories, and swaps in pools of two island coins (at the coin's Jupiter price).
 
 ### 2026-11-12
 
+- iPhone browsers and wallet apps: the page no longer goes blank for a second while it loads.
+- Heat line and card: with two wallets in one wallet app (an Ethereum account and a Solana wallet), both now read the same wallet, the warmer one.
+- Heat card: with only a Solana wallet connected, the card reads it without a press.
+- Bayla's line: while the launch door is closed it offers Add or Pick a bungalow, never Launch.
+- Share on X after an add: the post names the coin and no site, so X shows the add's own card.
+- Add with one coin: after the first signature, step 2 opens on its review with nothing to type, and says the amount you chose. Cancel opens the form.
+- Range pools, pools and NFT lending, the drag pictures on a phone: the range strip's "OPENING PRICE" no longer runs off the strip's right edge, and the loan timeline and the price picture keep their headline on one line with the date or price under it. The ends of the range drag and the price picture read "a sixteenth" and "an eighth", not "0.063 times" and "0.13 times", and a handle dragged to an end stays clear of the picture's edge.
+- NFT lending and pools: the pictures you drag (the floor bar and the loan timeline on NFT lending, and the dials on pools and range pools) keep one size on a wide screen. On a desktop they were drawn about five times too big, and the floor bar's "best bid" label ran off its left edge.
+- NFT lending: the loan timeline names its marks: day 1, due, and the calendar reminders (7d left, 3d left, 1d left) where there is room for them.
+- NFT lending, Lend: a box holding a value the offer cannot use now says which values it takes. An APR over 1000%, for one, used to hide the interest card and fade the button with no word why.
 - Lock ladders: a position whose lock has ended now says, beside the lock, that it keeps earning at the weight it was staked at until you withdraw, for example "still earning at 0.46× until you withdraw". That was always the rule and it stays the rule; it was only written inside the "Upgrade risk" details, so stakers took the earnings after their lock ended for a mistake. The room ladders on the other networks say the same.
 - NFT Finance (Yield, NFT Loans): a new background picture behind the page, in the main room and in the Bayla room.
+- Menu: on an iPad held sideways, each page in the menu is now a full finger-sized row, as on a phone. The menu lists the same pages on a phone, an iPad and a computer.
 
 ### 2026-11-11
 
+- Pools: on a slow connection the page's heading shows in under a second. The screen used to stay dark until the app had loaded. Opening Add from a share link no longer flashes the footer before the room opens.
+- A room's door, the open lot and the home: on a slow connection the footer no longer shows under the picture while the page loads.
+- Add and Buy from a room's link: the form's code starts loading as the page opens, so the form answers sooner on a slow connection.
+- Receipt card (Solana): after a buy or a sale of a coin with no room on the island, the shore plays as before and no line names its shore. An island coin's card keeps its line.
+- Receipt card (Solana): after an add, the coin's name in the line is bold in the coin's color, and a pool paired with USDC or an island coin pours that coin's color beside the token's.
+- Receipt card (Solana): a coin with no ticker, or a copy of a known one, is not named in the line or in the post to X, and a copy's share link shows an unnamed card on X.
+- Receipt card: on a short phone screen the top of the card stays on the screen when it opens.
+- Share card for an add: the picture on X is the island's clean painting. The first one carried X's own label. A share link typed in capitals (/lp/BAYLA) opens that room's Add.
+- Launch door: a wallet that holds nothing reads "about half a year to the door, from your first real buy."
+- Buy sheet: the picked coin's chip is filled.
+- Swaps and reads on Solana: when the network behind the site stops answering, the site gives up after 8 seconds and keeps watching your transaction. It used to wait.
+- Token scan, wallet history, NFT data and collection listings: when the source behind them stops answering, the site gives up after 8 seconds and says so (NFT data first asks its second source). It used to wait.
+- Pools and swap on Solana: checking that the venue's program is still deployed no longer downloads the whole program. The pools page fetched it twice on every visit, about 450 KB; it now asks only whether the program is there.
 - Yield (the menu group that was Lock): its tab row is Staking and NFT Loans. The Yield routing page, Copy Trading and Checkout leave it; each still opens at its own address, where its own tab shows, lit.
 - Menu: under Pools, one Add / Remove, which opens the Solana pools page that was called Venue AMM, and Range. Venue AMM, Zap and the Ethereum add/remove form leave the menu; Zap and the Ethereum form still show as tabs when the Pools page is set to Ethereum. Lock is now called Yield, in the menu and on both bars.
 - Solana pools: opening a pool also writes its pool share's name record in the same transaction, so a wallet shows "Memetics Pool Share" and a picture for the new share from its first block instead of "Unknown"; the pair name follows when the vault renames it. It costs the opener 0.0137 SOL more: 0.01 SOL is Metaplex's fee for making the record and the rest stays in the record. The team gets none of it. The Open a pool card, the form and the review say so.

@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { parseEther } from 'viem';
 import { LoanTimeline, type TimelineCost } from './LoanTimeline';
 import { interestFor } from '../../lib/gondi/loanMath';
-import { dayOf, lifeFraction, reminderFractions, scrubStep } from '../../lib/gondi/timeline';
+import { dayOf, lifeFraction, reminderFractions, reminderMarks, scrubStep } from '../../lib/gondi/timeline';
+import { monoWidth } from '../../lib/markLabels';
 
 const DAY = 86_400;
 const START = 1_800_000_000;
@@ -47,6 +48,52 @@ describe('the arithmetic under the picture', () => {
     expect(dayOf(START, 30 * DAY, START)).toEqual({ day: 1, of: 30 });
     expect(dayOf(START, 30 * DAY, START + 12 * DAY + 5)).toEqual({ day: 13, of: 30 });
     expect(dayOf(START, 30 * DAY, START + 30 * DAY)).toEqual({ day: 30, of: 30 });
+  });
+
+  it('names each reminder by how long before the deadline it rings, the week first', () => {
+    expect(reminderMarks(30 * DAY).map((m) => m.before)).toEqual(['7d', '3d', '1d', '2h']);
+    expect(reminderMarks(3 * DAY).map((m) => m.before)).toEqual(['1d', '2h']);
+    expect(reminderMarks(30 * DAY).map((m) => m.fraction)).toEqual(reminderFractions(30 * DAY));
+  });
+});
+
+describe('the row under the axis: day 1, the reminders, due (owner 2026-11-12: the ticks said nothing)', () => {
+  const labels = (container: HTMLElement) => [...container.querySelectorAll('svg text')].map((t) => t.textContent);
+  const box = (width: number) =>
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width, height: 0, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 0, toJSON: () => ({}) } as DOMRect);
+  afterEach(() => vi.restoreAllMocks());
+
+  it('on a desktop card names the week, three days and the day before; two hours would sit on "due"', () => {
+    box(1600);
+    const { container } = render(<LoanTimeline side="lender" start={START} duration={30 * DAY} costAt={costAt} nft="a NAKA" />);
+    expect(labels(container)).toEqual(['7d left', '3d left', '1d left', 'day 1', 'due']);
+  });
+
+  it('on a phone keeps the week\'s notice and leaves out the reminders that would crowd', () => {
+    box(306);
+    const { container } = render(<LoanTimeline side="lender" start={START} duration={30 * DAY} costAt={costAt} nft="a NAKA" />);
+    expect(labels(container)).toEqual(['7d left', 'day 1', 'due']);
+  });
+
+  it('every label it shows sits inside the picture', () => {
+    for (const width of [306, 600, 1600]) {
+      box(width);
+      const { container, unmount } = render(<LoanTimeline side="borrower" start={START} duration={7 * DAY} costAt={costAt} nft="NAKA #1" />);
+      for (const t of container.querySelectorAll('svg text')) {
+        const left = Number(t.getAttribute('x'));
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(left + monoWidth(t.textContent ?? '', Number(t.getAttribute('font-size')))).toBeLessThanOrEqual(width);
+      }
+      unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('on a phone the headline keeps one line and the date takes the next, rather than both squeezing', () => {
+    // At 306 px "Repay 0.070805" and "WETH" broke apart, beside a date in two lines.
+    render(<LoanTimeline side="borrower" start={START} duration={30 * DAY} costAt={costAt} nft="NAKA #1" />);
+    expect(screen.getByTestId('loan-timeline-top').className).toMatch(/\bflex-wrap\b/);
+    expect(screen.getByTestId('loan-timeline-headline').className).toMatch(/\bwhitespace-nowrap\b/);
   });
 });
 

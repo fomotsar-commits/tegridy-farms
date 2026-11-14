@@ -20,6 +20,7 @@ export function FloorHead({
   state,
   wallet,
   symbol,
+  pairing,
   lps,
   onFlash,
   onLanded,
@@ -28,6 +29,8 @@ export function FloorHead({
   state: FloorState;
   wallet: string;
   symbol: string;
+  /** The pool's pairing coin by its ticker (the receipt's own): the pour's other stream is its color. Absent: SOL. */
+  pairing?: string | null;
   /** How many wallets hold a share of the pool (lib/solana/lp/holders.ts), null until read. */
   lps: number | null;
   onFlash?: () => void;
@@ -58,6 +61,7 @@ export function FloorHead({
       state,
       wallet,
       symbol,
+      pairing: pairing ?? null,
       lps: count.current,
       reduced: reducedMotion(),
       onTick: () => tick(),
@@ -70,7 +74,7 @@ export function FloorHead({
       m.stop();
       moment.current = null;
     };
-  }, [state, wallet, symbol]);
+  }, [state, wallet, symbol, pairing]);
   return (
     <>
       <div

@@ -11,6 +11,7 @@
 // the island" are different facts, and NEITHER of them is "0°".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -336,7 +337,7 @@ describe('the marketplace collection cards', () => {
 // sent to the Add. The card states no figure of the venue's own.
 describe('the add\u2019s share link', () => {
   const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
-  const CARD = `${ORIGIN}/share/lp-card.jpg`;
+  const CARD = `${ORIGIN}/share/lp-card-v2.jpg`;
   const ALT = 'Bayla lays a glowing infinity brick on the island&#39;s plinth, under memetics.finance';
   const UNNAMED = 'Hold the floor. Every trade pays you.';
   const meta = (html, prop) => {
@@ -350,7 +351,7 @@ describe('the add\u2019s share link', () => {
     const html = await card('/lp/bayla');
     expect(meta(html, 'og:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
     expect(meta(html, 'twitter:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
-    expect(meta(html, 'og:description')).toBe('Add SOL + BAYLA to its pool on memetics.finance. Every trade in the pool pays you.');
+    expect(meta(html, 'og:description')).toBe('Add liquidity to $BAYLA&#39;s pool on memetics.finance. Every trade in the pool pays you.');
     expect(meta(html, 'og:image')).toBe(CARD);
     expect(meta(html, 'twitter:image')).toBe(CARD);
     expect(meta(html, 'og:image:width')).toBe('2048');
@@ -379,7 +380,7 @@ describe('the add\u2019s share link', () => {
     const html = await card(`/lp/${WIF}`);
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${WIF}`]);
     expect(meta(html, 'og:title')).toBe('Hold $WIF&#39;s floor. Every trade pays you.');
-    expect(meta(html, 'og:description')).toBe('Add SOL + WIF to its pool on memetics.finance. Every trade in the pool pays you.');
+    expect(meta(html, 'og:description')).toBe('Add liquidity to $WIF&#39;s pool on memetics.finance. Every trade in the pool pays you.');
     expect(meta(html, 'og:url')).toBe(`${ORIGIN}/lp/${WIF}`);
     const res = await middleware(req(`/lp/${WIF}`, HUMAN));
     expect(res.status).toBe(307);
@@ -431,6 +432,98 @@ describe('the add\u2019s share link', () => {
     },
   );
 
+  // Island answer thirty-four. A pool can pair a coin with USDC or an island coin (1155), so no
+  // card says which coin goes in beside it.
+  it('no card names a pairing coin: the description is the pool’s, whatever it pairs with', async () => {
+    vi.stubGlobal('fetch', identity({ name: 'dogwifhat', symbol: 'WIF' }));
+    for (const path of ['/lp/bayla', '/lp/bobo', '/lp/soy', '/lp/brainlet', '/lp/rizz', `/lp/${WIF}`, '/lp/nothing']) {
+      const description = meta(await card(path), 'og:description');
+      expect(description, path).not.toMatch(/SOL \+/);
+      expect(description, path).toMatch(/Every trade in the pool pays you\.$/);
+    }
+  });
+
+  // A link typed by hand: the room is the room in any case. A mint is never touched (base58 is cased).
+  it.each(['/lp/BAYLA', '/lp/Bayla', '/lp/bAyLa'])('a room typed in any case (%s) is the room: its card, and its person on the Add sheet', async (path) => {
+    const html = await card(path);
+    expect(meta(html, 'og:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
+    expect(meta(html, 'og:url')).toBe(`${ORIGIN}/lp/bayla`);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const res = await middleware(req(path, HUMAN));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(`${ORIGIN}/bayla?sheet=add`);
+  });
+
+  it.each(['/lp/__PROTO__', '/lp/CONSTRUCTOR', '/lp/HASOWNPROPERTY'])('a cased word that is no room (%s) is still no room', async (path) => {
+    expect(meta(await card(path), 'og:title')).toBe(UNNAMED);
+    expect((await middleware(req(path, HUMAN))).headers.get('location')).toBe(`${ORIGIN}/pools`);
+  });
+
+  // A copy never heads the island's painting as the real coin. The venue's screens call it "fake BAYLA"
+  // (src/lib/solana/lp/identity.ts); the card names no coin at all.
+  describe('a copy’s card is unnamed', () => {
+    const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+    const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+    it.each(['BAYLA', 'bayla', '$BAYLA', 'BAYLA2', 'BAYIA', '8AYLA', 'USDC', 'U5DC', 'USDCoin', 'SOL', 'S0L', 'WSOL', 'Solana', 'USDT', 'Tether', 'TOWELI', 'T0WELI', 'xTOWELI', 'BOBO', 'B0B0', 'SOY', 'BRAINLET', 'RIZZ', 'R1ZZ'])(
+      'a coin at another mint calling itself %s: the card unnamed, its person still sent to that mint’s Add',
+      async (symbol) => {
+        vi.stubGlobal('fetch', identity({ name: 'x', symbol }));
+        const html = await card(`/lp/${WIF}`);
+        expect(meta(html, 'og:title')).toBe(UNNAMED);
+        expect(meta(html, 'og:description')).toBe('Add liquidity to any pool on memetics.finance. Every trade in the pool pays you.');
+        // No coin is named anywhere on it: an unnamed card prints no $TICKER at all.
+        expect(html).not.toContain('$');
+        expect(meta(html, 'og:url')).toBe(`${ORIGIN}/lp/${WIF}`);
+        const res = await middleware(req(`/lp/${WIF}`, HUMAN));
+        expect(res.headers.get('location')).toBe(`${ORIGIN}/pools?mint=${WIF}&task=add`);
+      },
+    );
+
+    it('the real coin by its own mint keeps its name', async () => {
+      vi.stubGlobal('fetch', identity({ name: 'BAYLA', symbol: 'BAYLA' }));
+      expect(meta(await card(`/lp/${BAYLA}`), 'og:title')).toBe('Hold $BAYLA&#39;s floor. Every trade pays you.');
+      vi.stubGlobal('fetch', identity({ name: 'USD Coin', symbol: 'USDC' }));
+      expect(meta(await card(`/lp/${USDC}`), 'og:title')).toBe('Hold $USDC&#39;s floor. Every trade pays you.');
+    });
+
+    it.each(['WIF', 'BONK', 'PEPE', 'MOMENT', 'BAY', 'BAYL', 'SOLID', 'SOYA', 'USD', 'RIZ'])('a ticker that copies none of them (%s) is still named', async (symbol) => {
+      vi.stubGlobal('fetch', identity({ name: 'x', symbol }));
+      expect(meta(await card(`/lp/${WIF}`), 'og:title')).toBe(`Hold $${symbol}&#39;s floor. Every trade pays you.`);
+    });
+
+    it('the names and their mints are the pool pages’ own list, name for name', async () => {
+      const { LP_KNOWN } = await import('./middleware.js');
+      const { WELL_KNOWN_NAMES } = await import('./src/lib/solana/lp/tokenSafety.ts');
+      expect(LP_KNOWN).toEqual(WELL_KNOWN_NAMES.map(({ label, mint, names }) => ({ label, mint, names: [...names] })));
+    });
+
+    it('the card reads a copy exactly as the screens do, for every plain ticker tried', async () => {
+      const { lpCopy, LP_KNOWN } = await import('./middleware.js');
+      const { copiedWellKnownName } = await import('./src/lib/solana/lp/tokenSafety.ts');
+      const { displaySafe } = await import('./src/lib/launchMetadata/validate.js');
+      // Each known name, and the spellings a copy uses: case, a digit for its lookalike letter, a tail, a head.
+      const swap = (s) => [s.replace(/O/gi, '0'), s.replace(/[IL]/gi, '1'), s.replace(/E/gi, '3'), s.replace(/S/gi, '5'), s.replace(/B/gi, '8'), s.replace(/L/g, 'I'), s.replace(/I/g, 'l')];
+      const spellings = (s) => [s, s.toLowerCase(), s[0] + s.slice(1).toLowerCase(), ...swap(s), `${s}2`, `${s}X`, `X${s}`, `1${s}`, s.slice(0, -1), s.slice(1)];
+      const plain = (s) => /^[A-Za-z0-9]{1,12}$/.test(s);
+      const tried = [...new Set([
+        ...LP_KNOWN.flatMap((k) => k.names.flatMap((n) => spellings(n.replace(/[^A-Za-z0-9]/g, '')))),
+        ...['WIF', 'BONK', 'JUP', 'PEPE', 'ETH', 'WETH', 'BTC', 'TEGRIDY', 'MEMETIC', 'MEMETICS', 'MOMENT', 'BAYLAGOON', 'BAYLEAF', 'SOLAR', 'SOLO', 'USD', 'USDS', 'DAI', 'A', '0', 'I'].flatMap(spellings),
+      ])].filter(plain);
+      expect(tried.length).toBeGreaterThan(300);
+      const mints = [WIF, ...LP_KNOWN.map((k) => k.mint).filter(Boolean)];
+      let copies = 0;
+      for (const mint of mints) {
+        for (const ticker of tried) {
+          const screens = copiedWellKnownName(mint, [ticker, displaySafe(ticker, 12)]) !== null;
+          expect(lpCopy(mint, ticker), `${ticker} at ${mint}`).toBe(screens);
+          if (screens) copies += 1;
+        }
+      }
+      expect(copies).toBeGreaterThan(300);
+    });
+  });
+
   it('the rooms match the sheet\u2019s rooms, id for id and coin for coin', async () => {
     const { LP_ROOMS } = await import('./middleware.js');
     const { sheetRooms } = await import('./src/lib/sheet.ts');
@@ -438,7 +531,7 @@ describe('the add\u2019s share link', () => {
   });
 
   it('the picture on disk is a JPEG at 2048 by 1024, under X\u2019s 5 MB', () => {
-    const file = join(dirname(fileURLToPath(import.meta.url)), 'public', 'share', 'lp-card.jpg');
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'public', 'share', 'lp-card-v2.jpg');
     const buf = readFileSync(file);
     expect([buf[0], buf[1]]).toEqual([0xff, 0xd8]);
     let size = null;
@@ -451,6 +544,13 @@ describe('the add\u2019s share link', () => {
     }
     expect(size).toEqual({ width: 2048, height: 1024 });
     expect(statSync(file).size).toBeLessThan(5 * 1024 * 1024);
+  });
+
+  // Island answer thirty-four. The first picture was cut from a mockup of X and carried X's own
+  // "From memetics.finance" label into every card. This is the painting itself, by its bytes.
+  it('the picture is the island\u2019s clean painting, byte for byte', () => {
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'public', 'share', 'lp-card-v2.jpg');
+    expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe('c962d58663a40e11e0f713856f96b23f892f6f24469f1b018a909545a29ed5f7');
   });
 
   it('no card on the road carries an em dash', async () => {

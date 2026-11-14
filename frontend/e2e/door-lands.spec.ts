@@ -129,7 +129,8 @@ async function measure(page: Page) {
   return page.evaluate(() => {
     const rect = (el: Element | null) => (el ? { top: Math.round(el.getBoundingClientRect().top), bottom: Math.round(el.getBoundingClientRect().bottom) } : null);
     const sheet = document.querySelector('[data-testid="action-sheet"]');
-    const go = document.querySelector('[data-testid="sheet-go"]');
+    // The sheet's own button: the room under it holds the home's swap card, drawn as the sheet's form, with one too.
+    const go = sheet?.querySelector('[data-testid="sheet-go"]') ?? null;
     return {
       walk: (window as unknown as { __walk: unknown }).__walk,
       innerHeight,

@@ -52,9 +52,6 @@ const URL_ONLY: Record<string, string> = {
   '/art-studio': 'a dev studio',
   '/bayla-studio': 'a studio',
   '/door-studio': 'a studio',
-  // Owner, 2026-10-24: the Nakamigos marketplace left the home, the nav and the venue's
-  // metadata (a drainer-profile surface on the venue's domain); the route stays.
-  '/nakamigos': "the Nakamigos marketplace: off the nav since 2026-10-24; the bungalow rooms' Marketplace door still opens it",
   // Owner, 2026-11-10: Check off the menu, "hide it all". Its strip still joins the seven.
   '/trust': 'Check, off the menu since 2026-11-10',
   '/scan': 'Check, off the menu since 2026-11-10',

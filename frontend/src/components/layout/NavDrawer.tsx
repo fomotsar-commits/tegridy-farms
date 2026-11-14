@@ -54,8 +54,8 @@ function narrow(groups: readonly IndexGroup[], q: string): IndexGroup[] {
  */
 function IndexLink({ n, name, item, here, onHover, onGo }: { n: number; name: string; item: NavItem; here: boolean; onHover: () => void; onGo: () => void }) {
   return (
-    // 44px rows on a phone and an iPad; 38px from 900px, where a pointer taps.
-    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 min-[900px]:min-h-[38px] min-[900px]:py-1 border-b border-white/[0.09]" onMouseEnter={onHover}>
+    // 44px rows wherever a finger taps, an iPad on its side included; 38px only from 900px with a mouse.
+    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 min-[900px]:pointer-fine:min-h-[38px] min-[900px]:pointer-fine:py-1 border-b border-white/[0.09]" onMouseEnter={onHover}>
       <Link to={item.to} onClick={onGo} onFocus={onHover} aria-current={here ? 'page' : undefined}
         className={`min-w-0 truncate font-black leading-tight tracking-[-0.03em] text-[17px] min-[900px]:text-[16px] transition-colors after:absolute after:inset-0 after:z-10 after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-[#22c55e] ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8] group-hover/page:text-white'}`}
         style={HEADING_FONT}>

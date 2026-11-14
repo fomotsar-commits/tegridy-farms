@@ -730,11 +730,12 @@ function ReviewCard({
   );
 }
 
-export default function CardanoSwapPage() {
-  usePageTitle('Cardano Swap', 'Swap Cardano coins on memetics.finance, through Minswap V2 pools.');
-  useEffect(() => {
-    trackPageView('cardano-swap');
-  }, []);
+/**
+ * The Cardano swap form with its library loaded, and nothing of its page: /cardano mounts it, and so do the
+ * Swap sheet and the home's swap card when their network is Cardano (owner, 2026-11-11: a network pick
+ * changes the module in place).
+ */
+export function CardanoSwapCard() {
   const [csl, setCsl] = useState<Csl | null>(null);
   const [cslError, setCslError] = useState<string | null>(null);
   useEffect(() => {
@@ -749,17 +750,28 @@ export default function CardanoSwapPage() {
   }, []);
   return (
     <>
-      <PageArtBackdrop pageId="cardano-swap" />
-      <div className="relative max-w-md mx-auto px-4 py-8">
-        <ChainSwitch />
-        {cslError && (
-          <p role="alert" className="mb-3 text-[12px] text-danger">
-            {cslError}
-          </p>
-        )}
-        <CardanoSwapInner csl={csl} cslError={cslError} retryCsl={() => window.location.reload()} />
-      </div>
+      {cslError && (
+        <p role="alert" className="mb-3 text-[12px] text-danger">
+          {cslError}
+        </p>
+      )}
+      <CardanoSwapInner csl={csl} cslError={cslError} retryCsl={() => window.location.reload()} />
     </>
   );
 }
 
+export default function CardanoSwapPage() {
+  usePageTitle('Cardano Swap', 'Swap Cardano coins on memetics.finance, through Minswap V2 pools.');
+  useEffect(() => {
+    trackPageView('cardano-swap');
+  }, []);
+  return (
+    <>
+      <PageArtBackdrop pageId="cardano-swap" />
+      <div className="relative max-w-md mx-auto px-4 py-8">
+        <ChainSwitch />
+        <CardanoSwapCard />
+      </div>
+    </>
+  );
+}

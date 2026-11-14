@@ -19,6 +19,8 @@ const CATCH_AFTER_MS = 300;
 const BEAT_MS = 240;
 /** An add's flash turns the card's edge white this long, then it holds the token's hue (answer thirty-two). */
 const FLASH_EDGE_MS = 120;
+/** About how tall a buy's or a sale's card stands with no shore line and no clock line under it (a coin the island does not read): what centres it. */
+const NO_LINE_CARD_PX = 560;
 
 /**
  * The moment is once a landing: the signature whose light (a buy's, on the shore) or brick (an add's,
@@ -32,9 +34,10 @@ let caughtFor: string | null = null;
  * action landed on. What was done, the fee and where it went (read from the signature:
  * lib/solana/receiptRead.ts), what it did to the wallet's clock, one green button that hands
  * over the island's card, and Back to the room. The toast is for errors only. Its head answers the
- * action the moment the card is up: a buy's or a sale's is the coin's shore (answer thirty:
- * FlameCatch.tsx and the island's engine, lib/shoreMoment.ts); an add's is the pool, where the flash
- * plays and the adder's brick lands on the floor of every LP's (answer thirty-two: FloorHead.tsx).
+ * action the moment the card is up: a buy's or a sale's is the shore (answer thirty:
+ * FlameCatch.tsx and the island's engine, lib/shoreMoment.ts), for every coin; its line under the
+ * title is said only for a coin the island reads (answer thirty-four); an add's is the pool, where the
+ * flash plays and the adder's brick lands on the floor of every LP's (answer thirty-two: FloorHead.tsx).
  */
 export function ReceiptCard() {
   const { receipt, open } = useReceipt();
@@ -53,6 +56,11 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const sold = receipt.action === 'sold';
   // An add's head is the pool, never the shore (island answer thirty-two).
   const isAdd = receipt.action === 'added';
+  // Every swap plays the shore's moment (the owner's word, 11-10). Its line under the title says whose
+  // shore it is and what its lights hold: said only for a coin the island reads (answer thirty-four).
+  const shoreLine = !isAdd && receipt.island;
+  // The add's line and post name the coin only by a ticker of its own.
+  const floorCoin = receipt.unnamed ? null : receipt.coin.symbol;
   // A sale never strikes: the ember sits in the ring and the light on the shore cools.
   const flame: FlameState = sold ? 'ember' : caughtBefore ? 'lit' : 'catching';
   // An add's moment plays once per signature; a card raised again after its landing opens at rest.
@@ -125,8 +133,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
         data-floor={isAdd ? (lit ? 'lit' : 'playing') : undefined}
         className={`receipt-card relative w-full max-w-[358px] my-4 outline-none motion-safe:transition-[opacity,transform] motion-safe:duration-300${edge ? ` ${edge}` : ''}`}
         style={{
-          // Centred by the card's height: the pool's head is a little taller than the shore's.
-          marginTop: `clamp(16px, calc((100dvh - ${isAdd ? 680 : 670}px) / 2), 172px)`,
+          // Centred by the card's height: the pool's head is a little taller than the shore's, and a card
+          // that says no shore line is shorter by that line and the clock line.
+          marginTop: `clamp(16px, calc((100dvh - ${isAdd ? 680 : shoreLine ? 670 : NO_LINE_CARD_PX}px) / 2), 172px)`,
           background: 'var(--color-bg-surface)',
           borderRadius: 20,
           // An add's edge is index.css's (".receipt-card[data-floor]"): the flash and the beats are classes on it.
@@ -145,6 +154,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
               state={floor}
               wallet={receipt.wallet}
               symbol={receipt.coin.symbol}
+              pairing={receipt.pairing}
               lps={receipt.lps}
               onFlash={() => {
                 setLit(true);
@@ -172,9 +182,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
         {isAdd ? (
           // Always in the layout (nothing below it moves), shown from the landing.
           <p className="receipt-floor-line mt-1 text-center text-[14px]" data-on={landed ? '1' : '0'} data-testid="receipt-floor-line" style={{ color: 'var(--color-text-secondary)' }}>
-            {RECEIPT_WORDS.floor(receipt.coin.symbol)}
+            <FloorWords coin={floorCoin} />
           </p>
-        ) : (
+        ) : shoreLine ? (
           // The line under the title. Its two lines are kept from the start, as the island drew it, so
           // nothing below moves when the light lands.
           <div className="mt-1 min-h-[40px]" data-testid="receipt-shore-slot">
@@ -184,7 +194,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
               </p>
             )}
           </div>
-        )}
+        ) : null}
 
         <div className="mt-5 pt-2 pb-2" style={{ borderTop: '1px solid rgba(139,92,246,0.25)', borderBottom: '1px solid rgba(139,92,246,0.25)' }} data-testid="receipt-rows">
           <FeeRows receipt={receipt} />
@@ -208,7 +218,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
 
         {/* The one green button: after an add, X with the post written; else the island's card for this wallet, the object that travels. */}
         <a
-          href={lpTarget ? RECEIPT_WORDS.lpIntent(receipt.coin.symbol, lpTarget) : RECEIPT_WORDS.cardUrl(receipt.wallet)}
+          href={lpTarget ? RECEIPT_WORDS.lpIntent(floorCoin, lpTarget) : RECEIPT_WORDS.cardUrl(receipt.wallet)}
           target="_blank"
           rel="noopener noreferrer"
           onClick={tick}
@@ -237,6 +247,23 @@ function ShoreWords({ coin }: { coin: string }) {
     <>
       {line.slice(0, at)}
       <strong style={{ color: '#a0f8d0', fontWeight: 700 }}>{mark}</strong>
+      {line.slice(at + mark.length)}
+    </>
+  );
+}
+
+/** "You're part of $BAYLA's floor now. Every trade in the pool pays you.", the coin's floor marked in the
+ *  token's hue as the island drew it (index.css `.receipt-floor-mark`). A coin left unnamed has no mark. */
+function FloorWords({ coin }: { coin: string | null }) {
+  const line = RECEIPT_WORDS.floor(coin);
+  if (coin === null) return line;
+  const mark = RECEIPT_WORDS.floorMark(coin);
+  const at = line.indexOf(mark);
+  if (at < 0) return line;
+  return (
+    <>
+      {line.slice(0, at)}
+      <strong className="receipt-floor-mark">{mark}</strong>
       {line.slice(at + mark.length)}
     </>
   );

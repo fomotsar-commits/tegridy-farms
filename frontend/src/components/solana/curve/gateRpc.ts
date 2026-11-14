@@ -9,6 +9,9 @@ import type { GateRpc } from './ports';
 export function browserGateRpc(rpc: SolanaRpc, curveRpc: CurveRpc): GateRpc {
   return {
     getAccountInfo: (address) => curveRpc.getAccountInfo(address),
+    // Passed through when the transport has it, so the gate's deployment check asks about a
+    // program's ProgramData without downloading its bytecode (curve/read.ts readDeployment).
+    ...(curveRpc.getAccountMeta ? { getAccountMeta: (address: Parameters<CurveRpc['getAccountInfo']>[0]) => curveRpc.getAccountMeta!(address) } : {}),
     getMinimumBalanceForRentExemption: (n) => curveRpc.getMinimumBalanceForRentExemption(n),
     getGenesisHash: async () => {
       const r = await rpc('getGenesisHash', []);

@@ -139,15 +139,17 @@ describe('TopNav: the menu', () => {
     );
   });
 
-  it('lists Lore and Launch under Island, and Dashboard after them once a wallet connects', () => {
+  // Owner, 2026-11-12: the marketplace, back in the menu after Launch.
+  it('lists Lore, Launch and Marketplace under Island, and Dashboard after them once a wallet connects', () => {
     const pages = (connected: boolean) => {
       const region = within(openDrawer('/', connected)).getByRole('region', { name: 'Island' });
       return within(region).getAllByRole('link').filter((l) => l.textContent !== 'Island')
         .map((l) => [l.textContent, l.getAttribute('href')]);
     };
-    expect(pages(false)).toEqual([['Lore', '/lore'], ['Launch', '/launch']]);
+    const shown = [['Lore', '/lore'], ['Launch', '/launch'], ['Marketplace', '/nakamigos']];
+    expect(pages(false)).toEqual(shown);
     cleanup();
-    expect(pages(true)).toEqual([['Lore', '/lore'], ['Launch', '/launch'], ['Dashboard', '/dashboard']]);
+    expect(pages(true)).toEqual([...shown, ['Dashboard', '/dashboard']]);
   });
 
   it("lists every page under its group's word, named as its tab is; Pools lands on /pools", () => {
@@ -168,6 +170,35 @@ describe('TopNav: the menu', () => {
     for (const gone of ['Check', 'Scanner', 'Yield Routing', 'Copy Trading', 'Checkout', 'Gallery', 'Gold Card', 'Venue AMM', 'Zap']) {
       expect(within(drawer).queryByRole('link', { name: gone }), gone).toBeNull();
     }
+  });
+
+  // Owner, 2026-11-12: the phone's and the iPad's menu is the desktop's. One list (INDEX_GROUPS),
+  // no width branch: a second list, or a filter read off the screen's width, fails here.
+  it('lists the same groups and pages at 390, 430, 820, 1180 and 1440 px', () => {
+    const listed = (width: number) => {
+      const was = window.innerWidth;
+      const mm = window.matchMedia;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      window.matchMedia = ((q: string) => {
+        const min = /min-width:\s*(\d+)/.exec(q);
+        const max = /max-width:\s*(\d+)/.exec(q);
+        const matches = (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]));
+        return { matches, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false };
+      }) as typeof window.matchMedia;
+      window.dispatchEvent(new Event('resize'));
+      try {
+        const index = within(openDrawer()).getByRole('navigation', { name: 'Site index' });
+        return within(index).getAllByRole('region').map((r) =>
+          [r.getAttribute('aria-labelledby'), within(r).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])]);
+      } finally {
+        cleanup();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: was });
+        window.matchMedia = mm;
+      }
+    };
+    const desktop = listed(1440);
+    expect(desktop.map(([id]) => id)).toEqual(INDEX_GROUPS.map((g) => `nav-index-${g.heading.toLowerCase()}`));
+    for (const width of [390, 430, 820, 1180]) expect(listed(width), `${width}px`).toEqual(desktop);
   });
 
   it('carries the records and the developer API', () => {

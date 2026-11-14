@@ -50,6 +50,8 @@ export const SOL: SolToken = {
   symbol: 'SOL',
   name: 'Solana',
   decimals: 9,
+  // The site's own files (public/tokens): the lists drew these three as a letter (owner, 2026-11-11).
+  logoURI: '/tokens/sol.svg',
   verified: true,
 };
 
@@ -58,6 +60,7 @@ export const USDC: SolToken = {
   symbol: 'USDC',
   name: 'USD Coin',
   decimals: 6,
+  logoURI: '/tokens/usdc.png',
   verified: true,
 };
 
@@ -66,6 +69,7 @@ export const USDT: SolToken = {
   symbol: 'USDT',
   name: 'Tether USD',
   decimals: 6,
+  logoURI: '/tokens/usdt.png',
   verified: true,
 };
 

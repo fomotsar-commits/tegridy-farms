@@ -71,14 +71,22 @@ export interface LpHome {
   pool: string;
 }
 
-export function LpInner({ readers, writes, home, door }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome; door?: LpDoorAnchor }) {
+export function LpInner({ readers, writes, home, door, module = false }: {
+  readers: LpReaders;
+  writes?: LpWritesOverrides;
+  home?: LpHome;
+  door?: LpDoorAnchor;
+  /** The sheet's "Every pool" (owner, 2026-11-11): the forms alone, the finder and your positions. The lists and
+   *  the reading (All pools, Arbitrage, Every position, Rates, Swap routes, Before you provide liquidity) stay /pools'. */
+  module?: boolean;
+}) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} module={module} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -87,7 +95,7 @@ export function LpInner({ readers, writes, home, door }: { readers: LpReaders; w
   );
 }
 
-function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor }) {
+function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor; module: boolean }) {
   const [params, setParams] = useSearchParams();
   const homeMint = home?.mint ?? null;
   const homePool = home?.pool ?? null;
@@ -212,7 +220,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
       reloadKey={reloadKey}
       sectionRef={positionsRef}
       onAddMore={addMore}
-      onAllPools={readers.listPools && !homeMint ? toAllPools : undefined}
+      onAllPools={readers.listPools && !homeMint && !module ? toAllPools : undefined}
     />
   );
 
@@ -221,6 +229,17 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
       <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-sheet="">
         {writesTop}
         {finder}
+      </div>
+    );
+  }
+
+  // The sheet's Every pool: find a pool and add to it, or open one; then what you hold, with Remove and Claim fees.
+  if (module) {
+    return (
+      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode} data-lp-module="">
+        {writesTop}
+        {finder}
+        {positions}
       </div>
     );
   }

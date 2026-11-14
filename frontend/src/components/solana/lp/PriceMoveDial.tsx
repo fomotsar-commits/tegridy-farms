@@ -11,8 +11,9 @@
 // no fee is counted and no currency value is printed.
 import { useId, useState } from 'react';
 import { DIAL_MAX_TIMES, priceMovePoint, vsHolding } from '../../../lib/solana/lp/priceMove';
+import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 96;
 const PAD = 12;
 const TOP = 14;
@@ -23,20 +24,16 @@ const STEP = 5;
 const DEEPEST = -(vsHolding(DIAL_MAX_TIMES) ?? -0.4);
 
 const timesAt = (stop: number) => 2 ** (stop / 100);
-const xAt = (stop: number) => PAD + ((stop + STOPS) / (2 * STOPS)) * (W - 2 * PAD);
 const yAt = (vs: number) => TOP + (-vs / DEEPEST) * (BOTTOM - TOP);
-
-const CURVE = (() => {
-  const pts: string[] = [];
-  for (let stop = -STOPS; stop <= STOPS; stop += STEP) {
-    pts.push(`${xAt(stop).toFixed(1)},${yAt(vsHolding(timesAt(stop)) ?? 0).toFixed(1)}`);
-  }
-  return pts.join(' ');
-})();
 
 export function PriceMoveDial({ quoteSymbol }: { quoteSymbol: string }) {
   const id = useId();
   const [stop, setStop] = useState(100); // opens at "2 times", the table's middle row
+  const [box, W] = useDrawWidth();
+  const xAt = (s: number) => PAD + ((s + STOPS) / (2 * STOPS)) * (W - 2 * PAD);
+  const pts: string[] = [];
+  for (let s = -STOPS; s <= STOPS; s += STEP) pts.push(`${xAt(s).toFixed(1)},${yAt(vsHolding(timesAt(s)) ?? 0).toFixed(1)}`);
+  const CURVE = pts.join(' ');
   const point = priceMovePoint(timesAt(stop));
   if (!point) return null;
   const x = xAt(stop);
@@ -46,16 +43,17 @@ export function PriceMoveDial({ quoteSymbol }: { quoteSymbol: string }) {
 
   return (
     <div data-testid="lp-price-dial">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className={`font-semibold font-mono ${point.vs === 0 ? 'text-emerald-300' : 'text-amber-300'}`} data-testid="lp-price-dial-headline">
+      {/* On a phone the price takes the next line, rather than the two squeezing each other. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid="lp-price-dial-top">
+        <p className={`whitespace-nowrap font-semibold font-mono ${point.vs === 0 ? 'text-emerald-300' : 'text-amber-300'}`} data-testid="lp-price-dial-headline">
           {headline}
         </p>
         <p className="text-white/75 text-right" data-testid="lp-price-dial-price">
           price: {point.price}
         </p>
       </div>
-      <div className="relative" style={{ touchAction: 'pan-y' }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" aria-hidden="true" focusable="false">
+      <div ref={box} className="relative" style={{ touchAction: 'pan-y' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: H }} aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id={`${id}-fill`} x1="0" x2="0" y1="0" y2="1">
               <stop offset="0" stopColor="#f59e0b" stopOpacity="0.05" />

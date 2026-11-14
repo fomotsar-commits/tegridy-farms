@@ -13,8 +13,18 @@ import {
   stopTimes,
 } from '../../../lib/solana/clmm/rangeDrag';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { monoWidth } from '../../../lib/markLabels';
 
 const NOW = 0.0004;
+
+/** Where a label is drawn, whatever anchor it uses: its left and right edges. */
+const drawn = (t: Element): [number, number] => {
+  const w = monoWidth(t.textContent ?? '', Number(t.getAttribute('font-size')));
+  const at = Number(t.getAttribute('x')) + Number(t.getAttribute('dx') ?? 0);
+  const anchor = t.getAttribute('text-anchor') ?? 'start';
+  const left = anchor === 'end' ? at - w : anchor === 'middle' ? at - w / 2 : at;
+  return [left, left + w];
+};
 
 describe('the axis under the handles', () => {
   it('a stop is a hundredth of a doubling around the starting price', () => {
@@ -63,6 +73,12 @@ describe('the axis under the handles', () => {
     expect(stopTimes(-200)).toBe('a quarter');
     expect(stopTimes(50)).toBe('1.41 times');
     expect(stopTimes(400)).toBe('16 times');
+  });
+
+  it('the far end is said in words, as half and a quarter are, not "0.063 times"', () => {
+    expect(stopTimes(-300)).toBe('an eighth');
+    expect(stopTimes(-400)).toBe('a sixteenth');
+    expect(stopTimes(-350)).toBe('0.088 times');
   });
 });
 
@@ -120,6 +136,31 @@ describe('dragging the range', () => {
     setup(NOW / 2, NOW * 2, true);
     expect(lo().disabled).toBe(true);
     expect(hi().disabled).toBe(true);
+  });
+
+  it.each([
+    ['both ends', -DRAG_STOPS, DRAG_STOPS],
+    ['the low end, handles together', -DRAG_STOPS, -DRAG_STOPS + DRAG_GAP],
+    ['the high end, handles together', DRAG_STOPS - DRAG_GAP, DRAG_STOPS],
+  ])('handles dragged to %s keep both labels whole, on the picture and apart', (_, loStop, hiStop) => {
+    const { container } = render(
+      <RangeDrag now={NOW} lo={priceAtStop(NOW, loStop)} hi={priceAtStop(NOW, hiStop)} at="x" setMin={() => {}} setMax={() => {}} />,
+    );
+    const width = Number(container.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[2]);
+    const [lo, hi] = [...container.querySelectorAll('text')];
+    expect([lo.textContent, hi.textContent]).toEqual([stopTimes(loStop), stopTimes(hiStop)]);
+    const [loSpan, hiSpan] = [drawn(lo), drawn(hi)];
+    expect(loSpan[0]).toBeGreaterThanOrEqual(0);
+    expect(hiSpan[1]).toBeLessThanOrEqual(width);
+    expect(loSpan[1]).toBeLessThanOrEqual(hiSpan[0]);
+  });
+
+  it('away from the ends, each label still sits just outside its handle', () => {
+    const { container } = render(<RangeDrag now={NOW} lo={NOW / 2} hi={NOW * 2} at="x" setMin={() => {}} setMax={() => {}} />);
+    const [lo, hi] = [...container.querySelectorAll('text')].map(drawn);
+    const handles = [...container.querySelectorAll('circle')].map((c) => Number(c.getAttribute('cx')));
+    expect(lo[1]).toBeCloseTo(handles[0] - 4, 9);
+    expect(hi[0]).toBeCloseTo(handles[1] + 4, 9);
   });
 
   it('draws nothing without a starting price', () => {

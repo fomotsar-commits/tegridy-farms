@@ -13,11 +13,13 @@ import { useId, useState } from 'react';
 import { HOLDINGS_STOPS, holdingsAt, holdingsPrice, holdingsStop } from '../../../lib/solana/clmm/rangeHoldings';
 import { priceNumber, rangePrices, type Pair, type TickRange } from '../../../lib/solana/clmm/rangeMath';
 import { coinAmount, priceNumberText, tokenAmount, tokenWord, type NamedPair } from './rangeText';
+import { useDrawWidth } from '../../../hooks/useDrawWidth';
 
-const W = 320;
+// Pixels: the picture is drawn as wide as its box (hooks/useDrawWidth.ts), never stretched.
 const H = 78;
-const PAD = 10;
-const TOP = 10;
+// A handle at either end, or at the top, clears the picture's border by 3 px or more.
+const PAD = 12;
+const TOP = 12;
 const BASE = 62;
 
 export function RangeHoldingsDial({ pair, r, liquidity, now }: { pair: Pair; r: TickRange; liquidity: bigint | null; now: number }) {
@@ -26,6 +28,7 @@ export function RangeHoldingsDial({ pair, r, liquidity, now }: { pair: Pair; r: 
   const min = priceNumber(prices.min);
   const max = priceNumber(prices.max);
   const [picked, setPicked] = useState<number | null>(null);
+  const [box, W] = useDrawWidth();
   if (liquidity === null || liquidity <= 0n || !(min > 0) || !(max > min)) return null;
   const named = pair as NamedPair;
   const stop = picked ?? holdingsStop(min, max, now);
@@ -69,8 +72,8 @@ export function RangeHoldingsDial({ pair, r, liquidity, now }: { pair: Pair; r: 
           {at}
         </p>
       </div>
-      <div className="relative" style={{ touchAction: 'pan-y' }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto rounded-lg border border-white/[0.14] bg-black/30" aria-hidden="true" focusable="false">
+      <div ref={box} className="relative" style={{ touchAction: 'pan-y' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="block w-full rounded-lg border border-white/[0.14] bg-black/30" style={{ height: H }} aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id={`${id}-token`} x1="0" x2="1" y1="0" y2="0">
               <stop offset="0" stopColor="#a78bfa" stopOpacity="0.55" />

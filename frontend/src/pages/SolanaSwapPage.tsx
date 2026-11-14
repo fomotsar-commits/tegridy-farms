@@ -17,8 +17,9 @@ import { CoinName } from '../components/ui/CoinName';
 import { tick } from '../lib/tick';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SheetBodyOutlet } from '../components/sheet/SheetOutlet';
-import { useSheet } from '../components/sheet/sheetContext';
+import { useSheet, type SheetPlace } from '../components/sheet/sheetContext';
 import { SheetBuyRow } from '../components/sheet/SheetBuyRow';
+import { sheetRoom } from '../lib/sheet';
 import { SheetPickLine } from '../components/sheet/SheetBaylaRow';
 import { useSolanaConnect } from '../components/solana/useSolanaConnect';
 import { SHEET_WORDS } from '../lib/arrival';
@@ -302,6 +303,7 @@ function raiseSwapReceipt(
     wallet: a.wallet,
     action,
     coin: { symbol: coin.symbol, mint: coin.mint },
+    island,
     title: null,
     under: null,
     fee: { kind: 'reading' },
@@ -1473,6 +1475,11 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // island drew it; either coin is a press that picks another from the page's own lists (owner, 2026-11-05).
   const sheetPlace = useSheet();
   const inSheet = sheet ? sheetPlace : null;
+  // The home's card is drawn as the sheet's form (owner, 2026-11-11: bring the home card up to the sheet's look), on
+  // BAYLA's room, with no line of hers: the card's own frame carries its name. Only the drawing is the sheet's; what
+  // the form reads and signs is the home card's, as before.
+  const [homePlace] = useState<SheetPlace | null>(() => (home ? { kind: 'buy', room: sheetRoom(BAYLA.mint), bayla: null } : null));
+  const look = inSheet ?? homePlace;
   const openConnect = useSolanaConnect();
   // The address this form reads its opening pair and amount from: none on the home, none in the sheet (it is the room's).
   const [linkSearch] = useState(() => {
@@ -2601,13 +2608,77 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     </>
   );
 
+  // Slippage and speed, the same control on the page and in the sheet (owner, 2026-11-11: the sheet is the whole swap).
+  const settings = (
+          <details className="group mb-3 px-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/80 text-[11px] [&::-webkit-details-marker]:hidden">
+              <span>Slippage {(slippageBps / 100).toFixed(slippageBps % 100 === 0 ? 0 : 1)}% · Speed {SPEED_LEVELS.find((l) => l.level === speed)?.label ?? 'Fast'}</span>
+              <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <div className="pb-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SLIPPAGE_PRESETS.map((bps) => {
+                const active = slippageBps === bps;
+                return (
+                  <button
+                    key={bps}
+                    type="button"
+                    onClick={() => setSlippageBps(bps)}
+                    aria-pressed={active}
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    style={{
+                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between mb-1.5 mt-3">
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Speed</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SPEED_LEVELS.map(({ level, label }) => {
+                const active = speed === level;
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setSpeed(level)}
+                    aria-pressed={active}
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    style={{
+                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Speed is Jupiter's: a swap in our own pool sets its own, smaller fee. */}
+            <p className="text-white/55 text-[10px] mt-1.5">
+              Speed sets the priority fee on a Jupiter swap, up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL. It helps a swap land when the network is busy.
+            </p>
+            </div>
+          </details>
+  );
+  // The other way round: what is bought becomes what is paid. A sale is this press, then an amount.
+  const flip = () => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); };
+
   // The sheet's Buy (island answer twenty-five, screen 1, Buy state): the amount is what you pay,
   // the second row is what you get with the route line under it, one green button. The review
   // and the signing are the form's own, unchanged; its notes are said whenever they apply. Above
   // the amount, the bungalow row picks the coin (answer twenty-seven).
-  if (inSheet) {
+  if (look) {
     const own = ownBest && !isRangeCandidate(ownBest) ? ownBest : null;
-    const room = inSheet.room;
+    const room = look.room;
     // The drawn first row, Pool price, whichever route wins: the room's own pool, as it quoted this amount.
     // Said only while the pair IS that pool's, SOL and the room's coin either way round, in SOL per coin.
     const roomPool = room ? route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === room.venueSolPool) : undefined;
@@ -2625,11 +2696,20 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         aria-haspopup="dialog"
         aria-label={side === 'pay' ? `Pay with ${coin.symbol}` : `Get ${coin.symbol}`}
         data-testid={side === 'pay' ? 'sheet-pay-coin' : 'sheet-get-coin'}
-        className={`flex items-center gap-1 min-h-[44px] px-2 rounded-lg font-semibold hover:bg-white/5 transition-colors ${cls}`}
+        className={`flex items-center gap-2 min-h-[44px] pl-1.5 pr-2.5 rounded-full font-semibold hover:bg-white/5 transition-colors ${cls}`}
+        style={{ border: '1px solid var(--color-border)', background: 'rgba(255,255,255,0.04)' }}
       >
+        <TokenAvatar token={coin} size={26} />
         {coin.symbol}
         <span aria-hidden="true" className="text-white/70">▾</span>
       </button>
+    );
+    // The same coin where its list is the chip's above: its picture and ticker, no press.
+    const coinMark = (coin: SolToken) => (
+      <span className="shrink-0 flex items-center gap-2 pl-1.5 pr-3 min-h-[44px] rounded-full text-[15px] font-semibold text-white" style={{ border: '1px solid var(--color-border)', background: 'rgba(255,255,255,0.04)' }}>
+        <TokenAvatar token={coin} size={26} />
+        {coin.symbol}
+      </span>
     );
     const quoted = shownOut !== null && !quoteLoading;
     const row = (label: string, value: ReactNode, testId?: string) => (
@@ -2645,14 +2725,46 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       : quote && !ownBest
         ? feeWaived ? 'The venue takes no fee on this route.' : feeMintSymbol ? `The venue takes ${feePct}% of this trade, in ${feeMintSymbol}.` : 'The venue takes no fee on this trade.'
         : null;
-    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
+    // A coin paid for SOL is a sale, and the button says so (the flip's other side).
+    const selling = buyToken.mint === SOL_MINT && payToken.mint !== SOL_MINT;
+    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? (selling ? `Sell ${payToken.symbol}` : SHEET_WORDS.buy(buyToken.symbol));
     // The coin its row lights: none before a pick, the room's while the room's coin is still being looked up.
+    // The sheet's coin, on its chip: what is bought, or on a sale what is sold.
+    const chipToken = selling ? payToken : buyToken;
     const sheetCoin = unpicked
       ? null
-      : room?.address && linkPending > 0
+      : room?.address && linkPending > 0 && !selling
         ? { symbol: room.symbol, mint: room.address }
-        : { symbol: buyToken.symbol, mint: buyToken.mint };
-    return (
+        : { symbol: chipToken.symbol, mint: chipToken.mint };
+    // Buy / Sell: two presses, the lit one the trade's side (green buys, red sells). The other one flips the pair.
+    const sideToggle = (
+      <div role="group" aria-label="Buy or sell" className="flex p-0.5 rounded-full" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }} data-testid="sheet-side">
+        {([['Buy', !selling, 'rgba(76,175,80,0.90)'], ['Sell', selling, 'rgba(229,72,77,0.90)']] as const).map(([word, on, lit]) => (
+          <button
+            key={word}
+            type="button"
+            aria-pressed={on}
+            // The page's flip, named as the page names it for a screen reader.
+            aria-label={on ? word : `${word}: flip pay and receive tokens`}
+            disabled={unpicked}
+            onClick={() => { if (!on) { tick(); flip(); } }}
+            className="min-h-[40px] px-4 rounded-full text-[13px] font-bold disabled:opacity-50"
+            style={on ? { background: lit, color: '#fff' } : { color: 'var(--color-text-secondary)' }}
+          >
+            {word}
+          </button>
+        ))}
+      </div>
+    );
+    // A sale's chips are shares of what the wallet holds; a buy's are SOL amounts.
+    const share = (pct: number) => {
+      if (payBalance.raw === null) return;
+      setUsdMode(false);
+      const part = (payBalance.raw * BigInt(pct)) / 100n;
+      setAmount(part > 0n ? fromBaseUnits(part.toString(), payToken.decimals) : '');
+    };
+    const go = selling ? { background: 'linear-gradient(135deg, #e5484d 0%, #b4232a 100%)', boxShadow: '0 8px 24px rgba(229,72,77,0.28)' } : { boxShadow: '0 8px 24px rgba(76,175,80,0.28)' };
+    const form = (
       <div data-testid="sheet-buy" className="space-y-3 text-white/75 text-[12px]">
         {ownFlowOpen ? (
           <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">One moment…</p>}>
@@ -2661,23 +2773,57 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         ) : (
           <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0 space-y-3">
             {/* The row's last item, where "Any coin" stood (owner, 2026-11-07): the home card's network drop-down, its list opening leftward. */}
-            <SheetBuyRow coin={sheetCoin} network={<ChainSwitch at="/solana" align="end" />} />
-            {/* The amount, a 64 px box: what you pay, in Archivo 800 32 px, the coin at its right, a press that picks it. */}
-            <div className="flex items-center gap-3 h-16 pl-4 pr-2 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
-              <label className="flex-1 min-w-0 flex items-center h-full">
-                <span className="sr-only">{`Amount of ${payToken.symbol} to pay`}</span>
+            <SheetBuyRow
+              coin={sheetCoin}
+              art={<TokenAvatar token={chipToken} size={32} />}
+              onOpen={() => setPicker(selling ? 'pay' : 'buy')}
+              side={sideToggle}
+              // On the home's card the network sits by the card's name, where a narrow card has room for it.
+              network={home ? null : <ChainSwitch at="/solana" align="end" />}
+            />
+            {/* The amount: what you pay (on a sale, what you sell), large, its coin at the right. On a buy that coin
+                is a press that picks what you pay with; on a sale it is the chip's coin above. */}
+            <div
+              className="flex items-center gap-3 h-[76px] pl-4 pr-2.5 rounded-2xl transition-colors focus-within:border-[rgba(139,92,246,0.70)]"
+              style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}
+            >
+              <label className="flex-1 min-w-0 flex flex-col justify-center h-full">
+                <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>
+                  {selling ? 'You sell' : 'You pay'}
+                </span>
                 <input
                   data-testid="sheet-amount"
+                  aria-label={`Amount of ${payToken.symbol} to pay`}
                   type="text" inputMode="decimal" autoComplete="off" placeholder="0"
                   value={amount}
                   onChange={(e) => acceptAmountInput(e.target.value, setAmount)}
                   className="w-full min-w-0 bg-transparent outline-none text-white placeholder:text-white/30"
-                  style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 32, lineHeight: '40px' }}
+                  style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 30, lineHeight: '36px' }}
                 />
               </label>
-              {coinPress('pay', payToken, 'shrink-0 text-[15px] text-[color:var(--color-text-secondary)]')}
+              {selling ? coinMark(payToken) : coinPress('pay', payToken, 'shrink-0 text-[15px] text-white')}
             </div>
-            {/* The chips, 12 px under the box: three in a row, a third wide each (Max keeps its place). */}
+            {/* The chips, under the box: a buy's are SOL amounts and Max; a sale's are shares of what the wallet holds. */}
+            {selling ? (
+              <div role="group" aria-label={`How much ${payToken.symbol}`} className="grid grid-cols-4 gap-2 !mt-3" data-testid="sheet-sell-chips">
+                {([25, 50, 75, 100] as const).map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    className="h-11 rounded-xl text-[14px] font-semibold disabled:opacity-50"
+                    style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                    disabled={!maxOn}
+                    onClick={() => {
+                      tick();
+                      if (pct === 100) handleMax();
+                      else share(pct);
+                    }}
+                  >
+                    {pct === 100 ? 'Max' : `${pct}%`}
+                  </button>
+                ))}
+              </div>
+            ) : (
             <div role="group" aria-label={`How much ${payToken.symbol}`} className="grid grid-cols-3 gap-2 !mt-3">
               {chips.map((label, i) => {
                 const isMax = i === chips.length - 1;
@@ -2689,7 +2835,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                     aria-pressed={chosen}
                     className={`h-11 rounded-xl text-[14px] font-semibold disabled:opacity-50 ${isMax ? 'col-start-3' : ''}`}
                     style={{
-                      background: 'var(--color-bg-elevated)',
+                      background: chosen ? 'rgba(139,92,246,0.18)' : 'var(--color-bg-elevated)',
                       border: `1px solid ${chosen ? 'rgba(139,92,246,0.70)' : 'var(--color-border)'}`,
                       color: chosen ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                     }}
@@ -2705,18 +2851,27 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 );
               })}
             </div>
+            )}
             {/* Two rows, 24 px each: the pool's price, and what you get (its coin a press that picks it) with the route line under it.
                 Before a pick (no room) the row above is the only picker: no coin is named here until one is chosen. */}
             <div className="!mt-4" data-testid="sheet-buy-rows">
               {quoted && perToken !== null && roomCoin && row(SHEET_WORDS.poolPrice, `1 ${roomCoin.symbol} = ${formatSolPrice(perToken)} SOL`)}
-              {!unpicked && row(
-                SHEET_WORDS.youGet,
-                <span className="inline-flex items-center justify-end gap-1">
-                  {quoted && <span>{`≈ ${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay}`}</span>}
-                  {quoted && ' '}
-                  {coinPress('buy', buyToken, '-my-[10px] -mr-2')}
-                </span>,
-                'sheet-you-get',
+              {!unpicked && (
+                <div
+                  className="flex items-center gap-3 min-h-[64px] pl-4 pr-2.5 mb-2 rounded-2xl"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--color-border)' }}
+                  data-testid="sheet-you-get"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>{SHEET_WORDS.youGet}</div>
+                    <div className="text-white [overflow-wrap:anywhere]" style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 22, lineHeight: '28px' }}>
+                      {quoteLoading
+                        ? <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
+                        : quoted ? `≈ ${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay}` : <span className="text-white/30">0</span>}
+                    </div>
+                  </div>
+                  {selling ? coinPress('buy', buyToken, 'shrink-0 text-[15px] text-white') : coinMark(buyToken)}
+                </div>
               )}
               {quoted && (
                 <div className="text-[12px]">
@@ -2724,6 +2879,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 </div>
               )}
             </div>
+            {/* What the page says under its quote, said here too: the trade's own price impact. */}
+            {quoted && priceImpact !== null && row('Price impact', `${priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%`, 'sheet-impact')}
             {feeLine && (
               <p data-testid="sheet-fee-line" className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
                 {feeLine}
@@ -2744,7 +2901,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 <VenueSwapFlow swap={venueSwap} />
               </Suspense>
             )}
-            {unpicked ? <SheetPickLine /> : inSheet.bayla}
+            {!unpicked && <div data-testid="sheet-settings" className="[&>details]:mb-0">{settings}</div>}
+            {unpicked ? <SheetPickLine /> : look.bayla}
             {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. Off until a coin is picked. */}
             <button
               ref={buyRef}
@@ -2757,7 +2915,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               }}
               disabled={unpicked || (publicKey ? actionDisabled : false)}
               className="btn-primary w-full !mt-5 disabled:opacity-50"
-              style={{ height: 52, fontSize: 15, fontWeight: 700 }}
+              style={{ height: 56, fontSize: 16, fontWeight: 800, borderRadius: 16, ...go }}
             >
               {buyLabel}
             </button>
@@ -2765,6 +2923,24 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         )}
         {pickers}
       </div>
+    );
+    if (!home) return form;
+    // The home's card: its art under a dark veil (every card keeps its art), its name, the form, the commitment line.
+    return (
+      <section className="relative isolate rounded-2xl p-4" style={{ border: '1px solid var(--color-purple-25)' }} data-testid="home-swap-card">
+        <div aria-hidden="true" className="absolute inset-0 -z-10 rounded-2xl overflow-hidden">
+          <ArtImg pageId="swap" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.88)' }} />
+        </div>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <Heading ref={headingRef} tabIndex={-1} className="heading-luxury text-xl text-white outline-none">
+            Swap
+          </Heading>
+          <ChainSwitch at="/solana" align="end" />
+        </div>
+        {form}
+        <ClockLine />
+      </section>
     );
   }
   return (
@@ -2961,7 +3137,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           <div className="flex justify-center -my-1 relative z-10">
             <button
               type="button"
-              onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
+              onClick={flip}
               aria-label="Flip pay and receive tokens"
               className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
               style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
@@ -3014,64 +3190,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </div>
 
           {/* Slippage and speed: one line that says what they are set to, until it is opened. */}
-          <details className="group mb-3 px-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/80 text-[11px] [&::-webkit-details-marker]:hidden">
-              <span>Slippage {(slippageBps / 100).toFixed(slippageBps % 100 === 0 ? 0 : 1)}% · Speed {SPEED_LEVELS.find((l) => l.level === speed)?.label ?? 'Fast'}</span>
-              <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
-            </summary>
-            <div className="pb-2.5">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {SLIPPAGE_PRESETS.map((bps) => {
-                const active = slippageBps === bps;
-                return (
-                  <button
-                    key={bps}
-                    type="button"
-                    onClick={() => setSlippageBps(bps)}
-                    aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
-                    style={{
-                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between mb-1.5 mt-3">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Speed</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {SPEED_LEVELS.map(({ level, label }) => {
-                const active = speed === level;
-                return (
-                  <button
-                    key={level}
-                    type="button"
-                    onClick={() => setSpeed(level)}
-                    aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
-                    style={{
-                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Speed is Jupiter's: a swap in our own pool sets its own, smaller fee. */}
-            <p className="text-white/55 text-[10px] mt-1.5">
-              Speed sets the priority fee on a Jupiter swap, up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL. It helps a swap land when the network is busy.
-            </p>
-            </div>
-          </details>
+          {settings}
 
           {/* Where the trade goes, and why. Shown in EVERY state — including the
               ones where our own pool loses or does not exist — because a routing

@@ -37,6 +37,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     wallet: WALLET,
     action: 'bought',
     coin: { symbol: 'BAYLA', mint: BAYLA },
+    island: true,
     title: null,
     under: null,
     fee: { kind: 'reading' },
@@ -338,5 +339,100 @@ describe('the CSS', () => {
     const m = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([^@]*?\.flame-css[\s\S]*?)\n\}/);
     if (!m) throw new Error('no reduced-motion block for the ring’s flame');
     expect(m[1]).toMatch(/\.flame-ring\[data-shore="lit"\] \.flame-css\s*\{\s*animation:\s*none/);
+  });
+});
+
+// Island answer thirty-four (the owner's word, 11-10: the flame and the shoreline are every swap's).
+// The moment plays for any coin. Its line says whose shore it is and what its lights hold, and for a
+// coin the island does not measure none of that is read: the line is left out, never said unread.
+describe('a coin the island does not measure: the moment plays, the island’s line is left out', () => {
+  const WIF = { symbol: '$WIF', mint: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' };
+  const other = (over: Partial<Receipt> = {}) => receipt({ coin: WIF, island: false, clock: null, holders: null, ...over });
+
+  it('a buy: the shore is struck exactly as an island coin’s is, the engine drawing its own lights', () => {
+    act(() => raiseReceipt(other()));
+    expect(card()).toHaveAttribute('data-flame', 'catching');
+    rise();
+    up();
+    expect(start).toHaveBeenCalledTimes(1);
+    const o = last();
+    expect(o.state).toBe('catching');
+    expect(o.wallet).toBe(WALLET);
+    expect(o.holders).toBeNull();
+    expect(card().contains(o.shore)).toBe(true);
+    expect(card().querySelector('.receipt-head canvas.receipt-shore')).not.toBeNull();
+    expect(o.ring).toBe(ring());
+    expect(fxOnBody()).toHaveLength(1);
+  });
+
+  it('the landing says no line: nothing on this shore is read, so nothing is said of it', () => {
+    act(() => raiseReceipt(other()));
+    rise();
+    up();
+    expect(screen.queryByTestId('receipt-shore-slot')).toBeNull();
+    act(() => last().onLanded?.());
+    expect(shoreLine()).toBeNull();
+    expect(card().textContent).not.toMatch(/shore/i);
+    expect(card().textContent).not.toContain('$$');
+    // The beats still warm the card's edge: the moment is whole.
+    act(() => last().onBeat?.(1));
+    expect(card()).toHaveClass('receipt-beat');
+  });
+
+  it('the landing still marks the signature: raised again (Bayla’s Receipt), the card opens at rest', () => {
+    act(() => raiseReceipt(other()));
+    rise();
+    up();
+    act(() => last().onLanded?.());
+    act(() => closeReceipt());
+    act(() => reopenReceipt());
+    expect(states()).toEqual(['catching', 'lit']);
+    expect(card()).toHaveAttribute('data-flame', 'lit');
+    expect(shoreLine()).toBeNull();
+  });
+
+  it('a sale: never struck, the light cools on the shore, and no line says the island remembers', () => {
+    act(() => raiseReceipt(other({ action: 'sold' })));
+    expect(states()).toEqual(['ember']);
+    rise();
+    up();
+    pass(8000);
+    expect(states()).toEqual(['ember']);
+    expect(card()).toHaveAttribute('data-flame', 'ember');
+    expect(shoreLine()).toBeNull();
+    expect(screen.queryByTestId('receipt-shore-slot')).toBeNull();
+    expect(card().textContent).not.toMatch(/shore|cooling|remembers/i);
+  });
+
+  it('the card is centred by its own height: shorter by the line and the clock line it does not carry', () => {
+    act(() => raiseReceipt(other()));
+    expect(card().style.marginTop).toContain('560px');
+    act(() => closeReceipt());
+    act(() => raiseReceipt(receipt({ signature: `${SIG}-island` })));
+    expect(card().style.marginTop).toContain('670px');
+  });
+
+  it('an island coin keeps its line, marked, as before', () => {
+    act(() => raiseReceipt(receipt()));
+    rise();
+    up();
+    expect(screen.getByTestId('receipt-shore-slot')).toHaveClass('min-h-[40px]');
+    act(() => last().onLanded?.());
+    expect(shoreLine()).toHaveTextContent(SHORE);
+    expect(shoreLine()?.querySelector('strong')).toHaveTextContent("$BAYLA's shore.");
+  });
+
+  it('an island coin’s sale keeps the cooling line', () => {
+    act(() => raiseReceipt(receipt({ action: 'sold', clock: 'kept' })));
+    expect(shoreLine()).toHaveTextContent(COOLING);
+  });
+
+  it('an add of a coin the island does not measure keeps the pool: everything it draws is read from the pool itself', () => {
+    act(() => raiseReceipt(other({ action: 'added', pairing: 'SOL' })));
+    rise();
+    expect(card()).toHaveAttribute('data-floor', 'playing');
+    expect(screen.getByTestId('floor-ring')).toBeInTheDocument();
+    expect(screen.queryByTestId('flame-ring')).toBeNull();
+    expect(start).not.toHaveBeenCalled();
   });
 });

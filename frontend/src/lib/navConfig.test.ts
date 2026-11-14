@@ -233,10 +233,11 @@ describe('navConfig', () => {
   });
 
   // Owner, 2026-10-24: the Nakamigos marketplace leaves the nav (and the home and the
-  // venue's metadata). /nakamigos still opens it; nothing of the venue's points there.
-  it('lists no door to the Nakamigos marketplace', () => {
-    expect(ALL_NAV.map((n) => n.to)).not.toContain('/nakamigos');
-    expect(ALL_NAV.map((n) => n.label)).not.toContain('Marketplace');
+  // venue's metadata). Owner, 2026-11-12: back in the menu, "the marketplace isnt visible lets
+  // add that to the remote". The menu only: the island lobby, whose doors are the Island
+  // section's items, still has no Marketplace door.
+  it('lists the Nakamigos marketplace once, in the menu, and gives the island lobby no door to it', () => {
+    expect(ALL_NAV.filter((n) => n.to === '/nakamigos')).toEqual([{ to: '/nakamigos', label: 'Marketplace' }]);
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
     expect(island?.items.map((i) => i.to)).not.toContain('/nakamigos');
   });
@@ -469,7 +470,8 @@ describe('tradeRoute', () => {
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
-    expect(swapWord()).toBe('/swap');
+    // Owner, 2026-11-11: a room on Ethereum opens the sheet too, on Ethereum, on its own coin.
+    expect(swapWord()).toBe('/toweli?sheet=buy');
     expect(swapSection().primaryTo).toBe('/swap');
 
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
@@ -486,9 +488,14 @@ describe('tradeRoute', () => {
       expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
       expect(addWord(), id).toBe(`/${id}?sheet=add`);
     }
+    // Owner, 2026-11-11: not only Solana's rooms. A room on Ethereum or Base raises the sheet on its own network:
+    // Swap where that network's swap lists its coin, Add where the venue's add / remove form runs there.
+    // (Add used to send an Ethereum room to /pools, the Solana list.)
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
-    expect(swapWord()).toBe('/swap');
-    expect(addWord()).toBe('/pools');
+    expect(swapWord()).toBe('/pepe?sheet=buy');
+    expect(addWord()).toBe('/pepe?sheet=add');
+    window.localStorage.setItem('tegridy-bungalow', 'qr');
+    expect(addWord()).toBe('/qr?sheet=add');
     window.localStorage.clear();
     expect(swapWord()).toBe('/?sheet=buy');
     expect(addWord()).toBe('/pools');
@@ -501,7 +508,7 @@ describe('tradeRoute', () => {
     const word = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
     expect(word('Swap')).toBe('/?sheet=buy');
     expect(opensSheet(word('Swap')!), 'a press on it is the sheet’s, so its Back pops back').toBe(true);
-    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null });
+    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null, net: null, all: false });
     expect(word('Add')).toBe('/pools');
     expect(word('Island')).toBe('/');
   });
@@ -677,11 +684,13 @@ describe("the menu's index", () => {
   });
 
   // Owner, 2026-11-10: "hide all these except lore under island", and Launch under Island, "that
-  // takes you to the launch page". Dashboard joins them once a wallet connects (NavDrawer.tsx).
-  it('lists only Lore and Launch under Island', () => {
+  // takes you to the launch page". Owner, 2026-11-12: the marketplace, back in the menu.
+  // Dashboard joins them once a wallet connects (NavDrawer.tsx).
+  it('lists only Lore, Launch and Marketplace under Island', () => {
     expect(group('Island').items.map((i) => [i.to, indexName(group('Island'), i)])).toEqual([
       ['/lore', 'Lore'],
       ['/launch', 'Launch'],
+      ['/nakamigos', 'Marketplace'],
     ]);
   });
 
