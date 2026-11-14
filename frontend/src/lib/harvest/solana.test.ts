@@ -7,14 +7,14 @@ import { Keypair, PublicKey, TransactionInstruction, TransactionMessage, Version
 import { base58 } from '@scure/base';
 import { BUNGALOWS, type Bungalow } from '../bungalows';
 import { claimRefusal, type PoolView, type RewardPoolView, type StakeEntryView } from '../bungalowStaking';
-import type { LadderPoolView, LadderPositionView } from '../ladder/program';
+import { aprLabel, perDayAtTodaysRate, type LadderPoolView, type LadderPositionView } from '../ladder/program';
 import type { LadderWalletView } from '../ladder/read';
 import { ladderClaimCarriedIxs, ladderClaimIxs, refusalReason } from '../ladder/write';
 import { reloadHeld } from '../reloadHold';
 import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
 import { notSignedCopy } from '../solana/walletThrow';
 import type { ClaimResult } from './types';
-import { ladderResult, planLadder, planStreamflow, sendClaimsTogether, signsAll, streamflowResult, type SolanaClaim, type SignsAll } from './solana';
+import { ladderEarning, ladderResult, planLadder, planStreamflow, sendClaimsTogether, signsAll, streamflowResult, type SolanaClaim, type SignsAll } from './solana';
 import { SystemProgram } from '@solana/web3.js';
 import { decodeV1, loadedDataLimitFromSimulation, MAX_LOADED_ACCOUNTS_DATA_SIZE, signV1WithKeypairs, assembleV1, V1_VERSION_BYTE } from '../launcher/solana/write/v1';
 import { v1ComputeLimit } from '../solana/v1Send';
@@ -174,6 +174,66 @@ describe('planLadder', () => {
     expect(await p.claims[0]!.build(owner)).toEqual(ladderClaimIxs(at, owner, { positionNonce: 3 }));
     expect(await p.claims[1]!.build(owner)).toEqual(ladderClaimCarriedIxs(at, owner));
     expect(p.claims.every((c) => c.refused === refusalReason)).toBe(true);
+  });
+
+  // What the locks earn a day and that as a yearly rate: the ladder card's two figures under
+  // "You earn per day" (SolanaLadderPoolLive.tsx), by the card's own rule, or no figure at all.
+  describe('what the locks earn a day (owner, 2026-11-14: the bar with "% and daily yield")', () => {
+    // A rate running to second 10,000; each lock weighs 10 of the pool's 100.
+    const running = (over: Partial<LadderPoolView> = {}) => lpool({ rewardRate: 1_000n, periodFinish: 10_000n, totalWeighted: 100n, ...over });
+    const basis = (totalWeighted = 100n, mineWeight = 20n) => ({ shareBasis: { mineWeight, totalWeighted, slot: 5 } });
+    const two = () => [pos(0, 5n), pos(1, 0n)];
+
+    it('adds each lock’s own figure, over the stake behind them, in the card’s words', () => {
+      const e = ladderEarning(bayla, running(), wallet(two(), basis()), 0)!;
+      const each = perDayAtTodaysRate(10n, 100n, running(), 0)!;
+      expect(each).toBe(8_640_000n);
+      expect(e.perDayRaw).toBe(each * 2n);
+      expect(e.principalRaw).toBe(4_000_000n);
+      expect(e.apr).toBe(aprLabel(e.perDayRaw, e.principalRaw));
+      expect(e).toMatchObject({ chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lock ladder', decimals: 6, fundedToSecs: 10_000 });
+    });
+
+    it('is stated with nothing to claim right now, and rides on the plan', () => {
+      const p = planLadder(bayla, running(), wallet([pos(0, 0n)], basis(100n, 10n)), 1_000n, 0);
+      expect(p.claims).toEqual([]);
+      expect(p.earning).toHaveLength(1);
+      expect(p.settling).toBeUndefined();
+    });
+
+    it('of the two readings of the pool’s total, the larger: the smaller figure, never the flattering one', () => {
+      // Others locked since the basis was read: the pool's own read is larger, and wins.
+      const fresher = ladderEarning(bayla, running({ totalWeighted: 200n }), wallet(two(), basis(100n)), 0)!;
+      expect(fresher.perDayRaw).toBe(perDayAtTodaysRate(10n, 200n, running(), 0)! * 2n);
+      // The pool's own read is older and smaller: the basis is larger, and wins.
+      const older = ladderEarning(bayla, running({ totalWeighted: 50n }), wallet(two(), basis(100n)), 0)!;
+      expect(older.perDayRaw).toBe(perDayAtTodaysRate(10n, 100n, running(), 0)! * 2n);
+    });
+
+    it.each([
+      ['no share basis was read', () => wallet(two()), running()],
+      ['the list of locks is partial', () => wallet(two(), { ...basis(), truncated: true }), running()],
+      ['the wallet has more locks than were read', () => {
+        const w = wallet(two(), basis());
+        return { ...w, stats: { ...w.stats!, openPositions: 3 } };
+      }, running()],
+      ['your weight is above the pool’s total: the two reads disagree', () => wallet(two(), basis(100n, 20n)), running({ totalWeighted: 15n })],
+      ['no reward window was ever scheduled', () => wallet(two(), basis()), lpool({ totalWeighted: 100n })],
+      ['the reward window has ended', () => wallet(two(), basis()), running({ periodFinish: 0n })],
+      ['the pool stakes another coin', () => wallet(two(), basis()), running({ mint: OTHER_MINT })],
+      ['there is no open lock', () => wallet([], basis(100n, 0n)), running()],
+    ] as const)('no figure, never a zero, when %s', (_, w, p) => {
+      expect(ladderEarning(bayla, p, w() as LadderWalletView, 0)).toBeNull();
+    });
+
+    it('a read that may predate the wallet’s own write states no figure, and asks to be read again', () => {
+      expect(ladderEarning(bayla, running(), wallet(two(), basis()), 0, true)).toBeNull();
+      const p = planLadder(bayla, running(), wallet(two(), basis()), 1_000n, 0, true);
+      expect(p.earning).toBeUndefined();
+      expect(p.settling).toBe(true);
+      // The claims themselves are still offered: a claim is test-run before it is put to the wallet.
+      expect(p.claims).toHaveLength(1);
+    });
   });
 });
 
