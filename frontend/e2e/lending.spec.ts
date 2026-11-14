@@ -48,6 +48,32 @@ test.describe('NFT lending surface', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('lend / borrow / my-loans sub-tabs switch', async ({ page, walletMock }) => {
+    test.skip(!lendingLive, NOT_LIVE);
+    await walletMock.connect();
+    await page.goto('/nft-finance');
+
+    const nftLendingTab = page.getByRole('tab', { name: /NFT Lending/i }).first();
+    await nftLendingTab.click();
+
+    for (const label of [/^Borrow$/i, /^My Loans$/i, /^Lend$/i]) {
+      const tab = page.getByRole('tab', { name: label });
+      await expect(tab).toBeVisible();
+      await tab.click();
+      await expect(tab).toHaveAttribute('aria-selected', 'true');
+    }
+  });
+
+  /**
+   * ⚠ THIS LEG ASSERTS ON-CHAIN STATE, NOT A RECEIPT LINK — deliberately. The surface
+   * confirms with toasts; what it draws straight from the chain is the loan itself, and
+   * the NFT's owner. Both are strictly harder to fake than a link.
+   *
+   * The fixture plants the precondition mainnet does not have (a Nakamigos in this
+   * account, and a lender with approved WETH who has signed a whole-collection offer),
+   * and the spec posts that offer through the book's own create action, which checks
+   * the signature and the lender's WETH against the fork.
+   */
   // Another lender can take a loan over on Gondi's contract without the site (refinanceFull);
   // the book then holds the old id as "refinanced". My Loans must say it moved, not that it
   // closed, and offer no button on it. The screenshot is attached for the reviewer's read.
@@ -89,32 +115,6 @@ test.describe('NFT lending surface', () => {
     await test.info().attach('my-loans-moved', { path: shot, contentType: 'image/png' });
   });
 
-  test('lend / borrow / my-loans sub-tabs switch', async ({ page, walletMock }) => {
-    test.skip(!lendingLive, NOT_LIVE);
-    await walletMock.connect();
-    await page.goto('/nft-finance');
-
-    const nftLendingTab = page.getByRole('tab', { name: /NFT Lending/i }).first();
-    await nftLendingTab.click();
-
-    for (const label of [/^Borrow$/i, /^My Loans$/i, /^Lend$/i]) {
-      const tab = page.getByRole('tab', { name: label });
-      await expect(tab).toBeVisible();
-      await tab.click();
-      await expect(tab).toHaveAttribute('aria-selected', 'true');
-    }
-  });
-
-  /**
-   * ⚠ THIS LEG ASSERTS ON-CHAIN STATE, NOT A RECEIPT LINK — deliberately. The surface
-   * confirms with toasts; what it draws straight from the chain is the loan itself, and
-   * the NFT's owner. Both are strictly harder to fake than a link.
-   *
-   * The fixture plants the precondition mainnet does not have (a Nakamigos in this
-   * account, and a lender with approved WETH who has signed a whole-collection offer),
-   * and the spec posts that offer through the book's own create action, which checks
-   * the signature and the lender's WETH against the fork.
-   */
   test('borrow → repay full cycle (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
     test.skip(!lendingLive, NOT_LIVE);
