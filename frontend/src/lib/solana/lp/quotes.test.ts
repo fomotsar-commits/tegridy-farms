@@ -56,6 +56,24 @@ describe('the pairing coins', () => {
     expect(QUOTE_COINS_IN_TURN).toBe('SOL pools first, then USDC, then BAYLA, then BOBO, then SOY, then BRAINLET, then RIZZ');
   });
 
+  // Spec 2026-11-14 (rule 12): a coin is only ever APPENDED. The earlier of two coins is a
+  // pool's quote (readPair), so a coin inserted between two, or two swapped, would flip how
+  // every existing pool of theirs reads. Today's seven, written out here and never imported,
+  // stay the exact prefix of the list, at these mints, in this order, whatever comes after.
+  it('today’s seven rows are the exact prefix of the list: a new coin can only be appended', () => {
+    const TODAY: ReadonlyArray<readonly [string, string]> = [
+      ['SOL', 'So11111111111111111111111111111111111111112'],
+      ['USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'],
+      ['BAYLA', '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'],
+      ['BOBO', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
+      ['SOY', '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'],
+      ['BRAINLET', '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump'],
+      ['RIZZ', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
+    ];
+    expect(QUOTE_COINS.length).toBeGreaterThanOrEqual(TODAY.length);
+    expect(QUOTE_COINS.slice(0, TODAY.length).map((q) => [q.symbol, q.mint])).toEqual(TODAY);
+  });
+
   it('SOL is the classic native mint and the only native one', () => {
     expect(SOL).toBe(NATIVE_MINT.toBase58());
     expect(SOL_QUOTE).toMatchObject({ decimals: 9, native: true, program: TOKEN_PROGRAM_ID.toBase58() });

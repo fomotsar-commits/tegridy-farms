@@ -8,10 +8,23 @@ import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_P
  * checker each know these seven and nothing else, so a pool of two unknown tokens is
  * still `other-pair` and is never written to.
  *
- * ONE ROW PER COIN. Adding a coin is a row here, a row in the server's copy
- * (api/_lib/pool-index.js `QUOTE_COINS`, pinned to this list by a test), its mint's
- * mainnet dump beside the others in scripts/solana-localnet/golden (the row is pinned to
- * it by a test) and nothing else.
+ * ONE ROW PER COIN, APPENDED, NEVER DELETED. A new coin goes after every row, never
+ * between two: a row's place decides how every existing pool reads (below), so today's
+ * seven stay the exact prefix (a test pins it). A coin that goes bad is flagged
+ * `delisted`, not removed. Adding one is a PR on the owner's ruling for that coin (spec
+ * 2026-11-14, sections 4 and 5), and it takes all of these:
+ *   - its mint in mints.ts, and here its symbol in `QuoteSymbol`, its row and its place
+ *     at the end of `QUOTE_COINS`;
+ *   - its WELL_KNOWN_NAMES row (tokenSafety.ts) and the server's copy of that row
+ *     (api/_lib/share-name.js), so a copy of its name reads "fake";
+ *   - the server's other copies: api/_lib/pool-index.js `QUOTE_COINS` (pinned to this
+ *     list by a test), api/_lib/outside-prices.js `FIRST_MINTS`, api/_lib/position.js
+ *     `KNOWN`, and the volume counter's list (scripts/lib/venue-volume-chain.mjs);
+ *   - its mint's mainnet dump beside the others in scripts/solana-localnet/golden (the row
+ *     is pinned to it by a test);
+ *   - every test and e2e spec that writes the coin list out: the pool-opening card tests
+ *     (CreatePoolCard, CreatePoolPairing), SolanaRouteLine, the api's pools and
+ *     outside-prices tests, and e2e-solana lp-coins and lp-create.
  *
  * WHICH SIDE IS THE QUOTE. The list is in rank order. A pool that pairs two of these
  * coins is read as the LOWER-ranked one priced in the HIGHER-ranked one:
