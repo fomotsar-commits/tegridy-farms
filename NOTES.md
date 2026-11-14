@@ -15,6 +15,40 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: a test that clicks a hover-to-open tooltip shuts it whenever the hover draws first
+
+**Believed:** `click()` on `InfoTooltip`'s "?" opens its bubble on every project. It did locally on
+all four and in CI's Chromium.
+
+**Measured** (PR #1222, e2e/lending.spec.ts, the stat tiles): CI's iphone-safari and ipad-safari
+found no tooltip on all three attempts, while the same test passed 6 of 6 on this PC's WebKit. A
+Playwright click first moves the mouse, which fires mouseenter and opens the bubble; the click then
+toggles from the state read at pointerdown. When React has drawn the hover before the press lands,
+the click shuts it. Hovering 150 ms before the click turned it red on all four projects, Chromium
+included. `launchOptions.slowMo: 150` did not: it spaces actions, not the move and the press inside
+one click. A tap cannot lose this way: traced in Chromium and WebKit, pointerdown(touch) comes before
+any mouseover, so the press reads the bubble shut and opens it.
+
+**Do:** open a hover-and-click control as its visitor does: `tap()` when `hasTouch`, `hover()`
+otherwise; close it with a second tap or a hover elsewhere. To reproduce a CI-only race like this,
+hover and wait before the press; slowMo will not split a click.
+
+## 2026-11-14: the range program on mainnet is not trunk's source, so who may start a reward differs
+
+**Believed:** `solana/tegridy-clmm` on `mvp-launch` is what mainnet runs, so a rule fixed in
+its source holds on chain.
+
+**Measured** (read-only, slot 469,259,180): the program data's first 1,527,072 bytes hash to
+`1e896e1e...` and the rest are zero, which is the open-fee build of 2026-10-25 (`af897c1cd`).
+The 2026-11-03 source fixes never shipped. On that build `initialize_reward` still accepts the
+pool's own opener (`reward_funder == pool_state.owner`), the clause the owner's CR-4 ruling
+deleted from source. It is dormant only because no operation account exists, and that account
+is the first step to any reward.
+
+**Do:** before reasoning from the program's source, hash the chain's program data against the
+build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
+read the deployed commit with `git show <commit>:<path>`.
+
 ## 2026-11-14: a tooltip Playwright calls visible can be clipped to nothing by its card
 
 **Believed:** an open `InfoTooltip` (its bubble is `absolute z-50`) shows above the page, and a

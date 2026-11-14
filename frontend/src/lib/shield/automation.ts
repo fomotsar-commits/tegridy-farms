@@ -58,15 +58,14 @@ export const ALERT_IS_NOT_AN_ACTION =
 /**
  * The other half of "one-click prepared action": which actions exist at all.
  *
- * A borrower arriving from a money market looks for the two moves that work
- * there — add collateral, or deleverage by repaying part of the debt. Neither
- * exists on Gondi's loan contract: a borrower's `repayLoan` repays every tranche
- * whole, and the collateral is a single NFT that cannot be partly sold. Leaving that unsaid
- * would send a user hunting for a smaller, cheaper move that is not there while
- * the deadline runs out.
+ * A borrower from a money market looks for a collateral top-up or a part repayment: Gondi's
+ * `repayLoan` repays every tranche whole, and the collateral is one NFT. The contract can
+ * move a loan to a new lender's offer (refinanceFromLoanExecutionData), which this site does
+ * not build, so the claim is about this site. Unsaid, a user hunts for a smaller move here
+ * while the deadline runs out.
  */
 export const ONLY_FULL_REPAYMENT =
-  'Full repayment is the only move these loans have. The lending contract takes no partial repayment, no collateral top-up and no deleverage — the collateral is one NFT, sold whole or not at all — so nothing smaller than the whole amount clears the deadline.';
+  "Here, full repayment is the only move these loans have. The loan contract takes no partial repayment and no collateral top-up: the collateral is one NFT, sold whole or not at all. It can move a loan to another lender's new offer, but this site does not build that, so here nothing smaller than the whole amount clears the deadline.";
 
 export interface ShieldAutomationState {
   /** True only when a named executor actually submits transactions for the user. */

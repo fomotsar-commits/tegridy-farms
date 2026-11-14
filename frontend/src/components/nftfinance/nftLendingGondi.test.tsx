@@ -381,6 +381,57 @@ describe('my loans: only a loan the chain confirms gets a button', () => {
     return screen.findByText('Loan #3');
   }
 
+  // Gondi lets another lender take a loan over without the borrower or the site; the old id's
+  // hash goes to zero. The book is asked how it closed, so the new loan can be listed.
+  it('a loan the chain closed while the book holds it open: My Loans asks the book how', async () => {
+    await openMyLoans(`0x${'0'.repeat(64)}`);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .filter(([, init]) => init?.method === 'POST')
+          .map(([, init]) => JSON.parse(String(init!.body)) as Record<string, unknown>),
+      ).toContainEqual({ action: 'loan-sync', loanId: '3' }),
+    );
+  });
+
+  it('a loan another lender took over reads "Moved", and says where the new one is', async () => {
+    book.loans = [{ loanId: '3', loan: loanJson, status: 'refinanced', emitTx: `0x${'1'.repeat(64)}`, closeTx: `0x${'2'.repeat(64)}` }];
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'My Loans' }));
+    const card = (await screen.findByText('Loan #3')).closest('div.relative') as HTMLElement;
+    expect(within(card).getByText('Moved')).toBeTruthy();
+    expect(within(card).getByTestId('loan-moved').textContent).toMatch(/another lender took it over/);
+    // The borrower's NFT did not come back: it is locked in the new loan.
+    expect(within(card).getByTestId('loan-moved').textContent).toMatch(/Your NFT stays locked in the new loan, listed here with its own deadline\./);
+    expect(within(card).getByTestId('loan-moved').textContent).not.toMatch(/paid your WETH back/);
+    expect(within(card).queryByRole('button')).toBeNull();
+  });
+
+  it('the lender of a loan taken over reads that they were paid back, unless they lend on the new one', async () => {
+    const lent: LoanJson = {
+      ...loanJson,
+      borrower: '0x7777777777777777777777777777777777777777',
+      tranche: [{ ...loanJson.tranche[0]!, lender: WALLET }],
+    };
+    book.loans = [{ loanId: '3', loan: lent, status: 'refinanced', emitTx: `0x${'1'.repeat(64)}`, closeTx: `0x${'2'.repeat(64)}` }];
+    renderWithProviders(<NFTLendingSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'My Loans' }));
+    const card = (await screen.findByText('Loan #3')).closest('div.relative') as HTMLElement;
+    expect(within(card).getByTestId('loan-moved').textContent).toMatch(
+      /If you do not lend on the new loan, you were paid your WETH back plus the interest so far, less the venue's share\./,
+    );
+    expect(within(card).getByTestId('loan-moved').textContent).not.toMatch(/Your NFT stays locked/);
+  });
+
+  // Closed on chain, the book not yet told how: the card says what "Closed" can mean.
+  it('a loan closed on chain but not yet found says what Closed can mean', async () => {
+    const card = (await openMyLoans(`0x${'0'.repeat(64)}`)).closest('div.relative') as HTMLElement;
+    expect(within(card).getByText('Closed')).toBeTruthy();
+    expect(
+      within(card).getByText('Closed on chain: repaid, claimed, or moved to a new loan. If it moved, the new loan shows here once found.'),
+    ).toBeTruthy();
+  });
+
   it('a matching hash: repay sends the recorded loan back, whole', async () => {
     const card = (await openMyLoans(loanHash(loanFromJson(loanJson)))).closest('div.relative') as HTMLElement;
     expect(within(card).getByRole('button', { name: 'Repay Loan' })).toHaveClass('btn-primary');

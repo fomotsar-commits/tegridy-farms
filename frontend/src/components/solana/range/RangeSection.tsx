@@ -147,8 +147,11 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
-  // The positions' tokens, named the same way, in one read.
-  const positionMints = positions.read?.kind === 'ok' ? [...new Set(positions.read.value.positions.flatMap((w) => pairOf(w.pool)?.tokenMint ?? []))].sort() : [];
+  // The positions' tokens and their pools' reward coins, named the same way, in one read.
+  const positionMints =
+    positions.read?.kind === 'ok'
+      ? [...new Set(positions.read.value.positions.flatMap((w) => [...(pairOf(w.pool) ? [pairOf(w.pool)!.tokenMint] : []), ...w.pool.rewardInfos.filter((r) => r.initialized).map((r) => r.tokenMint)]))].sort()
+      : [];
   const positionChecks = useChainRead(positionMints.length ? `checks:${positionMints.join(',')}` : null, 0, () => checksOf(readers, positionMints));
   const nameOf = useCallback(
     (mint: string) => tokenTicker(mint, positionChecks.read?.kind === 'ok' ? positionChecks.read.value.get(mint) : null),
@@ -389,7 +392,7 @@ const chipCls = (on: boolean) =>
 
 const NOTE_WHAT = {
   'range-open': 'opening a range position',
-  'range-remove': 'taking liquidity or fees out of a range position',
+  'range-remove': 'taking liquidity, fees or rewards out of a range position',
   'range-close': 'closing a range position',
   'range-create': 'opening a range pool and its first position',
 } as const;
@@ -476,8 +479,9 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
           <p>You pick a lowest and a highest price. Your coins work only while the pool’s price is between them, so a narrow range earns more of each fee while it lasts and stops earning sooner.</p>
           <p>As the price moves through your range, the pool swaps your coins for you: rising, it sells the token for the other coin; falling, it buys the token. At either end you hold one coin only.</p>
           {pair && pool && (
-            <p>{`Fees in this pool are paid ${feePaidIn(pool.pool.feeOn, pair.tokenIsToken0 ? tokenWord(pair) : pair.quote.symbol, pair.tokenIsToken0 ? pair.quote.symbol : tokenWord(pair))}, and stay with your position until you claim them.`}</p>
+            <p>{`Fees in this pool are paid ${feePaidIn(pool.pool.feeOn, pair.tokenIsToken0 ? tokenWord(pair) : pair.quote.symbol, pair.tokenIsToken0 ? pair.quote.symbol : tokenWord(pair))}, and stay with your position until you collect them.`}</p>
           )}
+          <p>If a pool runs a reward, positions in range share it by their liquidity. Whoever starts a reward pays for all of it up front, and the venue takes no cut of it.</p>
           <p>Your position is an NFT in your wallet. Whoever holds the NFT can take the position out, so keep it as you would the coins.</p>
           <p>Opening a position pays deposits for its record and its NFT, which come back when you close it. A band of prices nobody has used yet also takes a deposit that never comes back, about 0.072 SOL each at today’s rent.</p>
           <p>Your coins sit in the pool’s vaults, which only the range program moves. The team’s vault can switch that program’s pools off or replace it: see Risks beside the deposit.</p>
