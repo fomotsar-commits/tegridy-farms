@@ -16,7 +16,8 @@ export type Read<T> = { status: 'ok'; data: T } | { status: 'unread'; reason: st
 
 const unread = (reason: string): { status: 'unread'; reason: string } => ({ status: 'unread', reason });
 
-async function getJson(op: string, params: Record<string, string>, signal?: AbortSignal): Promise<Read<unknown>> {
+/** One named read of /api/cardano, as JSON, or why it could not be read. */
+export async function getJson(op: string, params: Record<string, string>, signal?: AbortSignal): Promise<Read<unknown>> {
   const qs = new URLSearchParams(params).toString();
   let res: Response;
   try {
@@ -32,7 +33,7 @@ async function getJson(op: string, params: Record<string, string>, signal?: Abor
   }
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A decimal string as a bigint, or null. Koios sends amounts as strings; a number is refused. */
 function amount(v: unknown): bigint | null {
@@ -302,6 +303,18 @@ export async function readUtxoSpent(txHash: string, index: number, signal?: Abor
   if (row === undefined) return { status: 'ok', data: null };
   if (!isRecord(row) || typeof row.is_spent !== 'boolean') return unread('the output read was malformed');
   return { status: 'ok', data: row.is_spent };
+}
+
+/** A UTxO as the chain holds it now (what it holds and its datum), and whether it is spent. null: the chain does not know it (yet). */
+export async function readUtxo(txHash: string, index: number, signal?: AbortSignal): Promise<Read<{ utxo: ChainUtxo; spent: boolean } | null>> {
+  const r = await getJson('utxo', { ref: `${txHash}#${index}` }, signal);
+  if (r.status !== 'ok') return r;
+  if (!Array.isArray(r.data)) return unread('the output read was not a list');
+  const row = r.data.find((x) => isRecord(x) && x.tx_hash === txHash && x.tx_index === index);
+  if (row === undefined) return { status: 'ok', data: null };
+  const utxo = chainUtxoFromKoios(row);
+  if (!utxo || !isRecord(row) || typeof row.is_spent !== 'boolean') return unread('the output read was malformed');
+  return { status: 'ok', data: { utxo, spent: row.is_spent } };
 }
 
 /** Transactions touching a payment credential at or after a block height, newest first. */
