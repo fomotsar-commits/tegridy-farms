@@ -5,7 +5,7 @@
 //   1. One row: the swap form, BAYLA's stake card (short) and its SOL pool's LP card, in that
 //      order, so stake and LP sit side by side; each is the form its own page mounts.
 //   2. All inside ONE SolanaProviders, so a wallet connected in one is connected in the others.
-//   3. The LP card only once the venue reads open, as on /solana-lp; the swap only where the
+//   3. The LP card only once the venue reads open, as on /pools; the swap only where the
 //      swap is live, as on /solana.
 //   4. The LP card carries the Pools network drop-down (owner, 2026-10-17: "swap and add
 //      liquidity missing chain drop down"), lit on Solana; another network leaves for its tab.
@@ -48,8 +48,24 @@ vi.mock('./solana/SolanaProviders', () => ({
     <div data-testid="solana-providers" data-mixed={String(Boolean(mixed))}>{children}</div>
   ),
 }));
-vi.mock('../pages/SolanaSwapPage', () => ({
-  SolanaSwapInner: ({ home }: { home?: boolean }) => <div data-testid="swap-form" data-home={String(Boolean(home))} />,
+// The Solana form's own network drop-down is the card's (layout/moduleNetwork.tsx): the stand-in presses its pick.
+vi.mock('../pages/SolanaSwapPage', async () => {
+  const { useModuleNetwork } = await import('./layout/moduleNetwork');
+  return {
+    SolanaSwapInner: ({ home }: { home?: boolean }) => {
+      const mod = useModuleNetwork();
+      return (
+        <div data-testid="swap-form" data-home={String(Boolean(home))}>
+          <button type="button" onClick={() => mod?.pick('base')}>pick base</button>
+        </div>
+      );
+    },
+  };
+});
+// Another network's form is its page's own, tested there: a stand-in says which one the card mounted.
+vi.mock('./swap/NetworkForms', () => ({
+  OffSolanaSwap: ({ chain }: { chain: string }) => <p data-testid="off-solana-swap">{chain}</p>,
+  OffSolanaPools: ({ chain }: { chain: string }) => <p data-testid="off-solana-pools">{chain}</p>,
 }));
 vi.mock('./bungalow/SolanaLadderPoolLive', () => ({
   SolanaLadderPoolCard: ({ bungalow, compact }: { bungalow: { id: string; ladderPool: string }; compact?: boolean }) => (
@@ -113,13 +129,41 @@ describe('the home cards', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Add SOL + BAYLA' })).toBeInTheDocument();
   });
 
-  it('gives the LP card the Pools network drop-down, on Solana; Base leaves for Base’s add / remove', () => {
+  // Owner, 2026-11-11: "when i try to switch chains ... it takes me to a different page rather than just
+  // switching chains on the existing module". A pick changes the card's form; the address does not move.
+  it('gives the LP card the Pools network drop-down, on Solana; Base puts Base’s add / remove in the card, and Solana brings it back', () => {
     mount();
-    const card = screen.getByTestId('home-lp');
+    const where = screen.getByTestId('where').textContent;
+    let card = screen.getByTestId('home-lp');
     fireEvent.click(within(card).getByRole('button', { name: 'Pools network: Solana' }));
     expect(within(card).getByRole('option', { name: /Solana/ })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(within(card).getByRole('option', { name: /Base/ }));
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/liquidity\?c=8453$/);
+    expect(screen.getByTestId('where').textContent, 'the page did not change').toBe(where);
+    card = screen.getByTestId('home-lp');
+    expect(card).toHaveAttribute('data-network', 'base');
+    expect(within(card).getByTestId('off-solana-pools')).toHaveTextContent('base');
+    expect(screen.queryByTestId('lp-inner'), 'Solana’s form is gone while the card is on Base').toBeNull();
+    // The row keeps its three cards in their places.
+    expect([...screen.getByTestId('home-modules').children].map((c) => c.getAttribute('data-testid'))).toEqual(['home-swap', 'home-stake', 'home-lp']);
+    fireEvent.click(within(card).getByRole('button', { name: 'Pools network: Base' }));
+    fireEvent.click(within(card).getByRole('option', { name: /Solana/ }));
+    expect(within(screen.getByTestId('home-lp')).getByTestId('lp-inner')).toBeInTheDocument();
+    expect(screen.getByTestId('where').textContent).toBe(where);
+  });
+
+  it('the swap card’s network pick puts that network’s swap in the card, in place', () => {
+    mount();
+    const where = screen.getByTestId('where').textContent;
+    const card = screen.getByTestId('home-swap');
+    expect(card).toHaveAttribute('data-network', 'solana');
+    // The Solana form's own drop-down is the form's (SolanaSwapPage, stubbed here): the card's pick is what it calls.
+    fireEvent.click(within(card).getByRole('button', { name: 'pick base' }));
+    expect(screen.getByTestId('home-swap')).toHaveAttribute('data-network', 'base');
+    expect(within(screen.getByTestId('home-swap')).getByTestId('off-solana-swap')).toHaveTextContent('base');
+    expect(screen.getByTestId('where').textContent, 'the page did not change').toBe(where);
+    fireEvent.click(within(screen.getByTestId('home-swap')).getByRole('button', { name: 'Swap network: Base' }));
+    fireEvent.click(within(screen.getByTestId('home-swap')).getByRole('option', { name: /Ethereum/ }));
+    expect(within(screen.getByTestId('home-swap')).getByTestId('off-solana-swap')).toHaveTextContent('ethereum');
   });
 
   it.each<[string, VenueStatus | null]>([

@@ -62,6 +62,9 @@ vi.mock('../lib/heat/heatClient', () => ({
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
 
+// The countdown's roster reads the island's board through the torches read: 28 warming.
+vi.mock('../hooks/useIslandTorches', () => ({ useIslandTorches: () => ({ warming: 28 }) }));
+
 const { HeatCard } = await import('./HeatCard');
 
 function wireReading(over: Record<string, unknown> = {}) {
@@ -660,7 +663,8 @@ describe('row R: a retired row is labeled and not counted', () => {
     expect(screen.queryByText(/Sum across/)).toBeNull();
     expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
-    expect(screen.queryByText('348.21°')).toBeNull();
+    // Outside the countdown, whose warm state prints the served degrees themselves.
+    expect(screen.queryAllByText('348.21°').filter((el) => !el.closest('[data-testid="countdown"]'))).toHaveLength(0);
   });
 });
 
@@ -741,10 +745,12 @@ describe('the ladder', () => {
     expect(rungs).toHaveLength(5);
     // THE ISLAND'S DIALS, CLIMBED. TIER_FLOORS is published high-to-low and a
     // ladder is read low-to-high, so a list rendered in source order is a real
-    // defect and not a style choice. Five rungs, Drifter included: a warm wallet
-    // under 30 is standing on it, and a ladder that hides the rung under
-    // somebody's feet has started lying about where they are.
-    expect(rungs[0]).toContain('Drifter');
+    // defect and not a style choice. Five rungs, the bottom one included: a warm
+    // wallet under 30 is standing on it, and a ladder that hides the rung under
+    // somebody's feet has started lying about where they are. It reads Cold, as the
+    // island's own ladder does: the venue never prints Drifter (answer twenty-six).
+    expect(rungs[0]).toContain('Cold');
+    expect(rungs[0]).not.toContain('Drifter');
     expect(rungs[0]).toContain('0°');
     expect(rungs[1]).toContain('Observer');
     expect(rungs[1]).toContain('30°');
@@ -762,7 +768,7 @@ describe('the ladder', () => {
     const rungs = await ladderRows();
     const reached = rungs.filter((r) => r.includes('reached'));
     expect(reached).toHaveLength(3);
-    expect(reached.every((r) => /Drifter|Observer|Resident/.test(r))).toBe(true);
+    expect(reached.every((r) => /Cold|Observer|Resident/.test(r))).toBe(true);
     expect(rungs[3]).not.toContain('reached');
     expect(rungs[4]).not.toContain('reached');
   });
@@ -787,7 +793,8 @@ describe('the ladder', () => {
     expect(sentence.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
     // Hung under the rung tierFor returns, which for 123 is Resident.
     expect(sentence.closest('li')?.textContent).toMatch(/^Resident\s*80°/);
-    expect(screen.getByText('the door opens at 123°')).toBeTruthy();
+    // 95 is under 123: the countdown's track ends on the door, named by its number alone.
+    expect(screen.getByText('123° · the door')).toBeTruthy();
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
@@ -799,7 +806,7 @@ describe('the ladder', () => {
       'At 300 degrees you reach Builder, the tier that may plant a launch here.',
     );
     expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*300°/);
-    expect(screen.getByText('the door opens at 300° · Builder')).toBeTruthy();
+    expect(screen.getByText('300° · the door')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -1122,6 +1129,36 @@ describe('the field names every chain the reader takes', () => {
   });
 });
 
+// One green button per screen, on the home (island answer twenty-eight, §2.2): Read heat has done
+// its job the moment a reading is on the screen, so it goes quiet, and the countdown's Start the
+// clock stays the one green button. Before a read it is the card's green button.
+describe('Read Heat goes quiet once a reading is on the screen', () => {
+  const press = () => screen.getByRole('button', { name: 'Read Heat' });
+
+  it('is the green button before anything is read', () => {
+    mountOpen();
+    expect(press().className).toMatch(/\bbtn-primary\b/);
+    expect(press().getAttribute('data-quiet')).toBeNull();
+  });
+
+  it('is quiet beside a reading: same press, 0.25 white edge, 0.78 white words, no fill', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 16.32, tier: 'Drifter', days_to_plant: 102 }));
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <HeatCard variant="embedded" initialAddress={ADDR} />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('countdown');
+    expect(press().className).not.toMatch(/\bbtn-primary\b/);
+    expect(press().getAttribute('data-quiet')).toBe('true');
+    expect(press().style.background).toBe('transparent');
+    expect(press().style.border).toBe('1px solid rgba(255, 255, 255, 0.25)');
+    expect(press().style.color).toBe('rgba(255, 255, 255, 0.78)');
+    // It keeps its word, and the countdown's Start the clock is the screen's green button.
+    expect(screen.getByRole('link', { name: 'Start the clock' }).className).toMatch(/\bbtn-primary\b/);
+  });
+});
+
 describe('a reading older than the freshness law allows', () => {
   it('says it is stale without a prose em dash', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ as_of_unix: NOW - 8 * 86_400, observedAt: NOW - 8 * 86_400 }));
@@ -1137,12 +1174,13 @@ describe('the island dials, on the card', () => {
     mount();
     const rungs = await ladderRows();
     expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
-      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '300'], ['Elder', '800'],
+      ['Cold', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '300'], ['Elder', '800'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
     expect(screen.queryByText(/° to /)).toBeNull();
     expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
-    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
+    // The door is not open yet (answer twenty-six): the card's warm state, never the open lane.
+    expect(screen.getByText("warm enough. The door opens on the island's word.")).toBeTruthy();
   });
 
   it('reads an Observer at 73.89 with Resident unreached and the door at 80', async () => {
@@ -1152,8 +1190,10 @@ describe('the island dials, on the card', () => {
     expect(rungs[2]).toMatch(/^Resident\s*80°/);
     expect(rungs[2]).not.toContain('reached');
     expect(screen.getByText('6.11° to Resident')).toBeTruthy();
-    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
-    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
+    // Under the door the card shows the countdown, never "Cannot".
+    expect(screen.getByText('80° · the door')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Start the clock' })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\bcannot\b/i);
   });
 
   it('names the wallet by its served tier, while the rungs come from the bands', async () => {
@@ -1425,29 +1465,37 @@ describe('the days the island counts down', () => {
     expect(container.textContent).not.toMatch(/ in 9 days\./);
   });
 
-  it('says when a wallet under the floor may plant, at the door', async () => {
+  it('says when a wallet under the floor may plant: the island’s days are the countdown’s number', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41 }));
     mount();
-    const line = await screen.findByText('You may plant in 41 days.');
-    // Inside the launch-door panel, beside the verdict it qualifies.
-    expect(line.parentElement?.textContent).toContain('Cannot launch a token yet');
+    const number = await screen.findByText('41');
+    expect(number.nextElementSibling?.textContent).toBe('days');
+    const countdown = screen.getByTestId('countdown');
+    expect(countdown.textContent).toContain('to the door, if you hold from today.');
+    expect(countdown.textContent).not.toMatch(/\bcannot\b/i);
   });
 
   it('prints no plant countdown for a wallet the door already passes', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ days_to_plant: 41 }));
     const { container } = mount();
     await awaitRead();
-    expect(container.textContent).toContain('Can launch a token here');
+    // Past the floor the card is the countdown's warm state (answer twenty-six): no days to the door.
+    expect(container.textContent).not.toContain('Can launch a token here');
     expect(container.textContent).not.toContain('You may plant in');
+    expect(screen.getByTestId('countdown').dataset.state).toBe('warm');
+    expect(screen.getByTestId('countdown').textContent).not.toContain('days');
   });
 
-  it('prints no plant countdown on a stale reading, which decides nothing', async () => {
+  it('prints no plant countdown on a stale reading, which decides nothing, and never says Cannot', async () => {
     h.fetchHeat.mockResolvedValue(
       wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41, as_of_unix: NOW - 8 * 86_400 }),
     );
     const { container } = mount();
     await screen.findByText(/^Stale/);
     expect(container.textContent).not.toContain('You may plant in');
+    expect(screen.queryByTestId('countdown')).toBeNull();
+    expect(screen.getByText('Waiting on a fresh reading')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\bcannot\b/i);
   });
 
   it('prints the next tier under a room’s whole-flame line too', async () => {
@@ -1485,7 +1533,7 @@ describe('the LP door line after a read', () => {
     const doors = await screen.findByTestId('heat-lp-doors');
     // USDC is no room's coin: no line for it, only BAYLA's.
     expect(doors.textContent).toBe('You hold BAYLA. Earn from every BAYLA trade: Add SOL + BAYLA');
-    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/solana-lp?mint=${BAYLA}&task=add`);
+    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/pools?mint=${BAYLA}&task=add`);
   });
 
   it('the wallet’s deepest rooms first, three at most', async () => {
@@ -1497,7 +1545,7 @@ describe('the LP door line after a read', () => {
     expect([...doors.querySelectorAll('a')].map((a) => a.textContent)).toEqual([
       'Add SOL + BOBO', 'Add SOL + SOY', 'Add SOL + RIZZ',
     ]);
-    expect(screen.getByRole('link', { name: 'Add SOL + RIZZ' }).getAttribute('href')).toContain(`/solana-lp?mint=${RIZZ}&task=add&pool=`);
+    expect(screen.getByRole('link', { name: 'Add SOL + RIZZ' }).getAttribute('href')).toContain(`/pools?mint=${RIZZ}&task=add&pool=`);
   });
 
   it('a retired row, a coin with no pool, or a card without the door shows no line', async () => {
@@ -1510,5 +1558,75 @@ describe('the LP door line after a read', () => {
     mountWith(false);
     await awaitRead();
     expect(screen.queryByTestId('heat-lp-doors')).toBeNull();
+  });
+});
+
+// THE COUNTDOWN ON THE CARD (island answer twenty-four, build 5; twenty-five, screen 2): a
+// wallet under the launch floor is never told "Cannot". It sees a timer, one line, one green
+// button and the roster. At the floor and up the card reads as it did.
+describe('the countdown, for a wallet under the launch floor', () => {
+  const COLD_WIRE = { is_cold: true, degrees: 0, tier: 'Drifter', token_count: 0, held_since_unix: null, as_of_unix: null };
+
+  it('replaces the launch line for a cold wallet: the half year, the line, the green button and the roster', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(COLD_WIRE));
+    render(
+      <MemoryRouter initialEntries={['/?heat=x']}>
+        <HeatCard address={ADDR} variant="embedded" />
+      </MemoryRouter>,
+    );
+    const countdown = await screen.findByTestId('countdown');
+    // The degrees alone at the right, never the word Drifter (answer twenty-six).
+    expect(countdown.querySelector('[data-standing]')?.textContent).toBe('0.00°');
+    expect(document.body.textContent).not.toContain('Drifter');
+    expect(countdown.textContent).toContain('about half a year');
+    expect(countdown.textContent).toContain('Residents launch here. Nobody can buy last year.');
+    expect(countdown.textContent).toContain('28 flames are warming toward the door right now.');
+    expect(screen.getByRole('link', { name: 'Start the clock' }).getAttribute('href')).toBe('/?heat=x&sheet=buy');
+    expect(document.body.textContent).not.toMatch(/\bcannot\b|Can launch a token/i);
+  });
+
+  it('at the floor and up the door is not open yet: the warm state, never the open lane', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 80, tier: 'Resident' }));
+    mount();
+    const countdown = await screen.findByTestId('countdown');
+    expect(countdown.dataset.state).toBe('warm');
+    expect(countdown.textContent).toContain("warm enough. The door opens on the island's word.");
+    expect(countdown.textContent).toContain('You are on the list the day it opens.');
+    expect(document.body.textContent).not.toMatch(/Can launch a token|The launch lane is open/);
+  });
+
+  it('leaves the countdown to the page where the page already opens on it (the launch door)', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 41.2, tier: 'Observer' }));
+    const { container, unmount } = render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} variant="embedded" countdown={false} />
+      </MemoryRouter>,
+    );
+    await awaitRead('Observer');
+    expect(screen.queryByTestId('countdown')).toBeNull();
+    expect(container.textContent).not.toMatch(/\bcannot\b|Can launch a token/i);
+    unmount();
+    // A wallet the door passes: the door is not open yet, and the page's own countdown says so.
+    h.fetchHeat.mockResolvedValue(wireReading());
+    const second = render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} variant="embedded" countdown={false} />
+      </MemoryRouter>,
+    );
+    await awaitRead();
+    expect(screen.queryByTestId('countdown')).toBeNull();
+    expect(second.container.textContent).not.toMatch(/Can launch a token|The launch lane is open/);
+  });
+});
+
+describe('the word Drifter is never printed (island answer twenty-six)', () => {
+  it('a reading under Observer shows where the clock starts in place of the word, in the card and in its share', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 12.5, tier: 'Drifter' }));
+    const { container } = mount();
+    expect(await screen.findByText('Your clock starts at your first hold.')).toBeTruthy();
+    expect(container.textContent).not.toContain('Drifter');
+    for (const a of Array.from(container.querySelectorAll('a[href^="https://x.com/intent/post"]'))) {
+      expect(decodeURIComponent(a.getAttribute('href') ?? '')).not.toContain('Drifter');
+    }
   });
 });

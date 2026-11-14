@@ -1,7 +1,7 @@
 === src/lib.rs ===
 6a7,8
 > use crate::error::ErrorCode;
-> use crate::states::PoolState;
+> use crate::states::{PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE};
 7a10,14
 > use anchor_spl::metadata::{
 >     create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
@@ -27,17 +27,38 @@
 >     // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
 >     // claiming it on-chain would be false. Every link above is on our own domain:
 >     // never put a git-host URL in this macro (docs/TODO_OPERATOR.md O-0929-10).
-21a32,48
+21a32,69
 > // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
 > // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
 > // identity constants (3 here + create_support_mint_associated_owner in
 > // instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
 > // added instruction: `create_lp_metadata`, which gives a pool's lp token a name
-> // record (the "TEGRIDY FORK ADDITION" at the bottom of this file). The security.txt
-> // above is ours too, on our own domain since 2026-10-06. Every line of swap/curve/
-> // fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
-> // NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
-> // `amm_config.protocol_owner` (which create_config sets = the admin caller).
+> // record (the "TEGRIDY FORK ADDITION" at the bottom of this file), plus these rules:
+> //   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
+> //   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
+> //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
+> //     4% (its keeper apart, since 2026-11-11: below), and keeps at most 20% of its trade fee
+> //     for the protocol and fund owners together (here and update_config.rs; constants in
+> //     states/config.rs).
+> //   - 2026-11-03, update_config.rs: the admin hands a tier's fund fee over once, while it
+> //     still holds it, and can never point it anywhere else after that.
+> //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
+> //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
+> //   - 2026-11-10, the swap guard: on a tier the admin has switched it on for, a swap that
+> //     another program calls is refused unless the tier's keeper signs it; a wallet's own
+> //     swap never is. Off on every tier until then (states/config.rs `swap_guard`, `keeper`
+> //     and `refuses_swap`; checked first in swap_base_input.rs and swap_base_output.rs; set
+> //     by update_config.rs params 8 and 9; error.rs `SwapNotDirect`).
+> //   - 2026-11-11, the keeper's fee: a tier's keeper (param 9 above) swaps on that tier free
+> //     of the trade fee and the creator fee, so it pays no protocol or fund share either.
+> //     Everyone else pays as upstream. With no keeper named, nobody is free. The rates are
+> //     chosen in states/config.rs `swap_fee_rates`, used in swap_base_input.rs and
+> //     swap_base_output.rs; the curve and fee arithmetic is not touched.
+> // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
+> // swap/curve/fee arithmetic is byte-identical to the audited upstream; since 2026-11-11 the
+> // swaps hand it rates of 0 when a tier's keeper signs. The per-swap
+> // PROTOCOL fee is NOT here: it accrues per `amm_config.protocol_fee_rate` and is
+> // collected by `amm_config.protocol_owner` (which create_config sets = the admin caller).
 > //
 > // (Two header paragraphs deleted 2026-08-24: one claimed the non-devnet authority
 > // constants were fail-closed all-1s sentinels — false, the real values below are
@@ -45,18 +66,20 @@
 > // mistake that shipped 2026-08-08 and bricked graduation. The authoritative
 > // guidance is the admin module's own comment below: the constant must be a
 > // SIGNABLE, SYSTEM-OWNED, rent-paying account, never the Squads multisig account.)
-23c50
+23c71
 < declare_id!("DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
 ---
 > declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
-25c52
+25c73
 < declare_id!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
 ---
 > declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
-28a56,81
+28a77,106
 >     // Admin authority: create_config / update_config / update_pool_status AND a
->     // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
->     // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
+>     // fallback collector on collect_protocol_fee (can sweep accrued protocol fees to any
+>     // recipient) — a fund-touching, top-tier key. Since 2026-11-03 it is not one on
+>     // collect_fund_fee: only the tier's fund owner collects the fund fee, and the admin
+>     // hands that role over only once (update_config.rs).
 >     //
 >     // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
 >     // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
@@ -79,30 +102,48 @@
 >     // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
 >     // lamports — so fund it before `create_amm_config`. Every admin action is now a
 >     // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
->     // it is resolved at compile time.
-30c83
+>     // it is resolved at compile time. Before moving it, hand over every tier whose fund
+>     // owner is still this key: update_config.rs lets only the running build's admin hand
+>     // a fund fee over, so a tier left on the old key could not be handed over again.
+30c108
 <     pub const ID: Pubkey = pubkey!("DRayqG9RXYi8WHgWEmRQGrUWRWbhjYWYkCRJDd6JBBak");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-32c85
+32c110
 <     pub const ID: Pubkey = pubkey!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-36a90,94
+36a115,119
 >     // Flat pool-creation fee recipient. This account is consumed as a native-SOL
 >     // (WSOL) SPL TOKEN ACCOUNT — the create path deserializes it as
 >     // InterfaceAccount<TokenAccount> and calls sync_native — so it MUST be a WSOL
 >     // token account (e.g. the treasury's WSOL ATA), NOT a wallet. Devnet = the
 >     // treasury/admin's WSOL ATA (created before deploy; see deploy-devnet.sh).
-38c96
+38c121
 <     pub const ID: Pubkey = pubkey!("3oE58BKVt8KuYkGxx8zBojugnymWmBiyafWgMrnb6eYy");
 ---
 >     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
-40c98
+40c123
 <     pub const ID: Pubkey = pubkey!("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
 ---
 >     pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
-298a357,513
+67c150,153
+<         assert!(trade_fee_rate + creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+---
+>         // memetics.finance: a trade fee of 0 makes every swap into a public pool revert
+>         // (split_creator_fee divides by the two rates' sum), so it is refused.
+>         assert!(trade_fee_rate > 0);
+>         assert!(trade_fee_rate + creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
+70c156
+<         assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+---
+>         assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
+93a180,183
+>     /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
+>     ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
+>     ///   remaining account (the System Program's address clears it). Since 2026-11-11 the
+>     ///   keeper also swaps on the tier free of the trade and creator fees
+298a389,545
 > 
 >     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
 >     /// the caller pays. It takes no arguments: the name, the symbol and the link are fixed
@@ -260,6 +301,19 @@
 >         None,
 >     )?;
 >     Ok(())
+=== src/error.rs ===
+42a43,46
+>     /// memetics.finance: the tier's swap guard is on and another program called the swap
+>     /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
+>     #[msg("This pool's swaps must be sent directly, not called by another program")]
+>     SwapNotDirect,
+=== src/instructions/admin/collect_fund_fee.rs ===
+11,12c11,12
+<     /// Only admin or fund_owner can collect fee now
+<     #[account(constraint = (owner.key() == amm_config.fund_owner || owner.key() == crate::admin::ID) @ ErrorCode::InvalidOwner)]
+---
+>     /// Only fund_owner can collect fee now
+>     #[account(constraint = (owner.key() == amm_config.fund_owner) @ ErrorCode::InvalidOwner)]
 === src/instructions/admin/create_support_mint_associated.rs ===
 6a7,10
 > // TEGRIDY FORK CHANGE (2026-07-10): upstream this alternate authority for the
@@ -285,12 +339,681 @@
 <     pub const ID: Pubkey = pubkey!("Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== src/instructions/admin/update_config.rs ===
+34a35,41
+>         // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
+>         // lets through (states/config.rs). The System Program's address, all zeros, is nobody.
+>         Some(8) => set_swap_guard(amm_config, value)?,
+>         Some(9) => {
+>             let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
+>             amm_config.keeper = *keeper.key;
+>         }
+40a48,53
+> fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
+>     require!(swap_guard <= 1, ErrorCode::InvalidInput);
+>     amm_config.swap_guard = swap_guard;
+>     Ok(())
+> }
+> 
+43c56
+<     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+---
+>     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
+48c61,63
+<     assert!(trade_fee_rate + amm_config.creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+---
+>     // memetics.finance: never 0, as in create_amm_config (lib.rs).
+>     assert!(trade_fee_rate > 0);
+>     assert!(trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
+54c69
+<     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+---
+>     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
+59c74
+<     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+---
+>     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
+75a91,93
+>     // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
+>     // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
+>     require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
+84a103,277
+> }
+> 
+> /// A fee tier as the update helpers take it.
+> #[cfg(test)]
+> fn test_tier(config: AmmConfig) -> Account<'static, AmmConfig> {
+>     let mut data = Vec::new();
+>     config.try_serialize(&mut data).unwrap();
+>     let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+>         Box::leak(Box::new(Pubkey::new_unique())),
+>         false,
+>         true,
+>         Box::leak(Box::new(1_000_000u64)),
+>         Box::leak(data.into_boxed_slice()),
+>         Box::leak(Box::new(crate::id())),
+>         false,
+>         0,
+>     )));
+>     Account::try_from(info).unwrap()
+> }
+> 
+> #[cfg(test)]
+> mod fee_ceiling_test {
+>     use super::*;
+> 
+>     fn tier(trade: u64, creator: u64, protocol: u64, fund: u64) -> Account<'static, AmmConfig> {
+>         test_tier(AmmConfig {
+>             trade_fee_rate: trade,
+>             creator_fee_rate: creator,
+>             protocol_fee_rate: protocol,
+>             fund_fee_rate: fund,
+>             ..Default::default()
+>         })
+>     }
+> 
+>     // The two tiers on mainnet: fee settings 0 and 1 in frontend/scripts/addresses.json.
+>     fn launch_tier() -> Account<'static, AmmConfig> {
+>         tier(2_500, 5_000, 130_000, 70_000)
+>     }
+>     fn public_tier() -> Account<'static, AmmConfig> {
+>         tier(10_000, 0, 104_000, 56_000)
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR")]
+>     fn a_trade_fee_above_4_percent_is_refused() {
+>         update_trade_fee_rate(&mut public_tier(), 40_001);
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR")]
+>     fn a_creator_fee_taking_the_total_above_4_percent_is_refused() {
+>         update_creator_fee_rate(&mut public_tier(), 30_001);
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "trade_fee_rate > 0")]
+>     fn a_zero_trade_fee_is_refused() {
+>         update_trade_fee_rate(&mut public_tier(), 0);
+>     }
+> 
+>     #[test]
+>     #[should_panic(
+>         expected = "protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE"
+>     )]
+>     fn a_protocol_rate_taking_the_pair_above_20_percent_is_refused() {
+>         update_protocol_fee_rate(&mut public_tier(), 144_001);
+>     }
+> 
+>     #[test]
+>     #[should_panic(
+>         expected = "fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE"
+>     )]
+>     fn a_fund_rate_taking_the_pair_above_20_percent_is_refused() {
+>         update_fund_fee_rate(&mut public_tier(), 96_001);
+>     }
+> 
+>     // Controls: both live tiers can be set to their own values again, and each ceiling
+>     // itself is accepted (the launch tier sits exactly on the 20% one).
+>     #[test]
+>     fn the_live_tiers_and_each_ceiling_itself_are_accepted() {
+>         for mut t in [launch_tier(), public_tier()] {
+>             let (trade, creator) = (t.trade_fee_rate, t.creator_fee_rate);
+>             let (protocol, fund) = (t.protocol_fee_rate, t.fund_fee_rate);
+>             update_trade_fee_rate(&mut t, trade);
+>             update_creator_fee_rate(&mut t, creator);
+>             update_protocol_fee_rate(&mut t, protocol);
+>             update_fund_fee_rate(&mut t, fund);
+>         }
+>         let mut t = public_tier();
+>         update_trade_fee_rate(&mut t, 40_000);
+>         update_protocol_fee_rate(&mut t, 144_000);
+>         assert_eq!(t.trade_fee_rate, 40_000);
+>         assert_eq!(t.protocol_fee_rate + t.fund_fee_rate, 200_000);
+>         let mut c = public_tier();
+>         update_creator_fee_rate(&mut c, 30_000);
+>         update_fund_fee_rate(&mut c, 96_000);
+>         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
+>         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod fund_owner_test {
+>     use super::*;
+> 
+>     /// A tier whose fund fee belongs to `fund_owner`; its protocol owner is the admin, as on
+>     /// every real tier (create_amm_config sets both roles to the admin).
+>     fn owned_by(fund_owner: Pubkey) -> Account<'static, AmmConfig> {
+>         test_tier(AmmConfig {
+>             fund_owner,
+>             protocol_owner: crate::admin::ID,
+>             ..Default::default()
+>         })
+>     }
+> 
+>     fn refused_by_the_hand_over_rule(r: Result<()>) -> bool {
+>         matches!(r, Err(e) if format!("{e:?}").contains("InvalidOwner"))
+>     }
+> 
+>     // Both live tiers' fund fee belongs to the island's Workshop, not to the admin.
+>     #[test]
+>     fn the_admin_cannot_point_a_handed_over_fund_fee_back_at_itself() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(island);
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     #[test]
+>     fn the_admin_cannot_point_a_handed_over_fund_fee_at_another_wallet() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(island);
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, Pubkey::new_unique())));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     // The rule reads the admin key, not the tier's protocol owner: param 3 can move the protocol
+>     // role, so a tier whose two roles both sit with the island must refuse the admin too.
+>     #[test]
+>     fn the_rule_reads_the_admin_key_not_the_tiers_protocol_owner() {
+>         let island = Pubkey::new_unique();
+>         let mut t = test_tier(AmmConfig {
+>             fund_owner: island,
+>             protocol_owner: island,
+>             ..Default::default()
+>         });
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     // Control: a new tier, whose fund owner create_amm_config makes the admin, is handed over.
+>     #[test]
+>     fn the_admin_hands_a_new_tiers_fund_fee_over() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(crate::admin::ID);
+>         set_new_fund_owner(&mut t, island).unwrap();
+>         assert_eq!(t.fund_owner, island);
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod swap_guard_setting_test {
+>     use super::*;
+> 
+>     #[test]
+>     fn the_guard_is_set_on_and_off_and_nothing_else() {
+>         let mut t = test_tier(AmmConfig::default());
+>         set_swap_guard(&mut t, 1).unwrap();
+>         assert_eq!(t.swap_guard, 1);
+>         set_swap_guard(&mut t, 0).unwrap();
+>         assert_eq!(t.swap_guard, 0);
+>         let refused = set_swap_guard(&mut t, 2);
+>         assert!(matches!(refused, Err(e) if format!("{e:?}").contains("InvalidInput")));
+>         assert_eq!(t.swap_guard, 0);
+>     }
 === src/instructions/initialize.rs ===
 204a205,209
 >     // TEGRIDY FORK: index 0 is the launch tier (no opening fee, the lowest trade fee).
 >     // Only graduations open pools on it, through initialize_with_permission.
 >     if ctx.accounts.amm_config.index == 0 {
 >         return err!(ErrorCode::NotApproved);
+>     }
+=== src/instructions/swap_base_input.rs ===
+75a76,84
+>     // memetics.finance: a tier whose swap guard is on takes a swap only as an instruction of the
+>     // transaction itself, its keeper's apart (states/config.rs refuses_swap).
+>     require!(
+>         !ctx.accounts.amm_config.refuses_swap(
+>             solana_program::instruction::get_stack_height(),
+>             ctx.accounts.payer.key
+>         ),
+>         ErrorCode::SwapNotDirect
+>     );
+108,109c117,124
+<     let creator_fee_rate =
+<         pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
+---
+>     // memetics.finance, 2026-11-11: the tier's keeper swaps free of the trade and creator fees
+>     // (states/config.rs swap_fee_rates); everyone else pays both, as upstream.
+>     let (trade_fee_rate, creator_fee_rate, creator_fee_taken_on_input) =
+>         ctx.accounts.amm_config.swap_fee_rates(
+>             ctx.accounts.payer.key,
+>             pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
+>             is_creator_fee_on_input,
+>         );
+114c129
+<         ctx.accounts.amm_config.trade_fee_rate,
+---
+>         trade_fee_rate,
+118c133
+<         is_creator_fee_on_input,
+---
+>         creator_fee_taken_on_input,
+=== src/instructions/swap_base_output.rs ===
+13a14,21
+>     // memetics.finance: the swap guard, as in swap_base_input (states/config.rs refuses_swap).
+>     require!(
+>         !ctx.accounts.amm_config.refuses_swap(
+>             solana_program::instruction::get_stack_height(),
+>             ctx.accounts.payer.key
+>         ),
+>         ErrorCode::SwapNotDirect
+>     );
+46,47c54,61
+<     let creator_fee_rate =
+<         pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
+---
+>     // memetics.finance, 2026-11-11: the tier's keeper swaps free of the trade and creator fees
+>     // (states/config.rs swap_fee_rates); everyone else pays both, as upstream.
+>     let (trade_fee_rate, creator_fee_rate, creator_fee_taken_on_input) =
+>         ctx.accounts.amm_config.swap_fee_rates(
+>             ctx.accounts.payer.key,
+>             pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
+>             is_creator_fee_on_input,
+>         );
+52c66
+<         ctx.accounts.amm_config.trade_fee_rate,
+---
+>         trade_fee_rate,
+56c70
+<         is_creator_fee_on_input,
+---
+>         creator_fee_taken_on_input,
+=== src/states/config.rs ===
+1a2
+> use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
+4a6,12
+> /// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
+> pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
+> 
+> /// memetics.finance: a tier's protocol and fund rates together are at most 20% of its trade
+> /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
+> pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
+> 
+28a37,46
+>     /// memetics.finance: the swap guard. 0, a swap on this tier runs wherever it is called
+>     /// from, as upstream. 1, a swap must be an instruction of the transaction itself: one that
+>     /// another program calls is refused (`refuses_swap`). On 2026-11-10 every arbitrage bot in
+>     /// these pools traded from inside its own program, and every wallet's swap was direct.
+>     /// Taken from upstream's padding, which every tier holds as zeros: off until the admin sets it.
+>     pub swap_guard: u64,
+>     /// memetics.finance: the one signer whose swaps another program may still call while the
+>     /// guard is on, and who, since 2026-11-11, swaps on this tier free of the trade and creator
+>     /// fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody.
+>     pub keeper: Pubkey,
+30c48
+<     pub padding: [u64; 15],
+---
+>     pub padding: [u64; 10],
+34c52,288
+<     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 * 15;
+---
+>     // The same 236 bytes as upstream: the guard and the keeper take 40 of its 120 of padding.
+>     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 + 32 + 8 * 10;
+> 
+>     /// memetics.finance: whether this tier refuses a swap that `payer` signs at `stack_height`:
+>     /// 1 for an instruction of the transaction itself, more for one another program calls.
+>     pub fn refuses_swap(&self, stack_height: usize, payer: &Pubkey) -> bool {
+>         self.swap_guard != 0 && stack_height > TRANSACTION_LEVEL_STACK_HEIGHT && !self.is_keeper(payer)
+>     }
+> 
+>     /// memetics.finance: whether `payer` is this tier's keeper. With no keeper named (the
+>     /// all-zero key) nobody is, not even the all-zero key.
+>     pub fn is_keeper(&self, payer: &Pubkey) -> bool {
+>         self.keeper != Pubkey::default() && self.keeper == *payer
+>     }
+> 
+>     /// memetics.finance, 2026-11-11: the trade fee rate, the creator fee rate, and whether the
+>     /// creator fee is taken on the input, for a swap `payer` signs on a pool whose own creator
+>     /// fee rate is `pool_creator_fee_rate` and whose creator fee is on the input when
+>     /// `creator_fee_on_input`. Everyone pays the tier's trade fee and the pool's creator fee,
+>     /// as upstream, except the tier's keeper, who pays neither (and so no protocol or fund
+>     /// share, which are parts of the trade fee).
+>     ///
+>     /// The keeper's (zero) creator fee is taken on the output. Upstream's on-input path splits
+>     /// the fee by the sum of the two rates (curve/fees.rs split_creator_fee), so with both at 0
+>     /// it divides by 0 and every swap would fail, on every public pool (their creator fee is on
+>     /// both tokens, so on the input). On the output, a rate of 0 takes 0. No line of the fee
+>     /// arithmetic changes.
+>     pub fn swap_fee_rates(
+>         &self,
+>         payer: &Pubkey,
+>         pool_creator_fee_rate: u64,
+>         creator_fee_on_input: bool,
+>     ) -> (u64, u64, bool) {
+>         if self.is_keeper(payer) {
+>             (0, 0, false)
+>         } else {
+>             (self.trade_fee_rate, pool_creator_fee_rate, creator_fee_on_input)
+>         }
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod swap_guard_test {
+>     use super::*;
+> 
+>     const DIRECT: usize = TRANSACTION_LEVEL_STACK_HEIGHT;
+>     const CALLED: usize = TRANSACTION_LEVEL_STACK_HEIGHT + 1;
+> 
+>     fn tier(swap_guard: u64, keeper: Pubkey) -> AmmConfig {
+>         AmmConfig {
+>             swap_guard,
+>             keeper,
+>             ..Default::default()
+>         }
+>     }
+> 
+>     // What every tier on mainnet holds until the admin sets it: zeros where the padding was.
+>     #[test]
+>     fn a_tier_as_upstream_left_it_refuses_nothing() {
+>         let t = AmmConfig::default();
+>         assert_eq!((t.swap_guard, t.keeper), (0, Pubkey::default()));
+>         let anyone = Pubkey::new_unique();
+>         assert!(!t.refuses_swap(DIRECT, &anyone));
+>         assert!(!t.refuses_swap(CALLED, &anyone));
+>         assert!(!t.refuses_swap(CALLED + 3, &anyone));
+>     }
+> 
+>     #[test]
+>     fn the_guard_takes_every_direct_swap_and_refuses_one_another_program_calls() {
+>         let t = tier(1, Pubkey::default());
+>         let anyone = Pubkey::new_unique();
+>         assert!(!t.refuses_swap(DIRECT, &anyone));
+>         assert!(t.refuses_swap(CALLED, &anyone));
+>         assert!(t.refuses_swap(CALLED + 3, &anyone));
+>     }
+> 
+>     #[test]
+>     fn with_no_keeper_set_nobody_is_let_through_not_even_the_all_zero_key() {
+>         let t = tier(1, Pubkey::default());
+>         assert!(t.refuses_swap(CALLED, &Pubkey::default()));
+>     }
+> 
+>     #[test]
+>     fn the_keeper_alone_may_be_called_by_another_program() {
+>         let keeper = Pubkey::new_unique();
+>         let t = tier(1, keeper);
+>         assert!(!t.refuses_swap(CALLED, &keeper));
+>         assert!(!t.refuses_swap(DIRECT, &keeper));
+>         assert!(t.refuses_swap(CALLED, &Pubkey::new_unique()));
+>     }
+> 
+>     // A keeper set while the guard is off changes nothing.
+>     #[test]
+>     fn the_guard_off_refuses_nothing_whatever_the_keeper() {
+>         let t = tier(0, Pubkey::new_unique());
+>         assert!(!t.refuses_swap(CALLED, &Pubkey::new_unique()));
+>     }
+> 
+>     #[test]
+>     fn the_account_is_the_size_upstream_made_it() {
+>         assert_eq!(AmmConfig::LEN, 236);
+>         let mut data = Vec::new();
+>         tier(1, Pubkey::new_unique()).try_serialize(&mut data).unwrap();
+>         assert_eq!(data.len(), AmmConfig::LEN);
+>         // The guard sits where the padding began (byte 116), the keeper right after it (124).
+>         assert_eq!(data[116..124], 1u64.to_le_bytes());
+>         assert!(data[156..].iter().all(|b| *b == 0));
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod keeper_fee_test {
+>     use super::*;
+>     use crate::curve::CurveCalculator;
+> 
+>     // The 1% tier's shape (fee setting 1 on mainnet), and the launch tier's creator fee.
+>     fn tier(keeper: Pubkey) -> AmmConfig {
+>         AmmConfig {
+>             trade_fee_rate: 10_000,
+>             protocol_fee_rate: 104_000,
+>             fund_fee_rate: 56_000,
+>             creator_fee_rate: 5_000,
+>             keeper,
+>             ..Default::default()
+>         }
+>     }
+> 
+>     const X: u128 = 1_000_000_000_000;
+>     const Y: u128 = 2_000_000_000_000;
+> 
+>     #[test]
+>     fn with_no_keeper_named_everyone_pays_as_upstream_even_the_all_zero_key() {
+>         let t = tier(Pubkey::default());
+>         for who in [Pubkey::new_unique(), Pubkey::default()] {
+>             assert!(!t.is_keeper(&who));
+>             assert_eq!(t.swap_fee_rates(&who, 5_000, true), (10_000, 5_000, true));
+>             assert_eq!(t.swap_fee_rates(&who, 0, false), (10_000, 0, false));
+>         }
+>     }
+> 
+>     #[test]
+>     fn the_keeper_alone_pays_no_trade_fee_and_no_creator_fee() {
+>         let keeper = Pubkey::new_unique();
+>         let t = tier(keeper);
+>         assert!(t.is_keeper(&keeper));
+>         assert_eq!(t.swap_fee_rates(&keeper, 5_000, true), (0, 0, false));
+>         assert_eq!(t.swap_fee_rates(&keeper, 0, false), (0, 0, false));
+>         let anyone = Pubkey::new_unique();
+>         assert!(!t.is_keeper(&anyone));
+>         assert_eq!(t.swap_fee_rates(&anyone, 5_000, true), (10_000, 5_000, true));
+>     }
+> 
+>     // Why the keeper's creator fee is taken on the output: on the input, both rates at 0 make
+>     // upstream's split divide by 0, and the swap fails (the program answers ZeroTradingTokens).
+>     #[test]
+>     fn both_rates_at_0_on_the_input_fail_in_upstream_arithmetic_so_the_keeper_never_goes_there() {
+>         assert!(CurveCalculator::swap_base_input(1_000_000, X, Y, 0, 0, 104_000, 56_000, true).is_none());
+>         assert!(CurveCalculator::swap_base_output(1_000_000, X, Y, 0, 0, 104_000, 56_000, true).is_none());
+>     }
+> 
+>     #[test]
+>     fn a_keeper_swap_of_either_kind_moves_the_pool_along_its_curve_with_no_fee_at_all() {
+>         let keeper = Pubkey::new_unique();
+>         let t = tier(keeper);
+>         let (trade, creator, on_input) = t.swap_fee_rates(&keeper, t.creator_fee_rate, true);
+> 
+>         let r = CurveCalculator::swap_base_input(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+>         assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (0, 0, 0, 0));
+>         assert_eq!(r.output_amount, 1_000_000_000 * Y / (X + 1_000_000_000));
+>         assert_eq!(r.new_input_vault_amount, X + 1_000_000_000);
+>         assert!(r.new_input_vault_amount * r.new_output_vault_amount >= X * Y);
+> 
+>         let r = CurveCalculator::swap_base_output(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+>         assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (0, 0, 0, 0));
+>         assert_eq!(r.input_amount, (X * 1_000_000_000).div_ceil(Y - 1_000_000_000));
+>         assert_eq!(r.output_amount, 1_000_000_000);
+>         assert!(r.new_input_vault_amount * r.new_output_vault_amount >= X * Y);
+>     }
+> 
+>     // The control: the same swap by anyone else still pays the 1% fee and its shares.
+>     #[test]
+>     fn anyone_elses_swap_still_pays_the_tier_its_fee_and_its_shares() {
+>         let t = tier(Pubkey::new_unique());
+>         let (trade, creator, on_input) = t.swap_fee_rates(&Pubkey::new_unique(), 0, true);
+>         let r = CurveCalculator::swap_base_input(1_000_000_000, X, Y, trade, creator, t.protocol_fee_rate, t.fund_fee_rate, on_input).unwrap();
+>         assert_eq!((r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee), (10_000_000, 1_040_000, 560_000, 0));
+>         assert!(r.output_amount < 1_000_000_000 * Y / (X + 1_000_000_000));
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod live_tier_split_test {
+>     use crate::curve::CurveCalculator;
+> 
+>     // How each live tier (frontend/scripts/addresses.json, fee settings 0 and 1) splits a swap's
+>     // fee: the trader pays the trade fee, plus the creator fee on the launch tier; the protocol
+>     // (the venue) and the fund (the island) take their rates of the trade fee, rounded down; the
+>     // pool's LPs keep the rest of the trade fee. Returns (trade, protocol, fund, creator) fees.
+>     fn split(input: u128, trade: u64, creator: u64, protocol: u64, fund: u64) -> (u128, u128, u128, u128) {
+>         let r = CurveCalculator::swap_base_input(
+>             input,
+>             1_000_000_000_000,
+>             1_000_000_000_000,
+>             trade,
+>             creator,
+>             protocol,
+>             fund,
+>             true,
+>         )
+>         .unwrap();
+>         (r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee)
+>     }
+> 
+>     #[test]
+>     fn the_1_percent_tier_sends_10_4_percent_of_its_fee_to_the_venue_and_5_6_to_the_island() {
+>         // 1,000 tokens in: 10 in fees; 1.04 to the venue, 0.56 to the island, 8.40 stays for LPs.
+>         assert_eq!(
+>             split(1_000_000_000, 10_000, 0, 104_000, 56_000),
+>             (10_000_000, 1_040_000, 560_000, 0)
+>         );
+>     }
+> 
+>     #[test]
+>     fn the_launch_tier_sends_13_and_7_percent_of_its_trade_fee_and_the_creator_keeps_the_creator_fee() {
+>         // 1,000 tokens in: 7.5 in fees, 5 of them the creator's. Of the 2.5 trade fee, 0.325 goes
+>         // to the venue (0.0325% of the swap) and 0.175 to the island.
+>         assert_eq!(
+>             split(1_000_000_000, 2_500, 5_000, 130_000, 70_000),
+>             (2_500_000, 325_000, 175_000, 5_000_000)
+>         );
+>     }
+> 
+>     #[test]
+>     fn the_venue_and_island_shares_round_down_and_the_lps_keep_the_dust() {
+>         // 99 units in on the 1% tier: a 1-unit fee (rounded up), and neither share reaches a unit.
+>         assert_eq!(split(99, 10_000, 0, 104_000, 56_000), (1, 0, 0, 0));
+>     }
+=== src/utils/token.rs ===
+16,23d15
+< use std::collections::HashSet;
+< 
+< const MINT_WHITELIST: [&'static str; 4] = [
+<     "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM",
+<     "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g",
+<     "FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4",
+<     "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+< ];
+207a200,203
+> // memetics.finance: a support-mint record no longer lets a Token-2022 coin skip the
+> // extension check below. It did, for every extension, a permanent delegate or a transfer
+> // hook included, and the vault could make one for any coin. The record and its two
+> // instructions stay, so the program's interface is upstream's, but nothing reads it here.
+210c206
+<     mint_associated_is_initialized: bool,
+---
+>     _mint_associated_is_initialized: bool,
+216,222d211
+<     let mint_whitelist: HashSet<&str> = MINT_WHITELIST.into_iter().collect();
+<     if mint_whitelist.contains(mint_account.key().to_string().as_str()) {
+<         return Ok(true);
+<     }
+<     if mint_associated_is_initialized {
+<         return Ok(true);
+<     }
+334a324,423
+> }
+> 
+> #[cfg(test)]
+> mod is_supported_mint_test {
+>     use super::*;
+>     use spl_token_2022::extension::{
+>         metadata_pointer::MetadataPointer, permanent_delegate::PermanentDelegate,
+>         BaseStateWithExtensionsMut, StateWithExtensionsMut,
+>     };
+> 
+>     /// The program's own view of a mint account: `key`, owned by `owner`, holding `data`.
+>     fn mint_account(key: Pubkey, owner: Pubkey, data: Vec<u8>) -> InterfaceAccount<'static, Mint> {
+>         let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+>             Box::leak(Box::new(key)),
+>             false,
+>             false,
+>             Box::leak(Box::new(1_461_600u64)),
+>             Box::leak(data.into_boxed_slice()),
+>             Box::leak(Box::new(owner)),
+>             false,
+>             0,
+>         )));
+>         InterfaceAccount::<Mint>::try_from(info).unwrap()
+>     }
+> 
+>     /// A Token-2022 mint at `key` carrying `extensions`.
+>     fn token_2022_mint(key: Pubkey, extensions: &[ExtensionType]) -> InterfaceAccount<'static, Mint> {
+>         let len =
+>             ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(extensions)
+>                 .unwrap();
+>         let mut data = vec![0u8; len];
+>         let mut state =
+>             StateWithExtensionsMut::<spl_token_2022::state::Mint>::unpack_uninitialized(&mut data)
+>                 .unwrap();
+>         for e in extensions {
+>             match e {
+>                 ExtensionType::PermanentDelegate => {
+>                     state.init_extension::<PermanentDelegate>(true).unwrap();
+>                 }
+>                 ExtensionType::MetadataPointer => {
+>                     state.init_extension::<MetadataPointer>(true).unwrap();
+>                 }
+>                 _ => unreachable!("add the extension here"),
+>             }
+>         }
+>         state.base.decimals = 6;
+>         state.base.is_initialized = true;
+>         state.pack_base();
+>         state.init_account_type().unwrap();
+>         mint_account(key, spl_token_2022::id(), data)
+>     }
+> 
+>     // The four stablecoins upstream's MINT_WHITELIST let in by name (USDP, GYEN, ZUSD, PYUSD).
+>     const DELETED_WHITELIST: [Pubkey; 4] = [
+>         pubkey!("HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM"),
+>         pubkey!("Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g"),
+>         pubkey!("FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4"),
+>         pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"),
+>     ];
+> 
+>     #[test]
+>     fn the_four_stablecoins_meet_the_same_extension_check_as_every_coin() {
+>         for key in DELETED_WHITELIST {
+>             let mint = token_2022_mint(key, &[ExtensionType::PermanentDelegate]);
+>             assert!(!is_supported_mint(&mint, false).unwrap(), "{key} is let in by name");
+>         }
+>     }
+> 
+>     #[test]
+>     fn a_support_mint_record_does_not_skip_the_extension_check() {
+>         let mint = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::PermanentDelegate]);
+>         assert!(!is_supported_mint(&mint, true).unwrap());
+>     }
+> 
+>     // Controls: what the program let in before still goes in, and what it refused still does.
+>     #[test]
+>     fn a_classic_mint_and_an_allowed_extension_still_go_in() {
+>         use anchor_lang::solana_program::program_pack::Pack;
+>         use anchor_spl::token::spl_token::state::Mint as ClassicMint;
+>         let mut data = vec![0u8; ClassicMint::LEN];
+>         ClassicMint::pack(
+>             ClassicMint {
+>                 decimals: 9,
+>                 is_initialized: true,
+>                 ..Default::default()
+>             },
+>             &mut data,
+>         )
+>         .unwrap();
+>         let classic = mint_account(Pubkey::new_unique(), Token::id(), data);
+>         assert!(is_supported_mint(&classic, false).unwrap());
+>         let named = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::MetadataPointer]);
+>         assert!(is_supported_mint(&named, false).unwrap());
+>     }
+> 
+>     #[test]
+>     fn a_permanent_delegate_without_a_record_is_still_refused() {
+>         let mint = token_2022_mint(Pubkey::new_unique(), &[ExtensionType::PermanentDelegate]);
+>         assert!(!is_supported_mint(&mint, false).unwrap());
 >     }
 === Cargo.toml ===
 4c4

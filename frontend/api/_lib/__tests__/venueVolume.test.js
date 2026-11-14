@@ -30,12 +30,18 @@ describe("summarize", () => {
     const s = summarize(rows, NOW);
     expect(s).toEqual({
       state: "current",
-      usd: 502.5,
-      swaps: 50,
+      usd: 703.5,
+      swaps: 70,
       unpricedSwaps: 0,
       asOf: "2026-10-19T15:45:00.000Z",
       staleAt: new Date(Date.parse("2026-10-19T15:45:00Z") + STALE_AFTER_MS).toISOString(),
     });
+  });
+
+  // The two NFT sources joined on 2026-11-13: until their first count lands there is no figure.
+  it("is made of every swap source and both NFT sources", () => {
+    expect([...VOLUME_SOURCES]).toEqual(["solana-pools", "jupiter", "ethereum", "base", "robinhood", "nft-lending", "nft-orderbook"]);
+    expect(summarize(allRows().filter((r) => r.source !== "nft-lending"), NOW)).toEqual({ state: "unread" });
   });
 
   it("is unread, with no number, while any source has never been counted", () => {
@@ -98,8 +104,9 @@ describe("handleVenueVolume", () => {
     const { res, out } = makeRes();
     await handleVenueVolume(makeReq(), res, { nowMs: NOW, fetchImpl });
     expect(out.status).toBe(200);
-    expect(out.body).toMatchObject({ state: "current", usd: 502.5, swaps: 50 });
-    expect(out.headers["Cache-Control"]).toMatch(/s-maxage=300/);
+    expect(out.body).toMatchObject({ state: "current", usd: 703.5, swaps: 70 });
+    // A minute: the count lands every five minutes, and the home page asks every minute.
+    expect(out.headers["Cache-Control"]).toMatch(/s-maxage=60,/);
     const url = String(fetchImpl.mock.calls[0][0]);
     expect(url).toContain("/rest/v1/venue_volume?select=");
     expect(url).not.toMatch(/cursor|last_error,|bot_/);

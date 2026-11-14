@@ -1,4 +1,5 @@
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import type { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { solanaRpcEndpoint } from './solana';
 import { confirmedSlotOf, slotOrNull } from './ladder/writeFence';
 import { readSendThrow } from './solana/walletThrow';
@@ -813,25 +814,28 @@ export async function readEntries(
       payer: owner as any,
     });
 
-    // Reward pools are needed to price the accrual; a failed read just leaves
-    // every pending number unknown.
-    let rewardAccounts: any[] = [];
-    // False when a reward-pool search half failed: the pools found are real, but a
-    // pending figure summed over them is PARTIAL, so every open entry is marked unread.
-    let rewardSearchComplete = false;
-    try {
-      // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
-      // and omitting it would silently under-report every pending figure.
-      const found = await searchAllRewardPoolsChecked(client, stakePool);
-      rewardAccounts = found.pools.map((r) => r.acc);
-      rewardSearchComplete = found.complete;
-    } catch { /* every open entry is marked unread below */ }
-
     const raw = accounts.map((acc) => ({ acc, e: acc?.account ?? acc }));
     // Only OPEN entries accrue, and only a handful ever exist per wallet; the
     // cap keeps a pathological wallet from firing 256 x N account scans.
     // ⚠️ AN OPEN ENTRY PAST THE CAP IS UNPRICED, NOT ZERO: it is marked `pendingUnread`.
     const accruing = raw.filter(({ e }) => bnToNumber(e?.closedTs) === 0).slice(0, 8);
+
+    // Reward pools price an open entry's accrual and nothing else, so a wallet with
+    // none open here is not searched for them. A failed read leaves every pending
+    // number unknown.
+    let rewardAccounts: any[] = [];
+    // False when a reward-pool search half failed: the pools found are real, but a
+    // pending figure summed over them is PARTIAL, so every open entry is marked unread.
+    let rewardSearchComplete = false;
+    if (accruing.length) {
+      try {
+        // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
+        // and omitting it would silently under-report every pending figure.
+        const found = await searchAllRewardPoolsChecked(client, stakePool);
+        rewardAccounts = found.pools.map((r) => r.acc);
+        rewardSearchComplete = found.complete;
+      } catch { /* every open entry is marked unread below */ }
+    }
     const priced = new Set(accruing.map(({ acc }) => String(acc?.publicKey ?? '')));
     const pendingByEntry = new Map<string, Record<number, bigint | null>>();
     const accountedByEntry = new Map<string, Record<number, bigint | null>>();
@@ -1107,7 +1111,7 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
       ok: false,
       reason:
         'This position has passed a hard limit inside the reward program, so it can no longer pay out. Nothing moved, and this will not clear by retrying. ' +
-        'Your staked BAYLA is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
+        'Your stake is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
       permanent: true,
     };
   }
@@ -1416,8 +1420,46 @@ export async function claimRewards(args: {
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The claim did not go through. Your rewards are untouched.', wallet.signed());
+    return writeFailure(err, CLAIM_FAILED, wallet.signed());
   }
+}
+
+const CLAIM_FAILED = 'The claim did not go through. Your rewards are untouched.';
+
+/**
+ * The instructions `claimRewards` sends, from the SDK's own prepare path, unsent: for
+ * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
+ */
+export async function claimRewardsInstructions(args: {
+  claimant: PublicKey;
+  pool: PoolView;
+  rewardPool: RewardPoolView;
+  entryNonce: number;
+}): Promise<Result<{ ixs: TransactionInstruction[] }> | Failure> {
+  try {
+    const client = await makeClient();
+    const { ixs } = await client.prepareClaimRewardsInstructions(
+      {
+        stakePool: args.pool.address as any,
+        stakePoolMint: args.pool.mint as any,
+        rewardPoolNonce: args.rewardPool.nonce,
+        depositNonce: args.entryNonce,
+        rewardMint: args.rewardPool.mint as any,
+        rewardPoolType: args.rewardPool.kind,
+        tokenProgramId: args.pool.tokenProgram as any,
+      },
+      // Building reads only the claimant's key (the SDK's prepareClaimRewardsInstructions).
+      { invoker: { publicKey: args.claimant } as any },
+    );
+    return { ok: true, ixs };
+  } catch (err) {
+    return { ok: false, reason: `${CLAIM_FAILED} (${(err instanceof Error ? err.message : String(err ?? '')).slice(0, 140)})` };
+  }
+}
+
+/** A claim its test run refused, said as `claimRewards` says the same refusal (6012, 6000, 6013). */
+export function claimRefusal(logs: readonly string[]): string {
+  return writeFailure(Object.assign(new Error('its test run refused it'), { logs: [...logs] }), CLAIM_FAILED).reason;
 }
 
 /**

@@ -28,6 +28,7 @@ vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => undefined }));
 // The pool cards themselves are out of scope: they are lazy, and each has its own tests.
 vi.mock('../components/bungalow/HeatCard', () => ({ HeatCard: () => null }));
+vi.mock('../components/farm/HarvestCard', () => ({ HarvestCard: () => null }));
 vi.mock('../components/solana/SolanaProviders', () => ({
   SolanaProviders: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

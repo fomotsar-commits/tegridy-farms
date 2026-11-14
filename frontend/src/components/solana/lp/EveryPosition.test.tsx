@@ -48,7 +48,7 @@ function readers(pools: PoolView[], holders: (v: PoolView) => Promise<HoldersRea
   };
 }
 
-const mount = (r: LpReaders) => render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
+const mount = (r: LpReaders) => render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 
 const ME = key().toBase58();
 const STRANGER = key().toBase58();

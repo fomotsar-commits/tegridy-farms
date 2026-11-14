@@ -4,7 +4,8 @@ import { deriveTraitOffers } from "./api-offers";
 import { SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { NFT_LOAN_DESK_LIVE, SEAPORT_ORDER_TYPES } from "./constants";
 import { buildOrderComponents } from "./lib/seaportCancel";
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
+import { isDeployed } from "../lib/constants";
+import { GONDI_LOAN_ADDRESS } from "../lib/gondi/loanOffer.js";
 
 // Normalized shape produced by fetchCollectionOffers: price is ETH (number),
 // criteria is passed through verbatim from OpenSea's /offers/collection/{slug}/all.
@@ -83,10 +84,10 @@ describe("SEAPORT_FULFILLMENT_FUNCTIONS allowlist", () => {
 });
 
 describe("NFT_LOAN_DESK_LIVE credibility gate", () => {
-  it("tracks isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) so loan CTAs light up on deploy", () => {
+  it("tracks isDeployed(GONDI_LOAN_ADDRESS) so loan CTAs light up on deploy", () => {
     // Also a smoke test that nakamigos/constants.js can import ../lib/constants
     // at runtime (the gate executes at module load inside the nakamigos chunk).
-    expect(NFT_LOAN_DESK_LIVE).toBe(isDeployed(TEGRIDY_NFT_LENDING_ADDRESS));
+    expect(NFT_LOAN_DESK_LIVE).toBe(isDeployed(GONDI_LOAN_ADDRESS));
   });
 });
 

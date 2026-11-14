@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import React from 'react';
 import { BAR_NAV } from '../../lib/navConfig';
+import { opensSheet, SHEET_PRESS } from '../../lib/sheet';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 const ICON = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
@@ -18,7 +19,7 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M13.4 9.2c-2.3-.4-4.6.6-5.9 2.8" />
     </svg>
   ),
-  Lock: (
+  Yield: (
     <svg {...ICON}>
       <rect x="5" y="11" width="14" height="10" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
@@ -36,10 +37,17 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
     </svg>
   ),
+  // A plus in a circle: the Pools section, where liquidity is added.
+  Add: (
+    <svg {...ICON}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 8.5v7M8.5 12h7" />
+    </svg>
+  ),
 };
 
 /**
- * The phone bar: the same four words as the top bar (navConfig BAR_NAV). Five is the ceiling,
+ * The phone bar: the same five words as the top bar (navConfig BAR_NAV). Five is the ceiling,
  * a 44px target and a 10px label at 390px, so Dashboard is a drawer row. A word is lit on every
  * page it owns, never by its own URL alone: Island owns the home, each room's door and the island's pages.
  */
@@ -63,8 +71,9 @@ export const BottomNav = React.memo(function BottomNav() {
       <div className="flex items-center justify-around h-16">
         {BAR_NAV.map((word) => {
           const lit = word.lit(pathname, hash);
+          const to = word.to;
           return (
-            <Link key={word.label} to={word.to} aria-label={word.label}
+            <Link key={word.label} to={to} state={opensSheet(to) ? SHEET_PRESS : undefined} aria-label={word.label}
               aria-current={lit ? 'page' : undefined}
               data-lit={lit}
               // min-w-0 lets the label truncate; the 44px floor comes from flex-1 and min-h.

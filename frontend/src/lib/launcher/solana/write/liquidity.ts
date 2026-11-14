@@ -55,19 +55,21 @@ import {
 } from '../../../solana/cpswap/program';
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { isPlanProblem, planDeposit, planWithdraw, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
+import { claimSentOn } from '../../../solana/lp/claimed';
+import { claimableShares, isPlanProblem, planDeposit, planWithdraw, planWithdrawShares, poolFeesOf, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
+import { CLOCK_SYSVAR, LAUNCH_TIER_POOL, chainEpochOf, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
-import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type TokenSafety } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type MintFacts, type TokenSafety } from '../../../solana/lp/tokenSafety';
+import { epochFee, feeRateText, preFeeAmountOf, type TransferFee } from '../../../solana/lp/transferFee';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, TxVersion, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ const coin = (raw: bigint, q: QuoteCoin) => (q.native ? sol(raw) : `${formatToke
 export const LP_COPY = {
   depositPaused: 'Adding liquidity from this site is paused right now. Removing it still works.',
   depositPoolUnread: 'We could not read the pool just now, so nothing was built. Try again in a moment.',
+  launchTier: `${LAUNCH_TIER_POOL} Nothing was built.`,
   withdrawPoolUnread: 'We could not read the pool just now, so we could not build the withdrawal. Your pool shares are safe in your wallet. Try again.',
   poolChanged: (field: string) => `This pool no longer matches what the page read (${field}). Read the pools again.`,
   notThisPair: (symbol: string) => `This pool does not pair this token with ${symbol}.`,
@@ -133,6 +136,10 @@ export const LP_COPY = {
   tooSmallWithdraw: 'Too small: one side would round to zero. Take out a larger share, or all of it.',
   dustRemainder: (n: string) => `That would leave ${n} pool shares, too few to ever take out at this pool's size. Take out all of it, or less.`,
   badPercent: 'Enter a percent from 0.01 to 100.',
+  claimSharesChanged: 'Your pool shares changed since your fees were worked out. Work them out again, then claim.',
+  nothingToClaim: 'There are no fees in this position to take out right now.',
+  claimTooSmall: 'The fees in this position are too small to take out yet: one side would round to zero.',
+  claimDust: "Taking out just the fees would leave too few shares to ever take out at this pool's size. Remove all of it instead.",
   swapsOff: 'Swaps on this pool are switched off. That does not stop you taking your liquidity out.',
   swapsBlocked: (when: string) => `Swaps on this pool are blocked until ${when}. That does not stop you taking your liquidity out.`,
   tokenBlockedInform: (reason: string) => `This site does not take new deposits of this token (${reason}). You can still take your liquidity out.`,
@@ -142,7 +149,28 @@ export const LP_COPY = {
     loss === null
       ? `What a move back to ${back} would cost you at these amounts could not be worked out.`
       : `At these amounts, a move back to ${back} would take up to about ${loss} of what you put in. That is an estimate.`,
+  // A token with a transfer fee has two fee settings, and the network's epoch says which applies.
+  noEpoch: "We could not read the network's clock, which says which of this token's transfer fees applies now, so nothing was built. Try again in a moment.",
+  transferFeeRefused: "The pool program would refuse this token's transfer fee at exactly this amount. Change the amount a little and press Review again.",
 } as const;
+
+/**
+ * The token's transfer fee in force at the network's `epoch` (read in the same slot as
+ * the pool): what every cp-swap builder subtracts. `null` = it takes none. A string = its
+ * two settings differ and the epoch was not read, so which applies is unknown and
+ * nothing is built. Two equal settings need no epoch.
+ */
+export function tokenFeeAt(facts: Pick<MintFacts, 'transferFee'>, epoch: bigint | null): TransferFee | null | string {
+  const c = facts.transferFee;
+  if (!c) return null;
+  if (epoch !== null) return epochFee(c, epoch);
+  return c.older.basisPoints === c.newer.basisPoints && c.older.maximumFee === c.newer.maximumFee ? c.newer : LP_COPY.noEpoch;
+}
+
+/** The review's line for the token's fee: its rate, and what it keeps of the token's side. Null with no fee. */
+export function feeLine(fee: TransferFee | null, kept: bigint): { rate: string; kept: bigint } | null {
+  return fee ? { rate: feeRateText(fee), kept } : null;
+}
 
 // ── the single read ──────────────────────────────────────────────────────────
 
@@ -156,6 +184,8 @@ export interface WriteSnapshot {
   /** Stage 1's shape, so `assessPool` runs unchanged. */
   view: PoolView;
   chainNow: bigint | null;
+  /** The network's epoch, from the same Clock read: which transfer fee the token charges now. */
+  chainEpoch: bigint | null;
   mint: RawAccount;
   metaplex: RawAccount | null;
   signerLamports: bigint;
@@ -354,6 +384,7 @@ export async function readPoolForWrite(
   return {
     view: entry.view,
     chainNow: chainTimeOf(clockAcc ?? null),
+    chainEpoch: chainEpochOf(clockAcc ?? null),
     mint: mintAcc,
     metaplex: metaAcc ?? null,
     signerLamports: BigInt(ownerAcc?.lamports ?? 0),
@@ -553,6 +584,8 @@ export function accountCheck(read: RawAccount | null, want: AccountWant): { refu
 
 export interface LpDepositArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /**
@@ -606,7 +639,7 @@ export function depositStepsProblem(
   return null;
 }
 
-function depositProblemCopy(p: PlanProblem, ctx: { driving: 'quote' | 'token'; decimals: number; s: PoolView; bps: bigint }): string {
+function depositProblemCopy(p: PlanProblem, ctx: { driving: 'quote' | 'token'; decimals: number; s: PoolView; bps: bigint; tokenFee: TransferFee | null }): string {
   const q = ctx.s.quote;
   const unit = (side: 'quote' | 'token', v: bigint) => (side === 'quote' ? coin(v, q) : tokens(v, ctx.decimals));
   switch (p.problem) {
@@ -616,11 +649,16 @@ function depositProblemCopy(p: PlanProblem, ctx: { driving: 'quote' | 'token'; d
       if (p.minLp === null) return LP_COPY.tooSmallDeposit(null);
       const S = ctx.s.snapshot.pool.lpSupply;
       const R = ctx.driving === 'quote' ? ctx.s.quoteReserve : ctx.s.tokenReserve;
-      // The least typed amount whose shares reach the minimum: lpForMaxIn(x) ≥ minLp.
+      // The least typed amount whose shares reach the minimum: lpForMaxIn(x) ≥ minLp. On
+      // the token's side, what must be sent for that much to reach the pool past its fee.
       const num = p.minLp * R * (10_000n + ctx.bps);
       const den = S * 10_000n;
-      return LP_COPY.tooSmallDeposit(unit(ctx.driving, (num + den - 1n) / den));
+      const reach = (num + den - 1n) / den;
+      const send = ctx.driving === 'token' && ctx.tokenFee ? preFeeAmountOf(ctx.tokenFee, reach) : reach;
+      return LP_COPY.tooSmallDeposit(send === null ? null : unit(ctx.driving, send));
     }
+    case 'transfer-fee':
+      return LP_COPY.transferFeeRefused;
     case 'over-balance':
       // On the SOL side `have` is spendableSol: the balance less the fee reserve, the
       // account deposits and the wallet's rent floor. It is never "what your wallet
@@ -650,6 +688,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (snap === POOL_READ_FAILED) return notSent('build', LP_COPY.depositPoolUnread);
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
+  if (view.launchTierWithoutLaunch) return notSent('build', LP_COPY.launchTier);
   const p = view.snapshot.pool;
   const quoteIsToken0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);
@@ -669,6 +708,10 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // let in a token this site could not let back out.
   const outsideSet = facts.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
+  // 5b. The token's transfer fee now: the deposit sends it on top of what the pool takes.
+  const tokenFee = tokenFeeAt(facts, snap.chainEpoch);
+  if (typeof tokenFee === 'string') return notSent('build', tokenFee);
+  const fees = poolFeesOf(quoteIsToken0, tokenFee);
 
   // 6. The outside price, read again: the token's, and the pairing coin's own when the
   // pool is not paired with SOL (its price is checked in that coin: poolHealth.ts). Fresh
@@ -734,18 +777,19 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   }
 
   // 11. The plan.
-  const planned = planDeposit(view.snapshot, { quoteIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableQuote, availableToken });
-  if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps }));
+  const planned = planDeposit(view.snapshot, { quoteIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableQuote, availableToken, fees });
+  if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps, tokenFee }));
   const maxSol = quoteIsToken0 ? planned.max0 : planned.max1;
   const maxTok = quoteIsToken0 ? planned.max1 : planned.max0;
   const quoted = { quote: quoteIsToken0 ? planned.cost0 : planned.cost1, token: quoteIsToken0 ? planned.cost1 : planned.cost0 };
+  const tokenKept = quoteIsToken0 ? planned.fee1 : planned.fee0;
 
   // 11b. What the review must say. A price that is off gets its estimated loss at the
-  // amounts that go in, in the pool's own coin. Display only: it decides nothing.
+  // amounts that REACH the pool, in the pool's own coin. Display only: it decides nothing.
   const off = health.price.state === 'disagrees' ? health.price : null;
   const priceGap: PriceGap | null = off && {
     diff: off.diff,
-    lossQuote: estimatedLoss({ quoteAmount: quoted.quote, token: quoted.token, tokenDecimals: decimals, marketPricePerToken: off.reference, quote }),
+    lossQuote: estimatedLoss({ quoteAmount: quoted.quote, token: quoted.token - tokenKept, tokenDecimals: decimals, marketPricePerToken: off.reference, quote }),
   };
   const warnings = [...health.deposits.warnings];
   if (off && priceGap) {
@@ -796,6 +840,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // 15. Simulate twice and compare.
   return buildAndSimulate(rpc, {
     kind: 'lp-deposit',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-deposit', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
@@ -861,6 +906,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         lpDecimals: p.lpMintDecimals,
         quoted,
         max: { quote: quoteIsToken0 ? d.max0 : d.max1, token: quoteIsToken0 ? d.max1 : d.max0 },
+        transferFee: feeLine(tokenFee, tokenKept),
         limitedByBalance: planned.limitedByBalance,
         sharePct: { before: pct(lpHeldBefore, S), after: pct(lpHeldBefore + d.lpAmount, S + d.lpAmount) },
         price: health.price,
@@ -877,29 +923,41 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
 
 // ── withdraw (3.2) ───────────────────────────────────────────────────────────
 
+/**
+ * A claim (Claim fees): the ledger's figures for the shares it was worked out for
+ * (ledger.ts `basis`, `provenShares`) and the balance it read (`heldAtRead`). The shares
+ * to take out are worked out again at the fresh pool read; any other balance refuses.
+ */
+export interface LpClaimBasis { basis: bigint; provenShares: bigint; heldAtRead: bigint }
+
+/** How much: Remove's `pctBps`, or a claim's `claim`. With `claim` set, `pctBps` is not read. */
 export interface LpWithdrawArgs {
+  /** 1 to 10000; 10000 is exactly the balance read at prepare. */
+  pctBps?: bigint;
+  claim?: LpClaimBasis;
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /** The pool's pairing coin as the page read it (see `LpDepositArgs.quoteMint`). */
   quoteMint: PublicKey;
   /** The exact pool-share account the positions list found, associated or not (D10). */
   lpAccount: PublicKey;
-  /** 1 to 10000; 10000 is exactly the balance read at prepare. */
-  pctBps: bigint;
   slippageBps: bigint;
 }
 
 /**
- * Why this site cannot build a withdrawal that pays out this Token-2022 mint, or null
- * (D21). It reads the SAME set the deposit and the opening are guarded by
- * (`BUILDABLE_EXTENSIONS`), so whatever this site lets in, it can let out.
+ * Why this site cannot build a withdrawal that pays out this Token-2022 mint, or its
+ * facts (D21). The token reads the SAME set the deposit and the opening are guarded by
+ * (`BUILDABLE_EXTENSIONS`), so whatever this site lets in, it can let out; a pairing coin
+ * reads `EXACT_EXTENSIONS`, as its maths is fee-free everywhere.
  */
-function unbuildable(mint: RawAccount): string | null {
+function unbuildable(mint: RawAccount, set: ReadonlySet<number>): string | MintFacts {
   const m = decodeMintAccount(mint.owner, mint.data);
   if (!m.ok) return m.reason;
-  const other = m.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
-  return other === undefined ? null : `it uses ${extensionPlain(other)}`;
+  const other = m.value.extensions.find((e) => !set.has(e));
+  return other === undefined ? m.value : `it uses ${extensionPlain(other)}`;
 }
 
 /**
@@ -939,7 +997,8 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   // 1. Inputs.
   const bad = slippageProblem(a.slippageBps);
   if (bad) return notSent('build', bad);
-  if (a.pctBps < 1n || a.pctBps > 10_000n) return notSent('build', LP_COPY.badPercent);
+  // Remove's percent: 1 to 10000, and 10000 is exactly the balance read at prepare.
+  if (!a.claim && (a.pctBps === undefined || a.pctBps < 1n || a.pctBps > 10_000n)) return notSent('build', LP_COPY.badPercent);
   // 'on' or 'withdraw-only': removing works in both.
   if (gate.kind !== 'open') return notSent('build', 'Removing liquidity needs this page to reach the pool program, and it cannot right now.');
   const quote = quoteCoin(a.quoteMint.toBase58());
@@ -963,14 +1022,19 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   if (view.vaultsFrozen) return notSent('build', LP_COPY.vaultFrozen(quote.risk === null ? undefined : `The token's issuer, or ${quote.symbol}'s,`));
 
   // 6. Can this site build it (D21)? The token's side, and the pairing coin's when that
-  // coin sits under Token-2022 (BAYLA): each payout's raw amount must be exact.
+  // coin sits under Token-2022 (BAYLA): each payout's raw amount must be exact, or (the
+  // token's only) less a transfer fee this site subtracts, at the network's epoch now.
+  let tokenFee: TransferFee | null = null;
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
-    const why = unbuildable(snap.mint);
-    if (why) return notSent('build', LP_COPY.cannotBuild(why));
+    const facts = unbuildable(snap.mint, BUILDABLE_EXTENSIONS);
+    if (typeof facts === 'string') return notSent('build', LP_COPY.cannotBuild(facts));
+    const fee = tokenFeeAt(facts, snap.chainEpoch);
+    if (typeof fee === 'string') return notSent('build', fee);
+    tokenFee = fee;
   }
   if (snap.quoteMint && quoteProgram.equals(TOKEN_2022_PROGRAM_ID)) {
-    const why = unbuildable(snap.quoteMint);
-    if (why) return notSent('build', LP_COPY.cannotBuild(`${quote.symbol}: ${why}`));
+    const why = unbuildable(snap.quoteMint, EXACT_EXTENSIONS);
+    if (typeof why === 'string') return notSent('build', LP_COPY.cannotBuild(`${quote.symbol}: ${why}`));
   }
 
   // 7. The pool-share account: classic, this pool's share mint, the signer's, working.
@@ -984,8 +1048,21 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   if (shareFacts.state !== 1) return notSent('build', LP_COPY.shareChanged);
   const held = shareFacts.amount;
 
-  // 8. The plan.
-  const planned = planWithdraw(view.snapshot, { held, pctBps: a.pctBps, bps: a.slippageBps });
+  // 8. The plan. A claim takes out only the shares that are growth at this read, and only
+  // from the balance its figures were worked out for: a deposit or withdrawal since then
+  // moved the basis, and the old one could take out part of what was put in.
+  const fees = poolFeesOf(quoteIsToken0, tokenFee);
+  let planned: ReturnType<typeof planWithdraw>;
+  if (a.claim) {
+    // A claim already sent on this balance: once it lands, a node behind it still answers the old one (claimed.ts).
+    const spent = claimSentOn(a.lpAccount.toBase58(), a.claim.heldAtRead);
+    if (spent || held !== a.claim.heldAtRead || a.claim.provenShares > held) return notSent('build', LP_COPY.claimSharesChanged);
+    const lp = claimableShares(view.snapshot, a.claim);
+    if (lp < 1n) return notSent('build', LP_COPY.nothingToClaim);
+    planned = planWithdrawShares(view.snapshot, { held, lp, bps: a.slippageBps, fees });
+    if (isPlanProblem(planned) && planned.problem === 'too-small') return notSent('build', LP_COPY.claimTooSmall);
+    if (isPlanProblem(planned) && planned.problem === 'dust-remainder') return notSent('build', LP_COPY.claimDust);
+  } else planned = planWithdraw(view.snapshot, { held, pctBps: a.pctBps ?? 0n, bps: a.slippageBps, fees });
   if (isPlanProblem(planned)) {
     const copy =
       planned.problem === 'dust-remainder'
@@ -1061,6 +1138,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   // after the balance read must not block it either.
   return buildAndSimulate(rpc, {
     kind: 'lp-withdraw',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-withdraw', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
@@ -1117,11 +1195,13 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
         keep: planned.keep,
         quoted: { quote: quoteIsToken0 ? planned.out0 : planned.out1, token: quoteIsToken0 ? planned.out1 : planned.out0 },
         min: { quote: quoteIsToken0 ? w.min0 : w.min1, token: quoteIsToken0 ? w.min1 : w.min0 },
+        transferFee: feeLine(tokenFee, quoteIsToken0 ? planned.fee1 : planned.fee0),
         tokenAccount: tokenAta,
         tokenAccountRent: rentIfOpened(snap.tokenAccount.account !== null),
         quoteAccount: plan ? null : { address: quoteAta, rent: quoteRentIfOpened(snap.quoteAccount.account !== null) },
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         notices,
+        ...(a.claim ? { claim: true as const } : {}),
       };
     },
   });

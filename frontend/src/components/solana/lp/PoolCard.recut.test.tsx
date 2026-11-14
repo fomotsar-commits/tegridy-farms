@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
+import { MemoryRouter } from 'react-router-dom';
 import { PoolCard } from './PoolCard';
 import type { LpReaders } from './readers';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
@@ -46,10 +47,13 @@ function mount(v: PoolView, solPerToken = 0.0000047) {
   const safety = token(v.tokenMint);
   const health = assessPool({ view: v, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken, source: 'Jupiter' }, safety });
   const poolPast = vi.fn<NonNullable<LpReaders['poolPast']>>();
+  // A router: the card links Swap to the swap page.
   render(
-    <ul>
-      <PoolCard view={v} health={health} tokenDecimals={6} safety={safety} chainNow={NOW} readers={{ poolPast }} />
-    </ul>,
+    <MemoryRouter>
+      <ul>
+        <PoolCard view={v} health={health} tokenDecimals={6} safety={safety} chainNow={NOW} readers={{ poolPast }} />
+      </ul>
+    </MemoryRouter>,
   );
   return screen.getByTestId('lp-pool');
 }
@@ -57,6 +61,17 @@ const rowValue = (el: HTMLElement, label: string) => within(el).getByText(label,
 const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 describe('the pool card reads like a pool', () => {
+  // Owner, 2026-10-30: Swap beside Add. Under the price it would trade at, before the deposit checks.
+  it('links Swap to the swap page on its pair, paying with the pool’s coin, under its price and before the deposit checks', () => {
+    const card = mount(view());
+    const swap = within(card).getByRole('link', { name: 'Swap BAYLA / SOL · 1% tier' });
+    expect(swap).toHaveAttribute('href', `/solana?in=So11111111111111111111111111111111111111112&out=${BAYLA_MINT}`);
+    expect(swap).toHaveClass('min-h-[44px]');
+    expect(swap).toHaveTextContent('Swap');
+    expect(follows(within(card).getByText('Difference', { exact: true }), swap)).toBe(true);
+    expect(follows(swap, within(card).getByTestId('lp-pool-deposits'))).toBe(true);
+  });
+
   it('is headed by its pair and tier, the way a position names its pool, and still says where it sits', () => {
     const card = mount(view());
     expect(within(card).getByRole('heading', { level: 3 }).textContent).toBe('BAYLA / SOL · 1% tier');
@@ -172,11 +187,11 @@ describe('the pool card reads like a pool', () => {
     expect(rowValue(card, 'Fee tier 1')).toBe('Traders pay 1% a trade');
     expect(rowValue(card, 'Of that fee')).toBe('LPs keep 0.840% of each trade, the venue 0.160%');
     expect(rowValue(card, 'Paired with')).toBe('SOL');
-    expect(card).toHaveTextContent('LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.');
+    expect(card).toHaveTextContent('LPs’ share of fees stays in the pool, so each pool share is worth a little more after every trade.');
     // How an LP is paid stays in view as the fee split; the longer sentence is a press away.
     expect(within(card).getByTestId('lp-pool-split')).toBeVisible();
     expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent('LPs keep 0.840% of each trade, the venue 0.160%.');
-    expect(within(card).getByTestId('lp-pool-more')).toHaveTextContent('LPs’ share of fees is not paid out separately');
+    expect(within(card).getByTestId('lp-pool-more')).toHaveTextContent('LPs’ share of fees stays in the pool');
     expect(card).toHaveTextContent('Deposits: the checks pass');
     // Fewer words (#803): the notice stays on the card, the reassurance sits in the drop-down.
     expect(within(card).getByText('Adding liquidity here is not switched on yet.')).toBeVisible();

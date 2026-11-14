@@ -17,6 +17,19 @@
 
 const DEFAULT_MAX_BYTES = 5_000_000; // 5 MB — generous for JSON, blocks bombs.
 
+// cancel() answers with a PROMISE, and on a stream that already errored (a dropped
+// connection, a deadline that fired mid-body) it rejects with the stream's error. A
+// try/catch only catches a synchronous throw, so the caller got its throw AND an unhandled
+// rejection, which ends a Node process by default. Same rule as aggregator-proxy.js and
+// alchemy-failover.js discardBody. Pinned in __tests__/bodycap.stall.test.js.
+function quietCancel(target) {
+  try {
+    Promise.resolve(target?.cancel?.()).catch(() => {});
+  } catch {
+    /* best-effort only */
+  }
+}
+
 /**
  * Read a fetch Response body, capped at `maxBytes`. Returns the decoded text
  * and a `truncated` flag. If the cap is hit mid-stream we cancel the reader
@@ -33,7 +46,7 @@ export async function readBoundedText(response, maxBytes = DEFAULT_MAX_BYTES) {
   if (lenHeader) {
     const declared = Number(lenHeader);
     if (Number.isFinite(declared) && declared > maxBytes) {
-      try { response.body?.cancel?.(); } catch { /* ignore */ }
+      quietCancel(response.body);
       return { text: "", truncated: true, bytes: declared };
     }
   }
@@ -72,7 +85,7 @@ export async function readBoundedText(response, maxBytes = DEFAULT_MAX_BYTES) {
       if (done) break;
       received += value?.byteLength ?? 0;
       if (received > maxBytes) {
-        try { reader.cancel(); } catch { /* ignore */ }
+        quietCancel(reader);
         return { text: "", truncated: true, bytes: received };
       }
       out += decoder.decode(value, { stream: true });
@@ -80,7 +93,7 @@ export async function readBoundedText(response, maxBytes = DEFAULT_MAX_BYTES) {
     out += decoder.decode(); // flush
     return { text: out, truncated: false, bytes: received };
   } catch (err) {
-    try { reader.cancel(); } catch { /* ignore */ }
+    quietCancel(reader);
     throw err;
   }
 }

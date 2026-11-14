@@ -27,6 +27,12 @@ import { logSafe } from './logSafe.js';
 const EP_BASE = 'https://api.ethplorer.io';
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
+// One clock for a whole read: every upstream leg of it, headers and bodies. The house 8 s,
+// a starting number. One clock and not one per leg, so the Base read (two legs, then page
+// two) still ends inside a function's default time limit. A read that runs out of clock
+// ends as a fetch that throws already does. Pinned in __tests__/scannerApi.stall.test.js.
+export const READ_TIMEOUT_MS = 8000;
+
 /** Schema tag on every keyed scan body, so a consumer can pin what it parsed. */
 export const SCAN_SCHEMA = 'tegridy.scan.erc20.v1';
 
@@ -75,10 +81,13 @@ export async function readErc20Distribution(contract, opts = {}) {
   const EP_KEY = CONFIGURED_KEY || 'freekey';
   const holderLimit = Math.min(Math.max(1, parseInt(opts.limit, 10) || 100), 100);
 
+  // Both legs, and their bodies below, read under the one clock.
+  const signal = AbortSignal.timeout(READ_TIMEOUT_MS);
   const [infoRes, topRes] = await Promise.all([
-    fetch(`${EP_BASE}/getTokenInfo/${contract}?apiKey=${EP_KEY}`, { headers: { Accept: 'application/json' } }),
+    fetch(`${EP_BASE}/getTokenInfo/${contract}?apiKey=${EP_KEY}`, { headers: { Accept: 'application/json' }, signal }),
     fetch(`${EP_BASE}/getTopTokenHolders/${contract}?apiKey=${EP_KEY}&limit=${holderLimit}`, {
       headers: { Accept: 'application/json' },
+      signal,
     }),
   ]);
   const { text: infoText, truncated: it } = await readBoundedText(infoRes, MAX_RESPONSE_BYTES);
@@ -283,7 +292,8 @@ const BS_BASE = 'https://base.blockscout.com/api/v2';
  */
 export async function readBaseErc20Distribution(contract, opts = {}) {
   const holderLimit = Math.min(Math.max(1, parseInt(opts.limit, 10) || 100), 100);
-  const accept = { headers: { Accept: 'application/json' } };
+  // The read's one clock rides every fetch below: both first legs, then page two.
+  const accept = { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(READ_TIMEOUT_MS) };
 
   const [infoRes, topRes] = await Promise.all([
     fetch(`${BS_BASE}/tokens/${contract}`, accept),

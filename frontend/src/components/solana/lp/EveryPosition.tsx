@@ -16,7 +16,7 @@ import { usePoolList } from './usePoolList';
  * Every position in every one of our pools, whoever holds it (owner, 2026-10-23: "I want all
  * the LP positions to show"). "Your positions" lists only the connected wallet's shares;
  * this lists every holder of each pool's shares, read from the chain (holders.ts), with the
- * connected wallet's own rows marked. The pools are the All pools list's, in its order. A
+ * connected wallet's own rows marked. The pools are the All pools list's, in the order read. A
  * pool whose holders could not be read says that, never "nobody". A reader without
  * `holders` or `listPools` (every older test fake) renders nothing.
  */
@@ -29,7 +29,6 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
   return (
     <section data-testid="lp-every-position" aria-label="Every position">
       <Card title="Every position" art={<CardArt pageId="solana-lp" idx={14} />}>
-        <p className="text-white/80 text-[13px] mb-3">Who holds a share of each pool, and what it pays out now.</p>
         {list === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : list.kind === 'unread' ? (
@@ -45,13 +44,13 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
         )}
         <FinePrint summary="How this list works">
           <p>
-            Each pool’s holders are read from the chain: the largest accounts holding that pool’s share coin, then each account, to see whose
+            Who holds a share of each pool, and what it pays out now. Each pool’s holders are read from the chain: the largest accounts holding that pool’s share coin, then each account, to see whose
             it is. A wallet with more than one such account is one row. The chain names at most {LARGEST_ACCOUNTS} accounts per pool, so past
             them smaller holders are not listed.
           </p>
           <p>
             A share pays out its part of both coins when it is taken out. The liquidity providers’ part of each swap fee stays in the pool and
-            grows every share: there is nothing to claim. The venue’s and the island’s parts of the fee are kept apart and are in no share.
+            grows every share. The venue’s and the island’s parts of the fee are kept apart and are in no share.
           </p>
         </FinePrint>
       </Card>

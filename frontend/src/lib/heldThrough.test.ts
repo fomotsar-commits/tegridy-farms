@@ -21,7 +21,7 @@ import {
   type HeldThroughBody,
   type LayoutField,
 } from './heldThrough';
-import { BUNGALOWS, RETIRED_STAKE_POOLS, poolReadByIsland, type Bungalow } from './bungalows';
+import { BUNGALOWS, RETIRED_STAKE_POOLS, ROOM_LADDER_POOLS, poolReadByIsland, type Bungalow } from './bungalows';
 import {
   TEGRIDY_STAKING_ADDRESS,
   LEGACY_STAKING_ADDRESSES,
@@ -146,7 +146,8 @@ describe('the lock ladder follows the build env, like the card', () => {
     const neither = await build({ VITE_BAYLA_LADDER_PROGRAM: '', VITE_BAYLA_LADDER_POOL: '' });
     expect(neither.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
     const programOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: LADDER_PROGRAM, VITE_BAYLA_LADDER_POOL: '' });
-    expect(programOnly.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
+    // BAYLA's pool is an env of its own; the four rooms' pools derive from the mainnet program (owner, 2026-10-31).
+    expect(programOnly.chains.solana.filter((c) => c.kind === 'bayla-ladder').map((c) => c.address)).toEqual(Object.values(ROOM_LADDER_POOLS));
     const poolOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: '', VITE_BAYLA_LADDER_POOL: LADDER_POOL });
     expect(poolOnly.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
     const both = await build({ VITE_BAYLA_LADDER_PROGRAM: LADDER_PROGRAM, VITE_BAYLA_LADDER_POOL: LADDER_POOL });

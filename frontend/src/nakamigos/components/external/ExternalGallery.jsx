@@ -1,7 +1,8 @@
 import { memo, useEffect, useState } from "react";
 import { itemName } from "./externalCopy";
+import { shownEth } from "../../lib/formatPrice";
 
-const ItemCard = memo(function ItemCard({ collection, item, onPick }) {
+const ItemCard = memo(function ItemCard({ collection, item, onPick, price }) {
   const [broken, setBroken] = useState(false);
   const name = itemName(collection, item);
   return (
@@ -23,6 +24,7 @@ const ItemCard = memo(function ItemCard({ collection, item, onPick }) {
           <div className="card-name ext-card-name">{name}</div>
           <div className="ext-card-meta">
             <span>#{item.id}</span>
+            {price != null && <span className="ext-card-price">{price} ETH</span>}
           </div>
         </div>
       </div>
@@ -65,7 +67,8 @@ function countLine(collection, items) {
 // where it came from, and an explicit failure with Retry when it failed.
 // "No items" is said only after a read that succeeded and returned none, and
 // a collection with no market read says so, with nothing to retry.
-export default function ExternalGallery({ collection, items, onRetry, onPick, notice }) {
+// `listings` (a Base buy collection only) maps token id to its buyable listing.
+export default function ExternalGallery({ collection, items, onRetry, onPick, notice, listings = null }) {
   const market = collection.market?.name;
   const noRead = items.status === "unavailable" && items.reason === "no-market-read";
   const failed = !noRead && (items.status === "unavailable" || (items.status === "partial" && items.reason !== "page-limit"));
@@ -99,7 +102,7 @@ export default function ExternalGallery({ collection, items, onRetry, onPick, no
           <div className="ext-gallery-count">{countLine(collection, items)}</div>
           <div className="gallery-grid gallery ext-gallery-grid">
             {items.list.map((item) => (
-              <ItemCard key={item.id} collection={collection} item={item} onPick={onPick} />
+              <ItemCard key={item.id} collection={collection} item={item} onPick={onPick} price={shownEth(listings?.get(String(item.id))?.priceWei)} />
             ))}
           </div>
         </>

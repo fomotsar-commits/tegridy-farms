@@ -46,17 +46,24 @@ function tabsOf(rel: string, list: string): string[] {
 
 /** URL-only on purpose. Each one is a decision, and listing one deletes it from here. */
 const URL_ONLY: Record<string, string> = {
-  '/airdrop': 'its rails are undeployed (navConfig.test.ts)',
-  '/vesting': 'its rails are undeployed (navConfig.test.ts)',
   '/admin': 'an operator page behind a browser flag',
   '/start': "the home's own door, under the read field",
   '/towelie': 'another name for /toweli, whose door is in the hall',
   '/art-studio': 'a dev studio',
   '/bayla-studio': 'a studio',
   '/door-studio': 'a studio',
-  // Owner, 2026-10-24: the Nakamigos marketplace left the home, the nav and the venue's
-  // metadata (a drainer-profile surface on the venue's domain); the route stays.
-  '/nakamigos': "the Nakamigos marketplace: off the nav since 2026-10-24; the bungalow rooms' Marketplace door still opens it",
+  // Owner, 2026-11-10: Check off the menu, "hide it all". Its strip still joins the seven.
+  '/trust': 'Check, off the menu since 2026-11-10',
+  '/scan': 'Check, off the menu since 2026-11-10',
+  '/deployer': 'Check, off the menu since 2026-11-10',
+  '/exposure': 'Check, off the menu since 2026-11-10',
+  '/terminal': 'Check, off the menu since 2026-11-10',
+  '/chart': 'Check, off the menu since 2026-11-10',
+  '/alerts': 'Check, off the menu since 2026-11-10',
+  // Owner, 2026-11-11: Yield's strip is Staking and NFT Loans; these three are `unlisted`.
+  '/yield': "off Yield's strip since 2026-11-11; the swap's TWAP and DCA panels still link it",
+  '/copy-trading': "off Yield's strip since 2026-11-11",
+  '/checkout': "off Yield's strip since 2026-11-11; a merchant's payment link opens it",
 };
 
 /** Where a visitor can start: the four words, the drawer and the footer's own links. */
@@ -82,7 +89,7 @@ function starts(): string[] {
 function reachable(): Set<string> {
   // A page that is in a strip opens the whole strip; the island lobby opens its doors.
   const groups: string[][] = [
-    ...NAV_SECTIONS.filter((s) => s !== ISLAND_SECTION).map((s) => s.items.filter((i) => !i.soon).map((i) => i.to)),
+    ...NAV_SECTIONS.filter((s) => s !== ISLAND_SECTION).map((s) => s.items.filter((i) => !i.soon && !i.unlisted).map((i) => i.to)),
     NUMBERS_TABS.map((i) => i.to),
     tabsOf('pages/ActivityPage.tsx', 'ALL_TABS'),
     tabsOf('pages/InfoPage.tsx', 'TABS'),

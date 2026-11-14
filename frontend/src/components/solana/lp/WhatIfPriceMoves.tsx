@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { PRICE_MOVE_TITLE, priceMoveNote } from '../../../lib/solana/lp/priceMove';
+import { PriceMoveDial } from './PriceMoveDial';
 
 /**
  * "What if the price moves" on the Add form: the note's table and its one closing line
@@ -17,6 +18,7 @@ export function WhatIfPriceMoves({ view }: { view: PoolView }) {
       <h5 id={id} className="text-white/90 font-semibold">
         {PRICE_MOVE_TITLE}
       </h5>
+      <PriceMoveDial quoteSymbol={view.quote.symbol} />
       <table aria-labelledby={id} className="w-full text-left">
         <thead>
           <tr className="text-white/55">

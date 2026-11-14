@@ -9,16 +9,29 @@
 // anywhere but the prepared transaction's signer list.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { base58, hex } from '@scure/base';
-import { NATIVE_MINT_2022 } from '@solana/spl-token';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { ExtensionType, NATIVE_MINT_2022, getAccountLen } from '@solana/spl-token';
+import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
-import { deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
+import {
+  IX_CREATE_LP_METADATA,
+  LP_NAME_EDITOR,
+  deriveAuthority,
+  deriveLpMint,
+  deriveObservation,
+  derivePool,
+  deriveVault,
+  publicTierConfig,
+  sortMints,
+} from '../../../solana/cpswap/program';
+import { decodeIntent } from './intent';
+import { V1_TX_SIZE_LIMIT, decodeV1 } from './v1';
 import { feeReserveFor, isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { BUILDABLE_EXTENSIONS, EXTENSION } from '../../../solana/lp/tokenSafety';
+import { CLOCK_SYSVAR } from '../../../solana/lp/poolFinder';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, EXTENSION } from '../../../solana/lp/tokenSafety';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import {
@@ -43,9 +56,12 @@ import {
   createSimulator,
   encodeAmmConfig,
   rent,
+  setClock,
+  setTransferFee,
   skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
+  legacyTx,
 } from './testkit.fixture';
 import type { IntentStep, LpCreateSummary, LpOpenGate, PreparedTx, TierTerms, WriteRpc } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
@@ -62,6 +78,8 @@ const FEE = TIER1_VALUES.createPoolFee;
 const R = (n: number) => BigInt(rent(n));
 /** What `initialize` pays for and never returns, for a 165-byte token vault: pool, price record, share token, two vaults. */
 const NEVER_REFUNDED = R(637) + R(4075) + R(82) + R(165) + R(165);
+/** The new share's name record: its deposit (607 bytes) and Metaplex's fee for making it. */
+const NAME = R(607) + 10_000_000n;
 
 const TERMS: TierTerms = {
   createPoolFee: TIER1_VALUES.createPoolFee,
@@ -76,7 +94,11 @@ const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async ()
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
 /** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+// A transfer fee needs its real 108 bytes to decode (zeroes: 0%, nobody can change it).
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 
 const NO_MARKET_OPENING =
   'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
@@ -189,7 +211,7 @@ afterEach(() => {
 // ── the single read ──────────────────────────────────────────────────────────
 
 describe('readCreateSnapshot: one read for both possible addresses', () => {
-  it('reads the 18 keys in ONE call, in 3.1 step 3’s order; prepare then reads only the balances it watches', async () => {
+  it('reads the 18 keys and then the clock in ONE call, in 3.1 step 3’s order; prepare then reads only the balances it watches', async () => {
     const w = world();
     const fresh = Keypair.generate();
     vi.spyOn(Keypair, 'generate').mockReturnValueOnce(fresh);
@@ -212,6 +234,8 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
       w.wsolAta,
       ...five(w.standard),
       ...five(fresh.publicKey),
+      // The clock: its epoch says which of a token's transfer fees applies now.
+      new PublicKey(CLOCK_SYSVAR),
     ].map((k) => k.toBase58());
     expect(asked[0]).toEqual(want);
     // The only other account read is the shared pipeline's balance read of the 4 watched accounts and the wallet.
@@ -267,6 +291,12 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     expect(s.unwrapsWsol).toBe(true);
     expect(s.notices).toEqual([]);
     expect(p.steps.filter((x) => x.kind === 'pool-create')).toHaveLength(1);
+    // The new share is named in the same transaction, right after the opening, and the
+    // review says what that costs: the record's deposit and Metaplex's fee, both the opener's.
+    expect(p.steps.map((x) => x.kind).filter((k) => k.startsWith('pool-'))).toEqual(['pool-create', 'pool-name']);
+    expect(p.steps.find((x) => x.kind === 'pool-name')).toEqual({ kind: 'pool-name', pool: w.standard, lpMint: deriveLpMint(CPSWAP, w.standard) });
+    expect(s.nameRecord).toEqual({ rent: R(607), metaplexFee: 10_000_000n });
+    expect(p.simulated.signerLamportsDelta).toBe(-(SOL + FEE + NEVER_REFUNDED + NAME + R(165)));
   });
 
   // The panel's market price may be the edge's 30-second copy of Jupiter's answer
@@ -286,7 +316,7 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
 
   it('the bytes: open time 0, slot 1 is tier 1, slot 12 is the pool program’s fee account', async () => {
     const p = ok(await create(world()));
-    const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+    const ix = legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
     expect(ix.data.readBigUInt64LE(24)).toBe(0n);
     expect(ix.keys[1]!.pubkey.equals(TIER1)).toBe(true);
     expect(ix.keys[12]!.pubkey.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
@@ -296,7 +326,7 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID });
     const p = ok(await create(w));
     expect(summaryOf(p).rents.neverRefunded).toBe(NEVER_REFUNDED);
-    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(607) + R(165));
   });
 });
 
@@ -315,7 +345,7 @@ describe('where the pool goes', () => {
     expect(s.pool.equals(w.standard)).toBe(false);
     expect(extraKeys(p)).toEqual([pinsOf(p)!.address.toBase58()]);
     expect(extraKeys(p)).toEqual([s.pool.toBase58()]);
-    const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
+    const ix = legacyTx(p).instructions.find((i) => i.programId.equals(CPSWAP))!;
     expect(ix.keys[3]!.pubkey.equals(s.pool) && ix.keys[3]!.isSigner).toBe(true);
   });
 
@@ -404,23 +434,62 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(refused(await create(world({ feeReceiver: { native: false } })))).toBe(CREATE_COPY.feeAccount('it is not a native wrapped-SOL account'));
   });
 
-  it('the token, what still refuses it: absent, never set up, SOL under Token-2022, a transfer fee at 0 bps, an extension the pool program rejects', async () => {
+  it('the token, what still refuses it: absent, never set up, SOL under Token-2022, an extension the pool program rejects', async () => {
     expect(refused(await create(world({ noMint: true })))).toBe(CREATE_COPY.tokenRefused('The token does not exist.'));
     const never = world();
     never.chain.accounts.get(never.mint.toBase58())!.data[45] = 0;
     expect(refused(await create(never))).toBe(CREATE_COPY.tokenRefused('This token mint was never set up.'));
     expect(refused(await create(world({ mint: NATIVE_MINT_2022, tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [] })))).toBe(CREATE_COPY.native2022);
-    // A transfer fee: the leave rule. The words say it is this site's limit.
-    const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
-    expect(refused(await create(fee))).toBe(
-      CREATE_COPY.tokenRefused(
-        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-      ),
-    );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(EXTENSION.TransferHook)] });
     expect(refused(await create(hook))).toBe(
       CREATE_COPY.tokenRefused('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
     );
+  });
+
+  // Owner, 2026-10-29: a token with a transfer fee opens a pool. Its vault gets what is sent
+  // less the fee, and the pool counts its shares from that (initialize.rs). This chain's
+  // pool program counts them the same way (testkit `createSimulator`), and the builder's
+  // share check is exact, so a builder that left the fee out is refused at its own test run.
+  it('a token with a transfer fee opens a pool: the shares count what reaches its vault, and the review says what the token keeps', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    const p = ok(await create(w));
+    const s = summaryOf(p);
+    const kept = TOKENS / 20n; // 5% of 100 tokens
+    expect(s.put).toEqual({ quote: SOL, token: TOKENS });
+    expect(s.transferFee).toEqual({ rate: '5%', kept });
+    expect(s.supply).toBe(isqrt(SOL * (TOKENS - kept)));
+    expect(s.lpAmount).toBe(s.supply - 100n);
+    // The whole amount typed leaves the wallet; only the vault sees less.
+    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
+    expect(tok.delta).toBe(-TOKENS);
+    // The token's own warning rides to the review, and the opening's price is the one the pool opens at.
+    expect(s.tokenWarnings.map((x) => x.code)).toContain('transfer-fee');
+    // 1 SOL against the 95 tokens that reach the vault, not the 100 typed: 5% above the market's 0.01.
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    expect(s.price.state === 'disagrees' && s.price.pool).toBeCloseTo(1 / 95, 12);
+  });
+
+  it('a fee change pending: the network epoch picks the setting, and with no clock nothing is built', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 50n, basisPoints: 300 } });
+    setClock(w.chain, null);
+    expect(refused(await create(w))).toBe(LP_COPY.noEpoch);
+    setClock(w.chain, 2_000_000_000n, 49n);
+    const before = summaryOf(ok(await create(w)));
+    expect(before.transferFee).toEqual({ rate: '1%', kept: TOKENS / 100n });
+    // An opening has no minimum: one that lands in epoch 50 pays 3%, and the review says so.
+    expect(before.warnings).toContain(CREATE_COPY.feeChangesNext('3%'));
+    setClock(w.chain, 2_000_000_000n, 50n);
+    const after = summaryOf(ok(await create(w)));
+    expect(after.transferFee).toEqual({ rate: '3%', kept: (TOKENS * 3n) / 100n });
+    expect(after.warnings).not.toContain(CREATE_COPY.feeChangesNext('3%'));
+  });
+
+  it('a fee that leaves the vault too little is refused as too small, before any price is asked', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 1 });
+    expect(refused(await create(w, { token: 1n }))).toBe(CREATE_COPY.tooSmall);
   });
 
   // Owner ruling 2026-10-04: these two open a pool, and the review is handed the warning.
@@ -450,7 +519,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(s.tokenWarnings.map((x) => x.code)).toContain(code);
     // The pool program adds no account extension for these, so the vault is a plain 165.
     expect(s.rents.neverRefunded).toBe(NEVER_REFUNDED);
-    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(607) + R(165));
   });
 
   // The leave rule, with the real verdict: this site opens a pool for exactly the
@@ -582,8 +651,8 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   it('the rent band: exactly what this wallet can put in prepares; one lamport more is refused, naming that number', async () => {
     // A wallet with no wrapped-SOL account: it pays that account's rent during the transaction.
     const most = SOL;
-    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
-    expect(spendableSol({ lamports: wallet, walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: R(165), alsoPaid: FEE + NEVER_REFUNDED })).toBe(most);
+    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + NAME + R(165);
+    expect(spendableSol({ lamports: wallet, walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: R(165), alsoPaid: FEE + NEVER_REFUNDED + NAME })).toBe(most);
     const w = world({ wallet });
     ok(await create(w, { quote: most }));
     expect(refused(await create(w, { quote: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
@@ -610,7 +679,7 @@ describe('the balance check: nothing more may leave the wallet than the review s
     expect(row(p, w.tokenAta)).toEqual([-TOKENS, NO_CEILING]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE, NO_CEILING]);
-    expect(p.check.expect.maxSolOut).toBe(SOL + FEE + NEVER_REFUNDED + R(165));
+    expect(p.check.expect.maxSolOut).toBe(SOL + FEE + NEVER_REFUNDED + NAME + R(165));
     expect(p.check.expect.minSolIn).toBeUndefined();
     expect(p.check.watch.tokenAccounts.find((t) => t.account.equals(CP_CREATE_POOL_FEE_RECEIVER))?.role).toBe('treasury');
   });
@@ -733,7 +802,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
       expect(s.unwrapsWsol, String(sent)).toBe(true);
       expect(s.wsolHeldBefore, String(sent)).toBe(0n);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
-      const paid = SOL + FEE + NEVER_REFUNDED + R(165) - BigInt(sent);
+      const paid = SOL + FEE + NEVER_REFUNDED + NAME + R(165) - BigInt(sent);
       expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
       expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
     }
@@ -748,7 +817,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
       const s = summaryOf(p);
       expect(s.origin, String(sent)).toBe('standard');
       expect(moved(p, lpAta), String(sent)).toBe(s.lpAmount);
-      const paid = SOL + FEE + NEVER_REFUNDED + BigInt(Math.max(0, rent(165) - sent));
+      const paid = SOL + FEE + NEVER_REFUNDED + NAME + BigInt(Math.max(0, rent(165) - sent));
       expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
       expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
       // The review still states the whole deposit.
@@ -766,7 +835,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
 
   it('the most this wallet can put in still sets aside a full deposit for the wrapped-SOL address', async () => {
     const most = SOL;
-    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
+    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + NAME + R(165);
     const w = world({ wallet });
     w.chain.fund(w.wsolAta, rent(0));
     ok(await create(w, { quote: most }));
@@ -870,12 +939,13 @@ describe('a sync credits what a wrapped-SOL account already held, and the check 
 describe('createStepsProblem', () => {
   const pool = Keypair.generate().publicKey;
   const wsolAta = associatedTokenAddress(WSOL_MINT, ME);
-  const steps = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>> = {}, o: { close?: boolean; extraCreate?: boolean; wrap?: bigint } = {}): IntentStep[] => [
+  const steps = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>> = {}, o: { close?: boolean; extraCreate?: boolean; wrap?: bigint; name?: boolean } = {}): IntentStep[] => [
     { kind: 'create-token-account', owner: ME, mint: WSOL_MINT, address: wsolAta },
     ...(o.extraCreate ? [{ kind: 'create-token-account', owner: ME, mint: WSOL_MINT, address: Keypair.generate().publicKey } as IntentStep] : []),
     { kind: 'wrap-sol', lamports: o.wrap ?? 100n },
     { kind: 'sync-wsol' },
     { kind: 'pool-create', pool, ammConfig: TIER1, init0: 100n, init1: 7n, ...over },
+    ...(o.name === false ? [] : [{ kind: 'pool-name', pool, lpMint: deriveLpMint(CPSWAP, pool) } as IntentStep]),
     ...(o.close === false ? [] : [{ kind: 'close-wsol' } as IntentStep]),
   ];
   const want = { pool, ammConfig: TIER1, init0: 100n, init1: 7n, sol: 100n, closeAfter: true, wsolAta };
@@ -888,6 +958,7 @@ describe('createStepsProblem', () => {
     expect(createStepsProblem(steps({ init1: 6n }), want)).toMatch(/does not match/);
     expect(createStepsProblem(steps({}, { wrap: 99n }), want)).toMatch(/wrapped/);
     expect(createStepsProblem(steps({}, { extraCreate: true }), want)).toMatch(/does not open exactly your wrapped-SOL account/);
+    expect(createStepsProblem(steps({}, { name: false }), want)).toMatch(/does not name the new pool share exactly once/);
     expect(createStepsProblem(steps({}, { close: false }), want)).toMatch(/closes your wrapped-SOL/);
     expect(createStepsProblem(steps().filter((s) => s.kind !== 'pool-create'), want)).toMatch(/missing/);
   });
@@ -954,7 +1025,7 @@ describe('vaultAccountSize', () => {
     return { address: k.toBase58(), owner: a.owner.toBase58(), data: a.data, lamports: a.lamports };
   };
 
-  it('165 for a classic mint, a Token-2022 mint with no extensions, and a metadata-only one, whose ASSOCIATED account is 170; a transfer fee cannot be sized', () => {
+  it('165 for a classic mint, a Token-2022 mint with no extensions, and a metadata-only one, whose ASSOCIATED account is 170; a transfer fee adds its fee record', () => {
     const c = new FakeChain();
     const [classic, bare, meta, fee] = [0, 1, 2, 3].map(() => Keypair.generate().publicKey) as [PublicKey, PublicKey, PublicKey, PublicKey];
     c.mint(classic).mint2022(bare, []).mint2022(meta, METADATA_ONLY).mint2022(fee, [[EXT.TransferFeeConfig, 108]]);
@@ -962,7 +1033,12 @@ describe('vaultAccountSize', () => {
     expect(vaultAccountSize(acc(c, bare))).toBe(165);
     expect(vaultAccountSize(acc(c, meta))).toBe(165);
     expect(tokenAccountSize(acc(c, meta))).toBe(170);
-    expect(vaultAccountSize(acc(c, fee))).toMatch(/^it uses a transfer-fee setting/);
+    // cp-swap's vault gets `TransferFeeAmount` (get_required_init_account_extensions), the associated account ImmutableOwner too.
+    expect(vaultAccountSize(acc(c, fee))).toBe(getAccountLen([ExtensionType.TransferFeeAmount]));
+    expect(vaultAccountSize(acc(c, fee))).toBe(178);
+    expect(tokenAccountSize(acc(c, fee))).toBe(getAccountLen([ExtensionType.TransferFeeAmount, ExtensionType.ImmutableOwner]));
+    // A pairing coin is sized from the exact set: one with a fee cannot be.
+    expect(vaultAccountSize(acc(c, fee), EXACT_EXTENSIONS)).toMatch(/^it uses a transfer-fee setting/);
     expect(vaultAccountSize({ address: 'x', owner: STRANGER.toBase58(), data: new Uint8Array(82), lamports: 1 })).toMatch(/not owned by a token program/);
   });
 
@@ -975,7 +1051,9 @@ describe('vaultAccountSize', () => {
       const k = Keypair.generate().publicKey;
       c.mint2022(k, [extensionOf(type)]);
       const size = vaultAccountSize(acc(c, k));
-      if (BUILDABLE_EXTENSIONS.has(type)) {
+      if (type === EXTENSION.TransferFeeConfig) {
+        expect(size).toBe(178);
+      } else if (BUILDABLE_EXTENSIONS.has(type)) {
         expect(size, String(type)).toBe(165);
         expect(tokenAccountSize(acc(c, k)), String(type)).toBe(170);
       } else {
@@ -994,10 +1072,37 @@ describe('size', () => {
     const p = ok(await create(w));
     process.stdout.write(`[size] worst-case opening: ${p.sizeBytes} of ${TX_SIZE_LIMIT} bytes\n`);
     expect(summaryOf(p).origin).toBe('other');
-    expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(2);
+    expect(legacyTx(p).compileMessage().header.numRequiredSignatures).toBe(2);
     expect(p.steps.filter((s) => s.kind === 'create-token-account')).toHaveLength(1);
     expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
     expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT - 150);
+  });
+
+  // Phantom signs version 1 (txVersion.ts), so most openings go out in this format.
+  it('the same worst case as version 1: the opening and its share’s name, the budget in the config, the checker passing the bytes tested', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID });
+    w.chain.fund(deriveVault(CPSWAP, w.standard, WSOL_MINT), 10_000_000);
+    const p = ok(await create(w, { txVersion: 1 }));
+    expect(p.wire.version).toBe(1);
+    if (p.wire.version !== 1) return;
+    process.stdout.write(`[size] worst-case opening, version 1: ${p.sizeBytes} of ${V1_TX_SIZE_LIMIT} bytes\n`);
+    const s = summaryOf(p);
+    expect(s.origin).toBe('other');
+    expect(p.sizeBytes).toBe(p.wire.bytes.length);
+    expect(p.sizeBytes).toBeLessThanOrEqual(V1_TX_SIZE_LIMIT);
+    expect(p.steps.map((x) => x.kind)).toEqual(['create-token-account', 'wrap-sol', 'sync-wsol', 'pool-create', 'pool-name', 'close-wsol']);
+    const v = decodeV1(p.wire.bytes);
+    expect(v.signers.map((k) => k.toBase58())).toEqual([ME.toBase58(), s.pool.toBase58()]);
+    const share = deriveLpMint(CPSWAP, s.pool);
+    const name = v.instructions.find((ix) => ix.programId.equals(CPSWAP) && Buffer.from(ix.data).equals(Buffer.from(IX_CREATE_LP_METADATA)))!;
+    expect(name.data).toHaveLength(8);
+    expect(name.keys.map((k) => k.pubkey.toBase58())).toEqual(
+      [ME, deriveAuthority(CPSWAP), s.pool, share, metadataPda(share), LP_NAME_EDITOR, METAPLEX_TOKEN_METADATA_ID, SYSTEM_PROGRAM_ID, SYSVAR_RENT_PUBKEY].map((k) => k.toBase58()),
+    );
+    expect(decodeIntent(v.instructions, p.check.intent, { config: p.wire.config }).ok).toBe(true);
+    // The final test run was of these very bytes, and the opener paid for the name record in it.
+    expect(Buffer.from(w.chain.simulateCalls.at(-1)!.vtx.serialize())).toEqual(Buffer.from(p.wire.bytes));
+    expect(p.simulated.signerLamportsDelta).toBe(-(SOL + FEE + NEVER_REFUNDED + NAME + R(165)));
   });
 });
 

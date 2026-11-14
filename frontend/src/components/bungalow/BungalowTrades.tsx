@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePoolTrades, type PoolTrade } from '../../hooks/usePoolTrades';
 import { fetchTapeNames, isNamed, type TapeName, type TapeNames } from '../../lib/heat/tapeNames';
 import { geckoAsOfLine } from '../../lib/geckoTerminal/edge';
+import { printedTier } from '../../lib/heat/heatOracle';
 
 /**
  * The bungalow's trade tape — the last fills on its own pool.
@@ -159,7 +160,7 @@ function Row({
           rel="noopener noreferrer"
           aria-label={
             name
-              ? `View transaction on ${explorer.name} (opens in new tab). Buyer @${name.xHandle}, ${name.tier}${name.days !== null ? `, ${name.days} days held` : ''}.`
+              ? `View transaction on ${explorer.name} (opens in new tab). Buyer @${name.xHandle}${printedTier(name.tier) ? `, ${printedTier(name.tier)}` : ''}${name.days !== null ? `, ${name.days} days held` : ''}.`
               : `View transaction on ${explorer.name} (opens in new tab)`
           }
           className="text-white/55 hover:text-white underline underline-offset-2"
@@ -173,8 +174,13 @@ function Row({
             reckoning, and `null` renders nothing at all rather than a zero. */}
         {name && (
           <span className="block text-white/40 text-[10px] leading-tight">
-            {name.tier}
-            {name.days !== null && <> &middot; {name.days.toLocaleString('en-US')}d</>}
+            {printedTier(name.tier)}
+            {name.days !== null && (
+              <>
+                {printedTier(name.tier) && <> &middot; </>}
+                {name.days.toLocaleString('en-US')}d
+              </>
+            )}
           </span>
         )}
       </td>

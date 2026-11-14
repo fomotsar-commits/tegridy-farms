@@ -35,7 +35,7 @@ import { refreshLaunchPool, type LaunchPool } from '../discover/pool';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { OpenGate, Prepared, TxSummary, WriteRpc } from './types';
+import type { OpenGate, Prepared, TxSummary, TxVersion, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 export async function preparePoolSwap(
@@ -49,6 +49,7 @@ export async function preparePoolSwap(
     amountIn: bigint;
     slippageBps: bigint;
     nowSecs?: number;
+    txVersion?: TxVersion;
   },
 ): Promise<Prepared> {
   const bad = slippageProblem(a.slippageBps);
@@ -129,6 +130,7 @@ export async function preparePoolSwap(
   const kind = a.side === 'buy' ? 'pool-buy' : 'pool-sell';
   return buildAndSimulate(rpc, {
     kind,
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: {

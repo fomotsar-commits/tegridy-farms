@@ -1,6 +1,6 @@
 import { formatUnits } from 'viem';
 import { useVenuePairs, type VenuePair, type VenuePairToken } from '../../hooks/useVenuePairs';
-import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
+import { liquidityVenueOn, OPENING_FEE_TEXT, openingVenueOn } from '../../lib/chains/liquidityVenue';
 import { DEFAULT_TOKENS, defaultTokensFor, type TokenInfo } from '../../lib/tokenList';
 import { formatTokenAmountGrouped, shortenAddress } from '../../lib/formatting';
 import { getAddressUrl } from '../../lib/explorer';
@@ -127,6 +127,7 @@ function Row({ chainId, weth, pair, onPick }: { chainId: number; weth: string; p
  */
 export function ChainPoolTable({ chainId, onPick }: { chainId: number; onPick: (p: LiquidityPick) => void }) {
   const venue = liquidityVenueOn(chainId);
+  const opensForFee = openingVenueOn(chainId) !== null;
   const read = useVenuePairs(chainId);
   const name = venue?.name ?? 'this network';
 
@@ -178,13 +179,14 @@ export function ChainPoolTable({ chainId, onPick }: { chainId: number; onPick: (
       <FinePrint summary="Details">
         <p>
           Read live from {name}&apos;s pool factory, the venue&apos;s own contract. Anyone can open a pool
-          here, so a name is what its token calls itself; a name that copies a listed token shows its
+          here{opensForFee ? ` for ${OPENING_FEE_TEXT}, paid to the venue's treasury` : ''}, so a name is what its token calls itself; a name that copies a listed token shows its
           address instead. Check the pool&apos;s address before you add.
         </p>
         <p>
+          {/* The old factory pays the cut to the fee-remittance Safe, the one new pools open on
+              since 2026-11-08 to the treasury Safe: this says only "the venue" (law-25 read of #1169). */}
           Every pool charges 0.3% on each swap, split by pool share. The venue&apos;s one-sixth cut (0.05%)
-          is off until it is switched on for that pool; then it goes to the venue&apos;s fee Safe as new
-          pool shares.
+          is off until it is switched on for that pool; then it goes to the venue as new pool shares.
         </p>
       </FinePrint>
     </section>

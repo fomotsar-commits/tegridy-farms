@@ -10,6 +10,11 @@ import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
+import { setLastReading } from '../lib/heat/heatStore';
+import { useConnectedHeatSubject } from '../hooks/useConnectedHeatSubject';
+import { HeatSince, RollingDegrees } from './heat/RollingDegrees';
+import { IslandCard } from './heat/IslandCard';
+import { earliestRow, sinceLine } from '../lib/heat/sinceLine';
 import {
   isStale,
   nextTier,
@@ -17,6 +22,7 @@ import {
   tierAtFloor,
   tierAbove,
   gateDecision,
+  printedTier,
   TIER_FLOORS,
   type HeatReading,
   type HeatTier,
@@ -25,13 +31,16 @@ import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { roomRankLine } from '../lib/heat/roomRank';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
-import { heatExampleLine, VENUE } from '../lib/arrival';
+import { HEAT_WORDS, heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
 import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
+import { Countdown } from './heat/Countdown';
+import { QUIET_BUTTON_STYLE } from './useBaylaLine';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -155,6 +164,9 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
+  /** Draw the countdown for a wallet under the launch floor (island answer twenty-five, screen 2).
+   *  False inside the launch door, whose page already opens on it: one countdown per page. */
+  countdown?: boolean;
   /** Answer one token's question from the same reading: a room shows its own row, then the
    *  whole flame. Same address, fetch, freshness and failure sentences; the form, loading
    *  and error arms render as they do on the venue, so an unreadable instrument in a room
@@ -180,12 +192,18 @@ export function HeatCard({
   focusField = false,
   variant = 'panel',
   showEligibility = true,
+  countdown = true,
   scopeTo,
   fillFrom,
   lpDoors = false,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const solanaConnected = useSolanaSurface().surface?.address ?? null;
+  // The connected wallet this card reads by itself. One hand can hold two (an Ethereum account and
+  // a Solana wallet, as inside Phantom's browser): the card and Bayla's line then read the same
+  // one, the warmest (hooks/useConnectedHeatSubject.ts). The fill buttons below still name each. A
+  // page about one network (`fillFrom`) reads that network's wallet only, as its fill does.
+  const connectedSubject = useConnectedHeatSubject(fillFrom);
   const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
@@ -194,8 +212,8 @@ export function HeatCard({
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
   const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
-  const subject = pinned ?? initialAddress ?? connected ?? '';
-  const input = pinned ?? draft ?? connected ?? '';
+  const subject = pinned ?? initialAddress ?? connectedSubject ?? '';
+  const input = pinned ?? draft ?? connectedSubject ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
   // WALLET FILL: the networks the fill can read now. The page's own if it names one. Else
   // a Solana wallet connected to the site, with no Ethereum account connected, is the
@@ -263,7 +281,11 @@ export function HeatCard({
     setState({ kind: 'loading' });
     try {
       const reading = await fetchHeat(addr, { signal: ac.signal });
-      if (!ac.signal.aborted) setState({ kind: 'ready', reading });
+      if (!ac.signal.aborted) {
+        setState({ kind: 'ready', reading });
+        // Bayla's line under the nav speaks from the reading this card made (answer twenty-four, build 4).
+        setLastReading(reading);
+      }
     } catch (e) {
       if (ac.signal.aborted) return;
       setState({
@@ -357,10 +379,15 @@ export function HeatCard({
             className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
             style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
           />
+          {/* One green button per screen (island answer twenty-eight, §2.2): Read Heat has done its
+              job once a reading is on the screen, so it goes quiet and the countdown's Start the
+              clock is the green one. Same press; an edge and its words, no fill. */}
           <button
             type="submit"
             disabled={!valid || state.kind === 'loading'}
-            className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+            data-quiet={state.kind === 'ready' || undefined}
+            className={`${state.kind === 'ready' ? 'rounded-[10px] font-semibold max-md:min-h-[44px]' : 'btn-primary'} px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed`}
+            style={state.kind === 'ready' ? QUIET_BUTTON_STYLE : undefined}
             title={valid ? 'Read this wallet' : 'Enter an Ethereum, Base, or Solana address'}
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
@@ -432,6 +459,7 @@ export function HeatCard({
                 showMath={showMath}
                 onToggleMath={() => setShowMath((v) => !v)}
                 showEligibility={showEligibility}
+                countdown={countdown}
                 lpDoors={lpDoors}
               />
             )}
@@ -467,6 +495,7 @@ function Reading({
   showMath,
   onToggleMath,
   showEligibility = true,
+  countdown = true,
   lpDoors = false,
 }: {
   reading: HeatReading;
@@ -474,6 +503,7 @@ function Reading({
   showMath: boolean;
   onToggleMath: () => void;
   showEligibility?: boolean;
+  countdown?: boolean;
   lpDoors?: boolean;
 }) {
   const stale = isStale(reading, now);
@@ -492,6 +522,9 @@ function Reading({
   );
   const liveRows = rows.filter((r) => !r.retired);
   const deepest = liveRows[0] ?? null;
+  // SINCE (island answer twenty-four, build 7): the coin held_since_unix belongs to, named.
+  const earliest = earliestRow(reading);
+  const since = earliest && earliest.symbol ? sinceLine(reading, earliest, earliest.symbol) : null;
 
   // The post, built from served numbers only, and the number leads. The rank is the
   // deepest live room's, named by its room, and absent when the island served none.
@@ -500,7 +533,8 @@ function Reading({
     const rank = deepest ? roomRankLine(deepest.roomRank, deepest.roomHolders) : null;
     const text =
       `${reading.degrees.toFixed(1)}° on Jungle Bay Island's instrument. ` +
-      `${reading.tier}. ${days} days held. ` +
+      (printedTier(reading.tier) ? `${printedTier(reading.tier)}. ` : '') +
+      `${days} days held. ` +
       (rank && deepest ? `${rank} in the ${deepest.symbol} room. ` : '') +
       `Held time counts here. ${SITE_URL}/read/${reading.address}`;
     return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
@@ -582,12 +616,15 @@ function Reading({
       {/* The island's order: tier, days, degrees, since, tokens. The word a stranger knows
           leads, days are the unit anyone compares, and degrees follow. */}
       <div className="mb-4">
-        <div
-          className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold"
-          style={{ color }}
-        >
-          {reading.tier}
-        </div>
+        {/* The served word, except under Observer: the venue never prints Drifter (island answer
+            twenty-six), and says where the clock starts in its place. */}
+        {printedTier(reading.tier) ? (
+          <div className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold" style={{ color }}>
+            {printedTier(reading.tier)}
+          </div>
+        ) : (
+          <div className="text-[15px] leading-snug text-white/80">{HEAT_WORDS.noTier}</div>
+        )}
 
         {days !== null && (
           <div className="flex items-baseline gap-2 mt-2">
@@ -599,10 +636,11 @@ function Reading({
         )}
 
         <div className="flex items-baseline gap-1 mt-2">
-          <span className="stat-value text-[20px] leading-none" style={{ color }}>
-            {reading.degrees.toFixed(2)}
-          </span>
+          {/* The roll from 0 over 600 ms, once a session (answer twenty-four, §2b). */}
+          <RollingDegrees degrees={reading.degrees} address={reading.address} className="stat-value text-[20px] leading-none" style={{ color }} />
           <span className="text-[13px]" style={{ color }}>°</span>
+          {/* The change since the last visit, from this browser's memory alone. */}
+          <HeatSince degrees={reading.degrees} address={reading.address} className="ml-2 text-[12px] text-white/70" />
         </div>
 
         {nextTierLine(reading) && (
@@ -610,8 +648,12 @@ function Reading({
         )}
 
         <div className="text-[12px] text-white/55 leading-relaxed mt-2">
-          {reading.heldSinceUnix !== null && (
-            <div>on the island since {sinceLabel(reading.heldSinceUnix)}</div>
+          {/* The since slot says the island's line when a served row names the coin; the
+              old line stays when none does, so the date is never lost and never said twice. */}
+          {since ? (
+            <div className="text-[13px] text-white/80" data-testid="trencher-since">{since}</div>
+          ) : (
+            reading.heldSinceUnix !== null && <div>on the island since {sinceLabel(reading.heldSinceUnix)}</div>
           )}
           <div>
             {reading.isCold
@@ -651,7 +693,7 @@ function Reading({
 
       {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
           what a wallet is told here and what happens at submit cannot drift. */}
-      {showEligibility && <Eligibility reading={reading} now={now} />}
+      {showEligibility && <Eligibility reading={reading} now={now} countdown={countdown} />}
 
       {doors.length > 0 && (
         <div data-testid="heat-lp-doors" className="space-y-1">
@@ -793,6 +835,10 @@ function Reading({
         </div>
       )}
 
+      {/* THE FLEX (island answer twenty-four, build 7): the island's own card for this
+          wallet, under a warm read. A cold wallet has no card to hand over. */}
+      {!reading.isCold && <IslandCard wallet={reading.address} />}
+
       {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
           post. It opens the composer with served numbers and the read link; nothing is
           posted on the holder's behalf. mr-4 keeps it off "How heat is earned" on its line. */}
@@ -838,6 +884,9 @@ function ScopedReading({
   const want = scopeTo.address.trim().toLowerCase();
   const row = reading.breakdown.find((r) => r.tokenAddress.trim().toLowerCase() === want) ?? null;
   const days = row?.firstSeenAtUnix != null ? daysHeld(row.firstSeenAtUnix, reading.asOfUnix) : null;
+  // SINCE (island answer twenty-four, build 7), for this room's coin: its own first hold, never
+  // held_since_unix, which may be another coin's.
+  const since = row ? sinceLine(reading, row, scopeTo.symbol) : null;
   const rowColor = row?.retired ? 'rgba(255,255,255,0.45)' : TIER_COLOR[reading.tier];
 
   return (
@@ -858,8 +907,11 @@ function ScopedReading({
           {days !== null && (
             <p className="text-white/80 text-[13px] mt-1">
               {days.toLocaleString('en-US')} {days === 1 ? 'day' : 'days'} held
-              {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
             </p>
+          )}
+          {/* The island's line carries the month the days line used to repeat. */}
+          {since && (
+            <p className="text-white/80 text-[13px] mt-1" data-testid="trencher-since">{since}</p>
           )}
           {/* The island's place for this wallet in this room, as served. */}
           {roomRankLine(row.roomRank, row.roomHolders) && (
@@ -873,9 +925,11 @@ function ScopedReading({
       )}
 
       <p className="text-white/60 text-[12px]">
-        your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
+        your whole flame reads {reading.degrees.toFixed(2)}&deg;{printedTier(reading.tier) ? ` ${printedTier(reading.tier)}` : ''}
       </p>
       {nextTierLine(reading) && <p className="text-white/60 text-[12px] mt-1">{nextTierLine(reading)}</p>}
+      {/* THE FLEX in a room: the same card, under a warm read. */}
+      {!reading.isCold && <IslandCard wallet={reading.address} className="mt-3" />}
     </div>
   );
 }
@@ -902,7 +956,7 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
             <li key={rung.tier}>
               <div className="flex items-baseline gap-2 text-[12px]">
                 <span className="w-[68px] shrink-0" style={{ color: reached ? TIER_COLOR[rung.tier] : dim }}>
-                  {rung.tier}
+                  {printedTier(rung.tier) ?? HEAT_WORDS.ladderCold}
                 </span>
                 <span className="w-[46px] shrink-0 stat-value" style={{ color: dim }}>{rung.floor}&deg;</span>
                 {reached && (
@@ -927,13 +981,20 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
   );
 }
 
-/** The launch floor on the card, from gateDecision: what the launch paths enforce with. */
-function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
+/** The launch floor on the card, from gateDecision: what the launch paths enforce with. Under
+ *  the floor it is the countdown (island answer twenty-five, screen 2), never "Cannot". */
+function Eligibility({ reading, now, countdown }: { reading: HeatReading; now: number; countdown: boolean }) {
   const floor = heatLaunchFloor();
   const floorTier = tierAtFloor(floor);
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
   const warm = d.state === 'WARM';
   const pct = Math.min(100, (reading.degrees / floor) * 100);
+
+  // In the launch door the page already opens on the countdown, so the card adds nothing here.
+  if (d.state === 'COLD') return countdown ? <Countdown reading={reading} look="card" /> : null;
+  // The door is not open yet (island answer twenty-six): at the floor and up the card is the
+  // countdown's warm state, never "Can launch a token here".
+  if (d.state === 'WARM' && !isLaunchDoorOpen()) return countdown ? <Countdown reading={reading} look="card" /> : null;
 
   return (
     <div
@@ -944,8 +1005,9 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
       }}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1.5">
+        {/* A stale reading decides nothing either way: the next move is a fresh one. */}
         <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
-          {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
+          {warm ? '✓ Can launch a token here' : 'Waiting on a fresh reading'}
         </span>
         {/* The tier is named only when the floor sits exactly on its rung
             (answer ten, ruling 4). Between rungs the number stands alone,
@@ -965,14 +1027,6 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
       )}
 
       <p className="text-[11.5px] text-white/55 leading-relaxed">{d.detail}</p>
-
-      {/* The island's own countdown to the floor, when it serves one. A stale reading
-          decides nothing and a warm one has nothing to wait for. */}
-      {d.state === 'COLD' && reading.daysToPlant !== null && reading.daysToPlant >= 1 && (
-        <p className="text-[11.5px] text-white/75 leading-relaxed mt-1">
-          You may plant in {reading.daysToPlant.toLocaleString('en-US')} {reading.daysToPlant === 1 ? 'day' : 'days'}.
-        </p>
-      )}
 
       {/* The one thing this venue must never imply. Both rails sign client-side, so
           the door raises the floor on the path we control and proves nothing about

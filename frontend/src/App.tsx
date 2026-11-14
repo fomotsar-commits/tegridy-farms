@@ -7,9 +7,11 @@ import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
+import { DeepLinkSheet } from './components/sheet/ActionSheet';
 import { PageSkeleton } from './components/PageSkeleton';
 import { FirstFrame } from './components/FirstFrame';
 import { DoorFrame } from './components/DoorFrame';
+import { PoolsFallback } from './components/PoolsFrame';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -50,6 +52,7 @@ const TrustPage = lazy(() => import('./pages/TrustPage'));
 const EarnPage = lazy(() => import('./pages/EarnPage'));
 const StatsPage = lazy(() => import('./pages/StatsPage'));
 const LaunchHubPage = lazy(() => import('./pages/LaunchHubPage'));
+const LaunchDoorPage = lazy(() => import('./pages/LaunchDoorPage'));
 const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 // Liquidity, the venue's Solana AMM, and Zap — the Pools section (2026-09-05).
 const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
@@ -66,10 +69,6 @@ const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
 const CurveLaunchDetailPage = lazy(() => import('./pages/CurveLaunchDetailPage'));
 // Never gated: a launched token's disclosures stay reachable if the wizard is re-gated.
 const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
-// AirdropFactory is undeployed: its transactions are isDeployed()-gated in-page.
-const AirdropPage = lazy(() => import('./pages/AirdropPage'));
-// Each vesting tab gates on its own contract address.
-const VestingPage = lazy(() => import('./pages/VestingPage'));
 // Wallet-free first-run flow; its steps come from the same gates the pages read.
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
 
@@ -234,6 +233,15 @@ function LegacyFarmRedirect() {
 }
 
 /**
+ * `/solana-lp`, the Solana LP tab until 2026-10-24: it mounted the same LP section as /pools,
+ * so an old link opens /pools with its `?mint=&task=&pool=` kept (SolanaLpSection reads them).
+ */
+function SolanaLpRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/pools${search}${hash}`} replace />;
+}
+
+/**
  * `/swap`, with an old `?tab=liquidity` link sent to /liquidity before the swap page
  * loads: TradePage would read the unknown tab as 'swap', and redirecting from inside
  * it cost four serial chunk loads. The URL is known on the first render.
@@ -310,26 +318,25 @@ function AnimatedRoutes() {
         <Route path="farm" element={<LegacyFarmRedirect />} />
         {/* Swap is a tabbed host: Ethereum / Solana. */}
         <Route path="swap" element={<SwapRoute />} />
-        <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="solana" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense></DeepLinkSheet>} />
         {/* No route until the Cardano swap is opened (lib/cardano/flags.ts). */}
         {cardanoSwapVisible() && <Route path="cardano" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
-        {/* Pools is its own section: /liquidity, /solana-lp, /pools and /zap. */}
+        {/* Pools is its own section: /liquidity, /pools, /range-pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
-        <Route path="solana-lp" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        <Route path="solana-lp" element={<SolanaLpRedirect />} />
         {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
         {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
-        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        {/* Opened on /pools itself, its heading is on screen from the HTML and stays (PoolsFrame.tsx). */}
+        <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<PoolsFallback />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="curve-launch/:mint" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchDetailPage /></Suspense>} />
         <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
-        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
+        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchDoorPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
-        <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
-        <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
         <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
@@ -351,10 +358,10 @@ function AnimatedRoutes() {
         <Route path="leaderboard" element={<Navigate to="/history" replace />} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
-        <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />
+        <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<Navigate to="/earn/toweli" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
-        <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
+        <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
         {/* An Earn tab, so the section's strip stays above it. */}
         <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />

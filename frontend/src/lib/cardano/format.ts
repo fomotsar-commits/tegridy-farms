@@ -26,17 +26,15 @@ export function formatAda(lovelace: bigint): string {
   return `${formatAmount(lovelace, LOVELACE_DECIMALS)} ADA`;
 }
 
-/** A token id as typed: "<policy><name>", "<policy>.<name>" or with spaces; null when malformed. */
-export function parseTokenId(text: string): { policyId: string; assetName: string } | null {
-  const t = text.trim().toLowerCase().replace(/[\s.]/g, '');
-  if (!/^[0-9a-f]{56}(?:[0-9a-f]{2}){0,32}$/.test(t)) return null;
-  return { policyId: t.slice(0, 56), assetName: t.slice(56) };
-}
-
 export function cardanoscanTx(txHash: string): string {
   return `https://cardanoscan.io/transaction/${txHash}`;
 }
 
+/**
+ * A coin's Cardanoscan page. A policy id is 56 hex digits and an asset name up to 32 bytes of hex, so only hex
+ * ever reaches the link; anything else (text a visitor typed that was never a coin) gets Cardanoscan's front page.
+ */
 export function cardanoscanToken(policyId: string, assetName: string): string {
-  return `https://cardanoscan.io/token/${policyId}${assetName}`;
+  if (!/^[0-9a-f]{56}$/i.test(policyId) || !/^(?:[0-9a-f]{2}){0,32}$/i.test(assetName)) return 'https://cardanoscan.io/';
+  return `https://cardanoscan.io/token/${encodeURIComponent(policyId + assetName)}`;
 }

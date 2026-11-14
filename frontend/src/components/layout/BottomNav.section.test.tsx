@@ -1,6 +1,6 @@
-// The phone bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18). Five tabs is the
-// ceiling at 390px, so Dashboard is a drawer row. A word is lit on every page it owns, as the top
-// bar's is: lit only on its own URL, a word went dark one press away from it.
+// The phone bar reads Island · Swap · Add · Yield · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// 2026-11-01). Five tabs is the ceiling at 390px, so Dashboard is a drawer row. A word is lit on every
+// page it owns, as the top bar's is: lit only on its own URL, a word went dark one press away from it.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -10,7 +10,7 @@ const account = vi.hoisted(() => ({ isConnected: false }));
 vi.mock('wagmi', () => ({ useAccount: () => account }));
 
 import { BottomNav } from './BottomNav';
-import { LAUNCH_SECTION, LOCK_SECTION, SWAP_SECTION } from '../../lib/navConfig';
+import { LAUNCH_SECTION, YIELD_SECTION, POOLS_SECTION, SWAP_SECTION } from '../../lib/navConfig';
 
 function mount(path = '/', hash = '') {
   return render(
@@ -40,23 +40,27 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('BottomNav: the four words', () => {
-  it('reads Island · Lock · Launch · Swap, each with its icon', () => {
+describe('BottomNav: the five words', () => {
+  it('reads Island · Swap · Add · Yield · Launch, each with its icon', () => {
     const links = tabs();
-    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Swap', 'Add', 'Yield', 'Launch']);
     for (const a of links) expect(a.querySelector('svg'), a.getAttribute('aria-label')!).not.toBeNull();
   });
 
-  it('stays four when a wallet connects: Dashboard is in the drawer', () => {
+  it('stays five when a wallet connects: Dashboard is in the drawer', () => {
     account.isConnected = true;
-    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Swap', 'Add', 'Yield', 'Launch']);
   });
 
-  it('opens Island on the home and Lock on the list of pools', () => {
+  it('with no room, opens Island on the home, Swap on the Buy sheet over it, Add on the Solana Add / Remove tab and Yield on the list of pools', () => {
     const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
     tabs();
     expect(href('Island')).toBe('/');
-    expect(href('Lock')).toBe('/earn');
+    // Island answer twenty-seven: the Buy sheet over the home, on the bungalow row with nothing lit.
+    expect(href('Swap')).toBe('/?sheet=buy');
+    expect(href('Add')).toBe('/pools');
+    expect(href('Yield')).toBe('/earn');
+    // Launching on Solana is off in a test build (curveWriteFlag.ts), so Launch opens the launchpad.
     expect(href('Launch')).toBe('/launch');
   });
 });
@@ -71,26 +75,28 @@ describe('BottomNav: a word is lit on every page it owns', () => {
     expect(lit(path)).toEqual(['Island']);
   });
 
-  it('Lock under a pool, on the pool its door opens', () => {
-    expect(lit('/earn/bayla')).toEqual(['Lock']);
+  it('Yield under a pool, on the pool its door opens', () => {
+    expect(lit('/earn/bayla')).toEqual(['Yield']);
   });
 
   it.each([
-    ['Lock', LOCK_SECTION],
-    ['Launch', LAUNCH_SECTION],
     ['Swap', SWAP_SECTION],
+    // The Pools section's word on the bar: /pools, /liquidity, the range pools and the zap.
+    ['Add', POOLS_SECTION],
+    ['Yield', YIELD_SECTION],
+    ['Launch', LAUNCH_SECTION],
   ] as const)('%s on each of its own pages', (label, section) => {
     for (const item of section.items) expect(lit(item.to), item.to).toEqual([label]);
   });
 
-  it.each(['/solana-lp', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
+  it.each(['/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
     account.isConnected = true;
     expect(lit(path)).toEqual([]);
   });
 
   it('says which word is the page you are on', () => {
     tabs('/earn');
-    expect(screen.getByRole('link', { name: 'Lock' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Yield' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Island' })).not.toHaveAttribute('aria-current');
   });
 });

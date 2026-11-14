@@ -1,17 +1,19 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
 import { POOLS_SECTION } from '../lib/navConfig';
+import { PoolsFallback } from '../components/PoolsFrame';
 
 // Add / remove liquidity on the venue's own Uniswap-V2-fork pairs (TEGRIDY_ROUTER).
 const LiquidityPage = lazy(() => import('./LiquidityPage'));
-// Solana liquidity: the venue AMM's LP section, behind its live read.
-const SolanaLpPage = lazy(() => import('./SolanaLpPage'));
+// The venue's Solana AMM: its LP section (find a pool, add, remove, open one) and live status.
+const PoolsPage = lazy(() => import('./PoolsPage'));
 // The Range tab: liquidity between two prices, in the venue's own range program.
 const RangePoolsPage = lazy(() => import('./RangePoolsPage'));
-// The venue's Solana AMM: its live status, fee sheet and the same LP section.
-const PoolsPage = lazy(() => import('./PoolsPage'));
 // One token in, LP position out, as one resumable run.
 const ZapPage = lazy(() => import('../components/zap/ZapPage'));
+
+// /pools keeps its heading on screen between the host's chunk and the page's (PoolsFrame.tsx).
+const POOLS_FALLBACKS = { '/pools': <PoolsFallback panel /> };
 
 /**
  * Pools, the section for providing liquidity: one tab per way in, from POOLS_SECTION
@@ -28,11 +30,11 @@ export default function PoolsHostPage() {
       chains={{ label: 'Pools network', missing: 'No pools here' }}
       panels={{
         '/liquidity': LiquidityPage,
-        '/solana-lp': SolanaLpPage,
-        '/range-pools': RangePoolsPage,
         '/pools': PoolsPage,
+        '/range-pools': RangePoolsPage,
         '/zap': ZapPage,
       }}
+      fallbacks={POOLS_FALLBACKS}
     />
   );
 }

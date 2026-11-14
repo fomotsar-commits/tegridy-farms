@@ -12,6 +12,7 @@ import { PRICE_TOLERANCE, RESERVES_MOVED_WARNING, TOO_NEW_WARNING, TOO_QUIET_WAR
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { RANGE_COPY } from '../../../lib/launcher/solana/write/range';
+import { serializeBody } from '../../../lib/launcher/solana/write/prepare';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -714,11 +715,12 @@ const ix = (data: number[], account: PublicKey = KEY(51)) =>
     data: Buffer.from(data),
   });
 
-function txOf(payer: PublicKey, ...ixs: TransactionInstruction[]): Transaction {
+/** Prepared for `payer` with `ixs` as its body: what sameToSign reads (the payer, the format, the body as prepared). */
+function txOf(payer: PublicKey, ...ixs: TransactionInstruction[]): Partial<PreparedTx> {
   const tx = new Transaction();
   tx.feePayer = payer;
   if (ixs.length) tx.add(...ixs);
-  return tx;
+  return { payer, wire: { version: 'legacy', tx }, check: { body: serializeBody(ixs) } as PreparedTx['check'] };
 }
 
 type Buy = Extract<TxSummary, { kind: 'buy' }>;
@@ -784,7 +786,7 @@ describe('a review left open past its blockhash', () => {
   it.each<[string, PreparedTx, string[], string[]]>([
     [
       'a lower minimum',
-      again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }),
+      again(buyWith({ minTokensOut: 2_900_000_000n }), txOf(CREATOR, ix([9]))),
       ['You receive at least: 2900000000'],
       ['You receive at least: 3000000000'],
     ],
@@ -794,8 +796,8 @@ describe('a review left open past its blockhash', () => {
       ['Priority fee: 90000'],
       ['Priority fee: 12000'],
     ],
-    ['different instructions under a review that reads the same', again(buySummary(), { tx: txOf(CREATOR, ix([9])) }), [], []],
-    ['another wallet paying', again(buySummary(), { tx: txOf(KEY(60)) }), [], []],
+    ['different instructions under a review that reads the same', again(buySummary(), txOf(CREATOR, ix([9]))), [], []],
+    ['another wallet paying', again(buySummary(), txOf(KEY(60))), [], []],
   ])('built again with %s: the new review is shown with what reads differently, and nothing is signed unread', async (_what, fresh, now, gone) => {
     vi.useFakeTimers();
     const build = builds(prepared(buySummary()), fresh);
@@ -943,7 +945,7 @@ describe('a review left open past its blockhash', () => {
 
   it.each<[string, Prepared]>([
     ['a refusal', { ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' } }],
-    ['a review that changed', { ok: true, prepared: again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }) }],
+    ['a review that changed', { ok: true, prepared: again(buyWith({ minTokensOut: 2_900_000_000n }), txOf(CREATOR, ix([9]))) }],
   ])('Start over, then the abandoned build answers with %s: the flow stays closed and the page is told nothing', async (_what, answer) => {
     vi.useFakeTimers();
     let finish: (r: Prepared) => void = () => undefined;
@@ -1104,7 +1106,7 @@ describe('the stale review on screen', () => {
   });
 
   it('a review that changed lists the lines that read differently beside Sign in wallet, takes focus there, and one more press signs it', async () => {
-    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) });
+    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), txOf(CREATOR, ix([9])));
     const api = confirmedApi();
     const sign = await openStale(api, builds(prepared(buySummary()), fresh));
     await act(async () => {
@@ -1155,7 +1157,7 @@ describe('the stale review on screen', () => {
 
   it('different instructions under the same words: says to read it through again, and names no line', async () => {
     const api = confirmedApi();
-    const sign = await openStale(api, builds(prepared(buySummary()), again(buySummary(), { tx: txOf(CREATOR, ix([9])) })));
+    const sign = await openStale(api, builds(prepared(buySummary()), again(buySummary(), txOf(CREATOR, ix([9])))));
     await act(async () => {
       fireEvent.click(sign);
     });
@@ -1280,7 +1282,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
   });
 
   it("one of the transaction's own lines changed beside a market move: nothing is signed, and every line that reads differently is listed", async () => {
-    const fresh = again(deposit({ price: priced('agrees', 0.009), max: { quote: 102_000_000n, token: 10_100_000n } }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
+    const fresh = again(deposit({ price: priced('agrees', 0.009), max: { quote: 102_000_000n, token: 10_100_000n } }), { ...CAP, ...txOf(CREATOR, ix([9])) });
     const { api, state } = await pressPastItsClock(prepared(deposit({ price: priced('agrees', 0.004) }), CAP), fresh);
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({
@@ -1339,7 +1341,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
   });
 
   it('a range opening built again signs a fresh NFT key: never the same bytes, so the review is always shown again', async () => {
-    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
+    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), { ...CAP, ...txOf(CREATOR, ix([9])) });
     const { api, state } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({ step: 'review', prepared: fresh });
@@ -1353,7 +1355,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
   });
 
   it('a market move over different instructions: shut, and the page says it cannot call it the same', async () => {
-    const fresh = again(deposit({ price: priced('agrees', 0.009) }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
+    const fresh = again(deposit({ price: priced('agrees', 0.009) }), { ...CAP, ...txOf(CREATOR, ix([9])) });
     const { api, state } = await pressPastItsClock(prepared(deposit({ price: priced('agrees', 0.004) }), CAP), fresh);
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({ step: 'review', replaced: { n: 1, now: [], gone: [] } });
@@ -1877,6 +1879,7 @@ describe('opening a pool: the review', () => {
     locked: { quote: 1_414n, token: 7n },
     createFee: 150_000_000n, feeReceiver: KEY(8),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
     unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], warnings: [], priceGap: null, ...over,
@@ -1904,6 +1907,10 @@ describe('opening a pool: the review', () => {
     );
     expect(value('Account deposits that never come back')).toBe(
       '0.04 SOL (the pool, its price record, its share token and its two vaults; none can be closed)',
+    );
+    // How the money moves: Metaplex's fee and the record's own deposit, both the opener's, none to the team.
+    expect(value('Name record of the pool share')).toBe(
+      "0.0137338 SOL: 0.01 SOL is Metaplex's fee for making it, 0.0037338 SOL stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it",
     );
     expect(value('Your pool-share account')).toBe('0.00203928 SOL (it comes back if you close that account later)');
     expect(value('You get')).toBe('0.070710578 pool shares, exactly');
@@ -2023,6 +2030,7 @@ describe('opening a pool: the review wraps sentences between words', () => {
       put: { quote: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
       locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+      nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
       tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
     };
@@ -2035,6 +2043,7 @@ describe('opening a pool: the review wraps sentences between words', () => {
       'You put in',
       'Fee to open the pool',
       'Account deposits that never come back',
+      'Name record of the pool share',
       'Your pool-share account',
       'You get',
       'Locked in the pool forever',

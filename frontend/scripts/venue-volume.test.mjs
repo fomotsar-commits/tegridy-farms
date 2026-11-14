@@ -3,12 +3,19 @@
 // recorded 2026-10-19) and the figures of that day's hand read; the cursor and write
 // rules against fakes. Each `it` names the broken reader it would catch.
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   EVM_CHAINS,
+  ISLAND_COINS,
   JUPITER_FEE_ACCOUNTS,
+  LOAN_EMITTED_TOPIC,
+  NFT_LENDING,
+  listPairs,
+  loanEmitted,
+  readNftLoans,
+  SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
   VENUE_PROGRAM,
@@ -19,18 +26,30 @@ import {
   jupiterSwap,
   poolSwap,
   readEvmChain,
+  readJupiter,
   readSolanaPools,
   base58,
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
-import { addUp, legUsd, main, spotPrice } from "./venue-volume.mjs";
+import { READERS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
 import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet.json"), "utf-8"));
 // Test runs of V2 builds (2026-10-23), shaped as transactions: no V2 swap of ours was on chain yet.
 const V2 = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "v2-simulation.json"), "utf-8"));
+// Read 2026-11-10: a price keeper trip, and two swaps whose fee was paid in USDT.
+const NOV = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet-2026-11.json"), "utf-8"));
 const [WSOL_FEE, USDC_FEE] = JUPITER_FEE_ACCOUNTS;
+const USDT_FEE = "GT8LWC8xwwXGE9FatRyMDZccSYBqYNRMZkz2SCdgV6dj";
+const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const KEEPER = "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz";
+// Each chain's factory that charges to open a pool: none of them had a pair when these were recorded.
+const OPENING = new Set(Object.values(EVM_CHAINS).map((c) => c.factories[1].toLowerCase()));
+const ETH_FACTORY = EVM_CHAINS.ethereum.factories[0].toLowerCase();
+const TOWELI = "0x420698cfdeddea6bc78d59bc17798113ad278f9d";
+// Read 2026-11-13: the first loan on NFT Lending, as its LoanEmitted log.
+const LOANS = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "gondi-loan-2026-11.json"), "utf-8"));
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 const SOL_BAYLA = decodePool("ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4", FX.pool_solBayla);
 const BAYLA_USDC = decodePool("J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm", FX.pool_baylaUsdc);
@@ -62,6 +81,15 @@ describe("our pools: a swap is one vault up and the other down", () => {
   it("does not count a deposit, or another pool's transaction", () => {
     expect(poolSwap(FX.poolDeposit, SOL_BAYLA)).toBeNull();
     expect(poolSwap(FX.poolUsdcIn, SOL_BAYLA)).toBeNull();
+  });
+
+  // About $2.5k of the $34k shown on 2026-11-10 was the keeper's, counted as anyone's.
+  it("counts the venue's own price keeper as a bot (its 0.055848246 SOL trip, 2026-11-09)", async () => {
+    const pool = decodePool("3YRW6wJscukRaWutB6QgPwtK1EQM9KA7CXcXTtmN3GJK", NOV.pool_keeperCoin);
+    const hit = poolSwap(NOV.keeperTrip, pool);
+    expect(hit).toEqual({ leg: { mint: SOL_MINT, raw: 55_848_246n }, payer: KEEPER });
+    const t = await addUp(null, [hit], async () => 100, SOLANA_BOTS);
+    expect(t).toEqual({ swaps: 1, usd: 5.584825, unpriced: 0, bot_swaps: 1, bot_usd: 5.584825 });
   });
 });
 
@@ -136,6 +164,56 @@ describe("Jupiter V2 builds: one SwapsEvent, no FeeEvent, the fee read from the 
   });
 });
 
+// The site takes its fee in USDT since 2026-11-02 (#1105); the counter read only the WSOL and
+// USDC accounts, so 9 swaps (about $625) by 2026-11-10 were never counted.
+describe("Jupiter, fee paid in USDT: the vault's USDT account, USDT valued as dollars", () => {
+  it("reads the vault's USDT fee account", () => {
+    expect(JUPITER_FEE_ACCOUNTS).toContain(USDT_FEE);
+  });
+
+  it("fee taken from a USDT input: the full 20 USDT (2026-11-02)", () => {
+    expect(jupiterSwap(NOV.jupUsdtInFeeIn, USDT_FEE).leg).toEqual({ mint: USDT, raw: 20_000_000n });
+  });
+
+  it("fee taken from the USDT output: the USDT out before the fee, 22.014648 (2026-11-08)", () => {
+    expect(jupiterSwap(NOV.jupUsdtOutFeeOut, USDT_FEE).leg).toEqual({ mint: USDT, raw: 22_014_648n });
+  });
+
+  it("values USDT as dollars, like USDC", () => {
+    expect(legUsd({ mint: USDT, raw: 1_000_000n }, {})).toBe(1);
+  });
+
+  it("reads a fee account the cursor has never seen from its first signature, the others from their cursor", async () => {
+    const lists = {
+      [WSOL_FEE]: ["w1"],
+      [USDC_FEE]: ["c1"],
+      [USDT_FEE]: ["u0", "u1", "u2"],
+    };
+    // u0 stands for the account's creation (2026-11-02): no swap, no fee.
+    const created = { meta: { err: null, innerInstructions: [], preTokenBalances: [], postTokenBalances: [] }, transaction: { signatures: ["u0"], message: { accountKeys: [KEEPER, USDT_FEE] } } };
+    const txs = { u0: created, u1: NOV.jupUsdtInFeeIn, u2: NOV.jupUsdtOutFeeOut };
+    const asked = {};
+    const call = async (method, params) => {
+      if (method === "getSignaturesForAddress") {
+        const [address, { until }] = params;
+        asked[address] = until ?? null;
+        const newestFirst = [...lists[address]].reverse().map((signature) => ({ signature, err: null }));
+        const cut = until ? newestFirst.findIndex((s) => s.signature === until) : -1;
+        return cut >= 0 ? newestFirst.slice(0, cut) : newestFirst;
+      }
+      if (method === "getTransaction") return txs[params[0]] ?? null;
+      throw new Error(method);
+    };
+    const got = await readJupiter(call, { [WSOL_FEE]: "w1", [USDC_FEE]: "c1" });
+    expect(asked).toEqual({ [WSOL_FEE]: "w1", [USDC_FEE]: "c1", [USDT_FEE]: null });
+    expect(got.swaps.map((s) => [s.id, s.leg])).toEqual([
+      ["u1", { mint: USDT, raw: 20_000_000n }],
+      ["u2", { mint: USDT, raw: 22_014_648n }],
+    ]);
+    expect(got.cursor).toEqual({ [WSOL_FEE]: "w1", [USDC_FEE]: "c1", [USDT_FEE]: "u2" });
+  });
+});
+
 function jupiterKind(data) {
   const d = unbase58(data);
   return d.subarray(8, 16).toString("hex") === "40c6cde8260871e2" ? "swap" : "other";
@@ -173,7 +251,14 @@ function fakeSolana(sigs, txs) {
       const cut = until ? newestFirst.findIndex((s) => s.signature === until) : -1;
       return cut >= 0 ? newestFirst.slice(0, cut) : newestFirst;
     }
-    if (method === "getTransaction") return txs[params[0]] ?? null;
+    if (method === "getTransaction") {
+      const tx = txs[params[0]] ?? null;
+      // Like a node: a transaction newer than the version asked for is refused, not returned.
+      if (tx && typeof tx.version === "number" && !(tx.version <= params[1].maxSupportedTransactionVersion)) {
+        throw new Error(`getTransaction: {"code":-32015,"message":"Transaction version (${tx.version}) is not supported by the requesting client."}`);
+      }
+      return tx;
+    }
     throw new Error(method);
   };
   return { call, calls };
@@ -198,6 +283,13 @@ describe("the Solana cursor: each run reads only what is new", () => {
     expect(lastList[1][1].until).toBe("c");
   });
 
+  it("reads a version 1 transaction (on mainnet in our pools since 2026-11-05) and counts its swap", async () => {
+    const f = fakeSolana(sigs, { a: FX.poolDeposit, b: { ...FX.poolSolIn, version: 1 } });
+    const got = await readSolanaPools(f.call, {});
+    expect(got.swaps).toHaveLength(1);
+    expect(got.cursor[SOL_BAYLA.address]).toBe("c");
+  });
+
   it("throws when a transaction does not come back, so the cursor is not moved past it", async () => {
     const f = fakeSolana(sigs, { a: FX.poolDeposit });
     await expect(readSolanaPools(f.call, {})).rejects.toThrow(/did not come back/);
@@ -218,7 +310,7 @@ describe("the EVM cursor: finalized blocks, each read once, in windows", () => {
         return FX.evmLogs.filter((l) => Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
       }
       const data = params[0].data;
-      if (data === "0x574f2ba3") return "0x" + pairs.toString(16).padStart(64, "0");
+      if (data === "0x574f2ba3") return "0x" + (OPENING.has(params[0].to.toLowerCase()) ? 0 : pairs).toString(16).padStart(64, "0");
       if (data.startsWith("0x1e3dd18b")) return "0x" + PAIR.slice(2).padStart(64, "0");
       if (data === "0x0dfe1681") return "0x" + "420698cfdeddea6bc78d59bc17798113ad278f9d".padStart(64, "0");
       if (data === "0xd21220a7") return "0x" + WETH.slice(2).padStart(64, "0");
@@ -232,7 +324,7 @@ describe("the EVM cursor: finalized blocks, each read once, in windows", () => {
     const f = fakeEvm({ head, pairs: 1 });
     const first = await readEvmChain(f.call, EVM_CHAINS.ethereum, null);
     expect(first.swaps).toHaveLength(29);
-    expect(first.cursor).toEqual({ block: head, pairs: [{ address: PAIR, wethSide: 1 }] });
+    expect(first.cursor).toEqual({ block: head, pairs: [{ address: PAIR, factory: ETH_FACTORY, tokens: [TOWELI, WETH], wethSide: 1 }] });
     expect(f.ranges[0][0]).toBe(EVM_CHAINS.ethereum.startBlock);
     for (let i = 1; i < f.ranges.length; i++) expect(f.ranges[i][0]).toBe(f.ranges[i - 1][1] + 1);
     expect(f.ranges.at(-1)[1]).toBe(head);
@@ -270,7 +362,7 @@ describe("old ranges: Blockscout up to what it has indexed, else smaller RPC win
         return inRange(from, to);
       }
       const data = params[0].data;
-      if (data === "0x574f2ba3") return "0x" + "1".padStart(64, "0");
+      if (data === "0x574f2ba3") return "0x" + (OPENING.has(params[0].to.toLowerCase()) ? "0" : "1").padStart(64, "0");
       if (data.startsWith("0x1e3dd18b")) return "0x" + PAIR.slice(2).padStart(64, "0");
       if (data === "0x0dfe1681") return "0x" + "420698cfdeddea6bc78d59bc17798113ad278f9d".padStart(64, "0");
       return "0x" + weth.slice(2).toLowerCase().padStart(64, "0");
@@ -320,7 +412,9 @@ describe("old ranges: Blockscout up to what it has indexed, else smaller RPC win
     const f = rpc({ head: 52_884_800, refuses: () => false, weth: EVM_CHAINS.base.weth });
     const r = await readEvmChain(f.call, EVM_CHAINS.base, null, { fetchImpl: async () => new Response("", { status: 403 }) });
     expect(f.ranges[0][0]).toBe(52_884_793);
-    expect(r.cursor.pairs).toEqual([{ address: PAIR, wethSide: 1 }]);
+    expect(r.cursor.pairs).toEqual([
+      { address: PAIR, factory: EVM_CHAINS.base.factories[0].toLowerCase(), tokens: [TOWELI, EVM_CHAINS.base.weth.toLowerCase()], wethSide: 1 },
+    ]);
   });
 });
 
@@ -471,15 +565,20 @@ describe("valuation: once, at the price of the run that first sees the swap", ()
 });
 
 // A fake PostgREST that keeps rows by source and honours `version=eq.N`.
-function fakeDb(initial = []) {
+// venue_volume's NOT NULL columns (028): Postgres refuses a null in any of them, so the fake does too.
+const NOT_NULL = ["source", "swaps", "usd", "unpriced", "bot_swaps", "bot_usd", "cursor", "version"];
+function fakeDb(initial = [], { orders = [] } = {}) {
   const rows = new Map(initial.map((r) => [r.source, { ...r }]));
   const writes = [];
   const fetchImpl = vi.fn(async (url, init = {}) => {
     const u = new URL(url);
     const method = init.method ?? "GET";
+    if (method === "GET" && u.pathname.endsWith("/native_orders")) return new Response(JSON.stringify(orders), { status: 200 });
     if (method === "GET") return new Response(JSON.stringify([...rows.values()]), { status: 200 });
     const body = JSON.parse(init.body);
     writes.push({ method, url: u.pathname + u.search, body });
+    const nulls = NOT_NULL.filter((k) => k in body && body[k] === null);
+    if (nulls.length) return new Response(JSON.stringify({ code: "23502", message: `null value in column "${nulls[0]}"` }), { status: 400 });
     if (method === "POST") {
       if (rows.has(body.source)) return new Response("{}", { status: 409 });
       rows.set(body.source, body);
@@ -518,7 +617,9 @@ describe("main: totals and cursor are written together, or not at all", () => {
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 2, usd: 6, version: 5, cursor: { k: "sig2" } });
   });
 
-  it("refuses to write when another run moved the version first, and goes red", async () => {
+  // Two counters run (Vercel every five minutes, GitHub hourly), so losing this race is
+  // ordinary: the winner read the same swaps from the same cursor and counted them.
+  it("writes nothing when another run moved the version first, and stays green with no error recorded", async () => {
     const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
     const readers = {
       jupiter: async () => {
@@ -526,8 +627,32 @@ describe("main: totals and cursor are written together, or not at all", () => {
         return reader(oneUsdcSwap, { k: "x" })();
       },
     };
-    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(0);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, version: 5 });
+    expect(db.rows.get("jupiter").last_error_at).toBeUndefined();
+    expect(db.writes).toHaveLength(1);
+  });
+
+  it("a write the database refuses for any other reason still goes red", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
+    const inner = db.fetchImpl;
+    const fetchImpl = vi.fn(async (url, init = {}) =>
+      init.method === "PATCH" && String(url).includes("version=eq.") ? new Response("{}", { status: 401 }) : inner(url, init),
+    );
+    const readers = { jupiter: reader(oneUsdcSwap, { k: "x" }) };
+    expect(await main({ env, fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3 });
+    expect(db.rows.get("jupiter").last_error_at).toBeTruthy();
+  });
+
+  it("gives each source the run's budget: a short one for the five-minute Vercel run", async () => {
+    const db = fakeDb([]);
+    let deadline;
+    const readers = { jupiter: async (_c, d) => ((deadline = d.deadline), reader([], { k: "s" })()) };
+    const before = Date.now();
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, ...quiet });
+    expect(deadline - before).toBeGreaterThanOrEqual(20_000);
+    expect(deadline - before).toBeLessThan(25_000);
   });
 
   it("a source that fails keeps its totals and cursor, records the error, and the rest still count", async () => {
@@ -559,13 +684,323 @@ describe("pins", () => {
 
   it("every venue address the reader uses is in scripts/addresses.json", () => {
     const registry = readFileSync(join(HERE, "addresses.json"), "utf-8").toLowerCase();
-    const used = [VENUE_PROGRAM, ...JUPITER_FEE_ACCOUNTS, ...Object.values(EVM_CHAINS).map((c) => c.factory), EVM_CHAINS.ethereum.weth];
+    const used = [VENUE_PROGRAM, ...JUPITER_FEE_ACCOUNTS, ...Object.values(EVM_CHAINS).flatMap((c) => c.factories), EVM_CHAINS.ethereum.weth, NFT_LENDING.loan];
     for (const a of used) expect(registry, a).toContain(a.toLowerCase());
   });
 
-  it("migration 028 allows exactly the sources the total is made of", () => {
-    const sql = readFileSync(join(HERE, "..", "supabase", "migrations", "028_venue_volume.sql"), "utf-8");
+  // The newest migration that sets the table's check decides which rows can be written.
+  it("the newest migration that sets venue_volume_shape allows exactly the sources the total is made of", () => {
+    const dir = join(HERE, "..", "supabase", "migrations");
+    const newest = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql") && readFileSync(join(dir, f), "utf-8").includes("ADD CONSTRAINT venue_volume_shape"))
+      .sort()
+      .at(-1);
+    expect(newest).toBe("031_venue_volume_nft_sources.sql");
+    const sql = readFileSync(join(dir, newest), "utf-8");
     const list = sql.match(/source IN \(([^)]*)\)/)[1].match(/'([a-z-]+)'/g).map((s) => s.slice(1, -1));
     expect(list).toEqual([...VOLUME_SOURCES]);
+  });
+});
+
+// 2026-11-13 audit: what the counter missed. Each `it` fails on the code before that day.
+describe("every factory, every chain's WETH", () => {
+  const PAIR = "0x55875887b43c2e23ae424af0fc8606fdb058a481";
+  const evm = ({ head, made, tokens, logs = [] }) => {
+    const calls = [];
+    const call = async (method, params) => {
+      calls.push([method, params[0]?.to ?? null, params[0]?.data ?? null]);
+      if (method === "eth_getBlockByNumber") return { number: "0x" + head.toString(16), timestamp: "0x6a000000" };
+      if (method === "eth_getLogs") {
+        const from = Number(params[0].fromBlock);
+        const to = Number(params[0].toBlock);
+        return logs.filter((l) => params[0].address.includes(l.address) && Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
+      }
+      const { to, data } = params[0];
+      const list = made[to.toLowerCase()] ?? [];
+      if (data === "0x574f2ba3") return "0x" + list.length.toString(16).padStart(64, "0");
+      if (data.startsWith("0x1e3dd18b")) return "0x" + list[Number("0x" + data.slice(10))].slice(2).padStart(64, "0");
+      const t = tokens[to.toLowerCase()];
+      if (t && data === "0x0dfe1681") return "0x" + t[0].slice(2).padStart(64, "0");
+      if (t && data === "0xd21220a7") return "0x" + t[1].slice(2).padStart(64, "0");
+      throw new Error("unexpected " + to + " " + data);
+    };
+    return { call, calls };
+  };
+
+  it("counts the swaps of a pair made by the factory that charges to open a pool", async () => {
+    const [first, opening] = EVM_CHAINS.ethereum.factories.map((f) => f.toLowerCase());
+    const WETH = EVM_CHAINS.ethereum.weth.toLowerCase();
+    const head = 26_227_630;
+    const f = evm({ head, made: { [first]: [], [opening]: [PAIR] }, tokens: { [PAIR]: [TOWELI, WETH] }, logs: FX.evmLogs });
+    const r = await readEvmChain(f.call, EVM_CHAINS.ethereum, { block: 25_263_331, pairs: [] });
+    expect(r.swaps).toHaveLength(29);
+    expect(r.swaps.every((s) => s.leg?.mint === "WETH")).toBe(true);
+    expect(r.cursor.pairs).toEqual([{ address: PAIR, factory: opening, tokens: [TOWELI, WETH], wethSide: 1 }]);
+  });
+
+  // Robinhood's WETH was unset: its WETH/DODO pair was saved with no WETH side, and its 381
+  // swaps (0.49 WETH by 2026-11-13) were counted with no dollars.
+  it("reads a saved pair with no WETH side again, so Robinhood's WETH/DODO swaps carry their WETH", async () => {
+    const RH_PAIR = "0xfa04b2bbc847a322efaa3551bfc07b18f394c067";
+    const DODO = "0x384b028739f8b2c5d187bca0bbe20bd04d72f00d";
+    const WETH = EVM_CHAINS.robinhood.weth.toLowerCase();
+    const [first] = EVM_CHAINS.robinhood.factories.map((x) => x.toLowerCase());
+    const swap = { ...FX.evmLogs[0], address: RH_PAIR, blockNumber: "0x" + (113_000_001).toString(16) };
+    const f = evm({ head: 113_000_010, made: { [first]: [RH_PAIR] }, tokens: { [RH_PAIR]: [WETH, DODO] }, logs: [swap] });
+    const r = await readEvmChain(f.call, EVM_CHAINS.robinhood, { block: 113_000_000, pairs: [{ address: RH_PAIR, wethSide: null }] });
+    expect(r.cursor.pairs).toEqual([{ address: RH_PAIR, factory: first, tokens: [WETH, DODO], wethSide: 0 }]);
+    expect(r.swaps).toHaveLength(1);
+    const raw = evmSwapLeg(swap, 0).raw;
+    expect(raw > 0n).toBe(true);
+    expect(r.swaps[0].leg).toEqual({ mint: "WETH", raw });
+  });
+
+  it("never reads a saved pair's coins again once its WETH side is known", async () => {
+    const [first] = EVM_CHAINS.ethereum.factories.map((x) => x.toLowerCase());
+    const f = evm({ head: 1, made: { [first]: [PAIR] }, tokens: {} });
+    const pairs = await listPairs(f.call, EVM_CHAINS.ethereum, [{ address: PAIR, wethSide: 1 }]);
+    expect(pairs).toEqual([{ address: PAIR, factory: first, wethSide: 1 }]);
+    expect(f.calls.filter(([, to]) => to === PAIR)).toEqual([]);
+  });
+});
+
+describe("NFT Lending: each new loan's WETH", () => {
+  const head = 26_400_000;
+  const loanCall = (logs) => {
+    const ranges = [];
+    const call = async (method, params) => {
+      if (method === "eth_getBlockByNumber") return { number: "0x" + head.toString(16), timestamp: "0x6a000000" };
+      if (method === "eth_getLogs") {
+        const from = Number(params[0].fromBlock);
+        const to = Number(params[0].toBlock);
+        ranges.push([from, to, params[0].address, params[0].topics]);
+        return logs.filter((l) => Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
+      }
+      throw new Error(method);
+    };
+    return { call, ranges };
+  };
+
+  it("names LoanEmitted by the topic of the ABI the site uses", async () => {
+    const { toEventSelector } = await import("viem");
+    const mod = await import("../src/lib/gondi/abi.js");
+    const abi = Object.values(mod).find(Array.isArray);
+    const event = abi.find((e) => e.type === "event" && e.name === "LoanEmitted");
+    expect(LOAN_EMITTED_TOPIC).toBe(toEventSelector(event));
+    expect(event.inputs.some((i) => i.indexed)).toBe(false);
+  });
+
+  it("reads the first real loan: its borrower, WETH and 0.0174 principal", () => {
+    expect(loanEmitted(LOANS.logs[0])).toEqual({
+      borrower: "0xb88fdc6d47d9a19ba068c78fd5477f64cff283dc",
+      coin: EVM_CHAINS.ethereum.weth.toLowerCase(),
+      principal: 17_400_000_000_000_000n,
+    });
+  });
+
+  it("counts each loan from the loan contract's birth block, then reads on from the head", async () => {
+    const f = loanCall(LOANS.logs);
+    const first = await readNftLoans(f.call, null);
+    expect(f.ranges[0][0]).toBe(NFT_LENDING.startBlock);
+    expect(f.ranges.every(([, , address, topics]) => address[0] === NFT_LENDING.loan.toLowerCase() && topics[0] === LOAN_EMITTED_TOPIC)).toBe(true);
+    const log = LOANS.logs[0];
+    expect(first.swaps).toEqual([{ leg: { mint: "WETH", raw: 17_400_000_000_000_000n }, payer: "0xb88fdc6d47d9a19ba068c78fd5477f64cff283dc", id: log.transactionHash + ":" + log.logIndex }]);
+    expect(first.cursor).toEqual({ block: head });
+    const totals = await addUp(null, first.swaps, async () => 2000, new Set());
+    expect(totals).toMatchObject({ swaps: 1, usd: 34.8, unpriced: 0 });
+
+    const g = loanCall(LOANS.logs);
+    const second = await readNftLoans(g.call, first.cursor);
+    expect(second.swaps).toEqual([]);
+  });
+
+  it("is a source of the total, read through Ethereum's RPCs", async () => {
+    const f = loanCall(LOANS.logs);
+    const got = await READERS["nft-lending"](null, { evm: (name) => (name === "ethereum" ? f.call : null) });
+    expect(got.swaps).toHaveLength(1);
+    expect(VOLUME_SOURCES).toContain("nft-lending");
+  });
+});
+
+describe("island coins: a swap with no SOL, USDC or USDT leg is valued on its island coin", () => {
+  const BRAINLET = ISLAND_COINS.find((c) => c.symbol === "BRAINLET").mint;
+  const SOY = ISLAND_COINS.find((c) => c.symbol === "SOY").mint;
+  const balance = (accountIndex, amount) => ({ accountIndex, uiTokenAmount: { amount: String(amount) } });
+  // A BRAINLET/SOY pool (7JZ4Qnjh…, 15 transactions by 2026-11-13): 2 SOY in, 30 BRAINLET out.
+  const tx = {
+    meta: { err: null, preTokenBalances: [balance(1, 100_000_000), balance(2, 100_000_000)], postTokenBalances: [balance(1, 70_000_000), balance(2, 102_000_000)] },
+    transaction: { message: { accountKeys: ["trader", "v0", "v1"] } },
+  };
+
+  it("names the same island coins as the pool index, in its order", async () => {
+    const { QUOTE_COINS } = await import("../api/_lib/pool-index.js");
+    expect(ISLAND_COINS.map((c) => c.mint)).toEqual(QUOTE_COINS.slice(2).map((c) => c.mint));
+  });
+
+  it("gives an island-coin pool's swap its higher-ranked coin as the leg, at that coin's market price", async () => {
+    const hit = poolSwap(tx, { vault0: "v0", vault1: "v1", mint0: BRAINLET, mint1: SOY });
+    expect(hit).toEqual({ leg: { mint: SOY, raw: 2_000_000n }, payer: "trader" });
+    const asked = [];
+    const totals = await addUp(null, [hit], async (sym) => (asked.push(sym), 0.5), new Set());
+    expect(asked).toEqual([SOY]);
+    expect(totals).toMatchObject({ swaps: 1, usd: 1, unpriced: 0 });
+    expect(legUsd(hit.leg, { [SOY]: null })).toBeNull();
+  });
+
+  it("reads all five prices from Jupiter at once, the keyed host first when its key is set", async () => {
+    const seen = [];
+    const fetchImpl = async (url, init) => {
+      seen.push([new URL(url).host, init.headers["x-api-key"] ?? null]);
+      if (new URL(url).host === "api.jup.ag") return new Response("busy", { status: 429 });
+      return new Response(JSON.stringify({ [SOY]: { usdPrice: 0.0002 } }));
+    };
+    const prices = await islandPrices(fetchImpl, "k");
+    expect(seen).toEqual([["api.jup.ag", "k"], ["lite-api.jup.ag", null]]);
+    expect(prices[SOY]).toBe(0.0002);
+    expect(prices[BRAINLET]).toBeNull();
+    await expect(islandPrices(async () => new Response("", { status: 503 }), "")).rejects.toThrow(/no island coin price/);
+  });
+});
+
+describe("the NFT order book: each sale it marked filled, at its price", () => {
+  const ETH0 = "0x0000000000000000000000000000000000000000";
+  const fill = (hash, at, wei, currency = ETH0) => ({ order_hash: hash, price_wei: String(wei), currency, filled_at: at, filled_by: "0xbuyer" });
+  const book = (rows) => {
+    const asked = [];
+    const db = async (path) => {
+      asked.push(path);
+      const u = new URL("https://db.test/rest/v1/" + path);
+      const filter = u.searchParams.get("filled_at");
+      const gte = filter?.startsWith("gte.") ? filter.slice(4) : null;
+      const limit = Number(u.searchParams.get("limit"));
+      const order = (a, b) => (a.filled_at < b.filled_at ? -1 : a.filled_at > b.filled_at ? 1 : a.order_hash < b.order_hash ? -1 : 1);
+      const out = rows.filter((r) => !gte || r.filled_at >= gte).sort(order);
+      return { status: 200, body: out.slice(0, limit) };
+    };
+    return { db, asked };
+  };
+  const T1 = "2026-11-12T10:00:00.123+00:00";
+  const T2 = "2026-11-12T11:00:00+00:00";
+
+  it("counts each filled sale once, ETH or WETH on Ethereum or Base, and a sale in another coin with no dollars", async () => {
+    const b = book([
+      fill("0xa", T1, 10n ** 17n),
+      fill("0xb", T1, 2n * 10n ** 17n, EVM_CHAINS.base.weth),
+      fill("0xc", T2, 5_000_000n, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+    ]);
+    const r = await readOrderBookFills(b.db, null);
+    expect(b.asked[0]).toContain("status=eq.filled");
+    expect(r.swaps.map((s) => s.leg)).toEqual([{ mint: "WETH", raw: 10n ** 17n }, { mint: "WETH", raw: 2n * 10n ** 17n }, null]);
+    expect(r.cursor).toEqual({ at: T2, orders: ["0xc"] });
+    const totals = await addUp(null, r.swaps, async () => 2000, new Set());
+    expect(totals).toMatchObject({ swaps: 3, usd: 600, unpriced: 1 });
+  });
+
+  it("reads on from the cursor: a sale filled in the same millisecond as the last one read is counted, the last one is not", async () => {
+    const b = book([fill("0xa", T1, 1n), fill("0xb", T1, 2n), fill("0xc", T1, 3n)]);
+    const r = await readOrderBookFills(b.db, { at: T1, orders: ["0xa", "0xb"] });
+    expect(r.swaps.map((s) => s.id)).toEqual(["0xc"]);
+    expect(r.cursor).toEqual({ at: T1, orders: ["0xa", "0xb", "0xc"] });
+    const again = await readOrderBookFills(b.db, r.cursor);
+    expect(again.swaps).toEqual([]);
+  });
+
+  it("refuses to count when the order book cannot be read, so nothing is skipped", async () => {
+    await expect(readOrderBookFills(async () => ({ status: 503, body: null }), null)).rejects.toThrow(/could not be read/);
+    await expect(readOrderBookFills(undefined, null)).rejects.toThrow(/needs the database/);
+  });
+
+  it("is handed the counter's own database by main", async () => {
+    const db = fakeDb();
+    let got = null;
+    const readers = { "nft-orderbook": async (cursor, d) => ((got = d.db), reader([], {})()) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], readers, ...quiet })).toBe(0);
+    expect(typeof got).toBe("function");
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, version: 1 });
+  });
+
+  // 2026-11-14: with no sale yet the reader handed back a null cursor, Postgres refused the
+  // first write, the row never existed, and the home page showed no volume at all.
+  it("with no sale yet, the first run still writes its row, and the next run reads on from it", async () => {
+    const db = fakeDb();
+    const run = () => main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, unpriced: 0, cursor: {}, version: 1, last_error: null });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, cursor: {}, version: 2 });
+  });
+
+  it("the first sale after that is counted once", async () => {
+    const db = fakeDb([], { orders: [fill("0xa", T1, 10n ** 17n)] });
+    const quotes = async (url) => new Response(JSON.stringify(url.includes("coinbase") ? { data: { amount: "2000" } } : { ethereum: { usd: 2000 } }));
+    const fetchImpl = async (url, init) => (new URL(String(url)).host === "db.test" ? db.fetchImpl(url, init) : quotes(String(url)));
+    const run = () => main({ env, fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 1, usd: 200, cursor: { at: T1, orders: ["0xa"] }, version: 2 });
+  });
+});
+
+// Robinhood's 381 swaps up to 2026-11-13 were counted with no dollars. They are priced once,
+// in the write that saves the pair's WETH side, and never counted again.
+describe("swaps counted with no dollars are priced once when their pair's WETH side is found", () => {
+  const RH_PAIR = "0xfa04b2bbc847a322efaa3551bfc07b18f394c067";
+  const DODO = "0x384b028739f8b2c5d187bca0bbe20bd04d72f00d";
+  const WETH = EVM_CHAINS.robinhood.weth.toLowerCase();
+  const FIRST = EVM_CHAINS.robinhood.factories[0].toLowerCase();
+  const at = (n, i) => ({ ...FX.evmLogs[i], address: RH_PAIR, blockNumber: "0x" + n.toString(16), logIndex: "0x" + i.toString(16) });
+  const OLD = [at(109_405_200, 0), at(110_000_000, 1)];
+  const NEW = [at(113_000_005, 2)];
+  const rh = () => {
+    const ranges = [];
+    const call = async (method, params) => {
+      if (method === "eth_getBlockByNumber") return { number: "0x" + (113_000_010).toString(16), timestamp: "0x6a000000" };
+      if (method === "eth_getLogs") {
+        const from = Number(params[0].fromBlock);
+        const to = Number(params[0].toBlock);
+        ranges.push([from, to]);
+        return [...OLD, ...NEW].filter((l) => Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
+      }
+      const { to, data } = params[0];
+      if (data === "0x574f2ba3") return "0x" + (to.toLowerCase() === FIRST ? 1 : 0).toString(16).padStart(64, "0");
+      if (data.startsWith("0x1e3dd18b")) return "0x" + RH_PAIR.slice(2).padStart(64, "0");
+      if (data === "0x0dfe1681") return "0x" + WETH.slice(2).padStart(64, "0");
+      if (data === "0xd21220a7") return "0x" + DODO.slice(2).padStart(64, "0");
+      throw new Error(data);
+    };
+    return { call, ranges };
+  };
+  const savedCursor = { block: 113_000_000, pairs: [{ address: RH_PAIR, wethSide: null }] };
+
+  it("reads the pair's old swaps from its birth to the cursor once, beside the new ones", async () => {
+    const f = rh();
+    const r = await readEvmChain(f.call, EVM_CHAINS.robinhood, savedCursor);
+    expect(f.ranges[0][0]).toBe(EVM_CHAINS.robinhood.startBlock);
+    expect(r.repriced.map((s) => s.id)).toEqual(OLD.map((l) => `${l.transactionHash}:${l.logIndex}`));
+    expect(r.repriced.every((s) => s.leg?.mint === "WETH" && s.leg.raw > 0n)).toBe(true);
+    expect(r.swaps.map((s) => s.id)).toEqual(NEW.map((l) => `${l.transactionHash}:${l.logIndex}`));
+    // The saved pair now names its coins, so the next run reprices nothing.
+    const again = await readEvmChain(rh().call, EVM_CHAINS.robinhood, r.cursor);
+    expect(again.repriced).toBeUndefined();
+  });
+
+  it("adds their dollars and takes them off the unpriced count, without counting them as new swaps", async () => {
+    const row = { swaps: 381, usd: 0, unpriced: 381, bot_swaps: 0, bot_usd: 0 };
+    const repriced = [{ leg: { mint: "WETH", raw: 10n ** 17n }, payer: "x" }, { leg: { mint: "WETH", raw: 2n * 10n ** 17n }, payer: "x" }];
+    const totals = await addUp(row, [{ leg: { mint: "WETH", raw: 10n ** 16n }, payer: "y" }], async () => 2000, new Set(), repriced);
+    expect(totals).toEqual({ swaps: 382, usd: 620, unpriced: 379, bot_swaps: 0, bot_usd: 0 });
+    await expect(addUp({ ...row, unpriced: 1 }, [], async () => 2000, new Set(), repriced)).rejects.toThrow(/only 1 were counted with no dollars/);
+  });
+
+  it("writes the repriced dollars in the same write as the cursor that ends the repricing", async () => {
+    const db = fakeDb([{ source: "robinhood", swaps: 2, usd: 0, unpriced: 2, bot_swaps: 0, bot_usd: 0, cursor: savedCursor, version: 7 }]);
+    const deps = { evm: () => rh().call };
+    const quotes = async (url) => new Response(JSON.stringify(url.includes("coinbase") ? { data: { amount: "2000" } } : { ethereum: { usd: 2000 } }));
+    const fetchImpl = async (url, init) => (new URL(String(url)).host === "db.test" ? db.fetchImpl(url, init) : quotes(String(url)));
+    expect(await main({ env, fetchImpl, deps, sources: ["robinhood"], ...quiet })).toBe(0);
+    const written = db.rows.get("robinhood");
+    expect(written).toMatchObject({ swaps: 3, unpriced: 0, version: 8 });
+    expect(written.usd).toBeGreaterThan(0);
+    expect(written.cursor.pairs[0]).toMatchObject({ address: RH_PAIR, wethSide: 0, tokens: [WETH, DODO] });
   });
 });

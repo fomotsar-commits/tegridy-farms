@@ -79,6 +79,12 @@ function alchemyAuthHeadersFor(key, extra = {}) {
   return headers;
 }
 
+// One deadline for OpenSea's headers and body together on the listings route: the house
+// 8 s, a starting number. A silent OpenSea ends in the route's own catch, with the refund
+// and the words a fetch that throws already gets. Pinned in
+// __tests__/v1-reads.stall.test.js.
+const LISTINGS_TIMEOUT_MS = 8000;
+
 // The venue's collections (_lib/venue-registry.js). Each slug is also its
 // OpenSea slug, which the listings route builds its upstream path from.
 export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
@@ -535,7 +541,8 @@ export default async function handler(req, res) {
         const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 20), 100);
         const osRes = await fetch(
           `https://api.opensea.io/api/v2/listings/collection/${s}/best?limit=${safeLimit}`,
-          { headers },
+          // The clock stays armed through the bounded read below.
+          { headers, signal: AbortSignal.timeout(LISTINGS_TIMEOUT_MS) },
         );
         if (!osRes.ok) throw new Error(`OpenSea ${osRes.status}`);
         // AUDIT R049 H-3: bounded body read.

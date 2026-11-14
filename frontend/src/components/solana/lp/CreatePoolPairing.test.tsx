@@ -18,7 +18,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, quotesFor, readPair, type QuoteCoin, type QuoteSymbol } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, BOBO_QUOTE, QUOTE_COINS, QUOTE_COINS_OR, RIZZ_QUOTE, SOL_QUOTE, USDC_QUOTE, quotesFor, readPair, type QuoteCoin, type QuoteSymbol } from '../../../lib/solana/lp/quotes';
 import { rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -96,12 +96,13 @@ function view(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; tokens
     quoteReserve: reserve,
     tokenReserve: tokens,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
 
 /** Each pair's own standard tier-1 address: one per coin, as the finder works them out. */
-const STANDARD: Record<QuoteSymbol, string> = { SOL: key().toBase58(), USDC: key().toBase58(), BAYLA: key().toBase58() };
+const STANDARD = Object.fromEntries(QUOTE_COINS.map((q) => [q.symbol, key().toBase58()])) as Record<QuoteSymbol, string>;
 function search(views: PoolView[], o: { mint?: string; taken?: QuoteSymbol[]; truncated?: boolean } = {}): PoolSearchRead {
   const mint = o.mint ?? M;
   const coins = quotesFor(mint);
@@ -113,6 +114,7 @@ function search(views: PoolView[], o: { mint?: string; taken?: QuoteSymbol[]; tr
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: o.truncated === true },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: Object.fromEntries(coins.map((q) => [STANDARD[q.symbol], o.taken?.includes(q.symbol) ? ('pool' as const) : ('absent' as const)])),
       chainNow: 1_000n,
     },
@@ -134,7 +136,7 @@ function walletFor(quote: QuoteCoin | undefined, over: Partial<Ok> = {}): Wallet
     wsol: { exists: false, amount: 0n },
     coin,
     lpAccountExists: false,
-    rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, ...(coin ? { coinAccount: 2_039_280n } : {}) },
+    rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, nameRecord: 13_733_800n, ...(coin ? { coinAccount: 2_039_280n } : {}) },
     ...over,
   };
 }
@@ -203,13 +205,13 @@ beforeEach(() => {
 });
 
 describe('Pair with: the coins a token can be paired with', () => {
-  it('an ordinary token: SOL, USDC and BAYLA, starting on SOL; a real radio group, each option a 44px target', async () => {
+  it('an ordinary token: SOL, USDC and the five island coins in rank order, starting on SOL; a real radio group, each option a 44px target', async () => {
     mount(readers());
     const { panel } = await openPanel();
     const group = within(panel).getByRole('radiogroup', { name: 'Pair with' });
     const options = within(group).getAllByRole('radio') as HTMLInputElement[];
-    expect(options.map((o) => o.value)).toEqual(['SOL', 'USDC', 'BAYLA']);
-    expect(options.map((o) => o.checked)).toEqual([true, false, false]);
+    expect(options.map((o) => o.value)).toEqual(['SOL', 'USDC', 'BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    expect(options.map((o) => o.checked)).toEqual(options.map((_, i) => i === 0));
     // Keyboard: native radio buttons under one name are one Tab stop, and the arrow keys move the choice.
     for (const o of options) {
       expect(o.tagName).toBe('INPUT');
@@ -226,10 +228,20 @@ describe('Pair with: the coins a token can be paired with', () => {
     expect(within(panel).queryByText('Paired with')).toBeNull();
   });
 
-  it('BAYLA itself: SOL or USDC, never BAYLA with BAYLA', async () => {
+  it('BAYLA itself: SOL or USDC, never BAYLA with BAYLA, and never a coin ranked below it', async () => {
     mount(readers(), { mint: BAYLA });
     const { panel } = await openPanel();
     expect((within(panel).getAllByRole('radio') as HTMLInputElement[]).map((o) => o.value)).toEqual(['SOL', 'USDC']);
+  });
+
+  it('an island coin itself: only the coins that outrank it. BOBO: SOL, USDC or BAYLA; RIZZ: every coin but itself', async () => {
+    mount(readers(), { mint: BOBO_QUOTE.mint });
+    const bobo = await openPanel();
+    expect((within(bobo.panel).getAllByRole('radio') as HTMLInputElement[]).map((o) => o.value)).toEqual(['SOL', 'USDC', 'BAYLA']);
+    cleanup();
+    mount(readers(), { mint: RIZZ_QUOTE.mint });
+    const rizz = await openPanel();
+    expect((within(rizz.panel).getAllByRole('radio') as HTMLInputElement[]).map((o) => o.value)).toEqual(['SOL', 'USDC', 'BAYLA', 'BOBO', 'SOY', 'BRAINLET']);
   });
 
   it('USDC itself: SOL only, so there is nothing to choose; the coin is said and no group is drawn', async () => {
@@ -238,8 +250,10 @@ describe('Pair with: the coins a token can be paired with', () => {
     expect(within(panel).queryByRole('radiogroup')).toBeNull();
     expect(within(panel).queryByRole('radio')).toBeNull();
     expect(row(panel, 'Paired with')).toHaveTextContent('SOL: this site pairs this token with SOL only');
-    // Not a dead end: a USDC and BAYLA pool is the same pool read from BAYLA's side, and the row says so.
-    expect(row(panel, 'Paired with')).toHaveTextContent('A pool of USDC and BAYLA is opened from the other side: look up BAYLA and pair it with USDC');
+    // Not a dead end: a USDC and BAYLA pool is the same pool read from BAYLA's side (and so for each island coin), and the row says so.
+    expect(row(panel, 'Paired with')).toHaveTextContent(
+      'A pool of USDC and BAYLA, BOBO, SOY, BRAINLET or RIZZ is opened from the other side: look up BAYLA, BOBO, SOY, BRAINLET or RIZZ and pair it with USDC',
+    );
     expect(coinBox(panel, 'SOL')).toBeInTheDocument();
   });
 });
@@ -251,7 +265,7 @@ describe('Pair with: the coins a token can be paired with', () => {
 // is BAYLA's pool, listed under BAYLA). The page names the coins that WERE searched, and
 // says where the other pool is before the form is opened.
 describe('a pairing coin looked up as the token: the page names the coins that were searched', () => {
-  const OTHER_SIDE = 'A pool of USDC and BAYLA is found and opened from the other side: look up BAYLA and pair it with USDC.';
+  const OTHER_SIDE = 'A pool of USDC and BAYLA, BOBO, SOY, BRAINLET or RIZZ is found and opened from the other side: look up BAYLA, BOBO, SOY, BRAINLET or RIZZ and pair it with USDC.';
   const said = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const status = () => said(screen.getByTestId('lp-status'));
 
@@ -264,7 +278,7 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
     expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
     // Nothing says a pair that was never looked for has no pool.
-    expect(document.body).not.toHaveTextContent('SOL, USDC or BAYLA found');
+    expect(document.body).not.toHaveTextContent(`${QUOTE_COINS_OR} found`);
     expect(document.body).not.toHaveTextContent('No pools found for this token.');
     expect(card).not.toHaveTextContent('No pool for this token yet');
     expect(card).not.toHaveTextContent('There is no pool to add liquidity to yet');
@@ -292,20 +306,31 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
   });
 
-  it('BAYLA: SOL or USDC were searched. No coin ranks below BAYLA, so no other side is named', async () => {
+  it('BAYLA: SOL or USDC were searched, and the four coins ranked below it are pointed to from the other side', async () => {
+    const BAYLA_OTHER_SIDE = 'A pool of BAYLA and BOBO, SOY, BRAINLET or RIZZ is found and opened from the other side: look up BOBO, SOY, BRAINLET or RIZZ and pair it with BAYLA.';
     mount(readers(), { mint: BAYLA });
     const card = await offered();
-    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL or USDC found.');
-    expect(status()).toBe('No pools pairing this token with SOL or USDC found.');
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL or USDC found. ${BAYLA_OTHER_SIDE}`);
+    expect(status()).toBe(`No pools pairing this token with SOL or USDC found. ${BAYLA_OTHER_SIDE}`);
     expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
     expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
+    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(BAYLA_OTHER_SIDE);
+  });
+
+  it('RIZZ: every coin but itself was searched. No coin ranks below RIZZ, so no other side is named', async () => {
+    mount(readers(), { mint: RIZZ_QUOTE.mint });
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL, USDC, BAYLA, BOBO, SOY or BRAINLET found.');
+    expect(status()).toBe('No pools pairing this token with SOL, USDC, BAYLA, BOBO, SOY or BRAINLET found.');
+    expect(card).toHaveTextContent('There is no SOL, USDC, BAYLA, BOBO, SOY or BRAINLET pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No SOL, USDC, BAYLA, BOBO, SOY or BRAINLET pool for this token yet. You can open the first one on the public fee tier (read just now):');
     expect(document.body).not.toHaveTextContent('from the other side');
   });
 
-  it('any other token: all three coins were searched, and every sentence is word for word what it was', async () => {
+  it('any other token: all seven coins were searched, and every sentence is word for word what it was', async () => {
     mount(readers());
     const card = await offered();
-    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL, USDC or BAYLA found.');
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with ${QUOTE_COINS_OR} found.`);
     expect(status()).toBe('No pools found for this token.');
     expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
     expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
@@ -331,13 +356,14 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000142 USDC and 0.000071 tokens');
     // Two coins leave the wallet, and they are never added into one number. The SOL is
     // 0.19203928, said rounded UP: what the wallet must pay never reads as less than it is.
-    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.1921 SOL for the fee to open and the account deposits, plus the network fee');
+    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.2058 SOL for the fee to open, the account deposits and the name record, plus the network fee');
     expect(reviewButton(panel)).toBeEnabled();
     await act(async () => {
       fireEvent.click(reviewButton(panel));
     });
     expect(prepareLpCreate).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), r, {
       owner: OWNER,
+      txVersion: 'legacy',
       tokenMint: MINT,
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,
@@ -496,7 +522,7 @@ describe('changing the coin', () => {
     type(coinBox(panel, 'SOL'), '4.9');
     type(tokens(panel), '490');
     const alert = within(panel).getByRole('alert');
-    await waitFor(() => expect(alert).toHaveTextContent(/The most you can put in from this wallet is 4\.80491144 SOL\./));
+    await waitFor(() => expect(alert).toHaveTextContent(/The most you can put in from this wallet is 4\.79117764 SOL\./));
     fireEvent.click(within(panel).getByRole('radio', { name: 'USDC' }));
     expect(alert).toHaveTextContent('');
     // Typed at once: 20 units of USDC and 10 of the token, at the market and too small
@@ -833,15 +859,23 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no USDC pool yet. Open a pool lets you choose what to pair it with.');
     expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
-
-    // The form, on SOL: the pool that exists is said.
-    expect(within(panel).getByTestId('lp-create-advice')).toHaveTextContent(
-      'This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    expect(within(card).getByTestId('lp-create-still')).toHaveTextContent(
+      'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC on the public fee tier, at 1% a trade.',
     );
+
+    // The form starts on USDC, the first coin still free. On SOL the pair is taken (owner
+    // ruling 2026-11-01): the pool is named and Review is off.
+    expect(within(panel).getByTestId('lp-create-pair')).toHaveAttribute('data-coin', 'USDC');
+    await pair(panel, 'SOL');
+    expect(within(panel).getByTestId('lp-create-taken')).toHaveTextContent(
+      `This token already has a SOL pool on the public fee tier that passes the checks: ${solPool.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC.`,
+    );
+    expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
 
     // On USDC: no pool exists for it, and nothing says one does.
     await pair(panel, 'USDC');
+    expect(within(panel).queryByTestId('lp-create-taken')).toBeNull();
     expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     expect(panel).not.toHaveTextContent(/already has|You opened/);
     expect(within(panel).getByTestId('lp-create-first')).toHaveTextContent('No pool pairs this token with USDC yet. Yours would be the first.');
@@ -856,6 +890,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     });
     expect(prepareLpCreate).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), r, {
       owner: OWNER,
+      txVersion: 'legacy',
       tokenMint: baylaKey,
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,
@@ -864,7 +899,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     });
   }, LONG);
 
-  it('a SOL pool and a USDC pool: each has its own line in its own coin and its own Add button, and the form follows the chosen coin', async () => {
+  it('a SOL pool and a USDC pool: each has its own line in its own coin and its own Add button, both pairs are taken, and the form starts on BAYLA', async () => {
     const solPool = view();
     const usdcPool = view({ quote: USDC_QUOTE });
     mount(readers({ findPools: vi.fn(async () => search([solPool, usdcPool])) }));
@@ -873,9 +908,9 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(refers.map((p) => p.getAttribute('data-coin'))).toEqual(['SOL', 'USDC']);
     expect(refers[0]).toHaveTextContent(`This token already has a SOL pool on the public fee tier that passes the checks (above). The biggest is ${solPool.address}, holding 10 SOL.`);
     expect(refers[1]).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks (above). The biggest is ${usdcPool.address}, holding 2,000 USDC.`);
-    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA pool yet.');
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA, BOBO, SOY, BRAINLET or RIZZ pool yet.');
     expect(within(card).getByTestId('lp-create-still')).toHaveTextContent(
-      "You can still open your own on the public fee tier, at 1% a trade. It will be a separate pool: it does not share the other pools' liquidity or fees.",
+      'One pool per pair and fee tier: a second SOL or USDC pool is not opened here, so add to one of these instead. You can still open one paired with BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at 1% a trade.',
     );
     // With more than one, each button says its coin: "that pool" would be a guess.
     expect(within(card).queryByRole('button', { name: 'Go to that pool' })).toBeNull();
@@ -889,16 +924,33 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
 
     fireEvent.click(within(card).getByRole('button', { name: 'Open a pool' }));
     const panel = await screen.findByTestId('lp-create-panel');
-    expect(within(panel).getByTestId('lp-create-advice')).toHaveTextContent('This token already has a SOL pool that passes the checks (the card above names it).');
-    await pair(panel, 'USDC');
-    expect(within(panel).getByTestId('lp-create-advice')).toHaveTextContent('This token already has a USDC pool that passes the checks (the card above names it).');
-    expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
-    await pair(panel, 'BAYLA');
-    expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
+    expect(within(panel).getByTestId('lp-create-pair')).toHaveAttribute('data-coin', 'BAYLA');
+    expect(within(panel).queryByTestId('lp-create-taken')).toBeNull();
     expect(within(panel).getByTestId('lp-create-first')).toHaveTextContent('No pool pairs this token with BAYLA yet. Yours would be the first.');
+    await pair(panel, 'SOL');
+    expect(within(panel).getByTestId('lp-create-taken')).toHaveTextContent(`This token already has a SOL pool on the public fee tier that passes the checks: ${solPool.address}.`);
+    await pair(panel, 'USDC');
+    expect(within(panel).getByTestId('lp-create-taken')).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks: ${usdcPool.address}.`);
+    expect(within(panel).getByTestId('lp-create-taken')).toHaveTextContent('You can still open one paired with BAYLA, BOBO, SOY, BRAINLET or RIZZ.');
+    expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
+    expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
   }, LONG);
 
-  it('only a USDC pool: the card names it in USDC and says SOL and BAYLA have none; the SOL form says what it always said', async () => {
+  it('a pool on every coin the token pairs with: every pair is taken, so no Open a pool button', async () => {
+    // All seven: SOL, USDC and each island coin.
+    const pools = [view(), ...QUOTE_COINS.slice(1).map((quote) => view({ quote }))];
+    mount(readers({ findPools: vi.fn(async () => search(pools)) }));
+    const card = await offered();
+    expect(within(card).getByTestId('lp-create-still')).toHaveTextContent(
+      `One pool per pair and fee tier: a second ${QUOTE_COINS_OR} pool is not opened here, so add to one of these instead.`,
+    );
+    expect(card).not.toHaveTextContent('You can still open');
+    expect(within(card).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+    expect(within(card).queryByTestId('lp-create-cost')).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Go to the BAYLA pool' })).toBeEnabled();
+  }, LONG);
+
+  it('only a USDC pool: the card names it in USDC and says SOL and BAYLA have none; the SOL form is free, the USDC form is taken', async () => {
     const usdcPool = view({ quote: USDC_QUOTE });
     mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }));
     const { card, panel } = await openPanel();
@@ -906,19 +958,24 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     const refer = within(card).getByTestId('lp-create-refer');
     expect(refer).toHaveAttribute('data-coin', 'USDC');
     expect(refer).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks (above). The biggest is ${usdcPool.address}, holding 2,000 USDC.`);
-    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL or BAYLA pool yet.');
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL, BAYLA, BOBO, SOY, BRAINLET or RIZZ pool yet.');
     expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     // On SOL (where the form starts) no pool exists, and the SOL form adds no line of its own.
     expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
     await pair(panel, 'USDC');
-    expect(within(panel).getByTestId('lp-create-advice')).toHaveTextContent(
-      'This token already has a USDC pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    expect(within(panel).getByTestId('lp-create-taken')).toHaveTextContent(
+      `This token already has a USDC pool on the public fee tier that passes the checks: ${usdcPool.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with SOL, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
     );
-    // Advice, never a block.
+    // A stop, not advice (owner ruling 2026-11-01): amounts typed never switch Review on,
+    // and no "type both amounts" line says they would.
     type(coinBox(panel, 'USDC'), '50');
     type(tokens(panel), '25');
-    expect(reviewButton(panel)).toBeEnabled();
+    expect(reviewButton(panel)).toBeDisabled();
+    expect(within(panel).queryByTestId('lp-review-why')).toBeNull();
+    // Back on SOL, a free pair: nothing says it is taken.
+    await pair(panel, 'SOL');
+    expect(within(panel).queryByTestId('lp-create-taken')).toBeNull();
   });
 
   // Owner ruling 2026-10-07: Jupiter has no price for the COIN the pool is paired with. The
@@ -977,7 +1034,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     mount(readers({ findPools: vi.fn(async () => search([failing])) }));
     const card = await offered();
     expect(card).toHaveAttribute('data-advice', 'none');
-    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL or BAYLA pool yet.');
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL, BAYLA, BOBO, SOY, BRAINLET or RIZZ pool yet.');
     fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Open a pool' }));
     const panel = await screen.findByTestId('lp-create-panel');
     // USDC has a pool, so a USDC opening is not called the first; it passes no check, so it is not pointed to.
@@ -1020,8 +1077,9 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
 describe('what the wallet can put in, for a coin that is not SOL', () => {
   // The SOL a USDC opening needs: (10,000 + 1,000,000) for two signatures and the
   // reserve, 2,039,280 for the pool-share account, 150,000,000 + 40,000,000 for the fee
-  // and the deposits, and 890,880 kept in the wallet. No wrapped-SOL account is opened.
-  const NEEDS = 193_940_160n;
+  // and the deposits, 13,733,800 for the share's name record, and 890,880 kept in the
+  // wallet. No wrapped-SOL account is opened.
+  const NEEDS = 207_673_960n;
 
   it('USDC in hand but one lamport too little SOL for the fee: told so in SOL, and Review is off', async () => {
     mount(readers({ wallet: vi.fn<WalletFn>(async (_o, _m, _p, _l, opts) => walletFor(opts?.quote, { lamports: NEEDS - 1n })) }));
@@ -1029,14 +1087,14 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
     await pair(panel, 'USDC');
     const cannot = within(panel).getByTestId('lp-create-cannot');
     expect(cannot).toHaveTextContent(
-      'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.193940159 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
+      'This wallet cannot open a pool yet. That needs about 0.2077 SOL for the fee to open, the account deposits, the name record and network fees, and this wallet has 0.207673959 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
     );
     expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
     // The line under the boxes states the same need, and states it the same way: rounded
     // UP. Cut down it read "needs about 0.1939 SOL ... and has 0.193940159 SOL", which
     // looks like enough and is one lamport short (whole-change review, 2026-10-04).
     const paid = within(panel).getByTestId('lp-create-paid-in-sol');
-    expect(paid).toHaveTextContent('This wallet needs about 0.194 SOL for them and has 0.193940159 SOL.');
+    expect(paid).toHaveTextContent('This wallet needs about 0.2077 SOL for them and has 0.207673959 SOL.');
     expect(paid).not.toHaveTextContent('0.1939 SOL');
     // It holds the USDC and the tokens: nothing else is said to be missing.
     expect(cannot).not.toHaveTextContent(/holds no|none of this token/);
@@ -1078,15 +1136,15 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
     const { panel } = await openPanel();
     await within(panel).findByRole('button', { name: 'Max SOL' });
     expect(within(panel).queryByTestId('lp-create-paid-in-sol')).toBeNull();
-    expect(within(panel).getByTestId('lp-before-you-open')).not.toHaveTextContent('Both are paid in SOL');
+    expect(within(panel).getByTestId('lp-before-you-open')).not.toHaveTextContent(/(Both are|All of it is) paid in SOL/);
     expect(panel).toHaveTextContent('Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.');
     await pair(panel, 'USDC');
     expect(within(panel).getByTestId('lp-create-paid-in-sol')).toHaveTextContent(
       // 0.19394016 SOL, rounded up: a need is never said as less than it is.
-      'The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.194 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
+      'The fee to open (0.15 SOL), the account deposits, the name record and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.2077 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
     );
     expect(within(panel).getByTestId('lp-before-you-open')).toHaveTextContent(
-      "Opening costs 0.15 SOL, paid to the team's vault, and about 0.04 SOL in account deposits that never come back. Both are paid in SOL, whatever the pool is paired with: none of it comes out of your USDC. 0.0000001 pool shares",
+      "Opening costs 0.15 SOL, paid to the team's vault, and about 0.04 SOL in account deposits that never come back, plus 0.0137338 SOL for the pool share's name record (Metaplex's fee and the record's deposit). All of it is paid in SOL, whatever the pool is paired with: none of it comes out of your USDC. 0.0000001 pool shares",
     );
     expect(panel).toHaveTextContent('Your USDC is spent straight from your own USDC account. Nothing is wrapped.');
     expect(panel).not.toHaveTextContent('Your SOL is wrapped');
@@ -1501,7 +1559,7 @@ describe('the card, per coin (round 3)', () => {
     const card = await offered();
     expect(within(card).getByTestId('lp-create-refer')).toHaveAttribute('data-coin', 'SOL');
     expect(within(card).getByTestId('lp-create-failing')).toHaveTextContent(/^None of this token's USDC pools passes the checks above\.$/);
-    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA pool yet.');
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA, BOBO, SOY, BRAINLET or RIZZ pool yet.');
   });
 
   // F6: the card's "same answer" key covered the first coin only. A read that changes

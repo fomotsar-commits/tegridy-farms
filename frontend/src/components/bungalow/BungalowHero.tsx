@@ -2,8 +2,9 @@ import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowLpDoor, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
-import { CopyButton } from '../ui/CopyButton';
-import { shortenAddress } from '../../lib/formatting';
+import { roomSheetHref, sheetRoom, SHEET_PRESS } from '../../lib/sheet';
+import { roomSheetOr } from '../../lib/sheetRooms';
+import { CoinName } from '../ui/CoinName';
 import { FinePrint } from '../ui/FinePrint';
 
 /**
@@ -19,6 +20,14 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
   // The LP door (island, answer twenty): second, before Stake, only where the coin has a SOL pool on the venue.
   const lpDoor = bungalowLpDoor(bungalow);
+  // Where the coin has its SOL pool on the venue, both doors raise the sheet over this room
+  // (island answer twenty-five, build 3): Trade its Buy, the LP door its Add. Never the pools page.
+  const sheetable = sheetRoom(bungalow.id) !== null;
+  // A room on Ethereum or Base whose coin the venue's swap lists trades here too, in the sheet on its own
+  // network (owner, 2026-11-11), instead of leaving for a chart on another site.
+  const evmTradeTo = sheetable ? null : roomSheetOr(bungalow, 'buy');
+  const tradeTo = sheetable && trade && 'to' in trade ? roomSheetHref(bungalow, 'buy') : evmTradeTo;
+  const lpTo = sheetable && lpDoor ? roomSheetHref(bungalow, 'add') : lpDoor?.to;
   const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
   // Scan's outline, shared by the Marketplace and NFT loans doors.
@@ -39,8 +48,12 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
       </p>
 
       <div className="flex flex-wrap gap-3">
-        {trade && ('to' in trade ? (
-          <Link to={trade.to} className={tradeClass} style={tradeStyle}>
+        {evmTradeTo ? (
+          <Link to={evmTradeTo} state={SHEET_PRESS} className={tradeClass} style={tradeStyle}>
+            Trade {bungalow.symbol}
+          </Link>
+        ) : trade && ('to' in trade ? (
+          <Link to={tradeTo ?? trade.to} state={tradeTo ? SHEET_PRESS : undefined} className={tradeClass} style={tradeStyle}>
             Trade {bungalow.symbol}
           </Link>
         ) : (
@@ -61,7 +74,8 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             The LP door wears the pool teal. */}
         {lpDoor && (
           <Link
-            to={lpDoor.to}
+            to={lpTo!}
+            state={sheetable ? SHEET_PRESS : undefined}
             className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#31d0aa]"
             style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(49,208,170,0.6)', color: '#31d0aa', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
           >
@@ -123,13 +137,13 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         About this bungalow
       </button>
 
-      {/* Contract chip — copyable mint + explorer link, mirroring the footer card. */}
+      {/* Contract chip: the coin's name copies its whole address (CoinName, island answer twenty-four), then the explorer link. */}
       {bungalow.address && (
         <div className="mt-4 rounded-lg p-3 inline-flex items-center gap-3 flex-wrap" style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid var(--color-kyle-40)' }}>
           <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
             {bungalow.symbol} · {bungalow.chain}
           </span>
-          <CopyButton text={bungalow.address} display={shortenAddress(bungalow.address, 6)} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+          <CoinName name={bungalow.symbol} address={bungalow.address} className="text-[12px]" />
           {explorer && (
             <a href={explorer} target="_blank" rel="noopener noreferrer" aria-label="View token on block explorer (opens in new tab)" className="text-[11px] underline underline-offset-2 text-white/70 hover:text-white">
               explorer ↗

@@ -25,8 +25,9 @@
 + import WETHFallbackLib, IWETH from "./lib/WETHFallbackLib.sol";
 + interface IUniswapV2Factory {
 + function getPair(address tokenA, address tokenB) external view returns (address pair);
-+ function createPair(address tokenA, address tokenB) external returns (address pair);
++ function createPair(address tokenA, address tokenB) external payable returns (address pair);
 + function disabledPairs(address pair) external view returns (bool);
++ function POOL_OPENING_FEE() external view returns (uint256);
 + }
 + contract UniswapV2Router02 is ReentrancyGuard {
 + error InvalidPath();
@@ -63,12 +64,7 @@
 - function _addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin) internal virtual returns (uint256 amountA, uint256 amountB) {
 - if (IUniswapV2Factory(factory).getPair(tokenA, tokenB) == address(0)) {
 - IUniswapV2Factory(factory).createPair(tokenA, tokenB);
-+ function addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
-+ require(to != address(0), "ZERO_TO");
-+ address pair = IUniswapV2Factory(factory).getPair(tokenA, tokenB);
-+ if (pair == address(0)) {
-+ pair = IUniswapV2Factory(factory).createPair(tokenA, tokenB);
-  }
+- }
 - (uint256 reserveA, uint256 reserveB) = getReserves(factory, tokenA, tokenB);
 - if (reserveA == 0 && reserveB == 0) {
 - (amountA, amountB) = (amountADesired, amountBDesired);
@@ -92,6 +88,10 @@
 - address pair = pairFor(factory, tokenA, tokenB);
 - TransferHelper.safeTransferFrom(tokenA, msg.sender, pair, amountA);
 - TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
++ function addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external payable nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
++ require(to != address(0), "ZERO_TO");
++ (address pair, uint256 openingFee) = _pairOrOpen(tokenA, tokenB);
++ require(msg.value == openingFee, "OPENING_FEE");
 + (amountA, amountB) = _addLiquidity(pair, tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
 + require(to != pair, "INVALID_TO");
 + IERC20(tokenA).safeTransferFrom(msg.sender, pair, amountA);
@@ -105,11 +105,9 @@
 - address pair = pairFor(factory, token, WETH);
 - TransferHelper.safeTransferFrom(token, msg.sender, pair, amountToken);
 + function addLiquidityETH(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external payable nonReentrant ensure(deadline) returns (uint256 amountToken, uint256 amountETH, uint256 liquidity) {
-+ address pair = IUniswapV2Factory(factory).getPair(token, WETH);
-+ if (pair == address(0)) {
-+ pair = IUniswapV2Factory(factory).createPair(token, WETH);
-+ }
-+ (amountToken, amountETH) = _addLiquidity(pair, token, WETH, amountTokenDesired, msg.value, amountTokenMin, amountETHMin);
++ (address pair, uint256 openingFee) = _pairOrOpen(token, WETH);
++ uint256 ethIn = msg.value - openingFee;
++ (amountToken, amountETH) = _addLiquidity(pair, token, WETH, amountTokenDesired, ethIn, amountTokenMin, amountETHMin);
 + require(to != pair, "INVALID_TO");
 + IERC20(token).safeTransferFrom(msg.sender, pair, amountToken);
   IWETH(WETH).deposit{
@@ -121,8 +119,8 @@
 - if (msg.value > amountETH) TransferHelper.safeTransferETH(msg.sender, msg.value - amountETH);
 + require(liquidity > 0, "INSUFFICIENT_LIQUIDITY_MINTED");
 + emit LiquidityAdded(msg.sender, token, WETH, amountToken, amountETH, liquidity);
-+ if (msg.value > amountETH) {
-+ uint256 refund = msg.value - amountETH;
++ if (ethIn > amountETH) {
++ uint256 refund = ethIn - amountETH;
 + WETHFallbackLib.safeTransferETHOrWrap(WETH, msg.sender, refund);
   }
 - function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) public virtual override ensure(deadline) returns (uint256 amountA, uint256 amountB) {
@@ -138,7 +136,7 @@
 + IERC20(pair).safeTransferFrom(msg.sender, pair, liquidity);
   (uint256 amount0, uint256 amount1) = IUniswapV2Pair(pair).burn(to);
   (address token0,) = sortTokens(tokenA, tokenB);
-@@ up:70 ours:85 @@ function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amount
+@@ up:70 ours:82 @@ function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amount
   require(amountA >= amountAMin, "INSUFFICIENT_A_AMOUNT");
   require(amountB >= amountBMin, "INSUFFICIENT_B_AMOUNT");
 + emit LiquidityRemoved(msg.sender, tokenA, tokenB, amountA, amountB, liquidity);
@@ -447,14 +445,14 @@
 + require(reserveA > 0 && reserveB > 0, "INSUFFICIENT_LIQUIDITY");
 + amountB = (amountA * reserveB) / reserveA;
   }
-+ function _validatePathNoCycles(address[] memory path) internal view {
-+ uint256 hops = path.length - 1;
-+ if (hops < 2) return;
-+ address[] memory pairs = new address[](hops);
-+ for (uint256 i = 0;
-+ i < hops;
-+ i++) {
-+ pairs[i] = pairFor(path[i], path[i + 1]);
++ function _pairOrOpen(address tokenA, address tokenB) internal returns (address pair, uint256 openingFee) {
++ pair = IUniswapV2Factory(factory).getPair(tokenA, tokenB);
++ if (pair == address(0)) {
++ openingFee = IUniswapV2Factory(factory).POOL_OPENING_FEE();
++ require(msg.value >= openingFee, "OPENING_FEE");
++ pair = IUniswapV2Factory(factory).createPair{
++ value: openingFee}
++ (tokenA, tokenB);
   }
 - ==== FILE upstream/v2-periphery/UniswapV2Library.sol ====
 - import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
@@ -465,6 +463,20 @@
 - require(tokenA != tokenB, "IDENTICAL_ADDRESSES");
 - (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
 - require(token0 != address(0), "ZERO_ADDRESS");
+  }
+- function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
+- (address token0, address token1) = sortTokens(tokenA, tokenB);
+- pair = address(uint256(keccak256(abi.encodePacked(hex"ff", factory, keccak256(abi.encodePacked(token0, token1)), hex"96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f"))));
++ function _validatePathNoCycles(address[] memory path) internal view {
++ uint256 hops = path.length - 1;
++ if (hops < 2) return;
++ address[] memory pairs = new address[](hops);
++ for (uint256 i = 0;
++ i < hops;
++ i++) {
++ pairs[i] = pairFor(path[i], path[i + 1]);
+  }
+- function getReserves(address factory, address tokenA, address tokenB) internal view returns (uint256 reserveA, uint256 reserveB) {
 + for (uint256 i = 0;
 + i < hops;
 + i++) {
@@ -472,12 +484,8 @@
 + j < hops;
 + j++) {
 + if (pairs[i] == pairs[j]) revert CyclicPath();
-  }
-- function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
-- (address token0, address token1) = sortTokens(tokenA, tokenB);
-- pair = address(uint256(keccak256(abi.encodePacked(hex"ff", factory, keccak256(abi.encodePacked(token0, token1)), hex"96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f"))));
-  }
-- function getReserves(address factory, address tokenA, address tokenB) internal view returns (uint256 reserveA, uint256 reserveB) {
++ }
++ }
 + }
 + function _swap(uint256[] memory amounts, address[] memory path, address _to) internal {
 + uint256 hops = path.length - 1;
@@ -553,7 +561,7 @@
 + uint256 denominator = reserveIn * 1000 + amountInWithFee;
   amountOut = numerator / denominator;
   }
-@@ up:261 ours:362 @@ function getAmountIn(uint256 amountOut, uint256 reserveIn, uint256 reserveOut) internal pu
+@@ up:261 ours:369 @@ function getAmountIn(uint256 amountOut, uint256 reserveIn, uint256 reserveOut) internal pu
   require(amountOut > 0, "INSUFFICIENT_OUTPUT_AMOUNT");
   require(reserveIn > 0 && reserveOut > 0, "INSUFFICIENT_LIQUIDITY");
 - uint256 numerator = reserveIn.mul(amountOut).mul(1000);

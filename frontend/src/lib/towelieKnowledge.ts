@@ -4,10 +4,32 @@
  *  answer:   what Towelie says back, in voice (slacker towel).
  *  priority: optional tiebreaker bump for ambiguous questions. */
 
+import { isCurveLaunchOpen } from './launcher/curveChains';
+import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
+import { CARDANO_VENUE_FEE_ADDRESS, CARDANO_VENUE_FEE_BPS } from './cardano/venueFee';
+
 export interface KnowledgeEntry {
   keywords: string[];
   answer: string;
   priority?: number;
+}
+
+// Island answer twenty-six: no token launch is open on any rail until the island's word. An answer
+// that says where tokens launch reads the switch its curve's own page reads (the EVM curve's create
+// form, the Solana curve's write path), so the towel and the page never disagree. Read once: a
+// build's switches do not change while it runs.
+const EVM_LAUNCHING = isCurveLaunchOpen();
+const SOLANA_LAUNCHING = isCurveWriteEnabled();
+
+/** The Meteora answer names both curves: a launch on them, or which of them is not taking one yet. */
+function curvesWhere(): string {
+  if (EVM_LAUNCHING && SOLANA_LAUNCHING) {
+    return 'The Memetics Curve launches on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch, where a maker at Resident or better launches through the memetics.finance gate.';
+  }
+  let closed = '';
+  if (EVM_LAUNCHING) closed = 'on Solana ';
+  if (SOLANA_LAUNCHING) closed = 'on Ethereum, Base and Robinhood ';
+  return `The Memetics Curve is on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch; launching a new token ${closed}is not switched on yet.`;
 }
 
 export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
@@ -42,7 +64,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
-    // still being funded; grants/governance spend-votes are not deployed yet.
+    // still being funded.
     keywords: ['treasury', 'dao', 'fund'],
     answer: "Community treasury is a Safe multisig — rebuilt fresh at the relaunch, so it's still filling up. Protocol fee flows route to it on-chain as revenue ramps. Watch it at /treasury; every wei's on Etherscan.",
   },
@@ -85,7 +107,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['compound', 'reinvest', 'restake'],
-    answer: "Claim, then re-stake. No auto-compound vault yet — but it's on the radar. Watch /changelog.",
+    answer: "Claim, then re-stake. There is no auto-compound vault.",
   },
   {
     keywords: ['math', 'calculation', 'formula'],
@@ -159,7 +181,9 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // bump wins keyword ties against older entries.
     priority: 1,
     keywords: ['launch', 'launcher', 'curve', 'tegridy', 'create', 'token', 'memecoin', 'graduate'],
-    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. Trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
+    answer: EVM_LAUNCHING
+      ? "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. Trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>."
+      : "The Memetics Curve is our own bonding curve, at /eth-curve on Ethereum, Base and Robinhood Chain. Launching a new token there is not switched on yet: the launch door opens on the island's word. Trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse its launches right on the page, or open any token's own page at /eth-curve/<address>.",
   },
 
   // ── NFTs ─────────────────────────────────────────────────────
@@ -177,11 +201,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // said "waiting". The assistant is a surface like any other: keep it in
     // sync with constants.ts in BOTH directions.
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending, live on mainnet. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH — peer-to-peer terms, no oracles needed. Internally reviewed, no third-party audit yet.",
+    answer: "NFT Finance → NFT Lending, live on mainnet on Gondi's own v3.2 loan contracts. Lock a Jungle Bay, Nakamigos or GNSS NFT to borrow WETH from a lender's signed offer, and pay interest only for the days you borrow. The venue keeps 5% of the interest.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],
-    answer: "If you don't repay your NFT loan by the deadline, the lender keeps the NFT. No partial liquidations — it's all-or-repay.",
+    answer: "If you don't repay your NFT loan by the deadline, you lose the NFT: there is no grace period. One lender can take it that second; a loan from several lenders goes to a 3-day auction.",
   },
   {
     keywords: ['nakamigos', 'naka'],
@@ -203,35 +227,6 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Launchpad V2 is live: project owners create gated NFT collections with a wizard under NFT Finance → Launchpad. Internally reviewed, no third-party audit yet.",
   },
 
-  // ── Governance ──────────────────────────────────────────────
-  // The four governance contracts are deployed on mainnet (the 2026-07-16 batch,
-  // unpaused), but this app still has their addresses zeroed, so the pages stay gated.
-  // Answers say deployed but not wired, as /risks does.
-  {
-    keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
-  },
-  {
-    keywords: ['weight', 'power', 'vote'],
-    answer: "When gauge voting is wired up here, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Locking now still builds your future weight.",
-  },
-  {
-    keywords: ['epoch', 'cycle', 'period'],
-    answer: "Voting epochs run 7 days once gauge voting is wired into the app — votes cast one epoch direct emissions the next. The contract's on mainnet; this app hasn't connected to it yet, so no clock's ticking here.",
-  },
-  {
-    keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Deployed on mainnet, not wired into this app yet — it lands on /community alongside gauge voting.",
-  },
-  {
-    keywords: ['bounty', 'bounties', 'task'],
-    answer: "MemeBountyBoard is deployed on mainnet but not wired into this app yet. When it connects: post a task with a reward, contributors complete it for the bounty. Both sides win.",
-  },
-  {
-    keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community Grants is deployed on mainnet, not wired into this app yet. When it connects: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
-  },
-
   // ── Wallet / network ────────────────────────────────────────
   {
     keywords: ['wallet', 'connect'],
@@ -242,18 +237,34 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Hardware wallets work via MetaMask or Rainbow's hardware-wallet integration. Plug in, connect, sign on the device.",
   },
   // Solana has the Jupiter swap (/solana) and our own curve (/curve-launch), where anyone
-  // trades and a maker at Resident or better launches through the heat door. These
-  // coins are priced in SOL: never call them island coins or "born in $BAYLA".
+  // trades and, once its launching is switched on, a maker at Resident or better launches
+  // through the heat door. These coins are priced in SOL: never call them island coins or
+  // "born in $BAYLA".
   {
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Five chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. On Cardano, /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool; your Cardano wallet (Eternl, Lace, VESPR) signs, and the venue takes no fee there yet. The token scanner reads EVM and Solana both.",
+    answer:
+      'Five chains. ' +
+      (EVM_LAUNCHING
+        ? 'TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain'
+        : 'TOWELI staking and farming run on Ethereum mainnet; the Memetics Curve sits on Ethereum, Base and Robinhood Chain, and launching a new token there is not switched on yet') +
+      " — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, " +
+      (SOLANA_LAUNCHING
+        ? 'and a maker at Resident or better can launch through the memetics.finance gate.'
+        : 'and launching a new token there is not switched on yet.') +
+      " On Cardano, /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool; your Cardano wallet (Eternl, Lace, VESPR) signs, and " +
+      (CARDANO_VENUE_FEE_ADDRESS
+        ? `the venue takes ${CARDANO_VENUE_FEE_BPS / 100}% of the ADA side, paid with your order straight to its two-key Cardano treasury; a swap under about 200 ADA pays it nothing, because a Cardano payment must hold about 1 ADA.`
+        : 'the venue takes no fee there yet.') +
+      ' The token scanner reads EVM and Solana both.',
   },
   {
     // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
     // a curve, memecoin or graduation question that names Solana.
     priority: 1,
     keywords: ['solana', 'sol', 'phantom', 'spl', 'solana launch', 'solana token', 'solana curve', 'solana bonding', 'solana memecoin', 'solana graduate'],
-    answer: "Solana's live here two ways. /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
+    answer: SOLANA_LAUNCHING
+      ? "Solana's live here two ways. /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token."
+      : "Solana's live here two ways. /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there. Launching a new token there is not switched on yet: the launch door opens on the island's word. Check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
@@ -262,13 +273,19 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
     keywords: ['meteora', 'dbc', 'bonding curve'],
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it: we only want launchers that graduate into our own venue. Our own curve replaced it, and it graduates into our own AMM and burns the LP outright. The Memetics Curve launches on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch, where a maker at Resident or better launches through the memetics.finance gate.",
+    answer:
+      "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it: we only want launchers that graduate into our own venue. Our own curve replaced it, and it graduates into our own AMM and burns the LP outright. " +
+      curvesWhere(),
   },
   {
     // Keep in sync with lib/chains/registry.ts: Base is an OP-stack L2, Robinhood
     // Chain an Arbitrum Orbit L2.
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
-    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana has its own swap at /solana and its own curve at /curve-launch.",
+    answer:
+      (EVM_LAUNCHING
+        ? 'Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain'
+        : 'Two L2s: the Memetics Curve is on Base and on Robinhood Chain, and launching a new token there is not switched on yet') +
+      " — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana has its own swap at /solana and its own curve at /curve-launch.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],

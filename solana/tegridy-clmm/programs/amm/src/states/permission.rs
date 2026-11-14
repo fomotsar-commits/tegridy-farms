@@ -1,19 +1,3 @@
-use anchor_lang::prelude::*;
-
-/// Seed prefix for the permission PDA: `[PERMISSION_SEED, authority]`.
-pub const PERMISSION_SEED: &str = "permission";
-
-/// Grants its `authority` the right to call permissioned instructions
-/// (e.g. `create_permissioned_pool`). Existence of the PDA is the grant.
-#[account]
-#[derive(Default, Debug)]
-pub struct Permission {
-    /// The account authorized by this permission PDA.
-    pub authority: Pubkey,
-    /// padding
-    pub padding: [u64; 30],
-}
-
-impl Permission {
-    pub const LEN: usize = 8 + 32 + 8 * 30;
-}
+// memetics.finance: the Permission account is deleted with create_permissioned_pool, the one
+// instruction that read it (the owner's ruling, 2026-11-03). Nothing builds this file
+// (states/mod.rs no longer names it); the deleted text is in solana/guards/upstream/tegridy-clmm.diff.

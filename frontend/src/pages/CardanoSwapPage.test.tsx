@@ -9,6 +9,7 @@ import type { PrivateKey } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../lib/cardano/csl';
 import { composeAddress, hexToBytes, type ParsedAddress } from '../lib/cardano/address';
 import { ADA, MINSWAP_V2, encodeSwapOrderDatum, lpAsset, orderAddressFor } from '../lib/cardano/minswapV2';
+import { CARDANO_VENUE_FEE_ADDRESS } from '../lib/cardano/venueFee';
 import { resetCardanoWalletForTests } from '../lib/cardano/walletStore';
 import { ASCEND, fixture, testCsl } from '../lib/cardano/testkit.fixture';
 
@@ -54,6 +55,10 @@ const ASCEND_INFO = [
 const POOLS = fixture<unknown[]>('koios-asset-utxos-two-pools.json');
 /** Mainnet's parameters with the script prices and cost model a cancel needs (2026-10-24). */
 const PARAMS_FULL = fixture<unknown>('koios-cli-protocol-params.json');
+const ASCEND_FINGERPRINT = 'asset1e4gd65smur5wa0p5z5pyuqjp08flxw82hf5asn';
+/** What the chain lists under a pasted policy id, and under a pasted asset1… id; set per test. */
+let policyRows: unknown[] = [];
+let fingerprintRows: unknown[] = [];
 
 let csl: Csl;
 let key: PrivateKey;
@@ -114,6 +119,8 @@ function stubChain() {
         op === 'pool' ? POOLS
         : op === 'params' ? PARAMS
         : op === 'asset' ? ASCEND_INFO
+        : op === 'policy' ? policyRows
+        : op === 'fingerprint' ? fingerprintRows
         : op === 'tip' ? [{ abs_slot: 201256000, block_height: 14108900, block_time: 1792822300 }]
         : op === 'utxo' ? []
         : op === 'txstatus' ? [{ tx_hash: u.searchParams.get('tx'), num_confirmations: null }]
@@ -134,6 +141,8 @@ beforeEach(() => {
   resetCardanoWalletForTests();
   submitted = [];
   signed = [];
+  policyRows = [];
+  fingerprintRows = [];
   installWallet();
   stubChain();
 });
@@ -171,6 +180,113 @@ describe('CardanoSwapPage', () => {
     expect(id.textContent).toMatch(/Anyone can mint a coin with any name/);
   });
 
+  it('takes the policy id alone, as people paste it, and finds the one coin under it', async () => {
+    policyRows = [
+      { asset_name: '000643b0415343454e44', asset_name_ascii: null, total_supply: '1', ticker: null },
+      { asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' },
+    ];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ` ${ASCEND.policyId} ` } });
+    const id = await screen.findByTestId('cardano-coin-identity');
+    await within(id).findByText('ASCEND');
+    expect(id.textContent).toContain(`${ASCEND.policyId}.${ASCEND.assetName}`);
+    expect(screen.queryByTestId('cardano-coin-picks')).toBeNull();
+  });
+
+  it('lists the coins by ticker when several share the policy id, and takes none until one is picked', async () => {
+    policyRows = [
+      { asset_name: '69425443', asset_name_ascii: 'iBTC', total_supply: '4991218', ticker: 'iBTC' },
+      { asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' },
+    ];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId } });
+    const picks = await screen.findByTestId('cardano-coin-picks');
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+    fireEvent.click(within(picks).getByRole('button', { name: 'ASCEND' }));
+    const id = await screen.findByTestId('cardano-coin-identity');
+    await within(id).findByText('ASCEND');
+    expect(within(picks).getByRole('button', { name: 'ASCEND' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('never takes the one coin it found on its own when the list was cut: there may be others', async () => {
+    policyRows = [
+      ...Array.from({ length: 50 }, (_, i) => ({ asset_name: i.toString(16).padStart(4, '0'), asset_name_ascii: null, total_supply: '1', ticker: null })),
+      { asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' },
+    ];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId } });
+    const picks = await screen.findByTestId('cardano-coin-picks');
+    expect(within(picks).getByText(/Not everything under this id is listed/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('takes an asset1… id, and an explorer link holding one', async () => {
+    fingerprintRows = [{ policy_id: ASCEND.policyId, asset_name: ASCEND.assetName, fingerprint: ASCEND_FINGERPRINT }];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: `https://cexplorer.io/asset/${ASCEND_FINGERPRINT}` } });
+    const id = await screen.findByTestId('cardano-coin-identity');
+    await within(id).findByText('ASCEND');
+    expect(id.textContent).toContain(ASCEND.policyId);
+  });
+
+  it('says what is wrong with a pair link or text that is no coin, and shows no coin', async () => {
+    renderPage();
+    const box = screen.getByLabelText(/The coin/);
+    fireEvent.change(box, { target: { value: 'https://dexscreener.com/cardano/f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c2ffadbb87144e875749122e0bbb9f535eeaa7f5660c6c4a91bcc4121e477f08d' } });
+    expect(screen.getByText(/That names a trading pair, not a coin/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'SNEK' } });
+    expect(screen.getByText(/That isn’t a Cardano coin’s address/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: ASCEND.policyId } });
+    expect(await screen.findByText(/The chain lists no coin under this id yet/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('takes the coin a link names in letters, and never carries a pick over to new text', async () => {
+    policyRows = [
+      { asset_name: '69425443', asset_name_ascii: 'iBTC', total_supply: '4991218', ticker: 'iBTC' },
+      { asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' },
+    ];
+    renderPage();
+    const box = screen.getByLabelText(/The coin/);
+    fireEvent.change(box, { target: { value: ASCEND.policyId } });
+    const picks = await screen.findByTestId('cardano-coin-picks');
+    fireEvent.click(within(picks).getByRole('button', { name: 'iBTC' }));
+    expect(within(picks).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'true');
+    // Other text for the same policy, naming no coin: the earlier pick is not taken for it.
+    fireEvent.change(box, { target: { value: `https://cardanoscan.io/tokenPolicy/${ASCEND.policyId}` } });
+    expect(within(await screen.findByTestId('cardano-coin-picks')).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+    // New text under the same policy, naming ASCEND: ASCEND, not the iBTC picked before.
+    fireEvent.change(box, { target: { value: `https://pool.pm/${ASCEND.policyId}.ASCEND` } });
+    const id = await screen.findByTestId('cardano-coin-identity');
+    await within(id).findByText('ASCEND');
+    expect(id.textContent).toContain(`${ASCEND.policyId}.${ASCEND.assetName}`);
+    // A click under this text still picks another: the visitor's choice outranks the link's.
+    const named = await screen.findByTestId('cardano-coin-picks');
+    fireEvent.click(within(named).getByRole('button', { name: 'iBTC' }));
+    expect(within(named).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'true');
+    // A name that is none of them takes nothing, and says so.
+    fireEvent.change(box, { target: { value: `https://pool.pm/${ASCEND.policyId}.NOPE` } });
+    expect(await screen.findByText(/Nothing under this id is called “NOPE”/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('never takes the one coin under a policy when the text named another', async () => {
+    policyRows = [{ asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' }];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: `${ASCEND.policyId}.NOPE` } });
+    expect(await screen.findByText(/Nothing under this id is called “NOPE”/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('says an asset1… id of a Minswap pool’s share token names a pair, and takes no coin', async () => {
+    fingerprintRows = [{ policy_id: MINSWAP_V2.authenPolicy, asset_name: 'ab'.repeat(32), fingerprint: ASCEND_FINGERPRINT }];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND_FINGERPRINT } });
+    expect(await screen.findByText(/That names a trading pair, not a coin/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
   it('quotes from the real pool, with every fee, its basis and who gets it, in view', async () => {
     renderPage();
     fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId + ASCEND.assetName } });
@@ -178,18 +294,19 @@ describe('CardanoSwapPage', () => {
     fireEvent.change(screen.getByLabelText(/You pay/), { target: { value: '400' } });
     const q = await screen.findByTestId('cardano-quote', {}, { timeout: 3000 });
     expect(q.textContent).toMatch(/Venue fee/);
-    expect(q.textContent).toMatch(/None: the venue has no Cardano fee address yet/);
+    // 0.5% of the 400 ADA paid in, to the two-key treasury.
+    expect(q.textContent).toMatch(/Venue fee0\.5% of the ADA side · to the venue2 ADA/);
     expect(q.textContent).toMatch(/1% of what you pay in/);
     expect(q.textContent).toMatch(/Minswap keeps 16\.66% of it/);
     expect(q.textContent).toMatch(/up to 2 ADA/);
     expect(q.textContent).toMatch(/comes back with your coins/);
   });
 
-  it('with no venue fee address, the explainer never speaks of a venue fee being paid', async () => {
+  it('with the fee address registered, the explainer says when the venue fee is paid and where it may go', async () => {
     renderPage();
     const explainer = (await screen.findByText('How a Cardano swap works')).closest('details') ?? document.body;
-    expect(explainer.textContent).toMatch(/pays only the order and your change to your own address/);
-    expect(explainer.textContent).not.toMatch(/venue fee/i);
+    expect(explainer.textContent).toMatch(/The venue fee is paid with the order, not with the fill, so an order that comes back has still paid it\./);
+    expect(explainer.textContent).toMatch(/pays only the order, the venue fee to the venue’s registered address, and your change to your own address/);
     expect(explainer.textContent).not.toMatch(/must send your coins back/);
   });
 
@@ -206,6 +323,10 @@ describe('CardanoSwapPage', () => {
     expect(review.textContent).toMatch(/404 ADA/); // the 400 ADA swap + 4 ADA order lock
     // Paid to the trader's whole address, to match against the wallet's own screen.
     expect(within(review).getByTestId('cardano-review-paid-to').textContent).toBe(trader.bech32);
+    // The venue fee: 0.5% of the 400 ADA, to the whole treasury address, said as the one exception.
+    expect(within(review).getByText('Venue fee').parentElement!.textContent).toMatch(/2 ADA/);
+    expect(within(review).getByTestId('cardano-review-venue-fee-to').textContent).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    expect(review.textContent).toMatch(/Checked: apart from the venue fee above, nothing in this transaction pays anyone else/);
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
     });
@@ -215,8 +336,14 @@ describe('CardanoSwapPage', () => {
     // What went out is the body that was checked and signed, with the wallet's signature on it.
     const sent = csl.FixedTransaction.from_hex(submitted[0]!);
     expect(sent.raw_body()).toEqual(csl.FixedTransaction.from_hex(signed[0]!).raw_body());
-    const order = csl.TransactionBody.from_bytes(sent.raw_body()).outputs().get(0);
+    const outs = csl.TransactionBody.from_bytes(sent.raw_body()).outputs();
+    const order = outs.get(0);
     expect(order.address().to_hex().slice(2, 58)).toBe(MINSWAP_V2.orderScriptHash);
+    // The second output is the venue fee: exactly 2 ADA, only ADA, to the whole treasury address.
+    const fee = outs.get(1);
+    expect(fee.address().to_bech32()).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    expect(fee.amount().coin().to_str()).toBe('2000000');
+    expect(fee.amount().multiasset()?.len() ?? 0).toBe(0);
     // The order is followed below, and was noted before it left.
     await waitFor(() => expect(screen.getAllByTestId('cardano-order')).toHaveLength(1));
     expect(JSON.parse(localStorage.getItem('tegridy.minswap.orders.v1') ?? '[]')).toHaveLength(1);

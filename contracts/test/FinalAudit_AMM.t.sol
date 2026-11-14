@@ -165,7 +165,7 @@ contract FinalAuditAMM is Test {
         }
 
         // Create pair A/B with initial liquidity
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pairAB = TegridyPair(pairAddr);
 
         // Fund pair: 100 ether each side
@@ -177,7 +177,7 @@ contract FinalAuditAMM is Test {
         if (address(tokenB) > address(tokenC)) {
             // Swap to ensure B < C ordering is correct for pair creation
         }
-        address pairBCAddr = factory.createPair(address(tokenB), address(tokenC));
+        address pairBCAddr = factory.createPair{value: 0.006 ether}(address(tokenB), address(tokenC));
         pairBC = TegridyPair(pairBCAddr);
         tokenB.transfer(address(pairBC), 100 ether);
         tokenC.transfer(address(pairBC), 100 ether);
@@ -271,7 +271,7 @@ contract FinalAuditAMM is Test {
         AuditMockToken tX = new AuditMockToken("X", "X", 18);
         AuditMockToken tY = new AuditMockToken("Y", "Y", 18);
         if (address(tX) > address(tY)) (tX, tY) = (tY, tX);
-        address freshPair = factory.createPair(address(tX), address(tY));
+        address freshPair = factory.createPair{value: 0.006 ether}(address(tX), address(tY));
         TegridyPair fp = TegridyPair(freshPair);
 
         // Try deposits below the MINIMUM_LIQUIDITY * 1000 threshold
@@ -288,7 +288,7 @@ contract FinalAuditAMM is Test {
         AuditMockToken tX2 = new AuditMockToken("X2", "X2", 18);
         AuditMockToken tY2 = new AuditMockToken("Y2", "Y2", 18);
         if (address(tX2) > address(tY2)) (tX2, tY2) = (tY2, tX2);
-        address freshPair2 = factory.createPair(address(tX2), address(tY2));
+        address freshPair2 = factory.createPair{value: 0.006 ether}(address(tX2), address(tY2));
         TegridyPair fp2 = TegridyPair(freshPair2);
 
         tX2.transfer(address(fp2), 1_000_000);
@@ -302,7 +302,7 @@ contract FinalAuditAMM is Test {
         AuditMockToken tX3 = new AuditMockToken("X3", "X3", 18);
         AuditMockToken tY3 = new AuditMockToken("Y3", "Y3", 18);
         if (address(tX3) > address(tY3)) (tX3, tY3) = (tY3, tX3);
-        address freshPair3 = factory.createPair(address(tX3), address(tY3));
+        address freshPair3 = factory.createPair{value: 0.006 ether}(address(tX3), address(tY3));
         TegridyPair fp3 = TegridyPair(freshPair3);
 
         tX3.transfer(address(fp3), 2_000_000);
@@ -370,7 +370,7 @@ contract FinalAuditAMM is Test {
             address t1 = address(tokens[i + 1]);
             if (t0 == t1) continue;
 
-            address pair = factory.createPair(t0, t1);
+            address pair = factory.createPair{value: 0.006 ether}(t0, t1);
             tokens[i].transfer(pair, 100 ether);
             tokens[i + 1].transfer(pair, 100 ether);
             TegridyPair(pair).mint(deployer);
@@ -413,7 +413,7 @@ contract FinalAuditAMM is Test {
         address t0 = address(rebaseToken);
         address t1 = address(tokenA);
 
-        address pairAddr = factory.createPair(t0, t1);
+        address pairAddr = factory.createPair{value: 0.006 ether}(t0, t1);
         TegridyPair rPair = TegridyPair(pairAddr);
 
         // Seed liquidity while multiplier = 100 (1x)

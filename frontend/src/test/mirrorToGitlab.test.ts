@@ -66,13 +66,23 @@ const job = (id: string): string => {
   return next === -1 ? src.slice(start) : src.slice(start, start + 1 + next);
 };
 
+/** The workflow's `on:` block, comments included. */
+const onBlock = () => workflow().slice(workflow().indexOf('\non:'), workflow().indexOf('\npermissions:'));
+
+// The owner paused the mirror until the secret GITLAB_MIRROR_SSH_KEY exists (docs/GIT_HOSTING.md,
+// 2C step 6). Un-pausing turns the first test back into its old form (on every branch and tag
+// push, daily and by hand, never for a pull request), and the second test goes.
 describe('mirror-to-gitlab.yml: when it runs', () => {
-  it('runs on every branch and tag push, daily and by hand, never for a pull request', () => {
-    const on = workflow().slice(workflow().indexOf('\non:'), workflow().indexOf('\npermissions:'));
-    expect(on).toMatch(/\n {2}push:\n {4}branches: \['\*\*'\]\n {4}tags: \['\*\*'\]\n/);
-    expect(on).toMatch(/\n {2}schedule:\n {4}- cron: '[\d*/ ,-]+'\n/);
-    expect(on).toContain('\n  workflow_dispatch:');
-    expect(on, 'a pull request, a fork above all, must never hold the mirror key').not.toMatch(/pull_request/);
+  it('is paused: it runs only by hand, never on a push, a schedule or a pull request', () => {
+    expect(code(onBlock()).join('\n').trim()).toBe('on:\n  workflow_dispatch: {}');
+    expect(onBlock(), 'a pull request, a fork above all, must never hold the mirror key').not.toMatch(/pull_request/);
+  });
+
+  it('keeps its triggers commented out, so un-pausing is deleting one "# " per line', () => {
+    const resumed = onBlock().replace(/^ {2}# /gm, '  ');
+    expect(resumed).toMatch(/\n {2}push:\n {4}branches: \['\*\*'\]\n {4}tags: \['\*\*'\]\n/);
+    expect(resumed).toMatch(/\n {2}schedule:\n {4}- cron: '[\d*/ ,-]+'\n/);
+    expect(resumed).toContain('\n  workflow_dispatch:');
   });
 
   it('starts no job for a deleted branch or tag, so nothing is ever deleted on the standby', () => {
@@ -191,8 +201,16 @@ describe('the dead-man switch', () => {
   it('sends success only for a mirror job that succeeded, and keeps the URL off the command line', () => {
     const body = runBodies(job('ping'))[0];
     expect(body).toContain('if [ "$MIRROR_RESULT" = success ]; then suffix=\'\'; else suffix=/fail; fi');
-    expect(body).toMatch(/\| curl [^\n]*--config -\n?$/);
+    expect(body).toMatch(/\| curl [^\n]*--config -$/m);
     expect(body).not.toMatch(/curl[^\n]*\$HC_PING_URL/);
+  });
+
+  it('counts the ping only when healthchecks.io answers exactly "OK", and fails the job otherwise', () => {
+    // It answers 200 "OK (not found)" to a URL that names no check. test-mirror.sh runs each answer.
+    const body = runBodies(job('ping'))[0];
+    expect(body).toMatch(/\| curl [^\n]* -o "\$answer" [^\n]*--config -$/m);
+    expect(body).not.toContain('/dev/null');
+    expect(body).toMatch(/\n\s*if \[ "\$said" != OK \]; then\n\s*echo "::error::[^\n]*"\n\s*exit 1\n\s*fi\s*$/);
   });
 });
 

@@ -10,24 +10,25 @@
 // The venues also differ in WHAT liquidates, and conflating the two mechanisms
 // would produce a number nothing on-chain acts on:
 //
-//   deadline-default      the venue's own P2P loans. Fixed term. There is no price
-//                         oracle, no LTV, and no partial liquidation. The lender
-//                         claims the whole collateral NFT once the deadline plus
-//                         grace passes, regardless of what the collateral is
-//                         worth. A "health factor" for one of these is fiction.
+//   deadline-default      the venue's NFT loans, on Gondi's v3.2 loan contract.
+//                         Fixed term. There is no price oracle, no LTV, no partial
+//                         liquidation and no grace period. The lender claims the
+//                         whole collateral NFT once the deadline passes,
+//                         regardless of what the collateral is worth. A "health
+//                         factor" for one of these is fiction.
 //
 //   price-health-factor   Aave/Morpho-shaped. Collateral value against debt,
 //                         liquidated with a penalty on a bounded slice. Nothing
 //                         here reads one today.
 //
-// Addresses come from `constants.ts` and are zero until an operator deploys.
-// Nothing in this module hardcodes a third-party market address: an address that
-// is wired but unreadable is worse than one that is absent, because it looks like
-// coverage.
+// The loan contract's address is `GONDI_LOAN_ADDRESS` (lib/gondi/loanOffer.js), zero until
+// the deploy. Nothing in this module hardcodes a third-party market address: an address that
+// is wired but unreadable is worse than one that is absent, because it looks like coverage.
 
-import { TEGRIDY_LENDING_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
+import { isDeployed } from '../constants';
+import { GONDI_LOAN_ADDRESS } from '../gondi/loanOffer.js';
 
-export type ShieldVenueId = 'tegridy-nft-lending' | 'tegridy-lending' | 'aave-v3' | 'morpho-blue';
+export type ShieldVenueId = 'tegridy-nft-lending' | 'aave-v3' | 'morpho-blue';
 
 export type LiquidationMechanism = 'deadline-default' | 'price-health-factor';
 
@@ -49,16 +50,7 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
     lossOnTrigger:
       'The lender claims the entire collateral NFT. There is no partial liquidation and no penalty percentage — the whole item is gone, and the borrowed ETH stays borrowed.',
     operatorStep:
-      'Deployed. Loans are read directly from the contract; no indexer or backend is involved.',
-  },
-  'tegridy-lending': {
-    id: 'tegridy-lending',
-    label: 'Venue token lending',
-    mechanism: 'deadline-default',
-    lossOnTrigger:
-      'The lender claims the staking position posted as collateral. There is no partial liquidation and no penalty percentage.',
-    operatorStep:
-      'Not deployed on this network. TEGRIDY_LENDING_ADDRESS is the zero address, so there is nothing to read and no position of this kind can exist yet.',
+      'Loans are listed from the venue’s offer book, and each one is checked against Gondi’s loan contract on chain before it is shown.',
   },
   'aave-v3': {
     id: 'aave-v3',
@@ -82,7 +74,6 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
 
 export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
   'tegridy-nft-lending',
-  'tegridy-lending',
   'aave-v3',
   'morpho-blue',
 ];
@@ -95,7 +86,6 @@ export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
  */
 export const ADAPTER_BUILT: Record<ShieldVenueId, boolean> = {
   'tegridy-nft-lending': true,
-  'tegridy-lending': false,
   'aave-v3': false,
   'morpho-blue': false,
 };
@@ -109,29 +99,19 @@ export interface ShieldVenueReadiness {
   address: string | null;
 }
 
-const TOKEN_LENDING_NO_ADAPTER =
-  'The venue’s token-lending contract is not deployed on this network, so no position of this kind can exist and none is being watched.';
-
 /**
  * Read the live config. A function rather than a module constant so nothing
  * snapshots a deployment decision at import time — same rule as
  * `indexer/client.ts` and `alerts/sources.ts`.
  */
 export function shieldVenueReadiness(): Record<ShieldVenueId, ShieldVenueReadiness> {
-  const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+  const deployed = isDeployed(GONDI_LOAN_ADDRESS);
+  const readable = ADAPTER_BUILT['tegridy-nft-lending'] && deployed;
   return {
     'tegridy-nft-lending': {
-      readable: ADAPTER_BUILT['tegridy-nft-lending'] && nftDeployed,
-      detail:
-        ADAPTER_BUILT['tegridy-nft-lending'] && nftDeployed
-          ? null
-          : 'The venue’s NFT lending contract is not deployed on this network, so there are no loans to read.',
-      address: nftDeployed ? TEGRIDY_NFT_LENDING_ADDRESS : null,
-    },
-    'tegridy-lending': {
-      readable: false,
-      detail: TOKEN_LENDING_NO_ADAPTER,
-      address: isDeployed(TEGRIDY_LENDING_ADDRESS) ? TEGRIDY_LENDING_ADDRESS : null,
+      readable,
+      detail: readable ? null : 'Gondi’s loan contract is not deployed on this network yet, so there are no loans to read.',
+      address: deployed ? GONDI_LOAN_ADDRESS : null,
     },
     'aave-v3': {
       readable: false,

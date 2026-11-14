@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within, fireEvent } from '@testing-li
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
-import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { BAYLA_MINT, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
 import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
@@ -21,7 +21,7 @@ import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/
 import { bothAmounts } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { BRAINLET_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 
 /**
@@ -33,6 +33,9 @@ import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 const wallet = vi.hoisted(() => ({ publicKey: null as null | PublicKey, signTransaction: undefined as undefined | (() => Promise<never>), connecting: false, wallet: null }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => ({ connection: { rpcEndpoint: 'fake' } }) }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
+// A wallet that advertises version 1 transactions (Phantom does) when `v1.on`.
+const v1 = vi.hoisted(() => ({ on: false }));
+vi.mock('../../../lib/solana/v1Signer', () => ({ v1SignerOf: () => (v1.on ? async (bytes: Uint8Array) => bytes : null) }));
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const PROG = key(1);
@@ -85,6 +88,7 @@ function fakeApi(): RangeWriteApi {
   return {
     rangeWriteConfig: vi.fn(() => cfg),
     prepareRangeOpen: vi.fn(async () => refused),
+    prepareRangeCreate: vi.fn(async () => refused),
     prepareRangeRemove: vi.fn(async () => refused),
     prepareRangeClose: vi.fn(async () => refused),
     submitPrepared: vi.fn(),
@@ -97,7 +101,12 @@ function fakeApi(): RangeWriteApi {
 /** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
 const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze> } = {}): RangeReaders {
+/** A token check that read `symbol` as the coin's own ticker. */
+function claims(mint: string, symbol: string): TokenSafety {
+  return { kind: 'read', mint, verdict: 'ok', blocks: [], warnings: [], facts: null, name: symbol, symbol, metadataSource: 'metaplex' };
+}
+
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze>; checks?: TokenSafety[] } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
@@ -105,7 +114,9 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     pairPools: vi.fn(async () => o.pools ?? { kind: 'ok' as const, value: [poolOn(t)] }),
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
     outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
-    freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: { kind: 'mint' as const, freezeAuthority: null } }),
+    freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: { kind: 'mint' as const, freezeAuthority: null, decimals: 6 } }),
+    // A mint with no check given reads as unread: the page then names it by its address alone.
+    tokenSafety: vi.fn(async (mints: string[]) => new Map(mints.map((m): [string, TokenSafety] => [m, o.checks?.find((c) => c.mint === m) ?? { kind: 'unread', mint: m, detail: 'not given in this test' }]))),
   };
 }
 
@@ -132,6 +143,9 @@ describe('how a range position earns', () => {
     await waitFor(() => expect(card.textContent).toContain('pays a 1% fee'));
     expect(card.textContent).toContain('share 84% of it (0.84% of the swap)');
     expect(card.textContent).toContain('The venue keeps 16% (0.16% of the swap)');
+    // The venue's other take, the program's pool-opening fee: in plain sight, not in the fine print.
+    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the venue’s vault, the team’s shared wallet.');
+    expect(opening.closest('details')).toBeNull();
     // Visible, not folded into the fine print.
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
     expect(warning.closest('details')).toBeNull();
@@ -206,7 +220,229 @@ describe('picking a pool', () => {
   });
 });
 
+describe('opening a new pool', () => {
+  const noPool = { pools: { kind: 'ok' as const, value: [] } };
+  const pickAndType = async (card: HTMLElement, amount = '2.5') => {
+    fireEvent.click(await within(card).findByRole('button', { name: 'Wide' }));
+    fireEvent.change(within(card).getByLabelText(/How much BAYLA to put in/), { target: { value: amount } });
+  };
+
+  it('a fee tier and no pool: says what opening costs and how a position earns, in plain sight, each coin by ticker and whole address', async () => {
+    show(readers(noPool));
+    const card = await screen.findByTestId('range-create');
+    // The empty notice above points down to it.
+    expect(screen.getByTestId('range-pools').textContent).toContain('No range pool for BAYLA with SOL yet. Open it below.');
+    expect(card.textContent).toContain(`BAYLA · ${BAYLA_MINT}`);
+    expect(card.textContent).toContain(`SOL · ${WSOL_MINT}`);
+    const cost = within(card).getByText(/Opening this pool costs 0\.5 SOL, paid to the venue’s vault/);
+    expect(cost.textContent).toContain(`(${PLATFORM_TREASURY_VAULT.toBase58()}). It is not refunded.`);
+    expect(cost.textContent).toContain('deposits for the pool’s own accounts and its first price bands, which never come back');
+    expect(cost.closest('details')).toBeNull();
+    const earns = within(card).getByTestId('range-create-earns');
+    expect(earns.textContent).toBe(
+      'Positions whose range the price is in share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has there. The venue keeps 16% (0.16% of the swap).',
+    );
+    expect(earns.closest('details')).toBeNull();
+    expect(card.textContent).toMatch(/10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/);
+    // The opening price starts at the market's.
+    await waitFor(() => expect((within(card).getByLabelText(/Opening price \(SOL per BAYLA\)/) as HTMLInputElement).value).toBe('0.0003'));
+    expect(within(card).getByRole('button', { name: 'Use the market price (Jupiter): 0.0003 SOL per BAYLA' })).toBeInTheDocument();
+  });
+
+  it('draws the first range against the opening price and the market’s', async () => {
+    show(readers(noPool));
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+    const strip = await within(card).findByTestId('range-strip');
+    expect(within(strip).getByRole('img').getAttribute('aria-label')).toBe('The opening price, 0.0003 SOL per BAYLA. The market price is 0.0003 SOL per BAYLA.');
+    expect(strip.textContent).toContain('opening price');
+    await pickAndType(card);
+    expect(strip.getAttribute('data-where')).toBe('inside');
+    expect(within(strip).getByTestId('range-strip-band')).toBeInTheDocument();
+  });
+
+  it('Review builds the pool and its first position at the opening price, the typed amount exactly', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const api = fakeApi();
+    const r = readers(noPool);
+    show(r, api);
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+    await pickAndType(card);
+    expect(within(card).getByTestId('range-create-plan').textContent).toMatch(/You put in2\.5 BAYLA and .* SOL, exactly/);
+    const review = await within(card).findByRole('button', { name: 'Review: open the pool and your position' });
+    await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(review);
+    await waitFor(() => expect(api.prepareRangeCreate).toHaveBeenCalledTimes(1));
+    const [, gotCfg, gotProgram, gotReads, args] = vi.mocked(api.prepareRangeCreate).mock.calls[0]!;
+    expect(gotCfg).toBe(cfg);
+    expect(gotProgram.equals(PROG)).toBe(true);
+    expect(gotReads).toBe(r);
+    expect(args.owner.equals(ME)).toBe(true);
+    expect([args.tokenMint.toBase58(), args.coinMint.toBase58()]).toEqual([BAYLA_MINT, WSOL_MINT]);
+    expect(args.startPrice).toEqual({ num: 3n, den: 10_000n });
+    expect([args.side, args.amount]).toEqual(['token', 2_500_000n]);
+    expect(args.txVersion).toBe('legacy');
+    expect(args.tickLower).toBeLessThan(TICK);
+    expect(args.tickUpper).toBeGreaterThan(TICK);
+    expect(api.prepareRangeOpen).not.toHaveBeenCalled();
+    await within(card).findByText(/The fake builder built nothing/);
+  });
+
+  it('a wallet that signs version 1 (Phantom) gets its pool opening built as version 1', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    v1.on = true;
+    try {
+      const api = fakeApi();
+      show(readers(noPool), api);
+      const card = await screen.findByTestId('range-create');
+      await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+      await pickAndType(card);
+      const review = await within(card).findByRole('button', { name: 'Review: open the pool and your position' });
+      await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(review);
+      await waitFor(() => expect(api.prepareRangeCreate).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(api.prepareRangeCreate).mock.calls[0]![4].txVersion).toBe(1);
+    } finally {
+      v1.on = false;
+    }
+  });
+
+  it('an opening price more than 3% off the market keeps Review off, and says why', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    show(readers(noPool));
+    const card = await screen.findByTestId('range-create');
+    const price = await within(card).findByLabelText(/Opening price/);
+    fireEvent.change(price, { target: { value: '0.00033' } });
+    await pickAndType(card);
+    expect(card.textContent).toContain('Your opening price is 10% above the market price. The first trader could buy from your deposit at it, so Review stays off.');
+    expect((within(card).getByRole('button', { name: 'Review: open the pool and your position' }) as HTMLButtonElement).disabled).toBe(true);
+    // Back to the market's price: Review comes back on.
+    fireEvent.click(within(card).getByRole('button', { name: /Use the market price/ }));
+    await waitFor(() => expect((within(card).getByRole('button', { name: 'Review: open the pool and your position' }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('a token with no market price gets no pool here; a market price that did not read is said as unread', async () => {
+    show(readers({ ...noPool, market: { kind: 'no-route', detail: 'no route' } }));
+    const card = await screen.findByTestId('range-create');
+    await within(card).findByText('This token has no market price, so a pool for it would be its launch. The venue does not open launches this way.');
+    expect(within(card).queryByLabelText(/Opening price/)).toBeNull();
+    expect(within(card).queryByRole('button', { name: /Review/ })).toBeNull();
+    cleanup();
+    show(readers({ ...noPool, market: { kind: 'unread', detail: 'timed out' } }));
+    const again = await screen.findByTestId('range-create');
+    await within(again).findByText(/The market price could not be read just now \(timed out\)\. This does not mean there is none\./);
+    expect(within(again).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
+    expect(within(again).queryByLabelText(/Opening price/)).toBeNull();
+  });
+
+  it('no card while a pool exists for the pair, while no tier exists, or for a tier at any index but 0', async () => {
+    show(readers());
+    await screen.findByTestId('range-open');
+    expect(screen.queryByTestId('range-create')).toBeNull();
+    cleanup();
+    show(readers({ ...noPool, tiers: { kind: 'ok', value: [] } }));
+    await waitFor(() => expect(screen.getByTestId('range-pools').textContent).toContain('no fee tiers'));
+    expect(screen.queryByTestId('range-create')).toBeNull();
+    cleanup();
+    show(readers({ ...noPool, tiers: { kind: 'ok', value: [{ ...tier(), index: 1 }] } }));
+    await waitFor(() => expect(screen.getByTestId('range-pools').textContent).toContain('No range pool for BAYLA with SOL yet.'));
+    expect(screen.queryByTestId('range-create')).toBeNull();
+    expect(screen.getByTestId('range-pools').textContent).not.toContain('Open it below');
+  });
+});
+
+describe('naming the token (owner, 2026-10-22: every coin shows its ticker; a copy reads "fake SOY")', () => {
+  const COPY = key(70).toBase58();
+  const CRYING = key(71).toBase58();
+
+  /** A pool of `tokenMint` with SOL, in the program's own mint order. */
+  function poolFor(tokenMint: string, config: AmmConfigView): RangePool {
+    const { token0, token1 } = sortMints(new PublicKey(tokenMint), new PublicKey(WSOL_MINT));
+    const tokenIs0 = token0.toBase58() === tokenMint;
+    const data = encodePool({
+      ammConfig: CONFIG, mint0: token0, mint1: token1, vault0: key(5), vault1: key(6), observation: key(7),
+      decimals0: tokenIs0 ? 6 : 9, decimals1: tokenIs0 ? 9 : 6, tickSpacing: 120, liquidity: 10n ** 12n, sqrtPriceX64: SQRT, tickCurrent: TICK,
+    });
+    return { pool: decodePoolState(POOL.toBase58(), data)!, config };
+  }
+
+  it('the card that opens a copy’s pool names it "fake SOY", with its whole address, in its rows and its range', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(COPY, 'SOY')] }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect(card.textContent).toContain(`fake SOY · ${COPY}`));
+    await waitFor(() => expect(within(card).getByLabelText(/Opening price \(SOL per fake SOY\)/)).toBeInTheDocument());
+    // The range presets and the amount say it too.
+    fireEvent.click(await within(card).findByRole('button', { name: 'fake SOY only, above the opening price' }));
+    expect(within(card).getByLabelText(/How much fake SOY to put in/)).toBeInTheDocument();
+    expect(card.textContent).not.toContain('Unknown token');
+  });
+
+  it('a copy of SOY’s ticker, picked by link, reads "fake SOY" everywhere, with its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(COPY, 'SOY')] }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for fake SOY with SOL yet.'));
+    expect(within(card).getByText('fake SOY')).toBeInTheDocument();
+    expect(within(card).getByText(COPY)).toBeInTheDocument();
+  });
+
+  it('any other coin shows the ticker it gives itself, with its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(CRYING, 'CRYING')] }), fakeApi(), 'on', `/range-pools?mint=${CRYING}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for CRYING with SOL yet.'));
+    expect(within(card).getByText(CRYING)).toBeInTheDocument();
+  });
+
+  it('a ticker that did not read is never guessed: the coin is its whole address', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for this token with SOL yet.'));
+    expect(within(card).getAllByText(COPY)).toHaveLength(1);
+    expect(card.textContent).not.toContain('Token address');
+  });
+
+  it('our own coin keeps the site’s name, whatever its check says, and needs no address row', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(BAYLA_MINT, 'NOT BAYLA')] }));
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('No range pool for BAYLA with SOL yet.'));
+    expect(card.textContent).not.toContain('Token address');
+  });
+
+  it('a position in a copy’s pool says "fake SOY" in its pool, holdings and fees, with the whole address', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolFor(COPY, tier());
+    const position = positionOf({ n: 1, lower: TICK - 1200 - (TICK % 120), upper: TICK + 1200 - (TICK % 120), status: 'in-range', fees: { fee0: 5_000_000n, fee1: 7_000_000n } }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [position], unread: [] } }, checks: [claims(COPY, 'SOY')] }));
+    const row = await screen.findByTestId('range-position');
+    await waitFor(() => expect(row.textContent).toContain('fake SOY with SOL, 1% fee per swap'));
+    expect(row.textContent).toMatch(/Holds now.* fake SOY and .* SOL/);
+    expect(within(row).getByText(COPY)).toBeInTheDocument();
+  });
+});
+
 describe('picking a range', () => {
+  it('draws the range: this pool’s price and the market’s on one axis, the picked range as a band that says whether the price is in it', async () => {
+    show(readers({ market: { kind: 'ok', solPerToken: 0.0004, source: 'Jupiter' } }));
+    const open = await screen.findByTestId('range-open');
+    const strip = await within(open).findByTestId('range-strip');
+    await waitFor(() => expect(within(strip).getByRole('img').getAttribute('aria-label')).toBe('This pool’s price, 0.0003 SOL per BAYLA. The market price is 0.0004 SOL per BAYLA.'));
+    expect(strip.getAttribute('data-where')).toBe('none');
+    expect(strip.textContent).toContain('pick a range to see it here');
+    expect(within(strip).queryByTestId('range-strip-band')).toBeNull();
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    expect(strip.getAttribute('data-where')).toBe('inside');
+    expect(within(strip).getByTestId('range-strip-band')).toBeInTheDocument();
+    expect(strip.textContent).toContain('in range: earning from the first swap');
+    expect(within(strip).getByRole('img').getAttribute('aria-label')).toMatch(/^This pool’s price, 0\.0003 SOL per BAYLA, is inside your range, .* SOL per BAYLA to .* SOL per BAYLA\./);
+    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above this pool’s price' }));
+    expect(strip.getAttribute('data-where')).toBe('below');
+    expect(strip.textContent).toContain('out of range now: earns once the price reaches it');
+  });
+
   it('BAYLA only, above this pool’s price: holds BAYLA only, takes no SOL, and says it earns nothing until the price rises', async () => {
     show(readers());
     const open = await screen.findByTestId('range-open');
@@ -266,7 +502,7 @@ describe('picking a range', () => {
   it('a token with a live freeze authority is said where it is picked, in the LP deposit’s words; none says nothing, an unread check says so', async () => {
     const freezable = key(91).toBase58();
     const auth = key(92).toBase58();
-    show(readers({ freeze: { kind: 'ok', value: { kind: 'mint', freezeAuthority: auth } } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
+    show(readers({ freeze: { kind: 'ok', value: { kind: 'mint', freezeAuthority: auth, decimals: 6 } } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent(`Its creator can freeze any account that holds it (freeze authority ${auth}), a pool’s own vault and your own account included.`));
   });
@@ -524,5 +760,105 @@ describe('the risks, beside the deposit and on the review', () => {
     const disclosure = await within(open).findByTestId('range-review-disclosure');
     expect(disclosure).toHaveTextContent(RANGE_RISK_SHORT);
     expect(disclosure).toHaveTextContent(/you could not take your money out until it switched them back on/);
+  });
+});
+
+// A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
+// index). Offered a coin ranked below it, the pair's token is that other coin, and the opening
+// card called both coins by the page's ticker: "BAYLA per BAYLA", "100,000 BAYLA and 19,218 BAYLA"
+// for an amount of BRAINLET (law-25 read of #1040, 2026-11-09).
+describe('which coins a token pairs with', () => {
+  const pairedWith = async () =>
+    within(await screen.findByRole('group', { name: 'Paired with' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+
+  it('BAYLA pairs with the coins ranked above it, SOL and USDC, never with an island coin below it', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }));
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
+  });
+
+  it('an island coin lower in the list pairs with every coin above it, BAYLA included', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+  });
+
+  it('a link to SOL, which no coin outranks, shows BAYLA and says why, instead of a page with nothing to pair', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${SOL_QUOTE.mint}`);
+    const card = await screen.findByTestId('range-pools');
+    expect(card).toHaveTextContent('That is SOL itself.');
+    expect(card).toHaveTextContent('Showing BAYLA.');
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
+  });
+});
+
+describe('picking the token (owner, 2026-11-11: the page was BAYLA only, with no way to pick another coin)', () => {
+  const tokenGroup = async () => screen.findByRole('group', { name: 'Token' });
+  const pairedWith = async () =>
+    within(await screen.findByRole('group', { name: 'Paired with' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+  const askedPair = (r: RangeReaders, mint: string) => (r.pairPools as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === mint);
+
+  it('offers the island’s Solana coins by name, by a press, BAYLA lit by default', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }));
+    const chips = within(await tokenGroup()).getAllByRole('button');
+    expect(chips.map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    expect(chips.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)).toEqual(['BAYLA']);
+  });
+
+  it('a press reads that coin’s pools and pairs it as a link would, starting on SOL', async () => {
+    const r = readers({ pools: { kind: 'ok', value: [] } });
+    show(r);
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Paired with' })).getByRole('button', { name: 'With USDC' }));
+    fireEvent.click(within(await tokenGroup()).getByRole('button', { name: 'BRAINLET' }));
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+    await waitFor(() => expect(askedPair(r, BRAINLET_QUOTE.mint)).toBe(true));
+    expect(within(await screen.findByRole('group', { name: 'Paired with' })).getByRole('button', { name: 'With SOL' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(await tokenGroup()).getByRole('button', { name: 'BRAINLET' })).toHaveAttribute('aria-pressed', 'true');
+    expect(r.freezeAuthority).toHaveBeenCalledWith(BRAINLET_QUOTE.mint);
+  });
+
+  it('from a link to another coin, the BAYLA button goes back to BAYLA', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY']);
+    fireEvent.click(within(await tokenGroup()).getByRole('button', { name: 'BAYLA' }));
+    await waitFor(async () => expect(await pairedWith()).toEqual(['With SOL', 'With USDC']));
+  });
+
+  it('any other coin by its mint address: read and named by its own ticker, with its whole address', async () => {
+    const other = key(72).toBase58();
+    const r = readers({ pools: { kind: 'ok', value: [] }, checks: [claims(other, 'CRYING')] });
+    show(r);
+    fireEvent.change(await screen.findByLabelText('Or any token’s mint address'), { target: { value: ` ${other} ` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    await waitFor(() => expect(askedPair(r, other)).toBe(true));
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card).toHaveTextContent('CRYING'));
+    expect(card).toHaveTextContent(other);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC', 'With BAYLA', 'With BOBO', 'With SOY', 'With BRAINLET', 'With RIZZ']);
+    expect(within(await tokenGroup()).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true')).toEqual([]);
+  });
+
+  it('a name, or SOL itself, is refused in words at the box and nothing is read for it', async () => {
+    const r = readers({ pools: { kind: 'ok', value: [] } });
+    show(r);
+    const box = await screen.findByLabelText('Or any token’s mint address');
+    fireEvent.change(box, { target: { value: 'BOBO' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    expect(await screen.findByText('That does not look like a Solana address.')).toBeInTheDocument();
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(box, { target: { value: SOL_QUOTE.mint } });
+    expect(screen.queryByText('That does not look like a Solana address.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show its pools' }));
+    expect(await screen.findByText(/That is SOL itself\./)).toBeInTheDocument();
+    expect((r.pairPools as ReturnType<typeof vi.fn>).mock.calls.every((c) => c[0] === BAYLA_MINT)).toBe(true);
+    expect(await pairedWith()).toEqual(['With SOL', 'With USDC']);
+  });
+
+  it('the old "Back to BAYLA" link is gone: the BAYLA button does it', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${BRAINLET_QUOTE.mint}`);
+    await tokenGroup();
+    expect(screen.queryByRole('button', { name: 'Back to BAYLA' })).toBeNull();
   });
 });
