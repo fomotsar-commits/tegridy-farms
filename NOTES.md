@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: the range program on mainnet is not trunk's source, so who may start a reward differs
+
+**Believed:** `solana/tegridy-clmm` on `mvp-launch` is what mainnet runs, so a rule fixed in
+its source holds on chain.
+
+**Measured** (read-only, slot 469,259,180): the program data's first 1,527,072 bytes hash to
+`1e896e1e...` and the rest are zero, which is the open-fee build of 2026-10-25 (`af897c1cd`).
+The 2026-11-03 source fixes never shipped. On that build `initialize_reward` still accepts the
+pool's own opener (`reward_funder == pool_state.owner`), the clause the owner's CR-4 ruling
+deleted from source. It is dormant only because no operation account exists, and that account
+is the first step to any reward.
+
+**Do:** before reasoning from the program's source, hash the chain's program data against the
+build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
+read the deployed commit with `git show <commit>:<path>`.
+
 ## 2026-11-11: a local `vite preview` of the build no longer reads /pools the way the site does, and its errors name the wrong cause
 
 **Believed:** `npm run build` then `vite preview` walks /pools against mainnet as production

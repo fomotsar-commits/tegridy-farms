@@ -9,6 +9,8 @@ import { RangeRows } from './RangeRows';
 import { TxReview } from './TxFlowView';
 import { prepared } from './fakeWriteApi.fixture';
 import type { RangeCreateSummary, RangeSummary } from './ports';
+import type { RangeRewardPaid } from '../../../lib/launcher/solana/write/types';
+import { reviewLines } from './reviewLines';
 
 /** A range position's review says the fee, the venue's cut and where that cut goes, from the pool's tier. */
 
@@ -103,7 +105,7 @@ describe('the range review’s fee lines', () => {
   it('a removal’s notices stay among its rows: nothing on a removal gives a reason to wait', () => {
     const removal: RangeSummary = {
       ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
-      kind: 'range-remove', position: key(9), percent: 50, liquidity: 1n, min: { token: 1n, quote: 1n }, quoted: { token: 1n, quote: 1n }, fees: null, notices: ['A notice about your account.'],
+      kind: 'range-remove', position: key(9), percent: 50, liquidity: 1n, min: { token: 1n, quote: 1n }, quoted: { token: 1n, quote: 1n }, fees: null, rewards: [], notices: ['A notice about your account.'],
     } as unknown as RangeSummary;
     render(<TxReview prepared={prepared(removal)} decimals={6} display={(x) => x} />);
     expect(screen.queryByTestId('tx-review-warnings')).toBeNull();
@@ -183,5 +185,75 @@ describe('the review of a new range pool and its first position', () => {
     const first = screen.getByTestId('tx-review-venue-elsewhere');
     expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
     expect(before(first, screen.getByText('Fee to open the pool'))).toBe(true);
+  });
+});
+
+describe('a collect’s review', () => {
+  const BAYLA = new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+  const paid = (o: Partial<RangeRewardPaid> = {}): RangeRewardPaid => ({ mint: BAYLA, owed: 48_200_000n, amount: 48_200_000n, decimals: 6, feeOnTransfer: false, ...o });
+  const collect = (rewards: Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>['rewards']): RangeSummary => ({
+    ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
+    kind: 'range-remove', position: key(9), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
+    fees: { token: 0n, quote: 0n }, rewards, unwrapsWsol: true, notices: [],
+  }) as unknown as RangeSummary;
+
+  it('says each reward it pays, in its coin, and that it takes out the fees and rewards only', () => {
+    render(<RangeRows summary={collect([paid()])} />);
+    expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent('48.2 BAYLA');
+    expect(screen.getByText('no liquidity: the fees and rewards only')).toBeInTheDocument();
+  });
+
+  it('a running reward’s row is a line the chain’s clock moves; nothing else on a collect is', () => {
+    const got = reviewLines(<RangeRows summary={collect([paid()])} />);
+    expect(got.clock).toEqual(['Rewards it pays: 48.2 BAYLA']);
+    expect(got.lines.some((l) => l.startsWith('Rewards it pays'))).toBe(false);
+  });
+
+  it('a reward’s vault holding less than is owed: what it pays, by the coin’s ticker, and the rest stays owed', () => {
+    render(<RangeRows summary={collect([paid({ owed: 999_999n, amount: 400_000n })])} />);
+    expect(screen.getByText('This reward’s vault holds less than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed to it.')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(BAYLA.toBase58());
+  });
+
+  it('a reward coin that takes a fee out of each transfer says less arrives; one whose mint did not read says that is not known', () => {
+    const { unmount } = render(<RangeRows summary={collect([paid({ feeOnTransfer: true })])} />);
+    expect(screen.getByText('BAYLA takes its own fee out of each transfer, so less BAYLA than this arrives in your wallet.')).toBeInTheDocument();
+    unmount();
+    render(<RangeRows summary={collect([paid({ decimals: null, feeOnTransfer: null })])} />);
+    expect(screen.getByText('BAYLA’s mint could not be read just now, so whether it takes a fee out of each transfer is not known.')).toBeInTheDocument();
+  });
+
+  it('a collect is titled as one, and the test run names what the reward’s own account gains, by its coin', () => {
+    const p = prepared(collect([paid()]), {
+      simulated: { signerLamportsDelta: -17_000n, tokenDeltas: [{ mint: BAYLA, account: key(70), delta: 48_200_000n, decimals: 6 }] },
+    });
+    render(<TxReview prepared={p} decimals={6} display={(x) => x} />);
+    expect(screen.getByRole('heading').textContent).toBe('Review: collect');
+    expect(screen.getByText('Test run: your BAYLA changes by').parentElement).toHaveTextContent('+48.2');
+  });
+
+  it('a pool of one of the site’s own coins names it by its ticker on the rows and in the test run, never “tokens”', () => {
+    const base = collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' }>;
+    const s = { ...base, fees: { token: 12_500_000n, quote: 4_200_000n }, poolLine: { ...base.poolLine, tokenMint: BAYLA } };
+    const p = prepared(s, { simulated: { signerLamportsDelta: 4_195_000n, tokenDeltas: [{ mint: BAYLA, account: key(71), delta: 60_700_000n, role: 'token', decimals: 6 }] } });
+    render(<TxReview prepared={p} decimals={6} display={(x) => x} />);
+    expect(screen.getByText('Fees it has earned').parentElement).toHaveTextContent('12.5 BAYLA and 0.0042 SOL');
+    expect(screen.getByText('Test run: your BAYLA changes by').parentElement).toHaveTextContent('+60.7');
+    expect(screen.queryByText(/tokens/)).toBeNull();
+  });
+
+  it('a take-out of some liquidity keeps its own title', () => {
+    const s = { ...(collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' }>), percent: 50, liquidity: 5n };
+    render(<TxReview prepared={prepared(s)} decimals={6} display={(x) => x} />);
+    expect(screen.getByRole('heading').textContent).toBe('Review: take out of your range position');
+  });
+
+  it('a reward that could not be worked out is said, never 0; a pool with none says fees only', () => {
+    const { unmount } = render(<RangeRows summary={collect(null)} />);
+    expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent('could not be worked out just now; what it is owed is paid out all the same');
+    unmount();
+    render(<RangeRows summary={collect([])} />);
+    expect(screen.queryByText('Rewards it pays')).toBeNull();
+    expect(screen.getByText('no liquidity: the fees only')).toBeInTheDocument();
   });
 });

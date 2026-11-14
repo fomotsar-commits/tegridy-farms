@@ -9,6 +9,8 @@ import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeCreateRows, RangeRows } from './RangeRows';
+import { rewardCoin } from '../range/rangeText';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import type { ReviewState, TxFlow } from './useTxFlow';
@@ -850,6 +852,13 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : 'poolLine' in summary ? summary.poolLine.quote : null;
   const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
+  // A range take-out watches a reward's own account untagged: named by the reward's coin.
+  if (!t.role && (summary.kind === 'range-remove' || summary.kind === 'range-close')) {
+    return { label: `Test run: your ${rewardCoin(t.mint.toBase58())} changes by`, value: `${sign}${tokenText(amount, t.decimals ?? null)}` };
+  }
+  // A range pool's token, when it is one of the site's own coins: by its ticker.
+  const ownTicker = t.role === 'token' && 'poolLine' in summary && t.mint.equals(summary.poolLine.tokenMint) ? tokenTicker(t.mint.toBase58()) : null;
+  if (ownTicker) return { label: `Test run: your ${ownTicker} changes by`, value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
@@ -1025,7 +1034,11 @@ export function TxReview({
   return (
     <div className="space-y-2" data-testid="tx-review">
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
-        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim ? 'Review: claim fees' : TITLES[prepared.kind]}
+        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim
+          ? 'Review: claim fees'
+          : prepared.summary.kind === 'range-remove' && prepared.summary.percent === 0
+            ? 'Review: collect'
+            : TITLES[prepared.kind]}
       </h3>
       {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
@@ -1093,8 +1106,8 @@ function signStatus(s: ReviewState): string {
 }
 
 /**
- * While the wallet is open on a transaction built again at the press: what a market or
- * the network's fees moved since the review was read. Nothing else had changed.
+ * While the wallet is open on a transaction built again at the press: what a market, the
+ * network's fees or the chain's clock moved since the review was read. Nothing else had changed.
  */
 function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   const list = (items: string[]) => (
@@ -1106,7 +1119,7 @@ function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   );
   return (
     <div className="text-white/55 space-y-1" data-testid="tx-moved">
-      <p>Built again on fresh numbers before your wallet opened. These moved with the market or the network&apos;s fees since you read the review; every other line, and every instruction, is the same:</p>
+      <p>Built again on fresh numbers before your wallet opened. These moved with the market, the network&apos;s fees or the chain&apos;s clock since you read the review; every other line, and every instruction, is the same:</p>
       {moved.now.length > 0 && list(moved.now)}
       {moved.gone.length > 0 && <p>{moved.now.length > 0 ? 'In place of:' : 'No longer on it:'}</p>}
       {moved.gone.length > 0 && list(moved.gone)}
