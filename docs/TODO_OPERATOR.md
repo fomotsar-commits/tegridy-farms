@@ -183,9 +183,9 @@ pools appear only at step 12.
    before you merge it.
 2. #1068, then #1071: the LP screens and their Cancel order. They are switched off, so the site does
    not change. They do not depend on the pools' PRs and can go before them.
-3. #1004 last: Cancel order on the live Cardano swap, a change visitors see. It is stacked on #1071.
-   First, walk one real cancel yourself (#1004's description). Move its changelog line to the
-   merge date.
+3. #1004 last: Cancel order on the live Cardano swap, a change visitors see. Its branch also holds
+   #1068 and #1071 (they met in four files), so merging it first would ship all three. First,
+   walk one real cancel yourself (#1004's description). Move its changelog line to the merge date.
 
 Railway builds the batcher from #1148's branch. After #1148 merges, switch the Railway service to
 `mvp-launch` before that branch is deleted.
