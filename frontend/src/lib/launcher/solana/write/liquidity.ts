@@ -55,7 +55,8 @@ import {
 } from '../../../solana/cpswap/program';
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { isPlanProblem, planDeposit, planWithdraw, poolFeesOf, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
+import { claimSentOn } from '../../../solana/lp/claimed';
+import { claimableShares, isPlanProblem, planDeposit, planWithdraw, planWithdrawShares, poolFeesOf, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, LAUNCH_TIER_POOL, chainEpochOf, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
@@ -68,7 +69,7 @@ import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, TxVersion, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
@@ -135,6 +136,10 @@ export const LP_COPY = {
   tooSmallWithdraw: 'Too small: one side would round to zero. Take out a larger share, or all of it.',
   dustRemainder: (n: string) => `That would leave ${n} pool shares, too few to ever take out at this pool's size. Take out all of it, or less.`,
   badPercent: 'Enter a percent from 0.01 to 100.',
+  claimSharesChanged: 'Your pool shares changed since your fees were worked out. Work them out again, then claim.',
+  nothingToClaim: 'There are no fees in this position to take out right now.',
+  claimTooSmall: 'The fees in this position are too small to take out yet: one side would round to zero.',
+  claimDust: "Taking out just the fees would leave too few shares to ever take out at this pool's size. Remove all of it instead.",
   swapsOff: 'Swaps on this pool are switched off. That does not stop you taking your liquidity out.',
   swapsBlocked: (when: string) => `Swaps on this pool are blocked until ${when}. That does not stop you taking your liquidity out.`,
   tokenBlockedInform: (reason: string) => `This site does not take new deposits of this token (${reason}). You can still take your liquidity out.`,
@@ -579,6 +584,8 @@ export function accountCheck(read: RawAccount | null, want: AccountWant): { refu
 
 export interface LpDepositArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /**
@@ -833,6 +840,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // 15. Simulate twice and compare.
   return buildAndSimulate(rpc, {
     kind: 'lp-deposit',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-deposit', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
@@ -915,16 +923,27 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
 
 // ── withdraw (3.2) ───────────────────────────────────────────────────────────
 
+/**
+ * A claim (Claim fees): the ledger's figures for the shares it was worked out for
+ * (ledger.ts `basis`, `provenShares`) and the balance it read (`heldAtRead`). The shares
+ * to take out are worked out again at the fresh pool read; any other balance refuses.
+ */
+export interface LpClaimBasis { basis: bigint; provenShares: bigint; heldAtRead: bigint }
+
+/** How much: Remove's `pctBps`, or a claim's `claim`. With `claim` set, `pctBps` is not read. */
 export interface LpWithdrawArgs {
+  /** 1 to 10000; 10000 is exactly the balance read at prepare. */
+  pctBps?: bigint;
+  claim?: LpClaimBasis;
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /** The pool's pairing coin as the page read it (see `LpDepositArgs.quoteMint`). */
   quoteMint: PublicKey;
   /** The exact pool-share account the positions list found, associated or not (D10). */
   lpAccount: PublicKey;
-  /** 1 to 10000; 10000 is exactly the balance read at prepare. */
-  pctBps: bigint;
   slippageBps: bigint;
 }
 
@@ -978,7 +997,8 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   // 1. Inputs.
   const bad = slippageProblem(a.slippageBps);
   if (bad) return notSent('build', bad);
-  if (a.pctBps < 1n || a.pctBps > 10_000n) return notSent('build', LP_COPY.badPercent);
+  // Remove's percent: 1 to 10000, and 10000 is exactly the balance read at prepare.
+  if (!a.claim && (a.pctBps === undefined || a.pctBps < 1n || a.pctBps > 10_000n)) return notSent('build', LP_COPY.badPercent);
   // 'on' or 'withdraw-only': removing works in both.
   if (gate.kind !== 'open') return notSent('build', 'Removing liquidity needs this page to reach the pool program, and it cannot right now.');
   const quote = quoteCoin(a.quoteMint.toBase58());
@@ -1028,8 +1048,21 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   if (shareFacts.state !== 1) return notSent('build', LP_COPY.shareChanged);
   const held = shareFacts.amount;
 
-  // 8. The plan.
-  const planned = planWithdraw(view.snapshot, { held, pctBps: a.pctBps, bps: a.slippageBps, fees: poolFeesOf(quoteIsToken0, tokenFee) });
+  // 8. The plan. A claim takes out only the shares that are growth at this read, and only
+  // from the balance its figures were worked out for: a deposit or withdrawal since then
+  // moved the basis, and the old one could take out part of what was put in.
+  const fees = poolFeesOf(quoteIsToken0, tokenFee);
+  let planned: ReturnType<typeof planWithdraw>;
+  if (a.claim) {
+    // A claim already sent on this balance: once it lands, a node behind it still answers the old one (claimed.ts).
+    const spent = claimSentOn(a.lpAccount.toBase58(), a.claim.heldAtRead);
+    if (spent || held !== a.claim.heldAtRead || a.claim.provenShares > held) return notSent('build', LP_COPY.claimSharesChanged);
+    const lp = claimableShares(view.snapshot, a.claim);
+    if (lp < 1n) return notSent('build', LP_COPY.nothingToClaim);
+    planned = planWithdrawShares(view.snapshot, { held, lp, bps: a.slippageBps, fees });
+    if (isPlanProblem(planned) && planned.problem === 'too-small') return notSent('build', LP_COPY.claimTooSmall);
+    if (isPlanProblem(planned) && planned.problem === 'dust-remainder') return notSent('build', LP_COPY.claimDust);
+  } else planned = planWithdraw(view.snapshot, { held, pctBps: a.pctBps ?? 0n, bps: a.slippageBps, fees });
   if (isPlanProblem(planned)) {
     const copy =
       planned.problem === 'dust-remainder'
@@ -1105,6 +1138,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   // after the balance read must not block it either.
   return buildAndSimulate(rpc, {
     kind: 'lp-withdraw',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-withdraw', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
@@ -1167,6 +1201,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
         quoteAccount: plan ? null : { address: quoteAta, rent: quoteRentIfOpened(snap.quoteAccount.account !== null) },
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         notices,
+        ...(a.claim ? { claim: true as const } : {}),
       };
     },
   });

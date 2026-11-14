@@ -198,8 +198,8 @@ describe('when the venue is live', () => {
   });
 
   // Owner, 2026-10-13: as few words as possible. The hero's eyebrow and its Details drop-down said what the
-  // tab strip, the Rates card and the status card say; "Nothing to claim." is the section's own first line.
-  it('says each thing once: no eyebrow, no hero Details, and the share card leaves "Nothing to claim" to the earn line', async () => {
+  // tab strip, the Rates card and the status card say; how fees reach a share is the section's own first line.
+  it('says each thing once: no eyebrow, no hero Details, and the share card leaves the fees to the earn line', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     const hero = screen.getByRole('heading', { level: 1 }).parentElement!;
@@ -209,7 +209,7 @@ describe('when the venue is live', () => {
     const share = screen.getByRole('heading', { level: 2, name: 'Deposit a pair, hold your share' }).parentElement!;
     expect(share).toHaveTextContent("No lock, but the team's vault can pause removing.");
     expect(within(share).queryByText(/^Nothing to claim\./)).toBeNull();
-    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares. Nothing to claim.").
+    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares.").
   });
 });
 

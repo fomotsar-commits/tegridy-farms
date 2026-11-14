@@ -1,8 +1,8 @@
-// The top bar reads Island · Swap · Add · Lock · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// The top bar reads Island · Swap · Add · Yield · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
 // 2026-11-01), and everything else is one drawer that opens at every width. navReach.test.tsx
 // proves no page is stranded; SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
 vi.mock('@rainbow-me/rainbowkit', () => ({
@@ -34,7 +34,7 @@ import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
-const WORDS = ['Island', 'Swap', 'Add', 'Lock', 'Launch'];
+const WORDS = ['Island', 'Swap', 'Add', 'Yield', 'Launch'];
 
 /** Where the router is: what "Jump to" opened. */
 function Where() {
@@ -66,7 +66,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
+  it('reads Island · Swap · Add · Yield · Launch, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -83,7 +83,7 @@ describe('TopNav: the bar', () => {
       expect(within(bar()).getByRole('link', { name: w.label }).getAttribute('href'), w.label).toBe(w.to);
     }
     expect(within(bar()).getByRole('link', { name: 'Island' }).getAttribute('href')).toBe('/');
-    expect(within(bar()).getByRole('link', { name: 'Lock' }).getAttribute('href')).toBe('/earn');
+    expect(within(bar()).getByRole('link', { name: 'Yield' }).getAttribute('href')).toBe('/earn');
   });
 
   it('keeps Dashboard off the bar, connected or not', () => {
@@ -95,8 +95,8 @@ describe('TopNav: the bar', () => {
     ['/', 'Island'],
     ['/bayla', 'Island'],
     ['/island', 'Island'],
-    ['/earn/pepe', 'Lock'],
-    ['/nft-finance', 'Lock'],
+    ['/earn/pepe', 'Yield'],
+    ['/nft-finance', 'Yield'],
     ['/eth-curve', 'Launch'],
     ['/solana', 'Swap'],
     ['/pools', 'Add'],
@@ -130,15 +130,29 @@ describe('TopNav: the menu', () => {
 
   // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
   // direct access on the app"; 2026-10-19: organise them, on the desktop as on a phone.
-  it("is the site's index: one group per section, in the order a visitor moves, then the records", () => {
+  // Owner, 2026-11-10: the menu cut down; Launch and Check left as groups.
+  it("is the site's index: Island, Swap, Pools, Yield, then the records", () => {
     const drawer = openDrawer();
     const index = within(drawer).getByRole('navigation', { name: 'Site index' });
     expect(within(index).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(
-      ['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records'],
+      ['Island', 'Swap', 'Pools', 'Yield', 'Records'],
     );
   });
 
-  it("lists every page under its group's word, named as its tab is; Pools lands on Venue AMM, Check on the overview", () => {
+  // Owner, 2026-11-12: the marketplace, back in the menu after Launch.
+  it('lists Lore, Launch and Marketplace under Island, and Dashboard after them once a wallet connects', () => {
+    const pages = (connected: boolean) => {
+      const region = within(openDrawer('/', connected)).getByRole('region', { name: 'Island' });
+      return within(region).getAllByRole('link').filter((l) => l.textContent !== 'Island')
+        .map((l) => [l.textContent, l.getAttribute('href')]);
+    };
+    const shown = [['Lore', '/lore'], ['Launch', '/launch'], ['Marketplace', '/nakamigos']];
+    expect(pages(false)).toEqual(shown);
+    cleanup();
+    expect(pages(true)).toEqual([...shown, ['Dashboard', '/dashboard']]);
+  });
+
+  it("lists every page under its group's word, named as its tab is; Pools lands on /pools", () => {
     const drawer = openDrawer();
     for (const group of INDEX_GROUPS) {
       const region = within(drawer).getByRole('region', { name: group.heading });
@@ -150,7 +164,41 @@ describe('TopNav: the menu', () => {
         .toEqual(group.items.map((i) => [indexName(group, i), i.to]));
     }
     expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/pools');
-    expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('href', '/trust');
+    // Owner, 2026-11-11: Pools' one Add / Remove is /pools; Venue AMM, the Ethereum form and Zap are off it.
+    const pools = within(within(drawer).getByRole('region', { name: 'Pools' })).getAllByRole('link');
+    expect(pools.filter((l) => l.textContent === 'Add / Remove').map((l) => l.getAttribute('href'))).toEqual(['/pools']);
+    for (const gone of ['Check', 'Scanner', 'Yield Routing', 'Copy Trading', 'Checkout', 'Gallery', 'Gold Card', 'Venue AMM', 'Zap']) {
+      expect(within(drawer).queryByRole('link', { name: gone }), gone).toBeNull();
+    }
+  });
+
+  // Owner, 2026-11-12: the phone's and the iPad's menu is the desktop's. One list (INDEX_GROUPS),
+  // no width branch: a second list, or a filter read off the screen's width, fails here.
+  it('lists the same groups and pages at 390, 430, 820, 1180 and 1440 px', () => {
+    const listed = (width: number) => {
+      const was = window.innerWidth;
+      const mm = window.matchMedia;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      window.matchMedia = ((q: string) => {
+        const min = /min-width:\s*(\d+)/.exec(q);
+        const max = /max-width:\s*(\d+)/.exec(q);
+        const matches = (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]));
+        return { matches, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false };
+      }) as typeof window.matchMedia;
+      window.dispatchEvent(new Event('resize'));
+      try {
+        const index = within(openDrawer()).getByRole('navigation', { name: 'Site index' });
+        return within(index).getAllByRole('region').map((r) =>
+          [r.getAttribute('aria-labelledby'), within(r).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])]);
+      } finally {
+        cleanup();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: was });
+        window.matchMedia = mm;
+      }
+    };
+    const desktop = listed(1440);
+    expect(desktop.map(([id]) => id)).toEqual(INDEX_GROUPS.map((g) => `nav-index-${g.heading.toLowerCase()}`));
+    for (const width of [390, 430, 820, 1180]) expect(listed(width), `${width}px`).toEqual(desktop);
   });
 
   it('carries the records and the developer API', () => {
@@ -169,11 +217,11 @@ describe('TopNav: the menu', () => {
   });
 
   it('marks the group and the page you are on', () => {
-    const drawer = openDrawer('/scan');
-    expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Scanner' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Pools' })).not.toHaveAttribute('aria-current');
-    expect(within(drawer).getByRole('link', { name: 'Gallery' })).not.toHaveAttribute('aria-current');
+    const drawer = openDrawer('/pools');
+    expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Add / Remove' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Yield' })).not.toHaveAttribute('aria-current');
+    expect(within(drawer).getByRole('link', { name: 'Lore' })).not.toHaveAttribute('aria-current');
   });
 
   // The framer-motion stand-in above hands out a new component on every `m.div` read, so a
@@ -183,17 +231,17 @@ describe('TopNav: the menu', () => {
 
   it('Jump to narrows the index to the pages called that, and Enter opens the first', () => {
     openDrawer();
-    fireEvent.change(field(), { target: { value: 'chart' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Check', 'Charting']);
+    fireEvent.change(field(), { target: { value: 'remove' } });
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove']);
     fireEvent.keyDown(field(), { key: 'Enter' });
     expect(screen.queryByRole('dialog', { name: 'Navigation menu' })).toBeNull();
-    expect(screen.getByTestId('where').textContent).toBe('/chart');
+    expect(screen.getByTestId('where').textContent).toBe('/pools');
   });
 
   it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {
     openDrawer();
     fireEvent.change(field(), { target: { value: 'pools' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Venue AMM', 'Range', 'Zap']);
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Range']);
     fireEvent.change(field(), { target: { value: 'zebra' } });
     expect(within(dialog()).queryAllByRole('link')).toEqual([]);
     expect(within(dialog()).getByRole('status').textContent).toMatch(/zebra/);

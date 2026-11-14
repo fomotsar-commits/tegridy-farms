@@ -22,7 +22,8 @@ import { describe, expect, it } from 'vitest';
 import { CONNECT_ETHEREUM_WALLET } from './copy';
 
 const SURFACES = [
-  'pages/TradePage.tsx',
+  // /swap's form, moved out of pages/TradePage.tsx so the sheet and the home card mount it too.
+  'components/swap/EvmSwapPanel.tsx',
   'pages/HomePage.tsx',
   'components/swap/DCATab.tsx',
   'components/swap/LimitOrderTab.tsx',

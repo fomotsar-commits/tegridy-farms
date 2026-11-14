@@ -11,6 +11,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
 import { setLastReading } from '../lib/heat/heatStore';
+import { useConnectedHeatSubject } from '../hooks/useConnectedHeatSubject';
 import { HeatSince, RollingDegrees } from './heat/RollingDegrees';
 import { IslandCard } from './heat/IslandCard';
 import { earliestRow, sinceLine } from '../lib/heat/sinceLine';
@@ -38,6 +39,7 @@ import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 import { Countdown } from './heat/Countdown';
+import { QUIET_BUTTON_STYLE } from './useBaylaLine';
 import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -197,6 +199,11 @@ export function HeatCard({
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const solanaConnected = useSolanaSurface().surface?.address ?? null;
+  // The connected wallet this card reads by itself. One hand can hold two (an Ethereum account and
+  // a Solana wallet, as inside Phantom's browser): the card and Bayla's line then read the same
+  // one, the warmest (hooks/useConnectedHeatSubject.ts). The fill buttons below still name each. A
+  // page about one network (`fillFrom`) reads that network's wallet only, as its fill does.
+  const connectedSubject = useConnectedHeatSubject(fillFrom);
   const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
@@ -205,8 +212,8 @@ export function HeatCard({
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
   const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
-  const subject = pinned ?? initialAddress ?? connected ?? '';
-  const input = pinned ?? draft ?? connected ?? '';
+  const subject = pinned ?? initialAddress ?? connectedSubject ?? '';
+  const input = pinned ?? draft ?? connectedSubject ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
   // WALLET FILL: the networks the fill can read now. The page's own if it names one. Else
   // a Solana wallet connected to the site, with no Ethereum account connected, is the
@@ -372,10 +379,15 @@ export function HeatCard({
             className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
             style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
           />
+          {/* One green button per screen (island answer twenty-eight, §2.2): Read Heat has done its
+              job once a reading is on the screen, so it goes quiet and the countdown's Start the
+              clock is the green one. Same press; an edge and its words, no fill. */}
           <button
             type="submit"
             disabled={!valid || state.kind === 'loading'}
-            className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+            data-quiet={state.kind === 'ready' || undefined}
+            className={`${state.kind === 'ready' ? 'rounded-[10px] font-semibold max-md:min-h-[44px]' : 'btn-primary'} px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed`}
+            style={state.kind === 'ready' ? QUIET_BUTTON_STYLE : undefined}
             title={valid ? 'Read this wallet' : 'Enter an Ethereum, Base, or Solana address'}
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}

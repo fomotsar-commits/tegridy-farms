@@ -221,7 +221,7 @@ describe('the shape that cannot regress into the companion recipe', () => {
     expect(bad, 'these gates skip when the scope job itself failed, which reports success').toEqual([]);
   });
 
-  const SCOPED = ['cardano-ci.yml', 'ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'];
+  const SCOPED = ['cardano-ci.yml', 'ci.yml', 'codeql.yml', 'contracts-ci.yml', 'e2e-solana.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'];
 
   it('finds scope jobs at all, so the rule above is not asserted over nothing', () => {
     const scoped = sources().filter((f) => /^ {2}scope:$/m.test(readFileSync(join(WORKFLOW_DIR, f), 'utf-8')));

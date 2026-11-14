@@ -21,8 +21,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { base58 } from '@scure/base';
+import { V1_VERSION_BYTE, assembleV1, decodeV1, loadedDataLimitFromSimulation, signV1WithKeypairs } from '../launcher/solana/write/v1';
+import { MAX_OWN_PRIORITY_LAMPORTS, computeLimitFromSimulation } from '../launcher/solana/write/budget';
+import { MAX_WALLET_PRIORITY_LAMPORTS, v1ComputeLimit } from '../solana/v1Send';
 import { DECLINED_IN_WALLET, lostAnswerCopy } from '../solana/swap/walletCopy';
 import { notSignedCopy } from '../solana/walletThrow';
 import { reloadHeld } from '../reloadHold';
@@ -516,5 +520,193 @@ describe('every door prepends an idempotent ATA create', () => {
       { positionNonce: 0 },
     );
     expect(sent[0]!.keys[2]!.pubkey.toBase58()).toBe(other.toBase58());
+  });
+});
+
+/* ──────── 6. version 1, for a wallet that signs it (Phantom, ticket #455104) ──────── */
+//
+// Phantom showed its red "could be malicious" sheet on a staking claim (owner, 2026-11-09):
+// the ladder sent a legacy transaction with no limits, untested, signed AND sent by the
+// wallet. Phantom's cure: version 1 with the limits in its config, a test run first, the
+// wallet signing only, our own send with preflight on. Each test below fails on the legacy
+// path (MUTATION-CHECKED against the pre-change write.ts).
+
+const V1_OWNER = Keypair.generate();
+const BLOCKHASH = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const LIGHTHOUSE = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
+const V1_IXS = [createAtaIdempotentIx({ payer: V1_OWNER.publicKey, owner: V1_OWNER.publicKey, mint: MINT, tokenProgram: new PublicKey(TOKEN_2022) })];
+const signAsOwner = (bytes: Uint8Array) => signV1WithKeypairs(bytes, [V1_OWNER]);
+
+/** The wallet hands back a message rebuilt from ours by `change`, signed by the owner. */
+const changedBy = (change: (w: ReturnType<typeof decodeV1>) => { blockhash?: string; config?: ReturnType<typeof decodeV1>['config']; instructions?: TransactionInstruction[] }) =>
+  (bytes: Uint8Array) => {
+    const w = decodeV1(bytes);
+    const c = change(w);
+    return signAsOwner(assembleV1(w.payer, c.blockhash ?? w.blockhash, 100, c.config ?? w.config, c.instructions ?? w.instructions));
+  };
+
+/** A Wallet Standard wallet behind wallet-adapter's StandardWalletAdapter, as Phantom's extension is. */
+function v1Wallet(opts: { sign?: (bytes: Uint8Array) => Uint8Array | Promise<Uint8Array>; versions?: ReadonlyArray<'legacy' | 0 | 1> } = {}) {
+  const signTransaction = vi.fn(async (input: { transaction: Uint8Array; chain: string }) => [
+    { signedTransaction: await (opts.sign ?? signAsOwner)(input.transaction) },
+  ]);
+  const account = { address: V1_OWNER.publicKey.toBase58(), publicKey: V1_OWNER.publicKey.toBytes(), chains: ['solana:mainnet'], features: ['solana:signTransaction'] };
+  const wallet = { accounts: [account], features: { 'solana:signTransaction': { version: '1.0.0', supportedTransactionVersions: opts.versions ?? ['legacy', 0, 1], signTransaction } } };
+  const sendTransaction = vi.fn(async () => SIG);
+  const adapter = { publicKey: V1_OWNER.publicKey, standard: true, wallet, sendTransaction } as unknown as SignerWalletAdapter;
+  return { adapter, signTransaction, sendTransaction };
+}
+
+/** The RPC: test runs (each `runs` entry in turn, the last repeating), our send, then the status. */
+function v1Conn(opts: { runs?: Array<{ err: unknown; logs?: string[] }>; sendThrows?: unknown; statuses?: Status[] } = {}) {
+  let run = 0;
+  const ran: Uint8Array[] = [];
+  const simulateTransaction = vi.fn(async (tx: { serialize(): Uint8Array }, _config?: object) => {
+    ran.push(tx.serialize());
+    const runs = opts.runs ?? [{ err: null }];
+    const r = runs[Math.min(run++, runs.length - 1)]!;
+    return { context: { slot: 1 }, value: { err: r.err, logs: r.logs ?? [], unitsConsumed: 40_000, loadedAccountsDataSize: 100_000, accounts: null } };
+  });
+  const sendRawTransaction = vi.fn(async (_raw: Uint8Array, _o?: object) => {
+    if (opts.sendThrows) throw opts.sendThrows;
+    return 'ignored: the signature is read off the signed bytes';
+  });
+  const conn = {
+    ...(fakeConn({ statuses: opts.statuses ?? [{ err: null, confirmationStatus: 'confirmed', slot: 7 }] }) as unknown as object),
+    getLatestBlockhash: vi.fn(async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 })),
+    simulateTransaction,
+    sendRawTransaction,
+  } as unknown as Connection;
+  return { conn, ran, simulateTransaction, sendRawTransaction };
+}
+
+const refusedWith = (r: { ok: boolean; reason?: string; signature?: string }, said: RegExp | string) => {
+  expect(r.ok).toBe(false);
+  if (typeof said === 'string') expect(r.reason).toBe(said);
+  else expect(r.reason).toMatch(said);
+  expect(r.reason).not.toContain('—');
+  expect(r.signature).toBeUndefined();
+};
+
+describe('a wallet that signs version 1 gets version 1: tested first, signed only, sent by us', () => {
+  it('the test runs come first, the wallet only signs version 1 bytes, and we send what it signed', async () => {
+    const { conn, ran, simulateTransaction, sendRawTransaction } = v1Conn();
+    const { adapter, signTransaction, sendTransaction } = v1Wallet();
+    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
+
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(signTransaction).toHaveBeenCalledTimes(1);
+    const asked = signTransaction.mock.calls[0]![0];
+    expect(asked.chain).toBe('solana:mainnet');
+    expect(asked.transaction[0]).toBe(V1_VERSION_BYTE);
+    // Two test runs (the sizing run, then the final bytes), both before the wallet is asked.
+    expect(simulateTransaction).toHaveBeenCalledTimes(2);
+    expect(Math.max(...simulateTransaction.mock.invocationCallOrder)).toBeLessThan(signTransaction.mock.invocationCallOrder[0]!);
+    expect(Buffer.from(ran[1]!).equals(Buffer.from(asked.transaction))).toBe(true);
+    expect(simulateTransaction.mock.calls[0]![1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: false });
+
+    const sent = sendRawTransaction.mock.calls[0]![0];
+    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false, preflightCommitment: 'confirmed' });
+    const w = decodeV1(sent);
+    expect(w.payer.toBase58()).toBe(V1_OWNER.publicKey.toBase58());
+    expect(w.blockhash).toBe(BLOCKHASH);
+    // The budget is the message's config, measured by the sizing run; no ComputeBudget step.
+    expect(w.config).toEqual({
+      computeUnitLimit: v1ComputeLimit(40_000),
+      loadedAccountsDataSizeLimit: loadedDataLimitFromSimulation(100_000),
+      priorityFeeLamports: 0n,
+    });
+    expect(w.config.loadedAccountsDataSizeLimit).toBeGreaterThan(0);
+    expect(w.instructions.map((ix) => ix.programId.toBase58())).toEqual(V1_IXS.map((ix) => ix.programId.toBase58()));
+    expect(r).toEqual({ ok: true, signature: base58.encode(w.signatures.get(V1_OWNER.publicKey.toBase58())!), slot: 7 });
+  });
+
+  it('a test run the program refuses: the wallet is never asked, nothing is sent, and the program says why', async () => {
+    const { conn, sendRawTransaction } = v1Conn({
+      runs: [{ err: { InstructionError: [1, { Custom: 6027 }] }, logs: ['Program log: AnchorError. Error Number: 6027. Error Message: cap'] }],
+    });
+    const { adapter, signTransaction, sendTransaction } = v1Wallet();
+    refusedWith(await submitLadder(conn, adapter, V1_IXS, noSleep), /per-wallet limit/i);
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a test run short of SOL says it is short of SOL', async () => {
+    const { conn } = v1Conn({ runs: [{ err: { InstructionError: [0, { Custom: 1 }] }, logs: ['Transfer: insufficient lamports 10, need 2039280'] }] });
+    refusedWith(await submitLadder(conn, v1Wallet().adapter, V1_IXS, noSleep), /Not enough SOL/);
+  });
+
+  it("Phantom's guard instructions are accepted, tested again, and what it signed is what we send", async () => {
+    const guard = new TransactionInstruction({ programId: LIGHTHOUSE, keys: [{ pubkey: V1_OWNER.publicKey, isSigner: false, isWritable: false }], data: Buffer.from([1, 2, 3]) });
+    const { conn, ran, simulateTransaction, sendRawTransaction } = v1Conn();
+    const { adapter } = v1Wallet({ sign: changedBy((w) => ({ instructions: [...w.instructions, guard] })) });
+    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
+    expect(r.ok).toBe(true);
+    expect(simulateTransaction).toHaveBeenCalledTimes(3);
+    const sent = sendRawTransaction.mock.calls[0]![0];
+    expect(Buffer.from(ran[2]!).equals(Buffer.from(sent))).toBe(true);
+    expect(decodeV1(sent).instructions.map((ix) => ix.programId.toBase58())).toContain(LIGHTHOUSE.toBase58());
+  });
+
+  it.each([
+    ['adds an instruction of its own that is not a guard', changedBy((w) => ({
+      instructions: [...w.instructions, SystemProgram.transfer({ fromPubkey: V1_OWNER.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 })],
+    })), /added something/],
+    ['drops one of ours', changedBy(() => ({ instructions: [] })), /removed or changed/],
+    ['swaps the blockhash', changedBy(() => ({ blockhash: '4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi' })), /cannot check/],
+    ['raises the priority fee past the cap', changedBy((w) => ({ config: { ...w.config, priorityFeeLamports: MAX_WALLET_PRIORITY_LAMPORTS + 1n } })), /priority fee/],
+  ])('a wallet that %s is refused, and nothing is sent', async (_, sign, said) => {
+    const { conn, sendRawTransaction } = v1Conn();
+    refusedWith(await submitLadder(conn, v1Wallet({ sign }).adapter, V1_IXS, noSleep), said);
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a test run the node did not answer is no verdict: it goes at the ceiling, and our send is checked by the network', async () => {
+    const { conn, sendRawTransaction } = v1Conn();
+    (conn.simulateTransaction as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('429 Too Many Requests'));
+    const { adapter, signTransaction } = v1Wallet();
+    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
+    expect(r.ok).toBe(true);
+    expect(decodeV1(signTransaction.mock.calls[0]![0].transaction).config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: 64 * 1024 * 1024, priorityFeeLamports: 0n });
+    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
+  });
+
+  it('a decline in the wallet: nothing was sent, in the words every write uses', async () => {
+    const { conn, sendRawTransaction } = v1Conn();
+    const declined = Object.assign(new Error('User rejected the request.'), { code: 4001 });
+    refusedWith(await submitLadder(conn, v1Wallet({ sign: () => { throw declined; } }).adapter, V1_IXS, noSleep), DECLINED_IN_WALLET);
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('our send refused in preflight: nothing moved, and no signature is handed out', async () => {
+    const thrown = Object.assign(new Error('Simulation failed. Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x177b.'), {
+      logs: ['Program log: AnchorError. Error Number: 6027. Error Message: cap'],
+    });
+    const { conn } = v1Conn({ sendThrows: thrown });
+    refusedWith(await submitLadder(conn, v1Wallet().adapter, V1_IXS, noSleep), /per-wallet limit/i);
+  });
+
+  it('our send whose answer was lost is watched by its signature, never called failed', async () => {
+    const { conn } = v1Conn({ sendThrows: new TypeError('Failed to fetch') });
+    const r = await submitLadder(conn, v1Wallet().adapter, V1_IXS, noSleep);
+    expect(r.ok).toBe(true);
+  });
+
+  it('a wallet that does not list version 1 keeps the legacy path: the wallet signs and sends, as before', async () => {
+    const { conn, simulateTransaction } = v1Conn();
+    const { adapter, signTransaction, sendTransaction } = v1Wallet({ versions: ['legacy', 0] });
+    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
+    expect(r).toEqual({ ok: true, signature: SIG, slot: 7 });
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(simulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the pool writes’ numbers: the same compute rule and the same priority-fee cap', () => {
+    for (const used of [undefined, 0, 1, 999, 40_000, 1_210_000, 1_399_999, 2_000_000]) {
+      expect(v1ComputeLimit(used)).toBe(computeLimitFromSimulation(used));
+    }
+    expect(MAX_WALLET_PRIORITY_LAMPORTS).toBe(MAX_OWN_PRIORITY_LAMPORTS);
   });
 });

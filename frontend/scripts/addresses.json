@@ -121,7 +121,7 @@
       "address": "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
       "role": "The restart's cp-swap fork program id (owner ruling 2026-09-25): the fork's committed non-devnet declare_id! and tegridy-launch's compile-time cp_swap::ID graduation venue since 2026-09-26. Replaces cp-swap-program (3ZvZXEBr…), which is spent. frontend: curve/program.ts CP_SWAP_PROGRAM_ID (the default of every cp-swap PDA helper and builder) and REGISTERED_CP_SWAP_PROGRAM_ID, and cpswap/program.ts REGISTERED_PROGRAM_ID (the default of LIVE_PROGRAM_ID). Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its ProgramData is cp-swap-programdata-restart.",
       "custody": "the program keypair claimed the address at first deploy and authorises nothing afterwards. What can change this program is the UPGRADE AUTHORITY on its ProgramData account: squads-vault after the §8 handover (tegridy-launch-deployer before it).",
-      "status": "DEPLOYED, upgraded once and rolled back: expected bytecode sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, 691,640 bytes (artifacts/cp_swap.mainnet.so), the build deployed on 2026-09-29, again. The Squads vault upgraded it on 2026-10-23 to sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22, 725,176 bytes (artifacts/cp_swap.upgrade-1e55bcdc.mainnet.so: create_lp_metadata, the security text on memetics.finance, and a public initialize on fee tier 0 refused), and its roll-back proposal #16 executed on 2026-10-24 at 17:03:00 UTC. Read 2026-10-24 at finalized slot 460,929,168: the first 691,640 bytes hash to 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, last deployed in slot 460,927,956. Both executes are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. A re-upgrade to the 1e55bcdc build is planned: when it executes, this row names that build again. That build was recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run (a closed program keeps the flag); cp-swap-programdata-restart holds the liveness claim.",
+      "status": "DEPLOYED, and upgraded to the build with the swap guard: expected bytecode sha256 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938, 714,776 bytes (artifacts/cp_swap.upgrade-01fe923b.mainnet.so). It adds the swap guard (a fee setting the vault has switched the guard on for takes a swap only as an instruction of the transaction itself, and refuses one that another program calls; it is off on every fee setting until a vault proposal of its own switches it on) and the fee rules of 2026-11-03 (a fee ceiling on every fee setting, only a fee setting's fund owner collects its fund fee, the vault hands a fund fee over only once, and every coin meets the same Token-2022 check), and it keeps everything the build before it added. The Squads vault's proposal #32 installs it, with no roll-back staged beside it; the day, the slot and the transaction are recorded in one place, solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. This sentence was written as the state the website release that ships with that upgrade REQUIRES, not as a read: that release merges only after the upgrade pack's check has hashed these bytes on mainnet. Until that upgrade the program was sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22, 725,176 bytes (artifacts/cp_swap.upgrade-1e55bcdc.mainnet.so, the roll-back build now), the build that adds create_lp_metadata, moves the on-chain security text to memetics.finance and refuses a public initialize on fee tier 0 (the launch tier; graduation's initialize_with_permission is unchanged). The Squads vault's upgrade installed it on 2026-10-23, its roll-back proposal #16 put the old build back on 2026-10-24 at 17:03:00 UTC, the re-upgrade, proposal #23, installed it again on 2026-11-03, the pre-staged roll-back #24 put the old build back by mistake on 2026-11-04 at 02:52:42 UTC, and proposal #31 (no roll-back staged beside it) installed it a third time on 2026-11-06 at 15:13:03 UTC; the days, the slots and the transactions are recorded in one place, solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. Before the first upgrade, and during each roll-back (2026-10-24 to 2026-11-03, and 2026-11-04 to 2026-11-06), the program was sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, 691,640 bytes (artifacts/cp_swap.mainnet.so). That build was recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run (a closed program keeps the flag); cp-swap-programdata-restart holds the liveness claim.",
       "expect": {
         "type": "executable"
       }
@@ -159,12 +159,12 @@
       "address": "F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V",
       "role": "ProgramData account for cp-swap-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT]. Same liveness role as the entry above. Pinned by restartRegistry.test.ts.",
       "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover.",
-      "status": "LIVE (post-deploy truth for website release 2). Since the roll-back of 2026-10-24 this account holds the 691,640-byte build again (sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882; see cp-swap-program-restart), followed by zeros: it stays 725,221 bytes, the size it was enlarged to for the upgrade, and an account never shrinks. The upgrade's and the roll-back's slots are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 691,640 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After the re-upgrade, put the new build's size and hash here (725,176 bytes, 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "status": "LIVE (post-deploy truth for website release 2). Since the pool program's swap-guard upgrade (proposal #32) this account holds the 714,776-byte build (sha256 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938; see cp-swap-program-restart), followed by zeros, because that build is smaller than the one before it. Written as the state the website release that ships with that upgrade REQUIRES, not as a read. Before it the account held the 725,176-byte build (sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22): since the third upgrade (proposal #31, 2026-11-06), and earlier from the upgrade of 2026-10-23 until the roll-back of 2026-10-24 and from the re-upgrade of 2026-11-03 until the roll-back of 2026-11-04 (each roll-back left the 691,640-byte build followed by zeros). The account itself stays 725,221 bytes: an ordinary wallet enlarged it to that, from 691,685, before the first upgrade, and an account never shrinks. Its size and the slot of each execute are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 714,776 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After a roll-back, put the size and hash of the build it put back here (the build before this one: 725,176 bytes, 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
         "type": "program-owned",
         "holdsProgram": {
-          "bytes": 691640,
-          "sha256": "88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882"
+          "bytes": 714776,
+          "sha256": "01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938"
         }
       }
     },
@@ -746,7 +746,7 @@
     {
       "id": "venue-lp-mint-bayla-sol",
       "address": "BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e",
-      "role": "Pool-share (LP) mint of venue-pool-bayla-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json: \"BAYLA/SOL Pool Share\", symbol BAYLA-SOL.",
+      "role": "Pool-share (LP) mint of venue-pool-bayla-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json: \"BAYLA/SOL LP\", symbol BAYLA-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 362.216155450 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
@@ -756,7 +756,7 @@
     {
       "id": "venue-lp-mint-bayla-usdc",
       "address": "3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx",
-      "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC Pool Share\", symbol BAYLA-USDC.",
+      "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC LP\", symbol BAYLA-USDC.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
@@ -879,6 +879,306 @@
       "role": "Pool-share (LP) mint of venue-pool-crying-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh.json: \"CRYING/SOL LP\", symbol CRYING-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 13.924244201 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-grr-sol",
+      "address": "rD73MYkgDq7RKDxaJMFmiBu1feCAg2hQKHnVucZ5cZH",
+      "role": "The venue's GRR/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is GRR (DBEjiLMt9USaM3SdC9YtNcKGnXLdFhzokwnykH4Wpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-grr-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-grr-sol",
+      "address": "tCzVHDSMxQ1ANFZZ2bA3JnxYXRws9uj84GdrbejLTWQ",
+      "role": "Pool-share (LP) mint of venue-pool-grr-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/tCzVHDSMxQ1ANFZZ2bA3JnxYXRws9uj84GdrbejLTWQ.json: \"GRR/SOL LP\", symbol GRR-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 24.563958939 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-mrocks-sol",
+      "address": "raEFEHUYRBYVSJ5jiu5KLm2BQeVCNS5g8W7YoAJVYBd",
+      "role": "The venue's MROCKS/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is MROCKS (moon3CP11XLvrAxUPBnPtueDEJvmjqAyZwPuq7wBC1y), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-mrocks-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-mrocks-sol",
+      "address": "5uicWVk3D85RLjNmcexohqCDyuZjyHnpzd1aWiUMBQ29",
+      "role": "Pool-share (LP) mint of venue-pool-mrocks-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/5uicWVk3D85RLjNmcexohqCDyuZjyHnpzd1aWiUMBQ29.json: \"MROCKS/SOL LP\", symbol MROCKS-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 903.175540730 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-bigbrain-sol",
+      "address": "3YRW6wJscukRaWutB6QgPwtK1EQM9KA7CXcXTtmN3GJK",
+      "role": "The venue's BIG BRAIN/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BIG BRAIN (J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bigbrain-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-bigbrain-sol",
+      "address": "85PrZH8qw15Yq22P2jhhBUWSFZzsC1XSdarmeaEq7q5j",
+      "role": "Pool-share (LP) mint of venue-pool-bigbrain-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/85PrZH8qw15Yq22P2jhhBUWSFZzsC1XSdarmeaEq7q5j.json: \"BIG BRAIN/SOL LP\", symbol BIGB-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 1122.889423984 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-stormie-sol",
+      "address": "3sw9bPyEk29AMkwr2fHeQiyKiptNkUgfvtY8u5QrJdWh",
+      "role": "The venue's STORMIE/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is STORMIE (HqyTxEqk7qmLu2Gnx46eEZwQhzCf2yVqRompLaKYpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-stormie-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-stormie-sol",
+      "address": "GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx",
+      "role": "Pool-share (LP) mint of venue-pool-stormie-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/GtVoiErMqFDZpf592kHTFMxM7xoZ4knQ2Gvc2m8UrQXx.json: \"STORMIE/SOL LP\", symbol STRMIE-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 21.812876290 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-ape-sol",
+      "address": "6EESMGsgzDc2N3PaVsue5FizVDvi2ZRuY8j3iPLkrkxs",
+      "role": "The venue's APE/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is APE (2Wkip2U5x93mjaAvoq8zaedweP73GgRtbaQhNcwXpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-ape-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-ape-sol",
+      "address": "F793raKNWfn11PmqWdwMNp7A6kkfFqFjGG199M2CfGPj",
+      "role": "Pool-share (LP) mint of venue-pool-ape-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/F793raKNWfn11PmqWdwMNp7A6kkfFqFjGG199M2CfGPj.json: \"APE/SOL LP\", symbol APE-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 17.429155339 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-tbb-sol",
+      "address": "75n4yk8teGKvS4mkREUzYe56CQTFQwWo75V6nFHon4vs",
+      "role": "The venue's TBB/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-tbb-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-tbb-sol",
+      "address": "BTHYKjLHCJtBaKWVvBeqAgBF6aU7fwCYheoPH8ztpJr3",
+      "role": "Pool-share (LP) mint of venue-pool-tbb-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BTHYKjLHCJtBaKWVvBeqAgBF6aU7fwCYheoPH8ztpJr3.json: \"TBB/SOL LP\", symbol TBB-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 2.785966831 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-brainlet-soy",
+      "address": "7JZ4Qnjh86s2aRc514LRTFJvJa2Wb6ZLuN6FdhMrs8vh",
+      "role": "The venue's BRAINLET/SOY pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is BRAINLET (4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump), token 1 is SOY (8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-brainlet-soy.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-brainlet-soy",
+      "address": "7P5oYhpAhnssPasq6iedy5ebVP279CHJJXotwZ4qgP4W",
+      "role": "Pool-share (LP) mint of venue-pool-brainlet-soy: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/7P5oYhpAhnssPasq6iedy5ebVP279CHJJXotwZ4qgP4W.json: \"BRAINLET/SOY LP\", symbol BRAIN-SOY.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 67.596914523 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-ogdoge-sol",
+      "address": "7zaN5voCmWe4U6CwxPQLxqcf7UffJfo3kiLLLtBjQQgx",
+      "role": "The venue's OGDOGE/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is OGDOGE (utLyQQCPvjuCc6zeaXdsFeEC3JNdxKS3vxaZWoGdoge), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-ogdoge-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-ogdoge-sol",
+      "address": "BibsjCKijbUYmDJwKWVH9Qsvn4Dq1hUrczynKxRvQj2x",
+      "role": "Pool-share (LP) mint of venue-pool-ogdoge-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BibsjCKijbUYmDJwKWVH9Qsvn4Dq1hUrczynKxRvQj2x.json: \"OGDOGE/SOL LP\", symbol OGDOGE-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 8.870139983 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-shocker-sol",
+      "address": "9P1KhvycWZiEb2hYidGoc5U9Lji8mgjZHRn4CdGcFkVy",
+      "role": "The venue's SHOCKER/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is SHOCKER (E6LwzUpR2NsdUzAiGzZb1K5PbffkXANagXHt1R4BTRiX), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-shocker-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-shocker-sol",
+      "address": "J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj",
+      "role": "Pool-share (LP) mint of venue-pool-shocker-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 253, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/J2xnphDfxXHAd4WExGw4soxRhwy8bCTbGvw6q24mfiTj.json: \"SHOCKER/SOL LP\", symbol SHOCKR-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 89.563874170 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-groyper-sol",
+      "address": "9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ",
+      "role": "The venue's GROYPER/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is GROYPER (7QAn5wqkBcGuvfLLC16iLvX8fPyqXrzkMqnzHLS9NNna), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-groyper-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-groyper-sol",
+      "address": "A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE",
+      "role": "Pool-share (LP) mint of venue-pool-groyper-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/A7QFFs9XAvd8NQwBShy5fuGwgTg8zAzm3Rgs4DF3bhwE.json: \"GROYPER/SOL LP\", symbol GROYPR-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 17.747728837 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-bigbrain-brainlet",
+      "address": "BVkaypc3tiKHDjka7SnCGeKG2Uc2D3n5rh2w3mDTjdK4",
+      "role": "The venue's BIG BRAIN/BRAINLET pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is BRAINLET (4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump), token 1 is BIG BRAIN (J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bigbrain-brainlet.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-bigbrain-brainlet",
+      "address": "CK4s5DWKVwBpvBmW3isKTNv2YiPTuvtwQZ6NUCsh9rCc",
+      "role": "Pool-share (LP) mint of venue-pool-bigbrain-brainlet: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/CK4s5DWKVwBpvBmW3isKTNv2YiPTuvtwQZ6NUCsh9rCc.json: \"BIG BRAIN/BRAINLET LP\", symbol BIGB-BRAIN.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 756.987366214 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-usdt-usdc",
+      "address": "G23uSnADCtgMdRfBdRhYj3JRVL9Ky9GEVdyy7jK9ughx",
+      "role": "The venue's USDT/USDC pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v), token 1 is USDT (Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 3ptKrPsDiX69hkzzrxEz5gEWAbLku34EpP7KBS2XvqeH.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-usdt-usdc.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-usdt-usdc",
+      "address": "AZbCsNo77ETPa2E2bER8pF65GbS9r9Lhkt1mwNEgJWKf",
+      "role": "Pool-share (LP) mint of venue-pool-usdt-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/AZbCsNo77ETPa2E2bER8pF65GbS9r9Lhkt1mwNEgJWKf.json: \"USDT/USDC LP\", symbol USDT-USDC.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 0.072700573 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-zbcn-sol",
+      "address": "H8TVzALWtq9CJDfnkKtgnfjNcRXUShvxYArwmBfj7Kkd",
+      "role": "The venue's ZBCN/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is ZBCN (ZBCNpuD7YMXzTHB2fhGkGi78MNsHGLRXUhRewNRm9RU), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-zbcn-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-zbcn-sol",
+      "address": "EJpDTWGtM43uih26eBM7tSG7AJuMGQgfjMY2Sdq92hBo",
+      "role": "Pool-share (LP) mint of venue-pool-zbcn-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/EJpDTWGtM43uih26eBM7tSG7AJuMGQgfjMY2Sdq92hBo.json: \"ZBCN/SOL LP\", symbol ZBCN-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 14.637381526 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-kwif-sol",
+      "address": "HBGZFvYZnKMsrjn42C9ZbQCKYd5a1NAt4MaXnrKNuMES",
+      "role": "The venue's KWIF/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is KWIF (6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 3ptKrPsDiX69hkzzrxEz5gEWAbLku34EpP7KBS2XvqeH.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-kwif-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-kwif-sol",
+      "address": "FnqVeoNc95YDpfo8WGboFjujxWzxuHdhafJ3i7rSziEh",
+      "role": "Pool-share (LP) mint of venue-pool-kwif-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/FnqVeoNc95YDpfo8WGboFjujxWzxuHdhafJ3i7rSziEh.json: \"KWIF/SOL LP\", symbol KWIF-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 3.001844621 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-usdt-sol",
+      "address": "Hb6naTh2QFrRioeAhNToFEPgKaN1iiyDzGacYi1c7gm1",
+      "role": "The venue's USDT/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is USDT (Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 468,229,859 (2026-11-11T18:49Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-usdt-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-usdt-sol",
+      "address": "2FKSKBGStzrTfcF8evAEQkCwA6eXnMdKdCAvNfY9c1ux",
+      "role": "Pool-share (LP) mint of venue-pool-usdt-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/2FKSKBGStzrTfcF8evAEQkCwA6eXnMdKdCAvNfY9c1ux.json: \"USDT/SOL LP\", symbol USDT-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 0.168311375 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
       "expect": {
         "type": "program-owned"
       }
@@ -1259,6 +1559,72 @@
       "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployNFTLending.s.sol/1/run-1784178212767.json CREATE TegridyNFTLendingAdmin at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Created by the SAME receipt as the registered nft-lending entry (0x89BeB6cc...), whose own evidence note already flags that this script's run-latest.json points at the retired V1. The principal was recorded and this sibling was not. NOT independently read back on-chain in this session — the receipt and the repo's own cross-references are the evidence."
     },
     {
+      "id": "gondi-loan",
+      "address": "0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630",
+      "role": "NFT lending: Gondi's MultiSourceLoan v3.2, unchanged. Borrowers lock a JBAC, Nakamigos or GNSS NFT and borrow WETH from signed lender offers; the venue takes 500 bps of the interest, paid to the treasury Safe. The site's GONDI_LOAN_ADDRESS (src/lib/gondi/loanOffer.js).",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2); accepted 2026-11-10 in Safe nonce 1, tx 0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487, pendingOwner() now zero.",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (6th of 6), receipt status 0x1, block 0x1924f27, tx 0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f. Runtime bytecode read back equal to contracts/vendor/gondi-v3.2/build/MultiSourceLoan.json apart from immutables; Etherscan-verified. owner() = the treasury Safe and pendingOwner() = 0x0 read 2026-11-10 on two RPCs."
+    },
+    {
+      "id": "gondi-liquidator",
+      "address": "0xe61613035B85308F31E068bBC31257524ffE7Fa6",
+      "role": "Gondi's AuctionWithBuyoutLoanLiquidator v3.2, unchanged: runs the 3-day auction for an unpaid loan funded by several lenders. Only gondi-loan is a valid loan contract.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2); accepted 2026-11-10 in Safe nonce 1, tx 0x2351efd50575d20ed54e39e11d3859d451980cd6be3a74e161e6c230f5c24487, pendingOwner() now zero.",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (5th of 6), receipt status 0x1, block 0x1924f26, tx 0xb325dc5526aad9ede20f868e11ff951743c9ebffec74d68fc811c498a3f05ae8. Etherscan-verified. owner() = the treasury Safe and pendingOwner() = 0x0 read 2026-11-10 on two RPCs."
+    },
+    {
+      "id": "gondi-liquidation-distributor",
+      "address": "0x5a3B60b2a53245462dF2F6791a6A3aA0B6B1f2Df",
+      "role": "Gondi's LiquidationDistributor v3.2, unchanged: splits an auction's proceeds pro rata among the loan's lenders. Its liquidator is gondi-liquidator.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (4th of 6), receipt status 0x1, block 0x1924f25, tx 0x94ba54a21dc83649b410422365271f2ec7a741671245fb991650fed5ed559bf6. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-currency-manager",
+      "address": "0x5d917E12C1Ac3dBc0c75a6554807ABde0b8FAFC4",
+      "role": "Gondi's AddressManager v3.2, unchanged, as the loan contract's currency list: WETH only.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (2nd of 6), receipt status 0x1, block 0x1924f22, tx 0x89da7b24ec5f52a9ee0d16a6cc8d929ef181907e1da42a4d02a45205360074ce. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-collection-manager",
+      "address": "0x9F9c3F7c4f2a65Bab54BF78a64bb32468F1E4Eb3",
+      "role": "Gondi's AddressManager v3.2, unchanged, as the loan contract's collection list: Jungle Bay Ape Club, Nakamigos and GNSS Art only.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (3rd of 6), receipt status 0x1, block 0x1924f23, tx 0x7cb91e023aa0cf3e064e6bc395c87f10441ea785d20ed520b90f82f20318ff5a. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-loan-manager-registry",
+      "address": "0xc9464734068449EF5284D6BaCbe0371b87070F32",
+      "role": "Gondi's LoanManagerRegistry v3.2, unchanged. The deploy registers no loan manager (pooled lending) in it.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (1st of 6), receipt status 0x1, block 0x1924f21, tx 0x73275208be93a099d2fb2c126b0286c0b64f2f5e527322eed44cbcabf1e0437e. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
       "id": "tegridy-twap",
       "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
       "role": "TWAP oracle. DEFAULT_MIN_RESERVE_FLOOR_WEI is 10 ether per side.",
@@ -1356,6 +1722,72 @@
         "type": "contract"
       },
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE2 SwapFeeRouterConvertLib, receipt status 0x1, block 0x1817ce1."
+    },
+    {
+      "id": "tegridy-opening-factory",
+      "address": "0xf73C993A1303Fe3612c5F878783CEf63D080834E",
+      "role": "TegridyFactory that charges 0.006 ETH to open a pool (owner ruling 2026-10-25), paid to the treasury Safe in the same transaction. New coin pools open here; pools on tegridy-factory stay there. feeTo and feeToSetter = treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d, guardian = pause-guardian Safe 0xCDCA0F0621ce34012AD61bBD140f327EB778F354 (owner's pick 2026-11-08).",
+      "custody": "treasury Safe (feeToSetter); pause-guardian Safe (guardian)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE TegridyFactory, deployer nonce 134, tx 0xd4541e5bad8480a3ad5eb07818a346b6918151615b1e6c38242ac50f810ea32f, receipt status 0x1, block 26372394. Read back 2026-11-08: POOL_OPENING_FEE 6000000000000000, feeTo/feeToSetter 0x7D26…, guardian 0xCDCA…, 0 pairs. Fork rehearsal against this address 3/3."
+    },
+    {
+      "id": "tegridy-opening-router",
+      "address": "0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22",
+      "role": "TegridyRouter bound to tegridy-opening-factory: pays the 0.006 ETH opening fee out of msg.value when an add opens a pool.",
+      "custody": "none — no owner",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE TegridyRouter, deployer nonce 135, tx 0xc5f2fb3e4345d389b397b6e007425ca59fb4152c6616d69de7a207abbf728be4, receipt status 0x1, block 26372395. Read back 2026-11-08: factory() = tegridy-opening-factory, WETH() = canonical WETH."
+    },
+    {
+      "id": "opening-swap-fee-router",
+      "address": "0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4",
+      "role": "SwapFeeRouter bound to tegridy-opening-router: the venue's 0.5% on site swaps through pools on tegridy-opening-factory. Same treasury, RevenueDistributor, ReferralSplitter and pause guardian as swap-fee-router.",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe accepts (pendingOwner = treasury Safe, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE SwapFeeRouter, deployer nonce 136, tx 0x6313d776a230c1600bf28f2e0ea6439544602ecc1243f3e7e70bc131841046d3, receipt status 0x1, block 26372396. Read back 2026-11-08: router() = tegridy-opening-router, feeBps 50, treasury 0x7D26…, revenueDistributor 0xF993…, referralSplitter 0x6B34…, pauseGuardian 0xCDCA…, swapFeeRouterAdmin = opening-swap-fee-router-admin."
+    },
+    {
+      "id": "opening-swap-fee-router-admin",
+      "address": "0x5c109a51B786473DCDE2De41a133d42515f60590",
+      "role": "SwapFeeRouterAdmin for opening-swap-fee-router (timelocked fee and address changes).",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe accepts (pendingOwner = treasury Safe, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE SwapFeeRouterAdmin, deployer nonce 137, tx 0x464e7b3bd8d6491391293f5dc05fb4dd70462c67d3febf6374cda29deaa3fec2, receipt status 0x1, block 26372397."
+    },
+    {
+      "id": "tegridy-factory-lib-opening",
+      "address": "0xc5314777f077DD16A4A37062430bAa96CCc33d0F",
+      "role": "TegridyFactoryLib linked into tegridy-opening-factory. A different build from tegridy-factory-lib (the opening fee changed the library), so a different CREATE2 address; the same address on Base and Robinhood.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployPoolOpeningFeeAMM 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE2 TegridyFactoryLib via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 133, tx 0xecee3297c8b5f5442afe91daa2b2b79c27188aa34b1d80d503c9c196071d9430, receipt status 0x1, block 26372393."
+    },
+    {
+      "id": "swap-fee-router-convert-lib-opening",
+      "address": "0xbA591C0b84435290123Cd25C33b2DaccaAa0D306",
+      "role": "SwapFeeRouterConvertLib linked into opening-swap-fee-router. Today's build, so a different CREATE2 address from swap-fee-router-convert-lib; the same address on Base and Robinhood.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployPoolOpeningFeeAMM 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/1/run-latest.json CREATE2 SwapFeeRouterConvertLib via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 132, tx 0x12536fd0d0585e6eedbf981a18200c258a18f3c24931859dba20e28f28f0a799, receipt status 0x1, block 26372391."
     },
     {
       "id": "staking-view-lib",
@@ -2189,6 +2621,72 @@
       "evidence": "contracts/broadcast/DeployBaseMVP.s.sol/8453/run-1787642423785.json `libraries` + CREATE2 SwapFeeRouterConvertLib: deployer 0x14898258122c0740106391e6e8e4f17f3b6d456e nonce 4, tx 0xc569d6ccbb72cf654a13dd418936f1ca9ccf3308a6ff780d8b3b96589afad984 via 0x4e59b44847b379578588920ca78fbf26c0b4956c salt 0 (key that file by (from, nonce): 10 of its 14 hash labels are scrambled), receipt status 0x1, block 50426550 (0x30172b6). Read back on Base 2026-09-17: the tx input recomputes to this CREATE2 address; 6,496 code bytes; base/swap-fee-router bytecode embeds this address as 2 PUSH20 immediates and never the mainnet library's."
     },
     {
+      "id": "tegridy-opening-factory",
+      "address": "0x09E1B43f90cb6488063BB91310FD40c4339027e6",
+      "role": "TegridyFactory (Base) that charges 0.006 ETH to open a pool, paid to the treasury Safe 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 in the same transaction (owner 2026-11-07). New coin pools open here; the 7 pools on tegridy-factory stay there.",
+      "custody": "multisig 0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B (feeToSetter); pause guardian 0xF2De91a0086baA36D60B73ee1DF261ef8919A56c (guardian)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE TegridyFactory, deployer nonce 41, tx 0x5c12d19781fd155adf689003d8695ac8479fda01d4d545a24e02429f5df0c785, receipt status 0x1, block 54889304. Read back 2026-11-08: POOL_OPENING_FEE 6000000000000000, feeTo 0x796c…, feeToSetter 0xBC4E…, guardian 0xF2De…, 0 pairs."
+    },
+    {
+      "id": "tegridy-opening-router",
+      "address": "0x7D7DA5d6335efdCdd510C439cB7948b31562847f",
+      "role": "TegridyRouter (Base) bound to tegridy-opening-factory.",
+      "custody": "none — no owner",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE TegridyRouter, deployer nonce 42, tx 0x1ad81d7f487552dab7804b64b447cf3dfcfcaed1ec14efac623970b2379cc58d, receipt status 0x1, block 54889310."
+    },
+    {
+      "id": "opening-swap-fee-router",
+      "address": "0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd",
+      "role": "SwapFeeRouter (Base) bound to tegridy-opening-router: the venue's 0.5%, to the fee-remittance Safe like swap-fee-router; no referral splitter; sequencer feed 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433.",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the multisig accepts (pendingOwner = multisig, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE SwapFeeRouter, deployer nonce 43, tx 0x7626ea739c03b82d958c957062e4f4c5343f066d74ba3ffbc0b34e1aecb2e4b5, receipt status 0x1, block 54889323. Read back 2026-11-08: router() = tegridy-opening-router, feeBps 50, treasury 0x796c…, revenueDistributor 0xfc5D…, no splitter, pauseGuardian 0xF2De…, sequencerFeed 0xBCF8…."
+    },
+    {
+      "id": "opening-swap-fee-router-admin",
+      "address": "0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37",
+      "role": "SwapFeeRouterAdmin (Base) for opening-swap-fee-router.",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the multisig accepts (pendingOwner = multisig, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 with DeployPoolOpeningFeeAMM.s.sol",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE SwapFeeRouterAdmin, deployer nonce 45, tx 0xe304c9c4ebc2b1e68585aeedb3164c3a541d61c5363deb8e852b506f863d87c5, receipt status 0x1, block 54889334."
+    },
+    {
+      "id": "tegridy-factory-lib-opening",
+      "address": "0xc5314777f077DD16A4A37062430bAa96CCc33d0F",
+      "role": "TegridyFactoryLib (Base) linked into tegridy-opening-factory. SAME address and initcode as ethereum/tegridy-factory-lib-opening (CREATE2, salt 0).",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployPoolOpeningFeeAMM 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE2 TegridyFactoryLib via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 40, tx 0xc933611973e910b7146675c765f578b3f946dc6c5169d65ced509adda4949cee, receipt status 0x1, block 54889299."
+    },
+    {
+      "id": "swap-fee-router-convert-lib-opening",
+      "address": "0xbA591C0b84435290123Cd25C33b2DaccaAa0D306",
+      "role": "SwapFeeRouterConvertLib (Base) linked into opening-swap-fee-router. SAME address and initcode as ethereum/swap-fee-router-convert-lib-opening (CREATE2, salt 0).",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployPoolOpeningFeeAMM 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployPoolOpeningFeeAMM.s.sol/8453/run-latest.json CREATE2 SwapFeeRouterConvertLib via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 39, tx 0xb5142792d3f62a850c4f1e8ec22ecd8a29f1b6c5d7fb141ddf64be812c3e9b73, receipt status 0x1, block 54889290."
+    },
+    {
       "id": "curve-launcher",
       "address": "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060",
       "role": "TegridyCurveLauncher (Base): 2 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
@@ -2390,6 +2888,72 @@
       "expect": {
         "type": "contract"
       }
+    },
+    {
+      "id": "tegridy-opening-factory",
+      "address": "0xB62BaD165997E95C503044787b2Dcc85DC6D83F1",
+      "role": "TegridyFactory (Robinhood) that charges 0.006 ETH to open a pool, paid to the treasury Safe 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 in the same transaction (owner 2026-11-07). New coin pools open here.",
+      "custody": "multisig 0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B (feeToSetter); pause guardian 0xF2De91a0086baA36D60B73ee1DF261ef8919A56c (guardian)",
+      "status": "live, deployed by the owner 2026-11-08 by cast replay of DeployPoolOpeningFeeAMM.s.sol's dry run",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "No forge receipt (forge cannot broadcast on 4663; docs/ROBINHOOD_CAST_REPLAY.md): deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E nonce 27, CREATE at the dry run's predicted address. Read back 2026-11-08: POOL_OPENING_FEE 6000000000000000, feeTo 0x796c…, feeToSetter 0xBC4E…, guardian 0xF2De…, 0 pairs."
+    },
+    {
+      "id": "tegridy-opening-router",
+      "address": "0xA0D43eF39C4940e68b2f81d51E6316a45C136D93",
+      "role": "TegridyRouter (Robinhood) bound to tegridy-opening-factory.",
+      "custody": "none — no owner",
+      "status": "live, deployed by the owner 2026-11-08 by cast replay of DeployPoolOpeningFeeAMM.s.sol's dry run",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Cast replay, deployer nonce 28, CREATE at the dry run's predicted address. Read back 2026-11-08: factory() = tegridy-opening-factory, WETH() = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73."
+    },
+    {
+      "id": "opening-swap-fee-router",
+      "address": "0x85AB297793e14283b54347C92C6AEFBaa20d1492",
+      "role": "SwapFeeRouter (Robinhood) bound to tegridy-opening-router: the venue's 0.5%, to the fee-remittance Safe like swap-fee-router; no referral splitter; sequencer feed = the AttestedSequencerUptimeFeed 0x12a249A027AA7DdF184E824b4bb63ba031A39fEC.",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the multisig accepts (pendingOwner = multisig, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 by cast replay of DeployPoolOpeningFeeAMM.s.sol's dry run",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Cast replay from WSL (its initcode is longer than a Windows command line), deployer nonce 29, CREATE at the dry run's predicted address. Read back 2026-11-08: router() = tegridy-opening-router, feeBps 50, treasury 0x796c…, revenueDistributor 0xfc5D…, no splitter, pauseGuardian 0xF2De…, sequencerFeed 0x12a2…."
+    },
+    {
+      "id": "opening-swap-fee-router-admin",
+      "address": "0xe9c38b477573c7f386892E3CE15Ccb38f637e23e",
+      "role": "SwapFeeRouterAdmin (Robinhood) for opening-swap-fee-router.",
+      "custody": "deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E until the multisig accepts (pendingOwner = multisig, offer expires 2026-11-22)",
+      "status": "live, deployed by the owner 2026-11-08 by cast replay of DeployPoolOpeningFeeAMM.s.sol's dry run",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Cast replay, deployer nonce 31, CREATE at the dry run's predicted address."
+    },
+    {
+      "id": "tegridy-factory-lib-opening",
+      "address": "0xc5314777f077DD16A4A37062430bAa96CCc33d0F",
+      "role": "TegridyFactoryLib (Robinhood) linked into tegridy-opening-factory. SAME address and initcode as ethereum/tegridy-factory-lib-opening (CREATE2, salt 0).",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by the DeployPoolOpeningFeeAMM cast replay 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Cast replay via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 26; code read back at the predicted address 2026-11-08."
+    },
+    {
+      "id": "swap-fee-router-convert-lib-opening",
+      "address": "0xbA591C0b84435290123Cd25C33b2DaccaAa0D306",
+      "role": "SwapFeeRouterConvertLib (Robinhood) linked into opening-swap-fee-router. SAME address and initcode as ethereum/swap-fee-router-convert-lib-opening (CREATE2, salt 0).",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by the DeployPoolOpeningFeeAMM cast replay 2026-11-08",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Cast replay via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 25; code read back at the predicted address 2026-11-08."
     }
   ],
   "solanaFields": {

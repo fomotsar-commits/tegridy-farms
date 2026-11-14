@@ -32,7 +32,7 @@ import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
  * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
- * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
+ * (the finder), the wallet's positions, every pool, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
@@ -71,14 +71,22 @@ export interface LpHome {
   pool: string;
 }
 
-export function LpInner({ readers, writes, home, door }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome; door?: LpDoorAnchor }) {
+export function LpInner({ readers, writes, home, door, module = false }: {
+  readers: LpReaders;
+  writes?: LpWritesOverrides;
+  home?: LpHome;
+  door?: LpDoorAnchor;
+  /** The sheet's "Every pool" (owner, 2026-11-11): the forms alone, the finder and your positions. The lists and
+   *  the reading (All pools, Arbitrage, Every position, Rates, Swap routes, Before you provide liquidity) stay /pools'. */
+  module?: boolean;
+}) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} module={module} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -87,7 +95,7 @@ export function LpInner({ readers, writes, home, door }: { readers: LpReaders; w
   );
 }
 
-function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor }) {
+function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor; module: boolean }) {
   const [params, setParams] = useSearchParams();
   const homeMint = home?.mint ?? null;
   const homePool = home?.pool ?? null;
@@ -212,7 +220,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
       reloadKey={reloadKey}
       sectionRef={positionsRef}
       onAddMore={addMore}
-      onAllPools={readers.listPools && !homeMint ? toAllPools : undefined}
+      onAllPools={readers.listPools && !homeMint && !module ? toAllPools : undefined}
     />
   );
 
@@ -225,6 +233,17 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
     );
   }
 
+  // The sheet's Every pool: find a pool and add to it, or open one; then what you hold, with Remove and Claim fees.
+  if (module) {
+    return (
+      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode} data-lp-module="">
+        {writesTop}
+        {finder}
+        {positions}
+      </div>
+    );
+  }
+
   if (homeMint) {
     return (
       <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
@@ -232,21 +251,22 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
         {writesTop}
         {finder}
         {/* No Your positions card: each Add form carries its own Connect, and a wallet's
-            shares are on the Venue AMM tab. The full notice is one drop-down. */}
+            shares are on the Pools page (/pools). The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
   }
 
-  // Actions first, under the one line on earning; then every pool;
-  // then what you hold, and everyone's positions; then the rates and the routes; the long notice last.
+  // Actions first, under the one line on earning; then what you hold (owner, 2026-11-08: "move the
+  // positions the user has above the liquidity pools"); then every pool, and everyone's positions;
+  // then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpEarnLine />
       {writesTop}
       {finder}
-      {allPools}
       {positions}
+      {allPools}
       <EveryPosition readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
       <Rates read={tierRead} />
       <Routes />
@@ -257,7 +277,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
 
 
 /**
- * One line saying fees need no claim, and where the earning cards are. It stands above the
+ * One line saying fees grow the shares, and where the earning cards are. It stands above the
  * finder at every size, in the page as it is drawn, so it is on the first screen and a
  * screen reader hears it first. The finder's three buttons still fit under it on the
  * shortest phone (e2e/tab-target-size.spec.ts pins both).
@@ -265,7 +285,7 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
 function LpEarnLine() {
   return (
     <p data-testid="lp-earn-line" className="px-1 text-white/85 text-[13px] leading-snug">
-      Fees grow your pool shares. Nothing to claim.
+      Fees grow your pool shares.
     </p>
   );
 }
@@ -334,17 +354,25 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
         <FinePrint summary="Risks">
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
           <p>{RISK_SHORT}</p>
-          {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
-              It goes false the day that program is upgraded: reword it in the same release as the upgrade
-              (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
+          {/* True of the pool program RUNNING on mainnet since its upgrade of 2026-11 to the build that has
+              create_lp_metadata, refuses a public opening on fee tier 0, holds a fee tier's fees inside limits
+              and has the swap guard. Before the first upgrade this named the admin keys as the only change.
+              src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
           <p>
-            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
-            {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
+            Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
+            share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard (see
+            “The program”{' '}
+            {programBelow ? 'below' : 'on the Pools page'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
               no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
-              update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
+              update_amm_config, create_amm_config, collect_protocol_fee) and its upgrade authority. Since the upgrade
+              of 2026-11: collect_fund_fee is the fund owner's alone (the island's Workshop on both tiers, read
+              2026-11-10), update_amm_config hands a tier's fund fee over only once (both tiers are handed over), a
+              tier's fees are held inside the program's ceilings (states/config.rs), and update_amm_config's
+              setting 8 switches a tier's swap guard. The ceiling is said in words: this page prints no fee
+              figure that was not read from the chain (PoolsPage.test.tsx). */}
           <p>
             Read on chain 2026-10-20: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
@@ -356,15 +384,18 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
           </p>
           <p>
             The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
-            venue’s share, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
-            fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
-            them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
-            back on.
+            venue’s share, and that applies to pools already open. The program holds those fees inside limits: a fee tier charges a
+            trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together. On the
+            two fee tiers open today the vault cannot collect the island’s share or send it anywhere else. It can switch the swap
+            guard on or off for a fee tier, add fee tiers, collect the venue’s share of trading fees, and replace the program.
+            Every pool’s coins sit in accounts that program controls, so a replacement could move them. If it switched off removing
+            on a pool, you could not take your money out of that pool until it switched removing back on.
           </p>
           <p>
             Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
-            only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
-            liquidity providers can end up with less than if they had just held both tokens.
+            only from trades sent to it by this site’s own swap, or by someone using the pool program directly. While the swap guard
+            is on, directly means sent by the wallet itself: the pool refuses a trade that another program makes. When the price
+            moves, liquidity providers can end up with less than if they had just held both tokens.
           </p>
           <p>{DISCLOSURE_NOTICE[mode]}</p>
         </FinePrint>

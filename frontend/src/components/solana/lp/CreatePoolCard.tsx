@@ -24,19 +24,20 @@ const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here 
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
 
 /**
- * What opening a pool costs, in one line, beside its button: the tier's fee and the
- * account deposits (rent) the new pool's accounts keep for good. The fee goes to the
- * venue: cp-swap's `create_pool_fee_reveiver` is the team vault's wrapped-SOL account
- * (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and the opening's test run must show it
- * arrive there. `feeTiers` is the section's one read: null while it reads. A deposit
- * figure that was not read is said so, never 0. It names what costs: beside a pool to
- * add to, the line sits right under Go to that pool, which costs nothing.
+ * What opening a pool costs, in one line, beside its button: the tier's fee, the account
+ * deposits (rent) the new pool's accounts keep for good, and the new share's name record
+ * (`nameRecord`: its deposit and Metaplex's fee; undefined while it reads). The fee goes to
+ * the venue: `CP_CREATE_POOL_FEE_RECEIVER` is the vault's wrapped-SOL account. An amount
+ * not read is said so, never 0. Beside a pool to add to, it names what costs.
  */
-function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
+function costLine(fee: bigint, feeTiers: FeeTierRead | null, nameRecord: bigint | null | undefined): string {
   const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
   const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
-  if (deposits !== null) return `${venue} about ${solAbout(deposits)} account setup you do not get back.`;
-  return `${venue} account setup you do not get back (${feeTiers === null ? 'reading the amount…' : 'amount not read'}).`;
+  if (deposits !== null && typeof nameRecord === 'bigint') {
+    return `${venue} about ${solAbout(deposits + nameRecord)} you do not get back: account setup and the pool share's name record.`;
+  }
+  const reading = feeTiers === null || (nameRecord === undefined && deposits !== null);
+  return `${venue} account setup and the pool share's name record, which you do not get back (${reading ? 'reading the amount…' : 'amount not read'}).`;
 }
 
 /**
@@ -49,11 +50,13 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
  * show), Jupiter's price, and the public fee tier and the fee account (`createFacts`).
  * Unread is never "no": each unread input has its own line, and most have a **Refresh**.
  *
- * A pool that already exists never takes the button away. The card names the pool to add
- * to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
- * public tier) and says a new pool is separate; the choice is the opener's. Its button
- * for that pool is **Go to that pool**: it opens that pool card's own Add form, so there
- * is one Add, on the pool's card.
+ * ONE POOL PER PAIR AND FEE TIER (owner ruling 2026-11-01, `pairTaken`). A pool on the
+ * public tier that takes deposits takes its pair: the card names it, says a second one is
+ * not opened here, and the form refuses that coin. The **Open a pool** button stays while
+ * any coin the token pairs with is free, and goes when none is. The card names the pool to
+ * add to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
+ * public tier). Its button for that pool is **Go to that pool**: it opens that pool card's
+ * own Add form, so there is one Add, on the pool's card.
  *
  * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token that copies a well-known
  * name, one its creator can freeze, and one with no market price are offered like any
@@ -62,7 +65,7 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
  * absent or blocked is refused, in the words of the check that blocked it.
  *
  * ONE ANSWER PER PAIRING COIN (`pairFacts`). A new pool pairs the token with SOL, USDC or
- * BAYLA, and the pool to add to instead is one paired with the same coin. So each coin
+ * an island coin (quotes.ts), and the pool to add to instead is one paired with the same coin. So each coin
  * that has such a pool gets its own line and its own Add button, what a pool holds is
  * said in that pool's own coin, and the card says which coins have no pool yet. The coin
  * itself is chosen in the form.
@@ -78,6 +81,8 @@ export function CreatePoolCard(p: {
   outsideAt: number | null;
   /** The section's one read of the fee tiers, or null while it reads: the opening's account deposits. */
   feeTiers: FeeTierRead | null;
+  /** Reads what the new share's name record costs (LpReaders.nameRecordCost), once the card offers an opening. */
+  readNameRecordCost?: () => Promise<bigint | null>;
   /** Search the same token again (pools, token and price). */
   onReread: () => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
@@ -105,6 +110,7 @@ function CreateCard({
   outside,
   outsideAt,
   feeTiers,
+  readNameRecordCost,
   onReread,
   refreshing = false,
   openNow = 0,
@@ -126,6 +132,22 @@ function CreateCard({
     search,
     healths,
   });
+  // The name record's cost, read once the card offers an opening (not on load: /pools'
+  // first reads are the section's). Undefined while it reads; null when not read.
+  const [nameRecord, setNameRecord] = useState<bigint | null | undefined>(readNameRecordCost ? undefined : null);
+  useEffect(() => {
+    if (offer !== 'offer' || !readNameRecordCost || nameRecord !== undefined) return;
+    let live = true;
+    Promise.resolve()
+      .then(() => readNameRecordCost())
+      .then(
+        (v) => live && setNameRecord(v),
+        () => live && setNameRecord(null),
+      );
+    return () => {
+      live = false;
+    };
+  }, [offer, readNameRecordCost, nameRecord]);
   // One answer per coin the token can be paired with. A pool to add to is said beside an
   // offer only: a stopped card has its own line, and names no pool to add to.
   // Worked out on every render, not kept: what this tab opened can change between two reads.
@@ -176,8 +198,8 @@ function CreateCard({
   // create a pool for a token that has one, a phone ended on a card with nothing to press
   // for it (phone walk of the build, 2026-10-03, the day the first BAYLA pool was
   // opened). Offered when that pool takes deposits right now, by the same rule its own
-  // Add button follows. It sits beside Open a pool, which stays: a token may have as
-  // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
+  // Add button follows. It sits beside Open a pool while any coin is still free
+  // (`everyPairTaken`). One button per pool pointed to,
   // and with more than one each says its coin, so "that pool" is never a guess.
   // It says Go to, not Add: it opens that pool card's own Add form (the same panel key as
   // the card's Add button), which comes to the top of the screen there.
@@ -195,6 +217,9 @@ function CreateCard({
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   const tier: TierState | null = facts?.tier ?? null;
+  // Every coin the token pairs with already has its pool on the public tier (offers.ts
+  // `pairTaken`): there is nothing left to open, so no Open a pool button.
+  const everyPairTaken = pairs.length > 0 && pairs.every((x) => x.taken !== null);
 
   return (
     <section
@@ -262,12 +287,12 @@ function CreateCard({
             ))}
           </div>
         )}
-        {offer === 'offer' && (
+        {offer === 'offer' && !everyPairTaken && (
           <>
             {/* The whole cost, on the screen, right above the press that pays it. */}
             {tier?.kind === 'ready' && (
               <p className="text-white/85" data-testid="lp-create-cost">
-                {costLine(tier.config.createPoolFee, feeTiers)}
+                {costLine(tier.config.createPoolFee, feeTiers, nameRecord)}
               </p>
             )}
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
@@ -509,6 +534,8 @@ function OfferLines({
       const several = pointers.length > 1;
       const unpointed = pairs.filter((x) => x.advice.kind === 'none');
       const failing = unpointed.filter((x) => x.hasPool).map((x) => x.coin.symbol);
+      const taken = pairs.filter((x) => x.taken !== null).map((x) => x.coin.symbol);
+      const free = pairs.filter((x) => x.taken === null).map((x) => x.coin.symbol);
       const empty = cut ? [] : unpointed.filter((x) => !x.hasPool).map((x) => x.coin.symbol);
       const noneYetLine = empty.length > 0 && <p data-testid="lp-create-none-yet">This token has no {orList(empty)} pool yet. Open a pool lets you choose what to pair it with.</p>;
       if (pointers.length === 0) {
@@ -557,10 +584,13 @@ function OfferLines({
             </p>
           )}
           {noneYetLine}
+          {/* One pool per pair and fee tier (offers.ts `pairTaken`, owner ruling 2026-11-01). */}
           <p data-testid="lp-create-still">
-            {allMine
-              ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
-              : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
+            {taken.length > 0
+              ? `One pool per pair and fee tier: a second ${orList(taken)} pool is not opened here, so add to ${several ? 'one of these' : 'that one'} instead.${free.length > 0 ? ` You can still open one paired with ${orList(free)} on the public fee tier, at ${terms}.` : ''}`
+              : allMine
+                ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
+                : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
           </p>
           {!allMine && otherTierLine}
           {cutLine}

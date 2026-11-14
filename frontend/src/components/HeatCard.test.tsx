@@ -1129,6 +1129,36 @@ describe('the field names every chain the reader takes', () => {
   });
 });
 
+// One green button per screen, on the home (island answer twenty-eight, §2.2): Read heat has done
+// its job the moment a reading is on the screen, so it goes quiet, and the countdown's Start the
+// clock stays the one green button. Before a read it is the card's green button.
+describe('Read Heat goes quiet once a reading is on the screen', () => {
+  const press = () => screen.getByRole('button', { name: 'Read Heat' });
+
+  it('is the green button before anything is read', () => {
+    mountOpen();
+    expect(press().className).toMatch(/\bbtn-primary\b/);
+    expect(press().getAttribute('data-quiet')).toBeNull();
+  });
+
+  it('is quiet beside a reading: same press, 0.25 white edge, 0.78 white words, no fill', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 16.32, tier: 'Drifter', days_to_plant: 102 }));
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <HeatCard variant="embedded" initialAddress={ADDR} />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('countdown');
+    expect(press().className).not.toMatch(/\bbtn-primary\b/);
+    expect(press().getAttribute('data-quiet')).toBe('true');
+    expect(press().style.background).toBe('transparent');
+    expect(press().style.border).toBe('1px solid rgba(255, 255, 255, 0.25)');
+    expect(press().style.color).toBe('rgba(255, 255, 255, 0.78)');
+    // It keeps its word, and the countdown's Start the clock is the screen's green button.
+    expect(screen.getByRole('link', { name: 'Start the clock' }).className).toMatch(/\bbtn-primary\b/);
+  });
+});
+
 describe('a reading older than the freshness law allows', () => {
   it('says it is stale without a prose em dash', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ as_of_unix: NOW - 8 * 86_400, observedAt: NOW - 8 * 86_400 }));

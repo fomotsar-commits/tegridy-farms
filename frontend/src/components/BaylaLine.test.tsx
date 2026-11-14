@@ -13,7 +13,10 @@ import { clearReceipt, closeReceipt, raiseReceipt, useReceipt } from '../lib/rec
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 vi.mock('wagmi', () => ({ useAccount: () => ({ address: undefined }) }));
-vi.mock('../lib/solanaSurface', () => ({ useSolanaSurface: () => ({ surface: null }) }));
+vi.mock('../lib/solanaSurface', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/solanaSurface')>()),
+  useSolanaSurface: () => ({ surface: null }),
+}));
 
 const reading: HeatReading = {
   address: '0x1111111111111111111111111111111111111111',
@@ -86,7 +89,7 @@ describe('BaylaLine', () => {
     const press = screen.getByRole('button', { name: 'Receipt' });
     // Island answer twenty-five, build 6: the card that was raised, closed, then asked for again.
     act(() => {
-      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, title: null, under: null, fee: { kind: 'reading' }, clock: null });
+      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, island: true, title: null, under: null, fee: { kind: 'reading' }, clock: null, holders: null, lps: null });
       closeReceipt();
     });
     expect(screen.getByTestId('receipt-open')).toHaveTextContent('false');
@@ -137,8 +140,9 @@ describe('BaylaLine', () => {
     expect(screen.getByRole('link', { name: 'Start the clock' })).toHaveAttribute('href', '/launch?sheet=buy');
   });
 
-  // Island answer twenty-five, §2: one green button per screen.
-  it('goes quiet where the screen’s own green button makes her move, and stays green where it makes another', () => {
+  // One green button per screen (island answer twenty-five, §2), and the rule is the screen's
+  // (answer twenty-eight, §2.2): quiet wherever the screen draws its own green button.
+  it('goes quiet wherever the screen draws its own green button, and stays green where it draws none', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     setLastReading(reading);
     function Screen({ move }: { move: ScreenMove }) {
@@ -163,7 +167,17 @@ describe('BaylaLine', () => {
     // The same press: it still opens the sheet.
     expect(quiet).toHaveAttribute('href', '/bayla?sheet=add');
     cleanup();
+    // The countdown's Start the clock is another move, and still the screen's one green button.
     at('start');
+    const beside = screen.getByRole('link', { name: 'Add BAYLA' });
+    expect(beside).toHaveAttribute('data-quiet', 'true');
+    expect(beside).not.toHaveClass('btn-primary');
+    cleanup();
+    render(
+      <MemoryRouter initialEntries={['/bayla']}>
+        <BaylaLine />
+      </MemoryRouter>,
+    );
     const green = screen.getByRole('link', { name: 'Add BAYLA' });
     expect(green).not.toHaveAttribute('data-quiet');
     expect(green).toHaveClass('btn-primary');

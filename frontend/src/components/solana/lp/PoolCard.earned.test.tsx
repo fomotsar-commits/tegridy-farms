@@ -85,7 +85,7 @@ describe('what the shares have earned, with no press and no read of its own', ()
     // Nothing was read for it: the pool's past is asked for on a press only.
     expect(poolPast).not.toHaveBeenCalled();
     // The sentence trunk already had stays: where the providers' share of a fee goes.
-    expect(card).toHaveTextContent('LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.');
+    expect(card).toHaveTextContent('LPs’ share of fees stays in the pool, so each pool share is worth a little more after every trade.');
   });
 
   it('the yearly figure is on the card only inside the whole pace sentence: with it removed, no forecast word is left', () => {

@@ -30,15 +30,16 @@ import type {
   SwapOpenGate,
   TxOutcome,
   TxSigner,
+  TxVersion,
   WriteGate,
   WriteRpc,
   ActionAvailability,
 } from '../../../lib/launcher/solana/write/types';
 import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
-import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
+import type { LpClaimBasis, LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
-import type { RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
+import type { RangeCreateArgs, RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
 import type { VenueSwapArgs } from '../../../lib/launcher/solana/write/venueSwap';
 import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
@@ -78,6 +79,8 @@ export type {
   OpenGate,
   Prepared,
   PreparedTx,
+  PreparedWire,
+  RangeCreateSummary,
   RangeKind,
   RangeSummary,
   SimulatedEffect,
@@ -88,15 +91,17 @@ export type {
   TierState,
   TierTerms,
   TokenRole,
+  TxConfig,
   TxKind,
   TxOutcome,
   TxSigner,
   TxSummary,
+  TxVersion,
   WriteGate,
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
 export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
-export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
+export type { LpClaimBasis, LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, VenueSwapArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
 
@@ -143,7 +148,7 @@ export interface WriteApi {
   prepareCurveBuy(
     rpc: WriteRpc,
     gate: OpenGate,
-    a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint },
+    a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint; txVersion?: TxVersion },
   ): Promise<Prepared>;
   prepareCurveSell(
     rpc: WriteRpc,
@@ -155,13 +160,14 @@ export interface WriteApi {
       curveRentFloor: bigint;
       tokensIn: bigint;
       slippageBps: bigint;
+      txVersion?: TxVersion;
     },
   ): Promise<Prepared>;
-  prepareMigrate(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount }): Promise<Prepared>;
+  prepareMigrate(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount; txVersion?: TxVersion }): Promise<Prepared>;
   preparePoolSwap(
     rpc: WriteRpc,
     gate: OpenGate,
-    a: { owner: PublicKey; mint: PublicKey; pool: LaunchPool; side: 'buy' | 'sell'; amountIn: bigint; slippageBps: bigint },
+    a: { owner: PublicKey; mint: PublicKey; pool: LaunchPool; side: 'buy' | 'sell'; amountIn: bigint; slippageBps: bigint; txVersion?: TxVersion },
   ): Promise<Prepared>;
 
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
@@ -231,6 +237,8 @@ export interface LpWriteApi {
 export interface RangeWriteApi {
   rangeWriteConfig(): CurveWriteConfig | null;
   prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeOpenArgs): Promise<Prepared>;
+  /** A new pool on the 1% tier and its first position, in one transaction. */
+  prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeCreateArgs): Promise<Prepared>;
   prepareRangeRemove(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: RangeRemoveArgs): Promise<Prepared>;
   prepareRangeClose(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: Omit<RangeRemoveArgs, 'percent'>): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;

@@ -38,13 +38,14 @@ describe('PoolsHostPage', () => {
     expect(APP).toContain('function SolanaLpRedirect() {\n  const { search, hash } = useLocation();\n  return <Navigate to={`/pools${search}${hash}`} replace />;\n}');
   });
 
-  it('opens /pools?mint= on the Venue AMM tab and its panel', async () => {
+  it('opens /pools?mint= on its Add / Remove tab and its panel', async () => {
     render(
       <MemoryRouter initialEntries={['/pools?mint=So11111111111111111111111111111111111111112']}>
         <PoolsHostPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('tab', { name: 'Venue AMM' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Add / Remove' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Venue AMM' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Solana LP' })).toBeNull();
     expect(await screen.findByText('venue-amm panel')).toBeInTheDocument();
   });

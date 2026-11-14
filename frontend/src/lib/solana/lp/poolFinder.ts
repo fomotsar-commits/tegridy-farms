@@ -3,6 +3,8 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { poolStatePda } from '../../launcher/solana/curve/program';
 import {
+  LP_NAME_RECORD_LEN,
+  METAPLEX_CREATE_FEE_LAMPORTS,
   decodeAmmConfig,
   decodePoolState,
   deriveAmmConfig,
@@ -44,8 +46,9 @@ import { QUOTE_COINS, quotesFor, readPair, type QuoteCoin } from './quotes';
  * pools there are (100 accounts a call: 25 pools a call in the second round).
  *
  * THE LAUNCH TIER. Fee tier 0 is for graduations, which open the launch pool. Some builds of
- * the pool program (88b98aa9, on mainnet since 2026-10-24) also let anyone open a pool on it
- * directly, for free. Such a pool is read and marked (`launchTierWithoutLaunch`), then never
+ * the pool program (88b98aa9, on mainnet until the upgrade and again during each roll-back:
+ * 2026-10-24 to 11-03 and 2026-11-04 to 11-06) also let anyone open a pool on it directly, for free, and a
+ * pool opened then stays after the upgrade. Such a pool is read and marked (`launchTierWithoutLaunch`), then never
  * listed, quoted or added to (owner, 2026-10-24); its holders can still take their liquidity out.
  */
 
@@ -458,6 +461,21 @@ async function readOpeningDeposits(rpc: SolanaRpc): Promise<bigint | null> {
       bySize.set(sizes[k]!, BigInt(v));
     }
     return NEVER_REFUNDED_ACCOUNT_SIZES.reduce((sum, n) => sum + bySize.get(n)!, 0n);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What an opening from this site adds for its new share's name record (createPool.ts): the
+ * record's deposit, kept in it for good, and Metaplex's fee for making it. Null when not
+ * read. Not part of `readFeeTiers`: /pools reads that on load, and this only once a card
+ * offers an opening.
+ */
+export async function readNameRecordCost(rpc: SolanaRpc): Promise<bigint | null> {
+  try {
+    const v = await rpc('getMinimumBalanceForRentExemption', [LP_NAME_RECORD_LEN]);
+    return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? BigInt(v) + METAPLEX_CREATE_FEE_LAMPORTS : null;
   } catch {
     return null;
   }

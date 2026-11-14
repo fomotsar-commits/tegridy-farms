@@ -1,5 +1,6 @@
 // The home page's total value locked, as /api/aggregator?resource=venue-tvl serves it
-// (api/_lib/venueTvl.js): what our pools hold plus what is staked in our staking pools.
+// (api/_lib/venueTvl.js): what our pools hold, what is staked in our staking pools, and the
+// NFTs our contracts hold (NFT Lending's collateral, the JBAC staking vault).
 // Anything the page cannot trust reads as unread, never as zero, and an answer that says
 // "current" while missing a chain is read as partial.
 
@@ -11,6 +12,9 @@ export type TvlChainName = keyof typeof TVL_CHAINS;
 /** The chains with staking pools, in the order the answer lists them. */
 export const STAKE_CHAINS = Object.freeze(['solana', 'ethereum', 'base'] as const);
 export type StakeChainName = (typeof STAKE_CHAINS)[number];
+/** The chains whose contracts hold NFTs, in the order the answer lists them. */
+export const NFT_CHAINS = Object.freeze(['ethereum'] as const);
+export type NftChainName = (typeof NFT_CHAINS)[number];
 
 export type TvlChain =
   | { chain: TvlChainName; read: true; usd: number; pools: number; unvalued: number }
@@ -20,16 +24,20 @@ export type TvlStaking =
   | { chain: StakeChainName; read: true; usd: number; vaults: number; unvalued: number }
   | { chain: StakeChainName; read: false };
 
+export type TvlNfts =
+  | { chain: NftChainName; read: true; usd: number; nfts: number; unvalued: number }
+  | { chain: NftChainName; read: false };
+
 export type VenueTvl =
   | { state: 'unread' }
-  | { state: 'current' | 'partial'; usd: number; chains: TvlChain[]; staking: TvlStaking[]; readAt: Date };
+  | { state: 'current' | 'partial'; usd: number; chains: TvlChain[]; staking: TvlStaking[]; nfts: TvlNfts[]; readAt: Date };
 
 const UNREAD: VenueTvl = { state: 'unread' };
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 const isUsd = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 /** One part's rows, in `names` order, or null when any row is not what the server sends. */
-function parseRows(raw: unknown, names: readonly string[], count: 'pools' | 'vaults'): object[] | null {
+function parseRows(raw: unknown, names: readonly string[], count: 'pools' | 'vaults' | 'nfts'): object[] | null {
   if (!Array.isArray(raw) || raw.length !== names.length) return null;
   const rows: object[] = [];
   for (const [i, chain] of names.entries()) {
@@ -55,9 +63,14 @@ export function parseVenueTvl(body: unknown): VenueTvl {
     b.staking === undefined
       ? STAKE_CHAINS.map((chain): TvlStaking => ({ chain, read: false }))
       : (parseRows(b.staking, STAKE_CHAINS, 'vaults') as TvlStaking[] | null);
-  if (!chains || !staking) return UNREAD;
-  const whole = [...chains, ...staking].every((c) => c.read && c.unvalued === 0);
-  return { state: b.state === 'current' && whole ? 'current' : 'partial', usd: b.usd, chains, staking, readAt: new Date(readAt) };
+  // Likewise an answer from before NFTs were counted: its total leaves them out.
+  const nfts =
+    b.nfts === undefined
+      ? NFT_CHAINS.map((chain): TvlNfts => ({ chain, read: false }))
+      : (parseRows(b.nfts, NFT_CHAINS, 'nfts') as TvlNfts[] | null);
+  if (!chains || !staking || !nfts) return UNREAD;
+  const whole = [...chains, ...staking, ...nfts].every((c) => c.read && c.unvalued === 0);
+  return { state: b.state === 'current' && whole ? 'current' : 'partial', usd: b.usd, chains, staking, nfts, readAt: new Date(readAt) };
 }
 
 export async function fetchVenueTvl(fetchImpl: typeof fetch = fetch): Promise<VenueTvl> {

@@ -305,7 +305,7 @@ describe('when the venue AMM is live', () => {
   it('says a pair with no pairing coin was not looked for, never that it has no pool', async () => {
     quoteVenuePools.mockReturnValue({ state: 'not-searched', candidates: [] });
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Our pools pair a token with SOL, USDC or BAYLA, so there is none for this pair\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pools pair a token with SOL, USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ, so there is none for this pair\./)).toBeInTheDocument());
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 

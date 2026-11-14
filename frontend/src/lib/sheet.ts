@@ -11,12 +11,28 @@ import { SOL_MINT } from './solana';
 export type SheetKind = 'add' | 'buy';
 export const SHEET_PARAM = 'sheet';
 export const SHEET_COIN_PARAM = 'coin';
+/** The sheet's own network (owner, 2026-11-11): a pick in its drop-down changes the form in place, and the address holds it. */
+export const SHEET_NET_PARAM = 'net';
+/** Every network a sheet can name. Whether the venue has a form there is the module's to say (layout/moduleNetwork.tsx). */
+export const SHEET_NETS = ['solana', 'base', 'robinhood', 'ethereum', 'cardano'] as const;
+export type SheetNet = (typeof SHEET_NETS)[number];
+/** A room's own network, when the sheet can name it. */
+export function roomNet(room: Bungalow | null | undefined): SheetNet | null {
+  return SHEET_NETS.find((n) => n === room?.chain) ?? null;
+}
 
 export interface SheetAsk {
   kind: SheetKind;
   /** The room named in the address, when it is one the sheet can act on. */
   coin: Bungalow | null;
+  /** The network named in the address; null when none is (the sheet then opens on its room's, else Solana). */
+  net: SheetNet | null;
+  /** Add's whole section instead of one room's pool: every pool, your positions, remove, claim, open (`coin=all`). */
+  all: boolean;
 }
+
+/** `coin=all`: the Add sheet on every pool. */
+export const SHEET_ALL = 'all';
 
 /** The rooms a sheet acts on: a live Solana coin with its SOL pool on the venue, in the hall's order. */
 export function sheetRooms(): Bungalow[] {
@@ -33,7 +49,9 @@ export function readSheet(search: string): SheetAsk | null {
   const params = new URLSearchParams(search);
   const kind = params.get(SHEET_PARAM);
   if (kind !== 'add' && kind !== 'buy') return null;
-  return { kind, coin: sheetRoom(params.get(SHEET_COIN_PARAM)) };
+  const net = params.get(SHEET_NET_PARAM);
+  const all = kind === 'add' && params.get(SHEET_COIN_PARAM) === SHEET_ALL;
+  return { kind, all, coin: sheetRoom(params.get(SHEET_COIN_PARAM)), net: SHEET_NETS.find((n) => n === net) ?? null };
 }
 
 function withParams(pathname: string, params: URLSearchParams): string {
@@ -42,11 +60,14 @@ function withParams(pathname: string, params: URLSearchParams): string {
 }
 
 /** The address with the sheet open over the page; `coin` (a room id) when the sheet's coin is not the room's. */
-export function sheetHref(pathname: string, search: string, kind: SheetKind, coin?: string | null): string {
+export function sheetHref(pathname: string, search: string, kind: SheetKind, coin?: string | null, net?: SheetNet | null): string {
   const params = new URLSearchParams(search);
   params.set(SHEET_PARAM, kind);
   if (coin) params.set(SHEET_COIN_PARAM, coin);
   else params.delete(SHEET_COIN_PARAM);
+  // Solana is the sheet's own network: the address names only another one.
+  if (net && net !== 'solana') params.set(SHEET_NET_PARAM, net);
+  else params.delete(SHEET_NET_PARAM);
   return withParams(pathname, params);
 }
 
@@ -55,6 +76,7 @@ export function withoutSheet(pathname: string, search: string): string {
   const params = new URLSearchParams(search);
   params.delete(SHEET_PARAM);
   params.delete(SHEET_COIN_PARAM);
+  params.delete(SHEET_NET_PARAM);
   return withParams(pathname, params);
 }
 

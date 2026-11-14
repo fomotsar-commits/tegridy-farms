@@ -28,6 +28,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { PoolTradeDialWhenOpen } from './PoolTradeDial';
 import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
@@ -281,13 +282,13 @@ function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefine
 }
 
 /**
- * Why a wish that named this pool did not end in its Add form, in one sentence. The card
- * shows it under its heading and the heading is described by it, so the reason is what a
- * screen reader says when focus lands there: the heading alone is only the pool's kind,
- * and two cards can carry the same one (review, 2026-10-04).
+ * Why a wish that named this pool did not end in its Add form, in one sentence; the heading
+ * is described by it, since two cards can carry the same heading. A failed check's reasons
+ * are listed once, under Deposits: on the card this points there (`listedBelow`), and the
+ * door, away from the card, says them.
  */
-function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
-  const reasons = health.deposits.reasons.join(' ');
+function notOpenedWhy(offer: DepositOffer, health: PoolHealth, listedBelow: boolean): string {
+  const reasons = listedBelow ? ' (see Deposits, below).' : `. ${health.deposits.reasons.join(' ')}`;
   switch (offer) {
     case 'paused-here':
       return 'adding liquidity from this site is paused right now.';
@@ -295,8 +296,8 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
       return 'a deposit you sent to this pool is not confirmed yet.';
     case 'checks':
       return health.deposits.verdict === 'refused'
-        ? `this pool does not pass the checks a deposit needs. ${reasons}`
-        : `the checks a deposit needs could not be run on this pool. ${reasons}`;
+        ? `this pool does not pass the checks a deposit needs${reasons}`
+        : `the checks a deposit needs could not be run on this pool${reasons}`;
     case 'gate':
     case 'off':
     case 'offer':
@@ -370,12 +371,15 @@ export function PoolCard({
   useShownOnce(showNow, onActed, cardRef, headingRef, atTop);
   const { shownFor, door: shownFromDoor, top: shownAtTop } = useShownWish(showNow, fromDoor, atTop);
   const whyId = useId();
+  const reasonsId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
     : 'off';
   // Gone as soon as the pool offers adding again: the button under the checks says so then.
-  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
+  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health, !shownAtTop) : null;
+  // Pointed at, not said again: the heading is described by the reasons under Deposits too.
+  const describedBy = why && offer === 'checks' && !shownAtTop ? `${whyId} ${reasonsId}` : why ? whyId : undefined;
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
   const cfg = view.config;
@@ -427,7 +431,7 @@ export function PoolCard({
             </div>
           )}
           <Notice>
-            LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
+            LPs’ share of fees stays in the pool, so each pool share is worth a little more after every trade.
           </Notice>
           {readers?.poolPast && <PoolPastBlock view={view} safety={safety} readers={readers} />}
         </Part>
@@ -491,7 +495,7 @@ export function PoolCard({
     >
       <CardArt pageId="solana-lp" idx={7} />
       {/* Named as a position names its pool (identity.ts): the coin's ticker, the pairing coin, the tier. */}
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
       {/* Each coin's name copies its whole address (island answer twenty-four), under the heading's words. */}
@@ -541,9 +545,11 @@ export function PoolCard({
           )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
-            {health.deposits.reasons.map((r) => (
-              <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
-            ))}
+            <div id={reasonsId}>
+              {health.deposits.reasons.map((r) => (
+                <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
+              ))}
+            </div>
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
             {health.deposits.warnings.length > 0 && (
               <div data-testid="lp-pool-warnings" className="space-y-1">
@@ -564,6 +570,7 @@ export function PoolCard({
         <details data-testid="lp-pool-more" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75 text-[12px]">More about this pool</summary>
           <div className="space-y-2 px-3 pb-3">
+            <PoolTradeDialWhenOpen view={view} creatorFeeRate={creatorRate} />
             <div className="space-y-3 pb-1">
               {address}
               {facts}

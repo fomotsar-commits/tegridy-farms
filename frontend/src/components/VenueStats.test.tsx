@@ -25,7 +25,8 @@ const staking = () => [
   { chain: 'ethereum', read: true, usd: 64.79, vaults: 3, unvalued: 0 },
   { chain: 'base', read: true, usd: 0, vaults: 0, unvalued: 0 },
 ];
-const tvl = (over: Record<string, unknown> = {}) => ({ state: 'current', usd: 34239.67, chains: chains(), staking: staking(), readAt: '2026-10-19T16:29:30.000Z', ...over });
+const nfts = () => [{ chain: 'ethereum', read: true, usd: 80.4, nfts: 1, unvalued: 0 }];
+const tvl = (over: Record<string, unknown> = {}) => ({ state: 'current', usd: 34239.67, chains: chains(), staking: staking(), nfts: nfts(), readAt: '2026-10-19T16:29:30.000Z', ...over });
 
 describe('parseVenueVolume', () => {
   it('turns a cached "current" answer behind once its staleAt has passed', () => {
@@ -57,6 +58,22 @@ describe('parseVenueTvl', () => {
       { chain: 'ethereum', read: false },
       { chain: 'base', read: false },
     ]);
+  });
+
+  // 2026-11-13: the NFTs our contracts hold joined the total.
+  it('reads an answer from before NFTs were counted as partial, its NFTs unread', () => {
+    const t = parseVenueTvl(tvl({ nfts: undefined }));
+    expect(t).toMatchObject({ state: 'partial', usd: 34239.67 });
+    expect(t.state !== 'unread' && t.nfts).toEqual([{ chain: 'ethereum', read: false }]);
+  });
+
+  it('reads NFTs left out for want of a floor, or unread, as partial, and NFT rows it cannot trust as unread', () => {
+    expect(parseVenueTvl(tvl()).state).toBe('current');
+    expect(parseVenueTvl(tvl({ nfts: [{ chain: 'ethereum', read: true, usd: 0, nfts: 0, unvalued: 1 }] })).state).toBe('partial');
+    expect(parseVenueTvl(tvl({ nfts: [{ chain: 'ethereum', read: false }] })).state).toBe('partial');
+    for (const bad of [null, [], [{ chain: 'base', read: true, usd: 1, nfts: 1, unvalued: 0 }], [{ chain: 'ethereum', read: true, usd: -1, nfts: 1, unvalued: 0 }]]) {
+      expect(parseVenueTvl(tvl({ nfts: bad }))).toEqual({ state: 'unread' });
+    }
   });
 
   it('reads "current" with a chain missing or a pool left out as partial, never whole', () => {
@@ -127,10 +144,13 @@ describe('<VenueStats />', () => {
     expect(screen.getByTestId('venue-tvl').querySelector('.rounded-full')).toBeTruthy();
     expect(screen.getByTestId('venue-tvl-chains').textContent).toBe('Pools: Solana $11,060 · Ethereum $442 · Base $233 · Robinhood $0');
     expect(screen.getByTestId('venue-tvl-staking').textContent).toBe('Staked: Solana $22,440 · Ethereum $65 · Base $0');
-    expect(screen.getByText(/plus what is staked in our staking pools/)).toBeTruthy();
+    expect(screen.getByTestId('venue-tvl-nfts').textContent).toBe('NFTs held: Ethereum $80');
+    expect(screen.getByText(/what is staked in our staking pools, and the NFTs our contracts hold/)).toBeTruthy();
+    expect(screen.getByText(/counts at its collection's OpenSea floor/)).toBeTruthy();
+    expect(screen.queryByText(/no OpenSea floor just now/)).toBeNull();
     expect(screen.queryByText(/staked coin with no market price/)).toBeNull();
     expect(screen.getByText(/Last counted /)).toBeTruthy();
-    expect(screen.getByText(/our pools on Ethereum, Base and Robinhood\./)).toBeTruthy();
+    expect(screen.getByText(/our pools on Ethereum, Base and Robinhood, new loans on NFT Lending \(the WETH lent\) and sales on our own NFT\s+order book\./)).toBeTruthy();
     expect(screen.queryByText(/not up to date/)).toBeNull();
   });
 

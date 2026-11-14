@@ -1,4 +1,4 @@
-import { WETH, CONDUIT_ADDRESS } from "../constants";
+import { WETH, WETH_BY_CHAIN, CONDUIT_ADDRESS } from "../constants";
 import { getProvider } from "../api";
 import { waitForTxOutcome, txOutcomeError } from "./txOutcome";
 
@@ -13,24 +13,32 @@ async function getEthers() {
   return import("ethers");
 }
 
-async function getSigner() {
+// Each helper takes the chain id it works on (1 when not given). WETH is the
+// chain's own (WETH_BY_CHAIN), and a write refuses a wallet on another chain.
+function wethOn(chainId) {
+  const address = WETH_BY_CHAIN[chainId];
+  if (!address) throw new Error(`No WETH on chain ${chainId}`);
+  return address;
+}
+
+async function getSigner(chainId = 1) {
   const { ethers } = await getEthers();
   const provider = getProvider();
   if (!provider) throw new Error("No wallet");
   const browserProvider = new ethers.BrowserProvider(provider);
   const network = await browserProvider.getNetwork();
-  if (Number(network.chainId) !== 1) {
-    throw new Error("Please switch to Ethereum Mainnet");
+  if (Number(network.chainId) !== chainId) {
+    throw new Error(chainId === 1 ? "Please switch to Ethereum Mainnet" : "Please switch to Base");
   }
   return browserProvider.getSigner();
 }
 
-export async function getWethBalance(address) {
+export async function getWethBalance(address, chainId = 1) {
   const { ethers } = await getEthers();
   const provider = getProvider();
   if (!provider) return 0n;
   const browserProvider = new ethers.BrowserProvider(provider);
-  const weth = new ethers.Contract(WETH, WETH_ABI, browserProvider);
+  const weth = new ethers.Contract(chainId === 1 ? WETH : wethOn(chainId), WETH_ABI, browserProvider);
   return weth.balanceOf(address);
 }
 
@@ -42,22 +50,22 @@ export async function getEthBalance(address) {
   return browserProvider.getBalance(address);
 }
 
-export async function getWethAllowance(address) {
+export async function getWethAllowance(address, chainId = 1) {
   const { ethers } = await getEthers();
   const provider = getProvider();
   if (!provider) return 0n;
   const browserProvider = new ethers.BrowserProvider(provider);
-  const weth = new ethers.Contract(WETH, WETH_ABI, browserProvider);
+  const weth = new ethers.Contract(chainId === 1 ? WETH : wethOn(chainId), WETH_ABI, browserProvider);
   return weth.allowance(address, CONDUIT_ADDRESS);
 }
 
-export async function wrapEth(amountWei) {
+export async function wrapEth(amountWei, chainId = 1) {
   const amount = BigInt(amountWei);
   if (amount <= 0n) {
     throw new Error("Wrap amount must be positive");
   }
   const { ethers } = await getEthers();
-  const signer = await getSigner();
+  const signer = await getSigner(chainId);
   const address = await signer.getAddress();
   const provider = signer.provider;
   // Verify sufficient ETH balance before sending (prevents confusing wallet errors)
@@ -70,7 +78,7 @@ export async function wrapEth(amountWei) {
       `need ${formatEth(amount)} + gas`
     );
   }
-  const weth = new ethers.Contract(WETH, WETH_ABI, signer);
+  const weth = new ethers.Contract(chainId === 1 ? WETH : wethOn(chainId), WETH_ABI, signer);
   const tx = await weth.deposit({ value: amount });
   // Throws unless the wrap confirmed. An unconfirmed or replaced wrap carries
   // `.notice`, which callers return as-is instead of calling it failed.
@@ -88,7 +96,7 @@ export async function wrapEth(amountWei) {
 // This prevents accidental or malicious unlimited approvals.
 const MAX_APPROVAL_WEI = BigInt(100e18); // 100 WETH
 
-export async function approveWeth(amount) {
+export async function approveWeth(amount, chainId = 1) {
   const approvalAmount = BigInt(amount);
   if (approvalAmount <= 0n) {
     throw new Error("Approval amount must be positive");
@@ -99,9 +107,9 @@ export async function approveWeth(amount) {
       `Please reduce the amount or contact support.`
     );
   }
-  const signer = await getSigner();
+  const signer = await getSigner(chainId);
   const { ethers } = await getEthers();
-  const weth = new ethers.Contract(WETH, WETH_ABI, signer);
+  const weth = new ethers.Contract(chainId === 1 ? WETH : wethOn(chainId), WETH_ABI, signer);
   // Approve the conduit (not Seaport directly). When orders use a
   // non-zero conduitKey, Seaport pulls tokens through the conduit.
   const tx = await weth.approve(CONDUIT_ADDRESS, approvalAmount);

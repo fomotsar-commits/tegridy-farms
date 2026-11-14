@@ -9,9 +9,10 @@ import {
   MORE_NAV,
   NAV_SECTIONS,
   POOLS_SECTION,
+  YIELD_SECTION,
   NFT_FINANCE_LIVE,
   tradeRoute,
-  lockRoute,
+  yieldRoute,
   poolsRoute,
   islandRoute,
   litWord,
@@ -19,6 +20,8 @@ import {
   INDEX_PAGES,
   indexName,
   ISLAND_SECTION,
+  MENU_PARKED,
+  menuItems,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
 import { BUNGALOWS } from './bungalows';
@@ -33,16 +36,18 @@ import { deployedCurveChains } from './launcher/curveChains';
 // The route table (src/test/a11yRouteCoverage.test.ts holds it equal to App.tsx): the
 // answer to "is this path routed at all".
 import { ROUTES } from '../../e2e/fixtures/routes';
+import { VENUE_CHAINS, tabServes } from './sectionChains';
+import { rangePoolsVisible } from './solana/clmm/programId';
 
-// The bar is five words at every width: Island, Swap, Add, Lock, Launch (owner, 2026-10-03, the
+// The bar is five words at every width: Island, Swap, Add, Yield, Launch (owner, 2026-10-03, the
 // island's venue review item 1; on 2026-10-18 Heat and Rooms became the one word Island; build 2
 // of the outside review, 2026-11-01: Solana first, and Pools came up from the drawer as Add).
 // Check is the drawer's row. Every section is still one tabbed page; the bar and the drawer only
 // decide where its row is.
 
 describe('the bar', () => {
-  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
-    expect(BAR_NAV.map((w) => w.label)).toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
+  it('reads Island · Swap · Add · Yield · Launch, and nothing else', () => {
+    expect(BAR_NAV.map((w) => w.label)).toEqual(['Island', 'Swap', 'Add', 'Yield', 'Launch']);
     for (const dead of ['Heat', 'Rooms', 'Pools', 'Check', 'Earn', 'Farm', 'Trade', 'More', 'Dashboard']) {
       expect(BAR_NAV.map((w) => w.label), `${dead} came back to the bar`).not.toContain(dead);
     }
@@ -63,9 +68,9 @@ describe('the bar', () => {
     expect(BAR_NAV[0]?.label).toBe(ISLAND_SECTION.heading);
   });
 
-  it('points Swap, Add, Lock and Launch at a tab of their own section', () => {
+  it('points Swap, Add, Yield and Launch at a tab of their own section', () => {
     // Add is the Pools section's word on the bar.
-    for (const [label, heading] of [['Swap', 'Swap'], ['Add', 'Pools'], ['Lock', 'Lock'], ['Launch', 'Launch']] as const) {
+    for (const [label, heading] of [['Swap', 'Swap'], ['Add', 'Pools'], ['Yield', 'Yield'], ['Launch', 'Launch']] as const) {
       const word = BAR_NAV.find((w) => w.label === label)!;
       const section = NAV_SECTIONS.find((s) => s.heading === heading);
       expect(section, `no ${heading} section`).toBeDefined();
@@ -74,7 +79,7 @@ describe('the bar', () => {
       const to = label === 'Swap' && opensSheet(word.to) ? section!.primaryTo! : word.to;
       expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(to);
     }
-    expect(BAR_NAV.find((w) => w.label === 'Lock')?.to, 'Lock opens the list of every pool').toBe('/earn');
+    expect(BAR_NAV.find((w) => w.label === 'Yield')?.to, 'Yield opens the list of every pool').toBe('/earn');
   });
 
   it('keeps Dashboard off the bar: it is a drawer row, once a wallet connects', () => {
@@ -99,10 +104,10 @@ describe('which word is lit', () => {
     ['/gallery', '', 'Island'],
     ['/community', '', 'Island'],
     ['/tokenomics', '', 'Island'],
-    ['/earn', '', 'Lock'],
-    ['/earn/bayla', '', 'Lock'],
-    ['/nft-finance', '', 'Lock'],
-    ['/checkout', '', 'Lock'],
+    ['/earn', '', 'Yield'],
+    ['/earn/bayla', '', 'Yield'],
+    ['/nft-finance', '', 'Yield'],
+    ['/checkout', '', 'Yield'],
     ['/launch', '', 'Launch'],
     ['/curve-launch', '', 'Launch'],
     ['/launch-simulator', '', 'Launch'],
@@ -134,20 +139,22 @@ describe('which word is lit', () => {
 });
 
 describe('the drawer', () => {
-  it('carries Check, one row, and the bar carries the rest', () => {
-    expect(DRAWER_SECTIONS.map((s) => s.heading)).toEqual(['Check']);
+  // Owner, 2026-11-10: Check left the menu ("hide it all"); its pages open by their address.
+  it('carries no section row, and the bar carries every section but Check', () => {
+    expect(DRAWER_SECTIONS).toEqual([]);
     for (const s of NAV_SECTIONS) {
       // On the bar is a word that owns the section's landing tab (Pools' word is Add).
       const onBar = BAR_NAV.filter((w) => w.lit(s.hub, '')).length;
       const places = onBar + (DRAWER_SECTIONS.includes(s) ? 1 : 0);
-      expect(places, `the ${s.heading} section is in ${places} places; it belongs in exactly one`).toBe(1);
+      const want = s.heading === 'Check' ? 0 : 1;
+      expect(places, `the ${s.heading} section is in ${places} places; it belongs in ${want}`).toBe(want);
     }
   });
 
   // Owner, 2026-10-03: "pools land on solana lp"; 2026-10-24: "remove solana lp keep venue amm",
   // the same LP section, so its word lands there. Build 2 (2026-11-01) moved that word from the
   // drawer to the bar, third, as Add.
-  it('lands Add, the Pools word on the bar, on the Venue AMM tab, and keeps the strip in its order', () => {
+  it("lands Add, the Pools word on the bar, on Solana's Add / Remove tab, and keeps the strip in its order", () => {
     expect(POOLS_SECTION.hub).toBe('/liquidity');
     expect(POOLS_SECTION.primaryTo).toBe('/pools');
     const add = BAR_NAV.find((w) => w.label === 'Add');
@@ -155,14 +162,14 @@ describe('the drawer', () => {
     expect(add?.to).toBe('/pools');
     expect(POOLS_SECTION.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
       ['/liquidity', 'Add / Remove'],
-      ['/pools', 'Venue AMM'],
+      ['/pools', 'Add / Remove'],
       ['/range-pools', 'Range'],
       ['/zap', 'Zap'],
     ]);
   });
 
-  // Owner, 2026-10-24: Venue AMM "left of" Range.
-  it('puts Venue AMM left of Range once range pools are shown, and has no Solana LP tab', async () => {
+  // Owner, 2026-10-24: Venue AMM "left of" Range; its tab is named Add / Remove since 2026-11-11.
+  it("puts Solana's Add / Remove left of Range once range pools are shown, and has no Solana LP tab", async () => {
     vi.resetModules();
     vi.doMock('./solana/clmm/programId', async (importOriginal) => ({
       ...(await importOriginal<typeof import('./solana/clmm/programId')>()),
@@ -170,7 +177,7 @@ describe('the drawer', () => {
     }));
     try {
       const { POOLS_SECTION: withRange } = await import('./navConfig');
-      expect(withRange.items.map((i) => i.tabLabel ?? i.label)).toEqual(['Add / Remove', 'Venue AMM', 'Range', 'Zap']);
+      expect(withRange.items.map((i) => i.tabLabel ?? i.label)).toEqual(['Add / Remove', 'Add / Remove', 'Range', 'Zap']);
       expect(withRange.items.some((i) => i.to === '/solana-lp')).toBe(false);
     } finally {
       vi.doUnmock('./solana/clmm/programId');
@@ -178,10 +185,11 @@ describe('the drawer', () => {
     }
   });
 
-  it('keeps the detection tools together under Check', () => {
+  it('keeps the detection tools together under Check, off the menu', () => {
     const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
-    expect(DRAWER_SECTIONS).toContain(check);
+    expect(DRAWER_SECTIONS).not.toContain(check);
     const paths = check!.items.map((i) => i.to);
+    for (const p of paths) expect(INDEX_PAGES.map((i) => i.to), p).not.toContain(p);
     for (const p of ['/trust', '/scan', '/deployer', '/exposure']) expect(paths).toContain(p);
     expect(NAV_SECTIONS.map((sec) => sec.heading)).not.toContain('Trust & Safety');
   });
@@ -225,10 +233,11 @@ describe('navConfig', () => {
   });
 
   // Owner, 2026-10-24: the Nakamigos marketplace leaves the nav (and the home and the
-  // venue's metadata). /nakamigos still opens it; nothing of the venue's points there.
-  it('lists no door to the Nakamigos marketplace', () => {
-    expect(ALL_NAV.map((n) => n.to)).not.toContain('/nakamigos');
-    expect(ALL_NAV.map((n) => n.label)).not.toContain('Marketplace');
+  // venue's metadata). Owner, 2026-11-12: back in the menu, "the marketplace isnt visible lets
+  // add that to the remote". The menu only: the island lobby, whose doors are the Island
+  // section's items, still has no Marketplace door.
+  it('lists the Nakamigos marketplace once, in the menu, and gives the island lobby no door to it', () => {
+    expect(ALL_NAV.filter((n) => n.to === '/nakamigos')).toEqual([{ to: '/nakamigos', label: 'Marketplace' }]);
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
     expect(island?.items.map((i) => i.to)).not.toContain('/nakamigos');
   });
@@ -348,7 +357,7 @@ describe('navConfig', () => {
 
   // SectionHost lands on items[0]: a hub anywhere else opens a tab the visitor did not press.
   it('opens every section on its own first tab', () => {
-    expect(NAV_SECTIONS.map((sec) => sec.heading)).toEqual(['Swap', 'Pools', 'Island', 'Launch', 'Lock', 'Check']);
+    expect(NAV_SECTIONS.map((sec) => sec.heading)).toEqual(['Swap', 'Pools', 'Island', 'Launch', 'Yield', 'Check']);
     for (const s of NAV_SECTIONS) {
       expect(s.hub, s.heading + ' hub must be its own first item').toBe(s.items[0]?.to);
       const to = s.primaryTo ?? s.hub;
@@ -356,14 +365,19 @@ describe('navConfig', () => {
     }
   });
 
-  it('gives every section a tab strip that fits and has no two tabs alike', () => {
+  // Per network, because a strip shows one network's tabs (useSectionChain): Pools has an
+  // Add / Remove on Solana (/pools) and one on the EVM networks (/liquidity), never both at once.
+  it('gives every section a tab strip that fits and has no two tabs alike on any one network', () => {
     for (const s of NAV_SECTIONS) {
       const shown = s.items.map((i) => i.tabLabel ?? i.label);
       for (const t of shown) {
         expect(t.length, `"${t}" is too long for a tab in the ${s.heading} strip`).toBeLessThanOrEqual(20);
         expect(t.length).toBeGreaterThan(0);
       }
-      expect(new Set(shown).size, `duplicate tab labels in the ${s.heading} strip`).toBe(shown.length);
+      for (const c of VENUE_CHAINS) {
+        const onChain = s.items.filter((i) => tabServes(i.to, c.id)).map((i) => i.tabLabel ?? i.label);
+        expect(new Set(onChain).size, `duplicate tab labels in the ${s.heading} strip on ${c.name}`).toBe(onChain.length);
+      }
     }
   });
 
@@ -377,9 +391,10 @@ describe('navConfig', () => {
     }
   });
 
-  // A phone or iPad shows `compactTabLabel` (RouteTabs.tsx): shorter, and unique in its strip.
+  // A phone or iPad shows `compactTabLabel` (RouteTabs.tsx): shorter, and unique in its strip on
+  // each network (the strip shows one network's tabs, as the full-label test above says).
   it('shortens the Copy Trading tab to CT, and keeps every compact tab label a shorthand', () => {
-    const copy = NAV_SECTIONS.find((s) => s.heading === 'Lock')?.items.find((i) => i.to === '/copy-trading');
+    const copy = NAV_SECTIONS.find((s) => s.heading === 'Yield')?.items.find((i) => i.to === '/copy-trading');
     expect(copy?.label, 'the canonical name stays Copy Trading').toBe('Copy Trading');
     expect(copy?.compactTabLabel).toBe('CT');
     for (const s of [...NAV_SECTIONS, { heading: 'Numbers', items: NUMBERS_TABS }]) {
@@ -389,8 +404,10 @@ describe('navConfig', () => {
         expect(i.compactTabLabel.trim().length, `${i.to} has an empty compact label`).toBeGreaterThan(0);
         expect(i.compactTabLabel.length, `${i.to}'s compact label is no shorter than "${full}"`).toBeLessThan(full.length);
       }
-      const compact = s.items.map((i) => i.compactTabLabel ?? i.tabLabel ?? i.label);
-      expect(new Set(compact).size, `duplicate compact tab labels in the ${s.heading} strip`).toBe(compact.length);
+      for (const c of VENUE_CHAINS) {
+        const compact = s.items.filter((i) => tabServes(i.to, c.id)).map((i) => i.compactTabLabel ?? i.tabLabel ?? i.label);
+        expect(new Set(compact).size, `duplicate compact tab labels in the ${s.heading} strip on ${c.name}`).toBe(compact.length);
+      }
     }
   });
 
@@ -453,7 +470,8 @@ describe('tradeRoute', () => {
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
-    expect(swapWord()).toBe('/swap');
+    // Owner, 2026-11-11: a room on Ethereum opens the sheet too, on Ethereum, on its own coin.
+    expect(swapWord()).toBe('/toweli?sheet=buy');
     expect(swapSection().primaryTo).toBe('/swap');
 
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
@@ -470,9 +488,14 @@ describe('tradeRoute', () => {
       expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
       expect(addWord(), id).toBe(`/${id}?sheet=add`);
     }
+    // Owner, 2026-11-11: not only Solana's rooms. A room on Ethereum or Base raises the sheet on its own network:
+    // Swap where that network's swap lists its coin, Add where the venue's add / remove form runs there.
+    // (Add used to send an Ethereum room to /pools, the Solana list.)
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
-    expect(swapWord()).toBe('/swap');
-    expect(addWord()).toBe('/pools');
+    expect(swapWord()).toBe('/pepe?sheet=buy');
+    expect(addWord()).toBe('/pepe?sheet=add');
+    window.localStorage.setItem('tegridy-bungalow', 'qr');
+    expect(addWord()).toBe('/qr?sheet=add');
     window.localStorage.clear();
     expect(swapWord()).toBe('/?sheet=buy');
     expect(addWord()).toBe('/pools');
@@ -485,7 +508,7 @@ describe('tradeRoute', () => {
     const word = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
     expect(word('Swap')).toBe('/?sheet=buy');
     expect(opensSheet(word('Swap')!), 'a press on it is the sheet’s, so its Back pops back').toBe(true);
-    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null });
+    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null, net: null, all: false });
     expect(word('Add')).toBe('/pools');
     expect(word('Island')).toBe('/');
   });
@@ -539,7 +562,8 @@ describe('the Launch word', () => {
   it('opens the launch door even while launching on Solana is on (answer twenty-six)', async () => {
     const nav = await withCurve(true);
     expect(nav.BAR_NAV.find((w) => w.label === 'Launch')?.to).toBe('/launch');
-    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+    // The menu's Launch is a page under Island (owner, 2026-11-10).
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Island')?.items.find((i) => i.label === 'Launch')?.to).toBe('/launch');
   });
 
   it('opens the launchpad while it is off, and is lit on both', async () => {
@@ -547,43 +571,43 @@ describe('the Launch word', () => {
     const word = nav.BAR_NAV.find((w) => w.label === 'Launch')!;
     expect(nav.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon, 'the precondition: the curve is off').toBe(true);
     expect(word.to).toBe('/launch');
-    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Island')?.items.find((i) => i.label === 'Launch')?.to).toBe('/launch');
     for (const path of ['/curve-launch', '/launch']) expect(word.lit(path, ''), path).toBe(true);
   });
 });
 
-// Lock shows the bungalow selected (owner, 2026-10-15): the word opens the room's own pool,
+// Yield shows the bungalow selected (owner, 2026-10-15): the word opens the room's own pool,
 // read at render as Swap's is. With no room, and for the venue sentinel, it opens the list.
-describe('lockRoute', () => {
+describe('yieldRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
   });
 
-  const lockWord = () => BAR_NAV.find((w) => w.label === 'Lock');
+  const yieldWord = () => BAR_NAV.find((w) => w.label === 'Yield');
 
   it("opens the room's pool, and follows the skin with no module reload", () => {
-    expect(lockRoute()).toBe('/earn');
-    expect(lockWord()?.to).toBe('/earn');
+    expect(yieldRoute()).toBe('/earn');
+    expect(yieldWord()?.to).toBe('/earn');
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
-    expect(lockRoute(), "BAYLA's room opens BAYLA's pool, not every pool").toBe('/earn/bayla');
-    expect(lockWord()?.to).toBe('/earn/bayla');
+    expect(yieldRoute(), "BAYLA's room opens BAYLA's pool, not every pool").toBe('/earn/bayla');
+    expect(yieldWord()?.to).toBe('/earn/bayla');
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
-    expect(lockWord()?.to, "TOWELI's room opens the classic farm").toBe('/earn/toweli');
+    expect(yieldWord()?.to, "TOWELI's room opens the classic farm").toBe('/earn/toweli');
 
     window.localStorage.setItem('tegridy-bungalow', 'venue');
-    expect(lockWord()?.to, 'the venue sentinel is no room').toBe('/earn');
+    expect(yieldWord()?.to, 'the venue sentinel is no room').toBe('/earn');
   });
 
   it('stays lit on the pool it opens', () => {
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
-    expect(lockWord()?.lit('/earn/pepe', '')).toBe(true);
+    expect(yieldWord()?.lit('/earn/pepe', '')).toBe(true);
   });
 });
 
-// Pools follows the room as Lock does (owner, 2026-10-17: "the wiring for the pages inside the
-// bayla bungalow is off"): in a Solana room with a coin it opens the Venue AMM tab on that coin.
+// Pools follows the room as Yield does (owner, 2026-10-17: "the wiring for the pages inside the
+// bayla bungalow is off"): in a Solana room with a coin it opens the Add / Remove tab on that coin.
 describe('poolsRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -630,7 +654,7 @@ describe('islandRoute', () => {
       expect(islandWord().lit(path, hash), `${path}${hash}`).toBe(true);
       expect(BAR_NAV.filter((w) => w.lit(path, hash)).length, `${path}${hash}`).toBe(1);
     }
-    expect(litWord('/earn/bayla')?.label, "the room's pool is Lock's").toBe('Lock');
+    expect(litWord('/earn/bayla')?.label, "the room's pool is Yield's").toBe('Yield');
   });
 });
 
@@ -642,41 +666,81 @@ describe("the menu's index", () => {
   const pages = () => INDEX_PAGES.map((i) => i.to);
   const group = (heading: string) => INDEX_GROUPS.find((g) => g.heading === heading)!;
 
-  it('runs Island, Swap, Pools, Lock, Launch, Check, then the records: one group per section', () => {
-    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
-    for (const s of NAV_SECTIONS) expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+  // Owner, 2026-11-10: "we are just cleaning up the menu a bit". Launch and Check left as groups.
+  it('runs Island, Swap, Pools, Yield, then the records', () => {
+    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Yield', 'Records']);
+    for (const s of NAV_SECTIONS.filter((sec) => sec.heading !== 'Launch' && sec.heading !== 'Check')) {
+      expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+    }
     expect(group('Records').to).toBeUndefined();
     expect(group('Records').items).toEqual(DRAWER_LINKS);
   });
 
-  it("carries every page that is on under its section's word, in tab order", () => {
-    for (const s of NAV_SECTIONS) {
-      const own = s.items.filter((i) => !i.soon).map((i) => i.to);
+  it("carries every page that is on and not parked under its section's word, in tab order", () => {
+    for (const s of NAV_SECTIONS.filter((sec) => sec.heading !== 'Launch' && sec.heading !== 'Check')) {
+      const own = s.items.filter((i) => !i.soon && !i.unlisted && !MENU_PARKED.has(i.to)).map((i) => i.to);
       expect(group(s.heading).items.map((i) => i.to).filter((to) => own.includes(to)), s.heading).toEqual(own);
     }
   });
 
-  it("files the venue's own pages (the Gold Card, History, Lore) under Island, after the lobby's doors", () => {
-    const island = group('Island').items.map((i) => i.to);
-    const doors = ISLAND_SECTION.items.map((i) => i.to);
-    expect(island.slice(0, doors.length)).toEqual(doors);
-    for (const path of ['/premium', '/history', '/lore']) expect(island, path).toContain(path);
+  // Owner, 2026-11-10: "hide all these except lore under island", and Launch under Island, "that
+  // takes you to the launch page". Owner, 2026-11-12: the marketplace, back in the menu.
+  // Dashboard joins them once a wallet connects (NavDrawer.tsx).
+  it('lists only Lore, Launch and Marketplace under Island', () => {
+    expect(group('Island').items.map((i) => [i.to, indexName(group('Island'), i)])).toEqual([
+      ['/lore', 'Lore'],
+      ['/launch', 'Launch'],
+      ['/nakamigos', 'Marketplace'],
+    ]);
+  });
+
+  it('lists Staking and NFT Loans under Yield, never Yield Routing, Copy Trading or Checkout', () => {
+    const yieldPages = group('Yield').items.map((i) => i.to);
+    for (const p of ['/yield', '/copy-trading', '/checkout']) expect(yieldPages, p).not.toContain(p);
+    expect(yieldPages[0]).toBe('/earn');
+  });
+
+  // Owner, 2026-11-11, of the strip then named Lock: "remove yield copy trading and checkout". Each stays in
+  // the section, so Yield lights on its page and its own tab shows there (RouteTabs.tsx), and routed.
+  it("takes Yield, Copy Trading and Checkout off Yield's strip, still Yield's and still routed", () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    expect(YIELD_SECTION.items.filter((i) => !i.unlisted).map((i) => i.to)).toEqual(['/earn', '/nft-finance']);
+    for (const p of ['/yield', '/copy-trading', '/checkout']) {
+      expect(YIELD_SECTION.items.find((i) => i.to === p)?.unlisted, p).toBe(true);
+      expect(litWord(p)?.label, p).toBe('Yield');
+      expect(routed, `${p} is off the strip but no route draws it`).toContain(p);
+    }
+    expect(ALL_NAV.filter((n) => n.unlisted).map((n) => n.to), 'only Yield has unlisted tabs').toEqual(['/yield', '/copy-trading', '/checkout']);
+  });
+
+  it('keeps every parked page routed, so it still opens by its address', () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    for (const p of MENU_PARKED) {
+      expect(routed, `${p} is parked but no route draws it`).toContain(p);
+      expect(pages(), `${p} is parked`).not.toContain(p);
+    }
   });
 
   it("names a page by its tab label under the word, unless that only repeats the word", () => {
-    const island = group('Island');
-    expect(indexName(island, island.items.find((i) => i.to === '/island')!)).toBe('The island');
-    expect(indexName(island, island.items.find((i) => i.to === '/tokenomics')!)).toBe('Numbers');
     const swap = group('Swap');
     expect(indexName(swap, swap.items.find((i) => i.to === '/swap')!)).toBe('Ethereum');
-    const lock = group('Lock');
-    expect(indexName(lock, lock.items.find((i) => i.to === '/earn')!)).toBe('Staking');
-    expect(indexName(lock, lock.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
+    const yieldGroup = group('Yield');
+    expect(indexName(yieldGroup, yieldGroup.items.find((i) => i.to === '/earn')!)).toBe('Staking');
+    expect(indexName(yieldGroup, yieldGroup.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
   });
 
-  it('lands the Pools word on Venue AMM and the Check word on the overview', () => {
+  it('lands the Pools word on /pools, the Add / Remove page', () => {
     expect(group('Pools').to).toBe('/pools');
-    expect(group('Check').to).toBe('/trust');
+  });
+
+  // Owner, 2026-11-11: "under pools remove zap", and one Add / Remove, "what the venue amm tab is
+  // calling", with no Venue AMM row. The Ethereum form and Zap keep their EVM strip tabs.
+  it('lists Add / Remove (the /pools page) and Range under Pools, never Zap or the Ethereum form', () => {
+    const pools = group('Pools');
+    expect(pools.items.map((i) => [i.to, indexName(pools, i)])).toEqual([
+      ['/pools', 'Add / Remove'],
+      ...(rangePoolsVisible() ? [['/range-pools', 'Range']] : []),
+    ]);
   });
 
   it('gives every group a picture of its own in the menu', () => {
@@ -696,21 +760,12 @@ describe("the menu's index", () => {
     for (const to of pages()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
   });
 
-  // Every entry is on today, so the guard above cannot fail on its own: switch one off.
-  it('drops a page the moment it is off, as its strip does', async () => {
-    expect(pages(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
-    vi.resetModules();
-    vi.doMock('./copytrade/tape', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./copytrade/tape')>()),
-      hasCopyTapeSource: () => false,
-    }));
-    try {
-      const off = await import('./navConfig');
-      expect(off.ALL_NAV.find((n) => n.to === '/copy-trading')?.soon, 'Copy Trading reads as off').toBe(true);
-      expect(off.INDEX_PAGES.map((i) => i.to)).not.toContain('/copy-trading');
-    } finally {
-      vi.doUnmock('./copytrade/tape');
-      vi.resetModules();
-    }
+  // Every page that can be off today is parked or unlisted, so the guard above cannot fail on its
+  // own: the filter itself drops an off page, an unlisted one and a parked one, and keeps the rest.
+  it('drops a page the moment it is off, as its strip does, and every unlisted and parked page', () => {
+    const on = { to: '/lore', label: 'Lore' };
+    const off = { to: '/zap', label: 'Zap', soon: true };
+    const unlisted = { to: '/zap', label: 'Zap', unlisted: true };
+    expect(menuItems([on, off, unlisted, { to: '/gallery', label: 'Gallery' }])).toEqual([on]);
   });
 });

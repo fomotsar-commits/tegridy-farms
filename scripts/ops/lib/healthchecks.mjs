@@ -54,7 +54,11 @@ export function clampBody(text, limit = BODY_LIMIT) {
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** POST one ping with retries. Returns { ok, status?, error? }; never throws, never logs the URL. */
+/**
+ * POST one ping with retries. Returns { ok, status?, error? }; never throws, never logs the URL.
+ * Delivered means a 2xx whose body is exactly "OK": healthchecks.io answers a URL that names
+ * no check with 200 "OK (not found)", and a rate-limited ping with 200 "OK (rate limited)".
+ */
 export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attempts = PING_ATTEMPTS, timeoutMs = PING_TIMEOUT_MS, sleep = pause }) {
   let last = {};
   for (let i = 0; i < attempts; i++) {
@@ -65,8 +69,9 @@ export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attemp
         body,
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.ok) return { ok: true, status: res.status };
-      last = { ok: false, status: res.status, error: `HTTP ${res.status}` };
+      const said = (await res.text()).split(url).join('<ping URL>').trim().slice(0, 100);
+      if (res.ok && said === 'OK') return { ok: true, status: res.status };
+      last = { ok: false, status: res.status, error: res.ok ? `answered "${said}"` : `HTTP ${res.status}` };
     } catch (e) {
       last = { ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` };
     }
