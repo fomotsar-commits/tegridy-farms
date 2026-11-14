@@ -311,10 +311,11 @@ test.describe('the item panel on a tablet', () => {
 // THE TRADING VIEW'S CORNER BUTTONS.
 //
 // Gold Cards opens the full trading view, and with it the fixed buttons in
-// the bottom-left corner: Mute sounds and Keys, and Back to top once the page
-// is scrolled. Above the phone layout all three are on screen together, and
-// Back to top used to sit on top of the other two. Each case scrolls the
-// gallery, then asks the browser what a tap at each button's centre lands on.
+// the bottom-right corner: Keys, and Back to top once the page is scrolled.
+// (Until 2026-11-14 they sat bottom-left with a Mute sounds button, and Back
+// to top used to sit on top of the other two.) Above the phone layout both are
+// on screen together. Each case scrolls the gallery, then asks the browser
+// what a tap at each button's centre lands on.
 
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
