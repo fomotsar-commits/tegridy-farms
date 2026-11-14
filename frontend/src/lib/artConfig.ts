@@ -227,6 +227,10 @@ export const ART = {
   shot09: { id: 'shot09', src: '/art/drop/shot09.jpg', title: 'Shot #09', description: 'Studio capture' },
   azzuzu: { id: 'azzuzu', src: '/art/drop/azzuzu.jpg', title: 'Azzuzu', description: 'Community drop' },
   skeletonAlt: { id: 'skeletonAlt', src: '/nakamigos/skeleton.jpg', title: 'Skeleton (alt)', description: 'Bones of the chain — alternate cut' },
+  // 2026-11-14 (owner): "use this image for nft loans". Pinned to the NFT
+  // Lending intro card (nft-finance:2). Like the drop above, it is NOT in
+  // ART_POOL_ALL, so no unpinned surface's rotation moves.
+  stairwellCrew: { id: 'stairwell-crew', src: '/art/drop/stairwell-crew.webp', title: 'Stairwell Crew', description: 'Four on the railing, looking down' },
 };
 
 /**
