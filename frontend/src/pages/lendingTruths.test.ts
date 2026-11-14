@@ -23,6 +23,9 @@ describe('the FAQ on NFT lending', () => {
     const a = faq('What is NFT Lending?');
     expect(a).toMatch(/another lender can take (a|the) loan over/i);
     expect(a).toMatch(/interest so far/i);
+    // A takeover needs no one's yes: say so, and name the collections in full.
+    expect(a).toMatch(/at a lower rate without asking you/);
+    expect(a).toMatch(/an NFT from Jungle Bay Ape Club, Nakamigos or GNSS Art\./);
   });
 
   it('describes the lending admin as it is: a Safe, no timelock on the collection list, 7 days for a fee', () => {
@@ -31,13 +34,16 @@ describe('the FAQ on NFT lending', () => {
     expect(a).toMatch(/NFT lending runs on Gondi/);
     expect(a).toMatch(/7 days/);
     expect(a).toMatch(/never applies to a loan already open/i);
+    // The Safe also sets the takeover window, the rate cut, the liquidator and pool lenders at once.
+    expect(a).toMatch(/change the collection list and other loan settings at once/);
   });
 });
 
 describe('Towelie on NFT lending', () => {
   it('says how the lender earns, not only what the venue keeps', () => {
     const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
-    expect(entry?.answer).toMatch(/lender keeps the other 95%/i);
+    expect(entry?.answer).toMatch(/The lender keeps 95% of the interest and the venue 5%\./);
+    expect(entry?.answer).toMatch(/Lock a Jungle Bay Ape Club, Nakamigos or GNSS Art NFT/);
   });
 });
 

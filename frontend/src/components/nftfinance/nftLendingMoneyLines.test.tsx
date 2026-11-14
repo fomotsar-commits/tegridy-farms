@@ -86,6 +86,7 @@ describe('another lender can take a loan over', () => {
     renderWithProviders(<NFTLendingSection />);
     const about = screen.getByText('About signed offers').closest('details')!;
     expect(about.textContent).toMatch(/another lender can take the loan over/i);
+    expect(about.textContent).toMatch(/at a lower rate without asking you or the borrower/);
     expect(about.textContent).toMatch(/your WETH back plus the interest so far/i);
   });
 

@@ -174,7 +174,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
       <p className={`text-[12px] mt-1 ${atWall ? 'text-amber-300' : 'text-white/80'}`} aria-live="polite" data-testid="loan-timeline-line">
         {atWall
           ? side === 'borrower'
-            ? `Repay before this moment: from it, the lender can take ${nft}.`
+            ? `Repay before this moment. From then, the lender can take ${nft}.`
             : `Not repaid by now: you own ${nft}, and no interest.`
           : side === 'borrower'
           ? `${fmtWeth(cost.interest, 6)} WETH of that is interest. Drag to try another day.`

@@ -753,7 +753,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
         {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
             new lender take the loan over, unlocked from 15% to 85% of the term. */}
         <p className="mt-1">
-          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a better rate for the borrower. You then get
+          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a lower rate without asking you or the borrower. You then get
           your WETH back plus the interest so far, less the venue&apos;s share of that interest.
         </p>
       </FinePrint>

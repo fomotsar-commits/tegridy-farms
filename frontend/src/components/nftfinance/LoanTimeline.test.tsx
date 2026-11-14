@@ -105,7 +105,7 @@ describe('borrower: what repaying on a given day costs', () => {
     expect(text('loan-timeline-when')).toContain('day 30 of 30 · about ');
     // Gondi refuses repayment AT the due second (_baseLoanChecks: end <= now), so the wall is
     // where repaying has already closed, not its last moment.
-    expect(text('loan-timeline-line')).toBe('Repay before this moment: from it, the lender can take NAKA #77.');
+    expect(text('loan-timeline-line')).toBe('Repay before this moment. From then, the lender can take NAKA #77.');
   });
 
   it('dragging to day 10 shows that day\'s cost, cheaper than the deadline\'s', () => {
