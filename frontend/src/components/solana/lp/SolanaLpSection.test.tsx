@@ -609,7 +609,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(rates).toHaveTextContent('You receive it when you remove liquidity.');
     expect(rates).toHaveTextContent('Few trades means small fees.');
     const sources = within(rates).getByTestId('lp-venue-sources');
-    expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool, in the coin the trader pays.', '0.15 SOL when a public pool is opened.']);
+    expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool, in the coin the trader pays. If that coin charges a transfer fee, its issuer takes it as the cut is collected.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
     expect(rates).toHaveTextContent(
       'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
@@ -686,7 +686,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
       else await waitFor(() => expect(within(rates).getAllByText('not created yet')).toHaveLength(2));
       expect(rates.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
       expect(rates).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
-      expect(within(within(rates).getByTestId('lp-venue-sources')).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools, in the coin the trader pays.', 'A fee when a public pool is opened.']);
+      expect(within(within(rates).getByTestId('lp-venue-sources')).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools, in the coin the trader pays. If that coin charges a transfer fee, its issuer takes it as the cut is collected.', 'A fee when a public pool is opened.']);
       expect(within(rates).queryByRole('group', { name: /wallet/i })).toBeNull();
       expect(rates).not.toHaveTextContent(/shared wallet/);
       view.unmount();

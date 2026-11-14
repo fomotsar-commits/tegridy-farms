@@ -141,14 +141,17 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
       expect(letThrough(await create(types)), `create ${types.join(',')}`).toBe(false);
       expect(letThrough(await withdraw(types)), `withdraw ${types.join(',')}`).toBe(false);
     }
-    // The five buildable ones together go through all three, so each refusal above is the bad one's.
+    // The five buildable ones together go through adding and removing, so each refusal above is
+    // the bad one's. An opening takes the four without the transfer fee (spec 2026-11-14), and
+    // refuses the five for the fee, in its own words.
     const all = [EXTENSION.MetadataPointer, EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TokenMetadata, EXTENSION.TransferFeeConfig];
     expect(letThrough(await deposit(all))).toBe(true);
-    expect(letThrough(await create(all))).toBe(true);
+    expect(refusal(await create(all))).toBe(CREATE_COPY.transferFee);
+    expect(letThrough(await create(all.filter((e) => e !== EXTENSION.TransferFeeConfig)))).toBe(true);
     expect(letThrough(await withdraw(all))).toBe(true);
   });
 
-  it('adding to a pool, opening one and removing from one let through exactly the same extensions: the one set', async () => {
+  it('adding to a pool and removing from one let through exactly the same extensions, the one set; opening one, the set less a transfer fee', async () => {
     const letIn = { deposit: [] as number[], create: [] as number[] };
     const letOut: number[] = [];
     for (const type of ALL_EXTENSIONS) {
@@ -156,9 +159,10 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
       if (letThrough(await create(type))) letIn.create.push(type);
       if (letThrough(await withdraw(type))) letOut.push(type);
     }
-    // Not a vacuous pass: each builder lets the five through, and only those.
+    // Not a vacuous pass: each builder lets the five through, and only those; an opening the
+    // four without a transfer fee (no NEW pool for such a token: spec 2026-11-14).
     expect(sorted(letIn.deposit)).toEqual(sorted(BUILDABLE_EXTENSIONS));
-    expect(sorted(letIn.create)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    expect(sorted(letIn.create)).toEqual(sorted([...BUILDABLE_EXTENSIONS].filter((e) => e !== EXTENSION.TransferFeeConfig)));
     expect(sorted(letOut)).toEqual(sorted(BUILDABLE_EXTENSIONS));
     // The leave rule itself: whatever is let in can be let out, and the pool program takes it.
     for (const type of [...letIn.deposit, ...letIn.create]) {

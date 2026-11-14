@@ -446,50 +446,27 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     );
   });
 
-  // Owner, 2026-10-29: a token with a transfer fee opens a pool. Its vault gets what is sent
-  // less the fee, and the pool counts its shares from that (initialize.rs). This chain's
-  // pool program counts them the same way (testkit `createSimulator`), and the builder's
-  // share check is exact, so a builder that left the fee out is refused at its own test run.
-  it('a token with a transfer fee opens a pool: the shares count what reaches its vault, and the review says what the token keeps', async () => {
-    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
-    const p = ok(await create(w));
-    const s = summaryOf(p);
-    const kept = TOKENS / 20n; // 5% of 100 tokens
-    expect(s.put).toEqual({ quote: SOL, token: TOKENS });
-    expect(s.transferFee).toEqual({ rate: '5%', kept });
-    expect(s.supply).toBe(isqrt(SOL * (TOKENS - kept)));
-    expect(s.lpAmount).toBe(s.supply - 100n);
-    // The whole amount typed leaves the wallet; only the vault sees less.
-    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
-    expect(tok.delta).toBe(-TOKENS);
-    // The token's own warning rides to the review, and the opening's price is the one the pool opens at.
-    expect(s.tokenWarnings.map((x) => x.code)).toContain('transfer-fee');
-    // 1 SOL against the 95 tokens that reach the vault, not the 100 typed: 5% above the market's 0.01.
-    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
-    expect(s.price.state === 'disagrees' && s.price.pool).toBeCloseTo(1 / 95, 12);
-  });
-
-  it('a fee change pending: the network epoch picks the setting, and with no clock nothing is built', async () => {
-    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 50n, basisPoints: 300 } });
-    setClock(w.chain, null);
-    expect(refused(await create(w))).toBe(LP_COPY.noEpoch);
-    setClock(w.chain, 2_000_000_000n, 49n);
-    const before = summaryOf(ok(await create(w)));
-    expect(before.transferFee).toEqual({ rate: '1%', kept: TOKENS / 100n });
-    // An opening has no minimum: one that lands in epoch 50 pays 3%, and the review says so.
-    expect(before.warnings).toContain(CREATE_COPY.feeChangesNext('3%'));
-    setClock(w.chain, 2_000_000_000n, 50n);
-    const after = summaryOf(ok(await create(w)));
-    expect(after.transferFee).toEqual({ rate: '3%', kept: (TOKENS * 3n) / 100n });
-    expect(after.warnings).not.toContain(CREATE_COPY.feeChangesNext('3%'));
-  });
-
-  it('a fee that leaves the vault too little is refused as too small, before any price is asked', async () => {
-    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    setTransferFee(w.chain, w.mint, { basisPoints: 1 });
-    expect(refused(await create(w, { token: 1n }))).toBe(CREATE_COPY.tooSmall);
+  // Spec 2026-11-14 (section 2): no NEW pool for a token with a transfer fee. A fee at any rate,
+  // 0 included, can be raised by whoever controls it, up to all of every transfer, and the
+  // venue's cut of a trade paid in the token pays that fee when it is collected. Its pools that
+  // already exist keep every way in and out (Add, Remove, Swap: BUILDABLE_EXTENSIONS still holds
+  // the extension, and vaultAccountSize below still sizes its vault).
+  it('a token with a transfer fee, at any rate and 0% included, is refused before anything else about the fee is worked out', async () => {
+    const feeToken = () => world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    expect(CREATE_COPY.transferFee).toBe('This token takes a fee on every transfer, so a new pool of it cannot be opened here.');
+    // 5% now.
+    const five = feeToken();
+    setTransferFee(five.chain, five.mint, { basisPoints: 500 });
+    expect(refused(await create(five))).toBe(CREATE_COPY.transferFee);
+    // 0%, with nobody able to change it (the extension's 108 zero bytes): still a transfer-fee token.
+    expect(refused(await create(feeToken()))).toBe(CREATE_COPY.transferFee);
+    // 1 basis point, and a change pending with no clock read: the refusal comes first.
+    const pending = feeToken();
+    setTransferFee(pending.chain, pending.mint, { basisPoints: 1, newer: { epoch: 50n, basisPoints: 300 } });
+    setClock(pending.chain, null);
+    expect(refused(await create(pending))).toBe(CREATE_COPY.transferFee);
+    // The same token without the extension opens.
+    ok(await create(world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: METADATA_ONLY })));
   });
 
   // Owner ruling 2026-10-04: these two open a pool, and the review is handed the warning.
@@ -524,13 +501,16 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
 
   // The leave rule, with the real verdict: this site opens a pool for exactly the
   // extensions it can also build a withdrawal for (liquidity.test.ts pins the other half).
-  it('for each Token-2022 extension: an opening builds only for the one set this site builds for', async () => {
+  // The one set (BUILDABLE_EXTENSIONS) still holds a transfer fee, so a pool of such a token
+  // keeps every way in and out; an OPENING leaves it out (spec 2026-11-14).
+  it('for each Token-2022 extension: an opening builds only for the one set this site builds for, less a transfer fee', async () => {
     const opened: number[] = [];
     for (const type of [...Object.values(EXTENSION), 99]) {
       if ((await create(world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(type)] }))).ok) opened.push(type);
     }
     const sorted = (xs: Iterable<number>) => [...xs].sort((a, b) => a - b);
-    expect(sorted(opened)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    expect(sorted(opened)).toEqual(sorted([...BUILDABLE_EXTENSIONS].filter((e) => e !== EXTENSION.TransferFeeConfig)));
+    expect(BUILDABLE_EXTENSIONS.has(EXTENSION.TransferFeeConfig)).toBe(true);
   });
 
   // The loss is worked out with the TOKEN's own decimals. Every other loss test here uses

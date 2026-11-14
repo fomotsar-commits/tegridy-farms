@@ -31,6 +31,8 @@ const SPLIT_WHERE =
 const NOT_AGREED = 'The venue’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s shared wallet, 5.6% to the island’s Workshop).';
 /** The venue's cut of a pool trade is taken from what the trader pays in: SOL on a buy, the token on a sell, never always SOL. */
 const PAID_IN = ', in the coin the trader pays.';
+/** A cut in a coin that charges a transfer fee pays that fee when collected (spec 2026-11-14, section 2). */
+const FEE_ON_COLLECT = ' If that coin charges a transfer fee, its issuer takes it as the cut is collected.';
 
 describe('the recorded chain says what the sentences say', () => {
   it('tier 1 on 2026-10-03: traders pay 1%, 16% of that is the venue’s, 0.15 SOL to open; its owner is the team’s 2-of-2 vault', () => {
@@ -85,7 +87,7 @@ describe('How you earn', () => {
 describe('How the venue earns', () => {
   it('on the public tier as mainnet holds it since the split: three sources, and each part of the cut said as a share of the fee and of the trade', () => {
     expect(howVenueEarns(split1(), jupiter)).toEqual({
-      sources: [`0.16% of each trade in a public pool${PAID_IN}`, '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
+      sources: [`0.16% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
       where: `${SPLIT_WHERE} The swap fee goes to the team’s shared wallet.`,
       wallets: [VAULT_ROW, WORKSHOP_ROW],
       elsewhere: false,
@@ -159,7 +161,7 @@ describe('How the venue earns', () => {
 
   it('every number is read: the cut, the fee to open and the swap fee each follow what they are given', () => {
     const other = howVenueEarns({ ...tier1(), tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, createPoolFee: 2_000_000_000n }, { bps: 100, wallet: VAULT });
-    expect(other.sources).toEqual([`0.05% of each trade in a public pool${PAID_IN}`, '2 SOL when a public pool is opened.', '1% of a swap sent through Jupiter, where the route allows it.']);
+    expect(other.sources).toEqual([`0.05% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '2 SOL when a public pool is opened.', '1% of a swap sent through Jupiter, where the route allows it.']);
     expect(howVenueEarns({ ...tier1(), createPoolFee: 0n }, jupiter).sources[1]).toBe('No fee when a public pool is opened.');
   });
 
@@ -209,7 +211,7 @@ describe('How the venue earns', () => {
 
   it('with no tier read: no pool number, no wallet and no claim about where it goes', () => {
     const v = howVenueEarns(null, null);
-    expect(v).toEqual({ sources: [`A cut of each trade in its pools${PAID_IN}`, 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
+    expect(v).toEqual({ sources: [`A cut of each trade in its pools${PAID_IN}${FEE_ON_COLLECT}`, 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
     expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
@@ -226,12 +228,13 @@ describe('short, and promising nothing', () => {
   // Owner, 2026-10-09: "no need to be too wordy but be transparent". 90 words of sentences,
   // 100 with titles and labels, until the island split (2026-10-19) put two wallets' shares,
   // each of the fee and of the trade, in the sentence: 120 and 135 since. 2026-11-14: the coin
-  // the cut is paid in (6 words, spec 2026-11-14 section 2): 121.
+  // the cut is paid in (6 words) and what a transfer fee takes of it (16), spec 2026-11-14
+  // section 2: 137 and 149.
   it('the two blocks as the live site prints them stay short', () => {
     const count = (lines: string[]) => lines.reduce((n, s) => n + words(s), 0);
     const v = howVenueEarns(split1(), jupiter);
-    expect(count([...howYouEarn(split1()), ...v.sources, v.where ?? ''])).toBeLessThanOrEqual(121);
-    expect(count(all(split1(), jupiter))).toBeLessThanOrEqual(135);
+    expect(count([...howYouEarn(split1()), ...v.sources, v.where ?? ''])).toBeLessThanOrEqual(137);
+    expect(count(all(split1(), jupiter))).toBeLessThanOrEqual(149);
   });
 
   it('no line forecasts a return or carries an em dash, in any of its forms', () => {

@@ -32,7 +32,7 @@ import { arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMar
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 import { CLOCK_SYSVAR } from '../../../solana/lp/poolFinder';
-import { USDT_MINT, type TokenSafety } from '../../../solana/lp/tokenSafety';
+import { EXTENSION, USDT_MINT, type TokenSafety } from '../../../solana/lp/tokenSafety';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { CREATE_COPY, createPins, createStepsProblem, prepareLpCreate, readCreateSnapshot, type CreateSnapshot, type LpCreateArgs } from './createPool';
 import { decodeIntent } from './intent';
@@ -1034,7 +1034,10 @@ describe('decodeIntent: opening a pool paired with USDC or BAYLA', () => {
     const tokenMint = o.tokenMint ?? fresh();
     const { token0, token1 } = sortMints(new PublicKey(quote.mint), tokenMint);
     const address = o.address ?? (o.oneOff ? fresh() : derivePool(CPSWAP, TIER1, token0, token1));
-    const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote });
+    // A Token-2022 token as prepare reads one: a name and a picture (the extensions BAYLA carries).
+    const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
+    const tokenExtensions = tokenProgram.equals(TOKEN_2022_PROGRAM_ID) ? [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata] : undefined;
+    const p = createPins(cfgLocal, { address, tokenMint, tokenProgram, signer: ME, quote, tokenExtensions });
     if (typeof p === 'string') throw new Error(p);
     return p;
   }

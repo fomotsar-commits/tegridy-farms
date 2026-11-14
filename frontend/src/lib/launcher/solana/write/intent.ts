@@ -102,6 +102,7 @@ import {
 } from './plant';
 import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxConfig, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { EXTENSION } from '../../../solana/lp/tokenSafety';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -565,6 +566,21 @@ function noPoolInstructionFor(_ctx: never): never {
   return refuse('it is a liquidity kind this page has no pool instruction for');
 }
 
+/**
+ * What a NEW pool may hold, whatever its bytes say, checked on every pool-program call of an
+ * opening. Never a token with a transfer fee, at any rate, 0 included: whoever controls the
+ * fee can raise it, and the venue's cut of a trade paid in the token pays it on the way out
+ * (spec 2026-11-14). From the token's extensions as prepare read them (`pins.tokenExtensions`):
+ * a Token-2022 token whose list is missing is refused, never assumed clean. A classic token
+ * has no extensions at all. Adding to and taking out of such a token's pools stay open.
+ */
+function openingRules(ctx: PoolIntent): void {
+  const p = ctx.pins;
+  const ext = p.tokenExtensions;
+  if (ext === undefined && !p.tokenProgram.equals(TOKEN_PROGRAM_ID)) refuse('the opening does not say which extensions its token carries');
+  if (ext?.includes(EXTENSION.TransferFeeConfig)) refuse('the token takes a fee on every transfer, and this site opens no new pool for such a token');
+}
+
 function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (isPoolIntent(ctx)) {
     switch (ctx.kind) {
@@ -573,6 +589,9 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       case 'lp-withdraw':
         return poolWithdraw(ix, ctx);
       case 'lp-create':
+        // The coin first (the pins must name the site's own row, on the side they say), then what the opening may hold.
+        pinnedQuote(ctx);
+        openingRules(ctx);
         return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);

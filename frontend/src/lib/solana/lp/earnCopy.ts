@@ -52,8 +52,12 @@ export interface VenueEarns {
 const VAULT_CAN = 'which needs two signatures and can change the pool rates';
 const VAULT_LABEL = 'Team’s shared wallet';
 const WORKSHOP_LABEL = 'Island’s Workshop';
-/** What coin the venue's cut of a pool trade arrives in. */
-const PAID_IN = ', in the coin the trader pays.';
+/**
+ * What coin the venue's cut of a pool trade arrives in, and what a transfer fee on that coin
+ * takes of it: collecting the cut is a transfer of it (collect_protocol_fee.rs), so the
+ * coin's fee authority keeps its share (spec 2026-11-14, section 2).
+ */
+const PAID_IN = ', in the coin the trader pays. If that coin charges a transfer fee, its issuer takes it as the cut is collected.';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter

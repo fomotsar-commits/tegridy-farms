@@ -916,6 +916,12 @@ export interface PoolPins {
   quoteIsToken0: boolean;
   /** Deposit: ATA(lpMint, signer, Tokenkeg). Withdraw: the pool-share account verified at prepare. */
   lpAccount: PublicKey;
+  /**
+   * An opening only (`createPins`): the token's Token-2022 extensions, as prepare read them
+   * from its mint. The decoder refuses an opening of a Token-2022 token without this list,
+   * and one whose list holds a transfer fee.
+   */
+  tokenExtensions?: readonly number[];
 }
 
 /** Adding or removing liquidity: every account the pool instruction names is pinned by `pins`. */
