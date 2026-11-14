@@ -1,0 +1,14 @@
+name = "memetics/role_timelock"
+version = "0.0.0"
+license = "GPL-3.0-only"
+description = "Holds Minswap V2's GlobalSetting roles: a change is announced, waits 48 hours, and needs both owner keys"
+
+[repository]
+user = "fomotsar-commits"
+project = "tegriddy-farms"
+platform = "github"
+
+[[dependencies]]
+name = "aiken-lang/stdlib"
+version = "1.7.0"
+source = "github"

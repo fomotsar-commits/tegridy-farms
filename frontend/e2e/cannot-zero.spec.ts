@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
+import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence, waitForReads } from './fixtures/routes';
 
 // The word Cannot, nowhere on the venue (island answer twenty-four, build 5; answer twenty-five,
 // screen 2: "grep the page text of every route, red first against today's trunk"). A visitor is
@@ -63,7 +63,10 @@ async function cannots(page: Page): Promise<Hit[]> {
 /** Mount the route, let the whileInView sections arrive, then wait for the page to stop moving. */
 async function settle(page: Page, path: string) {
   if (path === '/nakamigos') await gotoNakamigos(page);
-  else await gotoRoute(page, path);
+  else {
+    await gotoRoute(page, path);
+    await waitForReads(page);
+  }
   for (let i = 0; i < 3; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);

@@ -9,7 +9,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { gotoRoute } from './fixtures/routes';
-import { expectNoSidewaysScroll } from './fixtures/pageWidth';
+import { expectNoSidewaysScroll, resizeViewport } from './fixtures/pageWidth';
 
 /** The column at a window width: its step, or the window where that is narrower. */
 const column = (width: number) =>
@@ -56,7 +56,7 @@ test('the bar, the page and the footer share the column, at each of its steps', 
   await gotoRoute(page, '/bayla');
   for (const width of WIDTHS) {
     await test.step(`${width}px`, async () => {
-      await page.setViewportSize({ width, height: HEIGHT });
+      await resizeViewport(page, { width, height: HEIGHT });
       const want = column(width);
       const main = await box(page, 'main .page-column');
       const bar = await box(page, 'header .page-column');
@@ -79,7 +79,7 @@ test("the venue's own door keeps its hero on the column's edge too", async ({ pa
   await gotoRoute(page, '/');
   for (const width of [1280, 1920, 2560]) {
     await test.step(`${width}px`, async () => {
-      await page.setViewportSize({ width, height: HEIGHT });
+      await resizeViewport(page, { width, height: HEIGHT });
       const h1 = await box(page, 'main h1');
       expect(round(h1.x)).toBe(round((width - column(width)) / 2) + 24);
       await expectNoSidewaysScroll(page);
@@ -94,7 +94,7 @@ test("a room's cards stack under 1536px and sit on the grid from it", async ({ p
   await expect(page.locator('#room-market')).toBeVisible();
   for (const width of WIDTHS) {
     await test.step(`${width}px`, async () => {
-      await page.setViewportSize({ width, height: HEIGHT });
+      await resizeViewport(page, { width, height: HEIGHT });
       const market = await box(page, '#room-market');
       const burn = await box(page, '#room-burn');
       const held = await box(page, '#room-held-time');
@@ -137,7 +137,7 @@ test('the rail docks in the gutter at every step and never reaches the hero', as
   await expect(rail).toBeVisible();
   for (const width of WIDTHS) {
     await test.step(`${width}px`, async () => {
-      await page.setViewportSize({ width, height: HEIGHT });
+      await resizeViewport(page, { width, height: HEIGHT });
       const r = (await rail.boundingBox())!;
       const h1 = await box(page, 'main h1');
       const word = (await page.getByRole('link', { name: 'Held time' }).boundingBox())!;

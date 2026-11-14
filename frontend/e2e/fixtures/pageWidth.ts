@@ -1,5 +1,25 @@
 import { expect, type Page } from '@playwright/test';
 
+/**
+ * `page.setViewportSize`, then wait until the page itself lays out at that size.
+ *
+ * On Chromium the call returns once the browser has the new size, and the page receives it
+ * over a different channel from the reads that follow. On a loaded CI runner the next reads
+ * can still see the old width: wide-screen.spec.ts flaked in 278 CI attempts from 2026-10-21
+ * to 11-13 this way. Its market box read 864px (the 1919px layout) while the burn's read 496px
+ * (the 1920px one), a ratio of 1.742 that no layout has, and at 1536px the whole page still
+ * had the 1535px stack. The CSS's own answer is the condition: the media query for the size
+ * matches.
+ */
+export async function resizeViewport(page: Page, size: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(size);
+  await page.waitForFunction(
+    ({ width, height }) => matchMedia(`(width: ${width}px) and (height: ${height}px)`).matches,
+    size,
+    { polling: 20, timeout: 10_000 },
+  );
+}
+
 /** What a page's width reads, in px. */
 export interface PageWidth {
   /** `documentElement.scrollWidth`: how wide the page is. */
