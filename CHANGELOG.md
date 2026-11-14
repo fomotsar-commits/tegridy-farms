@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
 - Marketplace: a new look, on the same contracts. It opens straight on the collections with no splash, and the collage background, the scrolling strip, the glitch between tabs and the click sounds are gone. Pages are dark and plain with one accent colour (the theme button switches between lime, ice blue and amber), a collection opens on its name, its numbers and five of its pieces, gallery pictures are square, and the phone's bottom bar has drawn icons. Buying, listing, offers and the flat 0.5% fee are unchanged. The art studio no longer has marketplace slots, so a bungalow's skin does not dress the marketplace. Elsewhere on the site, loading placeholders shimmer in the site's own purple tint.
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
 - NFT Finance: the NFT Lending intro card shows a new photo, four apes leaning over a stairwell rail, and the three intro cards' dark layer is lighter so each card's picture shows.
