@@ -528,7 +528,7 @@ describe('the order of the section', () => {
     expect(small!.querySelector('p')).toBe(sentence);
     expect(small).toHaveTextContent(/have not had their own independent review yet/);
     for (const fact of [
-      'Read on chain 2026-10-20',
+      'Read on chain 2026-11-14',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
       `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
       'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
