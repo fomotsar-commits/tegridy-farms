@@ -129,14 +129,19 @@ describe('Priced in X: /pools?mint=<a pairing coin>', () => {
     expect(within(bobo).getByTestId('lp-all-pools-swap')).toHaveAttribute('href', `/solana?in=${BAYLA_MINT}&out=${BOBO_MINT}`);
   });
 
-  it('each row says how its LPs and the venue earn, at that pool’s own rates', async () => {
+  it('says once how LPs and the venue earn; a row says it only when its pool’s settings differ or were not read', async () => {
     mount(readers(ok(venue(), SAFETY)), `/pools?mint=${BAYLA_MINT}`);
     const rows = await within(list()).findAllByTestId('lp-all-pools-row');
-    for (const row of rows) expect(within(row).getByTestId('lp-all-pools-earn')).toHaveTextContent(/^LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%\.$/);
-    // A pool whose fee settings were not read says so; it never goes quiet about who earns.
-    mount(readers(ok([{ ...oldInBayla, config: null }], SAFETY)), `/pools?mint=${BAYLA_MINT}`);
-    const lists = await screen.findAllByTestId('lp-all-pools');
-    expect(await within(lists[1]!).findByTestId('lp-all-pools-earn')).toHaveTextContent('This pool’s fee settings could not be read.');
+    expect(within(list()).getByTestId('lp-priced-in-earn')).toHaveTextContent(/^LPs keep 0\.840% of each trade, the venue 0\.160%\.$/);
+    for (const row of rows) expect(within(row).queryByTestId('lp-all-pools-earn')).toBeNull();
+    // A pool on other settings says its own, and one whose settings were not read says so: never quiet about who earns.
+    const differs = { ...midInBayla, config: { ...midInBayla.config!, protocolFeeRate: 0n } };
+    mount(readers(ok([oldInBayla, differs, newInBayla, { ...boboInBayla, config: null }], SAFETY)), `/pools?mint=${BAYLA_MINT}`);
+    const second = (await screen.findAllByTestId('lp-all-pools'))[1]!;
+    const own = (await within(second).findAllByTestId('lp-all-pools-row')).map((r) => within(r).queryByTestId('lp-all-pools-earn')?.textContent ?? null);
+    expect(own).toEqual([null, 'This pool’s fee settings could not be read.', 'LPs keep 1.000% of each trade, the venue 0.000%.', null]);
+    expect(within(second).getAllByTestId('lp-priced-in-earn')).toHaveLength(1);
+    expect(within(second).getByTestId('lp-priced-in-earn')).toHaveTextContent(/^LPs keep 0\.840% of each trade, the venue 0\.160%\.$/);
   });
 
   it('with no pool priced in the coin, says so, and not that the venue has none', async () => {
@@ -204,6 +209,7 @@ describe('the default view is unchanged', () => {
       expect(within(list()).queryByRole('link', { name: 'Every pool' })).toBeNull();
       expect(within(list()).queryByTestId('lp-priced-in-coin')).toBeNull();
       expect(within(list()).queryAllByTestId('lp-all-pools-earn')).toHaveLength(0);
+      expect(within(list()).queryByTestId('lp-priced-in-earn')).toBeNull();
       // The order read (SOL's pools, then USDC's, then BAYLA's), as before.
       expect(within(list()).getByRole('list', { name: /^All pools: SOL pools first/ })).toBeInTheDocument();
     });

@@ -39,8 +39,9 @@ import { usePriceSide } from './priceSide';
  * PRICED IN X (spec 2026-11-14, community quote coins): with `pricedIn`, the same card in the
  * same place lists only the pools priced in that coin, the oldest first (pricedIn.ts), under a
  * line naming the coin by its ticker and whole address, with its risk line, and an "Every pool"
- * link back to this full list. Each row then also says how its LPs and the venue earn. It is
- * the list already read, filtered here: nothing more is read.
+ * link back to this full list, and says once how LPs and the venue earn: a row repeats it only
+ * when its own pool's fee settings differ. It is the list already read, filtered here: nothing
+ * more is read.
  */
 export function VenuePoolList({
   readers,
@@ -91,15 +92,16 @@ export function VenuePoolList({
             {pricedIn ? (
               <>
                 <p>
-                  Every pool here pairs a token with {pricedIn.symbol} and is priced in {pricedIn.symbol}. Our pool index names them, and
-                  each one is then read and checked on chain. The oldest comes first, by when its trading opened. Past what the list can
-                  hold, a search finds the rest. {pricedIn.symbol}’s own pools with {searchedCoinsOr(pricedIn.mint)} are priced in that
-                  coin, so the search above shows them, not this list.
+                  Every pool here is priced in {pricedIn.symbol}. Our pool index names them, and each one is then read and checked on
+                  chain. The oldest comes first, by when its trading opened. Past what the list can hold, a search finds the rest.{' '}
+                  {pricedIn.symbol}’s own pools with {searchedCoinsOr(pricedIn.mint)} are priced in that coin, so the search above shows
+                  them, not this list.
                 </p>
                 <p>
-                  Each row says what its LPs keep of every trade and what the venue takes, from that pool’s own fee settings on chain. Both
-                  are paid in the coin the trader pays in: {pricedIn.symbol} on a buy, the token on a sell. The dollars beside a pair are
-                  what the pool holds at Jupiter’s listed prices; a coin Jupiter does not price gets none.
+                  What LPs keep of every trade and what the venue takes is read from each pool’s own fee settings on chain; a pool whose
+                  settings differ says its own. Both are paid in the coin the trader pays in: {pricedIn.symbol} on a buy, the token on a
+                  sell. The dollars beside a pair are what the pool holds at Jupiter’s listed prices; a coin Jupiter does not price gets
+                  none.
                 </p>
               </>
             ) : (
@@ -162,6 +164,32 @@ function PricedInCoin({ coin, everyPool, onEveryPool }: { coin: QuoteCoin; every
   );
 }
 
+/** What a pool's LPs keep of each trade and what the venue takes, from its own fee settings on chain. Null: not read. */
+function earnText(view: PoolView): string | null {
+  return view.config ? `${feeSplitText(view.config, view.snapshot.pool.enableCreatorFee)}.` : null;
+}
+
+/** The earn line most of the pools share, the oldest's on a tie: the "Priced in" list says it once. Null with none read. */
+function sharedEarn(pools: readonly PoolView[]): string | null {
+  const counts = new Map<string, number>();
+  let best: string | null = null;
+  for (const view of pools) {
+    const text = earnText(view);
+    if (text === null) continue;
+    const n = (counts.get(text) ?? 0) + 1;
+    counts.set(text, n);
+    if (best === null || n > (counts.get(best) ?? 0)) best = text;
+  }
+  return best;
+}
+
+/** A row's own earn line: only where the list's shared line is not this pool's, and never quiet when it was not read. */
+function ownEarn(view: PoolView, shared: string | null): string | null {
+  const text = earnText(view);
+  if (text === null) return 'This pool’s fee settings could not be read.';
+  return text === shared ? null : text;
+}
+
 function PoolRows({
   list,
   prices,
@@ -186,8 +214,15 @@ function PoolRows({
     : usd
       ? 'All pools: the most money in first'
       : `All pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`;
+  // How LPs and the venue earn, said once for the pools that share it; a row says its own only when it differs.
+  const shared = pricedIn ? sharedEarn(pools) : null;
   return (
     <div className="space-y-3">
+      {shared && (
+        <p data-testid="lp-priced-in-earn" className="text-white/85 text-[12.5px] [overflow-wrap:anywhere]">
+          {shared}
+        </p>
+      )}
       {pools.length === 0 &&
         unread === 0 &&
         !truncated &&
@@ -203,7 +238,7 @@ function PoolRows({
               usd={usd}
               onView={onView}
               onAdd={onAdd}
-              earn={pricedIn !== null}
+              earn={pricedIn ? ownEarn(view, shared) : null}
             />
           ))}
         </ul>
@@ -231,7 +266,7 @@ function PoolRow({
   usd,
   onView,
   onAdd,
-  earn = false,
+  earn = null,
 }: {
   view: PoolView;
   safety: TokenSafety | null;
@@ -240,8 +275,8 @@ function PoolRow({
   usd: ReadonlyMap<string, number> | null;
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
-  /** Say how the pool's LPs and the venue earn, as its card does (the "Priced in" list). */
-  earn?: boolean;
+  /** How this pool's LPs and the venue earn, when the "Priced in" list's own line does not say it (`ownEarn`). */
+  earn?: string | null;
 }) {
   const side = usePriceSide();
   const tokenDecimals = tokenDecimalsOf(view);
@@ -287,7 +322,7 @@ function PoolRow({
         {/* The pool card's own line (PoolCard.tsx lp-pool-split): how LPs earn and what the venue takes stays in view (owner, 2026-10-09). */}
         {earn && (
           <p data-testid="lp-all-pools-earn" className="text-white/85 text-[12.5px] [overflow-wrap:anywhere]">
-            {view.config ? `${feeSplitText(view.config, view.snapshot.pool.enableCreatorFee)}.` : 'This pool’s fee settings could not be read.'}
+            {earn}
           </p>
         )}
         {tags.length > 0 && (
