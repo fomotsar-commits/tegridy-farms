@@ -133,7 +133,7 @@ export const WITHDRAW_ONLY_LINE = 'Withdraw only: you can take your liquidity ou
 
 /** Why, with the coin's whole address. */
 export const withdrawOnlyWhy = (coin: Pick<QuoteCoin, 'symbol' | 'mint'>): string =>
-  `${coin.symbol} (${coin.mint}) is no longer a pairing coin on this site, so it does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`;
+  `${coin.symbol} (${coin.mint}) is no longer a pairing coin on this site, so the site does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`;
 
 /** A builder's refusal for one. */
 export const withdrawOnlyRefusal = (coin: Pick<QuoteCoin, 'symbol'>): string =>

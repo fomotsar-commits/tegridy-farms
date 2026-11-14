@@ -221,7 +221,7 @@ describe('a delisted coin: its pools are withdraw-only', () => {
   it('the line is short; why names the coin by its ticker and its whole address', () => {
     expect(WITHDRAW_ONLY_LINE).toBe('Withdraw only: you can take your liquidity out of this pool, nothing more.');
     expect(withdrawOnlyWhy(BOBO_QUOTE)).toBe(
-      `BOBO (${BOBO}) is no longer a pairing coin on this site, so it does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`,
+      `BOBO (${BOBO}) is no longer a pairing coin on this site, so the site does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`,
     );
     expect(withdrawOnlyRefusal(BOBO_QUOTE)).toBe('Pools priced in BOBO are withdraw-only: BOBO is no longer a pairing coin on this site. Nothing was built.');
   });
