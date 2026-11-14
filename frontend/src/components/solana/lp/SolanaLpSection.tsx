@@ -15,6 +15,7 @@ import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { pricedInCoin } from '../../../lib/solana/lp/pricedIn';
 import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
@@ -196,7 +197,14 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     el.focus({ preventScroll: true });
     el.scrollIntoView?.({ block: 'start' });
   }, []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} />;
+  // A link to a pairing coin (?mint=BAYLA) lists the pools priced in it instead (pricedIn.ts): what its community shares.
+  // Read once, from the address the page opened with, as PoolsPage reads the door's token: the finder writes ?mint= too (a
+  // row's View or Add, Add more liquidity, a typed token), and the list must not change under the visitor. Every pool drops it.
+  const [pricedIn, setPricedIn] = useState(() => pricedInCoin(mint));
+  const everyPool = useCallback(() => setPricedIn(null), []);
+  const allPools = (
+    <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} pricedIn={pricedIn} onEveryPool={everyPool} />
+  );
   const finder = (
     <PoolFinder
       ref={finderRef}
