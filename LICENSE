@@ -5,6 +5,9 @@ Copyright (c) 2024-2026 Tegridy Farms contributors
 SCOPE: this MIT licence covers this repository EXCEPT `solana/tegridy-amm/`, which is
 licensed under Apache-2.0 (see `solana/tegridy-amm/LICENSE`) because it derives from
 raydium-io/raydium-cp-swap. See NOTICE.md for third-party attributions.
+`cardano/minswap-dex-v2/` is Minswap Labs' code under its own licence, which its files state
+two ways (GPL-3.0 and Apache-2.0); `cardano/role-timelock/` compiles against it and is treated as
+GPL-3.0 until that is resolved. See cardano/README.md.
 
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -418,6 +418,43 @@ keep legacy.
 
 ---
 
+## 2026-11-07: a mutant that makes a service retry forever never fails its test, it hangs it
+
+**Wrong belief:** a mutation run reports each mutant as killed or survived, so a run that is taking
+long is just slow.
+
+**Measured:** on the Cardano batcher, a mutant that read the global setting with the wrong shape
+made `node --test test/main.test.ts` run 11 minutes with no verdict: the watcher catches the
+unreadable setting and retries, and those tests await a batch with no per-test timeout. Stopping
+the run also stopped the script's `finally`, so the mutant stayed in `src/select.ts` until it was
+restored by hand and checked with `git diff`. With `--test-timeout=120000` and only the fast test
+file that reads the setting, the same mutant failed in under a second.
+
+**Do:** give every mutation run `--test-timeout`, point each mutant at the fastest test that reads
+the mutated line, and after any run that was stopped, diff the file before trusting it.
+
+Aiken 1.0.24, met the same day: `aiken check -m <text>` keeps tests whose NAME contains the text
+(not the module), and the way to print a value is `trace` in a test that returns `False`: the
+report shows the trace under the failure.
+
+## 2026-11-07: a spend redeemer is passed to the script as written, but an Aiken 1.0.24 script with mint and spend handlers expects it wrapped
+
+**Wrong belief:** the redeemer you build is the value the validator's `action` argument receives.
+
+**Measured:** our role lock (`cardano/role-timelock`, one script with `mint` and `spend`) refused
+every `Announce` on preprod with `headList` of an empty list, whatever the announcement held.
+Aiken 1.0.24 compiles the two handlers into one program that branches on the constructor index
+of its second argument: 0 runs `mint` (a ScriptContext is constructor 0), anything else runs
+`spend` with that argument's first field. So a spend's redeemer must be `constr 1 [action]`;
+`plutus.json` says so (`RedeemerWrapper$...Action`). Unwrapped, `Announce` (constructor 0) ran
+the mint handler, and `Cancel` (constructor 1) reached the spend handler and failed decoding its
+bare integer. Wrapped, the Announce passed (tx fb17d866, 396,026 memory). The lock's Aiken tests
+call `lock.spend` directly, so they never see the wrapper.
+
+**Do:** before building a redeemer for any Aiken 1.0.x script, read its schema in `plutus.json`.
+A `RedeemerWrapper` there means `constr 1 [redeemer]`. Minswap's authen script (GlobalSetting
+spend) is built the same way.
+
 ## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
 
 **Wrong belief:** a PumpSwap pool is plain x·y = k on its base and quote vaults, charging LP +

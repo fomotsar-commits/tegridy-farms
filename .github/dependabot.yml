@@ -87,6 +87,29 @@ updates:
       - dependency-name: "@types/node"
         versions: [">=25"]
 
+  # The Cardano batcher (cardano/batcher): EMURGO's library, its one runtime dependency, and its
+  # base image. It signs with a key held in memory and talks only HTTPS and WebSockets, so Node's
+  # network stack and the image's Debian must not go stale. Its CI job (cardano-ci.yml) runs the
+  # tests on the Node the Dockerfile names, so a base-image PR is tested on that Node.
+  - package-ecosystem: npm
+    directory: "/cardano/batcher"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # Same rule as /frontend: types never ahead of the Node it runs on (24).
+      - dependency-name: "@types/node"
+        versions: [">=25"]
+  - package-ecosystem: docker
+    directory: "/cardano/batcher"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    ignore:
+      # A new Node major is a migration (and @types/node above follows it), never a bump.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+
   # Root (if any lockfile lives at root)
   - package-ecosystem: npm
     directory: "/"
