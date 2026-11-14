@@ -51,6 +51,35 @@ test.describe('NFT lending surface', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  // Each stat tile's tooltip (the fee's says how the venue earns) must be drawn on top: an
+  // overflow-hidden tile clipped its own bubble. Checked by elementFromPoint (jsdom has no
+  // layout). Opened as each visitor opens it: a tap on touch, the pointer resting on it with a
+  // mouse. Never a mouse click: once the hover has drawn the bubble, the click toggles it shut.
+  test('each stat tile\'s explanation is drawn on top, not clipped by its tile', async ({ page, walletMock: _w, hasTouch }) => {
+    test.skip(!lendingLive, NOT_LIVE);
+    await page.goto('/nft-finance');
+    const heading = page.getByRole('heading', { name: /^NFT Lending$/i });
+    await expect(heading).toBeVisible();
+    const more = page.getByRole('button', { name: 'More info' });
+    for (let i = 0; i < 4; i++) {
+      await more.nth(i).scrollIntoViewIfNeeded();
+      if (hasTouch) await more.nth(i).tap();
+      else await more.nth(i).hover();
+      const tip = page.getByRole('tooltip');
+      await expect(tip).toHaveCount(1);
+      const onTop = await tip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && (hit === el || el.contains(hit));
+      });
+      expect(onTop, `tile ${i + 1}'s tooltip is drawn under something else, so it cannot be read`).toBe(true);
+      // Closes it again: a second tap, or the pointer moving off it.
+      if (hasTouch) await more.nth(i).tap();
+      else await heading.hover();
+      await expect(tip).toHaveCount(0);
+    }
+  });
+
   test('lend / borrow / my-loans sub-tabs switch', async ({ page, walletMock }) => {
     test.skip(!lendingLive, NOT_LIVE);
     await walletMock.connect();

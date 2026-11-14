@@ -103,7 +103,9 @@ describe('borrower: what repaying on a given day costs', () => {
     // 1 WETH at 10% for 30 days = 0.008219... interest, rounded up by the contract's rule.
     expect(text('loan-timeline-headline')).toBe('Repay 1.008219 WETH');
     expect(text('loan-timeline-when')).toContain('day 30 of 30 · about ');
-    expect(text('loan-timeline-line')).toBe('Last moment to repay. After it the lender keeps NAKA #77.');
+    // Gondi refuses repayment AT the due second (_baseLoanChecks: end <= now), so the wall is
+    // where repaying has already closed, not its last moment.
+    expect(text('loan-timeline-line')).toBe('Repay before this moment. From then, the lender can take NAKA #77.');
   });
 
   it('dragging to day 10 shows that day\'s cost, cheaper than the deadline\'s', () => {
@@ -133,7 +135,7 @@ describe('borrower: what repaying on a given day costs', () => {
     expect(lastStop).toBeLessThan(end);
     fireEvent.change(slider(), { target: { value: String(lastStop) } });
     expect(text('loan-timeline-headline')).toBe('Repay 1.008219 WETH');
-    expect(text('loan-timeline-line')).toContain('Last moment to repay.');
+    expect(text('loan-timeline-line')).toContain('Repay before this moment');
   });
 });
 

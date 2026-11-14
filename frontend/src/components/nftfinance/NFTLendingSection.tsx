@@ -170,7 +170,7 @@ export function NFTLendingSection() {
             value: feeBps !== null ? `${bpsToPercent(feeBps)}%` : feeUnread ? 'Unavailable' : '–',
             tooltip:
               feeBps !== null
-                ? 'The venue keeps this share of the interest a lender earns. The lender keeps the rest.'
+                ? 'The venue keeps this share of the interest a lender is paid, when a loan is repaid or another lender takes it over. The lender keeps the rest. A loan that is not repaid pays no interest, so the venue gets nothing from it.'
                 : 'The fee could not be read from the loan contract, so none is shown. It is unknown right now, not zero.',
             art: pageArt('nft-lending', 2),
           },
@@ -181,8 +181,12 @@ export function NFTLendingSection() {
             art: pageArt('nft-lending', 3),
           },
         ].map((s) => (
-          <div key={s.label} className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
-            <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+          // Only the art is clipped to the rounded tile: a clipping tile hid its own tooltip.
+          // The tile with a tooltip open sits above its neighbours.
+          <div key={s.label} className="relative rounded-xl [&:has([role=tooltip])]:z-20" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0 overflow-hidden rounded-[11px]">
+              <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+            </div>
             <div
               className="relative z-10 m-2 rounded-lg p-3 md:p-4"
               style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -757,6 +761,12 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
           when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
         </p>
+        {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
+            new lender take the loan over, unlocked from 15% to 85% of the term. */}
+        <p className="mt-1">
+          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a lower rate without asking you or the borrower. You then get
+          your WETH back plus the interest so far, less the venue&apos;s share of that interest.
+        </p>
       </FinePrint>
     </div>
   );
@@ -937,6 +947,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   const pledgedId = anyToken ? parseTokenId(pickedId) : BigInt(offer.nftCollateralTokenId);
   const takesIt = pledgedId !== null && acceptsToken(offer, pledgedId);
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
+  // The same words where they start a sentence ("your NAKA" before a token is picked).
+  const collateralAtStart = collateralLabel.charAt(0).toUpperCase() + collateralLabel.slice(1);
 
   const ownerQuery = useReadContract({
     address: offer.nftCollateralAddress,
@@ -1172,7 +1184,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                     : ownsPledged
                     ? `You own ${collateralLabel}.`
                     : knownNotOwned
-                    ? `${collateralLabel} is not in your wallet.`
+                    ? `${collateralAtStart} is not in your wallet.`
                     : `Couldn't find ${collateralLabel}. Check the token ID.`}
                 </p>
               )}
@@ -1201,8 +1213,13 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
                   <p>
-                    {collateralLabel} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
+                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
                     repaid by then, the lender can take it, permanently.
+                  </p>
+                  <p className="mt-1">
+                    From 15% to 85% of the term, another lender can take this loan over at a lower rate without asking you. The loan then
+                    has a new number and its deadline can only move later. If the new lender lends more, the extra WETH is sent to you
+                    and you owe it too.
                   </p>
                 </FinePrint>
               </RiskBanner>

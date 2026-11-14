@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: a test that clicks a hover-to-open tooltip shuts it whenever the hover draws first
+
+**Believed:** `click()` on `InfoTooltip`'s "?" opens its bubble on every project. It did locally on
+all four and in CI's Chromium.
+
+**Measured** (PR #1222, e2e/lending.spec.ts, the stat tiles): CI's iphone-safari and ipad-safari
+found no tooltip on all three attempts, while the same test passed 6 of 6 on this PC's WebKit. A
+Playwright click first moves the mouse, which fires mouseenter and opens the bubble; the click then
+toggles from the state read at pointerdown. When React has drawn the hover before the press lands,
+the click shuts it. Hovering 150 ms before the click turned it red on all four projects, Chromium
+included. `launchOptions.slowMo: 150` did not: it spaces actions, not the move and the press inside
+one click. A tap cannot lose this way: traced in Chromium and WebKit, pointerdown(touch) comes before
+any mouseover, so the press reads the bubble shut and opens it.
+
+**Do:** open a hover-and-click control as its visitor does: `tap()` when `hasTouch`, `hover()`
+otherwise; close it with a second tap or a hover elsewhere. To reproduce a CI-only race like this,
+hover and wait before the press; slowMo will not split a click.
+
 ## 2026-11-14: a tooltip Playwright calls visible can be clipped to nothing by its card
 
 **Believed:** an open `InfoTooltip` (its bubble is `absolute z-50`) shows above the page, and a
