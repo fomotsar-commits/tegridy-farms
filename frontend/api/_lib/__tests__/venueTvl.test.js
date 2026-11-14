@@ -288,6 +288,29 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     expect(body.poolCoins).toEqual([{ mint: MEME, usd: 600 }, { mint: BIG, usd: 500 }]);
   });
 
+  // The browser takes whatever list it reads as the whole list (poolCoins.ts). Jupiter not
+  // answering left every coin priced in an island coin off it, for minutes, on a read that failed.
+  it("sends no $200 list at all while Jupiter cannot be read, never a shorter one", async () => {
+    const w = world();
+    w.down.add("lite-api.jup.ag");
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200, whatever Jupiter says
+    w.pool(CP, [BAYLA, 1e6], [JUNK, 5]); // the pool this answer could not value
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toMatchObject({ read: true, usd: 200, unvalued: 1 });
+    expect(body.state).toBe("partial");
+    expect("poolCoins" in body).toBe(false);
+  });
+
+  it("still sends the list when Jupiter answers with no price for a coin: that coin's pools are left off it", async () => {
+    const w = world();
+    w.jup[BOBO] = 0.05; // BAYLA has none
+    w.pool(CP, [SOL, 1], [MEME, 5]); // $200
+    w.pool(CP, [BAYLA, 1e6], [JUNK, 5]); // left out: BAYLA has no market price
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.state).toBe("partial");
+    expect(body.poolCoins).toEqual([{ mint: MEME, usd: 200 }]);
+  });
+
   it("names no coin while Solana's pools are not read", async () => {
     const w = world();
     const { vault0 } = w.pool(CP, [SOL, 5], [MEME, 5]);

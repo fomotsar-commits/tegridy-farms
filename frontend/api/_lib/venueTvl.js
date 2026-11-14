@@ -18,7 +18,8 @@
 //
 // THE COINS WITH A $200 POOL (`poolCoins`, POOL_COIN_USD): each Solana pool's other coin, with
 // the worth of its deepest pool here, for the swap's list of the venue's own coins. Read from the
-// same vaults as the total, so it costs no call of its own.
+// same vaults as the total, so it costs no call of its own. Left out of the answer while
+// Jupiter cannot be read (PRICES below), so the browser keeps its last list.
 //
 // PRICES: SOL and ETH from Coinbase, then CoinGecko (the volume counter's spotPrice). USDC is
 // a dollar. An island coin is valued at its market price on Jupiter (`readMarketPrices`, the
@@ -288,9 +289,12 @@ async function readVaults(wanted, fetchImpl) {
 }
 
 /**
- * The Solana side: both programs, valued. `{ usd, pools, unvalued }`, where `unvalued`
- * counts pools left out because an island coin had no market price. Throws when any chain
- * read failed; Jupiter not answering only leaves the island coins' pools out.
+ * The Solana side: both programs, valued. `{ usd, pools, unvalued, poolCoins }`, where
+ * `unvalued` counts pools left out because an island coin had no market price. Throws when
+ * any chain read failed; Jupiter not answering only leaves the island coins' pools out, and
+ * makes `poolCoins` null: a list missing every coin priced in an island coin is not the list,
+ * and the browser takes whatever list it reads as the whole one (poolCoins.ts). A coin Jupiter
+ * answers with no price for is that coin's pools left off a list that is still sent.
  */
 export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
   const programs = await Promise.all(SOLANA_PROGRAMS.map((layout) => scanPrograms(layout, fetchImpl)));
@@ -314,11 +318,13 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
   if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [] };
   const usd = { [SOL.mint]: await priceOf("SOL"), [USDC.mint]: 1 };
   // The island coins at their market price, asked only when a pool is valued in one.
+  let islandUnread = false;
   if (counted.some((c) => c.sides.some((s) => !(s.mint in usd)))) {
     let market = new Map();
     try {
       market = await marketPrices("solana", ISLAND_MINTS);
     } catch (err) {
+      islandUnread = true;
       console.error("[venue-tvl] island coin prices not read:", logSafe(err));
     }
     for (const mint of ISLAND_MINTS) usd[mint] = market.get(mint) ?? null;
@@ -341,7 +347,7 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .slice(0, MAX_POOL_COINS)
     .map(([mint, worth]) => ({ mint, usd: Math.round(worth * 100) / 100 }));
-  return { usd: total, pools: counted.length - unvalued, unvalued, poolCoins };
+  return { usd: total, pools: counted.length - unvalued, unvalued, poolCoins: islandUnread ? null : poolCoins };
 }
 
 /** One eth_call over the chain's endpoints; the first that answers wins. */
@@ -575,7 +581,8 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
         }
       }),
     );
-  // The coins with a $200 pool, beside the total: unset while Solana's pools are not read.
+  // The coins with a $200 pool, beside the total: unset while Solana's pools, or the island
+  // coins' market prices, are not read (readSolana).
   let poolCoins = null;
   const solana = async () => {
     const r = await readSolana({ fetchImpl, priceOf, marketPrices });
