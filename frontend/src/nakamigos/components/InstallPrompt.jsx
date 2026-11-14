@@ -45,24 +45,24 @@ export default function InstallPrompt() {
     <div style={{
       position: "fixed", bottom: 70, left: "50%", transform: "translateX(-50%)",
       zIndex: 9500, background: "var(--surface-glass)",
-      backdropFilter: "var(--glass-blur)", border: "1px solid var(--border)",
-      borderRadius: 12, padding: "12px 20px",
+ border: "1px solid var(--border)",
+      borderRadius: 6, padding: "12px 20px",
       display: "flex", alignItems: "center", gap: 12,
       boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
       maxWidth: "calc(100vw - 32px)",
     }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: "var(--pixel)", fontSize: 9, color: "var(--gold)", letterSpacing: "0.1em" }}>
+        <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.1em" }}>
           INSTALL APP
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
           Add to home screen for the full experience
         </div>
       </div>
       <button
         onClick={handleInstall}
         className="btn-primary"
-        style={{ fontSize: 10, padding: "8px 16px", whiteSpace: "nowrap" }}
+        style={{ fontSize: 11, padding: "8px 16px", whiteSpace: "nowrap" }}
       >
         Install
       </button>

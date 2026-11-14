@@ -8,30 +8,29 @@ const overlayStyle = {
   inset: 0,
   zIndex: 10200,
   background: "rgba(0,0,0,0.75)",
-  backdropFilter: "blur(12px)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  animation: "fadeIn 0.15s ease-out",
+  animation: "mk-fade 0.15s ease-out",
 };
 
 const panelStyle = {
   background: "var(--surface, #111)",
   border: "1px solid var(--border, #333)",
-  borderRadius: 16,
+  borderRadius: 8,
   padding: "32px 40px",
   maxWidth: 520,
   width: "90vw",
   // Scroll on short (e.g. landscape phone) viewports instead of clipping.
   maxHeight: "85vh",
   overflowY: "auto",
-  boxShadow: "0 0 60px rgba(200,168,80,0.15)",
+  boxShadow: "none",
 };
 
 const titleStyle = {
   fontFamily: "var(--pixel)",
-  fontSize: 11,
-  color: "var(--gold, #c8a850)",
+  fontSize: 12,
+  color: "var(--gold, #c6f432)",
   letterSpacing: "0.08em",
   marginBottom: 24,
   textAlign: "center",
@@ -39,8 +38,8 @@ const titleStyle = {
 
 const sectionStyle = {
   fontFamily: "var(--pixel)",
-  fontSize: 8,
-  color: "var(--naka-blue, #6fa8dc)",
+  fontSize: 10,
+  color: "var(--naka-blue, #ffffff)",
   letterSpacing: "0.06em",
   marginTop: 20,
   marginBottom: 10,
@@ -57,11 +56,11 @@ const rowStyle = {
 
 const keyStyle = {
   fontFamily: "var(--mono)",
-  fontSize: 11,
+  fontSize: 12,
   color: "var(--text, #fff)",
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: 6,
+  borderRadius: 4,
   padding: "3px 8px",
   minWidth: 28,
   textAlign: "center",
@@ -70,7 +69,7 @@ const keyStyle = {
 
 const descStyle = {
   fontFamily: "var(--mono)",
-  fontSize: 11,
+  fontSize: 12,
   color: "var(--text-muted, #888)",
 };
 
@@ -112,7 +111,7 @@ export default function KeyboardHelp({ onClose, onReplayTour }) {
             aria-label="Close keyboard shortcuts"
             style={{
               background: "none", border: "1px solid var(--border, #333)",
-              borderRadius: 6, color: "var(--text-muted, #888)", cursor: "pointer",
+              borderRadius: 4, color: "var(--text-muted, #888)", cursor: "pointer",
               fontSize: 14, width: 28, height: 28, display: "flex",
               alignItems: "center", justifyContent: "center",
             }}
@@ -136,9 +135,9 @@ export default function KeyboardHelp({ onClose, onReplayTour }) {
             <button
               onClick={onReplayTour}
               style={{
-                fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer",
-                color: "var(--naka-blue, #6fa8dc)", background: "none",
-                border: "1px solid var(--border, #333)", borderRadius: 8,
+                fontFamily: "var(--mono)", fontSize: 12, cursor: "pointer",
+                color: "var(--naka-blue, #ffffff)", background: "none",
+                border: "1px solid var(--border, #333)", borderRadius: 4,
                 padding: "8px 18px", letterSpacing: "0.02em",
               }}
             >
@@ -146,7 +145,7 @@ export default function KeyboardHelp({ onClose, onReplayTour }) {
             </button>
           </div>
         )}
-        <div style={{ textAlign: "center", marginTop: 24, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
+        <div style={{ textAlign: "center", marginTop: 24, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
           Press <span style={keyStyle}>?</span> or <span style={keyStyle}>Esc</span> to close
         </div>
       </div>

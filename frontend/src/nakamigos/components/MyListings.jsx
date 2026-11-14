@@ -27,11 +27,13 @@ const styles = {
     padding: "24px 16px",
   },
   title: {
-    fontFamily: "var(--pixel, var(--display))",
-    fontSize: 22,
+    fontFamily: "var(--heading)",
+    fontSize: 30,
     color: "var(--text)",
-    letterSpacing: "0.04em",
     marginBottom: 20,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   summaryBar: {
     display: "flex",
@@ -41,9 +43,7 @@ const styles = {
     marginBottom: 16,
     background: "var(--surface-glass)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
+    borderRadius: 6,
   },
   summaryItem: {
     display: "flex",
@@ -52,7 +52,7 @@ const styles = {
   },
   summaryLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--text-muted)",
     textTransform: "uppercase",
     letterSpacing: "0.06em",
@@ -69,11 +69,11 @@ const styles = {
   cancelAllBtn: {
     marginLeft: "auto",
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--red)",
-    background: "rgba(248,113,113,0.06)",
-    border: "1px solid rgba(248,113,113,0.15)",
-    borderRadius: 5,
+    background: "rgba(255,92,92,0.06)",
+    border: "1px solid rgba(255,92,92,0.15)",
+    borderRadius: 4,
     padding: "6px 14px",
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -83,19 +83,17 @@ const styles = {
   card: {
     background: "var(--border)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
+    borderRadius: 6,
     padding: "12px 16px",
     marginBottom: 8,
     display: "flex",
     alignItems: "center",
     gap: 14,
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
   },
   nftThumb: {
     width: 52,
     height: 52,
-    borderRadius: 8,
+    borderRadius: 4,
     overflow: "hidden",
     flexShrink: 0,
     cursor: "pointer",
@@ -116,7 +114,7 @@ const styles = {
   },
   cardMeta: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     marginTop: 3,
     display: "flex",
@@ -136,11 +134,11 @@ const styles = {
   },
   btnCancel: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--red)",
-    background: "rgba(248,113,113,0.06)",
-    border: "1px solid rgba(248,113,113,0.15)",
-    borderRadius: 5,
+    background: "rgba(255,92,92,0.06)",
+    border: "1px solid rgba(255,92,92,0.15)",
+    borderRadius: 4,
     padding: "5px 12px",
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -152,7 +150,7 @@ const styles = {
   },
   refreshNote: {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--text-muted)",
     textAlign: "right",
     marginBottom: 8,
@@ -160,22 +158,22 @@ const styles = {
   badge: (color) => ({
     display: "inline-block",
     fontFamily: "var(--mono)",
-    fontSize: 8,
+    fontSize: 10,
     letterSpacing: "0.04em",
     textTransform: "uppercase",
     padding: "2px 6px",
-    borderRadius: 4,
+    borderRadius: 3,
     color,
-    background: color === "var(--green, #4ade80)"
-      ? "rgba(74,222,128,0.1)"
-      : color === "var(--yellow, #facc15)"
-        ? "rgba(250,204,21,0.1)"
-        : "rgba(248,113,113,0.1)",
-    border: `1px solid ${color === "var(--green, #4ade80)"
-      ? "rgba(74,222,128,0.2)"
-      : color === "var(--yellow, #facc15)"
-        ? "rgba(250,204,21,0.2)"
-        : "rgba(248,113,113,0.2)"}`,
+    background: color === "var(--green, #2fd98b)"
+      ? "rgba(47,217,139,0.1)"
+      : color === "var(--yellow, #f2c14e)"
+        ? "rgba(242,193,78,0.1)"
+        : "rgba(255,92,92,0.1)",
+    border: `1px solid ${color === "var(--green, #2fd98b)"
+      ? "rgba(47,217,139,0.2)"
+      : color === "var(--yellow, #f2c14e)"
+        ? "rgba(242,193,78,0.2)"
+        : "rgba(255,92,92,0.2)"}`,
   }),
 };
 
@@ -210,21 +208,21 @@ function getHealthBadge(price, floorPrice) {
   if (!floorPrice || floorPrice <= 0 || !price) return null;
   const pctAbove = ((price - floorPrice) / floorPrice) * 100;
   if (pctAbove <= 10) {
-    return { label: "Near Floor", color: "var(--green, #4ade80)", pctAbove };
+    return { label: "Near Floor", color: "var(--green, #2fd98b)", pctAbove };
   }
   if (pctAbove <= 30) {
-    return { label: "Above Floor", color: "var(--yellow, #facc15)", pctAbove };
+    return { label: "Above Floor", color: "var(--yellow, #f2c14e)", pctAbove };
   }
-  return { label: "High", color: "var(--red, #f87171)", pctAbove };
+  return { label: "High", color: "var(--red, #ff5c5c)", pctAbove };
 }
 
 function SkeletonRows({ count = 4 }) {
   return Array.from({ length: count }, (_, i) => (
-    <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
-      <div className="skeleton" style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0, animationDelay: `${i * 60}ms` }} />
+    <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
+      <div className="skeleton" style={{ width: 52, height: 52, borderRadius: 4, flexShrink: 0, animationDelay: `${i * 60}ms` }} />
       <div style={{ flex: 1 }}>
-        <div className="skeleton" style={{ height: 10, borderRadius: 4, width: "60%", marginBottom: 6, animationDelay: `${i * 60}ms` }} />
-        <div className="skeleton" style={{ height: 10, borderRadius: 4, width: "35%", animationDelay: `${i * 60 + 30}ms` }} />
+        <div className="skeleton" style={{ height: 10, borderRadius: 3, width: "60%", marginBottom: 6, animationDelay: `${i * 60}ms` }} />
+        <div className="skeleton" style={{ height: 10, borderRadius: 3, width: "35%", animationDelay: `${i * 60 + 30}ms` }} />
       </div>
     </div>
   ));
@@ -603,10 +601,10 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       {/* Wrong network warning */}
       {isWrongNetwork && (
         <div role="alert" style={{
-          fontFamily: "var(--mono)", fontSize: 11, marginBottom: 12,
-          padding: "10px 14px", borderRadius: 8,
-          background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
-          color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+          fontFamily: "var(--mono)", fontSize: 12, marginBottom: 12,
+          padding: "10px 14px", borderRadius: 4,
+          background: "rgba(255,92,92,0.08)", border: "1px solid rgba(255,92,92,0.2)",
+          color: "var(--red, #ff5c5c)", textAlign: "center", lineHeight: 1.5,
         }}>
           Wrong network detected. Cancel operations require Ethereum Mainnet.{" "}
           <button
@@ -614,7 +612,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
             style={{
               background: "none", border: "none", cursor: "pointer",
               color: "var(--naka-blue)", textDecoration: "underline",
-              fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+              fontFamily: "var(--mono)", fontSize: 12, padding: 0,
             }}
           >
             Switch Network
@@ -717,7 +715,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                     <span style={styles.badge(health.color)}>{health.label}</span>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 8, fontSize: 8, fontFamily: "var(--mono)", color: "var(--text-muted)", marginTop: 4 }}>
+                <div style={{ display: "flex", gap: 8, fontSize: 10, fontFamily: "var(--mono)", color: "var(--text-muted)", marginTop: 4 }}>
                   {listing.createdAt && <span>Listed {timeAgo(listing.createdAt)}</span>}
                   {/* Suppressed for bundles for the same reason as distFromFloor above:
                       a package total is not comparable to a per-token floor. */}
@@ -732,7 +730,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                 <div style={styles.price}>
                   <Eth size={12} /> {computeRevenue(listing.price || 0).toFixed(4)}
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                   Listed: {(listing.price || 0).toFixed(4)}
                 </div>
               </div>
