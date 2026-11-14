@@ -31,6 +31,57 @@ is the first step to any reward.
 build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
 read the deployed commit with `git show <commit>:<path>`.
 
+## 2026-11-14: a WebKit `click()` is two messages, and a page that moves between them loses the press
+
+**Believed:** Playwright's actionability and hit-target checks mean a `click()` that returns
+without error reached the element.
+
+**Measured** (PR #1219, e2e/arrival.spec.ts:137, the home's tour: 127 failed attempts in 87 CI
+runs from 2026-10-21 to 11-12, WebKit only, "toHaveCount: Expected 1, Received 0"): the WebKit
+click is a mouse down and a mouse up sent separately, and the hit check runs on the first event
+only. The home's cards land late and pushed the tour down from y 1077 to 1801. CI's traces showed
+the same race one step earlier: a card's `<details>` intercepted the first try and Playwright
+retried. A shift after the check gets no retry. With a 200px block made to land one task after
+the press began, `click()` lost the press in 16 of 24 WebKit runs with CI's message (Chromium in
+0); `tap()`, one message, in 0 of 48 on all four projects.
+
+**Do:** on a project with `hasTouch`, press with `tap()` (the `press` helper in
+arrival.spec.ts). To find this cause, make the shift certain with an init script on
+`pointerdown` + `setTimeout(0)`, rather than waiting for CI's timing.
+
+## 2026-11-14: stubbing outside hosts leaves a count moving with the network, because the preview's proxies are same-origin
+
+**Believed:** e2e/word-budget.spec.ts counted the page, not the network: it aborted the
+GeckoTerminal edge, and the rest of what it reads is on chain.
+
+**Measured** (PR #1219, 238 CI runs 2026-11-03 to 14, one build): the home counted 284 to 432
+words, /bayla 292 to 461, /pools 53 to 255. `vite preview` proxies `/api/solrpc` to the public
+Solana RPC and `/api/jupiter` and others to live services (vite.config.ts, the 2026-11-11 entry
+below). Those requests are same-origin, so a `url.host !== own` stub never sees them. Whatever
+the rate-limited RPC answered decided which cards drew. With every read fixed (Solana from
+mainnet recordings, the rest refused), all 18 counts were identical on 3 of 3 runs, and /pools
+read 330 against a ceiling of 325. It had passed only because its venue never read in CI.
+
+**Do:** to measure what a page shows, fix every read: refuse `**/api/**` and outside hosts, and
+answer `/api/solrpc` from a recording (em-dash-zero.spec.ts and word-budget.spec.ts do). A
+ceiling set from a run whose reads failed is a ceiling on the outage, not the page.
+
+## 2026-11-14: React Router 7's `BrowserRouter` applies every navigation as a transition
+
+**Believed:** a tab whose selection lives in the URL (`setSearchParams` in its click handler)
+shows the new selection on the next frame, like a `useState` tab.
+
+**Measured** (react-router 7.18.3, `BrowserRouter` in dist/development/chunk-BV7QT456.mjs: its
+history listener sets state inside `React.startTransition` unless `useTransitions={false}`). On
+/nft-finance at 390px on Playwright WebKit, from the click event to `aria-selected="true"`: 172 ms
+median, 296 ms at most, the same with every core busy. Holding the new section's code chunk for
+8 s did not delay it (185 ms): a newly mounted Suspense boundary shows its fallback. Not tested:
+whether `useTransitions={false}` shortens it, or whether CI's 14 unexplained strip failures
+(nft-finance-strip.spec.ts:467) are this.
+
+**Do:** wait for URL-driven selection with an assertion, never a frame count. If a press must
+show at once, keep the pressed tab in local state as well as in the URL.
+
 ## 2026-11-13: `page.setViewportSize` returns before the page has the new width
 
 **Believed:** after `await page.setViewportSize({ width })` the next read lays out at `width`.

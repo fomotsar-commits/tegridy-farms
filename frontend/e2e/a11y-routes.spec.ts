@@ -38,6 +38,7 @@ import {
   gotoRoute,
   navigablePath,
   waitForQuiescence,
+  waitForReads,
 } from './fixtures/routes';
 
 const failureMessage = (route: string, owner: string, findings: A11yFinding[]) =>
@@ -73,7 +74,11 @@ test.describe('a11y — every routed page', () => {
         });
       }
       if (isNakamigos) await gotoNakamigos(page);
-      else await gotoRoute(page, navigablePath(route));
+      else {
+        await gotoRoute(page, navigablePath(route));
+        // The audit is of the page as its reads leave it, not of its loading state.
+        await waitForReads(page);
+      }
       await waitForQuiescence(page);
 
       const findings = await auditA11y(page, { root: isNakamigos ? 'main' : 'main#main-content' });
@@ -98,6 +103,8 @@ test.describe('a11y — connected-wallet surfaces', () => {
       // authorized account if `eth_accounts` is already non-empty at mount.
       await walletMock.connect();
       await gotoRoute(page, navigablePath(route));
+      // /earn/toweli's LP farm inputs, which the entry declares, arrive with its read.
+      await waitForReads(page);
       await waitForQuiescence(page);
 
       const findings = await auditA11y(page, { root: 'main#main-content' });
