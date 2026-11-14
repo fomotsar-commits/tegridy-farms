@@ -233,7 +233,7 @@ describe('a collect’s review', () => {
   });
 
   it('a pool of one of the site’s own coins names it by its ticker on the rows and in the test run, never “tokens”', () => {
-    const base = collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' }>;
+    const base = collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>;
     const s = { ...base, fees: { token: 12_500_000n, quote: 4_200_000n }, poolLine: { ...base.poolLine, tokenMint: BAYLA } };
     const p = prepared(s, { simulated: { signerLamportsDelta: 4_195_000n, tokenDeltas: [{ mint: BAYLA, account: key(71), delta: 60_700_000n, role: 'token', decimals: 6 }] } });
     render(<TxReview prepared={p} decimals={6} display={(x) => x} />);
@@ -243,7 +243,7 @@ describe('a collect’s review', () => {
   });
 
   it('a take-out of some liquidity keeps its own title', () => {
-    const s = { ...(collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' }>), percent: 50, liquidity: 5n };
+    const s = { ...(collect([paid()]) as Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>), percent: 50, liquidity: 5n };
     render(<TxReview prepared={prepared(s)} decimals={6} display={(x) => x} />);
     expect(screen.getByRole('heading').textContent).toBe('Review: take out of your range position');
   });
