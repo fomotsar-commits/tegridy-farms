@@ -101,8 +101,9 @@
  *                           signature, so it lands once at most, by whichever door is first. A
  *                           bundle Jito drops then still lands (8 of 17 bundles were dropped
  *                           2026-11-11 to 11-14, each holding the robot ~35 s). A trip the RPC's test
- *                           run refuses three times running, with nothing sent by that door, is
- *                           called lost after ~3 s, not ~35. The cost: a trip that lands by the
+ *                           run refuses three times running, with nothing sent by that door and
+ *                           Jito not saying it still holds the bundle, is called lost after ~2 s,
+ *                           not ~35. The cost: a trip that lands by the
  *                           plain door still pays its tip, and one that loses a race in the same
  *                           block lands failed and pays its network fee (~6,000 lamports), where
  *                           a bundle alone would have paid nothing. Needs KEEPER_JITO (default no)

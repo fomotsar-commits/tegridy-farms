@@ -408,6 +408,21 @@ describe('jitoSender', () => {
       expect(jitoNote(sent)).toBe("Jito's last word: Invalid; the plain door: its test run refused it: instruction 2: custom program error: 0x1774");
     });
 
+    it('never calls it lost early while Jito says it still holds the bundle: Pending is waited out, and a bundle Jito lands is confirmed', async () => {
+      // Refused by the plain door every time, but Jito holds it: only the blockhash running out calls it lost.
+      const held = doors({ doors: [REFUSED], inflight: ['Pending'], expiresAt: 35_000 });
+      expect(await held.send()).toMatchObject({ outcome: 'lost', jitoSaid: 'Pending', plain: 'refused' });
+      expect(held.clock()).toBeGreaterThanOrEqual(35_000);
+      // Jito lands it at 5 s all the same.
+      const lands = doors({ doors: [REFUSED], inflight: ['Pending', 'Pending', 'Pending', 'Landed'], status: (clock) => (clock >= 5_000 ? { err: null, confirmationStatus: 'confirmed' } : null) });
+      expect(await lands.send()).toMatchObject({ outcome: 'confirmed', plain: 'refused' });
+      expect(lands.clock()).toBe(5_000);
+      // Jito with no word at all (it did not answer) does not hold the trip back: lost at 2 s, as with Invalid.
+      const silent = doors({ doors: [REFUSED], bundleStatus: 200, inflight: [''], expiresAt: 35_000 });
+      expect(await silent.send()).toMatchObject({ outcome: 'lost', jitoSaid: null });
+      expect(silent.clock()).toBe(2_000);
+    });
+
     it('never calls it lost early once it went out by the plain door, whatever its later test runs say: only the blockhash running out does', async () => {
       // Out by the plain door at once; then its test run says no three times running (a rival took
       // the gap, say). The transaction is out all the same and may land while its blockhash lives.

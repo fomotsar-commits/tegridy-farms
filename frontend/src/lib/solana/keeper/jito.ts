@@ -135,8 +135,9 @@ export type PlainDoor = { door: 'sent' } | { door: 'refused'; why: string } | { 
 export const PLAIN_KNOCKS = 4;
 /**
  * With two doors: the plain door's test run refusing the trip this many times running, with
- * nothing ever sent through it and the chain not knowing the signature, calls the trip lost (about
- * 3 s in, not 35): the chain itself said three times, a second apart, that it would fail.
+ * nothing ever sent through it, the chain not knowing the signature, and Jito not saying it still
+ * holds the bundle (every bundle that did not land 11-13/14 was 'Invalid' to Jito), calls the trip
+ * lost (about 2 s in, not 35): the chain itself said three times, a second apart, that it would fail.
  */
 export const PLAIN_REFUSALS_LOST = 3;
 
@@ -258,8 +259,10 @@ export function jitoSender(opts: {
           refusals = k.door === 'refused' ? refusals + 1 : 0;
         }
         // The chain's own test run said no three times running and nothing went out by this door:
-        // lost, unless the chain knows the signature after all (then it is watched on).
-        if (!everSent && refusals >= PLAIN_REFUSALS_LOST) {
+        // lost, unless the chain knows the signature after all (then it is watched on), or Jito
+        // just said it still holds the bundle (Pending) or landed it: then its word is waited for.
+        const jitoHoldsIt = said === 'Pending' || said === 'Landed';
+        if (!everSent && refusals >= PLAIN_REFUSALS_LOST && !jitoHoldsIt) {
           const last = await opts.status(signature).then(
             (x) => ({ x }),
             () => null,
