@@ -163,6 +163,20 @@ describe('NFT lending venue-fee tile', () => {
     expect(within(tile).queryByText('Unavailable')).toBeNull();
   });
 
+  it('says on the tile what the rate is a share of', () => {
+    stubFee(500n);
+    renderWithProviders(<NFTLendingSection />);
+
+    expect(within(feeTile()).getByText('of the interest')).toBeTruthy();
+  });
+
+  it('names no basis for a fee it could not read', () => {
+    stubFee(undefined, 'failure');
+    renderWithProviders(<NFTLendingSection />);
+
+    expect(within(feeTile()).queryByText('of the interest')).toBeNull();
+  });
+
   it('follows the contract when the owner moves the fee', () => {
     stubFee(125n);
     renderWithProviders(<NFTLendingSection />);

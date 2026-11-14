@@ -168,6 +168,8 @@ export function NFTLendingSection() {
           {
             label: 'Venue Fee',
             value: feeBps !== null ? `${bpsToPercent(feeBps)}%` : feeUnread ? 'Unavailable' : '–',
+            // The rate's basis stays on screen, not only behind the "?": a bare "5.00%" reads as 5% of the loan.
+            basis: feeBps !== null ? 'of the interest' : undefined,
             tooltip:
               feeBps !== null
                 ? 'The venue keeps this share of the interest a lender is paid, when a loan is repaid or another lender takes it over. The lender keeps the rest. A loan that is not repaid pays no interest, so the venue gets nothing from it.'
@@ -198,6 +200,11 @@ export function NFTLendingSection() {
               <p className="text-white text-xl font-semibold" style={LABEL_STYLE}>
                 {s.value}
               </p>
+              {s.basis && (
+                <p className="text-white/80 text-[11px]" style={LABEL_STYLE}>
+                  {s.basis}
+                </p>
+              )}
             </div>
           </div>
         ))}

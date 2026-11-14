@@ -65,6 +65,18 @@ describe('the Risks page on NFT lending', () => {
     expect(risks).toMatch(/NFT lending \(since replaced by Gondi\\?'s own v3\.2 loan contracts, deployed unchanged on 2026-11-07\)/);
   });
 
+  // LoanManagerRegistry.addLoanManager is onlyOwner with no delay, and repaying a registered lender
+  // calls ILoanManager.loanRepayment on it, which a wallet reverts. A registered lender's due loan
+  // then goes to the loan contract's liquidator, which updateLiquidationContract re-points at once
+  // (LiquidationHandler). No auction can stand in the way: the liquidator's WETH min bid reads 0, so
+  // starting one reverts. All owned by the treasury Safe, 2 of 2 (read on chain 2026-11-14).
+  it('says what the Safe can do to a loan at once: stop its repayment, then take the NFT', () => {
+    expect(risks).toMatch(/value: "Venue's 2-key Safe"/);
+    expect(risks).toMatch(/With no wait, both keys together can stop a loan from being repaid/);
+    expect(risks).toMatch(/then take the NFT once the loan is due, leaving the lender unpaid/);
+    expect(risks).not.toMatch(/ends at auction/);
+  });
+
   it('names the collections each feature really takes', () => {
     expect(risks).not.toContain('(JBAC, JBAY Gold, GNSS)');
     expect(risks).toMatch(/NFT lending \(JBAC, Nakamigos and GNSS Art\)/);
