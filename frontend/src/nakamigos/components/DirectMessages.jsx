@@ -72,9 +72,9 @@ function DmTradeCard({ tradeId, tradesById, wallet, addToast, onOpenTrades, onTr
         onClick={() => onOpenTrades?.()}
         style={{
           display: "block", width: "100%", textAlign: "left", cursor: "pointer",
-          fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)",
-          background: "rgba(212,168,67,0.08)", border: "1px solid rgba(212,168,67,0.2)",
-          borderRadius: 6, padding: "6px 8px", marginBottom: 6,
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)",
+          background: "rgba(255,255,255,0.056)", border: "1px solid rgba(255,255,255,0.16)",
+          borderRadius: 4, padding: "6px 8px", marginBottom: 6,
         }}
       >
         {"⇄"} Trade offer — view in Trades
@@ -88,12 +88,12 @@ function DmTradeCard({ tradeId, tradesById, wallet, addToast, onOpenTrades, onTr
 
   return (
     <div style={{
-      background: "rgba(212,168,67,0.05)", border: "1px solid rgba(212,168,67,0.18)",
-      borderRadius: 8, padding: "8px 10px", marginBottom: 6,
+      background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.16)",
+      borderRadius: 4, padding: "8px 10px", marginBottom: 6,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", letterSpacing: "0.08em" }}>{"⇄"} TRADE OFFER</span>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: statusColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{trade.status}</span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.08em" }}>{"⇄"} TRADE OFFER</span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: statusColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{trade.status}</span>
       </div>
       <TradeSummary trade={trade} viewer={wallet} />
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -101,7 +101,7 @@ function DmTradeCard({ tradeId, tradesById, wallet, addToast, onOpenTrades, onTr
           confirming ? (
             <button
               className="btn-primary"
-              style={{ fontSize: 9, padding: "6px 12px" }}
+              style={{ fontSize: 11, padding: "6px 12px" }}
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -122,12 +122,12 @@ function DmTradeCard({ tradeId, tradesById, wallet, addToast, onOpenTrades, onTr
               {busy ? "Trading…" : "Confirm — sign & execute"}
             </button>
           ) : (
-            <button className="btn-primary" style={{ fontSize: 9, padding: "6px 12px" }} onClick={() => setConfirming(true)}>
+            <button className="btn-primary" style={{ fontSize: 11, padding: "6px 12px" }} onClick={() => setConfirming(true)}>
               Accept trade
             </button>
           )
         )}
-        <button className="btn-secondary" style={{ fontSize: 9, padding: "6px 12px" }} onClick={() => onOpenTrades?.()}>
+        <button className="btn-secondary" style={{ fontSize: 11, padding: "6px 12px" }} onClick={() => onOpenTrades?.()}>
           Open in Trades
         </button>
       </div>
@@ -370,7 +370,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
 
   if (!wallet) {
     return (
-      <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+      <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
         <div className="empty-state-icon">{"✉"}</div>
         <div className="empty-state-title">Direct Messages</div>
         <div className="empty-state-text">Connect your wallet to message other traders.</div>
@@ -380,7 +380,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
 
   if (state === "needs-auth") {
     return (
-      <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+      <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
         <div className="empty-state-icon">{"✉"}</div>
         <div className="empty-state-title">Sign in for DMs</div>
         <div className="empty-state-text">Direct messages are private — a one-time signature proves this wallet is yours.</div>
@@ -401,7 +401,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
 
   if (state === "not-enabled") {
     return (
-      <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+      <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
         <div className="empty-state-icon">{"✉"}</div>
         <div className="empty-state-title">DMs aren't enabled yet</div>
         <div className="empty-state-text">The messaging backend (migration 007) hasn't been switched on. Check back soon.</div>
@@ -411,7 +411,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
 
   if (state === "error") {
     return (
-      <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+      <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
         <div className="empty-state-icon">{"📡"}</div>
         <div className="empty-state-title">Messages Unreachable</div>
         <div className="empty-state-text">Couldn't reach the messaging service — your history is safe.</div>
@@ -440,11 +440,11 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
               placeholder="New DM: 0x… or name.eth"
               aria-label="Start a new conversation by wallet address or ENS name"
               spellCheck={false}
-              style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 10, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+              style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
             />
             <button
               className="btn-secondary"
-              style={{ fontSize: 10, padding: "6px 10px" }}
+              style={{ fontSize: 11, padding: "6px 10px" }}
               disabled={
                 resolveStatus.state === "resolving" ||
                 !(/^0x[a-fA-F0-9]{40}$/.test(peerInput) || isEnsName(peerInput)) ||
@@ -458,27 +458,27 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
           {/* ENS resolution status — surface the resolved address so a lookalike
               name can't quietly stand in for an identity (resolve, never auto-trust). */}
           {resolveStatus.state === "resolving" && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", margin: "-2px 0 8px" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", margin: "-2px 0 8px" }}>
               Resolving {resolveStatus.name}…
             </div>
           )}
           {resolveStatus.state === "resolved" && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", margin: "-2px 0 8px" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", margin: "-2px 0 8px" }}>
               {resolveStatus.name} → {shortenAddress(resolveStatus.addr)}
             </div>
           )}
           {resolveStatus.state === "unresolved" && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--red)", margin: "-2px 0 8px" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--red)", margin: "-2px 0 8px" }}>
               Couldn't resolve {resolveStatus.name} — check the name or paste a 0x address.
             </div>
           )}
-          <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }} role="list" aria-label="Conversations">
+          <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }} role="list" aria-label="Conversations">
             {state === "loading" ? (
               <div style={{ padding: 8 }}>
-                {Array.from({ length: 3 }, (_, i) => <div key={i} className="skeleton" style={{ height: 44, borderRadius: 8, marginBottom: 6 }} />)}
+                {Array.from({ length: 3 }, (_, i) => <div key={i} className="skeleton" style={{ height: 44, borderRadius: 4, marginBottom: 6 }} />)}
               </div>
             ) : visibleConvos.length === 0 ? (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", padding: 14, textAlign: "center" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: 14, textAlign: "center" }}>
                 No conversations yet — start one above or message a trader from a trade card.
               </div>
             ) : (
@@ -489,22 +489,22 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                   onClick={() => { setPeer(c.peer); nearBottomRef.current = true; }}
                   style={{
                     display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",
-                    padding: "9px 10px", background: peer === c.peer ? "rgba(111,168,220,0.08)" : "transparent",
+                    padding: "9px 10px", background: peer === c.peer ? "rgba(255,255,255,0.056)" : "transparent",
                     border: "none", borderBottom: "1px solid var(--border)",
                   }}
                 >
                   <div style={avatarStyle(c.peer)} aria-hidden="true" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-                      <PeerName address={c.peer} style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} />
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtAgo(c.last.timestamp)}</span>
+                      <PeerName address={c.peer} style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} />
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtAgo(c.last.timestamp)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginTop: 3 }}>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: c.unread ? "var(--text)" : "var(--text-dim)", fontWeight: c.unread ? 700 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: c.unread ? "var(--text)" : "var(--text-dim)", fontWeight: c.unread ? 700 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {c.last.tradeId ? "⇄ Trade offer" : c.last.text}
                       </span>
                       {c.unread > 0 && (
-                        <span aria-label={`${c.unread} unread`} style={{ fontFamily: "var(--mono)", fontSize: 8, background: "var(--naka-blue)", color: "#000", borderRadius: 8, padding: "1px 6px", fontWeight: 700 }}>
+                        <span aria-label={`${c.unread} unread`} style={{ fontFamily: "var(--mono)", fontSize: 10, background: "var(--accent)", color: "#000", borderRadius: 4, padding: "1px 6px", fontWeight: 700 }}>
                           {c.unread}
                         </span>
                       )}
@@ -515,11 +515,11 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
             )}
           </div>
           {blocked.size > 0 && (
-            <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)" }}>
+            <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
               {blocked.size} blocked
               <button
                 onClick={() => { setBlocked(new Set()); try { localStorage.setItem(BLOCK_KEY, "[]"); } catch { /* quota */ } }}
-                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 8, color: "var(--naka-blue)", padding: 0 }}
+                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 10, color: "var(--accent)", padding: 0 }}
               >
                 unblock all
               </button>
@@ -532,7 +532,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
       {showThread && (
         <div style={{ flex: "2 1 320px", display: "flex", flexDirection: "column", width: isNarrow ? "100%" : undefined }}>
           {!peer ? (
-            <div className="empty-state" style={{ flex: 1, borderRadius: 10, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+            <div className="empty-state" style={{ flex: 1, borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
               <div className="empty-state-icon">{"✉"}</div>
               <div className="empty-state-text">Pick a conversation or start a new one.</div>
             </div>
@@ -540,18 +540,18 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 2px 8px" }}>
                 {isNarrow && (
-                  <button className="btn-secondary" style={{ fontSize: 10, padding: "4px 10px" }} onClick={() => setPeer(null)} aria-label="Back to conversations">
+                  <button className="btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={() => setPeer(null)} aria-label="Back to conversations">
                     {"←"}
                   </button>
                 )}
                 <div style={avatarStyle(peer, 24)} aria-hidden="true" />
-                <PeerName address={peer} style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", flex: 1 }} />
+                <PeerName address={peer} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--naka-blue)", flex: 1 }} />
                 {peerEns.ensName && (
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)" }}>{shortenAddress(peer)}</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>{shortenAddress(peer)}</span>
                 )}
                 <button
                   className="btn-secondary"
-                  style={{ fontSize: 9, padding: "4px 10px", color: blocked.has(peer) ? "var(--green)" : "var(--red)" }}
+                  style={{ fontSize: 11, padding: "4px 10px", color: blocked.has(peer) ? "var(--green)" : "var(--red)" }}
                   onClick={() => toggleBlock(peer)}
                   title={blocked.has(peer) ? "Unblock this wallet" : "Block: hides the conversation and stops notifications (local only)"}
                 >
@@ -560,9 +560,9 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
               </div>
               {!hasTradeHistory && (
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)",
-                  background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)",
-                  borderRadius: 6, padding: "6px 10px", marginBottom: 8, lineHeight: 1.5,
+                  fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)",
+                  background: "rgba(255,255,255,0.042)", border: "1px solid rgba(255,255,255,0.16)",
+                  borderRadius: 4, padding: "6px 10px", marginBottom: 8, lineHeight: 1.5,
                 }}>
                   {"⚠"} No trade history with this wallet. Verify who you're talking to — never act on
                   links or addresses pasted in chat, and only execute trades through the trade cards.
@@ -573,14 +573,14 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                 onScroll={onScroll}
                 role="log"
                 aria-label={`Conversation with ${peerEns.ensName || shortenAddress(peer)}`}
-                style={{ flex: 1, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 10, padding: 12, minHeight: 240, maxHeight: 380 }}
+                style={{ flex: 1, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 12, minHeight: 240, maxHeight: 380 }}
               >
                 {state === "loading" && thread.length === 0 ? (
                   <div style={{ padding: 8 }}>
-                    {Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton" style={{ height: 36, borderRadius: 8, marginBottom: 8, width: i % 2 ? "60%" : "75%", marginLeft: i % 2 ? "auto" : 0 }} />)}
+                    {Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton" style={{ height: 36, borderRadius: 4, marginBottom: 8, width: i % 2 ? "60%" : "75%", marginLeft: i % 2 ? "auto" : 0 }} />)}
                   </div>
                 ) : thread.length === 0 && pending.length === 0 ? (
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", textAlign: "center", paddingTop: 40 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", textAlign: "center", paddingTop: 40 }}>
                     No messages yet — say hi or send a trade offer.
                   </div>
                 ) : (
@@ -593,7 +593,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                       return (
                         <div key={m.id}>
                           {newDay && (
-                            <div style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", letterSpacing: "0.08em", margin: "10px 0 8px" }}>
+                            <div style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.08em", margin: "10px 0 8px" }}>
                               {dayLabel(m.timestamp).toUpperCase()}
                             </div>
                           )}
@@ -601,7 +601,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                             <div style={{
                               maxWidth: "78%", padding: "7px 11px",
                               borderRadius: grouped ? 8 : 10,
-                              background: own ? "rgba(111,168,220,0.10)" : "rgba(255,255,255,0.04)",
+                              background: own ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.04)",
                               border: "1px solid var(--border)",
                             }}>
                               {m.tradeId && (
@@ -614,10 +614,10 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                                   onTradeChanged={loadTradesMap}
                                 />
                               )}
-                              <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                              <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                                 {m.text}
                               </div>
-                              <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: "var(--text-muted)", marginTop: 3, textAlign: own ? "right" : "left" }}>
+                              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 3, textAlign: own ? "right" : "left" }}>
                                 {fmtClock(m.timestamp)}
                                 {own && m.id === lastReadOwnId && <span style={{ marginLeft: 5, color: "var(--naka-blue)" }}>{"✓✓ read"}</span>}
                               </div>
@@ -630,9 +630,9 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                                       disabled={sending}
                                       onClick={() => sendBody(reply)}
                                       style={{
-                                        fontFamily: "var(--mono)", fontSize: 8, padding: "4px 9px",
-                                        borderRadius: 10, cursor: "pointer",
-                                        background: "rgba(111,168,220,0.06)", border: "1px solid rgba(111,168,220,0.2)",
+                                        fontFamily: "var(--mono)", fontSize: 10, padding: "4px 9px",
+                                        borderRadius: 6, cursor: "pointer",
+                                        background: "rgba(255,255,255,0.042)", border: "1px solid rgba(255,255,255,0.16)",
                                         color: "var(--naka-blue)",
                                       }}
                                     >
@@ -649,16 +649,16 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                     {pending.map((p) => (
                       <div key={p.key} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                         <div style={{
-                          maxWidth: "78%", padding: "7px 11px", borderRadius: 10,
-                          background: "rgba(111,168,220,0.06)", border: `1px dashed ${p.failed ? "var(--red)" : "var(--border)"}`,
+                          maxWidth: "78%", padding: "7px 11px", borderRadius: 6,
+                          background: "rgba(255,255,255,0.042)", border: `1px dashed ${p.failed ? "var(--red)" : "var(--border)"}`,
                           opacity: p.failed ? 1 : 0.7,
                         }}>
-                          <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.text}</div>
-                          <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: p.failed ? "var(--red)" : "var(--text-muted)", marginTop: 3, textAlign: "right" }}>
+                          <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.text}</div>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: p.failed ? "var(--red)" : "var(--text-muted)", marginTop: 3, textAlign: "right" }}>
                             {p.failed ? (
                               <>
                                 failed —{" "}
-                                <button onClick={() => retryPending(p)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--naka-blue)", fontFamily: "var(--mono)", fontSize: 7, padding: 0 }}>
+                                <button onClick={() => retryPending(p)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontFamily: "var(--mono)", fontSize: 10, padding: 0 }}>
                                   retry
                                 </button>
                               </>
@@ -671,7 +671,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                 )}
               </div>
               {pendingTradeRef.current && (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", padding: "6px 2px 0" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", padding: "6px 2px 0" }}>
                   {"⇄"} A trade card will be attached to your next message
                 </div>
               )}
@@ -685,13 +685,13 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                     aria-label="Message text"
                     rows={1}
                     maxLength={MAX_CHARS}
-                    style={{ width: "100%", fontFamily: "var(--display)", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)", resize: "none" }}
+                    style={{ width: "100%", fontFamily: "var(--display)", fontSize: 13, padding: "10px 12px", borderRadius: 4, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)", resize: "none" }}
                   />
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: text.length > MAX_CHARS - 50 ? "var(--gold)" : "var(--text-muted)", textAlign: "right", marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: text.length > MAX_CHARS - 50 ? "var(--gold)" : "var(--text-muted)", textAlign: "right", marginTop: 2 }}>
                     {text.length} / {MAX_CHARS}
                   </div>
                 </div>
-                <button className="btn-primary" style={{ fontSize: 11, padding: "10px 18px", marginBottom: 14 }} disabled={sending || !text.trim()} onClick={handleSend}>
+                <button className="btn-primary" style={{ fontSize: 12, padding: "10px 18px", marginBottom: 14 }} disabled={sending || !text.trim()} onClick={handleSend}>
                   Send
                 </button>
               </div>

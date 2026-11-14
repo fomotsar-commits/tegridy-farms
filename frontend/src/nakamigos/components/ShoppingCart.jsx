@@ -360,10 +360,9 @@ export default function ShoppingCart({
           inset: 0,
           zIndex: 8000,
           background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(6px)",
           opacity: isOpen ? 1 : 0,
           pointerEvents: isOpen ? "auto" : "none",
-          transition: "opacity 0.3s ease",
+          transition: "opacity 0.15s ease",
         }}
       />
 
@@ -393,7 +392,7 @@ export default function ShoppingCart({
           display: "flex",
           flexDirection: "column",
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1)",
+          transition: "transform 0.15s ease",
           boxShadow: isOpen ? "-8px 0 40px rgba(0,0,0,0.6)" : "none",
           outline: "none",
         }}
@@ -419,11 +418,11 @@ export default function ShoppingCart({
             {cart.length > 0 && (
               <span style={{
                 fontFamily: "var(--mono)",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 700,
                 color: "var(--bg, #000)",
-                background: "var(--gold, #d4a843)",
-                borderRadius: 10,
+                background: "var(--gold, #c6f432)",
+                borderRadius: 6,
                 padding: "2px 8px",
                 minWidth: 20,
                 textAlign: "center",
@@ -483,7 +482,7 @@ export default function ShoppingCart({
                 <div style={{
                   width: 52,
                   height: 52,
-                  borderRadius: 6,
+                  borderRadius: 4,
                   overflow: "hidden",
                   flexShrink: 0,
                   border: "1px solid var(--border, #222)",
@@ -509,8 +508,8 @@ export default function ShoppingCart({
                   </div>
                   <div style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 12,
-                    color: "var(--gold, #d4a843)",
+                    fontSize: 13,
+                    color: "var(--gold, #c6f432)",
                     marginTop: 2,
                     display: "flex",
                     alignItems: "center",
@@ -529,9 +528,9 @@ export default function ShoppingCart({
                       <span
                         title="Missing order data — cannot purchase"
                         style={{
-                          fontFamily: "var(--mono)", fontSize: 10,
-                          color: "var(--red, #f87171)", background: "rgba(248,113,113,0.1)",
-                          border: "1px solid rgba(248,113,113,0.2)", borderRadius: 4,
+                          fontFamily: "var(--mono)", fontSize: 11,
+                          color: "var(--red, #ff5c5c)", background: "rgba(255,92,92,0.1)",
+                          border: "1px solid rgba(255,92,92,0.2)", borderRadius: 3,
                           padding: "3px 6px", flexShrink: 0, letterSpacing: "0.04em",
                         }}
                       >
@@ -541,9 +540,9 @@ export default function ShoppingCart({
                   }
                   if (!v) return null;
                   const colors = {
-                    green: { color: "var(--green, #4ade80)", bg: "rgba(74,222,128,0.1)", border: "rgba(74,222,128,0.2)" },
-                    yellow: { color: "var(--yellow, #fbbf24)", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.2)" },
-                    red: { color: "var(--red, #f87171)", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
+                    green: { color: "var(--green, #2fd98b)", bg: "rgba(47,217,139,0.1)", border: "rgba(47,217,139,0.2)" },
+                    yellow: { color: "var(--yellow, #f2c14e)", bg: "rgba(242,193,78,0.1)", border: "rgba(242,193,78,0.2)" },
+                    red: { color: "var(--red, #ff5c5c)", bg: "rgba(255,92,92,0.1)", border: "rgba(255,92,92,0.2)" },
                   };
                   const c = colors[v.status] || colors.yellow;
                   const label = v.status === "green" ? "VALID" : v.status === "yellow" ? "WARN" : "FAIL";
@@ -552,9 +551,9 @@ export default function ShoppingCart({
                     <span
                       title={title}
                       style={{
-                        fontFamily: "var(--mono)", fontSize: 10,
+                        fontFamily: "var(--mono)", fontSize: 11,
                         color: c.color, background: c.bg,
-                        border: `1px solid ${c.border}`, borderRadius: 4,
+                        border: `1px solid ${c.border}`, borderRadius: 3,
                         padding: "3px 6px", flexShrink: 0, letterSpacing: "0.04em",
                         cursor: title ? "help" : "default",
                       }}
@@ -582,15 +581,15 @@ export default function ShoppingCart({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    borderRadius: 4,
+                    borderRadius: 3,
                     transition: "color 0.15s, background 0.15s",
                     flexShrink: 0,
                     opacity: buying ? 0.3 : 1,
                   }}
                   onMouseEnter={(e) => {
                     if (!buying) {
-                      e.currentTarget.style.color = "var(--red, #f87171)";
-                      e.currentTarget.style.background = "rgba(248,113,113,0.08)";
+                      e.currentTarget.style.color = "var(--red, #ff5c5c)";
+                      e.currentTarget.style.background = "rgba(255,92,92,0.08)";
                     }
                   }}
                   onMouseLeave={(e) => {
@@ -613,7 +612,7 @@ export default function ShoppingCart({
           }}>
             {nothingPurchasable && (
               <div role="status" style={{
-                fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6,
+                fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.6,
                 color: "var(--text-dim)", marginBottom: 12, letterSpacing: "0.02em",
               }}>
                 Nothing in the cart can be bought right now: no item in it has a live listing.
@@ -631,13 +630,13 @@ export default function ShoppingCart({
               }}>
                 <span style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 10,
+                  fontSize: 11,
                   color: "var(--text-dim)",
                   letterSpacing: "0.08em",
                 }}>
                   {cart.length} ITEM{cart.length !== 1 ? "S" : ""}
                   {itemsMissingOrder.length > 0 && (
-                    <span style={{ color: "var(--red, #f87171)", marginLeft: 6 }}>
+                    <span style={{ color: "var(--red, #ff5c5c)", marginLeft: 6 }}>
                       ({itemsMissingOrder.length} NOT PURCHASABLE)
                     </span>
                   )}
@@ -652,7 +651,7 @@ export default function ShoppingCart({
                     fontFamily: "var(--mono)",
                     fontSize: 14,
                     fontWeight: 700,
-                    color: "var(--gold, #d4a843)",
+                    color: "var(--gold, #c6f432)",
                     display: "flex",
                     alignItems: "center",
                     gap: 3,
@@ -674,7 +673,7 @@ export default function ShoppingCart({
                 }}>
                   <span style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                     letterSpacing: "0.08em",
                   }}>
@@ -682,7 +681,7 @@ export default function ShoppingCart({
                   </span>
                   <span style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 12,
+                    fontSize: 13,
                     color: "var(--text-dim)",
                     display: "flex",
                     alignItems: "center",
@@ -705,7 +704,7 @@ export default function ShoppingCart({
                 }}>
                   <span style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                     letterSpacing: "0.08em",
                   }}>
@@ -732,9 +731,9 @@ export default function ShoppingCart({
             {/* Stale price warning */}
             {staleItems.length > 0 && !buying && (
               <div style={{
-                background: "rgba(251,191,36,0.08)",
-                border: "1px solid rgba(251,191,36,0.2)",
-                borderRadius: 6,
+                background: "rgba(242,193,78,0.08)",
+                border: "1px solid rgba(242,193,78,0.2)",
+                borderRadius: 4,
                 padding: "8px 10px",
                 marginBottom: 10,
                 display: "flex",
@@ -743,7 +742,7 @@ export default function ShoppingCart({
               }}>
                 <span style={{ fontSize: 14 }}>&#9888;</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow, #fbbf24)", letterSpacing: "0.04em" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow, #f2c14e)", letterSpacing: "0.04em" }}>
                     {staleItems.length} item{staleItems.length !== 1 ? "s" : ""} may have changed price
                   </div>
                 </div>
@@ -751,9 +750,9 @@ export default function ShoppingCart({
                   <button
                     onClick={onRefreshCart}
                     style={{
-                      fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue, #6fa8dc)",
-                      background: "none", border: "1px solid var(--naka-blue, #6fa8dc)",
-                      borderRadius: 4, padding: "6px 10px", minHeight: 36, cursor: "pointer",
+                      fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue, #ffffff)",
+                      background: "none", border: "1px solid var(--naka-blue, #ffffff)",
+                      borderRadius: 3, padding: "6px 10px", minHeight: 36, cursor: "pointer",
                     }}
                   >
                     REFRESH
@@ -766,8 +765,8 @@ export default function ShoppingCart({
             {validating && (
               <div style={{
                 fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--naka-blue, #6fa8dc)",
+                fontSize: 12,
+                color: "var(--naka-blue, #ffffff)",
                 textAlign: "center",
                 marginBottom: 10,
                 letterSpacing: "0.04em",
@@ -780,8 +779,8 @@ export default function ShoppingCart({
             {buying && (
               <div style={{
                 fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--naka-blue, #6fa8dc)",
+                fontSize: 12,
+                color: "var(--naka-blue, #ffffff)",
                 textAlign: "center",
                 marginBottom: 10,
                 letterSpacing: "0.04em",
@@ -793,17 +792,17 @@ export default function ShoppingCart({
             {/* Confirmation step */}
             {confirming && !buying && (
               <div style={{
-                background: "rgba(212,168,67,0.08)",
-                border: "1px solid rgba(212,168,67,0.2)",
-                borderRadius: 8,
+                background: "rgba(255,255,255,0.056)",
+                border: "1px solid rgba(255,255,255,0.16)",
+                borderRadius: 4,
                 padding: "12px 14px",
                 marginBottom: 12,
               }}>
                 <div style={{
                   fontFamily: "var(--display)",
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: 700,
-                  color: "var(--gold, #d4a843)",
+                  color: "var(--gold, #c6f432)",
                   letterSpacing: "0.06em",
                   marginBottom: 8,
                 }}>
@@ -811,7 +810,7 @@ export default function ShoppingCart({
                 </div>
                 <div style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 11,
+                  fontSize: 12,
                   color: "var(--text, #eee)",
                   lineHeight: 1.6,
                   marginBottom: 4,
@@ -826,7 +825,7 @@ export default function ShoppingCart({
                 {estimatingGas && (
                   <div style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                     marginBottom: 4,
                   }}>
@@ -836,7 +835,7 @@ export default function ShoppingCart({
                 {estimatedGas !== null && (
                   <div style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                     marginBottom: 4,
                   }}>
@@ -850,13 +849,13 @@ export default function ShoppingCart({
                     style={{
                       flex: 1,
                       fontFamily: "var(--display)",
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: 700,
                       letterSpacing: "0.06em",
                       color: "var(--bg, #000)",
-                      background: "var(--gold, #d4a843)",
+                      background: "var(--gold, #c6f432)",
                       border: "none",
-                      borderRadius: 6,
+                      borderRadius: 4,
                       padding: "9px 0",
                       cursor: "pointer",
                       transition: "filter 0.15s",
@@ -871,12 +870,12 @@ export default function ShoppingCart({
                     style={{
                       flex: 1,
                       fontFamily: "var(--mono)",
-                      fontSize: 11,
+                      fontSize: 12,
                       letterSpacing: "0.06em",
                       color: "var(--text-dim)",
                       background: "none",
                       border: "1px solid var(--border, #222)",
-                      borderRadius: 6,
+                      borderRadius: 4,
                       padding: "9px 0",
                       cursor: "pointer",
                       transition: "color 0.15s, border-color 0.15s",
@@ -909,10 +908,10 @@ export default function ShoppingCart({
                   letterSpacing: "0.06em",
                   color: "var(--bg, #000)",
                   background: (buying || validating)
-                    ? "rgba(212,168,67,0.4)"
-                    : "var(--gold, #d4a843)",
+                    ? "rgba(198,244,50,0.4)"
+                    : "var(--gold, #c6f432)",
                   border: "none",
-                  borderRadius: 8,
+                  borderRadius: 4,
                   padding: "12px 0",
                   cursor: (buying || validating) ? "not-allowed" : "pointer",
                   transition: "background 0.2s, transform 0.1s",
@@ -956,12 +955,12 @@ export default function ShoppingCart({
               style={{
                 width: "100%",
                 fontFamily: "var(--mono)",
-                fontSize: 11,
+                fontSize: 12,
                 letterSpacing: "0.06em",
-                color: confirmClear ? "var(--red, #f87171)" : "var(--text-dim)",
+                color: confirmClear ? "var(--red, #ff5c5c)" : "var(--text-dim)",
                 background: "none",
-                border: confirmClear ? "1px solid rgba(248,113,113,0.4)" : "1px solid var(--border, #222)",
-                borderRadius: 8,
+                border: confirmClear ? "1px solid rgba(255,92,92,0.4)" : "1px solid var(--border, #222)",
+                borderRadius: 4,
                 padding: "9px 0",
                 cursor: (buying || confirming) ? "not-allowed" : "pointer",
                 transition: "color 0.15s, border-color 0.15s",
@@ -970,8 +969,8 @@ export default function ShoppingCart({
               }}
               onMouseEnter={(e) => {
                 if (!buying && !confirming && !confirmClear) {
-                  e.currentTarget.style.color = "var(--red, #f87171)";
-                  e.currentTarget.style.borderColor = "rgba(248,113,113,0.25)";
+                  e.currentTarget.style.color = "var(--red, #ff5c5c)";
+                  e.currentTarget.style.borderColor = "rgba(255,92,92,0.25)";
                 }
               }}
               onMouseLeave={(e) => {

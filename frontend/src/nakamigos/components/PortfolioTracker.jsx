@@ -10,8 +10,8 @@ import { IpfsImg } from "../../components/IpfsImg";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
-  if (value > 0) return "var(--green, #4ade80)";
-  if (value < 0) return "var(--red, #f87171)";
+  if (value > 0) return "var(--green, #2fd98b)";
+  if (value < 0) return "var(--red, #ff5c5c)";
   return "var(--text-dim)";
 }
 
@@ -64,7 +64,7 @@ function ValueChart({ snapshots }) {
 
     // Line
     const isUp = values[values.length - 1] >= values[0];
-    const lineColor = isUp ? "#4ade80" : "#f87171";
+    const lineColor = isUp ? "#2fd98b" : "#ff5c5c";
 
     ctx.beginPath();
     ctx.strokeStyle = lineColor;
@@ -81,7 +81,7 @@ function ValueChart({ snapshots }) {
 
     // Gradient fill under line
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, isUp ? "rgba(74,222,128,0.15)" : "rgba(248,113,113,0.15)");
+    gradient.addColorStop(0, isUp ? "rgba(47,217,139,0.15)" : "rgba(255,92,92,0.15)");
     gradient.addColorStop(1, "rgba(0,0,0,0)");
 
     ctx.lineTo(w, h);
@@ -92,7 +92,7 @@ function ValueChart({ snapshots }) {
 
     // Date labels
     ctx.fillStyle = "rgba(255,255,255,0.3)";
-    ctx.font = "9px monospace";
+    ctx.font = "10px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
     if (snapshots.length > 1) {
       ctx.fillText(snapshots[0].date.slice(5), 30, h - 4);
@@ -104,7 +104,7 @@ function ValueChart({ snapshots }) {
     return (
       <div style={{
         height: 120, display: "flex", alignItems: "center", justifyContent: "center",
-        color: "var(--text-dim)", fontFamily: "var(--mono)", fontSize: 11,
+        color: "var(--text-dim)", fontFamily: "var(--mono)", fontSize: 12,
       }}>
         Not enough data yet. Check back tomorrow.
       </div>
@@ -114,7 +114,7 @@ function ValueChart({ snapshots }) {
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: "100%", height: 120, borderRadius: 8 }}
+      style={{ width: "100%", height: 120, borderRadius: 4 }}
     />
   );
 }
@@ -323,8 +323,8 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
         <button
           onClick={() => loadPortfolio(true)}
           style={{
-            fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
-            borderRadius: 8, border: "1px solid var(--border)",
+            fontFamily: "var(--mono)", fontSize: 11, padding: "8px 16px",
+            borderRadius: 4, border: "1px solid var(--border)",
             background: "var(--surface-glass)", color: "var(--text-dim)",
             cursor: "pointer", letterSpacing: "0.04em",
           }}
@@ -355,7 +355,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
             <Eth size={14} /> {formatPrice(pnlData.currentValue)}
           </div>
           {currentValueUsd && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
               {currentValueUsd}
             </div>
           )}
@@ -366,20 +366,20 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
             {pnlSign(totalPnL)}<Eth size={14} /> {formatPrice(Math.abs(totalPnL))}
           </div>
           {totalPnLUsdMag && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: pnlColor(totalPnL), marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: pnlColor(totalPnL), marginTop: 2 }}>
               {pnlSign(totalPnL)}{totalPnLUsdMag}
             </div>
           )}
         </div>
         <div className="analytics-stat-card" title="Estimated gas: ~0.003 ETH per purchased token (excludes mints/airdrops)">
           <div className="analytics-stat-label">GAS (EST.)</div>
-          <div className="analytics-stat-value" style={{ color: "var(--red, #f87171)" }}>
+          <div className="analytics-stat-value" style={{ color: "var(--red, #ff5c5c)" }}>
             <Eth size={14} /> {formatPrice(pnlData.totalGasSpent)}
           </div>
         </div>
         <div className="analytics-stat-card">
           <div className="analytics-stat-label">NFTs HELD</div>
-          <div className="analytics-stat-value" style={{ color: "var(--naka-blue, #6fa8dc)" }}>
+          <div className="analytics-stat-value" style={{ color: "var(--naka-blue, #ffffff)" }}>
             {pnlData.nftCount}
           </div>
         </div>
@@ -387,7 +387,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
 
       {/* ═══ PER-COLLECTION BREAKDOWN ═══ */}
       <div style={{
-        border: "1px solid var(--border)", borderRadius: 12,
+        border: "1px solid var(--border)", borderRadius: 6,
         background: "var(--surface-glass)", marginBottom: 24, overflow: "hidden",
       }}>
         <button
@@ -398,7 +398,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
             cursor: "pointer", color: "var(--text)",
           }}
         >
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.06em" }}>
             COLLECTION BREAKDOWN
           </span>
           <svg
@@ -415,7 +415,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
         <div style={{
           display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
           padding: "0 18px 12px", gap: 8, minWidth: 520,
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
           letterSpacing: "0.04em",
         }}>
           <div>COLLECTION</div>
@@ -428,7 +428,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
         <div style={{
           display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
           padding: "10px 18px", gap: 8, borderTop: "1px solid var(--border)",
-          fontFamily: "var(--mono)", fontSize: 12, minWidth: 520,
+          fontFamily: "var(--mono)", fontSize: 13, minWidth: 520,
         }}>
           <div style={{ color: "var(--text)", fontFamily: "var(--display)", fontWeight: 500 }}>
             {collection.name}
@@ -457,7 +457,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
             <div style={{
               display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 1fr",
               padding: "10px 18px", gap: 8, minWidth: 560,
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               letterSpacing: "0.04em",
             }}>
               <div></div>
@@ -475,7 +475,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                   display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 1fr",
                   padding: "8px 18px", gap: 8, borderTop: "1px solid rgba(255,255,255,0.03)",
                   cursor: "pointer", transition: "background 0.15s",
-                  fontFamily: "var(--mono)", fontSize: 11, minWidth: 560,
+                  fontFamily: "var(--mono)", fontSize: 12, minWidth: 560,
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -487,20 +487,20 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                       alt=""
                       width={32}
                       height={32}
-                      style={{ borderRadius: 4, objectFit: "cover" }}
+                      style={{ borderRadius: 3, objectFit: "cover" }}
                       loading="lazy"
                     />
                   ) : (
-                    <div style={{ width: 32, height: 32, borderRadius: 4, background: "var(--surface)" }} />
+                    <div style={{ width: 32, height: 32, borderRadius: 3, background: "var(--surface)" }} />
                   )}
                 </div>
                 <div style={{ color: "var(--text)", display: "flex", alignItems: "center", gap: 6 }}>
                   {token.name || `#${token.tokenId}`}
                   {token.isMint && (
                     <span style={{
-                      fontSize: 8, padding: "1px 5px", borderRadius: 3,
-                      background: "rgba(74,222,128,0.1)", color: "var(--green, #4ade80)",
-                      border: "1px solid rgba(74,222,128,0.2)",
+                      fontSize: 10, padding: "1px 5px", borderRadius: 3,
+                      background: "rgba(47,217,139,0.1)", color: "var(--green, #2fd98b)",
+                      border: "1px solid rgba(47,217,139,0.2)",
                     }}>
                       MINT
                     </span>
@@ -515,7 +515,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                 <div style={{ textAlign: "right", color: pnlColor(token.pnl) }}>
                   {pnlSign(token.pnl)}{formatPrice(Math.abs(token.pnl))}
                   {token.costBasis > 0 && (
-                    <span style={{ fontSize: 9, marginLeft: 4, opacity: 0.7 }}>
+                    <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.7 }}>
                       ({pnlSign(token.pnlPercent)}{token.pnlPercent.toFixed(0)}%)
                     </span>
                   )}
@@ -524,14 +524,14 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                   {/* HOLD TIME BADGE */}
                   {token.holdDays != null ? (
                     <span style={{
-                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
-                      background: "rgba(111,168,220,0.08)", border: "1px solid rgba(111,168,220,0.15)",
-                      color: "var(--naka-blue, #6fa8dc)",
+                      fontSize: 11, padding: "2px 6px", borderRadius: 3,
+                      background: "rgba(255,255,255,0.056)", border: "1px solid rgba(255,255,255,0.16)",
+                      color: "var(--naka-blue, #ffffff)",
                     }}>
                       Held {formatDays(token.holdDays)}
                     </span>
                   ) : (
-                    <span style={{ fontSize: 9, color: "var(--text-dim)" }}>--</span>
+                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>--</span>
                   )}
                 </div>
               </div>
@@ -548,17 +548,17 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
         }}>
           {/* Top Gainers */}
           <div style={{
-            border: "1px solid var(--border)", borderRadius: 12,
+            border: "1px solid var(--border)", borderRadius: 6,
             background: "var(--surface-glass)", padding: 16,
           }}>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
-              color: "var(--green, #4ade80)", marginBottom: 12,
+              fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
+              color: "var(--green, #2fd98b)", marginBottom: 12,
             }}>
               TOP GAINERS
             </div>
             {topGainers.length === 0 ? (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
                 No gainers with known cost basis
               </div>
             ) : (
@@ -567,10 +567,10 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "6px 0", borderBottom: i < topGainers.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
                 }}>
-                  <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)" }}>
+                  <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)" }}>
                     {t.name || `#${t.tokenId}`}
                   </div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green, #4ade80)" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green, #2fd98b)" }}>
                     +{t.pnlPercent.toFixed(1)}%
                   </div>
                 </div>
@@ -580,17 +580,17 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
 
           {/* Top Losers */}
           <div style={{
-            border: "1px solid var(--border)", borderRadius: 12,
+            border: "1px solid var(--border)", borderRadius: 6,
             background: "var(--surface-glass)", padding: 16,
           }}>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
-              color: "var(--red, #f87171)", marginBottom: 12,
+              fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
+              color: "var(--red, #ff5c5c)", marginBottom: 12,
             }}>
               TOP LOSERS
             </div>
             {topLosers.length === 0 ? (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
                 No losers with known cost basis
               </div>
             ) : (
@@ -599,10 +599,10 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "6px 0", borderBottom: i < topLosers.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
                 }}>
-                  <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)" }}>
+                  <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)" }}>
                     {t.name || `#${t.tokenId}`}
                   </div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--red, #f87171)" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--red, #ff5c5c)" }}>
                     {t.pnlPercent.toFixed(1)}%
                   </div>
                 </div>
@@ -614,11 +614,11 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
 
       {/* ═══ VALUE OVER TIME ═══ */}
       <div style={{
-        border: "1px solid var(--border)", borderRadius: 12,
+        border: "1px solid var(--border)", borderRadius: 6,
         background: "var(--surface-glass)", padding: 16,
       }}>
         <div style={{
-          fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
+          fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
           color: "var(--text-dim)", marginBottom: 12,
         }}>
           PORTFOLIO VALUE OVER TIME

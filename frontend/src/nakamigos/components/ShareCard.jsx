@@ -6,7 +6,7 @@ import { rankTier } from "../constants";
 import { SITE_HOST } from "../../lib/constants";
 
 const W = 1200, H = 630;
-const GOLD = "#c8a850";
+const GOLD = "#c6f432";
 const BG_START = "#0a0014";
 const BG_END = "#0f1923";
 
@@ -19,7 +19,7 @@ export function drawCard(ctx, img, nft, collection) {
   ctx.fillRect(0, 0, W, H);
 
   // Grid pattern overlay
-  ctx.strokeStyle = "rgba(200,168,80,0.04)";
+  ctx.strokeStyle = "rgba(255,255,255,0.62)";
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
   for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
@@ -41,7 +41,7 @@ export function drawCard(ctx, img, nft, collection) {
   const rw = W - rx - 40;
 
   // Collection name pixel header
-  const pixelFont = "'Press Start 2P', monospace";
+  const pixelFont = "Archivo, Inter, system-ui, sans-serif";
   ctx.font = `20px ${pixelFont}`;
   ctx.fillStyle = GOLD;
   // Pass rw as maxWidth (same as the NFT-name line) so long collection names
@@ -87,8 +87,8 @@ export function drawCard(ctx, img, nft, collection) {
     const label = `${t.key || t.trait_type}: ${t.value}`;
     const tw = ctx.measureText(label).width + 24;
     if (pillX + tw > W - 40) { pillX = rx; pillY += 38; }
-    roundRect(ctx, pillX, pillY, tw, 28, 14, "rgba(200,168,80,0.12)");
-    ctx.strokeStyle = "rgba(200,168,80,0.3)";
+    roundRect(ctx, pillX, pillY, tw, 28, 14, "rgba(255,255,255,0.054)");
+    ctx.strokeStyle = "rgba(255,255,255,0.62)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     roundRectPath(ctx, pillX, pillY, tw, 28, 14);
@@ -107,7 +107,7 @@ export function drawCard(ctx, img, nft, collection) {
   ctx.fillStyle = GOLD;
   ctx.fillRect(0, H - 36, W, 2);
   ctx.font = "13px 'Inter', Arial, sans-serif";
-  ctx.fillStyle = "rgba(200,168,80,0.7)";
+  ctx.fillStyle = "rgba(255,255,255,0.62)";
   ctx.textAlign = "center";
   // The host that served the page, never a domain the project does not own. With no
   // window (tests) it is the canonical host.
@@ -192,15 +192,15 @@ export default function ShareCard({ nft, onClose }) {
   const overlay = {
     position: "fixed", inset: 0, zIndex: 9999, display: "flex", flexDirection: "column",
     alignItems: "center", justifyContent: "center",
-    background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)",
+    background: "rgba(0,0,0,0.85)",
   };
   const panel = {
-    background: "rgba(15,25,35,0.9)", border: "1px solid rgba(200,168,80,0.15)",
-    borderRadius: 16, padding: 24, maxWidth: 660, width: "90%",
+    background: "rgba(15,25,35,0.9)", border: "1px solid rgba(255,255,255,0.16)",
+    borderRadius: 8, padding: 24, maxWidth: 660, width: "90%",
     boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
   };
   const btnBase = {
-    padding: "10px 24px", borderRadius: 8, fontWeight: 600, fontSize: 14,
+    padding: "10px 24px", borderRadius: 4, fontWeight: 600, fontSize: 14,
     cursor: "pointer", border: "none", transition: "opacity 0.2s",
   };
 
@@ -208,7 +208,7 @@ export default function ShareCard({ nft, onClose }) {
     <div style={overlay} onClick={onClose} role="dialog" aria-modal="true" aria-label="Share Card">
       <div ref={modalRef} style={panel} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <span style={{ color: GOLD, fontFamily: "'Press Start 2P', monospace", fontSize: 12 }}>SHARE CARD</span>
+          <span style={{ color: GOLD, fontFamily: "var(--heading)", fontSize: 13 }}>SHARE CARD</span>
           <button onClick={onClose} aria-label="Close modal" style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", padding: 4 }}>&times;</button>
         </div>
 
@@ -219,7 +219,7 @@ export default function ShareCard({ nft, onClose }) {
             Generating card...
           </div>
         ) : (
-          <img src={preview} alt="Share card preview" style={{ width: "100%", borderRadius: 8, display: "block" }} />
+          <img src={preview} alt="Share card preview" style={{ width: "100%", borderRadius: 4, display: "block" }} />
         )}
 
         <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "center" }}>

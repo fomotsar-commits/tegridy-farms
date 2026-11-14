@@ -25,28 +25,28 @@ const LOPSIDED_RATIO = 0.6;
 function SidePanel({ title, accent, tokens, loading, partial, selected, onToggle, emptyText }) {
   return (
     <div style={{ flex: "1 1 300px", minWidth: 260 }}>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: accent, letterSpacing: "0.08em", marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: accent, letterSpacing: "0.08em", marginBottom: 8 }}>
         {title} ({selected.size}/{MAX_ITEMS_PER_SIDE})
       </div>
       {/* A picker that silently omits holdings makes an absent NFT look like an
           unowned one — and a trade gets built around that mistake. */}
       {partial && !loading && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--yellow, #fbbf24)", marginBottom: 6 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow, #f2c14e)", marginBottom: 6 }}>
           Partial inventory — some holdings could not be loaded
         </div>
       )}
       <div style={{
-        border: "1px solid var(--border)", borderRadius: 10, padding: 10,
+        border: "1px solid var(--border)", borderRadius: 6, padding: 10,
         background: "rgba(0,0,0,0.2)", maxHeight: 260, overflowY: "auto",
       }}>
         {loading ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 8 }}>
             {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="skeleton" style={{ aspectRatio: "1", borderRadius: 8 }} />
+              <div key={i} className="skeleton" style={{ aspectRatio: "1", borderRadius: 4 }} />
             ))}
           </div>
         ) : tokens.length === 0 ? (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "16px 4px", textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "16px 4px", textAlign: "center" }}>
             {emptyText}
           </div>
         ) : (
@@ -63,7 +63,7 @@ function SidePanel({ title, accent, tokens, loading, partial, selected, onToggle
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(nft); } }}
                   style={{
-                    position: "relative", cursor: "pointer", borderRadius: 8, overflow: "hidden",
+                    position: "relative", cursor: "pointer", borderRadius: 4, overflow: "hidden",
                     border: isSel ? `2px solid ${accent}` : "2px solid transparent",
                     opacity: !isSel && selected.size >= MAX_ITEMS_PER_SIDE ? 0.4 : 1,
                   }}
@@ -72,15 +72,15 @@ function SidePanel({ title, accent, tokens, loading, partial, selected, onToggle
                   <NftImage nft={nft} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
                   <div style={{
                     position: "absolute", bottom: 0, left: 0, right: 0,
-                    fontFamily: "var(--mono)", fontSize: 8, padding: "2px 4px",
+                    fontFamily: "var(--mono)", fontSize: 10, padding: "2px 4px",
                     background: "rgba(0,0,0,0.7)", color: isSel ? accent : "var(--text-dim)",
                   }}>
                     #{nft.id}
                   </div>
                   {isSel && (
                     <div style={{
-                      position: "absolute", top: 3, right: 3, width: 16, height: 16, borderRadius: 4,
-                      background: accent, color: "#000", fontSize: 11, fontWeight: 700,
+                      position: "absolute", top: 3, right: 3, width: 16, height: 16, borderRadius: 3,
+                      background: accent, color: "#000", fontSize: 12, fontWeight: 700,
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>{"✓"}</div>
                   )}
@@ -282,29 +282,29 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 14,
+          background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 6,
           width: "min(860px, 94vw)", maxHeight: "90vh", overflowY: "auto",
           padding: "20px 22px", margin: "4vh auto", position: "relative",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div>
-            <div style={{ fontFamily: "var(--pixel)", fontSize: 12, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
+            <div style={{ fontFamily: "var(--pixel)", fontSize: 13, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
               {boardMode ? "POST TO TRADE BOARD" : counterOf ? "COUNTER OFFER" : "P2P TRADE"}
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
               {boardMode
                 ? "Public open offer — the first wallet holding what you ask for can accept. Settles atomically on Seaport."
                 : "Settles atomically on Seaport. Only the wallet you name can accept."}
             </div>
           </div>
-          <button aria-label="Close modal" onClick={onClose} className="btn-secondary" style={{ padding: "6px 12px", fontSize: 12 }}>{"✕"}</button>
+          <button aria-label="Close modal" onClick={onClose} className="btn-secondary" style={{ padding: "6px 12px", fontSize: 13 }}>{"✕"}</button>
         </div>
 
         {/* Counterparty (directed trades only) */}
         {!boardMode && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 6 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 6 }}>
             TRADE WITH
           </div>
           <input
@@ -314,14 +314,14 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             placeholder="0x… wallet address"
             spellCheck={false}
             style={{
-              width: "100%", fontFamily: "var(--mono)", fontSize: 12, padding: "10px 12px",
-              borderRadius: 8, border: `1px solid ${counterparty && !validCounterparty ? "var(--red)" : "var(--border)"}`,
+              width: "100%", fontFamily: "var(--mono)", fontSize: 13, padding: "10px 12px",
+              borderRadius: 4, border: `1px solid ${counterparty && !validCounterparty ? "var(--red)" : "var(--border)"}`,
               background: "rgba(0,0,0,0.25)", color: "var(--text)",
               opacity: counterpartyLocked ? 0.7 : 1,
             }}
           />
           {counterparty && !validCounterparty && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)", marginTop: 4 }}>
               Enter a valid address that isn't your own
             </div>
           )}
@@ -342,10 +342,10 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
           />
           {boardMode ? (
             <div style={{ flex: "1 1 300px", minWidth: 260 }}>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 8 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 8 }}>
                 YOU GET ({wildcardTotal}/{MAX_ITEMS_PER_SIDE})
               </div>
-              <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "rgba(0,0,0,0.2)" }}>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 12, background: "rgba(0,0,0,0.2)" }}>
                 {COLLECTION_LIST.map((c) => {
                   const key = c.contract.toLowerCase();
                   const count = wildcards[key] || 0;
@@ -353,8 +353,8 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
                   return (
                     <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 2px", borderBottom: "1px solid var(--border)" }}>
                       <div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>Any {c.name}</div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2 }}>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>Any {c.name}</div>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                           {Number.isFinite(floor) ? `floor ${floor.toFixed(4)} ETH` : "floor —"}
                         </div>
                       </div>
@@ -362,17 +362,17 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
                         <button
                           className="btn-secondary"
                           aria-label={`Remove one Any ${c.name} slot`}
-                          style={{ fontSize: 12, padding: "2px 10px", opacity: count === 0 ? 0.4 : 1 }}
+                          style={{ fontSize: 13, padding: "2px 10px", opacity: count === 0 ? 0.4 : 1 }}
                           disabled={count === 0}
                           onClick={() => setWildcards((w) => ({ ...w, [key]: Math.max(0, (w[key] || 0) - 1) }))}
                         >
                           −
                         </button>
-                        <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: count > 0 ? "var(--green)" : "var(--text-dim)", minWidth: 14, textAlign: "center" }}>{count}</span>
+                        <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: count > 0 ? "var(--green)" : "var(--text-dim)", minWidth: 14, textAlign: "center" }}>{count}</span>
                         <button
                           className="btn-secondary"
                           aria-label={`Add one Any ${c.name} slot`}
-                          style={{ fontSize: 12, padding: "2px 10px", opacity: wildcardTotal >= MAX_ITEMS_PER_SIDE ? 0.4 : 1 }}
+                          style={{ fontSize: 13, padding: "2px 10px", opacity: wildcardTotal >= MAX_ITEMS_PER_SIDE ? 0.4 : 1 }}
                           disabled={wildcardTotal >= MAX_ITEMS_PER_SIDE}
                           onClick={() => setWildcards((w) => ({ ...w, [key]: (w[key] || 0) + 1 }))}
                         >
@@ -382,7 +382,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
                     </div>
                   );
                 })}
-                <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
                   The acceptor chooses which of their tokens fill each "Any" slot.
                 </div>
               </div>
@@ -404,7 +404,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         {/* Cash legs */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
           <div style={{ flex: "1 1 260px" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 6 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 6 }}>
               + YOU ADD (WETH, optional)
             </div>
             <input
@@ -412,12 +412,12 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
               onChange={(e) => setWethTopup(e.target.value)}
               placeholder="0.00"
               inputMode="decimal"
-              style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+              style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 13, padding: "10px 12px", borderRadius: 4, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
             />
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
               Wrapped automatically if needed — Seaport can't pull plain ETH from the offer side
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", cursor: "pointer" }}>
               <input
                 type="checkbox"
                 checked={wethEnd !== ""}
@@ -427,20 +427,20 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             </label>
             {wethEnd !== "" && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}>rises to</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>rises to</span>
                 <input
                   value={wethEnd}
                   onChange={(e) => setWethEnd(e.target.value)}
                   inputMode="decimal"
                   aria-label="Final WETH sweetener at expiry"
-                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(212,168,67,0.3)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 12, padding: "8px 10px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.16)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
                 />
-                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>by expiry</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>by expiry</span>
               </div>
             )}
           </div>
           <div style={{ flex: "1 1 260px" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em", marginBottom: 6 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.06em", marginBottom: 6 }}>
               + THEY ADD (ETH, optional)
             </div>
             <input
@@ -448,12 +448,12 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
               onChange={(e) => setEthTopup(e.target.value)}
               placeholder="0.00"
               inputMode="decimal"
-              style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+              style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 13, padding: "10px 12px", borderRadius: 4, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
             />
-            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
               Paid by the counterparty when they accept
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", cursor: "pointer" }}>
               <input
                 type="checkbox"
                 checked={ethEnd !== ""}
@@ -463,15 +463,15 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             </label>
             {ethEnd !== "" && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}>falls to</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>falls to</span>
                 <input
                   value={ethEnd}
                   onChange={(e) => setEthEnd(e.target.value)}
                   inputMode="decimal"
                   aria-label="Final ETH ask at expiry"
-                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 12, padding: "8px 10px", borderRadius: 4, border: "1px solid rgba(47,217,139,0.3)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
                 />
-                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>by expiry</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>by expiry</span>
               </div>
             )}
           </div>
@@ -480,32 +480,32 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         {/* Balance meter */}
         <div style={{
           display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
-          marginTop: 14, padding: "10px 14px", borderRadius: 8,
-          background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.1)",
+          marginTop: 14, padding: "10px 14px", borderRadius: 4,
+          background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
         }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
             You give <span style={{ color: "var(--gold)" }}>{fmtVal(giveVal)}</span>
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
             You get <span style={{ color: "var(--green)" }}>{fmtVal(getVal)}</span>
           </div>
           {delta != null && Math.abs(delta) >= 0.02 && (
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700,
+              fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700,
               color: delta > 0 ? "var(--green)" : "var(--gold)",
             }}>
               ≈ {delta > 0 ? "+" : ""}{(delta * 100).toFixed(1)}% for you
             </div>
           )}
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
             rarity-adjusted estimate
           </div>
         </div>
         {lopsided && (
           <div style={{
-            marginTop: 8, padding: "10px 14px", borderRadius: 8,
-            background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)",
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--red)",
+            marginTop: 8, padding: "10px 14px", borderRadius: 4,
+            background: "rgba(255,92,92,0.06)", border: "1px solid rgba(255,92,92,0.2)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)",
           }}>
             {"⚠"} This trade is heavily one-sided by floor value. Double-check every token ID before signing.
           </div>
@@ -524,15 +524,15 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         </div>
         {/* #10: expiry picker — replaces the hardcoded 72h. */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em" }}>EXPIRES IN</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.04em" }}>EXPIRES IN</span>
           {[{ label: "1h", h: 1 }, { label: "6h", h: 6 }, { label: "1d", h: 24 }, { label: "3d", h: 72 }, { label: "7d", h: 168 }].map((opt) => (
             <button
               key={opt.h}
               type="button"
               onClick={() => setExpirationHours(opt.h)}
               style={{
-                fontFamily: "var(--mono)", fontSize: 9, padding: "4px 9px", borderRadius: 6, cursor: "pointer",
-                background: expirationHours === opt.h ? "var(--naka-blue)" : "transparent",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "4px 9px", borderRadius: 4, cursor: "pointer",
+                background: expirationHours === opt.h ? "var(--accent)" : "transparent",
                 color: expirationHours === opt.h ? "#fff" : "var(--text-dim)",
                 border: `1px solid ${expirationHours === opt.h ? "var(--naka-blue)" : "var(--border)"}`,
               }}
@@ -541,7 +541,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             </button>
           ))}
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
           Signing is gas-free. Your items only move if the counterparty accepts, in one atomic Seaport transaction.
           NFT-for-NFT swaps carry no fee.
         </div>

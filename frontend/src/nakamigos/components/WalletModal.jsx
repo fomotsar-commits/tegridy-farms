@@ -3,7 +3,6 @@ import { useWallet, HAS_WC_PROJECT_ID } from "../contexts/WalletContext";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
-import { pageArt } from "../../lib/artConfig";
 
 const CONNECTOR_ICONS = {
   metaMask: "\u{1F98A}",
@@ -70,20 +69,11 @@ export default function WalletModal({ onClose, addToast }) {
         className="modal-enter"
         onClick={(e) => e.stopPropagation()}
         style={{
-          // Art-backed panel. `--surface` (#101012) stays the base layer so the
-          // dialog never renders bare if the image 404s; the scrim above the art
-          // is deliberately heavy (0.82->0.88) because this dialog is dense
-          // small-caps text and connector rows, not headline copy. Nakamigos is
-          // a permanently dark surface (no light-theme selectors in App.css), so
-          // fixed dark scrim values are safe here — do NOT copy them into the
-          // themed app shell, which branches on isDark.
-          background: `linear-gradient(180deg, rgba(10,16,32,0.82) 0%, rgba(10,16,32,0.88) 100%), url(${pageArt("wallet-modal", 0).src}) center / cover no-repeat, var(--surface)`,
+          background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 16,
+          borderRadius: 8,
           padding: "32px 28px",
           width: "min(420px, 90vw)",
-          backdropFilter: "var(--glass-blur)",
-          textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
         }}
       >
         {/* Header */}
@@ -102,7 +92,7 @@ export default function WalletModal({ onClose, addToast }) {
 
         <p style={{
           fontFamily: "var(--mono)",
-          fontSize: 11,
+          fontSize: 12,
           color: "var(--text-dim)",
           marginBottom: 20,
           lineHeight: 1.5,
@@ -122,7 +112,7 @@ export default function WalletModal({ onClose, addToast }) {
                 alignItems: "center",
                 gap: 12,
                 padding: "14px 16px",
-                borderRadius: 12,
+                borderRadius: 6,
                 background: "var(--border)",
                 border: "1px solid var(--border)",
                 cursor: isPending ? "wait" : "pointer",
@@ -132,8 +122,8 @@ export default function WalletModal({ onClose, addToast }) {
                 opacity: isPending ? 0.6 : 1,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(111,168,220,0.08)";
-                e.currentTarget.style.borderColor = "rgba(111,168,220,0.2)";
+                e.currentTarget.style.background = "rgba(255,255,255,0.056)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "var(--border)";
@@ -143,14 +133,14 @@ export default function WalletModal({ onClose, addToast }) {
               {/* Icon */}
               <span style={{
                 width: 40, height: 40,
-                borderRadius: 10,
-                background: "rgba(111,168,220,0.08)",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.056)",
                 display: "grid", placeItems: "center",
                 fontSize: 20,
                 flexShrink: 0,
               }}>
                 {connector.icon ? (
-                  <img src={connector.icon} alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
+                  <img src={connector.icon} alt="" style={{ width: 24, height: 24, borderRadius: 4 }} />
                 ) : (
                   CONNECTOR_ICONS[connector.id] || "\u{1F4B0}"
                 )}
@@ -168,7 +158,7 @@ export default function WalletModal({ onClose, addToast }) {
                 </div>
                 <div style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 10,
+                  fontSize: 11,
                   color: "var(--text-muted)",
                   marginTop: 2,
                 }}>
@@ -202,23 +192,23 @@ export default function WalletModal({ onClose, addToast }) {
               width: "100%",
               padding: "12px 16px",
               marginTop: 12,
-              borderRadius: 12,
-              background: "rgba(248,113,113,0.06)",
-              border: "1px solid rgba(248,113,113,0.15)",
+              borderRadius: 6,
+              background: "rgba(255,92,92,0.06)",
+              border: "1px solid rgba(255,92,92,0.15)",
               cursor: "pointer",
               transition: "all 0.2s",
               fontFamily: "var(--display)",
               fontSize: 13,
               fontWeight: 600,
-              color: "var(--red, #ff6464)",
+              color: "var(--red, #ff5c5c)",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(248,113,113,0.12)";
-              e.currentTarget.style.borderColor = "rgba(248,113,113,0.3)";
+              e.currentTarget.style.background = "rgba(255,92,92,0.12)";
+              e.currentTarget.style.borderColor = "rgba(255,92,92,0.3)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(248,113,113,0.06)";
-              e.currentTarget.style.borderColor = "rgba(248,113,113,0.15)";
+              e.currentTarget.style.background = "rgba(255,92,92,0.06)";
+              e.currentTarget.style.borderColor = "rgba(255,92,92,0.15)";
             }}
           >
             Disconnect ({address.slice(0, 6)}...{address.slice(-4)})
@@ -228,7 +218,7 @@ export default function WalletModal({ onClose, addToast }) {
         {isPending && (
           <div style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: 12,
             color: "var(--naka-blue)",
             textAlign: "center",
             marginTop: 16,
@@ -240,11 +230,11 @@ export default function WalletModal({ onClose, addToast }) {
         {connectError && !isPending && (
           <div style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: 12,
             color: "var(--red)",
-            background: "rgba(248,113,113,0.06)",
-            border: "1px solid rgba(248,113,113,0.15)",
-            borderRadius: 8,
+            background: "rgba(255,92,92,0.06)",
+            border: "1px solid rgba(255,92,92,0.15)",
+            borderRadius: 4,
             padding: "10px 14px",
             marginTop: 12,
             textAlign: "center",
@@ -261,11 +251,11 @@ export default function WalletModal({ onClose, addToast }) {
         {!HAS_WC_PROJECT_ID && (
           <div style={{
             fontFamily: "var(--mono)",
-            fontSize: 10,
-            color: "var(--naka-blue, #6fa8dc)",
-            background: "rgba(111,168,220,0.06)",
-            border: "1px solid rgba(111,168,220,0.12)",
-            borderRadius: 8,
+            fontSize: 11,
+            color: "var(--naka-blue, #ffffff)",
+            background: "rgba(255,255,255,0.042)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            borderRadius: 4,
             padding: "10px 14px",
             marginTop: 12,
             textAlign: "center",
@@ -279,7 +269,7 @@ export default function WalletModal({ onClose, addToast }) {
 
         <div style={{
           fontFamily: "var(--mono)",
-          fontSize: 9,
+          fontSize: 11,
           color: "var(--text-faint)",
           textAlign: "center",
           marginTop: 20,

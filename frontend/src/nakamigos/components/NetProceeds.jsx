@@ -63,9 +63,9 @@ export default function NetProceeds({ price, feeWei, compact = false }) {
       style={{
         marginTop: compact ? 4 : 8,
         padding: compact ? "6px 8px" : "8px 10px",
-        borderRadius: 6,
-        background: "rgba(74,222,128,0.03)",
-        border: "1px solid rgba(74,222,128,0.1)",
+        borderRadius: 4,
+        background: "rgba(47,217,139,0.03)",
+        border: "1px solid rgba(47,217,139,0.1)",
         display: "flex",
         flexDirection: "column",
         gap: compact ? 2 : 3,

@@ -31,7 +31,7 @@ function SectionSkeleton({ rows = 6, height = 48 }) {
           className="skeleton"
           style={{
             height,
-            borderRadius: 12,
+            borderRadius: 6,
             animationDelay: `${i * 80}ms`,
           }}
         />
@@ -49,13 +49,13 @@ function LiveBadge() {
         alignItems: "center",
         gap: 5,
         fontFamily: "var(--mono)",
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: 700,
         letterSpacing: "0.1em",
         color: "var(--green)",
-        background: "rgba(74, 222, 128, 0.06)",
-        border: "1px solid rgba(74, 222, 128, 0.15)",
-        borderRadius: 6,
+        background: "rgba(47,217,139,0.06)",
+        border: "1px solid rgba(47,217,139,0.15)",
+        borderRadius: 4,
         padding: "3px 8px",
       }}
     >
@@ -110,7 +110,7 @@ function ConcentrationBar({ label, percent, color = "var(--gold)" }) {
         <span
           style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: 12,
             color: "var(--text-dim)",
             letterSpacing: "0.04em",
           }}
@@ -120,7 +120,7 @@ function ConcentrationBar({ label, percent, color = "var(--gold)" }) {
         <span
           style={{
             fontFamily: "var(--mono)",
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 700,
             color,
           }}
@@ -131,7 +131,7 @@ function ConcentrationBar({ label, percent, color = "var(--gold)" }) {
       <div
         style={{
           height: 8,
-          borderRadius: 4,
+          borderRadius: 3,
           background: "var(--border)",
           overflow: "hidden",
         }}
@@ -140,9 +140,9 @@ function ConcentrationBar({ label, percent, color = "var(--gold)" }) {
           style={{
             width: `${Math.min(percent, 100)}%`,
             height: "100%",
-            borderRadius: 4,
+            borderRadius: 3,
             background: `linear-gradient(90deg, ${color}, ${color}88)`,
-            transition: "width 0.6s ease",
+            transition: "width 0.15s ease",
           }}
         />
       </div>
@@ -479,7 +479,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
   const panelStyle = {
     background: "var(--surface-glass)",
     border: "1px solid var(--border)",
-    borderRadius: 16,
+    borderRadius: 8,
     padding: "24px 28px",
     marginBottom: 24,
   };
@@ -489,11 +489,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     alignItems: "center",
     gap: 12,
     padding: "12px 16px",
-    background: "rgba(200,170,100,0.04)",
-    border: "1px solid rgba(200,170,100,0.1)",
-    borderRadius: 12,
+    background: "rgba(255,255,255,0.028)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 6,
     marginBottom: 8,
-    animation: "fadeIn 0.3s ease",
+    animation: "mk-fade 0.3s ease",
   };
 
   return (
@@ -530,7 +530,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
         style={{
           width: 60,
           height: 2,
-          background: "linear-gradient(90deg, #c8a850, transparent)",
+          background: "linear-gradient(90deg, #c6f432, transparent)",
           marginBottom: 32,
         }}
       />
@@ -563,7 +563,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                   style={{
                     marginLeft: "auto",
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                   }}
                 >
@@ -573,7 +573,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
             </SectionHeading>
             {!loadingHolders && holders.length > 0 && (
               <div style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
                 marginBottom: 14, marginTop: -12, letterSpacing: "0.03em",
               }}>
                 Distribution of top {holders.length} holders (by holding size)
@@ -582,9 +582,9 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
             )}
             {!loadingHolders && !holdersLive && holders.length > 0 && (
               <div style={{
-                padding: "8px 12px", borderRadius: 8, marginBottom: 14,
-                background: "rgba(251, 191, 36, 0.04)", border: "1px solid rgba(251, 191, 36, 0.1)",
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)",
+                padding: "8px 12px", borderRadius: 4, marginBottom: 14,
+                background: "rgba(242,193,78,0.04)", border: "1px solid rgba(242,193,78,0.1)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow)",
                 display: "flex", alignItems: "center", gap: 6,
               }}>
                 {"⚠"} Live holder API unavailable — this list is not a live read
@@ -597,13 +597,13 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"⚠"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>Holder data unavailable</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>The holder API did not respond for {collection.name}. Nothing is shown rather than a guess — use Retry above.</div>
+                <div className="empty-state-text" style={{ fontSize: 11 }}>The holder API did not respond for {collection.name}. Nothing is shown rather than a guess — use Retry above.</div>
               </div>
             ) : holders.length === 0 ? (
               <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"🐳"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>No holders returned</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>The holder API returned an empty owner set for {collection.name}.</div>
+                <div className="empty-state-text" style={{ fontSize: 11 }}>The holder API returned an empty owner set for {collection.name}.</div>
               </div>
             ) : (
               <div
@@ -632,7 +632,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                           alignItems: "center",
                           gap: 12,
                           padding: "10px 14px",
-                          borderRadius: 12,
+                          borderRadius: 6,
                           background: isMedal
                             ? `linear-gradient(135deg, ${medalColor}08, transparent)`
                             : "var(--border)",
@@ -648,11 +648,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight: 700,
                             width: 28,
                             height: 28,
-                            borderRadius: 8,
+                            borderRadius: 4,
                             display: "grid",
                             placeItems: "center",
                             flexShrink: 0,
@@ -690,7 +690,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                               <span
                                 style={{
                                   fontFamily: "var(--mono)",
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   color: "var(--text-muted)",
                                 }}
                               >
@@ -702,7 +702,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                 onClick={(e) => { e.stopPropagation(); onViewProfile(h.address); }}
                                 style={{
                                   fontFamily: "var(--mono)",
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   color: "var(--naka-blue)",
                                   cursor: "pointer",
                                   opacity: 0.8,
@@ -743,15 +743,15 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                 borderRadius: 3,
                                 background: isMedal
                                   ? `linear-gradient(90deg, ${medalColor}, ${medalColor}88)`
-                                  : "linear-gradient(90deg, #c8a850, #c8a85066)",
-                                transition: "width 0.4s ease",
+                                  : "linear-gradient(90deg, #c6f432, #c8a85066)",
+                                transition: "width 0.15s ease",
                               }}
                             />
                           </div>
                           <span
                             style={{
                               fontFamily: "var(--mono)",
-                              fontSize: 12,
+                              fontSize: 13,
                               fontWeight: 700,
                               color: isMedal ? medalColor : "var(--gold)",
                               minWidth: 36,
@@ -763,7 +763,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                           <span
                             style={{
                               fontFamily: "var(--mono)",
-                              fontSize: 9,
+                              fontSize: 11,
                               color: "var(--text-dim)",
                               minWidth: 40,
                               textAlign: "right",
@@ -777,7 +777,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 10,
+                            fontSize: 11,
                             color: "var(--text-muted)",
                             transition: "transform 0.2s",
                             transform: isExpanded
@@ -795,7 +795,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                           style={{
                             padding: "12px 16px 12px 54px",
                             borderLeft: `2px solid ${
-                              isMedal ? medalColor + "30" : "rgba(200,170,100,0.1)"
+                              isMedal ? medalColor + "30" : "rgba(255,255,255,0.07)"
                             }`,
                             marginLeft: 14,
                             marginTop: 4,
@@ -817,7 +817,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                   style={{
                                     width: 56,
                                     height: 56,
-                                    borderRadius: 8,
+                                    borderRadius: 4,
                                   }}
                                 />
                               ))}
@@ -827,7 +827,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                               <div
                                 style={{
                                   fontFamily: "var(--mono)",
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   color: "var(--text-dim)",
                                   marginBottom: 8,
                                   letterSpacing: "0.06em",
@@ -835,7 +835,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                               >
                                 {expandedTotal || expandedNfts.length} {collection.name.toUpperCase()} HELD
                                 {expandedTotal > expandedNfts.length && (
-                                  <span style={{ color: "var(--yellow, #fbbf24)", marginLeft: 6 }}>
+                                  <span style={{ color: "var(--yellow, #f2c14e)", marginLeft: 6 }}>
                                     &middot; previewing {expandedNfts.length}
                                   </span>
                                 )}
@@ -860,10 +860,10 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                     style={{
                                       width: 52,
                                       height: 52,
-                                      borderRadius: 8,
+                                      borderRadius: 4,
                                       overflow: "hidden",
                                       border:
-                                        "1px solid rgba(200,170,100,0.1)",
+                                        "1px solid rgba(255,255,255,0.07)",
                                     }}
                                   >
                                     <IpfsImg
@@ -885,14 +885,14 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                     style={{
                                       width: 52,
                                       height: 52,
-                                      borderRadius: 8,
-                                      background: "rgba(200,170,100,0.06)",
+                                      borderRadius: 4,
+                                      background: "rgba(255,255,255,0.042)",
                                       border:
-                                        "1px solid rgba(200,170,100,0.1)",
+                                        "1px solid rgba(255,255,255,0.07)",
                                       display: "grid",
                                       placeItems: "center",
                                       fontFamily: "var(--mono)",
-                                      fontSize: 10,
+                                      fontSize: 11,
                                       color: "var(--text-dim)",
                                     }}
                                   >
@@ -905,7 +905,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                             <div
                               style={{
                                 fontFamily: "var(--mono)",
-                                fontSize: 10,
+                                fontSize: 11,
                                 color: "var(--text-muted)",
                               }}
                             >
@@ -928,7 +928,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
             <SectionHeading title="Holder Concentration" live={false} />
             {!loadingHolders && holders.length > 0 && (
               <div style={{
-                fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
                 marginBottom: 14, marginTop: -12, letterSpacing: "0.03em",
               }}>
                 Based on top {holders.length} holders vs. {SUPPLY.toLocaleString()} total supply
@@ -953,7 +953,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                   style={{
                     marginTop: 16,
                     padding: "12px 16px",
-                    borderRadius: 10,
+                    borderRadius: 6,
                     background: "var(--border)",
                     border: "1px solid var(--border)",
                     display: "flex",
@@ -964,7 +964,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                   <span
                     style={{
                       fontFamily: "var(--mono)",
-                      fontSize: 10,
+                      fontSize: 11,
                       color: "var(--text-dim)",
                       letterSpacing: "0.06em",
                     }}
@@ -982,7 +982,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                     {distribution.totalHeld.toLocaleString()}
                     <span
                       style={{
-                        fontSize: 11,
+                        fontSize: 12,
                         color: "var(--text-dim)",
                         fontWeight: 400,
                         marginLeft: 4,
@@ -999,7 +999,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                 <div className="empty-state-title" style={{ fontSize: 13 }}>
                   {holdersError ? `Holder data unavailable for ${collection.name}` : `No Holder Data for ${collection.name}`}
                 </div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>
+                <div className="empty-state-text" style={{ fontSize: 11 }}>
                   {holdersError
                     ? "Concentration cannot be measured without the owner set \u2014 use Retry above."
                     : `No owners were returned for ${collection.name}.`}
@@ -1026,7 +1026,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                     alignItems: "center",
                     gap: 14,
                     padding: "16px 20px",
-                    borderRadius: 14,
+                    borderRadius: 6,
                     background: `${trend.color}08`,
                     border: `1px solid ${trend.color}18`,
                     marginBottom: 20,
@@ -1055,7 +1055,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                     <div
                       style={{
                         fontFamily: "var(--mono)",
-                        fontSize: 10,
+                        fontSize: 11,
                         color: "var(--text-dim)",
                         marginTop: 3,
                       }}
@@ -1071,7 +1071,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                 <div
                   style={{
                     fontFamily: "var(--mono)",
-                    fontSize: 9,
+                    fontSize: 11,
                     color: "var(--text-dim)",
                     letterSpacing: "0.1em",
                     marginBottom: 10,
@@ -1093,7 +1093,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                     <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
                       <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDC33"}</div>
                       <div className="empty-state-title" style={{ fontSize: 13 }}>No Whale Transactions</div>
-                      <div className="empty-state-text" style={{ fontSize: 10 }}>No large holder activity detected in recent {collection.name} trades.</div>
+                      <div className="empty-state-text" style={{ fontSize: 11 }}>No large holder activity detected in recent {collection.name} trades.</div>
                     </div>
                   ) : (
                     whaleTransactions.slice(0, 15).map((tx, i) => (
@@ -1105,7 +1105,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                           alignItems: "center",
                           gap: 10,
                           padding: "8px 12px",
-                          borderRadius: 10,
+                          borderRadius: 6,
                           background: "var(--border)",
                           border: "1px solid var(--border)",
                           animationDelay: `${i * 40}ms`,
@@ -1116,13 +1116,13 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 9,
+                            fontSize: 11,
                             fontWeight: 600,
                             padding: "2px 6px",
-                            borderRadius: 4,
-                            background: "rgba(74, 222, 128, 0.08)",
+                            borderRadius: 3,
+                            background: "rgba(47,217,139,0.08)",
                             color: "var(--green)",
-                            border: "1px solid rgba(74, 222, 128, 0.15)",
+                            border: "1px solid rgba(47,217,139,0.15)",
                           }}
                         >
                           {tx.type === "sale"
@@ -1136,7 +1136,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--display)",
-                            fontSize: 12,
+                            fontSize: 13,
                             color: "var(--text-dim)",
                             fontWeight: 500,
                             whiteSpace: "nowrap",
@@ -1148,7 +1148,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 9,
+                            fontSize: 11,
                             color: "var(--text-muted)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -1162,7 +1162,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 11,
+                            fontSize: 12,
                             color: tx.price ? "var(--gold)" : "var(--text-muted)",
                             marginLeft: "auto",
                             whiteSpace: "nowrap",
@@ -1180,7 +1180,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <span
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 9,
+                            fontSize: 11,
                             color: "var(--text-muted)",
                             whiteSpace: "nowrap",
                           }}
@@ -1196,7 +1196,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u2191\u2193"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>No Whale Activity for {collection.name}</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>
+                <div className="empty-state-text" style={{ fontSize: 11 }}>
                   {activityError
                     ? `Sales data for ${collection.name} could not be loaded — this is not a report of zero sales.`
                     : activities.length === 0
@@ -1217,12 +1217,12 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                     alignItems: "center",
                     justifyContent: "center",
                     fontFamily: "var(--mono)",
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: 700,
                     color: "var(--yellow)",
-                    background: "rgba(251, 191, 36, 0.1)",
-                    border: "1px solid rgba(251, 191, 36, 0.2)",
-                    borderRadius: 10,
+                    background: "rgba(242,193,78,0.1)",
+                    border: "1px solid rgba(242,193,78,0.2)",
+                    borderRadius: 6,
                     padding: "2px 8px",
                     animation: "pulse 2s ease-in-out infinite",
                   }}
@@ -1238,7 +1238,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDC33"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>No Whale Activity for {collection.name}</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>
+                <div className="empty-state-text" style={{ fontSize: 11 }}>
                   {activityError
                     ? `Activity feed unavailable for ${collection.name} — no claim is being made about whale activity.`
                     : `Large ${collection.name} holder transactions will appear here as they happen.`}
@@ -1265,8 +1265,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         ...alertCardStyle,
                         animationDelay: `${i * 60}ms`,
                         borderColor: isRecent
-                          ? "rgba(251, 191, 36, 0.2)"
-                          : "rgba(200,170,100,0.1)",
+                          ? "rgba(242,193,78,0.2)"
+                          : "rgba(255,255,255,0.07)",
                         position: "relative",
                       }}
                     >
@@ -1288,9 +1288,9 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         style={{
                           width: 36,
                           height: 36,
-                          borderRadius: 10,
-                          background: "rgba(200,170,100,0.06)",
-                          border: "1px solid rgba(200,170,100,0.1)",
+                          borderRadius: 6,
+                          background: "rgba(255,255,255,0.042)",
+                          border: "1px solid rgba(255,255,255,0.09)",
                           display: "grid",
                           placeItems: "center",
                           flexShrink: 0,
@@ -1321,7 +1321,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <div
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 9,
+                            fontSize: 11,
                             color: "var(--text-dim)",
                           }}
                         >
@@ -1349,7 +1349,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         <div
                           style={{
                             fontFamily: "var(--mono)",
-                            fontSize: 9,
+                            fontSize: 11,
                             color: "var(--text-muted)",
                             marginTop: 2,
                           }}

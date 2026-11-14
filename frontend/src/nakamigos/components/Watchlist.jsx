@@ -168,7 +168,7 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
           />
           {search.length > 0 && searchResults.length === 0 && (
             <div className="watchlist-search-results">
-              <div style={{ padding: "12px 16px", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
+              <div style={{ padding: "12px 16px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
                 No results found
               </div>
             </div>
@@ -177,10 +177,10 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
             <div className="watchlist-search-results">
               {searchResults.map((nft) => (
                 <div key={nft.id} className="watchlist-search-item" onClick={() => addToWatchlist(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addToWatchlist(nft); } }} role="button" tabIndex={0} aria-label={`Add ${nft.name} to watchlist`}>
-                  <NftImage nft={nft} style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover" }} />
-                  <span style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)" }}>{nft.name}</span>
-                  {nft.rank && <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", marginLeft: "auto" }}>#{nft.rank}</span>}
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>+ Add</span>
+                  <NftImage nft={nft} style={{ width: 32, height: 32, borderRadius: 3, objectFit: "cover" }} />
+                  <span style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)" }}>{nft.name}</span>
+                  {nft.rank && <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginLeft: "auto" }}>#{nft.rank}</span>}
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>+ Add</span>
                 </div>
               ))}
             </div>
@@ -214,7 +214,7 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
                 </div>
                 <div className="watchlist-card-inputs">
                   <div>
-                    <label style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)", letterSpacing: "0.06em" }}>TARGET PRICE (ETH)</label>
+                    <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>TARGET PRICE (ETH)</label>
                     <input
                       type="number"
                       step="0.001"
@@ -225,7 +225,7 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
                     />
                   </div>
                   <div>
-                    <label style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)", letterSpacing: "0.06em" }}>NOTE</label>
+                    <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>NOTE</label>
                     <input
                       className="watchlist-note-input"
                       placeholder="Add a note..."

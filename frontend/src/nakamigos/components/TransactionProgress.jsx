@@ -39,7 +39,7 @@ function ConfettiCanvas({ active, duration = 3000 }) {
     canvas.width = canvas.offsetWidth;
     canvas.height = canvas.offsetHeight;
 
-    const colors = ["#c8a850", "#6fa8dc", "#4ade80", "#ff6464", "#fbbf24", "#a78bfa"];
+    const colors = ["#c6f432", "#ffffff", "#2fd98b", "#ff5c5c", "#f2c14e", "#a48bff"];
     const particles = [];
     for (let i = 0; i < 80; i++) {
       particles.push({
@@ -120,11 +120,11 @@ function StepItem({ step, state, isLast }) {
   const isUpcoming = state === STEP_STATES.UPCOMING;
 
   const circleColor = isCompleted
-    ? "var(--green, #4ade80)"
+    ? "var(--green, #2fd98b)"
     : isFailed
-      ? "var(--red, #ff6464)"
+      ? "var(--red, #ff5c5c)"
       : isActive
-        ? "var(--naka-blue, #6fa8dc)"
+        ? "var(--naka-blue, #ffffff)"
         : "var(--border, #333)";
 
   const textColor = isUpcoming ? "var(--text-muted, #555)" : "var(--text, #eee)";
@@ -140,8 +140,8 @@ function StepItem({ step, state, isLast }) {
             top: 28,
             width: 2,
             height: "calc(100% - 4px)",
-            background: isCompleted ? "var(--green, #4ade80)" : "var(--border, #333)",
-            transition: "background 0.3s",
+            background: isCompleted ? "var(--green, #2fd98b)" : "var(--border, #333)",
+            transition: "background 0.15s",
           }}
         />
       )}
@@ -158,7 +158,7 @@ function StepItem({ step, state, isLast }) {
           alignItems: "center",
           justifyContent: "center",
           flexShrink: 0,
-          transition: "all 0.3s",
+          transition: "all 0.15s",
           animation: isActive ? "txPulse 1.5s ease-in-out infinite" : "none",
         }}
       >
@@ -169,7 +169,7 @@ function StepItem({ step, state, isLast }) {
           <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>{"\u2717"}</span>
         )}
         {isActive && (
-          <span style={{ fontSize: 12 }}>{step === STEPS.SIGN ? "\u{1F4F1}" : "\u231B"}</span>
+          <span style={{ fontSize: 13 }}>{step === STEPS.SIGN ? "\u{1F4F1}" : "\u231B"}</span>
         )}
       </div>
 
@@ -181,7 +181,7 @@ function StepItem({ step, state, isLast }) {
             fontSize: 13,
             fontWeight: 600,
             color: textColor,
-            transition: "color 0.3s",
+            transition: "color 0.15s",
             display: "flex",
             alignItems: "center",
             gap: 6,
@@ -191,11 +191,11 @@ function StepItem({ step, state, isLast }) {
           {step === STEPS.SIGN && isActive && (
             <span style={{
               fontFamily: "var(--mono)",
-              fontSize: 9,
+              fontSize: 11,
               color: "var(--naka-blue)",
-              background: "rgba(111,168,220,0.1)",
-              border: "1px solid rgba(111,168,220,0.2)",
-              borderRadius: 4,
+              background: "rgba(255,255,255,0.07)",
+              border: "1px solid rgba(255,255,255,0.16)",
+              borderRadius: 3,
               padding: "1px 6px",
             }}>
               CHECK WALLET
@@ -205,7 +205,7 @@ function StepItem({ step, state, isLast }) {
         {meta.estimate && !isCompleted && (
           <div style={{
             fontFamily: "var(--mono)",
-            fontSize: 10,
+            fontSize: 11,
             color: "var(--text-muted, #555)",
             marginTop: 2,
           }}>
@@ -229,8 +229,8 @@ function TxHashLink({ hash }) {
       rel="noopener noreferrer"
       style={{
         fontFamily: "var(--mono)",
-        fontSize: 11,
-        color: "var(--naka-blue, #6fa8dc)",
+        fontSize: 12,
+        color: "var(--naka-blue, #ffffff)",
         textDecoration: "none",
         display: "inline-flex",
         alignItems: "center",
@@ -259,7 +259,7 @@ function ElapsedTimer({ startTime }) {
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
   return (
-    <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+    <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
       {minutes > 0 ? `${minutes}m ` : ""}{seconds}s
     </span>
   );
@@ -277,7 +277,7 @@ function SuccessReceipt({ nft, price, gasUsed, txHash, onShareX, onClose, celebr
           width: 56,
           height: 56,
           borderRadius: "50%",
-          background: "var(--green, #4ade80)",
+          background: "var(--green, #2fd98b)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -303,10 +303,10 @@ function SuccessReceipt({ nft, price, gasUsed, txHash, onShareX, onClose, celebr
         <div style={{
           width: 120,
           height: 120,
-          borderRadius: 10,
+          borderRadius: 6,
           overflow: "hidden",
           margin: "16px auto",
-          border: "2px solid var(--gold, #c8a850)",
+          border: "2px solid var(--gold, #c6f432)",
         }}>
           <NftImage nft={nft} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         </div>
@@ -315,7 +315,7 @@ function SuccessReceipt({ nft, price, gasUsed, txHash, onShareX, onClose, celebr
       {/* Receipt details */}
       <div style={{
         background: "rgba(255,255,255,0.03)",
-        borderRadius: 8,
+        borderRadius: 4,
         padding: "12px 16px",
         margin: "12px 0",
         textAlign: "left",
@@ -344,13 +344,13 @@ function SuccessReceipt({ nft, price, gasUsed, txHash, onShareX, onClose, celebr
           style={{
             flex: 1,
             fontFamily: "var(--display)",
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 600,
             letterSpacing: "0.04em",
             color: "#fff",
             background: "#1d9bf0",
             border: "none",
-            borderRadius: 8,
+            borderRadius: 4,
             padding: "10px 0",
             cursor: "pointer",
             transition: "filter 0.15s",
@@ -365,12 +365,12 @@ function SuccessReceipt({ nft, price, gasUsed, txHash, onShareX, onClose, celebr
           style={{
             flex: 1,
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: 12,
             letterSpacing: "0.04em",
             color: "var(--text-dim)",
             background: "none",
             border: "1px solid var(--border, #333)",
-            borderRadius: 8,
+            borderRadius: 4,
             padding: "10px 0",
             cursor: "pointer",
             transition: "color 0.15s, border-color 0.15s",
@@ -402,7 +402,7 @@ function ReceiptRow({ label, value, bold }) {
     }}>
       <span style={{
         fontFamily: "var(--mono)",
-        fontSize: 10,
+        fontSize: 11,
         color: "var(--text-dim)",
         letterSpacing: "0.06em",
       }}>
@@ -435,7 +435,7 @@ function ErrorPanel({ message, onRetry, onBack, title = "Transaction Failed", ha
           width: 48,
           height: 48,
           borderRadius: "50%",
-          background: mark ? "var(--yellow, #fbbf24)" : "var(--red, #ff6464)",
+          background: mark ? "var(--yellow, #f2c14e)" : "var(--red, #ff5c5c)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -457,7 +457,7 @@ function ErrorPanel({ message, onRetry, onBack, title = "Transaction Failed", ha
 
       <div style={{
         fontFamily: "var(--mono)",
-        fontSize: 12,
+        fontSize: 13,
         color: "var(--text-dim)",
         lineHeight: 1.6,
         marginBottom: 16,
@@ -479,13 +479,13 @@ function ErrorPanel({ message, onRetry, onBack, title = "Transaction Failed", ha
             style={{
               flex: 1,
               fontFamily: "var(--display)",
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.06em",
               color: "var(--bg, #000)",
-              background: "var(--gold, #c8a850)",
+              background: "var(--gold, #c6f432)",
               border: "none",
-              borderRadius: 8,
+              borderRadius: 4,
               padding: "10px 0",
               cursor: "pointer",
               transition: "filter 0.15s",
@@ -501,12 +501,12 @@ function ErrorPanel({ message, onRetry, onBack, title = "Transaction Failed", ha
           style={{
             flex: 1,
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: 12,
             letterSpacing: "0.04em",
             color: "var(--text-dim)",
             background: "none",
             border: "1px solid var(--border, #333)",
-            borderRadius: 8,
+            borderRadius: 4,
             padding: "10px 0",
             cursor: "pointer",
             transition: "color 0.15s, border-color 0.15s",
@@ -535,18 +535,18 @@ function SpeedUpButton({ txHash, onSpeedUp, visible }) {
       onClick={() => onSpeedUp?.(txHash)}
       style={{
         fontFamily: "var(--mono)",
-        fontSize: 10,
-        color: "var(--yellow, #fbbf24)",
-        background: "rgba(251,191,36,0.08)",
-        border: "1px solid rgba(251,191,36,0.2)",
-        borderRadius: 6,
+        fontSize: 11,
+        color: "var(--yellow, #f2c14e)",
+        background: "rgba(242,193,78,0.08)",
+        border: "1px solid rgba(242,193,78,0.2)",
+        borderRadius: 4,
         padding: "5px 10px",
         cursor: "pointer",
         marginTop: 8,
         transition: "background 0.15s",
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(251,191,36,0.15)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(251,191,36,0.08)"; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(242,193,78,0.15)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(242,193,78,0.08)"; }}
     >
       SPEED UP
     </button>
@@ -651,8 +651,8 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
 
   return (
     <div style={{
-      background: "rgba(111,168,220,0.06)",
-      borderRadius: 8,
+      background: "rgba(255,255,255,0.042)",
+      borderRadius: 4,
       padding: "10px 14px",
       marginTop: 12,
     }}>
@@ -677,8 +677,8 @@ function injectStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     @keyframes txPulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(111,168,220,0.4); }
-      50% { box-shadow: 0 0 0 8px rgba(111,168,220,0); }
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(0,0,0,0); }
     }
     @keyframes txBounce {
       0% { transform: scale(0.3); opacity: 0; }
@@ -922,7 +922,6 @@ export default function TransactionProgress({
         alignItems: "center",
         justifyContent: "center",
         background: "rgba(0,0,0,0.7)",
-        backdropFilter: "blur(8px)",
         animation: "txFadeIn 0.25s ease",
       }}
       onClick={(e) => {
@@ -941,7 +940,7 @@ export default function TransactionProgress({
           overflowY: "auto",
           background: "var(--surface, #111)",
           border: "1px solid var(--border, #222)",
-          borderRadius: 14,
+          borderRadius: 6,
           padding: "24px 20px",
           boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
         }}

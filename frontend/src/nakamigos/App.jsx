@@ -13,15 +13,10 @@ import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
 import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
 import { canTradeOnVenue } from "./lib/venue";
-import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
 import Gallery from "./components/Gallery";
 import Toast from "./components/Toast";
-import NftMarquee from "./components/NftMarquee";
-import SplashScreen from "./components/SplashScreen";
-import { pageArt } from "../lib/artConfig";
-import PageTransition from "./components/PageTransition";
 import PriceAlertPanel, { usePriceAlerts } from "./components/PriceAlerts";
 import useSmartAlerts from "./hooks/useSmartAlerts";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -42,7 +37,6 @@ import { GallerySkeleton } from "./components/SkeletonFallback";
 import useNfts from "./hooks/useNfts";
 import useCollection from "./hooks/useCollection";
 import useListings from "./hooks/useListings";
-import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
 import useDmUnread from "./hooks/useDmUnread";
 import useIncomingTrades from "./hooks/useIncomingTrades";
@@ -204,20 +198,6 @@ function AppInner() {
   // If we're on the landing page, render that directly (no collection context needed)
   const isLanding = tab === "landing";
 
-  // Splash persistence is per-mount only (no sessionStorage): the user asked that
-  // every entry to /nakamigos from elsewhere plays the Tradermigos splash. Because
-  // NakamigosApp is lazy-loaded, leaving and returning to /nakamigos remounts it
-  // and re-fires the splash. Internal route changes (landing → collection) don't
-  // remount this component, so the splash only plays once per visit.
-  // #20: show the splash ONCE per browser session — the full ~12s art-intro on
-  // every re-entry to /nakamigos (and every reload) is real friction. First
-  // entry still plays the whole thing; later entries in the same session skip
-  // straight in. (sessionStorage clears when the tab closes, so the art still
-  // greets a genuinely-new visit.)
-  const [splashDone, setSplashDone] = useState(() => {
-    try { return sessionStorage.getItem("tm-splash-seen") === "1"; } catch { return false; }
-  });
-
   // Landing page: set title and scroll to top
   useOpensAtTheTop(isLanding ? "landing" : null);
   useEffect(() => {
@@ -230,14 +210,6 @@ function AppInner() {
       document.title = "Not Found | Tradermigos";
     }
   }, [tab, collectionSlug]);
-
-  // ═══ Splash screen — plays on every fresh entry to /nakamigos ═══
-  if (!splashDone) {
-    return <SplashScreen onComplete={() => {
-      try { sessionStorage.setItem("tm-splash-seen", "1"); } catch { /* private mode */ }
-      setSplashDone(true);
-    }} />;
-  }
 
   if (isLanding) {
     return <LandingShell themeName={themeName} onCycleTheme={cycleTheme} walletName={walletName} disconnect={disconnect} />;
@@ -308,20 +280,7 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
   }, [disconnect, addToast]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative" }}>
-      {/* The studio's marketplace backdrop (surface marketplace:0): a fixed
-          layer UNDER the collage with its own scrim, so a bungalow skin can
-          dress the landing while the marketplace's own art stays on top. The
-          collage's layers are fixed at z-index 0 as well and come later in
-          the DOM, so they paint over this one. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-          background: `linear-gradient(180deg, rgba(8,10,18,0.78) 0%, rgba(8,10,18,0.86) 100%), url(${pageArt("marketplace", 0).src}) center / cover no-repeat`,
-        }}
-      />
-      <Background />
+    <div className="mk-shell">
       <Header
         tab="landing"
         setTab={(t) => navigate(`/nakamigos/${DEFAULT_COLLECTION}/${t}`)}
@@ -331,7 +290,6 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
         activities={[]}
         isLive={false}
         cartCount={0}
-        onCartToggle={() => {}}
         themeName={themeName}
         onCycleTheme={onCycleTheme}
         walletName={walletName}
@@ -373,7 +331,6 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const focusIndexRef = useRef(-1);
 
-  const { play, muted, toggleMute } = useSound();
   const { stats, activities, activitiesLoading, activitiesEmpty, isLive, isWebSocketConnected } = useCollection();
 
   // Global DM badge + "open DMs" signal for the chat tab
@@ -543,9 +500,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       navigate(`/nakamigos/${collectionSlug}/${newTab}`);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
-    play("click");
     focusIndexRef.current = -1;
-  }, [navigate, play, collectionSlug]);
+  }, [navigate, collectionSlug]);
 
   const toggleFavorite = useCallback((tokenId) => {
     const removing = favorites.includes(tokenId);
@@ -565,15 +521,13 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         console.warn("Favorite sync failed:", err?.message);
       });
     }
-    play("favorite");
-  }, [ctxToggleFavorite, favorites, play, wallet, collectionSlug, addToast]);
+  }, [ctxToggleFavorite, favorites, wallet, collectionSlug, addToast]);
 
   const addToCart = useCallback((nft) => {
     if (cart.find(n => String(n.id) === String(nft.id))) return;
     ctxAddToCart(enrichWithListing(nft, listings));
     addToast(`Added #${nft.id} to cart`, "success");
-    play("cart");
-  }, [ctxAddToCart, cart, addToast, listings, play]);
+  }, [ctxAddToCart, cart, addToast, listings]);
 
   // ═══ Keyboard shortcuts (power-user mode) ═══
   useEffect(() => {
@@ -614,7 +568,6 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           focusIndexRef.current = Math.max(focusIndexRef.current - 1, 0);
         }
         scrollToCard(cards[focusIndexRef.current]);
-        play("click");
         return;
       }
 
@@ -626,7 +579,6 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           // Try card-reveal wrapper first (Card.jsx), then click the card itself (VirtualCard)
           const clickTarget = card.closest(".card-reveal") || card;
           clickTarget.click();
-          play("click");
         }
         return;
       }
@@ -661,9 +613,6 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           e.preventDefault();
           document.querySelector(".search-input")?.focus();
           break;
-        case "m":
-          toggleMute();
-          break;
         case "?":
           e.preventDefault();
           setShowKeyboardHelp(prev => !prev);
@@ -689,7 +638,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [handleTabChange, play, toggleMute, toggleFavorite, addToCart, nfts.allTokens, showKeyboardHelp, cartOpen, selected, location.pathname, navigate, collectionSlug, toggleTradingMode]);
+  }, [handleTabChange, toggleFavorite, addToCart, nfts.allTokens, showKeyboardHelp, cartOpen, selected, location.pathname, navigate, collectionSlug, toggleTradingMode]);
 
   const handleConnect = useCallback(() => {
     setWalletModalOpen(true);
@@ -771,7 +720,6 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         return (
           <>
             <Hero stats={stats} tokens={nfts.allTokens} onPick={setSelected} />
-            <NftMarquee tokens={nfts.allTokens} onPick={setSelected} />
             <Gallery
               tokens={nfts.tokens}
               allTokens={nfts.allTokens}
@@ -881,9 +829,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative", paddingBottom: 60 }}>
+    <div className="mk-shell">
       <a href="#main-content" className="skip-nav">Skip to main content</a>
-      <Background />
 
       <Header
         tab={tab}
@@ -926,22 +873,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       <main id="main-content" role="main">
       {/* Global wrong-network banner */}
       {wallet && isWrongNetwork && (
-        <div role="alert" style={{
-          fontFamily: "var(--mono)", fontSize: 12, padding: "10px 20px",
-          background: "rgba(248,113,113,0.1)", borderBottom: "1px solid rgba(248,113,113,0.25)",
-          color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
-        }}>
+        <div role="alert" className="mk-banner">
           You are connected to the wrong network. Please switch to Ethereum Mainnet to use marketplace features.{" "}
-          <button
-            onClick={() => switchChain?.()}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: "var(--naka-blue)", textDecoration: "underline",
-              fontFamily: "var(--mono)", fontSize: 12, padding: 0,
-            }}
-          >
-            Switch Network
-          </button>
+          <button onClick={() => switchChain?.()}>Switch Network</button>
         </div>
       )}
       {/* A deep link to a token that does not exist says so (see missingToken). */}
@@ -964,9 +898,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           clears its own error state); the Go Home button is the escape hatch. */}
       <ErrorBoundary key={tab} title="Tab error">
       <Suspense fallback={<LazyFallback />}>
-      <PageTransition tabKey={tab}>
+      <div key={tab} className="mk-tab-enter">
         {renderTab()}
-      </PageTransition>
+      </div>
       </Suspense>
       </ErrorBoundary>
       </main>
@@ -1092,35 +1026,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       <MobileNav tab={tab} onTabChange={handleTabChange} />
       <InstallPrompt />
 
-      {/* Sound toggle + keyboard help hint */}
-      <div className="desktop-controls" style={{ position: "fixed", bottom: 16, left: 16, zIndex: 100, display: "flex", gap: 8 }}>
-        <button
-          onClick={toggleMute}
-          style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: "var(--surface-glass)", border: "1px solid var(--border)",
-            backdropFilter: "var(--glass-blur)", color: "var(--text-muted)",
-            cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-          title={muted ? "Unmute sounds" : "Mute sounds"}
-          aria-label={muted ? "Unmute sounds" : "Mute sounds"}
-        >
-          {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
-        </button>
-        <button
-          onClick={() => setShowKeyboardHelp(true)}
-          data-tour="shortcuts"
-          style={{
-            height: 32, borderRadius: 8, padding: "0 10px",
-            background: "var(--surface-glass)", border: "1px solid var(--border)",
-            backdropFilter: "var(--glass-blur)", color: "var(--text-muted)",
-            cursor: "pointer", fontFamily: "var(--mono)", fontSize: 10,
-            display: "flex", alignItems: "center", gap: 4,
-          }}
-          title="Keyboard shortcuts"
-          aria-label="Keyboard shortcuts"
-        >
-          <span style={{ background: "rgba(255,255,255,0.08)", borderRadius: 4, padding: "1px 5px", fontSize: 11 }}>?</span>
+      {/* Keyboard help hint */}
+      <div className="desktop-controls">
+        <button onClick={() => setShowKeyboardHelp(true)} data-tour="shortcuts" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
+          <kbd>?</kbd>
           <span>Keys</span>
         </button>
       </div>
@@ -1133,13 +1042,13 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         {"\u2191"}
       </button>
 
-      <footer className="footer-full pixel-border-top">
+      <footer className="footer-full">
         <div className="footer-inner">
           <div className="footer-brand">
-            <img src={collection.image} alt={collection.name} className="header-logo-icon" style={{ width: 30, height: 30, objectFit: "cover", imageRendering: collection.pixelated ? "pixelated" : "auto" }} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.04em", lineHeight: 1 }}>{collection.name.toUpperCase()}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>Marketplace</div>
+            <img src={collection.image} alt={collection.name} style={{ imageRendering: collection.pixelated ? "pixelated" : "auto" }} />
+            <div>
+              <div className="footer-name">{collection.name.toUpperCase()}</div>
+              <div className="footer-kind">Marketplace</div>
             </div>
           </div>
           <div className="footer-links">
@@ -1164,23 +1073,15 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         </div>
         {/* Trust strip — verifiable facts surfaced at the point a logged-out
             visitor decides whether to connect. Additive; all true today. */}
-        <div className="footer-trust" style={{
-          borderTop: "1px solid var(--border)", marginTop: 4, padding: "14px 0 2px",
-          display: "flex", flexWrap: "wrap", gap: "8px 20px", justifyContent: "center",
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
-        }}>
-          <span>{"✓"} Non-custodial {"—"} you sign every transaction in your own wallet</span>
-          <span>{"✓"} Orders settle on-chain via Seaport</span>
+        <div className="footer-trust">
+          <span>Non-custodial: you sign every transaction in your own wallet</span>
+          <span>Orders settle on-chain via Seaport</span>
           {PLATFORM_FEE_BPS > 0 && PLATFORM_FEE_RECIPIENT !== "0x0000000000000000000000000000000000000000" ? (
-            <a
-              href={`https://etherscan.io/address/${PLATFORM_FEE_RECIPIENT}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ color: "var(--text-dim)" }}
-            >
-              {"✓"} Flat {PLATFORM_FEE_BPS / 100}% platform fee {"↗"}
+            <a href={`https://etherscan.io/address/${PLATFORM_FEE_RECIPIENT}`} target="_blank" rel="noopener noreferrer">
+              Flat {PLATFORM_FEE_BPS / 100}% platform fee {"↗"}
             </a>
           ) : (
-            <span>{"✓"} No extra platform fee</span>
+            <span>No extra platform fee</span>
           )}
         </div>
       </footer>
@@ -1188,13 +1089,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   );
 }
 
-// No Google Fonts injection: the site CSP has never allowed
-// fonts.googleapis.com, so the "Press Start 2P" <link> this app used to
-// append on mount could not load in production — every /nakamigos visit
-// just logged a CSP violation while the CSS fell back to `monospace`
-// (which is what shipped all along). If the pixel font is ever wanted for
-// real, self-host the woff2 under /public and declare @font-face in
-// App.css — do not reintroduce an external stylesheet.
+// Fonts: Archivo, Inter and JetBrains Mono are self-hosted (/public/fonts) and
+// declared by the site's own stylesheet; the site CSP allows no external font
+// host, so nothing is fetched from one here.
 
 export default function App() {
   // The marketplace signs through its own wallet code, which the site's records of an
@@ -1202,23 +1099,22 @@ export default function App() {
   // (lib/staleBuild.ts); its boundary offers the reload as a button.
   useEffect(() => holdReload(), []);
   return (
+    <div className="nakamigos-app">
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>
         <ThemeProvider>
           <TradingModeProvider>
             <ToastProvider>
-              {/* F558: app-wide reduced-motion gate — all framer `motion.*`
-                  descendants auto-respect the OS preference. The looping
-                  canvas/physics layers consult usePrefersReducedMotion. */}
+              {/* F558: app-wide reduced-motion gate — every framer `m.*`
+                  descendant follows the OS preference. */}
               <MotionConfig reducedMotion="user">
-                <div className="nakamigos-app">
-                  <AppInner />
-                </div>
+                <AppInner />
               </MotionConfig>
             </ToastProvider>
           </TradingModeProvider>
         </ThemeProvider>
       </WalletProvider>
     </ErrorBoundary>
+    </div>
   );
 }

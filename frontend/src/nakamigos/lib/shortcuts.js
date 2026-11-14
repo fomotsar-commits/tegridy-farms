@@ -20,7 +20,6 @@ export const SHORTCUTS = [
     ["f", "Toggle favorite (focused card)"],
     ["c", "Add to cart (focused card)"],
     ["s or /", "Focus search"],
-    ["m", "Toggle sound"],
     ["?", "Toggle this help"],
   ]],
 ];

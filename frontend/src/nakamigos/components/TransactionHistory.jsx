@@ -37,12 +37,12 @@ function DeviceLocalNote({ wallet, compact = false }) {
     <div
       data-testid="history-scope-note"
       style={{
-        fontFamily: "var(--mono)", fontSize: 10, lineHeight: 1.6,
+        fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6,
         color: "var(--text-muted)", textAlign: compact ? "center" : "left",
         maxWidth: compact ? 340 : "none", margin: compact ? "14px auto 0" : "0 0 18px",
-        padding: "10px 14px", borderRadius: 8,
-        background: "rgba(111,168,220,0.04)",
-        border: "1px solid rgba(111,168,220,0.12)",
+        padding: "10px 14px", borderRadius: 4,
+        background: "rgba(255,255,255,0.028)",
+        border: "1px solid rgba(255,255,255,0.09)",
       }}
     >
       <strong style={{ color: "var(--text-dim)", fontWeight: 700 }}>
@@ -85,9 +85,9 @@ function formatTime(ts) {
 }
 
 const TYPE_COLORS = {
-  buy: "#4ade80", sale: "#4ade80", offer: "#818cf8",
-  bid: "#fbbf24", list: "#38bdf8", cancel: "#f87171",
-  transfer: "#a78bfa",
+  buy: "#2fd98b", sale: "#2fd98b", offer: "#a48bff",
+  bid: "#f2c14e", list: "#38bdf8", cancel: "#ff5c5c",
+  transfer: "#a48bff",
 };
 const TYPE_LABELS = {
   buy: "Purchase", sale: "Sale", offer: "Offer",
@@ -155,7 +155,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
         <div style={{ fontFamily: "var(--display)", fontSize: 14, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
           Nothing recorded on this device yet
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", maxWidth: 280, margin: "0 auto", lineHeight: 1.5 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", maxWidth: 280, margin: "0 auto", lineHeight: 1.5 }}>
           Purchases, offers, and bids you make for this collection{" "}
           <em style={{ fontStyle: "normal", color: "var(--text-dim)" }}>in this browser</em> will
           appear here.
@@ -180,7 +180,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
           data-testid="history-scope-pill"
           title="Recorded by this browser only — not synced to your account"
           style={{
-            fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.06em",
+            fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
             padding: "3px 9px", borderRadius: 999,
             color: "var(--text-dim)", border: "1px solid var(--border)",
             background: "rgba(255,255,255,0.03)", whiteSpace: "nowrap",
@@ -190,7 +190,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
         </span>
       </div>
       <p style={{
-        fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
+        fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)",
         marginBottom: 14,
       }}>
         {collectionName} &middot; {walletHistory.length} transaction{walletHistory.length !== 1 ? "s" : ""} recorded here
@@ -200,21 +200,21 @@ export default function TransactionHistory({ wallet, onConnect }) {
         {walletHistory.map(tx => (
           <div key={tx.id} style={{
             display: "flex", alignItems: "center", gap: 12,
-            padding: "12px 16px", borderRadius: 10,
+            padding: "12px 16px", borderRadius: 6,
             background: "var(--surface-glass)", border: "1px solid var(--border)",
           }}>
-            <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flexShrink: 0, border: "1px solid var(--border)" }}>
+            <div style={{ width: 44, height: 44, borderRadius: 4, overflow: "hidden", flexShrink: 0, border: "1px solid var(--border)" }}>
               {tx.image ? (
                 <IpfsImg src={tx.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
               ) : (
-                <div style={{ width: "100%", height: "100%", background: "var(--surface)", display: "grid", placeItems: "center", fontFamily: "var(--pixel)", fontSize: 8, color: "var(--text-dim)" }}>?</div>
+                <div style={{ width: "100%", height: "100%", background: "var(--surface)", display: "grid", placeItems: "center", fontFamily: "var(--pixel)", fontSize: 10, color: "var(--text-dim)" }}>?</div>
               )}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
                 {tx.name}
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ color: TYPE_COLORS[tx.type] || "var(--text-dim)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   {TYPE_LABELS[tx.type] || tx.type}
                 </span>
@@ -222,7 +222,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
               </div>
             </div>
             {tx.price != null && (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: "var(--gold, #d4a843)", display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: "var(--gold, #c6f432)", display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
                 <Eth />{formatPrice(tx.price)}
               </div>
             )}
@@ -231,7 +231,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
                 href={`https://etherscan.io/tx/${tx.hash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--naka-blue)", textDecoration: "none", flexShrink: 0 }}
+                style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", textDecoration: "none", flexShrink: 0 }}
                 title="View on Etherscan"
               >
                 TX &#8599;

@@ -63,7 +63,7 @@ function MarketplaceBadge({ marketplace }) {
       title={title}
       style={{
         fontFamily: "var(--mono)",
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 700,
         color,
         border: `1px solid ${color}`,
@@ -91,9 +91,9 @@ function FloorDepthChart({ tiers, sweepUpToPrice, maxPriceGuard }) {
           const pct = maxCount > 0 ? (tier.count / maxCount) * 100 : 0;
           const inSweep = tier.price <= sweepUpToPrice;
           const excluded = maxPriceGuard != null && tier.price > maxPriceGuard;
-          let bg = "rgba(200, 170, 100, 0.15)";
-          if (excluded) bg = "rgba(248, 113, 113, 0.15)";
-          else if (inSweep) bg = "rgba(212, 168, 67, 0.5)";
+          let bg = "rgba(255,255,255,0.068)";
+          if (excluded) bg = "rgba(255,92,92,0.15)";
+          else if (inSweep) bg = "rgba(198,244,50,0.5)";
           return (
             <div
               key={tier.price}
@@ -596,14 +596,14 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
           <div className="sweep-section-label">
             {listingsSource === "native" ? "FLOOR IMPACT (NATIVE BOOK)" : "FLOOR IMPACT"}
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)", marginTop: 4 }}>
             <Eth size={11} /> {floorImpact.currentFloor.toFixed(4)}
             <span style={{ color: "var(--text-dim)", margin: "0 6px" }}>{"\u2192"}</span>
-            <span style={{ color: floorImpact.pctChange > 0 ? "var(--green, #4ade80)" : "var(--text)" }}>
+            <span style={{ color: floorImpact.pctChange > 0 ? "var(--green, #2fd98b)" : "var(--text)" }}>
               <Eth size={11} /> {floorImpact.newFloor.toFixed(4)}
             </span>
             {floorImpact.pctChange > 0 && (
-              <span style={{ color: "var(--green, #4ade80)", fontSize: 10, marginLeft: 4 }}>
+              <span style={{ color: "var(--green, #2fd98b)", fontSize: 11, marginLeft: 4 }}>
                 (+{floorImpact.pctChange.toFixed(1)}%)
               </span>
             )}
@@ -657,10 +657,10 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
         </div>
         <div className="sweep-stat">
           <div className="sweep-stat-label">EST. GAS</div>
-          <div className="sweep-stat-value" style={{ color: "var(--text-dim)", fontSize: 11 }}>
+          <div className="sweep-stat-value" style={{ color: "var(--text-dim)", fontSize: 12 }}>
             ~{sweepData.gasEst.toFixed(4)} ETH
             {sweepData.gasIsRough && (
-              <span style={{ color: "var(--text-dim)", opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
+              <span style={{ color: "var(--text-dim)", opacity: 0.7, fontSize: 11, marginLeft: 4 }}>
                 rough est.
               </span>
             )}
@@ -668,7 +668,7 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
         </div>
         <div className="sweep-stat">
           <div className="sweep-stat-label">DATA SOURCE</div>
-          <div className="sweep-stat-value" style={{ color: "var(--green)", fontSize: 11 }}>
+          <div className="sweep-stat-value" style={{ color: "var(--green)", fontSize: 12 }}>
             {sweepData.source || "Unavailable"}
           </div>
         </div>
@@ -683,14 +683,14 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
           <div style={{ marginTop: 4 }}>
             {filteredListings.slice(0, Math.min(effectiveCount, 5)).map((item, i) => (
               <div key={item.id} className="sweep-queue-item">
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", minWidth: 20 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", minWidth: 20 }}>
                   {i + 1}.
                 </span>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   #{item.id}
                 </span>
                 <MarketplaceBadge marketplace={item.marketplace} />
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", display: "flex", alignItems: "center", gap: 2 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", display: "flex", alignItems: "center", gap: 2 }}>
                   <Eth size={9} /> {Number(item.price).toFixed(4)}
                 </span>
               </div>
@@ -705,7 +705,7 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
       )}
 
       {filteredListings.length === 0 && hasListings && (traitCategory || maxPriceNum) && (
-        <div className="sweep-micro-label" style={{ textAlign: "center", margin: "8px 0", color: "var(--red, #f87171)" }}>
+        <div className="sweep-micro-label" style={{ textAlign: "center", margin: "8px 0", color: "var(--red, #ff5c5c)" }}>
           No listings match your filters
         </div>
       )}
@@ -720,7 +720,7 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
           buys fewer than N must say which ones it dropped and why. */}
       {skippedItems.length > 0 && (
         <div className="sweep-filters" style={{ marginTop: 8 }}>
-          <div className="sweep-section-label" style={{ color: "var(--yellow, #fbbf24)" }}>
+          <div className="sweep-section-label" style={{ color: "var(--yellow, #f2c14e)" }}>
             SKIPPED ({skippedItems.length})
           </div>
           {skippedItems.slice(0, 5).map((s, i) => (
@@ -738,7 +738,7 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
 
       <button
         className="btn-primary"
-        style={{ display: "block", width: "100%", textAlign: "center", marginTop: 18, fontSize: 12 }}
+        style={{ display: "block", width: "100%", textAlign: "center", marginTop: 18, fontSize: 13 }}
         disabled={sweeping || (!hasListings && !wallet) || effectiveCount === 0}
         onClick={handleSweep}
       >

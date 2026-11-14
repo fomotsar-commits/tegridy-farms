@@ -58,7 +58,7 @@ function GradientAvatar({ address, size = 80 }) {
         fontSize: size * 0.3,
         fontWeight: 700,
         color: "rgba(255,255,255,0.7)",
-        border: "2px solid rgba(200,168,80,0.3)",
+        border: "2px solid rgba(255,255,255,0.16)",
         flexShrink: 0,
       }}
     >
@@ -75,11 +75,11 @@ function Badge({ label, icon, color }) {
         alignItems: "center",
         gap: 5,
         padding: "4px 12px",
-        borderRadius: 20,
+        borderRadius: 8,
         background: `${color}18`,
         border: `1px solid ${color}40`,
         fontFamily: "var(--mono)",
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 600,
         color: color,
         letterSpacing: "0.06em",
@@ -290,7 +290,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
         justifyContent: "flex-end",
         background: visible ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0)",
         backdropFilter: visible ? "blur(6px)" : "none",
-        transition: "background 0.3s ease, backdrop-filter 0.3s ease",
+        transition: "background 0.15s ease, backdrop-filter 0.15s ease",
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
@@ -303,10 +303,10 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           height: "100vh",
           overflowY: "auto",
           background: "linear-gradient(180deg, rgba(16,14,12,0.97) 0%, rgba(10,9,8,0.99) 100%)",
-          borderLeft: "1px solid rgba(200,168,80,0.15)",
+          borderLeft: "1px solid rgba(255,255,255,0.16)",
           boxShadow: "-8px 0 40px rgba(0,0,0,0.6)",
           transform: visible ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.32s cubic-bezier(0.22,1,0.36,1)",
+          transition: "transform 0.32s ease",
           display: "flex",
           flexDirection: "column",
         }}
@@ -321,7 +321,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             width: 36,
             height: 36,
             borderRadius: "50%",
-            border: "1px solid rgba(200,168,80,0.2)",
+            border: "1px solid rgba(255,255,255,0.16)",
             background: "rgba(20,18,16,0.8)",
             color: "var(--text-dim)",
             fontSize: 18,
@@ -334,11 +334,11 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = "var(--gold)";
-            e.currentTarget.style.borderColor = "rgba(200,168,80,0.5)";
+            e.currentTarget.style.borderColor = "rgba(198,244,50,0.5)";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.color = "var(--text-dim)";
-            e.currentTarget.style.borderColor = "rgba(200,168,80,0.2)";
+            e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
           }}
         >
           &#x2715;
@@ -348,7 +348,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
         <div
           style={{
             padding: "40px 32px 28px",
-            borderBottom: "1px solid rgba(200,168,80,0.1)",
+            borderBottom: "1px solid rgba(255,255,255,0.09)",
             display: "flex",
             gap: 20,
             alignItems: "center",
@@ -363,7 +363,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                 width: 80,
                 height: 80,
                 borderRadius: "50%",
-                border: "2px solid rgba(200,168,80,0.3)",
+                border: "2px solid rgba(255,255,255,0.16)",
                 objectFit: "cover",
                 flexShrink: 0,
               }}
@@ -404,14 +404,14 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               onMouseLeave={(e) => (e.currentTarget.style.color = ensName ? "var(--text-dim)" : "var(--text)")}
             >
               {shortenAddress(address)}
-              <span style={{ fontSize: 10, opacity: 0.6 }}>
+              <span style={{ fontSize: 11, opacity: 0.6 }}>
                 {copied ? "COPIED" : "COPY"}
               </span>
             </div>
             <div
               style={{
                 fontFamily: "var(--mono)",
-                fontSize: 10,
+                fontSize: 11,
                 color: "var(--text-dim)",
                 marginTop: 6,
                 letterSpacing: "0.06em",
@@ -427,11 +427,11 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   onClick={onEdit}
                   style={{
                     background: "none",
-                    border: "1px solid rgba(200,168,80,0.3)",
-                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.16)",
+                    borderRadius: 3,
                     padding: "2px 8px",
                     fontFamily: "var(--mono)",
-                    fontSize: 9,
+                    fontSize: 11,
                     color: "var(--gold)",
                     cursor: "pointer",
                     letterSpacing: "0.04em",
@@ -439,12 +439,12 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                     transition: "background 0.2s, border-color 0.2s",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(200,168,80,0.1)";
-                    e.currentTarget.style.borderColor = "rgba(200,168,80,0.5)";
+                    e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+                    e.currentTarget.style.borderColor = "rgba(198,244,50,0.5)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "none";
-                    e.currentTarget.style.borderColor = "rgba(200,168,80,0.3)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
                   }}
                 >
                   Edit
@@ -460,8 +460,8 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             display: "grid",
             gridTemplateColumns: "1fr 1fr 1fr",
             gap: 1,
-            background: "rgba(200,168,80,0.08)",
-            borderBottom: "1px solid rgba(200,168,80,0.1)",
+            background: "rgba(255,255,255,0.056)",
+            borderBottom: "1px solid rgba(255,255,255,0.09)",
           }}
         >
           {[
@@ -493,7 +493,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               <div
                 style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 9,
+                  fontSize: 11,
                   color: "var(--text-dim)",
                   letterSpacing: "0.1em",
                   marginBottom: 6,
@@ -523,7 +523,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             display: "flex",
             gap: 8,
             flexWrap: "wrap",
-            borderBottom: "1px solid rgba(200,168,80,0.08)",
+            borderBottom: "1px solid rgba(255,255,255,0.09)",
           }}
         >
           {isWhale && <Badge label="Whale" icon={"\uD83D\uDC33"} color="var(--gold)" />}
@@ -552,7 +552,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             <div
               style={{
                 fontFamily: "var(--mono)",
-                fontSize: 10,
+                fontSize: 11,
                 color: "var(--text-dim)",
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
@@ -567,7 +567,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   background: "none",
                   border: "none",
                   fontFamily: "var(--mono)",
-                  fontSize: 10,
+                  fontSize: 11,
                   color: "var(--gold)",
                   cursor: "pointer",
                   letterSpacing: "0.04em",
@@ -578,7 +578,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               </button>
             )}
             {!loading && !inventoryComplete && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow, #fbbf24)" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow, #f2c14e)" }}>
                 {tokens.length} of {totalCount} loaded
               </span>
             )}
@@ -598,7 +598,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   className="skeleton"
                   style={{
                     aspectRatio: "1",
-                    borderRadius: 8,
+                    borderRadius: 4,
                     animationDelay: `${i * 50}ms`,
                   }}
                 />
@@ -608,12 +608,12 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
               <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u26A0"}</div>
               <div className="empty-state-title" style={{ fontSize: 13 }}>Couldn't load holdings</div>
-              <div className="empty-state-text" style={{ fontSize: 10 }}>The NFT API is unavailable right now.</div>
+              <div className="empty-state-text" style={{ fontSize: 11 }}>The NFT API is unavailable right now.</div>
               <button
                 onClick={loadTokens}
                 style={{
-                  marginTop: 12, fontFamily: "var(--mono)", fontSize: 10, padding: "6px 14px",
-                  borderRadius: 8, border: "1px solid var(--border)",
+                  marginTop: 12, fontFamily: "var(--mono)", fontSize: 11, padding: "6px 14px",
+                  borderRadius: 4, border: "1px solid var(--border)",
                   background: "var(--surface-glass)", color: "var(--gold)", cursor: "pointer",
                 }}
               >
@@ -624,7 +624,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
               <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDDBC"}</div>
               <div className="empty-state-title" style={{ fontSize: 13 }}>No {collection.name} Found</div>
-              <div className="empty-state-text" style={{ fontSize: 10 }}>This wallet does not hold any {collection.name} NFTs.</div>
+              <div className="empty-state-text" style={{ fontSize: 11 }}>This wallet does not hold any {collection.name} NFTs.</div>
             </div>
           ) : (
             <div
@@ -641,18 +641,18 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   style={{
                     position: "relative",
                     aspectRatio: "1",
-                    borderRadius: 8,
+                    borderRadius: 4,
                     overflow: "hidden",
                     cursor: "pointer",
-                    border: "1px solid rgba(200,168,80,0.1)",
+                    border: "1px solid rgba(255,255,255,0.09)",
                     transition: "border-color 0.2s, transform 0.2s",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(200,168,80,0.4)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
                     e.currentTarget.style.transform = "scale(1.04)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(200,168,80,0.1)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)";
                     e.currentTarget.style.transform = "scale(1)";
                   }}
                 >
@@ -673,7 +673,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                       padding: "12px 6px 4px",
                       background: "linear-gradient(transparent, rgba(0,0,0,0.85))",
                       fontFamily: "var(--mono)",
-                      fontSize: 9,
+                      fontSize: 11,
                       color: "var(--text-dim)",
                       textAlign: "center",
                     }}
@@ -690,13 +690,13 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
         <div
           style={{
             padding: "8px 32px 32px",
-            borderTop: "1px solid rgba(200,168,80,0.08)",
+            borderTop: "1px solid rgba(255,255,255,0.09)",
           }}
         >
           <div
             style={{
               fontFamily: "var(--mono)",
-              fontSize: 10,
+              fontSize: 11,
               color: "var(--text-dim)",
               letterSpacing: "0.1em",
               textTransform: "uppercase",
@@ -711,7 +711,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
               <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDCCA"}</div>
               <div className="empty-state-title" style={{ fontSize: 13 }}>No Recent Activity</div>
-              <div className="empty-state-text" style={{ fontSize: 10 }}>Activity for this wallet will appear here as trades happen.</div>
+              <div className="empty-state-text" style={{ fontSize: 11 }}>Activity for this wallet will appear here as trades happen.</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -727,27 +727,27 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                       alignItems: "center",
                       gap: 10,
                       padding: "10px 12px",
-                      borderRadius: 8,
-                      background: "rgba(200,168,80,0.03)",
+                      borderRadius: 4,
+                      background: "rgba(255,255,255,0.025)",
                       transition: "background 0.2s",
                     }}
                     onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "rgba(200,168,80,0.07)")
+                      (e.currentTarget.style.background = "rgba(255,255,255,0.049)")
                     }
                     onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "rgba(200,168,80,0.03)")
+                      (e.currentTarget.style.background = "rgba(255,255,255,0.025)")
                     }
                   >
                     {/* Type badge */}
                     <span
                       style={{
                         fontFamily: "var(--mono)",
-                        fontSize: 9,
+                        fontSize: 11,
                         fontWeight: 700,
                         color: color,
                         background: `${color}15`,
                         border: `1px solid ${color}30`,
-                        borderRadius: 4,
+                        borderRadius: 3,
                         padding: "2px 8px",
                         letterSpacing: "0.05em",
                         textTransform: "uppercase",
@@ -761,7 +761,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                     <span
                       style={{
                         fontFamily: "var(--mono)",
-                        fontSize: 12,
+                        fontSize: 13,
                         color: "var(--text)",
                         fontWeight: 600,
                         minWidth: 50,
@@ -775,7 +775,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                       <span
                         style={{
                           fontFamily: "var(--mono)",
-                          fontSize: 12,
+                          fontSize: 13,
                           color: "var(--gold)",
                           fontWeight: 600,
                           display: "flex",
@@ -792,7 +792,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                       <span
                         style={{
                           fontFamily: "var(--mono)",
-                          fontSize: 9,
+                          fontSize: 11,
                           color: "var(--text-dim)",
                           marginLeft: "auto",
                         }}
@@ -805,7 +805,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                     <span
                       style={{
                         fontFamily: "var(--mono)",
-                        fontSize: 9,
+                        fontSize: 11,
                         color: "var(--text-muted)",
                         marginLeft: a.marketplace ? 0 : "auto",
                         whiteSpace: "nowrap",

@@ -5,117 +5,16 @@ import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
 import { rankTier } from "../constants";
 
-/* ─── Ambient Particle Canvas ─── */
-function AmbientParticles({ width, height }) {
-  const canvasRef = useRef(null);
-  const particlesRef = useRef(null);
-
-  useEffect(() => {
-    const c = canvasRef.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    c.width = width;
-    c.height = height;
-
-    if (!particlesRef.current) {
-      const COLORS = [
-        "rgba(200,168,80,", // gold
-        "rgba(111,168,220,", // naka-blue
-        "rgba(129,140,248,", // purple
-        "rgba(255,255,255,", // white
-      ];
-      particlesRef.current = Array.from({ length: 35 }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        r: 1 + Math.random() * 2.5,
-        vx: (Math.random() - 0.5) * 0.25,
-        vy: (Math.random() - 0.5) * 0.2 - 0.1,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        opacity: 0.04 + Math.random() * 0.1,
-        pulseSpeed: 0.001 + Math.random() * 0.002,
-        pulseOffset: Math.random() * Math.PI * 2,
-      }));
-    }
-
-    let raf;
-    let paused = false;
-
-    const onVisibility = () => {
-      if (document.hidden) {
-        paused = true;
-        cancelAnimationFrame(raf);
-      } else {
-        paused = false;
-        raf = requestAnimationFrame(draw);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    const draw = (t) => {
-      if (paused) return;
-      ctx.clearRect(0, 0, c.width, c.height);
-      particlesRef.current.forEach((p) => {
-        const pulse = Math.sin(t * p.pulseSpeed + p.pulseOffset) * 0.5 + 0.5;
-        const alpha = p.opacity * (0.5 + pulse * 0.5);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = p.color + alpha.toFixed(3) + ")";
-        ctx.fill();
-
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < -10) p.x = c.width + 10;
-        if (p.x > c.width + 10) p.x = -10;
-        if (p.y < -10) p.y = c.height + 10;
-        if (p.y > c.height + 10) p.y = -10;
-      });
-      raf = requestAnimationFrame(draw);
-    };
-    raf = requestAnimationFrame(draw);
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("visibilitychange", onVisibility);
-      // Dispose canvas context to free GPU memory
-      c.width = 0;
-      c.height = 0;
-    };
-  }, [width, height]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        pointerEvents: "none",
-        zIndex: 1,
-      }}
-    />
-  );
-}
-
-/* ─── Ken Burns keyframes (injected once) ─── */
+/* ─── Fade-in keyframes (injected once) ─── */
 const STYLE_ID = "theater-mode-keyframes";
 function ensureKeyframes() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    @keyframes theater-ken-burns {
-      0%   { transform: scale(1.0); }
-      50%  { transform: scale(1.02); }
-      100% { transform: scale(1.0); }
-    }
     @keyframes theater-fade-in {
       from { opacity: 0; }
       to   { opacity: 1; }
-    }
-    @keyframes theater-glow-pulse {
-      0%   { opacity: 0.5; }
-      50%  { opacity: 0.75; }
-      100% { opacity: 0.5; }
     }
   `;
   document.head.appendChild(style);
@@ -126,7 +25,6 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   const collection = useActiveCollection();
   const [showTraits, setShowTraits] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [dimensions, setDimensions] = useState({ w: window.innerWidth, h: window.innerHeight });
   // F793: dialog container + close-button refs for focus management / trap.
   const overlayRef = useRef(null);
   const closeBtnRef = useRef(null);
@@ -146,13 +44,6 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
       unlockScroll();
       if (prevFocused instanceof HTMLElement) prevFocused.focus();
     };
-  }, []);
-
-  // Window resize
-  useEffect(() => {
-    const onResize = () => setDimensions({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   // Keyboard controls
@@ -195,7 +86,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     zIndex: 9999,
     background: "rgba(0,0,0,0.97)",
     opacity: visible ? 1 : 0,
-    transition: "opacity 0.3s ease",
+    transition: "opacity 0.15s ease",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -211,30 +102,17 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     justifyContent: "center",
     flex: 1,
     width: "100%",
-    transition: "padding-right 0.3s ease",
+    transition: "padding-right 0.15s ease",
     paddingRight: showTraits ? 300 : 0,
-  };
-
-  const ambientGlow = {
-    position: "absolute",
-    width: "60%",
-    height: "60%",
-    borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(200,168,80,0.15) 0%, rgba(111,168,220,0.08) 40%, transparent 70%)",
-    filter: "blur(80px)",
-    zIndex: 0,
-    animation: "theater-glow-pulse 6s ease-in-out infinite",
-    pointerEvents: "none",
   };
 
   const imageStyle = {
     maxHeight: "80vh",
     maxWidth: "70vw",
     objectFit: "contain",
-    borderRadius: 4,
+    borderRadius: 3,
     zIndex: 1,
-    animation: "theater-ken-burns 20s ease-in-out infinite",
-    boxShadow: "0 0 80px rgba(200,168,80,0.08), 0 0 160px rgba(111,168,220,0.04)",
+    boxShadow: "none",
   };
 
   const hudBar = {
@@ -247,11 +125,9 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     alignItems: "center",
     justifyContent: "space-between",
     padding: "14px 28px",
-    background: "rgba(16,16,18,0.6)",
-    backdropFilter: "var(--glass-blur)",
-    WebkitBackdropFilter: "var(--glass-blur)",
+    background: "rgba(17,19,22,0.96)",
     borderTop: "1px solid var(--border)",
-    transition: "right 0.3s ease",
+    transition: "right 0.15s ease",
   };
 
   const hudLeft = {
@@ -270,7 +146,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
 
   const tokenId = {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
     letterSpacing: "0.04em",
   };
@@ -280,14 +156,14 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   // Visibility is unchanged — any ranked token still shows the badge (additive).
   const theaterTier = hasRank ? rankTier(nft.rank, supply) : null;
   const TIER_BADGE = {
-    gold:  { color: "var(--gold)", background: "rgba(200,168,80,0.1)",  border: "1px solid rgba(200,168,80,0.25)" },
-    blue:  { color: "#7aa2ff",     background: "rgba(74,127,255,0.1)",  border: "1px solid rgba(74,127,255,0.25)" },
+    gold:  { color: "var(--gold)", background: "rgba(255,255,255,0.07)",  border: "1px solid rgba(255,255,255,0.16)" },
+    blue:  { color: "#ffffff",     background: "rgba(255,255,255,0.07)",  border: "1px solid rgba(255,255,255,0.16)" },
     plain: { color: "#c4ccda",     background: "rgba(180,190,210,0.08)", border: "1px solid rgba(180,190,210,0.2)" },
   };
   const rankBadge = {
     fontFamily: "var(--mono)",
-    fontSize: 10,
-    borderRadius: 4,
+    fontSize: 11,
+    borderRadius: 3,
     padding: "3px 8px",
     letterSpacing: "0.06em",
     ...(TIER_BADGE[theaterTier] || TIER_BADGE.gold),
@@ -302,7 +178,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   const hudBtn = {
     background: "var(--border)",
     border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 6,
+    borderRadius: 4,
     color: "var(--text-muted)",
     cursor: "pointer",
     padding: "6px 12px",
@@ -328,12 +204,10 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     bottom: 0,
     width: 300,
     zIndex: 10,
-    background: "rgba(16,16,18,0.75)",
-    backdropFilter: "var(--glass-blur)",
-    WebkitBackdropFilter: "var(--glass-blur)",
+    background: "rgba(17,19,22,0.96)",
     borderLeft: "1px solid var(--border)",
     transform: showTraits ? "translateX(0)" : "translateX(100%)",
-    transition: "transform 0.3s ease",
+    transition: "transform 0.15s ease",
     display: "flex",
     flexDirection: "column",
     overflowY: "auto",
@@ -341,7 +215,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
 
   const sidebarHeader = {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     letterSpacing: "0.1em",
     padding: "24px 20px 12px",
@@ -351,13 +225,13 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   const traitCard = {
     background: "rgba(255,255,255,0.025)",
     border: "1px solid var(--border)",
-    borderRadius: 8,
+    borderRadius: 4,
     padding: "12px 14px",
   };
 
   const traitLabel = {
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     color: "var(--text-dim)",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -374,7 +248,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
 
   const traitCount = {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-muted)",
     marginTop: 4,
   };
@@ -385,9 +259,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     top: "50%",
     transform: "translateY(-50%)",
     zIndex: 11,
-    background: "rgba(16,16,18,0.7)",
-    backdropFilter: "var(--glass-blur)",
-    WebkitBackdropFilter: "var(--glass-blur)",
+    background: "rgba(17,19,22,0.96)",
     border: "1px solid rgba(255,255,255,0.08)",
     borderRight: showTraits ? "none" : "1px solid rgba(255,255,255,0.08)",
     borderLeft: showTraits ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.08)",
@@ -395,11 +267,11 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     color: "var(--text-dim)",
     cursor: "pointer",
     padding: "12px 8px",
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: "var(--mono)",
     letterSpacing: "0.04em",
     writingMode: "vertical-rl",
-    transition: "right 0.3s ease",
+    transition: "right 0.15s ease",
   };
 
   return (
@@ -411,12 +283,8 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
       aria-modal="true"
       aria-label={`${nft.name} — theater view`}
     >
-      {/* Ambient Particles */}
-      <AmbientParticles width={dimensions.w} height={dimensions.h} />
-
       {/* Centered Image Area */}
       <div style={imageContainer} onClick={(e) => e.stopPropagation()}>
-        <div style={ambientGlow} />
         <NftImage nft={nft} large style={imageStyle} />
       </div>
 
@@ -467,7 +335,7 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
         </div>
         <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
           {attrs.length === 0 && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", padding: "20px 0", textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", padding: "20px 0", textAlign: "center" }}>
               No traits available
             </div>
           )}

@@ -258,12 +258,12 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           <h2 style={{ fontFamily: "var(--serif)", fontSize: 28, fontWeight: 600, color: "var(--text)" }}>
             My NFTs
           </h2>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
             {shortenAddress(wallet)} {"\u00b7"} {totalCount} {collection.name} owned
             {/* Loaded-vs-owned, whenever the two differ. Bulk List, Bundle and
                 Export CSV all act on the loaded set only. */}
             {!inventoryComplete && (
-              <span style={{ color: inventoryError ? "var(--red)" : "var(--yellow, #fbbf24)", marginLeft: 8 }}>
+              <span style={{ color: inventoryError ? "var(--red)" : "var(--yellow, #f2c14e)", marginLeft: 8 }}>
                 {"\u00b7"} {tokens.length} of {totalCount} loaded
                 {inventoryError ? " \u2014 the rest could not be reached" : "\u2026 still loading"}
               </span>
@@ -291,9 +291,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             <button
               onClick={() => setBulkListOpen(true)}
               style={{
-                fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
-                borderRadius: 8, border: "1px solid var(--naka-blue)",
-                background: "rgba(111,168,220,0.1)", color: "var(--naka-blue)",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "8px 16px",
+                borderRadius: 4, border: "1px solid var(--naka-blue)",
+                background: "rgba(255,255,255,0.07)", color: "var(--accent)",
                 cursor: "pointer", letterSpacing: "0.04em", fontWeight: 600,
               }}
             >
@@ -302,9 +302,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             <button
               onClick={() => setBundleOpen(true)}
               style={{
-                fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
-                borderRadius: 8, border: "1px solid var(--gold)",
-                background: "rgba(200,170,100,0.1)", color: "var(--gold)",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "8px 16px",
+                borderRadius: 4, border: "1px solid var(--gold)",
+                background: "rgba(255,255,255,0.07)", color: "var(--gold)",
                 cursor: "pointer", letterSpacing: "0.04em", fontWeight: 600,
               }}
             >
@@ -313,8 +313,8 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             <button
               onClick={handleExport}
               style={{
-                fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
-                borderRadius: 8, border: "1px solid var(--border)",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "8px 16px",
+                borderRadius: 4, border: "1px solid var(--border)",
                 background: "var(--surface-glass)", color: "var(--text-dim)",
                 cursor: "pointer", letterSpacing: "0.04em",
               }}
@@ -370,19 +370,19 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             gap: 12, margin: "0 32px 16px", padding: "14px 18px",
-            background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)",
-            borderRadius: 10, textDecoration: "none",
+            background: "rgba(255,255,255,0.042)", border: "1px solid rgba(255,255,255,0.16)",
+            borderRadius: 6, textDecoration: "none",
           }}
         >
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.06em" }}>
               BORROW WITHOUT SELLING
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
               Your {collection.name} NFTs can back a WETH loan in NFT Finance
             </div>
           </div>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)", whiteSpace: "nowrap" }}>{"→"}</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)", whiteSpace: "nowrap" }}>{"→"}</span>
         </Link>
       )}
 
@@ -403,10 +403,10 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
       {listings.length > 0 && (
         <div style={{
           margin: "0 32px 16px", padding: "14px 18px",
-          background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)",
-          borderRadius: 10,
+          background: "rgba(255,255,255,0.042)", border: "1px solid rgba(255,255,255,0.16)",
+          borderRadius: 6,
         }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 10 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 10 }}>
             ACTIVE LISTINGS
           </div>
           {listings.map((listing) => {
@@ -415,24 +415,24 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
               <div key={listing.orderHash} style={{
                 display: "flex", alignItems: "center", gap: 12,
                 padding: "8px 0",
-                borderBottom: "1px solid rgba(212,168,67,0.08)",
+                borderBottom: "1px solid rgba(255,255,255,0.09)",
               }}>
                 <div style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)", flex: 1 }}>
                   {token?.name || `#${listing.tokenId}`}
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", display: "flex", alignItems: "center", gap: 3 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)", display: "flex", alignItems: "center", gap: 3 }}>
                   <Eth size={10} /> {formatListingPrice(listing)}
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
                   {timeLeft(listing.expiry)}
                 </div>
                 <button
                   onClick={() => handleCancelListing(listing)}
                   disabled={cancelling === listing.orderHash}
                   style={{
-                    fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)",
-                    background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.15)",
-                    borderRadius: 5, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap",
+                    fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)",
+                    background: "rgba(255,92,92,0.06)", border: "1px solid rgba(255,92,92,0.15)",
+                    borderRadius: 4, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap",
                   }}
                 >
                   {cancelling === listing.orderHash ? "..." : "Cancel"}
@@ -492,8 +492,8 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
               <button
                 onClick={() => setVisibleCount((c) => c + 60)}
                 style={{
-                  fontFamily: "var(--mono)", fontSize: 12, padding: "9px 22px",
-                  borderRadius: 8, cursor: "pointer",
+                  fontFamily: "var(--mono)", fontSize: 13, padding: "9px 22px",
+                  borderRadius: 4, cursor: "pointer",
                   background: "var(--surface-glass, rgba(255,255,255,0.04))",
                   border: "1px solid var(--border)", color: "var(--text-dim)",
                 }}
@@ -510,12 +510,12 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
                 onClick={() => setPortfolioOpen((o) => !o)}
                 style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "12px 16px", borderRadius: 10,
+                  padding: "12px 16px", borderRadius: 6,
                   border: "1px solid var(--border)", background: "var(--surface-glass)",
                   cursor: "pointer", color: "var(--text)",
                 }}
               >
-                <span style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.06em" }}>
                   PORTFOLIO STATS
                 </span>
                 <svg
@@ -539,7 +539,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
                         <div className="analytics-stat-value" style={{ color: "var(--yellow)" }}>
                           #{portfolioStats.rarest.rank}
                         </div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                           {portfolioStats.rarest.name || `#${portfolioStats.rarest.id}`}
                         </div>
                       </div>
@@ -561,8 +561,8 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
                     <button
                       onClick={handleExport}
                       style={{
-                        fontFamily: "var(--mono)", fontSize: 10, padding: "8px 20px",
-                        borderRadius: 8, border: "1px solid var(--border)",
+                        fontFamily: "var(--mono)", fontSize: 11, padding: "8px 20px",
+                        borderRadius: 4, border: "1px solid var(--border)",
                         background: "var(--surface-glass)", color: "var(--text-dim)",
                         cursor: "pointer", letterSpacing: "0.04em",
                       }}

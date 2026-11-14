@@ -7,7 +7,6 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 
 export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggleFavorite, skipReveal }) {
   const collection = useActiveCollection();
-  const isGallery = view === "gallery";
 
   const handleBuy = useCallback((e) => {
     e.stopPropagation();
@@ -27,7 +26,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
   return (
     <div
       className={skipReveal ? undefined : "card-reveal"}
-      style={skipReveal ? undefined : { animationDelay: `${Math.min(idx * 35, 350)}ms` }}
+      style={skipReveal ? undefined : { animationDelay: `${Math.min(idx * 25, 250)}ms` }}
       onClick={handleClick}
       role="button"
       tabIndex={0}
@@ -38,7 +37,6 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
       <div className={`nft-card ${view}`}>
         <div className="card-image-wrap">
           <NftImage nft={nft} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <div className="card-overlay" />
 
           {/* Rank badge — show rank relative to collection supply; highlight top 25%.
               Hide when approximate (partial load) to match VirtualCard/Hero. */}
@@ -62,7 +60,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
               aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
               aria-pressed={isFavorite}
             >
-              {isFavorite ? "\u2665" : "\u2661"}
+              {isFavorite ? "♥" : "♡"}
             </button>
           )}
 
@@ -75,7 +73,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
         <div className="card-footer">
           <div className="card-info">
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="card-name" style={{ fontSize: isGallery ? 16 : 14 }}>{nft.name}</div>
+              <div className="card-name">{nft.name}</div>
               <div className="card-trait">
                 {nft.attributes?.[0]
                   ? `${nft.attributes[0].key}: ${nft.attributes[0].value}`
@@ -86,7 +84,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
             <div style={{ textAlign: "right", flexShrink: 0 }}>
               {nft.price != null ? (
                 <>
-                  <div className="card-price" style={{ fontSize: isGallery ? 14 : 12 }}>
+                  <div className="card-price">
                     <Eth />{formatListingPrice(nft)}
                   </div>
                   {nft.lastSale != null && (

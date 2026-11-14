@@ -112,7 +112,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
         marginBottom: 10,
       }}>
         <div style={{
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
           letterSpacing: "0.08em",
         }}>
           OFFERS
@@ -120,9 +120,9 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
         <button
           onClick={onMakeOffer}
           style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)",
-            background: "rgba(111,168,220,0.08)", border: "1px solid rgba(111,168,220,0.15)",
-            borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)",
+            background: "rgba(255,255,255,0.056)", border: "1px solid rgba(255,255,255,0.16)",
+            borderRadius: 4, padding: "4px 10px", cursor: "pointer",
           }}
         >
           + Make Offer
@@ -138,12 +138,12 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
           && isOnActiveCollection(bestOffer);
         return (
         <div style={{
-          background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.12)",
-          borderRadius: 8, padding: "10px 14px", marginBottom: 10,
+          background: "rgba(47,217,139,0.04)", border: "1px solid rgba(47,217,139,0.12)",
+          borderRadius: 4, padding: "10px 14px", marginBottom: 10,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.06em" }}>
                 BEST OFFER
               </div>
               <div style={{ fontFamily: "var(--display)", fontSize: 18, fontWeight: 600, color: "var(--text)", marginTop: 2 }}>
@@ -153,7 +153,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
             {isOwner && (
               <button
                 className="btn-primary"
-                style={{ fontSize: 10, padding: "6px 14px" }}
+                style={{ fontSize: 11, padding: "6px 14px" }}
                 disabled={accepting === bestOffer.orderHash}
                 onClick={() => handleAccept(bestOffer)}
               >
@@ -169,7 +169,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 40, borderRadius: 8, animationDelay: `${i * 60}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 40, borderRadius: 4, animationDelay: `${i * 60}ms` }} />
           ))}
         </div>
       ) : offers.length === 0 && !bestOffer ? (
@@ -181,7 +181,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
           <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
             <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u26A0"}</div>
             <div className="empty-state-title" style={{ fontSize: 13 }}>Offers Unavailable</div>
-            <div className="empty-state-text" style={{ fontSize: 10 }}>
+            <div className="empty-state-text" style={{ fontSize: 11 }}>
               The offer feed didn&apos;t respond, so this is not a count of zero. Retrying every 30s.
             </div>
           </div>
@@ -189,7 +189,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
           <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
             <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83E\uDD1D"}</div>
             <div className="empty-state-title" style={{ fontSize: 13 }}>No Offers Yet</div>
-            <div className="empty-state-text" style={{ fontSize: 10 }}>Be the first to make an offer on this NFT.</div>
+            <div className="empty-state-text" style={{ fontSize: 11 }}>Be the first to make an offer on this NFT.</div>
           </div>
         )
       ) : (
@@ -198,7 +198,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
               cannot be claimed complete. */}
           {unavailable && (
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
               padding: "4px 10px",
             }}>
               Partial data: the offer feed didn&apos;t fully respond.
@@ -224,10 +224,10 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)" }}>
                     <Eth size={10} /> {Number.isFinite(offer.price) ? offer.price.toFixed(4) : "—"}
                   </div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                     {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
                     {offer.expiry ? ` \u00b7 ${timeLeft(offer.expiry)}` : ""}
                   </div>
@@ -235,9 +235,9 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
                 {canAccept && (
                   <button
                     style={{
-                      fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)",
-                      background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.12)",
-                      borderRadius: 4, padding: "3px 8px", cursor: "pointer",
+                      fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)",
+                      background: "rgba(47,217,139,0.06)", border: "1px solid rgba(47,217,139,0.12)",
+                      borderRadius: 3, padding: "3px 8px", cursor: "pointer",
                     }}
                     disabled={accepting === offer.orderHash}
                     onClick={() => handleAccept(offer)}

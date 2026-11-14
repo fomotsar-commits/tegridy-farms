@@ -55,7 +55,7 @@ const JUNGLEBAY_EXTRA_LINKS = [
 function SectionHeading({ children }) {
   return (
     <h3 style={{
-      fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)",
+      fontFamily: "var(--pixel)", fontSize: 12, color: "var(--naka-blue)",
       letterSpacing: "0.06em", marginBottom: 24,
     }}>
       {children}
@@ -115,8 +115,8 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
 
         {!isNakamigos && collection.image && (
           <div style={{
-            width: 80, height: 80, borderRadius: 16, overflow: "hidden",
-            marginBottom: 20, border: "2px solid rgba(200,168,80,0.15)",
+            width: 80, height: 80, borderRadius: 8, overflow: "hidden",
+            marginBottom: 20, border: "2px solid rgba(255,255,255,0.16)",
             background: "var(--bg)",
           }}>
             <img src={collection.image} alt={collection.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -142,7 +142,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
         <div style={{
           width: 60, height: 3,
           background: "linear-gradient(90deg, var(--naka-blue), transparent)",
-          marginBottom: 28, borderRadius: 2,
+          marginBottom: 28, borderRadius: 3,
         }} />
 
         {/* Origin Story. Word for word, in the small print: the page is the
@@ -177,7 +177,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
             descriptionSourceLabel(collection) ? (
               // The collection's own words, labelled as such: not a venue claim.
               <figure style={{ margin: 0 }}>
-                <figcaption style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", marginBottom: 6 }}>
+                <figcaption style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.04em", marginBottom: 6 }}>
                   {descriptionSourceLabel(collection)}
                 </figcaption>
                 <blockquote style={{ margin: 0, whiteSpace: "pre-line" }}>{collection.description}</blockquote>
@@ -190,9 +190,9 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {collection.tags.map(tag => (
                 <span key={tag} style={{
-                  fontFamily: "var(--mono)", fontSize: 10, padding: "4px 10px",
-                  borderRadius: 6, background: "rgba(200,168,80,0.08)",
-                  border: "1px solid rgba(200,168,80,0.15)", color: "var(--gold)",
+                  fontFamily: "var(--mono)", fontSize: 11, padding: "4px 10px",
+                  borderRadius: 4, background: "rgba(255,255,255,0.056)",
+                  border: "1px solid rgba(255,255,255,0.16)", color: "var(--gold)",
                   letterSpacing: "0.04em",
                 }}>
                   {tag}
@@ -214,7 +214,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           {statCards.map(({ label, value, suffix, color, cached }) => (
             <div key={label} className="about-stat-card">
               <div style={{
-                fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
                 letterSpacing: "0.08em", marginBottom: 6,
               }}>
                 {label.toUpperCase()}
@@ -222,7 +222,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
                   <span
                     title="Cached estimate — live stats unavailable right now"
                     style={{
-                      marginLeft: 5, fontSize: 8, border: "1px solid var(--border)",
+                      marginLeft: 5, fontSize: 10, border: "1px solid var(--border)",
                       borderRadius: 3, padding: "0 3px",
                     }}
                   >
@@ -250,27 +250,27 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
               return (
                 <div key={name} style={{
                   background: isUltra
-                    ? "linear-gradient(135deg, rgba(200,168,80,0.12), rgba(200,168,80,0.04))"
+                    ? "linear-gradient(135deg, rgba(255,255,255,0.054), rgba(255,255,255,0.028))"
                     : "var(--surface)",
-                  border: isUltra ? "1px solid rgba(200,168,80,0.25)" : "1px solid rgba(255,255,255,0.04)",
-                  borderRadius: 10, padding: "16px 14px",
+                  border: isUltra ? "1px solid rgba(255,255,255,0.16)" : "1px solid rgba(255,255,255,0.04)",
+                  borderRadius: 6, padding: "16px 14px",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 600, color: tierColor }}>
                       {name}
                     </div>
                     <span style={{
-                      fontFamily: "var(--mono)", fontSize: 8, padding: "2px 6px",
-                      borderRadius: 4, background: isHuman ? "rgba(100,160,255,0.1)" : "rgba(74,222,128,0.1)",
+                      fontFamily: "var(--mono)", fontSize: 10, padding: "2px 6px",
+                      borderRadius: 3, background: isHuman ? "rgba(255,255,255,0.07)" : "rgba(47,217,139,0.1)",
                       color: isHuman ? "var(--naka-blue)" : "var(--green)",
                     }}>
                       {isHuman ? "HUMAN" : "NON-HUMAN"}
                     </span>
                   </div>
-                  <div style={{ fontFamily: "var(--display)", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 6 }}>
+                  <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 6 }}>
                     {description}
                   </div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: tierColor, letterSpacing: "0.04em" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: tierColor, letterSpacing: "0.04em" }}>
                     {count.toLocaleString()} ({percentage}%)
                   </div>
                 </div>
@@ -298,7 +298,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
             {lore.ecosystem.map(({ name, supply, chain, description }) => (
               <div key={name} style={{
-                background: "var(--surface)", padding: "18px 16px", borderRadius: 10,
+                background: "var(--surface)", padding: "18px 16px", borderRadius: 6,
                 border: "1px solid rgba(255,255,255,0.04)",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -306,18 +306,18 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
                     {name}
                   </div>
                   <span style={{
-                    fontFamily: "var(--mono)", fontSize: 8, padding: "2px 6px",
-                    borderRadius: 4, background: chain === "Bitcoin" ? "rgba(247,147,26,0.1)" : chain === "Solana" ? "rgba(153,69,255,0.1)" : chain === "Base" ? "rgba(0,82,255,0.1)" : "rgba(100,160,255,0.1)",
+                    fontFamily: "var(--mono)", fontSize: 10, padding: "2px 6px",
+                    borderRadius: 3, background: chain === "Bitcoin" ? "rgba(247,147,26,0.1)" : chain === "Solana" ? "rgba(153,69,255,0.1)" : chain === "Base" ? "rgba(0,82,255,0.1)" : "rgba(255,255,255,0.07)",
                     color: chain === "Bitcoin" ? "#f7931a" : chain === "Solana" ? "#9945ff" : chain === "Base" ? "#0052ff" : "var(--naka-blue)",
                   }}>
                     {chain}
                   </span>
                 </div>
-                <div style={{ fontFamily: "var(--display)", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
                   {description}
                 </div>
                 {supply && (
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 6, letterSpacing: "0.04em" }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 6, letterSpacing: "0.04em" }}>
                     {supply.toLocaleString()} items
                   </div>
                 )}
@@ -334,9 +334,9 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
             {facts.slice(0, 8).map((fact, i) => (
               <div key={i} style={{
-                background: "var(--surface)", padding: "14px 16px", borderRadius: 8,
+                background: "var(--surface)", padding: "14px 16px", borderRadius: 4,
                 border: "1px solid rgba(255,255,255,0.04)",
-                fontFamily: "var(--display)", fontSize: 12, color: "var(--text-dim)", lineHeight: 1.7,
+                fontFamily: "var(--display)", fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7,
               }}>
                 {fact}
               </div>
@@ -350,7 +350,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
         {contractMeta.map(([k, v]) => (
           <div key={k} style={{ background: "var(--surface)", padding: "20px 22px" }}>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
               letterSpacing: "0.1em", marginBottom: 6,
             }}>
               {k.toUpperCase()}
