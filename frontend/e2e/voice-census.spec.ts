@@ -5,6 +5,7 @@ import {
   gotoRoute,
   navigablePath,
   waitForQuiescence,
+  waitForReads,
   GECKO_EDGE_GLOB,
   type RouteSpec,
 } from './fixtures/routes';
@@ -73,7 +74,10 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
 
 async function settle(page: Page, path: string) {
   if (path === NAKAMIGOS) await gotoNakamigos(page);
-  else await gotoRoute(page, path);
+  else {
+    await gotoRoute(page, path);
+    await waitForReads(page);
+  }
   for (let i = 0; i < 3; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);

@@ -15,6 +15,109 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: a tooltip Playwright calls visible can be clipped to nothing by its card
+
+**Believed:** an open `InfoTooltip` (its bubble is `absolute z-50`) shows above the page, and a
+walk that finds its text with `isVisible()` has seen it.
+
+**Measured** (PR #1222, /nft-finance's four stat tiles): each tile was `overflow-hidden` so its
+art kept the rounded corners, and that clipped its own bubble. On desktop nothing showed; on a
+390px phone only the arrow peeked out. `isVisible()` returned true for the bubble's sentence on
+all three widths while the screenshots showed nothing. The fee tile's tooltip was the only place
+the page said how the venue earns.
+
+**Do:** read what the browser draws: `document.elementFromPoint` at the bubble's centre must be
+the bubble or inside it (e2e/lending.spec.ts, "each stat tile's explanation"). jsdom has no layout,
+so no unit test can see this. To fix, clip only the art layer (an `absolute inset-0
+overflow-hidden` wrapper) and lift the card with `[&:has([role=tooltip])]:z-20`.
+
+## 2026-11-14: Gondi's loan events carry no indexed loan id, so a closed loan is found by halving blocks
+
+**Believed:** finding how a Gondi loan closed (repaid, claimed, taken over) is an `eth_getLogs`
+filter on its id.
+
+**Measured** (PR #1225): `IMultiSourceLoan`'s events (`LoanRepaid`, `LoanLiquidated`,
+`LoanRefinanced`, `LoanRefinancedFromNewOffers`) declare no indexed parameters, so a log filter can
+only take the contract and the event, over every block since the loan opened. `getLoanHash(id)` is
+set while the loan is open and zero once it closes, and an archive `eth_call` reads it at any
+block. Halving the range from the opening block finds the closing block in about log2(blocks)
+reads (about 25 for a year), then one single-block `eth_getLogs` names the transaction. Read
+against mainnet on eth.drpc.org (the venue's loan contract, loan 1): set at block 26,399,833, zero
+at the block before, and the one-block log read returned exactly its opening transaction.
+
+**Do:** use `findCloseBlock` in `api/_lib/loanOffers.js` (action `loan-sync`). A lender takeover
+(`refinanceFull`) needs no borrower signature, so a loan can move with no transaction the site
+ever sees.
+
+## 2026-11-14: Smart App Control blocks `anvil.exe`, and `npm run e2e` says only "spawn UNKNOWN"
+
+**Believed:** a fork e2e on this PC needs the Windows `anvil` that `run-e2e-with-anvil.mjs`
+spawns.
+
+**Measured:** `npm run e2e` failed at once with `[e2e] orchestrator error: Error: spawn UNKNOWN`.
+`& anvil.exe --version` in PowerShell said "An Application Control policy has blocked this file",
+and `Microsoft-Windows-CodeIntegrity/Operational` logged events 3077 and 3033 for
+`.foundry\bin\anvil.exe` that minute. WebKit ran the same day, so it is not all unsigned binaries
+at once. WSL's `~/.foundry/bin/anvil` (1.7.1) worked: run with `--host 0.0.0.0 --port 8645
+--fork-url https://eth.drpc.org` and the test mnemonic, then point Playwright at it directly with
+`ANVIL_RPC_URL=http://127.0.0.1:8645 E2E_REQUIRE_ANVIL=1 npx playwright test e2e/lending.spec.ts`.
+`lending.spec.ts` passed 5 of 5 that way, the borrow-then-repay cycle included.
+
+**Do:** never switch Smart App Control off (the owner's security setting). Use the WSL anvil, and
+stop it afterwards with `pkill` run inside WSL (see 2026-10-19 on `pkill -f` through
+`wsl -e bash -lc`: it kills its own shell, but the anvil goes too; check the port is free).
+
+## 2026-11-14: a WebKit `click()` is two messages, and a page that moves between them loses the press
+
+**Believed:** Playwright's actionability and hit-target checks mean a `click()` that returns
+without error reached the element.
+
+**Measured** (PR #1219, e2e/arrival.spec.ts:137, the home's tour: 127 failed attempts in 87 CI
+runs from 2026-10-21 to 11-12, WebKit only, "toHaveCount: Expected 1, Received 0"): the WebKit
+click is a mouse down and a mouse up sent separately, and the hit check runs on the first event
+only. The home's cards land late and pushed the tour down from y 1077 to 1801. CI's traces showed
+the same race one step earlier: a card's `<details>` intercepted the first try and Playwright
+retried. A shift after the check gets no retry. With a 200px block made to land one task after
+the press began, `click()` lost the press in 16 of 24 WebKit runs with CI's message (Chromium in
+0); `tap()`, one message, in 0 of 48 on all four projects.
+
+**Do:** on a project with `hasTouch`, press with `tap()` (the `press` helper in
+arrival.spec.ts). To find this cause, make the shift certain with an init script on
+`pointerdown` + `setTimeout(0)`, rather than waiting for CI's timing.
+
+## 2026-11-14: stubbing outside hosts leaves a count moving with the network, because the preview's proxies are same-origin
+
+**Believed:** e2e/word-budget.spec.ts counted the page, not the network: it aborted the
+GeckoTerminal edge, and the rest of what it reads is on chain.
+
+**Measured** (PR #1219, 238 CI runs 2026-11-03 to 14, one build): the home counted 284 to 432
+words, /bayla 292 to 461, /pools 53 to 255. `vite preview` proxies `/api/solrpc` to the public
+Solana RPC and `/api/jupiter` and others to live services (vite.config.ts, the 2026-11-11 entry
+below). Those requests are same-origin, so a `url.host !== own` stub never sees them. Whatever
+the rate-limited RPC answered decided which cards drew. With every read fixed (Solana from
+mainnet recordings, the rest refused), all 18 counts were identical on 3 of 3 runs, and /pools
+read 330 against a ceiling of 325. It had passed only because its venue never read in CI.
+
+**Do:** to measure what a page shows, fix every read: refuse `**/api/**` and outside hosts, and
+answer `/api/solrpc` from a recording (em-dash-zero.spec.ts and word-budget.spec.ts do). A
+ceiling set from a run whose reads failed is a ceiling on the outage, not the page.
+
+## 2026-11-14: React Router 7's `BrowserRouter` applies every navigation as a transition
+
+**Believed:** a tab whose selection lives in the URL (`setSearchParams` in its click handler)
+shows the new selection on the next frame, like a `useState` tab.
+
+**Measured** (react-router 7.18.3, `BrowserRouter` in dist/development/chunk-BV7QT456.mjs: its
+history listener sets state inside `React.startTransition` unless `useTransitions={false}`). On
+/nft-finance at 390px on Playwright WebKit, from the click event to `aria-selected="true"`: 172 ms
+median, 296 ms at most, the same with every core busy. Holding the new section's code chunk for
+8 s did not delay it (185 ms): a newly mounted Suspense boundary shows its fallback. Not tested:
+whether `useTransitions={false}` shortens it, or whether CI's 14 unexplained strip failures
+(nft-finance-strip.spec.ts:467) are this.
+
+**Do:** wait for URL-driven selection with an assertion, never a frame count. If a press must
+show at once, keep the pressed tab in local state as well as in the URL.
+
 ## 2026-11-13: `page.setViewportSize` returns before the page has the new width
 
 **Believed:** after `await page.setViewportSize({ width })` the next read lays out at `width`.
@@ -314,6 +417,43 @@ proof in `submit.ts` would be wrong. Only a wallet whose feature lists 1 gets ve
 keep legacy.
 
 ---
+
+## 2026-11-07: a mutant that makes a service retry forever never fails its test, it hangs it
+
+**Wrong belief:** a mutation run reports each mutant as killed or survived, so a run that is taking
+long is just slow.
+
+**Measured:** on the Cardano batcher, a mutant that read the global setting with the wrong shape
+made `node --test test/main.test.ts` run 11 minutes with no verdict: the watcher catches the
+unreadable setting and retries, and those tests await a batch with no per-test timeout. Stopping
+the run also stopped the script's `finally`, so the mutant stayed in `src/select.ts` until it was
+restored by hand and checked with `git diff`. With `--test-timeout=120000` and only the fast test
+file that reads the setting, the same mutant failed in under a second.
+
+**Do:** give every mutation run `--test-timeout`, point each mutant at the fastest test that reads
+the mutated line, and after any run that was stopped, diff the file before trusting it.
+
+Aiken 1.0.24, met the same day: `aiken check -m <text>` keeps tests whose NAME contains the text
+(not the module), and the way to print a value is `trace` in a test that returns `False`: the
+report shows the trace under the failure.
+
+## 2026-11-07: a spend redeemer is passed to the script as written, but an Aiken 1.0.24 script with mint and spend handlers expects it wrapped
+
+**Wrong belief:** the redeemer you build is the value the validator's `action` argument receives.
+
+**Measured:** our role lock (`cardano/role-timelock`, one script with `mint` and `spend`) refused
+every `Announce` on preprod with `headList` of an empty list, whatever the announcement held.
+Aiken 1.0.24 compiles the two handlers into one program that branches on the constructor index
+of its second argument: 0 runs `mint` (a ScriptContext is constructor 0), anything else runs
+`spend` with that argument's first field. So a spend's redeemer must be `constr 1 [action]`;
+`plutus.json` says so (`RedeemerWrapper$...Action`). Unwrapped, `Announce` (constructor 0) ran
+the mint handler, and `Cancel` (constructor 1) reached the spend handler and failed decoding its
+bare integer. Wrapped, the Announce passed (tx fb17d866, 396,026 memory). The lock's Aiken tests
+call `lock.spend` directly, so they never see the wrapper.
+
+**Do:** before building a redeemer for any Aiken 1.0.x script, read its schema in `plutus.json`.
+A `RedeemerWrapper` there means `constr 1 [redeemer]`. Minswap's authen script (GlobalSetting
+spend) is built the same way.
 
 ## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
 
@@ -730,6 +870,34 @@ owner's word; the owner's "merge it" then found nothing to merge. The tell was i
 `UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
 `mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
 `gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
+## 2026-10-30: CSL's `PlutusScript.from_bytes_v2` gave an Aiken script the wrong hash
+
+**Believed:** an Aiken `plutus.json` `compiledCode` loads into CSL 17 with
+`PlutusScript.from_bytes_v2(bytes)`. **Measured:** the batcher's test-world order script
+(`feat/cardano-batcher` `test/fixtures/test-deployment.json`) hashed to `53ed6f4e…` that way, not its
+real `e9690f33…`, so a reference UTxO made from it would have run nothing of ours.
+`PlutusScript.new_with_version(bytes, Language.new_plutus_v2())` gave `e9690f33…`, as the batcher's
+`test/world.ts` loads it. **Do:** load compiled code with `new_with_version`, and check the hash
+before trusting a simulate run against it (`aiken tx simulate`, Aiken 1.0.24, is in WSL at
+`/root/aiken-1.0.24/aiken`).
+
+## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
+
+**Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers
+are set. **Measured:** building our pool opening (one factory spend, one mint, both from
+reference scripts) in `ownPools/openPoolTx.ts`. Called before `add_inputs_from_and_change`, the
+hash covered redeemer index 0; the wallet's coins then sorted in ahead of the factory input,
+`build_tx` wrote the redeemer with its real index, and the hash no longer matched (our read-back
+caught it: "its script data does not match its own instructions"). Called only after, CSL's fee
+missed the hash's own bytes ("Fee is less than the minimum fee. Min fee: 534840, Fee: 533476").
+**Do:** call it before the coin selection (so the fee counts it) AND again after (the index is
+final only then); the hash is 32 bytes either way, so the fee holds.
+
+**Believed:** a developer-facing error string is not user-facing copy. **Measured:**
+`src/lib/heat/islandClaims.test.ts` "states no a formula line" reads every string literal in
+shipped source; `throw new Error('square root of a negative number')` in a Cardano maths file
+failed it. **Do:** name the contract function (`calculate_sqrt`) in error strings, never the maths.
 
 ## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
 

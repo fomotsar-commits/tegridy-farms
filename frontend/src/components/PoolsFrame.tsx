@@ -11,14 +11,14 @@ const DOOR_STYLE = { border: '1px solid rgba(255,255,255,0.12)', background: 'rg
 /**
  * The pools page's first frame, as its static HTML paints it (scripts/render-pools-frame.mjs):
  * PoolsPage's own shell and heading, class for class, under the host's pt-14, and the LP door's
- * waiting card when the address asks for an add. `aria-busy` keeps the e2e readiness probe
- * waiting for the page. Wallet-free, and it never says "Loading".
+ * waiting card when the address asks for an add. `data-route-loading` keeps the e2e readiness
+ * probe (gotoRoute) waiting for the page. Wallet-free, and it never says "Loading".
  */
 export function PoolsFrame() {
   const [params] = useSearchParams();
   const door = lpWriteMode() !== 'off' && params.get('task') === 'add' && params.has('mint');
   return (
-    <div className="pt-14" aria-busy="true">
+    <div className="pt-14" aria-busy="true" data-route-loading>
       <div className="relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
         <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">

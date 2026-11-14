@@ -28,9 +28,10 @@ import {
  * DELIBERATELY WALLET-FREE. No wagmi, no framer, nothing that needs a provider:
  * this renders while those chunks may still be arriving.
  *
- * `aria-busy` IS LOAD-BEARING. The e2e readiness probe waits for main#main-content
- * with no busy descendant; without it, specs would start typing into a field
- * React is about to throw away.
+ * `data-route-loading` IS LOAD-BEARING. The e2e readiness probe (gotoRoute) waits for
+ * main#main-content with none of it inside; without it, specs would start typing into a
+ * field React is about to throw away. `aria-busy` says the same to a screen reader, and
+ * the first-frame specs find this frame by it.
  *
  * IT IS THE SAME FIELD, NOT A NEW ONE. This commit replaces a field the visitor may be
  * typing in, so it takes over what that field held (lib/firstFrameDraft.ts): the typed
@@ -67,7 +68,7 @@ export function FirstFrame() {
   );
 
   return (
-    <div className="ff-in-layout" aria-busy="true">
+    <div className="ff-in-layout" aria-busy="true" data-route-loading>
       <div className="ff-bg">
         <img src={art.src} {...artImgProps(art.src, 'eager')} alt="" width={1200} height={800} decoding="async" />
       </div>

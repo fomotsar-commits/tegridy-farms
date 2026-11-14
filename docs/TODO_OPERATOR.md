@@ -812,6 +812,36 @@ step left before you can add liquidity is in the 2026-11-07 section at the top o
 
 ---
 
+## 2026-10-24: Cardano pools, your decisions before the audit
+
+Our copy of Minswap V2 changes one constant (your fee share, below) and is proven to build into
+Minswap's mainnet scripts byte for byte everywhere else; the 48-hour, two-key lock that fixes
+CertiK's MIN-01 is written and tested. Nothing is deployed. Brief for the auditor, and the detail
+behind each item: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md).
+
+- ✅ **Fees** (you: "0.3% fee, venue under 1/6"): 0.3% per trade; the venue takes 13.33% of it
+  (about 0.04% of the trade), LPs the rest. It needed Minswap's floor lowered, one line of their code.
+- ✅ **Split** (you: "Quarterly, like EVM"): the whole share goes to the treasury, and the
+  30/35/35 (later 10/45/45) is paid from there each quarter.
+- ✅ **The treasury** (you: "Two keys, like the vault"): your Eternl multi-sig wallet
+  "memetics.finance" (Eternl Pro, made 2026-10-31; not Lace, whose shared wallets are a
+  testnet-only beta that Lace 2.x drops), proven on mainnet 2026-11-07. Its payment and stake
+  parts each need both keys. The same address goes in the lock's `treasury` and the batcher's
+  `sweep`: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md) section 4 names it whole.
+- ⬜ **The licence.** Minswap's files say GPL-3.0 in one place and Apache-2.0 in another. A
+  lawyer's read is owed before any deploy.
+- ✅ **Who holds the lock's two owner keys** (you: "Use your picks", 2026-11-08): mem2 (key A) and
+  mem (key B).
+- ✅ **Where the batcher runs** (your ruling of 2026-10-25): a new Railway project, its key made on
+  the server and never copied. The project exists since 2026-11-08.
+- ⬜ **Which auditor.** The scope is the one-line patch and the pool validator it changes, the
+  lock, the deploy parameters and the batcher.
+
+The licence and the auditor are steps 3 and 6 of the 2026-11-07 section at the top, with
+everything else left.
+
+---
+
 ## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
