@@ -268,6 +268,8 @@ const rpcLine = rpcWithFallback({
     rpcBusySaid.set(url, Date.now());
     log(`RPC ${redactRpcUrl(url)} is busy (${why}): reads go to ${RPC_FALLBACKS.length ? 'the next endpoint' : 'no other'} for ${RPC_REST_MS / 1000} s`);
   },
+  // Said once: an endpoint that takes only so many accounts a read has larger reads split there.
+  onCap: (url, n) => log(`RPC ${redactRpcUrl(url)} takes at most ${n} accounts a read: a larger read is split there into reads of ${n}, sent together`),
 });
 const rpc = rpcLine.call;
 const conn = new Connection(RPC, 'confirmed');
