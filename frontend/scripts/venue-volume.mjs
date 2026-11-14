@@ -213,6 +213,9 @@ function botsOf(source) {
   return EVM_CHAINS[source]?.bots ?? new Set();
 }
 
+// The longest one database call waits: the run's time limit leaves room for two after it.
+export const DB_TIMEOUT_MS = 30_000;
+
 function postgrest(env, fetchImpl) {
   return async (path, init = {}) => {
     const r = await fetchImpl(`${env.SUPABASE_URL}/rest/v1/${path}`, {
@@ -224,7 +227,7 @@ function postgrest(env, fetchImpl) {
         Prefer: "return=representation",
         ...(init.headers ?? {}),
       },
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(DB_TIMEOUT_MS),
     });
     const text = await r.text();
     let body = null;
@@ -265,6 +268,24 @@ async function writeRow(db, row, next) {
 // passes a shorter `budgetMs` (api/venue-volume-count.js).
 const SOURCE_BUDGET_MS = 8 * 60 * 1000;
 
+// The whole run's time, for all sources together. A source's budget above is checked only
+// between reads (and the Solana readers never check it), so one stuck RPC call could carry
+// the run past the job's limit and lose every source after it. Once this is up, the source
+// still reading is let go unsaved and the rest wait for the next run; a reader only reads,
+// so the next run reads those swaps again and none counts twice. The hourly job stops at
+// 30 minutes; the Vercel run passes a shorter `runMs`.
+export const RUN_BUDGET_MS = 25 * 60 * 1000;
+
+/** `work`, or a refusal once `ms` have passed. The work carries on unheard: it only reads. */
+function inTime(work, ms) {
+  if (!(ms < 2 ** 31)) return work; // setTimeout fires at once for a longer wait, Infinity too
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("out of time for this run: nothing saved, the next run reads it again")), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 /**
  * One run's prices, each read at most once: SOL and ETH from two quotes, the island coins
  * from Jupiter in one read. `used` is what was read, for the dry run's log.
@@ -304,7 +325,9 @@ export async function main({
   error = console.error,
   dryRun = false,
   budgetMs = SOURCE_BUDGET_MS,
+  runMs = RUN_BUDGET_MS,
 } = {}) {
+  const stopBy = Date.now() + runMs;
   const missing = REQUIRED.filter((k) => !env[k]);
   if (dryRun) return dryRunAll({ fetchImpl, deps, sources, readers, log, error });
   if (missing.length) {
@@ -328,9 +351,18 @@ export async function main({
   let failed = 0;
   for (const source of sources) {
     const row = rows.get(source) ?? null;
+    const left = stopBy - Date.now();
+    if (left <= 0) {
+      failed++;
+      error(`::error title=Volume source ${source} not counted::the run was out of time before it began; the next run counts it`);
+      continue;
+    }
     try {
-      const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + budgetMs });
-      const totals = await addUp(row, got.swaps, priceOf, botsOf(source), got.repriced);
+      const count = async () => {
+        const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + Math.min(budgetMs, left) });
+        return { got, totals: await addUp(row, got.swaps, priceOf, botsOf(source), got.repriced) };
+      };
+      const { got, totals } = await inTime(count(), left);
       if (got.repriced?.length) log(`${source}: ${got.repriced.length} swap(s) counted earlier with no dollars now priced`);
       const now = new Date().toISOString();
       if (got.incomplete) {
