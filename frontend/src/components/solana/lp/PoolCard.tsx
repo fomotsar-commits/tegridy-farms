@@ -5,7 +5,7 @@ import { feeRateText, formatSolPrice, priceText, quoteText, tokenText, tradeCost
 import { SHEET_WORDS } from '../../../lib/arrival';
 import { useSheet } from '../../sheet/sheetContext';
 import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
-import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { isWithdrawOnly, withdrawOnlyWhy, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { readAgo } from '../../../lib/solana/lp/outsidePrice';
 import { publishRoomPrice } from '../../../lib/solana/lp/roomPrice';
@@ -28,6 +28,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { PoolTradeDialWhenOpen } from './PoolTradeDial';
 import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
@@ -550,6 +551,12 @@ export function PoolCard({
                 <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
               ))}
             </div>
+            {/* Withdraw only (quotes.ts): its one line is among the reasons above; why, in the small print. */}
+            {isWithdrawOnly(view.quote) && (
+              <FinePrint summary="Why" testId="lp-pool-withdraw-only-why">
+                <p>{withdrawOnlyWhy(view.quote)}</p>
+              </FinePrint>
+            )}
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
             {health.deposits.warnings.length > 0 && (
               <div data-testid="lp-pool-warnings" className="space-y-1">

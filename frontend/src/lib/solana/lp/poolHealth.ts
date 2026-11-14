@@ -4,7 +4,7 @@ import { tooFewShares } from './liquidityMath';
 import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, TRUSTED_HISTORY_SECS, type OwnPrice } from './ownPrice';
 import { LAUNCH_TIER_POOL, type PoolView } from './poolFinder';
-import { readPair, type QuoteCoin } from './quotes';
+import { WITHDRAW_ONLY_LINE, isWithdrawOnly, readPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
 
@@ -27,7 +27,8 @@ import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
  *     of it (`tooFewShares`). Its price can be moved for a few lamports, whatever it is
  *     checked against, and a deposit's limits are worked out from that same price;
  *   - the token itself is blocked (tokenSafety.ts);
- *   - the pool is on the launch tier and is not the launch pool (`LAUNCH_TIER_POOL`).
+ *   - the pool is on the launch tier and is not the launch pool (`LAUNCH_TIER_POOL`);
+ *   - the pool is priced in a delisted coin, so it is withdraw-only (quotes.ts `isWithdrawOnly`).
  *
  * A deposit is WARNED ABOUT, and allowed (owner ruling 2026-10-04), when:
  *   - its price is more than 3% from the reference price: the trade that moves it back
@@ -430,6 +431,8 @@ export function assessPool(input: {
   if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
   if (view.vaultsFrozen) refused.push(`One of this pool’s vaults is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of it.`);
   if (view.launchTierWithoutLaunch) refused.push(LAUNCH_TIER_POOL);
+  // Priced in a delisted coin (quotes.ts): no deposit, and the card says why in its small print.
+  if (isWithdrawOnly(view.quote)) refused.push(WITHDRAW_ONLY_LINE);
   if (swaps.state === 'not-open-yet') {
     refused.push(
       swaps.farFuture

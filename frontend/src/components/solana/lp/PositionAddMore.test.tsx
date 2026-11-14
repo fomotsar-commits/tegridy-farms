@@ -31,7 +31,8 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, QUOTE_COINS_OR, SOL_QUOTE, USDC_QUOTE, WITHDRAW_ONLY_LINE, withdrawOnlyWhy, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { whileDelisted } from '../../../lib/solana/lp/delisted.fixture';
 import { LAUNCH_TIER_POOL, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -898,6 +899,26 @@ describe('Remove liquidity is as it was', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-remove-panel')).toBeNull());
     expect(remove).toHaveFocus();
+  });
+});
+
+// Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only.
+describe('a pool priced in a delisted coin', () => {
+  it('its row offers no Add more liquidity, says so in one line with why in the small print, and keeps Remove liquidity', async () => {
+    const mine = view({ quote: USDC_QUOTE, sol: 1_000n * 10n ** 6n });
+    const open = view();
+    await whileDelisted(USDC_QUOTE, async () => {
+      mount(readers({ positions: held(position(mine), position(open)) }));
+      // The other row has its button, so the section can add: this is about the pool.
+      await addMore(open.address);
+      const r = await row(mine.address);
+      await waitFor(() => expect(r).toHaveAttribute('data-remove', 'offer'));
+      expect(within(r).queryByRole('button', { name: ADD_MORE })).toBeNull();
+      expect(within(r).getByRole('button', { name: 'Remove liquidity' })).toBeInTheDocument();
+      const line = within(r).getByTestId('lp-position-withdraw-only');
+      expect(within(line).getByText(WITHDRAW_ONLY_LINE).closest('details')).toBeNull();
+      expect(within(line).getByText(withdrawOnlyWhy(USDC_QUOTE)).closest('details')).not.toBeNull();
+    });
   });
 });
 

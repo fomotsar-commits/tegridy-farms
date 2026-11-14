@@ -20,7 +20,9 @@ import {
   rankArbitrage,
   readMarketPrices,
   poolTags,
+  refusesDeposits,
   rowTokenFee,
+  WITHDRAW_ONLY_TAG,
   swapLink,
   unsizedPools,
   type PoolList,
@@ -31,6 +33,7 @@ import { quoteOwnPool } from '../cpswap/read';
 import { readPoolIndex } from './poolIndex';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { whileDelisted } from './delisted.fixture';
 import { PRICE_TOLERANCE } from './poolHealth';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
@@ -167,6 +170,18 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
 
   it('a pool with nothing to warn about gets no tag at all (never a reassuring one)', () => {
     expect(poolTags(row(), NOW)).toEqual([]);
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin says so first, and its Add looks off.
+  it('a pool priced in a delisted coin: "Withdraw only", worst first; its card refuses a deposit', async () => {
+    const v = row({ quote: USDC_QUOTE, reserve: 5_000n * 10n ** 6n });
+    await whileDelisted(USDC_QUOTE, () => {
+      expect(poolTags(v, NOW)[0]).toEqual({ text: WITHDRAW_ONLY_TAG, tone: 'bad' });
+      expect(WITHDRAW_ONLY_TAG).toBe('Withdraw only');
+      expect(refusesDeposits(v, NOW, null)).toBe(true);
+    });
+    expect(texts(v)).not.toContain(WITHDRAW_ONLY_TAG);
+    expect(refusesDeposits(v, NOW, null)).toBe(false);
   });
 
   it('the pool’s own switches: Trading off, Adding off, Removing off, each from its own bit', () => {

@@ -1,8 +1,24 @@
 import type { AggregatorSeen, Prepared } from '../../launcher/solana/write/types';
+import { isWithdrawOnly, readPair } from '../lp/quotes';
 import { aggregatorCandidate, chooseRoute, type RouteCandidate, type RouteDecision } from '../route';
 
-/** One of our pools as the route weighs it: a constant-product pool or a range pool, by address. */
-export type OwnPoolLike = RouteCandidate & { venue: 'own-pool'; poolAddress: string };
+/**
+ * One of our pools as the route weighs it: a constant-product pool or a range pool, by address.
+ * Each carries its pool as read (venuePools.ts `view`, rangePools.ts `range`), which says what
+ * coin the pool is priced in.
+ */
+export type OwnPoolLike = RouteCandidate & {
+  venue: 'own-pool';
+  poolAddress: string;
+  view?: { quote: { mint: string } };
+  range?: { pool: { tokenMint0: string; tokenMint1: string } };
+};
+
+/** A pool priced in a delisted coin is withdraw-only (quotes.ts): never a route, whatever it quotes. */
+function withdrawOnly(c: OwnPoolLike): boolean {
+  const quote = c.view ? c.view.quote : c.range ? readPair(c.range.pool.tokenMint0, c.range.pool.tokenMint1)?.quote : undefined;
+  return quote !== undefined && isWithdrawOnly(quote);
+}
 
 /**
  * The route, decided again when Buy is pressed: both venues are quoted again and a route
@@ -27,7 +43,7 @@ const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status:
 /** The decision on quotes taken just now. `aggregatorOut` null = the aggregator gave none. */
 export function freshDecision(own: readonly OwnPoolLike[], aggregatorOut: bigint | null, aggregatorLabel = 'Jupiter'): RouteDecision {
   const agg = aggregatorOut === null ? null : aggregatorCandidate({ outAmount: aggregatorOut.toString() }, aggregatorLabel);
-  return chooseRoute([...own, agg].filter((c): c is RouteCandidate => c !== null));
+  return chooseRoute([...own.filter((c) => !withdrawOnly(c)), agg].filter((c): c is RouteCandidate => c !== null));
 }
 
 export interface OwnPoolSwapDeps {

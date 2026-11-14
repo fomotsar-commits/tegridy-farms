@@ -21,11 +21,16 @@ import {
   SOL_QUOTE,
   SOY_QUOTE,
   USDC_QUOTE,
+  WITHDRAW_ONLY_LINE,
   canPair,
+  isWithdrawOnly,
   quoteCoin,
   quotesFor,
   readPair,
+  withdrawOnlyRefusal,
+  withdrawOnlyWhy,
 } from './quotes';
+import { whileDelisted } from './delisted.fixture';
 
 const stranger = () => Keypair.generate().publicKey.toBase58();
 const SOL = SOL_QUOTE.mint;
@@ -166,5 +171,40 @@ describe('quotesFor: what a token can be paired with', () => {
         expect(canPair(token, q), `${token} with ${q.symbol}`).toBe(r !== null && r.tokenMint === token && r.quote === q);
       }
     }
+  });
+});
+
+// A coin that goes bad is flagged `delisted`, never deleted (spec 2026-11-14, rule 16): its
+// pools become withdraw-only. Tests flag a row through `whileDelisted`; no real row is flagged.
+describe('a delisted coin: its pools are withdraw-only', () => {
+  it('no row is delisted today', () => {
+    for (const q of QUOTE_COINS) {
+      expect(q.delisted, q.symbol).toBeUndefined();
+      expect(isWithdrawOnly(q), q.symbol).toBe(false);
+    }
+  });
+
+  it('a flagged row reads withdraw-only by its mint, through any copy of it, and still reads its pools as before; the flag is put back', async () => {
+    const token = stranger();
+    await whileDelisted(BOBO_QUOTE, () => {
+      expect(isWithdrawOnly(BOBO_QUOTE)).toBe(true);
+      expect(isWithdrawOnly({ ...BOBO_QUOTE, delisted: undefined })).toBe(true);
+      expect(isWithdrawOnly({ mint: BOBO })).toBe(true);
+      expect(QUOTE_COINS.filter(isWithdrawOnly)).toEqual([BOBO_QUOTE]);
+      // Still a pairing coin in its place: its pools read as before, so their holders find them and can leave.
+      expect(quoteCoin(BOBO)).toBe(BOBO_QUOTE);
+      expect(readPair(token, BOBO)).toEqual({ quote: BOBO_QUOTE, quoteIsToken0: false, tokenMint: token });
+      expect(QUOTE_COINS.map((q) => q.symbol)).toEqual(['SOL', 'USDC', 'BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    });
+    expect(isWithdrawOnly(BOBO_QUOTE)).toBe(false);
+    expect(BOBO_QUOTE.delisted).toBeUndefined();
+  });
+
+  it('the line is short; why names the coin by its ticker and its whole address', () => {
+    expect(WITHDRAW_ONLY_LINE).toBe('Withdraw only: you can take your liquidity out of this pool, nothing more.');
+    expect(withdrawOnlyWhy(BOBO_QUOTE)).toBe(
+      `BOBO (${BOBO}) is no longer a pairing coin on this site, so it does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`,
+    );
+    expect(withdrawOnlyRefusal(BOBO_QUOTE)).toBe('Pools priced in BOBO are withdraw-only: BOBO is no longer a pairing coin on this site. Nothing was built.');
   });
 });

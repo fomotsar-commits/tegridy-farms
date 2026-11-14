@@ -29,7 +29,7 @@ import {
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../../../solana/lp/poolFinder';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
-import { readPair } from '../../../solana/lp/quotes';
+import { isWithdrawOnly, readPair, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { accountCheck, rentOf, toRaw } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -92,6 +92,8 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (a.amountIn <= 0n) return notSent('build', 'Enter an amount above zero.');
   const pair = readPair(a.inputMint.toBase58(), a.outputMint.toBase58());
   if (!pair) return notSent('build', VENUE_SWAP_COPY.notOurPair);
+  // No swap in our pool when it is priced in a delisted coin: withdraw-only (quotes.ts).
+  if (isWithdrawOnly(pair.quote)) return notSent('build', withdrawOnlyRefusal(pair.quote));
 
   // 2. A first look at the pool, for its tier, mints and map; then ONE read of everything
   // the swap is priced and built from, the bands ahead of the price included.

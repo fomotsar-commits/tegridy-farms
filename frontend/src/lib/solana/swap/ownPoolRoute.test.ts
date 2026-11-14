@@ -7,7 +7,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { AggregatorSeen, Prepared } from '../../launcher/solana/write/types';
 import type { VenuePoolCandidate } from './venuePools';
-import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within, type OwnPoolSwapDeps } from './ownPoolRoute';
+import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within, type OwnPoolLike, type OwnPoolSwapDeps } from './ownPoolRoute';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
+import { whileDelisted } from '../lp/delisted.fixture';
 
 const pool = (address: string, out: bigint) => ({ venue: 'own-pool', outAmount: out, label: 'venue pool', poolAddress: address }) as VenuePoolCandidate;
 const BUILT = { ok: true, prepared: { kind: 'venue-swap' } } as unknown as Prepared;
@@ -25,6 +27,30 @@ function deps(o: { agg: bigint | null | Error; own: VenuePoolCandidate[] }) {
   return { d, prepare };
 }
 const messageOf = (r: Prepared) => (r.ok ? 'built' : r.outcome.message);
+
+// Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only. Whatever it quotes, the
+// route never goes through it: neither a constant-product pool (its `view`) nor a range pool
+// (its `range`, read the site's way round).
+describe('a pool priced in a delisted coin is never the route', () => {
+  const cp = (address: string, out: bigint, quoteMint: string): OwnPoolLike => ({ ...pool(address, out), view: { quote: { mint: quoteMint } } });
+  const range = (address: string, out: bigint, mint0: string, mint1: string): OwnPoolLike => ({ ...pool(address, out), range: { pool: { tokenMint0: mint0, tokenMint1: mint1 } } });
+
+  it('the aggregator, or another pool of ours, takes the trade; with the flag gone the pool wins again', async () => {
+    const own = [cp('Delisted', 2_000_000n, USDC_QUOTE.mint), range('DelistedRange', 1_900_000n, BAYLA_QUOTE.mint, USDC_QUOTE.mint), cp('Listed', 1_000_000n, SOL_QUOTE.mint)];
+    await whileDelisted(USDC_QUOTE, () => {
+      expect(freshDecision(own, 1_500_000n).chosen?.venue).toBe('aggregator');
+      expect(freshDecision(own, null).chosen?.poolAddress).toBe('Listed');
+      expect(freshDecision(own.slice(0, 2), null).chosen).toBeNull();
+    });
+    expect(freshDecision(own, 1_500_000n).chosen?.poolAddress).toBe('Delisted');
+  });
+
+  it('is not built when Buy is pressed', async () => {
+    const { d, prepare } = deps({ agg: null, own: [cp('Delisted', 2_000_000n, USDC_QUOTE.mint) as VenuePoolCandidate] });
+    await whileDelisted(USDC_QUOTE, async () => expect(messageOf(await prepareOwnPoolSwap(d, null))).toBe(OWN_ROUTE_COPY.routeMoved));
+    expect(prepare).not.toHaveBeenCalled();
+  });
+});
 
 describe('our pool was shown: it is built only while it is still the route', () => {
   it('builds nothing when the aggregator now pays one raw unit more', async () => {

@@ -19,7 +19,7 @@ import { TRENCHER_WORDS } from '../../../lib/arrival';
 import { bungalowByAddress } from '../../../lib/bungalows';
 import { tradesExplain } from '../../../lib/solana/lp/poolGrowth';
 import { lastTrade } from '../../../lib/solana/lp/poolPast';
-import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, WITHDRAW_ONLY_LINE, isWithdrawOnly, withdrawOnlyWhy } from '../../../lib/solana/lp/quotes';
 import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
@@ -889,8 +889,10 @@ function RemoveBlock({
   // is let in who cannot be let out), so the row that says so does not offer to add. Nor
   // does a pool on the launch tier that is not the launch pool: the row says that instead.
   const launchTier = view?.launchTierWithoutLaunch === true;
+  // Nor does a pool priced in a delisted coin: withdraw-only (quotes.ts), and the row says that instead.
+  const withdrawOnly = view ? isWithdrawOnly(view.quote) : false;
   const addMore =
-    onAddMore && !setAside && view && !launchTier && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
+    onAddMore && !setAside && view && !launchTier && !withdrawOnly && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
       <button
         type="button"
         className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
@@ -1026,6 +1028,13 @@ function RemoveBlock({
     <p className="text-amber-300/90 [overflow-wrap:anywhere]">
       <strong>{LAUNCH_TIER_POOL}</strong>
     </p>
+  ) : withdrawOnly && view ? (
+    <div data-testid="lp-position-withdraw-only" className="space-y-1">
+      <p className="text-amber-300/90 [overflow-wrap:anywhere]">{WITHDRAW_ONLY_LINE}</p>
+      <FinePrint summary="Why">
+        <p className="[overflow-wrap:anywhere]">{withdrawOnlyWhy(view.quote)}</p>
+      </FinePrint>
+    </div>
   ) : null;
   if (!tierLine && !line && !buttons && !leaving && !panel) return null;
   return (

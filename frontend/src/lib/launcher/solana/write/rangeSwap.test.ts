@@ -27,6 +27,8 @@ import { getSqrtPriceAtTick } from '../../../solana/clmm/math';
 import { quoteSwap } from '../../../solana/clmm/quote';
 import { encodeAmmConfig, encodePool, encodeTickArray } from '../../../solana/clmm/encode.fixture';
 import { decodeIntent } from './intent';
+import { SOL_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 import { RANGE_SWAP_COPY, prepareRangeSwap, rangeSwapStepsProblem } from './rangeSwap';
 import { RANGE_COPY } from './range';
 import { VENUE_SWAP_COPY } from './venueSwap';
@@ -249,6 +251,20 @@ describe('a swap in a range pool', () => {
     const pays1 = TOKEN_IS_0 ? buy() : sell();
     expect(await side(FEE_ON_TOKEN_0_ONLY, pays0)).toBe(true);
     expect(await side(FEE_ON_TOKEN_0_ONLY, pays1)).toBe(false);
+  });
+});
+
+// Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only: nobody trades in it here.
+describe('a range pool priced in a delisted coin', () => {
+  it('builds no swap, and the checker refuses one built anyway', async () => {
+    const p = ok(await prepareRangeSwap(W(chainWith()), cfgLocal, PROG, sell()));
+    await whileDelisted(SOL_QUOTE, async () => {
+      const r = await prepareRangeSwap(W(chainWith()), cfgLocal, PROG, buy());
+      expect(r.ok ? null : r.outcome.message).toBe(withdrawOnlyRefusal(SOL_QUOTE));
+      const d = decodeIntent(body(p), intentOf(p));
+      expect(d.ok ? 'accepted' : d.reason).toMatch(/priced in a coin this site no longer lists, so it is withdraw-only/);
+    });
+    expect(decodeIntent(body(p), intentOf(p)).ok).toBe(true);
   });
 });
 

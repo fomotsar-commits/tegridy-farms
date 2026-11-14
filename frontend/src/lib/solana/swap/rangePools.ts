@@ -3,7 +3,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from '../lp/accounts';
 import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../lp/poolFinder';
-import { readPair, type QuoteCoin } from '../lp/quotes';
+import { isWithdrawOnly, readPair, type QuoteCoin } from '../lp/quotes';
 import { RANGE_PROGRAM_ID, type BitmapExtensionView, type TickArrayView } from '../clmm/program';
 import { rangePoolsVisible } from '../clmm/programId';
 import { MAX_SWAP_BANDS, quoteSwap } from '../clmm/quote';
@@ -116,6 +116,8 @@ export function quoteRangePools(
 ): { state: OwnPoolsState; candidates: RangePoolCandidate[] } {
   if (read.kind === 'not-searched') return { state: 'not-searched', candidates: [] };
   if (read.kind === 'unread') return { state: 'error', candidates: [] };
+  // A pair priced in a delisted coin: its pools are withdraw-only (quotes.ts), so none is quoted.
+  if (isWithdrawOnly(read.quote)) return { state: read.pools.length ? 'unquotable' : read.unread > 0 ? 'error' : 'absent', candidates: [] };
   const now = read.chainNow !== null ? Number(read.chainNow) : viewerNowSecs;
   const candidates: RangePoolCandidate[] = [];
   for (const { range, ext, bands, blocked } of read.pools) {

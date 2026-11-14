@@ -64,7 +64,8 @@ import {
   legacyTx,
 } from './testkit.fixture';
 import type { IntentStep, LpCreateSummary, LpOpenGate, PreparedTx, TierTerms, WriteRpc } from './types';
-import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { SOL_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
@@ -467,6 +468,13 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(refused(await create(pending))).toBe(CREATE_COPY.transferFee);
     // The same token without the extension opens.
     ok(await create(world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: METADATA_ONLY })));
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so no new one is opened.
+  it('a pool priced in a delisted coin is not opened', async () => {
+    const w = world();
+    await whileDelisted(SOL_QUOTE, async () => expect(refused(await create(w))).toBe(withdrawOnlyRefusal(SOL_QUOTE)));
+    ok(await create(w));
   });
 
   // Owner ruling 2026-10-04: these two open a pool, and the review is handed the warning.

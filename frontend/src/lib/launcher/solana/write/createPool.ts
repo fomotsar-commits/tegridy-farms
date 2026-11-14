@@ -75,7 +75,7 @@ import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBehind, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { QUOTE_COINS_OR, canPair, isWithdrawOnly, quoteCoin, withdrawOnlyRefusal, type QuoteCoin } from '../../../solana/lp/quotes';
 import { CLOCK_SYSVAR, chainEpochOf } from '../../../solana/lp/poolFinder';
 import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, EXTENSION, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { afterFee, epochFee, feeOf, feeRateText } from '../../../solana/lp/transferFee';
@@ -437,6 +437,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (a.quote > U64_MAX || a.token > U64_MAX) return notSent('build', CREATE_COPY.tooLarge);
   const quote = quoteCoin(a.quoteMint.toBase58());
   if (!quote) return notSent('build', CREATE_COPY.notAPairingCoin);
+  // No new pool priced in a delisted coin: its pools are withdraw-only (quotes.ts).
+  if (isWithdrawOnly(quote)) return notSent('build', withdrawOnlyRefusal(quote));
   if (!canPair(a.tokenMint.toBase58(), quote) && !a.tokenMint.equals(WSOL_MINT)) return notSent('build', CREATE_COPY.cannotPair(quote.symbol));
   const quoteMintKey = new PublicKey(quote.mint);
   const cfg = gate.cfg;

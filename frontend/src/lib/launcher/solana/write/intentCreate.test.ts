@@ -35,6 +35,7 @@ import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
 import { EXTENSION } from '../../../solana/lp/tokenSafety';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 
 /** A Token-2022 token's name and picture: the extensions BAYLA carries, and nothing that changes a transfer. */
 const NAME_ONLY = [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata];
@@ -192,6 +193,13 @@ describe("the site's own opening decodes into one pool-create and the share's na
     };
     ok([depositIx({ ...accounts, maximumToken0Amount: 5n, maximumToken1Amount: 5n })], ctxFor(fee, 'lp-deposit'));
     ok([withdrawIx({ ...accounts, minimumToken0Amount: 1n, minimumToken1Amount: 1n })], ctxFor(fee, 'lp-withdraw'));
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so none is opened.
+  it('an opening priced in a delisted coin is refused, from the site’s own row', async () => {
+    const p = pinsFor();
+    await whileDelisted(SOL_QUOTE, () => refused(siteOpening(p), /priced in a coin this site no longer lists, so it is withdraw-only/, ctxFor(p)));
+    ok(siteOpening(p), ctxFor(p));
   });
 
   it('an opening is a pool intent', () => {

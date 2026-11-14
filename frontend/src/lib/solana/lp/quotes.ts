@@ -47,6 +47,14 @@ export interface QuoteCoin {
    * A new coin must say what its issuer can do to a pool's account before it is listed.
    */
   risk: string | null;
+  /**
+   * Set when the coin is no longer listed. Its row is never deleted: a row's place decides
+   * how every pool reads (rank order, below), and its pools' holders must still find them.
+   * A pool priced in a delisted coin is WITHDRAW-ONLY (`isWithdrawOnly`): Remove and Collect
+   * still build; Add, opening a pool and a swap in our own pools are refused, each by its
+   * builder and again by the transaction checker (intent.ts). No row is delisted today.
+   */
+  delisted?: true;
 }
 
 /**
@@ -98,6 +106,25 @@ const rankOf = (mint: string): number => QUOTE_COINS.findIndex((q) => q.mint ===
 export function quoteCoin(mint: string): QuoteCoin | null {
   return QUOTE_COINS[rankOf(mint)] ?? null;
 }
+
+/**
+ * Is a pool priced in this coin withdraw-only (`delisted`)? Looked up again in the list by
+ * mint, so a copy of a row is never trusted for it.
+ */
+export function isWithdrawOnly(coin: Pick<QuoteCoin, 'mint'>): boolean {
+  return quoteCoin(coin.mint)?.delisted === true;
+}
+
+/** Said wherever a withdraw-only pool is shown, in one line; `withdrawOnlyWhy` goes in the small print under it. */
+export const WITHDRAW_ONLY_LINE = 'Withdraw only: you can take your liquidity out of this pool, nothing more.';
+
+/** Why, with the coin's whole address. */
+export const withdrawOnlyWhy = (coin: Pick<QuoteCoin, 'symbol' | 'mint'>): string =>
+  `${coin.symbol} (${coin.mint}) is no longer a pairing coin on this site, so it does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`;
+
+/** A builder's refusal for one. */
+export const withdrawOnlyRefusal = (coin: Pick<QuoteCoin, 'symbol'>): string =>
+  `Pools priced in ${coin.symbol} are withdraw-only: ${coin.symbol} is no longer a pairing coin on this site. Nothing was built.`;
 
 /**
  * How a pool of these two mints is read: its quote coin, which side that is, and the

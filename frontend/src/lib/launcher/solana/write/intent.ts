@@ -567,6 +567,15 @@ function noPoolInstructionFor(_ctx: never): never {
 }
 
 /**
+ * A pool priced in a delisted coin is withdraw-only (quotes.ts `delisted`): this refuses the
+ * kinds that put money in or trade in it (an opening, a deposit, a swap, a range opening or
+ * swap), from the site's own row, which `pinnedQuote` looked up again. Taking out never asks.
+ */
+function notWithdrawOnly(q: QuoteCoin): void {
+  if (q.delisted) refuse('the pool is priced in a coin this site no longer lists, so it is withdraw-only');
+}
+
+/**
  * What a NEW pool may hold, whatever its bytes say, checked on every pool-program call of an
  * opening. Never a token with a transfer fee, at any rate, 0 included: whoever controls the
  * fee can raise it, and the venue's cut of a trade paid in the token pays it on the way out
@@ -585,19 +594,23 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (isPoolIntent(ctx)) {
     switch (ctx.kind) {
       case 'lp-deposit':
+        notWithdrawOnly(pinnedQuote(ctx));
         return poolDeposit(ix, ctx);
       case 'lp-withdraw':
         return poolWithdraw(ix, ctx);
       case 'lp-create':
         // The coin first (the pins must name the site's own row, on the side they say), then what the opening may hold.
-        pinnedQuote(ctx);
+        notWithdrawOnly(pinnedQuote(ctx));
         openingRules(ctx);
         return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
   }
-  if (isSwapIntent(ctx)) return venueSwap(ix, ctx);
+  if (isSwapIntent(ctx)) {
+    notWithdrawOnly(pinnedQuote(ctx));
+    return venueSwap(ix, ctx);
+  }
   if (isRangeIntent(ctx)) return refuse('a range-position transaction never calls the constant-product pool program');
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
@@ -858,7 +871,9 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   if (!isRangeIntent(c)) return refuse('it calls the range program, and this kind of transaction never does');
   const ctx = c;
   const p = ctx.pins;
-  pinnedQuote(ctx);
+  const quote = pinnedQuote(ctx);
+  // Putting money in or trading: never in a pool priced in a delisted coin. Taking out and closing stay open.
+  if (ctx.kind === 'range-open' || ctx.kind === 'range-create' || ctx.kind === 'range-swap') notWithdrawOnly(quote);
   const d = ix.data;
   const pool = rangePoolRef(ctx);
   const own0 = associatedTokenAddress(p.token0Mint, ctx.signer, p.token0Program);

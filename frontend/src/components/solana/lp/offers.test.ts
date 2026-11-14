@@ -15,6 +15,7 @@ import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, BOBO_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { whileDelisted } from '../../../lib/solana/lp/delisted.fixture';
 import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, priceWarned, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
@@ -649,6 +650,15 @@ describe('createOffer', () => {
         expect(facts(base(), { tokenMint: BAYLA_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE]);
         expect(facts(base(), { tokenMint: USDC_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE]);
         expect(facts(base(), { tokenMint: SOL_QUOTE.mint })).toEqual([]);
+      });
+
+      // Spec 2026-11-14: no new pool is priced in a delisted coin, so the Open form does not offer it.
+      it('a delisted coin is not offered for a new pool; every other coin still is, in rank order', async () => {
+        await whileDelisted(USDC_QUOTE, () => {
+          expect(facts(base()).map((x) => x.coin)).toEqual(QUOTE_COINS.filter((q) => q !== USDC_QUOTE));
+          expect(facts(base(), { tokenMint: BAYLA_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE]);
+        });
+        expect(facts(base()).map((x) => x.coin)).toEqual([...QUOTE_COINS]);
       });
 
       it('each coin gets its own pool to add to, and whether it has any pool at all', () => {

@@ -10,7 +10,7 @@ import { PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './
 import { siteNamed } from './identity';
 import { poolFeesOf, tooFewShares } from './liquidityMath';
 import { lastTrade } from './poolPast';
-import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, quoteCoin, type QuoteCoin } from './quotes';
+import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, isWithdrawOnly, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
 import { MAX_FEE_BASIS_POINTS, feeNow, preFeeAmountOf, type TransferFee } from './transferFee';
 import { fromBaseUnits } from '../../jupiter';
@@ -90,6 +90,8 @@ export const LITTLE_MONEY: readonly { quote: QuoteCoin; under: bigint }[] = [
 ];
 /** "under 1 SOL or 100 USDC": the line, said from the figures above. */
 export const LITTLE_MONEY_TEXT = `under ${orList(LITTLE_MONEY.map((l) => quoteText(l.under, l.quote)))}`;
+/** A pool priced in a delisted coin: Remove still works, nothing else does (quotes.ts `isWithdrawOnly`). */
+export const WITHDRAW_ONLY_TAG = 'Withdraw only';
 /** No trade for this long, by the chain's clock, is "No trades in 7 days". */
 export const QUIET_SECS = 7n * 24n * 3600n;
 
@@ -103,6 +105,8 @@ export const QUIET_SECS = 7n * 24n * 3600n;
 export function poolTags(view: PoolView, chainNow: bigint | null, priceGap: number | null = null): PoolTag[] {
   const { pool } = view.snapshot;
   const tags: PoolTag[] = [];
+  // Priced in a delisted coin (quotes.ts): the row says so first; its card says why.
+  if (isWithdrawOnly(view.quote)) tags.push({ text: WITHDRAW_ONLY_TAG, tone: 'bad' });
   if (!swapEnabled(pool)) tags.push({ text: 'Trading off', tone: 'bad' });
   if (!depositEnabled(pool)) tags.push({ text: 'Adding off', tone: 'bad' });
   if (!withdrawEnabled(pool)) tags.push({ text: 'Removing off', tone: 'bad' });

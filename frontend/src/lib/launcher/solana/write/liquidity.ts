@@ -61,7 +61,7 @@ import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, LAUNCH_TIER_POOL, chainEpochOf, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../../solana/lp/poolHealth';
-import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { QUOTE_COINS_OR, canPair, isWithdrawOnly, quoteCoin, withdrawOnlyRefusal, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type MintFacts, type TokenSafety } from '../../../solana/lp/tokenSafety';
 import { epochFee, feeRateText, preFeeAmountOf, type TransferFee } from '../../../solana/lp/transferFee';
@@ -681,6 +681,8 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (gate.kind !== 'open' || gate.mode !== 'on') return notSent('build', LP_COPY.depositPaused);
   const quote = quoteCoin(a.quoteMint.toBase58());
   if (!quote) return notSent('build', LP_COPY.notAPairingCoin);
+  // A pool priced in a delisted coin is withdraw-only (quotes.ts): no deposit. Its withdrawal still builds.
+  if (isWithdrawOnly(quote)) return notSent('build', withdrawOnlyRefusal(quote));
   const cfg = gate.cfg;
 
   // 2-4. One fresh read; the pool is the pool.
