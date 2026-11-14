@@ -27,7 +27,7 @@ export function PricingTiers() {
       {/*
         The disclosure sits ABOVE the numbers, not in a footnote under them. This is
         an unproven revenue category launching with design partners, and billing is
-        not wired at all — a reader who sees "$499/mo" and has to scroll to learn
+        not wired at all — a reader who sees "$199/mo" and has to scroll to learn
         that nothing can take their money has already been misled.
       */}
       {API_PRICING_STATE !== 'published' && (
