@@ -30,6 +30,7 @@ import { expect, test, type Browser, type Page, type Route } from '@playwright/t
 import { PublicKey, type Keypair } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { RECEIPT_WORDS } from '../src/lib/arrival';
+import { momentClip } from '../src/lib/momentShare';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { BAYLA_MINT, bayla, giveBayla } from './fixtures/bayla';
 import { CP_SWAP_PROGRAM, WSOL, accountOwner, fundedKeypair, poolFacts, sol } from './fixtures/chain';
@@ -254,13 +255,16 @@ test("a buy of an island coin at 390, through its room's Buy sheet: the shore, t
   await expect(card(p).getByTestId('receipt-shore-slot')).toHaveCount(1);
   await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'), { timeout: 15_000 });
 
-  // At rest, after the beats: still lit, the line and its marked words, the clock line, the island's card.
+  // At rest, after the beats: still lit, the line and its marked words, the clock line, and Share on X with
+  // the shore's post (island answer thirty-six: a buy in a room shares its moment).
   await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
   await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit');
   await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'));
   await expect(shoreLine(p).locator('strong')).toHaveText(RECEIPT_WORDS.shoreMark('BAYLA'));
   await expect(card(p).getByTestId('receipt-clock')).toHaveText(RECEIPT_WORDS.kept('BAYLA'));
-  await expect(card(p).getByTestId('receipt-share')).toHaveText(RECEIPT_WORDS.share);
+  const share = card(p).getByTestId('receipt-share');
+  await expect(share).toHaveText(RECEIPT_WORDS.shareX);
+  await expect(share).toHaveAttribute('href', momentClip({ action: 'bought', coin: { symbol: 'BAYLA', mint: BAYLA_MINT.toBase58() } })!.intent);
   await expect(card(p).getByTestId('receipt-title')).toHaveText(/^Bought (.+ )?BAYLA$/);
   await headOnScreen(p);
 
