@@ -89,7 +89,9 @@ export async function readOrderBookFills(db, cursor) {
     if (r.body.length === FILL_PAGE && fresh === 0) throw new Error(`more than ${FILL_PAGE} sales filled at ${at}`);
     if (r.body.length < FILL_PAGE) break;
   }
-  return { swaps, cursor: at ? { at, orders: [...seen] } : null, countedTo };
+  // No sale yet: an empty cursor, never null (venue_volume.cursor is NOT NULL; a null made
+  // Postgres refuse the first write, and the home page showed no volume, 2026-11-14).
+  return { swaps, cursor: at ? { at, orders: [...seen] } : {}, countedTo };
 }
 
 const PRICE_SOURCES = {

@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Home, all-time volume: shows again. From 02:21 UTC it read "not counted", because the NFT order book has had no sale yet and its first count was refused; it now starts at zero sales.
 - Notice: no sooner than seven days from this day, a Solana swap through Jupiter between two of SOL, USDC, USDT and staked SOL pays memetics.finance 0.05% of the trade instead of 0.5%, and a CoW swap on Ethereum pays 0.25% of the trade instead of 0.5%, of which CoW DAO keeps a quarter and memetics.finance the rest. Every other Solana swap that pays the venue stays at 0.5%. The paid API plans on /developer become $49, $199 and $799 a month; billing is still off.
 
 ### 2026-11-13
