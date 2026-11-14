@@ -162,7 +162,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
   const loadedCount = allTokens?.length || tokens.length;
 
   return (
-    <section data-tour="gallery" style={{ position: "relative", zIndex: 1, maxWidth: 1440, margin: "0 auto" }}>
+    <section data-tour="gallery" style={{ position: "relative", zIndex: 1, maxWidth: "var(--page)", margin: "0 auto" }}>
       {/* Toolbar */}
       <div className="toolbar">
         <MobileFilterButton
@@ -171,7 +171,12 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
         />
 
         <div className="search-wrap">
-          <span className="search-icon">{"\u2315"}</span>
+          <span className="search-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
           <input
             className="search-input"
             placeholder="Search by name or token ID"
@@ -199,13 +204,20 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
           aria-pressed={sidebarOpen}
           title={sidebarOpen ? "Hide filters" : "Show filters"}
         >
-          {sidebarOpen ? "\u00AB" : "\u00BB"}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+            <line x1="4" y1="7" x2="20" y2="7" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="17" x2="14" y2="17" />
+          </svg>
+          Filters
         </button>
 
         <div className="view-toggle" role="group" aria-label="View mode">
-          {[["gallery", "\u229E"], ["compact", "\u229F"]].map(([k, icon]) => (
+          {["gallery", "compact"].map((k) => (
             <button key={k} onClick={() => setViewMode(k)} className={`view-btn ${viewMode === k ? "active" : ""}`} aria-label={`${k} view`} aria-pressed={viewMode === k}>
-              {icon}
+              {k === "gallery" ? (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="6" height="6" /><rect x="9" y="1" width="6" height="6" /><rect x="1" y="9" width="6" height="6" /><rect x="9" y="9" width="6" height="6" /></svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="4" height="4" /><rect x="6" y="1" width="4" height="4" /><rect x="11" y="1" width="4" height="4" /><rect x="1" y="6" width="4" height="4" /><rect x="6" y="6" width="4" height="4" /><rect x="11" y="6" width="4" height="4" /><rect x="1" y="11" width="4" height="4" /><rect x="6" y="11" width="4" height="4" /><rect x="11" y="11" width="4" height="4" /></svg>
+              )}
             </button>
           ))}
         </div>
@@ -344,33 +356,6 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
         </div>
       </div>
 
-      {/* Responsive CSS for mobile filter button, sidebar toggle, and sidebar grid */}
-      <style>{`
-        .mobile-filter-btn { display: none !important; }
-        .sidebar-toggle-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          border: 1px solid var(--border);
-          background: var(--surface-glass);
-          backdrop-filter: var(--glass-blur);
-          color: var(--text);
-          font-family: var(--mono);
-          font-size: 14px;
-          cursor: pointer;
-          flex-shrink: 0;
-        }
-        .sidebar-toggle-btn:hover { background: var(--surface); }
-        @media (max-width: 767px) {
-          .mobile-filter-btn { display: inline-flex !important; }
-          .sidebar-toggle-btn { display: none !important; }
-          .gallery-layout { grid-template-columns: 1fr !important; }
-          .gallery-layout > .desktop-sidebar { display: none !important; }
-        }
-      `}</style>
     </section>
   );
 })
