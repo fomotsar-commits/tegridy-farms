@@ -100,8 +100,9 @@ export const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 /**
  * The coins a pool may pair a token with, in rank order. The server's own copy of
  * `QUOTE_COINS` in src/lib/solana/lp/quotes.ts (api/ is plain JS and does not import
- * it). A test pins the two together: same mints, same token programs, same order. So a
- * coin added in one place and not the other fails CI.
+ * it). A test pins the two together: same mints, same token programs, same order, and the
+ * same `delisted: true` on a delisted coin's row (the TVL's $200 list reads it, venueTvl.js).
+ * So a coin added or delisted in one place and not the other fails CI.
  * `program` is the token program the coin's mint is under, so the one a pool's vault
  * for that coin is under.
  */

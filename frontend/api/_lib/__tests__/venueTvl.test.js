@@ -14,7 +14,7 @@ import STAKE_POOL_IDL from "@streamflow/staking/solana/idl/stake_pool.json";
 import { toFunctionSelector } from "viem";
 import { EVM_CHAINS } from "../../../scripts/lib/venue-volume-chain.mjs";
 import REGISTRY from "../../../scripts/addresses.json";
-import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN } from "../pool-index.js";
+import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, QUOTE_COINS } from "../pool-index.js";
 import { RANGE_PROGRAM_ADDRESS } from "../../../src/lib/solana/clmm/programId.ts";
 import { ACCOUNT_POOL_STATE, POOL_STATE_LEN as RANGE_LEN_TS, POOL_STATE_OFFSETS } from "../../../src/lib/solana/clmm/program.ts";
 import { ACCOUNT_DISCRIMINATOR, POOL_SIZE as LADDER_POOL_SIZE, decodeLadderPool } from "../../../src/lib/ladder/program.ts";
@@ -28,6 +28,7 @@ vi.mock("../ratelimit.js", () => ({
 const {
   handleVenueTvl,
   readVenueTvl,
+  readSolana,
   readMarketPrices,
   __resetVenueTvl,
   RANGE_PROGRAM,
@@ -378,6 +379,21 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
   it("names the floor in the home page's small print", () => {
     const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "src", "components", "VenueStats.tsx"), "utf8");
     expect(text).toContain(`$${MARKET_DEPTH_USD.toLocaleString("en-US")} or more of liquidity`);
+  });
+
+  // A delisted coin's pools are withdraw-only (quotes.ts `delisted`): a swap in them is refused,
+  // so the swap must not list a token as ours on the strength of one.
+  it("names no coin for a pool priced in a delisted coin, though the money in it still counts", async () => {
+    const w = world();
+    const BIG = key(3);
+    const coins = QUOTE_COINS.map((c) => (c.mint === BOBO ? { ...c, delisted: true } : c));
+    w.pool(CP, [BOBO, 1_000], [MEME, 5]); // twice 1,000 BOBO at $1: $2,000, priced in a delisted coin
+    w.pool(RANGE, [BOBO, 500], [JUNK, 5]); // 500 BOBO: $500, priced in it too
+    w.pool(CP, [SOL, 1], [BIG, 5]); // $200, priced in SOL
+    const marketPrices = async (_chain, mints) => new Map(mints.map((m) => [m, { usd: 1, liquidity: 1e6 }]));
+    const r = await readSolana({ fetchImpl: w.fetchImpl, priceOf: async () => 100, marketPrices, coins });
+    expect(r).toMatchObject({ usd: 2700, pools: 3, unvalued: 0 });
+    expect(r.poolCoins).toEqual([{ mint: BIG, usd: 200 }]);
   });
 
   it("leaves out the pools of an island coin Jupiter prices at zero, never counting them at $0, and says so", async () => {

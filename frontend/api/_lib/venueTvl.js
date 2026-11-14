@@ -200,8 +200,6 @@ const PARTIAL_CACHE_MS = 15_000;
 const RATE = { limit: 30, windowSec: 60, identifier: "venue-tvl" };
 const GLOBAL = { limit: 60, windowSec: 60, identifier: "venue-tvl" };
 
-const COIN_BY_MINT = new Map(QUOTE_COINS.map((c, rank) => [c.mint, { ...c, rank }]));
-const [SOL, USDC] = QUOTE_COINS;
 /** The island's coins: every pairing coin after SOL and USDC, each at its market price (PRICES above). */
 const ISLAND_MINTS = Object.freeze(QUOTE_COINS.slice(2).map((c) => c.mint));
 
@@ -303,8 +301,15 @@ async function readVaults(wanted, fetchImpl) {
  * makes `poolCoins` null: a list missing every coin priced in an island coin is not the list,
  * and the browser takes whatever list it reads as the whole one (poolCoins.ts). A coin Jupiter
  * answers with no price for is that coin's pools left off a list that is still sent.
+ *
+ * A pool priced in a delisted coin (a row's `delisted`, as quotes.ts has it: the pool is
+ * withdraw-only, a swap in it is refused) still counts toward the total, the money is still in
+ * it, but names no coin for `poolCoins`. `coins` is the pairing coins in rank order (tests only).
  */
-export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
+export async function readSolana({ fetchImpl, priceOf, marketPrices, coins = QUOTE_COINS }) {
+  const coinByMint = new Map(coins.map((c, rank) => [c.mint, { ...c, rank }]));
+  const [sol, usdc] = coins;
+  const islandMints = coins.slice(2).map((c) => c.mint);
   const programs = await Promise.all(SOLANA_PROGRAMS.map((layout) => scanPrograms(layout, fetchImpl)));
   // What each pool counts: the cp-swap pool its top coin, doubled; a range pool every coin.
   const counted = [];
@@ -312,30 +317,33 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices }) {
   programs.forEach((pools, p) => {
     const { doubled } = SOLANA_PROGRAMS[p];
     for (const pool of pools) {
-      const coinSides = pool.sides.filter((s) => COIN_BY_MINT.has(s.mint));
+      const coinSides = pool.sides.filter((s) => coinByMint.has(s.mint));
       if (!coinSides.length) continue;
-      const sides = doubled ? [coinSides.reduce((a, b) => (COIN_BY_MINT.get(a.mint).rank <= COIN_BY_MINT.get(b.mint).rank ? a : b))] : coinSides;
-      // The pool's other coin, when it is not a pairing coin (SOL, USDC or an island coin): what `poolCoins` names.
-      const token = pool.sides.find((s) => !COIN_BY_MINT.has(s.mint))?.mint ?? null;
+      // The coin the pool is priced in: the highest-ranked one it holds (pool-index.js's rule).
+      const quote = coinSides.reduce((a, b) => (coinByMint.get(a.mint).rank <= coinByMint.get(b.mint).rank ? a : b));
+      const sides = doubled ? [quote] : coinSides;
+      // The pool's other coin, when it is not a pairing coin (SOL, USDC or an island coin): what
+      // `poolCoins` names. None for a pool priced in a delisted coin.
+      const token = coinByMint.get(quote.mint).delisted ? null : (pool.sides.find((s) => !coinByMint.has(s.mint))?.mint ?? null);
       counted.push({ sides, factor: doubled ? 2 : 1, token });
-      for (const s of sides) wanted.set(s.vault, COIN_BY_MINT.get(s.mint));
+      for (const s of sides) wanted.set(s.vault, coinByMint.get(s.mint));
     }
   });
   const held = wanted.size ? await readVaults(wanted, fetchImpl) : new Map();
 
   if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [] };
-  const usd = { [SOL.mint]: await priceOf("SOL"), [USDC.mint]: 1 };
+  const usd = { [sol.mint]: await priceOf("SOL"), [usdc.mint]: 1 };
   // The island coins at their market price, asked only when a pool is valued in one.
   let islandUnread = false;
   if (counted.some((c) => c.sides.some((s) => !(s.mint in usd)))) {
     let market = new Map();
     try {
-      market = await marketPrices("solana", ISLAND_MINTS);
+      market = await marketPrices("solana", islandMints);
     } catch (err) {
       islandUnread = true;
       console.error("[venue-tvl] island coin prices not read:", logSafe(err));
     }
-    for (const mint of ISLAND_MINTS) {
+    for (const mint of islandMints) {
       const m = market.get(mint);
       usd[mint] = m && m.liquidity >= MARKET_DEPTH_USD ? m.usd : null;
     }
