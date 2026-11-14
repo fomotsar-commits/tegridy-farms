@@ -6,6 +6,8 @@ import { decodeTokenMetadata } from '../../launcher/solana/discover/metadata';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
 import { foldForCompare, foldedForms, impersonatesAll } from '../../launchMetadata/validate';
 import { getMultipleAccounts, type RawAccount } from './accounts';
+import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './mints';
+import { QUOTE_COINS_OR } from './quotes';
 import { MAX_FEE_BASIS_POINTS, feeRateText, type TransferFee, type TransferFeeConfig } from './transferFee';
 
 /**
@@ -51,25 +53,12 @@ import { MAX_FEE_BASIS_POINTS, feeRateText, type TransferFee, type TransferFeeCo
  * shown as the token's own claim and nothing more; the mint address is the only identity.
  */
 
-export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
-export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+// The token programs and the pairing coins' mints live in mints.ts, which imports nothing,
+// so quotes.ts can build its rows from them while this file names the coins from quotes.ts.
+export { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './mints';
 /** SOL under the Token-2022 program (spl-token `NATIVE_MINT_2022`, pinned by a test). Never a pool's token here. */
 export const TOKEN_2022_NATIVE_MINT = '9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP';
-export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
-
-/** BAYLA, the token of this site's Solana side (the same mint as bungalows.ts BAYLA_MINT, pinned by a test). */
-export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
-/**
- * The island's other four Solana coins (bungalows.ts, each pinned to its entry by a test).
- * pump.fun mints under the classic token program; with BAYLA they are the coins a pool
- * here may pair a token with (quotes.ts).
- */
-export const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
-export const SOY_MINT = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
-export const BRAINLET_MINT = '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump';
-export const RIZZ_MINT = '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k';
 
 /**
  * Names that belong to ONE token. A token calling itself one of these from any other
@@ -515,7 +504,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   if (f.mintAuthority) {
     warnings.push({
       code: 'mint-authority',
-      text: `Its creator can still mint more of it (mint authority ${f.mintAuthority}). New tokens sold into a pool take out what it is paired with (SOL, USDC or BAYLA).`,
+      text: `Its creator can still mint more of it (mint authority ${f.mintAuthority}). New tokens sold into a pool take out what it is paired with (${QUOTE_COINS_OR}).`,
     });
   }
 

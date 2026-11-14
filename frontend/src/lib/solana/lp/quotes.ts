@@ -1,4 +1,4 @@
-import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './tokenSafety';
+import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './mints';
 
 /**
  * The coins a pool on this site may pair a token with: SOL, USDC and the island's five
