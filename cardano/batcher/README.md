@@ -56,6 +56,125 @@ refused as `BatchTooBig`, to be split.
 - **Keep the float in plain ADA UTxOs at the batcher's key**, and a collateral UTxO of about
   5 ADA. Anything else sent to that address is never spent by a batch.
 
+## Sign the deploy in your own wallets (`scripts/cosign.ts`)
+
+On mainnet no deploy key is ever a file: every signature comes from the owner's own wallets
+(Eternl) through CIP-30 `signTx(tx, true)`, on a page served from this computer only
+(`127.0.0.1`, never deployed: it is not under `frontend/`).
+
+```
+KOIOS_URL=https://api.koios.rest/api/v1 node scripts/cosign.ts serve inputs.json out
+```
+
+Open `http://127.0.0.1:8737`, pick a step (`out/<step>.tx.json`, as `deploy.ts` wrote it), read
+it, and press **Sign with Eternl** once in each wallet the page lists under "Who must sign"
+(switch wallets in Eternl between presses). Then:
+
+```
+KOIOS_URL=... OGMIOS_URL=<your Ogmios> node scripts/cosign.ts submit inputs.json out <step>
+```
+
+- **What it shows is read from the transaction's own bytes**: every input with its whole
+  address and amount (read from the chain, or from the run's earlier transaction that makes
+  it), every output, the fee, collateral, mint, certificates, withdrawals, required signers and
+  the validity window, and who must sign and why.
+- **It refuses**, and keeps nothing from that wallet: a signature from a key the transaction
+  does not need; a signature that is not over this body (the wallet signed other bytes); a
+  transaction whose body changed between signatures (`<step>.witnesses.json` holds one body's
+  signatures only); and any wallet, address, Koios or Ogmios on another network than the
+  inputs' (mainnet only when they say `"network": 1`). It signs no votes, proposals, donations,
+  protocol updates, native scripts or certificates other than the legacy stake registration.
+- **Submit assembles again** from the unsigned bytes and the kept signatures, checks each one,
+  checks Ogmios is on the inputs' network, and sends. The id the node answers must be the
+  transaction's.
+- **The deployer can be a wallet too.** `deploy.ts` needs only the deployer's address and its
+  UTxOs (read from Koios with `_extended`, so a UTxO holding tokens is never taken for plain
+  ADA). Use a wallet for nothing else until `register` lands: a seed spent elsewhere changes
+  every hash.
+
+## Change a pool or the GlobalSetting through the 48-hour lock (`scripts/lock.ts`)
+
+Every role in our GlobalSetting is the lock, so a pool's fees, the venue's share of them, a
+pool's stake, the opening fee and the batcher list change only through it: an **Announce** both
+owners sign, then 48 hours later an **Execute** both owners sign (open for 14 days), or a
+**Cancel**. `scripts/lock.ts` writes each one unsigned into the deploy's `out` folder; the
+co-signing page reads it from its bytes and gets every signature from your own wallets. The
+script signs and sends nothing.
+
+```
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts show inputs.json out
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts announce inputs.json out --pool ada,<policy>.<name> --fee-share 1333
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts announce inputs.json out --setting --opening-fee 80000000
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts execute inputs.json out --index 0 [--fee-share 1333]
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts cancel inputs.json out --index 0
+```
+
+- **Pool flags:** `--fee-share <n>|off` (in 10,000ths of the trade fee; Minswap takes 1333 to
+  5000), `--base-fee <a>/<b>` (in 10,000ths; 5 to 2000), `--dynamic-fee on|off`, `--stake
+  key:<hash>|script:<hash>|none`. Only what you name changes; the pool's stake stays its own
+  unless you name `--stake`. The pool's admin path changes one of fees, dynamic fee or stake
+  at a time, so those are separate announcements.
+- **Setting flags:** `--opening-fee <lovelace>`, `--batchers <hash>,<hash>`. Every role stays
+  the lock and the opening fee stays paid to the treasury: anything else is refused.
+- **When:** an Announce is valid for `--valid-for` minutes (120 by default, at most 720) and is
+  ready 48 hours after that. `execute` waits for the chain (never this computer's clock) to be
+  two minutes past ready_at, so a clock 90 seconds slow still sees the transaction as valid.
+- **Execute flags are checked, not used:** given again, they must match the announcement
+  exactly. `--simulate` builds the Execute dated just after ready_at and runs it through Aiken
+  with the network's slot times (`AIKEN=`), written as a `.draft` the page never offers.
+- **Refused, by the script and again by the page:** an Execute before ready_at or past its
+  window; an Execute unlike its announcement; a pool whose value changes (its earned share
+  leaving it), or a share the GlobalSetting lets anyone but the lock take (only the lock's
+  withdrawal pays, and only to the treasury); a role moved off the lock; an opening fee paid
+  elsewhere; anything on another network than the inputs (Koios and Ogmios are asked their
+  network magic first); a second unsent lock transaction spending the same lock UTxO.
+- **The page shows** what the change does in plain words ("venue share: off → 1333/10000 of
+  the trade fee; base fee 30/30 (0.30% each way), unchanged; stake: kept") and when it can run,
+  in UTC, before any wallet is asked.
+
+### Withdraw the venue's share from a pool (`lock.ts withdraw`)
+
+**How the money moves.** Each trade in a pool pays 0.30%. Once the pool's venue share is on
+(1333/10000 of that fee), about 0.04% of every trade stays in the pool above what its LPs own:
+the pool's value holds it, its datum's reserves do not. Only the lock's `WithdrawFeeSharing` can
+take it out, and the lock pays it only to the treasury in the deploy inputs (two keys). The share
+is in whatever the traders paid in: ADA when they buy the coin, the coin when they sell it, so the
+treasury receives coins too. LPs lose nothing: their reserves and LP tokens do not move.
+
+The withdrawal waits for nothing (no 48 hours) but both owners sign it. Its network fee, about
+0.5 ADA, is the deployer's. When the share in ADA is less than an output must hold (about 1 ADA,
+1.2 with a coin), the deployer adds the rest, and that lands in the treasury too. So withdraw a
+pool when its share is well above 0.5 ADA: about 1,250 ADA of trading leaves 0.5 ADA of share.
+
+You need `inputs.json` and `out` from the deploy, your Ogmios, and the deployer wallet holding
+one plain-ADA UTxO of at least 10 ADA (5 ADA is pledged as collateral and comes back).
+
+1. **Build it:**
+   `KOIOS_URL=https://api.koios.rest/api/v1 OGMIOS_URL=<your Ogmios> node scripts/lock.ts withdraw inputs.json out --pool ada,<coin policy>.<coin name hex>`
+   - The first line is the share now. If it is not worth the fee, delete
+     `out/lock-withdraw-<n>.tx.json` and stop.
+   - Read the rest: each coin that `leaves the pool` (its ticker and whole policy id), `to the
+     treasury addr1…, and nowhere else` (check it is the treasury's whole address in your
+     inputs), the pool after with its reserves and LP balance `all unchanged`, and `the lock:
+     unchanged`.
+   - It is judged by your node before it is written, valid for 2 hours (`--valid-for`).
+2. **Sign:** `KOIOS_URL=... node scripts/cosign.ts serve inputs.json out`, open
+   `http://127.0.0.1:8737`, open `lock-withdraw-<n>`. The top box, **Through the lock: the
+   venue's fee share to the treasury**, lists each coin with its policy id and amount, and the
+   treasury's whole address. Sign in mem2 (owner A), mem (owner B) and the deployer wallet.
+3. **Send:** `KOIOS_URL=... OGMIOS_URL=... node scripts/cosign.ts submit inputs.json out lock-withdraw-<n>`
+4. **Read it back:** `KOIOS_URL=... node scripts/read-tx.ts <tx id> --pay <the treasury's addr1…>`.
+   The treasury's line is marked `<- the payee`; the pool's line shows its reserves as before
+   and `fee share 1333`.
+
+**Refused, by the script and again by the page:** any of the share paid anywhere but the
+treasury's whole address (in any coin, the treasury must receive at least what leaves the pool);
+taking more or less than the share; any change to the pool's address, datum, reserves or LP
+balance; a pool spent other than by Minswap's own `WithdrawFeeSharing`; a GlobalSetting that
+lets anyone but the lock take the share; a change to the lock's list; nothing accrued (the chain
+would take that, for a fee and nothing for the venue); anything on another network than the
+inputs.
+
 ## The owner's rulings (2026-10-25)
 
 - **Runs on Railway**, in a new project of its own (not the indexer's), with no public port.
