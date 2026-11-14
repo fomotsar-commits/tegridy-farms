@@ -25,6 +25,8 @@ describe('the FAQ on NFT lending', () => {
     expect(a).toMatch(/interest so far/i);
     // A takeover needs no one's yes: say so, and name the collections in full.
     expect(a).toMatch(/at a lower rate without asking you/);
+    // The window is the loan contract's setting (getMinLockPeriod), which the Safe can change at once.
+    expect(a).toMatch(/Between 15% and 85% of a loan's term \(a window the venue's Safe can change at once\), another lender/);
     expect(a).toMatch(/an NFT from Jungle Bay Ape Club, Nakamigos or GNSS Art\./);
   });
 
@@ -36,6 +38,14 @@ describe('the FAQ on NFT lending', () => {
     expect(a).toMatch(/never applies to a loan already open/i);
     // The Safe also sets the takeover window, the rate cut, the liquidator and pool lenders at once.
     expect(a).toMatch(/change the collection list and other loan settings at once/);
+    // And it can stop a repayment with no wait: said as the Risks page's NFT Lending card says it.
+    expect(a).toMatch(/With no wait, both keys together can stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid\./);
+  });
+
+  it("the admin answer and the Risks page say the Safe's power over a loan in the same words", () => {
+    const words = 'With no wait, both keys together can stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid';
+    expect(faq('Can the admin rug pull?')).toContain(words);
+    expect(read('src', 'pages', 'RisksPage.tsx')).toContain(words);
   });
 });
 
@@ -44,6 +54,17 @@ describe('Towelie on NFT lending', () => {
     const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
     expect(entry?.answer).toMatch(/The lender keeps 95% of the interest and the venue 5%\./);
     expect(entry?.answer).toMatch(/Lock a Jungle Bay Ape Club, Nakamigos or GNSS Art NFT/);
+  });
+
+  it('says another lender can take a loan over, inside a window the Safe can change', () => {
+    const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
+    expect(entry?.answer).toMatch(/another lender can take your loan over at a lower rate without asking you, a window the venue's Safe can change at once\./);
+  });
+
+  it('says to repay before the deadline: Gondi refuses a repayment at the deadline second', () => {
+    const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('default'));
+    expect(entry?.answer).toMatch(/repay your NFT loan before the deadline/);
+    expect(entry?.answer).not.toMatch(/by the deadline/);
   });
 });
 
@@ -85,6 +106,16 @@ describe('the Risks page on NFT lending', () => {
   it('does not call a default automatic: the lender has to claim', () => {
     expect(risks).not.toMatch(/This process is automatic and enforced by the smart contract/);
     expect(risks).toMatch(/the lender can take your NFT at any moment/);
+  });
+
+  it('section 5 says another lender can take a loan over without the borrower, and repaying must come before the deadline', () => {
+    expect(risks).toMatch(/Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term \(a window the venue\\?'s Safe can change at once\)\./);
+    expect(risks).toMatch(/failure to repay the loan before the agreed-upon deadline/);
+    expect(risks).not.toMatch(/repay the loan by the agreed-upon deadline/);
+  });
+
+  it('section 8 says which chain its instant pause and setters are on', () => {
+    expect(risks).toMatch(/On the Ethereum contracts, sensitive administrative actions \(treasury, fee recipients, fees, emission budget, oracle floors\) are subject to a 24-48 hour timelock to allow community review, but emergency pause and some operational setters take effect immediately/);
   });
 });
 
