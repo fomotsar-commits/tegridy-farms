@@ -1,0 +1,15 @@
+{
+ "source": "mainnet's node via Koios's Ogmios proxy, 2026-10-25T05:43:54.550Z",
+ "accepted": {
+  "tx": "075110cd90ac76195e150de862ccfd48659e2e5f2c4338f0aa5b175fdff121e2",
+  "answer": "{\"jsonrpc\":\"2.0\",\"method\":\"evaluateTransaction\",\"result\":[{\"validator\":{\"index\":0,\"purpose\":\"spend\"},\"budget\":{\"memory\":25305,\"cpu\":8177555}},{\"validator\":{\"index\":1,\"purpose\":\"spend\"},\"budget\":{\"memory\":77308,\"cpu\":23525984}},{\"validator\":{\"index\":0,\"purpose\":\"withdraw\"},\"budget\":{\"memory\":1326013,\"cpu\":427268738}}],\"id\":null}"
+ },
+ "overBudget": {
+  "orders": 50,
+  "answer": "{\"jsonrpc\":\"2.0\",\"method\":\"evaluateTransaction\",\"error\":{\"code\":3010,\"message\":\"Some scripts of the transactions terminated with error(s).\",\"data\":[{\"validator\":{\"index\":0,\"purpose\":\"withdraw\"},\"error\":{\"code\":3012,\"message\":\"Some of the scripts failed to evaluate to a positive outcome. The field 'data.validationError' informs about the nature of the error, and 'data.traces' lists all the execution traces collected during the script execution.\",\"data\":{\"validationError\":\"An error has occurred:\\nThe machine terminated part way through evaluation due to overspending the budget.\\nThe budget when the machine terminated was:\\n({cpu: 4678477454\\n| mem: -5340})\\nNegative numbers indicate the overspent budget; note that this only indicates the budget that was needed for the next step, not to run the program to completion.\",\"traces\":[]}}}]},\"id\":null}"
+ },
+ "scriptFailure": {
+  "what": "our one-swap batch, the trader's output one token short",
+  "answer": "{\"jsonrpc\":\"2.0\",\"method\":\"evaluateTransaction\",\"error\":{\"code\":3010,\"message\":\"Some scripts of the transactions terminated with error(s).\",\"data\":[{\"validator\":{\"index\":0,\"purpose\":\"withdraw\"},\"error\":{\"code\":3012,\"message\":\"Some of the scripts failed to evaluate to a positive outcome. The field 'data.validationError' informs about the nature of the error, and 'data.traces' lists all the execution traces collected during the script execution.\",\"data\":{\"validationError\":\"An error has occurred:\\nThe machine terminated because of an error, either from a built-in function or from an explicit use of 'error'.\\nCaused by: (error)\",\"traces\":[]}}}]},\"id\":null}"
+ }
+}

@@ -109,6 +109,7 @@ describe('the root is a front door', () => {
     'README.md',
     'SECURITY.md',
     'bot',
+    'cardano',
     'contracts',
     'docs',
     'frontend',
