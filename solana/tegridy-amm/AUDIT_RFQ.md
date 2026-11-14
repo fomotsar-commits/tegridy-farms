@@ -50,7 +50,7 @@ changed, one instruction added (`create_lp_metadata`, above) and one refusal add
 upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the binary live on mainnet since its third upgrade on 2026-11-06 (and from 2026-10-23 until a roll-back on 2026-10-24, and from 2026-11-03 until a roll-back on 2026-11-04), a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 714,776 bytes for the binary live on mainnet since the upgrade of 2026-11 (proposal #32; sha256 `01fe923b…`, a mainnet build of this source with the fee rules of 2026-11-03 and the swap guard of 2026-11-10); 725,176 bytes for the binary it replaced, live since the third upgrade on 2026-11-06 (and from 2026-10-23 until a roll-back on 2026-10-24, and from 2026-11-03 until a roll-back on 2026-11-04), a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
 ## Exact scope: the whole code delta
@@ -178,8 +178,13 @@ It was rolled back on 2026-10-24 (proposal #16) and upgraded again to the same b
 then rolled back by mistake on 2026-11-04 (proposal #24) and upgraded a third time on 2026-11-06 (proposal #31).
 The days and the transactions are in `MAINNET_RUNBOOK.md`, section 4b.
 
-**Quote against this source:** since vault proposal #31 ran on 2026-11-06 at 15:13:03 UTC, a
-build of it (`1e55bcdc…`) is the live program.
+**Corrected again with the upgrade of 2026-11:** vault proposal #32 upgraded cp-swap to the
+build of this source that has the fee rules of 2026-11-03 and the swap guard of 2026-11-10
+(sha256 `01fe923b…`, 714,776 bytes; `TEGRIDY_FORK.md` has a section for each). Both went in
+unaudited, and both are in scope. Its day and transaction are in `MAINNET_RUNBOOK.md`, section 4b.
+
+**Quote against this source:** a build of it (`01fe923b…`) is the live program. From vault
+proposal #31, on 2026-11-06 at 15:13:03 UTC, until that upgrade the live program was `1e55bcdc…`.
 
 ---
 

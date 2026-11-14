@@ -11,7 +11,8 @@
 //   - Solana, our range-pool program: the SOL, USDC and island coins it holds, and nothing for
 //     any other coin. A range pool's price is whatever its depositors set, so valuing its
 //     other side at that price would let anyone make the total say anything.
-//   - Ethereum, Base and Robinhood: every pair our factory made that holds WETH, at twice it.
+//   - Ethereum, Base and Robinhood: every pair our factories made (the first one, and the one
+//     that charges to open a pool, where new pools open) that holds WETH, at twice it.
 // Only those coins add dollars, so pools of worthless tokens add nothing: the figure moves
 // only when SOL, USDC, an island coin or ETH really sit in our pools.
 //
@@ -31,8 +32,20 @@
 //     Base. Not at a price in our own pools, staked BAYLA included: far more BAYLA is staked than
 //     any of our pools holds, so a pool price one depositor can lean on would move the total by
 //     far more than that deposit. A coin with no market price is left out and the answer says so.
-//   - Not counted: the LP farm (its LP tokens are shares of one of our pairs, counted above) and
-//     the JBAC vault (NFTs, which have no price here).
+//   - Not counted: the LP farm (its LP tokens are shares of one of our pairs, counted above).
+//
+// WHAT IS HELD AS NFTs, AND AT WHAT VALUE (owner 2026-11-13: NFT Lending is live and its
+// locked value belongs in the total)
+//   - Every NFT our Ethereum contracts hold for people: NFT Lending's loan contract (the
+//     collateral of every open loan), its liquidator (collateral in a liquidation auction)
+//     and the JBAC staking vault (JBAC escrowed for the staking boost). Read as each
+//     contract's balance in each collection it can hold.
+//   - Each NFT at its collection's floor on OpenSea (the cheapest listing), in ETH at today's
+//     ETH price. Raising a floor means buying every cheaper listing, so it cannot be leaned
+//     on cheaply. Not at the loan's size: a lender and a borrower can be one person, and
+//     lending yourself WETH locks nothing. A collection with no floor is left out and the
+//     answer says so.
+//   - The WETH of a loan is not counted: it left the contract for the borrower's wallet.
 import { base58 } from "@scure/base";
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
@@ -136,6 +149,22 @@ export const EVM_STAKE_POOLS = Object.freeze(
 );
 /** The chains with staking, in the order the answer lists them. */
 export const STAKE_CHAINS = Object.freeze(["solana", ...Object.keys(EVM_STAKE_POOLS)]);
+
+/** The NFT collections NFT Lending takes, with their OpenSea slugs (src/lib/gondi/loanOffer.js; a test pins them). */
+export const NFT_COLLECTIONS = Object.freeze({
+  jbac: Object.freeze({ slug: "junglebay", address: "0xd37264c71e9af940e49795f0d3a8336afaafdda9" }),
+  nakamigos: Object.freeze({ slug: "nakamigos", address: "0xd774557b647330c91bf44cfeab205095f7e6c367" }),
+  gnss: Object.freeze({ slug: "gnssart", address: "0xa1de9f93c56c290c48849b1393b09eb616d55dbb" }),
+});
+/** Every Ethereum contract of ours that holds people's NFTs, with the collections it can hold (scripts/addresses.json; a test pins them). */
+export const NFT_HOLDERS = Object.freeze(
+  [
+    ["0x4f2b53dae3edcf1b527c53d2c11a28ec5ac6d630", ["jbac", "nakamigos", "gnss"]], // gondi-loan: every open loan's collateral
+    ["0xe61613035b85308f31e068bbc31257524ffe7fa6", ["jbac", "nakamigos", "gnss"]], // gondi-liquidator: collateral in a liquidation auction
+    ["0x28317bf362d43b40fcecebf2390c43db558c3f14", ["jbac"]], // staking-jbac-vault: JBAC escrowed for the staking boost
+  ].map(([holder, collections]) => Object.freeze({ holder, collections: Object.freeze(collections) })),
+);
+const BALANCE_OF = "0x70a08231"; // ERC-721 balanceOf(address)
 
 /** More pools than this on one program, or pairs on one factory, reads as "could not read". */
 export const MAX_POOLS = 5000;
@@ -347,20 +376,28 @@ function evmCall(rpcs, fetchImpl) {
 const word = (hex, k) => BigInt("0x" + hex.slice(2 + 64 * k, 2 + 64 * (k + 1)));
 const addressOf = (hex) => "0x" + hex.slice(-40).toLowerCase();
 
-/** One EVM chain: every pair the factory made that holds WETH, at twice its WETH. Throws when any read failed. */
+/**
+ * One EVM chain: every pair our factories made (the first one, and the one that charges to
+ * open a pool) that holds WETH, at twice its WETH. Throws when any read failed.
+ */
 export async function readEvm(name, { fetchImpl, priceOf, chains = EVM_CHAINS }) {
   const chain = chains[name];
   const call = evmCall(chain.rpcs, fetchImpl);
-  const total = Number(word(await call(chain.factory, "0x574f2ba3"), 0));
-  if (total > MAX_PAIRS) throw new Error(`more than ${MAX_PAIRS} pairs on ${name}`);
   const weth = chain.weth?.toLowerCase() ?? null;
-  const pairs = pairCache.get(name)?.slice(0, total) ?? [];
-  for (let i = pairs.length; i < total; i++) {
-    const address = addressOf(await call(chain.factory, "0x1e3dd18b" + i.toString(16).padStart(64, "0")));
-    const [t0, t1] = await Promise.all([call(address, "0x0dfe1681"), call(address, "0xd21220a7")]);
-    pairs.push({ address, wethSide: weth === addressOf(t0) ? 0 : weth === addressOf(t1) ? 1 : null });
+  const pairs = [];
+  for (const factory of chain.factories) {
+    const total = Number(word(await call(factory, "0x574f2ba3"), 0));
+    if (total > MAX_PAIRS) throw new Error(`more than ${MAX_PAIRS} pairs on ${name}`);
+    const key = `${name}:${factory.toLowerCase()}`;
+    const made = pairCache.get(key)?.slice(0, total) ?? [];
+    for (let i = made.length; i < total; i++) {
+      const address = addressOf(await call(factory, "0x1e3dd18b" + i.toString(16).padStart(64, "0")));
+      const [t0, t1] = await Promise.all([call(address, "0x0dfe1681"), call(address, "0xd21220a7")]);
+      made.push({ address, wethSide: weth === addressOf(t0) ? 0 : weth === addressOf(t1) ? 1 : null });
+    }
+    pairCache.set(key, made);
+    pairs.push(...made);
   }
-  pairCache.set(name, pairs);
   const priced = pairs.filter((p) => p.wethSide !== null);
   if (!priced.length) return { usd: 0, pools: 0, unvalued: 0 };
   const [ethUsd, reserves] = await Promise.all([priceOf("ETH"), Promise.all(priced.map((p) => call(p.address, "0x0902f1ac")))]);
@@ -428,6 +465,39 @@ export async function readEvmStaking(name, { fetchImpl, marketPrices, chains = E
   );
   for (const s of stakes) s.decimals = decimalsCache.get(`${name}:${s.coin}`);
   return valueStakes(stakes, coins.length ? await marketPrices(name, coins) : new Map());
+}
+
+/**
+ * The NFTs our Ethereum contracts hold: `{ usd, nfts, unvalued }`, each NFT at its
+ * collection's floor on OpenSea in ETH, at today's ETH price. `unvalued` counts the
+ * collections left out for want of a floor. Throws when a holding could not be read.
+ */
+export async function readNfts({ fetchImpl, priceOf, floorOf, chains = EVM_CHAINS }) {
+  const call = evmCall(chains.ethereum.rpcs, fetchImpl);
+  const reads = NFT_HOLDERS.flatMap(({ holder, collections }) => collections.map((key) => ({ holder, key })));
+  const counts = await Promise.all(reads.map((r) => call(NFT_COLLECTIONS[r.key].address, BALANCE_OF + r.holder.slice(2).padStart(64, "0"))));
+  const held = new Map();
+  reads.forEach((r, i) => held.set(r.key, (held.get(r.key) ?? 0n) + word(counts[i], 0)));
+  const owned = [...held].filter(([, n]) => n > 0n);
+  if (!owned.length) return { usd: 0, nfts: 0, unvalued: 0 };
+  const [ethUsd, floors] = await Promise.all([priceOf("ETH"), Promise.all(owned.map(([key]) => floorOf(NFT_COLLECTIONS[key].slug)))]);
+  let usd = 0;
+  let nfts = 0;
+  let unvalued = 0;
+  owned.forEach(([, n], i) => {
+    if (!(floors[i] > 0)) return void unvalued++;
+    usd += Number(n) * floors[i] * ethUsd;
+    nfts += Number(n);
+  });
+  return { usd, nfts, unvalued };
+}
+
+/** A collection's floor on OpenSea in ETH, or null when it has none in ETH. Throws when OpenSea cannot be read. */
+export async function readFloor(slug, fetchImpl) {
+  const key = (process.env.OPENSEA_API_KEY || "").trim();
+  const j = await fetchJson(`https://api.opensea.io/api/v2/collections/${encodeURIComponent(slug)}/stats`, fetchImpl, key ? { "x-api-key": key } : {});
+  const floor = Number(j?.total?.floor_price);
+  return j?.total?.floor_price_symbol === "ETH" && Number.isFinite(floor) && floor > 0 ? floor : null;
 }
 
 async function fetchJson(url, fetchImpl, headers = {}) {
@@ -508,11 +578,20 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     poolCoins = r.poolCoins;
     return r;
   };
-  const [results, staking] = await Promise.all([
+  // A floor read in the last minute is not read again.
+  const floorOf = async (slug) => {
+    const hit = priceCache.get(`floor:${slug}`);
+    if (hit && now - hit.at < CACHE_MS) return hit.usd;
+    const floor = await readFloor(slug, fetchImpl);
+    priceCache.set(`floor:${slug}`, { at: now, usd: floor });
+    return floor;
+  };
+  const [results, staking, nfts] = await Promise.all([
     settle("pools", [["solana", solana], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])], "pools"),
     settle("staking", [["solana", () => readSolanaStaking({ fetchImpl, marketPrices })], ...STAKE_CHAINS.slice(1).map((name) => [name, () => readEvmStaking(name, { fetchImpl, marketPrices })])], "vaults"),
+    settle("nfts", [["ethereum", () => readNfts({ fetchImpl, priceOf, floorOf })]], "nfts"),
   ]);
-  const parts = [...results, ...staking];
+  const parts = [...results, ...staking, ...nfts];
   if (!parts.some((r) => r.read)) return { state: "unread" };
   const whole = parts.every((r) => r.read && r.unvalued === 0);
   const usd = parts.reduce((sum, r) => sum + (r.read ? r.usd : 0), 0);
@@ -521,6 +600,7 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     usd: Math.round(usd * 100) / 100,
     chains: results,
     staking,
+    nfts,
     ...(poolCoins ? { poolCoins } : {}),
     readAt: new Date(now).toISOString(),
   };

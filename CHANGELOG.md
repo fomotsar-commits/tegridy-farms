@@ -7,6 +7,12 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-14
+
+- Solana pools: the pool program was upgraded. Every fee tier's fees are now held inside limits: a trader pays at most 4% of a swap, and at most a fifth of that fee goes to the venue and the island together. Only the island's Workshop can collect the island's share. No coin is let in by name any more: every coin meets the same check. The program also has a swap guard our vault can switch on for a fee tier. While it is on, a pool takes a swap only when a wallet sends it directly and refuses one that another program makes, such as a router or a smart wallet. Swaps from this site are sent directly, and adding or removing liquidity is not guarded. The lines you read before adding liquidity or opening a pool, and "The program" on the Pools page, say so.
+- Home, all-time volume: shows again. From 02:21 UTC it read "not counted", because the NFT order book has had no sale yet and its first count was refused; it now starts at zero sales.
+- Notice: no sooner than seven days from this day, a Solana swap through Jupiter between two of SOL, USDC, USDT and staked SOL pays memetics.finance 0.05% of the trade instead of 0.5%, and a CoW swap on Ethereum pays 0.25% of the trade instead of 0.5%, of which CoW DAO keeps a quarter and memetics.finance the rest. Every other Solana swap that pays the venue stays at 0.5%. The paid API plans on /developer become $49, $199 and $799 a month; billing is still off.
+
 ### 2026-11-13
 
 - NFT lending: a borrower can ask for a loan. On Borrow, "Ask for a loan" takes the NFT you hold, the WETH you want, the highest APR you will pay and the loan length, and you sign it for free: it locks nothing and approves nothing. Lenders see it on Lend under "Borrowers asking", and "Offer this" fills the offer form for that NFT. Your requests show whether an offer matches, and Withdraw takes one down. Lenders earn the interest and the venue 5% of it only if a loan follows.
@@ -16,6 +22,8 @@ The site's Changelog tab shows both files.
 - Swap and Add sheets on a phone and an iPad: the network drop-down fits beside the coin (its mark alone on a phone), a coin list opened in a short sheet is no longer cut off, the Ethereum, Base and Robinhood Chain forms carry a full-width Connect button, and their coin list's chips and close button are full-size taps.
 - Home page swap card: drawn like the Swap sheet, with the BAYLA chip and its drop-down, Buy / Sell, large "You pay" and "You get" boxes with coin pictures, and the network drop-down beside the card's name.
 - Menu: Marketplace is back under Island, after Lore and Launch, and opens the Nakamigos marketplace. It had been out of the menu since 2026-10-24. The home page and the island lobby still have no Marketplace card.
+- Home, TVL: now counts the NFTs our contracts hold (each NFT lent against on NFT Lending, one in a liquidation auction, and JBAC in the staking vault) at its collection's OpenSea floor, the Robinhood pool (it counted $0 because the site did not know Robinhood's WETH), and pools opened on the new pool-opening factories on Ethereum, Base and Robinhood.
+- Home, all-time volume: now counts new loans on NFT Lending (the WETH lent), sales on our own NFT order book, Robinhood's swaps (381 of them counted at $0 until now, priced once at today's ETH price), swaps in pools opened on the new factories, and swaps in pools of two island coins (at the coin's Jupiter price).
 
 ### 2026-11-12
 
