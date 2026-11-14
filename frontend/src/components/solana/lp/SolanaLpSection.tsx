@@ -15,6 +15,7 @@ import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { pricedInCoin } from '../../../lib/solana/lp/pricedIn';
 import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
@@ -196,7 +197,8 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     el.focus({ preventScroll: true });
     el.scrollIntoView?.({ block: 'start' });
   }, []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} />;
+  // A link to a pairing coin (?mint=BAYLA) lists the pools priced in it instead (pricedIn.ts): what its community shares.
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} pricedIn={pricedInCoin(mint)} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
