@@ -29,9 +29,43 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-11-10: the pool program upgrade with the swap guard (two sittings; the pack is ready)
+## 🔴 2026-11-14: the robot's zero fee, sitting 2 (from 2026-11-16 05:14 UTC)
 
-Pull request #1177 merged on 2026-11-10. Nothing has been sent on mainnet. Your paper is
+Your word on 2026-11-11: "charge 0 fees for our bot". Sitting 1 is done: on 2026-11-14 you
+proposed two vault proposals and both members approved them. Your paper is `START-HERE.md` in
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-keeper-fee-upgrade-2026-11`.
+
+**The numbers are the other way round from the paper.** Read the number on the page before
+every press.
+- **#35 upgrades the pool program** to `9f0150e3…` (715,224 bytes, trunk's merge `c24947dfb` of
+  pull request #1198). Executable from **2026-11-16 05:13:35 UTC**. The paper calls this #34.
+- **#34 names the price robot as keeper on both fee settings** (wallet
+  `9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz`). Executable from **2026-11-16 05:13:59 UTC**.
+  The paper calls this #35.
+
+From then on the robot's own swaps in our pools pay no trade fee and no creator fee, so those
+trades earn the pools' LPs, the venue and the island nothing. Everyone else pays as before.
+
+**Sitting 2:** the paper's steps 13 to 18, with the numbers above. Execute #35, run step 14's
+check, then execute #34 and run step 17's check. Then a session fills in the website release
+below and asks you to merge it. (The paper merges the site between the two executes. Merging
+after both keeps the site from naming the robot as keeper before #34 has run.) The robot keeps paying until a session switches it to
+`KEEPER_FREE_SWAPS=yes`, on your "Yes, go live".
+
+**The website release.** Branch `release/keeper-fee-site`, a draft pull request. It names the
+new build everywhere the site and the registry name the pool program, and the lines a visitor
+reads about who pays the fees name the robot. It must not merge before #35 executes: the
+registry's chain check and `poolProgramUpgradeRecord.test.ts` are red until then, on purpose.
+After the execute a session fills the four rows of `MAINNET_RUNBOOK.md` section 4b from
+`node frontend/scripts/solana-localnet/read-upgrade-record.mjs`, files the parked changelog
+line under that day, and asks you to merge. Once #35 has executed, trunk's own chain check is
+red until this merges.
+
+## ✅ 2026-11-10: the pool program upgrade with the swap guard (done: #32 and #33 executed 2026-11-14)
+
+Pull request #1177 merged on 2026-11-10. #32 executed on 2026-11-14 (its record is in
+`MAINNET_RUNBOOK.md` section 4b), and on mainnet the guard reads on for both fee settings
+(finalized slot 469,212,932). What follows is the plan as it was written. Your paper is
 `START-HERE.md` in `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-swap-guard-upgrade-2026-11`.
 
 **What it is.** Two vault proposals, signed in one sitting so their 48 hours run together.

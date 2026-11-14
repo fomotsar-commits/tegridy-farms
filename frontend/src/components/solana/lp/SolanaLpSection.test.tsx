@@ -537,6 +537,10 @@ describe('the order of the section', () => {
       'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
       'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
       'It can switch the swap guard on or off for a fee tier',
+      // Since the keeper-fee upgrade: the vault can name a tier's keeper, who swaps there free.
+      'name a fee tier’s keeper',
+      'A fee tier’s named keeper pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers nothing.',
+      'On both fee tiers open today the vault names the venue’s own price robot, wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz. Everyone else pays as before.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
       'you could not take your money out of that pool until it switched removing back on',

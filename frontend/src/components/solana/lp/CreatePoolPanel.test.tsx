@@ -155,10 +155,12 @@ describe('the panel', () => {
     expect(within(panel).getByRole('heading', { name: 'Open a pool for this token' })).toHaveFocus();
     expect(panel).toHaveAccessibleName('Open a pool for this token');
     const before = within(panel).getByTestId('lp-before-you-open');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
+    // A pool opened here charges no creator fee, so the keeper's line names the trade fee alone.
+    expect(before).toHaveTextContent("A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), pays no trade fee on its own swaps, so those swaps earn liquidity providers nothing. Everyone else pays as before.");
     expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
     expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);

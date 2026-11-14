@@ -329,7 +329,7 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
@@ -1186,6 +1186,8 @@ describe('adding to a launch pool that charges the creator fee', () => {
     expect(before).toHaveTextContent(
       "Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. Traders also pay this pool's creator 0.05% of each trade on top; that part is not yours.",
     );
+    // The tier's keeper pays neither, and the line says both where the pool charges both.
+    expect(before).toHaveTextContent('pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers nothing. Everyone else pays as before.');
   });
 
   it('a pool that charges no creator fee says nothing about one', async () => {
@@ -1195,6 +1197,8 @@ describe('adding to a launch pool that charges the creator fee', () => {
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const before = await screen.findByTestId('lp-before-you-add');
     expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change that tier's rates. A change waits 48 hours after both its keys approve");
+    // The keeper's line names the trade fee alone here: this pool charges no creator fee.
+    expect(before).toHaveTextContent("pays no trade fee on its own swaps, so those swaps earn liquidity providers nothing. Everyone else pays as before.");
     // ("creator" alone also names the token's creator, in the freeze-account risk line.)
     expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
   });

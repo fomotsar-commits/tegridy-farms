@@ -50,7 +50,7 @@ changed, one instruction added (`create_lp_metadata`, above) and one refusal add
 upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 714,776 bytes for the binary live on mainnet since the upgrade of 2026-11 (proposal #32; sha256 `01fe923b…`, a mainnet build of this source with the fee rules of 2026-11-03 and the swap guard of 2026-11-10); 725,176 bytes for the binary it replaced, live since the third upgrade on 2026-11-06 (and from 2026-10-23 until a roll-back on 2026-10-24, and from 2026-11-03 until a roll-back on 2026-11-04), a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 715,224 bytes for the binary live on mainnet since the keeper-fee upgrade (proposal #35; sha256 `9f0150e3…`, a mainnet build of this source with the keeper's fee of 2026-11-11 as well); 714,776 bytes for the binary it replaced, live from the upgrade of 2026-11-14 (proposal #32; sha256 `01fe923b…`, with the fee rules of 2026-11-03 and the swap guard of 2026-11-10); 725,176 bytes for the binary it replaced, live since the third upgrade on 2026-11-06 (and from 2026-10-23 until a roll-back on 2026-10-24, and from 2026-11-03 until a roll-back on 2026-11-04), a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
 ## Exact scope: the whole code delta
@@ -183,8 +183,15 @@ build of this source that has the fee rules of 2026-11-03 and the swap guard of 
 (sha256 `01fe923b…`, 714,776 bytes; `TEGRIDY_FORK.md` has a section for each). Both went in
 unaudited, and both are in scope. Its day and transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 
-**Quote against this source:** a build of it (`01fe923b…`) is the live program. From vault
-proposal #31, on 2026-11-06 at 15:13:03 UTC, until that upgrade the live program was `1e55bcdc…`.
+**Corrected again with the keeper-fee upgrade:** vault proposal #35 upgraded cp-swap to the
+build of this source that adds the keeper's fee of 2026-11-11 (sha256 `9f0150e3…`, 715,224
+bytes; `TEGRIDY_FORK.md`, "The keeper's fee"): a fee tier's keeper swaps free of the trade and
+creator fees. Vault proposal #34 names the venue's price robot keeper of both tiers. It went in
+unaudited, and it is in scope. Its day and transaction are in `MAINNET_RUNBOOK.md`, section 4b.
+
+**Quote against this source:** a build of it (`9f0150e3…`) is the live program. From vault
+proposal #32 until that upgrade the live program was `01fe923b…`, and from vault proposal #31,
+on 2026-11-06 at 15:13:03 UTC, until #32 it was `1e55bcdc…`.
 
 ---
 

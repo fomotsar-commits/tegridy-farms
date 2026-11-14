@@ -18,9 +18,10 @@
  * hashes the delta (four authority constants, the program's own name and
  * contact text, one added instruction that names lp tokens, one refusal of
  * a public initialize on fee tier 0, ceilings on what a fee tier may be set
- * to, and the swap guard, which refuses a swap before any maths runs or
- * leaves it alone) and it changes no curve or fee maths, so these are
- * Raydium's numbers, not ours.
+ * to, the swap guard, which refuses a swap before any maths runs or
+ * leaves it alone, and the keeper's fee, which hands the same maths rates of
+ * 0 when a tier's keeper signs) and it changes no curve or fee maths, so
+ * these are Raydium's numbers, not ours.
  *
  * ROUNDING IS THE WHOLE JOB. Rust uses `ceil_div` for the fees a user PAYS and
  * `floor_div` for the splits taken out of them; u128 truncating division is
