@@ -5,7 +5,9 @@ pub mod states;
 pub mod utils;
 use crate::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
 use crate::error::ErrorCode;
-use crate::states::{PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE};
+use crate::states::{
+    AmmConfig, KeeperChanged, PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE,
+};
 use anchor_lang::prelude::*;
 use anchor_spl::metadata::{
     create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
@@ -32,9 +34,10 @@ solana_security_txt::security_txt! {
 // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
 // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
 // identity constants (3 here + create_support_mint_associated_owner in
-// instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
-// added instruction: `create_lp_metadata`, which gives a pool's lp token a name
-// record (the "TEGRIDY FORK ADDITION" at the bottom of this file), plus these rules:
+// instructions/admin/create_support_mint_associated.rs) plus TWO added instructions:
+// `create_lp_metadata` (since 2026-10-06), which gives a pool's lp token a name record,
+// and `resign_keeper` (since 2026-11-14, below), each a "TEGRIDY FORK ADDITION" at the
+// bottom of this file, plus these rules:
 //   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
 //   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
 //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
@@ -55,6 +58,11 @@ solana_security_txt::security_txt! {
 //     Everyone else pays as upstream. With no keeper named, nobody is free. The rates are
 //     chosen in states/config.rs `swap_fee_rates`, used in swap_base_input.rs and
 //     swap_base_output.rs; the curve and fee arithmetic is not touched.
+//   - 2026-11-14, the keeper resigns: a tier's keeper can give the role up itself, at once,
+//     signing alone (`resign_keeper`, the second instruction this fork adds, at the bottom of
+//     this file), so a stolen keeper key is switched off without waiting on the admin's
+//     proposal and its lock. Only a wallet's key may be named keeper (update_config.rs param 9,
+//     states/config.rs `may_name_keeper`), and every change of keeper or guard is logged.
 // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
 // swap/curve/fee arithmetic is byte-identical to the audited upstream; since 2026-11-11 the
 // swaps hand it rates of 0 when a tier's keeper signs. The per-swap
@@ -180,7 +188,9 @@ pub mod raydium_cp_swap {
     /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
     ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
     ///   remaining account (the System Program's address clears it). Since 2026-11-11 the
-    ///   keeper also swaps on the tier free of the trade and creator fees
+    ///   keeper also swaps on the tier free of the trade and creator fees. Since 2026-11-14 a
+    ///   keeper must be a wallet's key (a program's address is refused, 6017
+    ///   `KeeperNotAWallet`), and params 8 and 9 log `SwapGuardChanged` and `KeeperChanged`
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)
@@ -412,10 +422,54 @@ pub mod raydium_cp_swap {
             &[&[crate::AUTH_SEED.as_bytes(), &[ctx.bumps.authority]]],
         )
     }
+
+    /// The tier's keeper gives the role up, signing alone: the tier is left with no keeper
+    /// (the all-zero key), as the admin's `update_amm_config` param 9 would leave it, but at
+    /// once, with no proposal and no lock. Anyone else is refused (6016 `NotKeeper`).
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`- The context of accounts
+    ///
+    pub fn resign_keeper(ctx: Context<ResignKeeper>) -> Result<()> {
+        let amm_config = &mut ctx.accounts.amm_config;
+        let old_keeper = amm_config.keeper;
+        amm_config.keeper = Pubkey::default();
+        emit!(KeeperChanged {
+            amm_config: amm_config.key(),
+            old_keeper,
+            new_keeper: Pubkey::default(),
+            resigned: true,
+        });
+        Ok(())
+    }
+}
+
+// ─── TEGRIDY FORK ADDITION (2026-11-14): resign_keeper ────────────────────────
+// The second instruction this fork adds. A tier's keeper (update_config.rs param 9) swaps on
+// that tier free of the trade and creator fees and passes the swap guard, and it signs from a
+// computer that runs unattended. Only the admin names or clears it, and on mainnet every admin
+// action is a Squads proposal behind a 48-hour lock: a stolen keeper key would trade free, and
+// sandwich every visitor's swap at no cost, for at least those 48 hours.
+//
+// This lets the keeper's own key end it at once. WHO MAY CALL IT: the tier's keeper only, as
+// the signer; the constraint below reads the keeper from the tier itself. With no keeper named
+// (the all-zero key) nobody can, since `is_keeper` names nobody then. What it changes: that one
+// field of that one tier, to the all-zero key. Nothing else: the guard stays as it was, no
+// account is created or closed, no lamport or token moves. A thief holding the key can call it
+// too, which only ends the thief's own advantage; nobody can name a keeper but the admin.
+#[derive(Accounts)]
+pub struct ResignKeeper<'info> {
+    /// The tier's keeper, the only signer
+    pub keeper: Signer<'info>,
+
+    /// The fee tier it gives up
+    #[account(mut, constraint = amm_config.is_keeper(keeper.key) @ ErrorCode::NotKeeper)]
+    pub amm_config: Account<'info, AmmConfig>,
 }
 
 // ─── TEGRIDY FORK ADDITION (2026-10-06): create_lp_metadata ───────────────────
-// The one instruction this fork adds to upstream. A pool's lp token is a classic SPL
+// The first instruction this fork adds to upstream. A pool's lp token is a classic SPL
 // mint with no name record, so a wallet lists it as an unknown token. Metaplex only
 // creates that record when the mint authority signs, and the mint authority is this
 // program's own address (AUTH_SEED), so no wallet can ask for it: this program must.

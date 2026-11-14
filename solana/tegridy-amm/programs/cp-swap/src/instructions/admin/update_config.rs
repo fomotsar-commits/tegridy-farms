@@ -37,7 +37,7 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -
         Some(8) => set_swap_guard(amm_config, value)?,
         Some(9) => {
             let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
-            amm_config.keeper = *keeper.key;
+            set_keeper(amm_config, *keeper.key)?;
         }
         _ => return err!(ErrorCode::InvalidInput),
     }
@@ -48,6 +48,28 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -
 fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
     require!(swap_guard <= 1, ErrorCode::InvalidInput);
     amm_config.swap_guard = swap_guard;
+    // memetics.finance, 2026-11-14: logged, so a watcher sees the guard change.
+    emit!(SwapGuardChanged {
+        amm_config: amm_config.key(),
+        swap_guard,
+    });
+    Ok(())
+}
+
+/// memetics.finance, 2026-11-14: names the tier's keeper, or clears it with the all-zero key.
+/// Only a wallet's key may be named (states/config.rs `may_name_keeper`): a program's address
+/// would let that program's every caller swap free and pass the guard. Logged, so a watcher
+/// (and an LP) sees who swaps free on the tier.
+fn set_keeper(amm_config: &mut Account<AmmConfig>, keeper: Pubkey) -> Result<()> {
+    require!(may_name_keeper(&keeper), ErrorCode::KeeperNotAWallet);
+    let old_keeper = amm_config.keeper;
+    amm_config.keeper = keeper;
+    emit!(KeeperChanged {
+        amm_config: amm_config.key(),
+        old_keeper,
+        new_keeper: keeper,
+        resigned: false,
+    });
     Ok(())
 }
 
@@ -257,6 +279,38 @@ mod fund_owner_test {
         let mut t = owned_by(crate::admin::ID);
         set_new_fund_owner(&mut t, island).unwrap();
         assert_eq!(t.fund_owner, island);
+    }
+}
+
+#[cfg(test)]
+mod keeper_setting_test {
+    use super::*;
+
+    fn refused(r: Result<()>, code: &str) -> bool {
+        matches!(r, Err(e) if format!("{e:?}").contains(code))
+    }
+
+    /// A key on the curve, as every wallet's is.
+    fn a_wallet_key() -> Pubkey {
+        (0..).map(|_| Pubkey::new_unique()).find(|k| k.is_on_curve()).unwrap()
+    }
+
+    #[test]
+    fn the_admin_names_a_wallet_and_clears_it() {
+        let mut t = test_tier(AmmConfig::default());
+        let wallet = a_wallet_key();
+        set_keeper(&mut t, wallet).unwrap();
+        assert_eq!(t.keeper, wallet);
+        set_keeper(&mut t, Pubkey::default()).unwrap();
+        assert_eq!(t.keeper, Pubkey::default());
+    }
+
+    #[test]
+    fn a_program_address_is_refused_and_nothing_changes() {
+        let mut t = test_tier(AmmConfig::default());
+        let (pda, _) = Pubkey::find_program_address(&[crate::AUTH_SEED.as_bytes()], &crate::id());
+        assert!(refused(set_keeper(&mut t, pda), "KeeperNotAWallet"));
+        assert_eq!(t.keeper, Pubkey::default());
     }
 }
 
