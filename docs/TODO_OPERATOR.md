@@ -160,7 +160,13 @@ deployed all three on 2026-11-08; the addresses are in [`CONTRACTS.md`](CONTRACT
 - ⬜ **Each Safe accepts ownership, by 2026-11-22** (one batch per chain, two calls, each with data
   `0x79ba5097` = `acceptOwnership()`):
   - Ethereum, treasury Safe `0x7D26…Bd7d`: `0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4` and
-    `0x5c109a51B786473DCDE2De41a133d42515f60590`.
+    `0x5c109a51B786473DCDE2De41a133d42515f60590`, **plus a third call in the same batch (added
+    2026-11-14): NFT lending's auctions on.** The Gondi liquidator
+    `0xe61613035B85308F31E068bBC31257524ffE7Fa6` has no minimum bid for WETH, and while it is 0 no
+    auction can start, so an overdue loan with several lenders stays stuck. The call sets it to 1,000
+    WETH (`setMinBidForCurrency`, data in the sheet). That only caps the floor: each auction's floor
+    stays 0.5% of its loan. Step by step, nonce 2 by hand, in repo-root
+    `SAFE-2026-11-14-accept-fee-contracts.md`.
   - Base, multisig `0xBC4E…Be5B`: `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` and
     `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37`.
   - Robinhood, multisig `0xBC4E…Be5B`: `0x85AB297793e14283b54347C92C6AEFBaa20d1492` and
@@ -252,7 +258,8 @@ offer book, and nothing moves until a borrower takes it. The borrower locks the 
 plus interest for the days actually used. Lenders earn that interest. The venue takes 5% of the interest (500 basis
 points), paid to the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` as the interest is paid. **There is no
 grace period: from the due second the lender can take the NFT** (a loan funded by several lenders goes to a 3-day
-auction instead). The contract is Gondi's v3.2, unchanged.
+auction instead, once the treasury Safe sets WETH's minimum bid: see the 2026-11-22 Safe batch; until then
+such a loan stays stuck). The contract is Gondi's v3.2, unchanged.
 
 **Who owns it.** The treasury Safe, your pick on 2026-11-05. Since 2026-11-10 (step 6) it owns all six contracts,
 the loan contract and its liquidator included; the deployer wallet owns none of them.
