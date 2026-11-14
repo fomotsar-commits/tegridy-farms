@@ -151,10 +151,16 @@ describe('Priced in X: /pools?mint=<a pairing coin>', () => {
     expect(within(list()).queryAllByTestId('lp-all-pools-row')).toHaveLength(0);
   });
 
-  it('a list cut short never says there is none: it says there are more', async () => {
+  // The index says only that SOME coin had more pools than it could hold, not which: never that there is none, never that there are more of X's.
+  it('a cut-short index never says there is none: it says one priced in the coin may be missing', async () => {
+    const cut = /^The pool index could not hold every pool, so one priced in BAYLA may be missing\. Search its token above\.$/;
     mount(readers(ok([pool(STRANGER, SOL_QUOTE, 1n)], SAFETY, { truncated: true })), `/pools?mint=${BAYLA_MINT}`);
-    expect(await within(list()).findByTestId('lp-all-pools-truncated')).toBeInTheDocument();
+    expect(await within(list()).findByTestId('lp-all-pools-truncated')).toHaveTextContent(cut);
     expect(within(list()).queryByTestId('lp-priced-in-none')).toBeNull();
+    mount(readers(ok(venue(), SAFETY, { truncated: true })), `/pools?mint=${BAYLA_MINT}`);
+    const second = (await screen.findAllByTestId('lp-all-pools'))[1]!;
+    expect(await within(second).findByTestId('lp-all-pools-truncated')).toHaveTextContent(cut);
+    expect(second).not.toHaveTextContent('There are more pools');
   });
 
   it('Every pool goes back to the full list, with no token in the address', async () => {

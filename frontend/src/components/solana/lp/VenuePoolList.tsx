@@ -250,9 +250,13 @@ function PoolRows({
         </p>
       )}
       {unread > 0 && <Notice tone="warn">{unread === 1 ? 'One more pool' : `${unread} more pools`} could not be read just now.</Notice>}
+      {/* The index flags only that SOME coin had more pools than it holds, not which (pool-index.js `answerAll`): a coin's
+          own flag is phase-2 work, so the "Priced in" list says one MAY be missing, never that there are more of its coin's. */}
       {truncated && (
         <p data-testid="lp-all-pools-truncated" className="text-amber-300/90 text-[12.5px]">
-          There are more pools than this list holds. Search a token above to find the rest.
+          {pricedIn
+            ? `The pool index could not hold every pool, so one priced in ${pricedIn.symbol} may be missing. Search its token above.`
+            : 'There are more pools than this list holds. Search a token above to find the rest.'}
         </p>
       )}
     </div>
