@@ -74,6 +74,9 @@ const ERC1271 = [
     outputs: [{ name: "", type: "bytes4" }],
   },
 ];
+const ERC721_OWNER = [
+  { type: "function", name: "ownerOf", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ name: "", type: "address" }] },
+];
 const LOAN_EVENTS = GONDI_LOAN_ABI.filter((e) => e.type === "event");
 
 let _client = null;
@@ -96,6 +99,24 @@ export function makeChain(getClient) {
         isValidSignature: (address, digest, sig) =>
           getClient().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [digest, sig] }),
       });
+    },
+    verifyDigest({ signer, digest, signature }) {
+      return checkDigestSignature(signer, digest, signature, {
+        getCode: (address) => getClient().getCode({ address }),
+        isValidSignature: (address, hash, sig) =>
+          getClient().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [hash, sig] }),
+      });
+    },
+    /** Who holds an NFT now, or null when the collection says there is no such token. */
+    async ownerOf({ collection, tokenId }) {
+      try {
+        return await getClient().readContract({ address: collection, abi: ERC721_OWNER, functionName: "ownerOf", args: [BigInt(tokenId)] });
+      } catch (err) {
+        // A revert is the collection's own answer; anything else is an outage and is thrown.
+        const reverted = err?.walk?.((e) => e?.name === "ContractFunctionRevertedError" || e?.name === "ContractFunctionZeroDataError");
+        if (reverted) return null;
+        throw err;
+      }
     },
     async readOfferState({ lender, offerId, loanAddress }) {
       const [cancelled, used, balance, allowance] = await getClient().multicall({
@@ -134,16 +155,21 @@ export async function checkOfferSignature(offer, signature, loanAddress, reads) 
     primaryType: "LoanOffer",
     message: offerToMessage(offer),
   });
-  const code = await reads.getCode(offer.lender);
+  return checkDigestSignature(offer.lender, digest, signature, reads);
+}
+
+/** The signer rule above, for any digest: the loan request book (loanRequests.js) uses it too. */
+export async function checkDigestSignature(signer, digest, signature, reads) {
+  const code = await reads.getCode(signer);
   if (code && code !== "0x") {
     try {
-      return (await reads.isValidSignature(offer.lender, digest, signature)) === MAGICVALUE_1271;
+      return (await reads.isValidSignature(signer, digest, signature)) === MAGICVALUE_1271;
     } catch {
       return false;
     }
   }
   try {
-    return sameAddress(await recoverAddress({ hash: digest, signature }), offer.lender);
+    return sameAddress(await recoverAddress({ hash: digest, signature }), signer);
   } catch {
     return false;
   }

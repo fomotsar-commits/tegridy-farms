@@ -15,9 +15,12 @@
  * Anvil-mode: drives a borrow → repay cycle against the fork. See swap.spec.ts for why
  * the anvil gate lives INSIDE the test that needs it.
  */
+import { encodeFunctionData, keccak256, parseAbi, parseEther, toBytes } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect, seededGondiOffer, anvilRpc } from './fixtures/wallet';
 import { installLoanBook } from './fixtures/loanBook';
 import { GONDI_LOAN_ADDRESS, ZERO_ADDRESS } from '../src/lib/gondi/loanOffer.js';
+import { LOAN_REQUEST_TYPES, requestDomain, requestToMessage, type LoanRequestJson } from '../src/lib/gondi/loanRequest.js';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 const lendingLive = GONDI_LOAN_ADDRESS.toLowerCase() !== ZERO_ADDRESS;
@@ -150,5 +153,77 @@ test.describe('NFT lending surface', () => {
       'latest',
     ])) as string;
     expect(`0x${back.slice(-40)}`.toLowerCase(), 'the repay confirmed but the NFT did not come back').toBe(account.toLowerCase());
+  });
+
+  test("a borrower's request reaches the Lend tab, and \"Offer this\" fills the offer (Anvil only)", async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    test.skip(!lendingLive, NOT_LIVE);
+    test.setTimeout(120_000);
+
+    // A request is a signature, and the wallet mock cannot sign typed data for an impersonated
+    // account, so the borrower is a key, and one Nakamigos is moved into its wallet on the fork.
+    // The book then checks the signature and reads the holder on the fork, as it does on mainnet.
+    // Ids 19,500 up: clear of the seeded offers' collateral (COLLATERAL_ID_BASE, wallet.ts).
+    const borrower = privateKeyToAccount(keccak256(toBytes('tegridy e2e loan request borrower')));
+    const tokenId = BigInt(19_500 + (process.pid % 400));
+    const erc721 = parseAbi(['function ownerOf(uint256) view returns (address)', 'function transferFrom(address,address,uint256)']);
+    const ownerOf = async () => {
+      const raw = (await anvilRpc('eth_call', [
+        { to: NAKAMIGOS, data: encodeFunctionData({ abi: erc721, functionName: 'ownerOf', args: [tokenId] }) },
+        'latest',
+      ])) as string;
+      return `0x${raw.slice(-40)}`.toLowerCase();
+    };
+    expect(await anvilRpc('eth_getCode', [borrower.address, 'latest']), 'the borrower key has code on this fork').toBe('0x');
+    const holder = await ownerOf();
+    expect(holder, `Nakamigos #${tokenId} is live collateral: pick another id`).not.toBe(GONDI_LOAN_ADDRESS.toLowerCase());
+    if (holder !== borrower.address.toLowerCase()) {
+      await anvilRpc('anvil_setBalance', [holder, '0x8ac7230489e80000']);
+      await anvilRpc('anvil_impersonateAccount', [holder]);
+      await anvilRpc('eth_sendTransaction', [
+        {
+          from: holder,
+          to: NAKAMIGOS,
+          data: encodeFunctionData({ abi: erc721, functionName: 'transferFrom', args: [holder as `0x${string}`, borrower.address, tokenId] }),
+        },
+      ]);
+      await anvilRpc('anvil_stopImpersonatingAccount', [holder]);
+      await expect.poll(ownerOf, { message: 'the Nakamigos never reached the borrower on the fork', timeout: 20_000 }).toBe(borrower.address.toLowerCase());
+    }
+
+    const book = await installLoanBook(page, process.env.ANVIL_RPC_URL!);
+    const request: LoanRequestJson = {
+      borrower: borrower.address,
+      nftCollateralAddress: NAKAMIGOS,
+      nftCollateralTokenId: tokenId.toString(),
+      principalAmount: parseEther('0.05').toString(),
+      maxAprBps: '3000',
+      duration: String(14 * 86_400),
+      expirationTime: String(Math.floor(Date.now() / 1000) + 3 * 86_400),
+      nonce: String(Date.now()),
+    };
+    const signature = await borrower.signTypedData({
+      domain: requestDomain(),
+      types: LOAN_REQUEST_TYPES as unknown as Record<string, { name: string; type: string }[]>,
+      primaryType: 'LoanRequest',
+      message: requestToMessage(request) as unknown as Record<string, unknown>,
+    });
+    const posted = await book.ask(request, signature);
+    expect(posted.status, `the request book refused the request: ${JSON.stringify(posted.json)}`).toBe(201);
+
+    const lender = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(lender);
+    await page.goto('/nft-finance');
+    await page.getByRole('tab', { name: /NFT Lending/i }).first().click();
+    await page.getByRole('button', { name: /Nakamigos/ }).first().click();
+
+    const asking = page.getByTestId('borrower-requests');
+    await expect(asking, 'the request never showed under "Borrowers asking".').toBeVisible({ timeout: 30_000 });
+    await expect(asking.getByText(`NAKA #${tokenId}`)).toBeVisible();
+    await asking.getByRole('button', { name: `Offer on NAKA #${tokenId}` }).click();
+    await expect(page.getByRole('button', { name: 'One specific NFT' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('spinbutton', { name: 'Token ID' })).toHaveValue(tokenId.toString());
+    await expect(page.getByRole('spinbutton', { name: 'Loan amount (WETH)' })).toHaveValue('0.05');
+    await expect(page.getByRole('spinbutton', { name: 'APR (%)' })).toHaveValue('30');
   });
 });
