@@ -86,6 +86,7 @@ pub mod config_fields {
     pub const PROTOCOL_OWNER: Field = field("protocol_owner", 44, 32);
     pub const FUND_OWNER: Field = field("fund_owner", 76, 32);
     pub const CREATOR_FEE_RATE: Field = field("creator_fee_rate", 108, 8);
+    pub const SWAP_GUARD: Field = field("swap_guard", 116, 8);
 
     /// Every `AmmConfig` field this crate reads.
     pub const ALL: &[Field] = &[
@@ -95,6 +96,7 @@ pub mod config_fields {
         PROTOCOL_OWNER,
         FUND_OWNER,
         CREATOR_FEE_RATE,
+        SWAP_GUARD,
     ];
 }
 
@@ -130,6 +132,9 @@ pub struct AmmConfig {
     pub protocol_owner: Pubkey,
     pub fund_owner: Pubkey,
     pub creator_fee_rate: u64,
+    /// The tier's swap guard: 1 refuses a swap another program calls, which is how Jupiter
+    /// calls every swap it routes (`refuses_swap` in the program's states/config.rs).
+    pub swap_guard: u64,
 }
 
 /// pool.rs `PoolStatusBitIndex::Swap`: a SET bit disables swaps.
@@ -186,6 +191,7 @@ impl AmmConfig {
             protocol_owner: pubkey_at(data, PROTOCOL_OWNER)?,
             fund_owner: pubkey_at(data, FUND_OWNER)?,
             creator_fee_rate: u64_at(data, CREATOR_FEE_RATE)?,
+            swap_guard: u64_at(data, SWAP_GUARD)?,
         })
     }
 }

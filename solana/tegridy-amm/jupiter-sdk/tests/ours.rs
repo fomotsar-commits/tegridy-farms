@@ -210,6 +210,30 @@ fn a_fee_tier_paying_anyone_else_is_refused() {
     }
 }
 
+/// `update` refuses a fee tier whose swap guard is on: Jupiter calls every swap from its own
+/// program, which such a tier refuses, so a quote would fail every route. Off, as the snapshot
+/// was taken, it updates.
+#[test]
+fn a_fee_tier_with_its_swap_guard_on_is_refused() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let f = config_fields::SWAP_GUARD;
+    let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
+    let config = accounts.get(&pool.amm_config).unwrap();
+    assert_eq!(&config.data[f.offset..f.offset + f.size], &[0u8; 8], "the snapshot's guard is off");
+    assert!(common::amm_from(&snapshot, &pool_key, &accounts).is_ok(), "the snapshot as taken updates");
+    let config = accounts.get_mut(&pool.amm_config).unwrap();
+    config.data[f.offset..f.offset + f.size].copy_from_slice(&1u64.to_le_bytes());
+    let refused = common::amm_from(&snapshot, &pool_key, &accounts)
+        .err()
+        .map(|e| e.to_string());
+    assert_eq!(
+        refused.as_deref(),
+        Some("fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are"),
+    );
+}
+
 /// A pool account another program owns is not built, whatever its bytes say.
 #[test]
 fn a_pool_owned_by_another_program_is_refused() {

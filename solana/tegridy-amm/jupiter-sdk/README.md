@@ -34,7 +34,7 @@ cargo test
 | `tests/parity.rs` | Jupiter's test kit: each quote equals what the deployed program pays when it runs the swap in LiteSVM. Both BAYLA pools, both directions, 12 swaps. |
 | `tests/fee_paths.rs` | The same check on copies of the BAYLA/SOL snapshot with a creator fee (each way it can be charged), a fund fee, and fees booked to both. The live pools charge neither, so `parity.rs` never runs those paths. |
 | `tests/quote_vectors.rs` | 31 fixed swaps and 12 on the live snapshots (`tests/fixtures/quote_vectors.json`). The site's own quote must give the same numbers: `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Two of the fixed swaps are what the deployed program paid in `fee_paths.rs`. |
-| `tests/ours.rs` | Every key in the SDK's source is the venue's or a token program's; the live fee tiers pay only the venue's vault; a swap touches only the pool, the trader and ours. |
+| `tests/ours.rs` | Every key in the SDK's source is the venue's or a token program's; the live fee tiers pay only the venue's vault; a tier with its swap guard on gets no quote; a swap touches only the pool, the trader and ours. |
 | `tests/refusals.rs` | No quote for a transfer-fee token, ExactOut, a pair the pool does not hold, or token accounts that are not the pool's. |
 | `tests/layout.rs` | Every byte offset read here is recomputed from the program's source. It reads `../programs/cp-swap`, so it runs inside this repository. |
 
@@ -56,6 +56,10 @@ pin its hash in `tests/parity.rs`. New snapshots change the live numbers in
 - A pool where either token charges a Token-2022 transfer fee: refused. The program takes that
   fee on both legs of a swap and this SDK would rather give no quote than a wrong one. The site
   does not open or add to such pools either.
+- A pool on a fee tier whose swap guard is on: refused. Jupiter calls every swap it routes from
+  its own program, and such a tier refuses a swap another program calls (6015 `SwapNotDirect`,
+  `refuses_swap` in the program's `states/config.rs`), so every route would fail. Both live
+  tiers have had the guard on since 2026-11-14 (Squads proposal #33).
 
 ## Dependencies
 

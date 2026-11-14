@@ -176,6 +176,11 @@ impl Amm for MemeticsAmm {
         if config.protocol_owner != VENUE_VAULT || config.fund_owner != VENUE_VAULT {
             return Err("fee tier names a fee collector that is not the venue's vault".into());
         }
+        // Jupiter calls every swap from its own program, and a tier with its swap guard on
+        // refuses that (6015 SwapNotDirect): a quote for it would fail every route.
+        if config.swap_guard != 0 {
+            return Err("fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are".into());
+        }
 
         let vault_0 = Self::vault_amount(
             &account_provider,
