@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.
 - Pools, Range: each of your range positions shows its fees and rewards earned, as of the chain's clock, and Collect (it was "Claim fees") pays both in one transaction. Whoever starts a reward pays for all of it up front, and the venue takes no cut. No range pool runs a reward yet.
 - Solana pools: the Risks lists before you add liquidity or open a pool now say that the team's vault waits 48 hours after both its keys approve, as read on chain on 2026-11-14, and that switching something off waits too.
 - NFT lending: a borrower can ask for a loan. On Borrow, "Ask for a loan" takes the NFT you hold, the WETH you want, the highest APR you will pay and the loan length, and you sign it for free: it locks nothing and approves nothing. Lenders see it on Lend under "Borrowers asking", and "Offer this" fills the offer form for that NFT. Your requests show whether an offer matches, and Withdraw takes one down. Lenders earn the interest and the venue 5% of it only if a loan follows. The card shows once the request book is switched on.
