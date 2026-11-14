@@ -11,25 +11,25 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, sample
 
   return (
     <div style={{
-      background: "rgba(111,168,220,0.03)", border: "1px solid rgba(111,168,220,0.08)",
-      borderRadius: 10, padding: "14px 16px", marginBottom: 16,
+      background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 6, padding: "14px 16px", marginBottom: 16,
     }}>
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         marginBottom: 10,
       }}>
         <div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.08em" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.08em" }}>
             TRAIT OFFERS
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
             {matchCount != null ? `${matchCount}${sampled ? " loaded" : ""} NFTs have this trait` : "Trait offers"}
           </div>
         </div>
         <button
           onClick={() => onMakeOffer({ key: traitKey, value: traitValue })}
           className="btn-primary"
-          style={{ fontSize: 12, padding: "10px 16px", minHeight: 44 }}
+          style={{ fontSize: 13, padding: "10px 16px", minHeight: 44 }}
         >
           {wallet ? "Bid on Trait" : "Connect & Bid"}
         </button>
@@ -37,20 +37,20 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, sample
 
       {loading ? (
         <div style={{ padding: "8px 0" }}>
-          <div className="skeleton" style={{ height: 36, borderRadius: 8 }} />
+          <div className="skeleton" style={{ height: 36, borderRadius: 4 }} />
         </div>
       ) : bestPrice ? (
         <div style={{
           display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
         }}>
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>BEST OFFER</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>BEST OFFER</div>
             <div style={{ fontFamily: "var(--display)", fontSize: 16, fontWeight: 600, color: "var(--gold)", marginTop: 2 }}>
               <Eth size={11} /> {Number.isFinite(bestPrice) ? bestPrice.toFixed(4) : "—"}
             </div>
           </div>
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>TOTAL OFFERS</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>TOTAL OFFERS</div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 14, color: "var(--text)", marginTop: 2 }}>
               {offerCount}
             </div>

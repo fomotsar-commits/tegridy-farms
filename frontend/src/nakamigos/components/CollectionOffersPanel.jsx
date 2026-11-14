@@ -41,18 +41,18 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
 
   return (
     <div style={{
-      background: "rgba(111,168,220,0.02)", border: "1px solid rgba(111,168,220,0.08)",
-      borderRadius: 12, padding: "20px", marginBottom: 24,
+      background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 6, padding: "20px", marginBottom: 24,
     }}>
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         marginBottom: 16,
       }}>
         <div>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
             OFFERS & BIDS
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
             Active collection and trait offers from buyers
           </div>
         </div>
@@ -60,7 +60,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
           <button
             onClick={() => setShowOfferModal("collection")}
             className="btn-primary"
-            style={{ fontSize: 10, padding: "8px 14px" }}
+            style={{ fontSize: 11, padding: "8px 14px" }}
           >
             {wallet ? "Collection Offer" : "Connect & Offer"}
           </button>
@@ -70,7 +70,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
           {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 44, borderRadius: 10, animationDelay: `${i * 60}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 44, borderRadius: 6, animationDelay: `${i * 60}ms` }} />
           ))}
         </div>
       ) : (
@@ -78,7 +78,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
           {/* Collection Offers */}
           <div>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               letterSpacing: "0.08em", marginBottom: 10, paddingLeft: 2,
             }}>
               COLLECTION OFFERS ({pureCollectionOffers.length})
@@ -86,16 +86,16 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
 
             {bestCollectionOffer && (
               <div style={{
-                background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.1)",
-                borderRadius: 8, padding: "10px 14px", marginBottom: 8,
+                background: "rgba(47,217,139,0.04)", border: "1px solid rgba(47,217,139,0.1)",
+                borderRadius: 4, padding: "10px 14px", marginBottom: 8,
               }}>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.06em" }}>
                   BEST COLLECTION OFFER
                 </div>
                 <div style={{ fontFamily: "var(--display)", fontSize: 20, fontWeight: 600, color: "var(--text)", marginTop: 4 }}>
                   <Eth size={13} /> {bestCollectionOffer.price != null && Number.isFinite(bestCollectionOffer.price) ? bestCollectionOffer.price.toFixed(4) : "—"}
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
                   {bestCollectionOffer.maker ? `by ${bestCollectionOffer.maker.slice(0, 6)}...${bestCollectionOffer.maker.slice(-4)}` : ""}
                 </div>
               </div>
@@ -110,10 +110,10 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
                     display: "flex", justifyContent: "space-between", alignItems: "center",
                     padding: "6px 8px", borderBottom: "1px solid var(--border)",
                   }}>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>
                       <Eth size={10} /> {offer.price?.toFixed(4) || "—"}
                     </div>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                       {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
                     </div>
                   </div>
@@ -125,7 +125,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
           {/* Trait Offers */}
           <div>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               letterSpacing: "0.08em", marginBottom: 10, paddingLeft: 2,
             }}>
               TRAIT OFFERS ({traitOfferList.length})
@@ -146,14 +146,14 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
                     onClick={() => setShowOfferModal({ key: to.traitType, value: to.traitValue })}
                   >
                     <div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text)" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>
                         {to.traitType}: {to.traitValue}
                       </div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                         {to.count} offer{to.count !== 1 ? "s" : ""}
                       </div>
                     </div>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)" }}>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)" }}>
                       <Eth size={10} /> {to.price?.toFixed(4) ?? "\u2014"}
                     </div>
                   </div>

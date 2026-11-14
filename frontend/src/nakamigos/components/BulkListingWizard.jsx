@@ -56,7 +56,7 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
           SELECT NFTS ({selected.size} selected)
         </span>
         <button
@@ -64,7 +64,7 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
           disabled={isSubmitting}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", textDecoration: "underline",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", textDecoration: "underline",
           }}
         >
           {selected.size === unlisted.length ? "Deselect All" : "Select All"}
@@ -72,14 +72,14 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
       </div>
 
       {unlisted.length === 0 ? (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>
           All NFTs are already listed.
         </div>
       ) : (
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
           gap: 8, maxHeight: 280, overflowY: "auto",
-          background: "rgba(0,0,0,0.15)", borderRadius: 10, padding: 10,
+          background: "rgba(0,0,0,0.15)", borderRadius: 6, padding: 10,
           border: "1px solid var(--border)",
         }}>
           {unlisted.map((nft) => {
@@ -90,25 +90,25 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
                 onClick={() => !isSubmitting && toggle(nft.id)}
                 style={{
                   position: "relative", cursor: isSubmitting ? "wait" : "pointer",
-                  borderRadius: 8, overflow: "hidden",
+                  borderRadius: 4, overflow: "hidden",
                   border: sel ? "2px solid var(--naka-blue)" : "2px solid transparent",
                   opacity: isSubmitting ? 0.6 : 1, transition: "border-color 0.15s",
                 }}
               >
                 <NftImage nft={nft} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
                 <div style={{
-                  position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 4,
-                  background: sel ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
+                  position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 3,
+                  background: sel ? "var(--accent)" : "rgba(0,0,0,0.5)",
                   border: sel ? "none" : "1px solid var(--border)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 11, color: "#fff", fontWeight: 700,
+                  fontSize: 12, color: "var(--on-accent)", fontWeight: 700,
                 }}>
                   {sel ? "\u2713" : ""}
                 </div>
                 <div style={{
                   position: "absolute", bottom: 0, left: 0, right: 0,
                   background: "rgba(0,0,0,0.65)", padding: "2px 4px",
-                  fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                   textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                 }}>
                   #{nft.id}
@@ -182,11 +182,11 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
     <>
       {/* Pricing mode selector */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
           PRICING STRATEGY
         </div>
         {!floorKnown && (
-          <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)", marginBottom: 8, lineHeight: 1.5 }}>
+          <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow)", marginBottom: 8, lineHeight: 1.5 }}>
             Floor unavailable: no floor price is known for this collection right now, so Floor and Trait pricing are off. Set a price range or enter each price.
           </div>
         )}
@@ -197,17 +197,17 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               onClick={() => setPricingMode(m.value)}
               disabled={!floorKnown && FLOOR_MODES.has(m.value)}
               style={{
-                flex: 1, minWidth: 90, padding: "12px 12px", borderRadius: 8,
+                flex: 1, minWidth: 90, padding: "12px 12px", borderRadius: 4,
                 cursor: !floorKnown && FLOOR_MODES.has(m.value) ? "not-allowed" : "pointer",
                 opacity: !floorKnown && FLOOR_MODES.has(m.value) ? 0.45 : 1,
                 border: pricingMode === m.value ? "1px solid var(--naka-blue)" : "1px solid var(--border)",
-                background: pricingMode === m.value ? "rgba(111,168,220,0.1)" : "rgba(0,0,0,0.2)",
+                background: pricingMode === m.value ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.2)",
                 color: pricingMode === m.value ? "var(--naka-blue)" : "var(--text-dim)",
                 textAlign: "left",
               }}
             >
-              <div style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600 }}>{m.label}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, marginTop: 2, opacity: 0.7 }}>{m.desc}</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600 }}>{m.label}</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, marginTop: 2, opacity: 0.7 }}>{m.desc}</div>
             </button>
           ))}
         </div>
@@ -217,8 +217,8 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
       {(pricingMode === "floor" || pricingMode === "trait") && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>MULTIPLIER</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)", fontWeight: 600 }}>{multiplier.toFixed(2)}x</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>MULTIPLIER</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--naka-blue)", fontWeight: 600 }}>{multiplier.toFixed(2)}x</span>
           </div>
           <input
             type="range"
@@ -231,8 +231,8 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
             style={{ width: "100%", accentColor: "var(--naka-blue)" }}
           />
           <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>0.95x</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>1.50x</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>0.95x</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>1.50x</span>
           </div>
         </div>
       )}
@@ -241,12 +241,12 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
       {pricingMode === "ladder" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div>
-            <label htmlFor="ladder-start-price" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="ladder-start-price" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
               RAREST ITEM PRICE (ETH)
             </label>
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
-              background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px",
+              background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 10px",
             }}>
               <Eth size={12} />
               <input
@@ -258,12 +258,12 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
             </div>
           </div>
           <div>
-            <label htmlFor="ladder-end-price" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="ladder-end-price" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
               MOST COMMON ITEM PRICE (ETH)
             </label>
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
-              background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px",
+              background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 10px",
             }}>
               <Eth size={12} />
               <input
@@ -274,7 +274,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               />
             </div>
           </div>
-          <div style={{ gridColumn: "1 / -1", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: -4 }}>
+          <div style={{ gridColumn: "1 / -1", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: -4 }}>
             Prices are distributed by rarity: the rarest selected item lists at the first price, the most common at the second.
           </div>
         </div>
@@ -283,16 +283,16 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
       {/* Per-item price table */}
       <div style={{
         maxHeight: 240, overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch",
-        border: "1px solid var(--border)", borderRadius: 10,
+        border: "1px solid var(--border)", borderRadius: 6,
         background: "rgba(0,0,0,0.15)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "left", letterSpacing: "0.06em" }}>NFT</th>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right", letterSpacing: "0.06em" }}>RANK</th>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 6px", textAlign: "right", letterSpacing: "0.06em" }}>PRICE (ETH)</th>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right", letterSpacing: "0.06em" }}>REVENUE</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "left", letterSpacing: "0.06em" }}>NFT</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right", letterSpacing: "0.06em" }}>RANK</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 6px", textAlign: "right", letterSpacing: "0.06em" }}>PRICE (ETH)</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right", letterSpacing: "0.06em" }}>REVENUE</th>
             </tr>
           </thead>
           <tbody>
@@ -303,10 +303,10 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               return (
                 <tr key={nft.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                   <td style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 8 }}>
-                    <NftImage nft={nft} style={{ width: 28, height: 28, borderRadius: 4, objectFit: "cover" }} />
-                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>#{nft.id}</span>
+                    <NftImage nft={nft} style={{ width: 28, height: 28, borderRadius: 3, objectFit: "cover" }} />
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>#{nft.id}</span>
                   </td>
-                  <td style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "6px 10px", textAlign: "right" }}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "6px 10px", textAlign: "right" }}>
                     {nft.rank ? `#${nft.rank}` : "\u2014"}
                   </td>
                   <td style={{ padding: "6px 6px", textAlign: "right" }}>
@@ -317,14 +317,14 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
                       value={priceOverrides[nft.id] ?? ""}
                       onChange={(e) => setPriceOverrides((prev) => ({ ...prev, [nft.id]: e.target.value }))}
                       style={{
-                        width: "100%", maxWidth: 90, minWidth: 60, background: hasOverride ? "rgba(111,168,220,0.08)" : "transparent",
+                        width: "100%", maxWidth: 90, minWidth: 60, background: hasOverride ? "rgba(255,255,255,0.056)" : "transparent",
                         border: hasOverride ? "1px solid var(--naka-blue)" : "1px solid var(--border)",
-                        borderRadius: 4, padding: "4px 6px", textAlign: "right",
-                        fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", outline: "none",
+                        borderRadius: 3, padding: "4px 6px", textAlign: "right",
+                        fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", outline: "none",
                       }}
                     />
                   </td>
-                  <td style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", padding: "6px 10px", textAlign: "right" }}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", padding: "6px 10px", textAlign: "right" }}>
                     {revenue > 0 ? revenue.toFixed(4) : "\u2014"}
                   </td>
                 </tr>
@@ -336,7 +336,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
 
       {/* Listing duration */}
       <div style={{ marginTop: 16 }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
           LISTING DURATION
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -345,10 +345,10 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               key={opt.hours}
               onClick={() => setDuration(opt.hours)}
               style={{
-                padding: "12px 16px", borderRadius: 8, cursor: "pointer",
-                fontFamily: "var(--mono)", fontSize: 12, minHeight: 44,
+                padding: "12px 16px", borderRadius: 4, cursor: "pointer",
+                fontFamily: "var(--mono)", fontSize: 13, minHeight: 44,
                 border: duration === opt.hours ? "1px solid var(--naka-blue)" : "1px solid var(--border)",
-                background: duration === opt.hours ? "rgba(111,168,220,0.1)" : "rgba(0,0,0,0.2)",
+                background: duration === opt.hours ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.2)",
                 color: duration === opt.hours ? "var(--naka-blue)" : "var(--text-dim)",
               }}
             >
@@ -361,10 +361,10 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
       {/* Total revenue */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        marginTop: 12, padding: "10px 12px", borderRadius: 8,
-        background: "rgba(46,204,113,0.06)", border: "1px solid rgba(46,204,113,0.15)",
+        marginTop: 12, padding: "10px 12px", borderRadius: 4,
+        background: "rgba(47,217,139,0.06)", border: "1px solid rgba(47,217,139,0.15)",
       }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>TOTAL EST. REVENUE</span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>TOTAL EST. REVENUE</span>
         <span style={{ fontFamily: "var(--mono)", fontSize: 14, color: "var(--green)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
           <Eth size={12} /> {formatPrice(totalRevenue)}
         </span>
@@ -391,15 +391,15 @@ function StepReview({ selectedNfts, getPrice, duration }) {
     <>
       <div style={{
         maxHeight: 200, overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch",
-        border: "1px solid var(--border)", borderRadius: 10,
+        border: "1px solid var(--border)", borderRadius: 6,
         background: "rgba(0,0,0,0.15)", marginBottom: 16,
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "left" }}>NFT</th>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right" }}>PRICE</th>
-              <th style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right" }}>REVENUE</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "left" }}>NFT</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right" }}>PRICE</th>
+              <th style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", padding: "8px 10px", textAlign: "right" }}>REVENUE</th>
             </tr>
           </thead>
           <tbody>
@@ -409,13 +409,13 @@ function StepReview({ selectedNfts, getPrice, duration }) {
               return (
                 <tr key={nft.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                   <td style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 8 }}>
-                    <NftImage nft={nft} style={{ width: 24, height: 24, borderRadius: 4, objectFit: "cover" }} />
-                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>#{nft.id}</span>
+                    <NftImage nft={nft} style={{ width: 24, height: 24, borderRadius: 3, objectFit: "cover" }} />
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>#{nft.id}</span>
                   </td>
-                  <td style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", padding: "6px 10px", textAlign: "right" }}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", padding: "6px 10px", textAlign: "right" }}>
                     {formatPrice(p)}
                   </td>
-                  <td style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", padding: "6px 10px", textAlign: "right" }}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)", padding: "6px 10px", textAlign: "right" }}>
                     {formatPrice(revenue)}
                   </td>
                 </tr>
@@ -427,37 +427,37 @@ function StepReview({ selectedNfts, getPrice, duration }) {
 
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 12px", border: "1px solid var(--border)" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>MARKETPLACE</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", marginTop: 4 }}>Native Orderbook</div>
+        <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 4, padding: "10px 12px", border: "1px solid var(--border)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>MARKETPLACE</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", marginTop: 4 }}>Native Orderbook</div>
         </div>
-        <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 12px", border: "1px solid var(--border)" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>DURATION</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", marginTop: 4 }}>{durationLabel}</div>
+        <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 4, padding: "10px 12px", border: "1px solid var(--border)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>DURATION</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", marginTop: 4 }}>{durationLabel}</div>
         </div>
       </div>
 
       {/* Fee breakdown */}
       <div style={{
-        background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.1)",
-        borderRadius: 8, padding: "12px 14px", marginBottom: 16,
+        background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
+        borderRadius: 4, padding: "12px 14px", marginBottom: 16,
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>Total list price</span>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text)" }}>{formatPrice(totalPrice)} ETH</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>Total list price</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>{formatPrice(totalPrice)} ETH</span>
         </div>
         {HAS_PLATFORM_FEE && (
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>Platform fee ({PLATFORM_FEE_BPS / 100}%)</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>-{formatPrice(totalPlatformFee)} ETH</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>Platform fee ({PLATFORM_FEE_BPS / 100}%)</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>-{formatPrice(totalPlatformFee)} ETH</span>
           </div>
         )}
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 6, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", fontWeight: 600 }}>You receive</span>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", fontWeight: 600 }}>{formatPrice(totalRevenue)} ETH</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)", fontWeight: 600 }}>You receive</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)", fontWeight: 600 }}>{formatPrice(totalRevenue)} ETH</span>
         </div>
         {HAS_PLATFORM_FEE && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
             One flat {PLATFORM_FEE_BPS / 100}% fee, routed to the Tegridy treasury. Listings fill on-chain via Seaport.
           </div>
         )}
@@ -669,7 +669,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--card)", border: "1px solid var(--border)",
-          borderRadius: 14, maxWidth: 620, width: "94%", margin: "auto",
+          borderRadius: 6, maxWidth: 620, width: "94%", margin: "auto",
           padding: "28px 20px", position: "relative",
           maxHeight: "85vh", overflowY: "auto",
         }}
@@ -684,7 +684,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
 
         {/* Type label */}
         <div style={{
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)",
+          fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold)",
           letterSpacing: "0.1em", marginBottom: 6,
         }}>
           BULK LISTING
@@ -708,9 +708,9 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                   style={{
                     width: 32, height: 32, borderRadius: "50%",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontFamily: "var(--mono)", fontWeight: 600,
+                    fontSize: 12, fontFamily: "var(--mono)", fontWeight: 600,
                     cursor: !submitting && i < step ? "pointer" : "default",
-                    background: i < step ? "var(--green)" : i === step ? "var(--naka-blue)" : "var(--border)",
+                    background: i < step ? "var(--green)" : i === step ? "var(--accent)" : "var(--border)",
                     color: i <= step ? "#fff" : "var(--text-dim)",
                     transition: "background 0.2s",
                   }}
@@ -728,7 +728,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
         {/* Step label */}
         {!done && !submitting && (
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
             letterSpacing: "0.06em", marginBottom: 14,
           }}>
             STEP {step + 1}: {STEP_LABELS[step]}
@@ -740,7 +740,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <div style={{
               width: 56, height: 56, borderRadius: "50%",
-              background: "rgba(46,204,113,0.12)", border: "2px solid var(--green)",
+              background: "rgba(47,217,139,0.12)", border: "2px solid var(--green)",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 16px",
             }}>
@@ -751,7 +751,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
             <div style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--green)", marginBottom: 8 }}>
               Listings Created!
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
               Your {collection.name} NFTs are now listed for sale.
             </div>
             <button className="btn-primary" style={{ marginTop: 20, width: "100%" }} onClick={onClose}>
@@ -762,7 +762,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
           /* Submission progress */
           <div style={{ padding: "20px 0" }}>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 12, color: "var(--naka-blue)",
+              fontFamily: "var(--mono)", fontSize: 13, color: "var(--naka-blue)",
               textAlign: "center", marginBottom: 16,
             }}>
               {submitLabel}
@@ -773,13 +773,13 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
             }}>
               <div style={{
                 height: "100%", borderRadius: 3,
-                background: "var(--naka-blue)",
+                background: "var(--accent)",
                 width: `${submitProgress}%`,
-                transition: "width 0.3s",
+                transition: "width 0.15s",
               }} />
             </div>
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               textAlign: "center", marginTop: 8,
             }}>
               {Math.round(submitProgress)}% complete
@@ -828,10 +828,10 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
             {/* Wrong network warning */}
             {wallet && isWrongNetwork && (
               <div role="alert" style={{
-                fontFamily: "var(--mono)", fontSize: 11, marginTop: 14,
-                padding: "10px 14px", borderRadius: 8,
-                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
-                color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+                fontFamily: "var(--mono)", fontSize: 12, marginTop: 14,
+                padding: "10px 14px", borderRadius: 4,
+                background: "rgba(255,92,92,0.08)", border: "1px solid rgba(255,92,92,0.2)",
+                color: "var(--red, #ff5c5c)", textAlign: "center", lineHeight: 1.5,
               }}>
                 Wrong network detected.{" "}
                 <button
@@ -839,7 +839,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                   style={{
                     background: "none", border: "none", cursor: "pointer",
                     color: "var(--naka-blue)", textDecoration: "underline",
-                    fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+                    fontFamily: "var(--mono)", fontSize: 12, padding: 0,
                   }}
                 >
                   Switch to Ethereum Mainnet
@@ -853,8 +853,8 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                 <button
                   onClick={() => setStep((s) => s - 1)}
                   style={{
-                    flex: 1, padding: "14px", borderRadius: 8, cursor: "pointer", minHeight: 44,
-                    fontFamily: "var(--mono)", fontSize: 12,
+                    flex: 1, padding: "14px", borderRadius: 4, cursor: "pointer", minHeight: 44,
+                    fontFamily: "var(--mono)", fontSize: 13,
                     background: "rgba(0,0,0,0.2)", border: "1px solid var(--border)",
                     color: "var(--text-dim)",
                   }}
@@ -869,7 +869,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                   onClick={() => setStep((s) => s + 1)}
                   disabled={!canNext}
                   aria-disabled={!canNext}
-                  style={{ flex: 2, textAlign: "center", fontSize: 12 }}
+                  style={{ flex: 2, textAlign: "center", fontSize: 13 }}
                 >
                   {step === 0
                     ? `Continue with ${selected.size} NFT${selected.size !== 1 ? "s" : ""}`
@@ -882,7 +882,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                   onClick={handleListAll}
                   disabled={!wallet || selectedNfts.length === 0 || isWrongNetwork}
                   aria-disabled={!wallet || selectedNfts.length === 0 || isWrongNetwork}
-                  style={{ flex: 2, textAlign: "center", fontSize: 12 }}
+                  style={{ flex: 2, textAlign: "center", fontSize: 13 }}
                 >
                   {!wallet
                     ? "Connect Wallet"

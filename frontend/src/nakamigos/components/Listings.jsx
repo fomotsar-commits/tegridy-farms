@@ -132,7 +132,7 @@ const ListingCard = memo(function ListingCard({
         {nft.marketplace && (
           <div style={{
             position: "absolute", top: 6, left: 6, padding: "2px 6px",
-            borderRadius: 4, fontSize: 9, fontFamily: "var(--mono)",
+            borderRadius: 3, fontSize: 11, fontFamily: "var(--mono)",
             background: "rgba(0,0,0,0.7)", color: "#fff", letterSpacing: "0.04em",
           }}>
             {nft.marketplace}
@@ -144,11 +144,11 @@ const ListingCard = memo(function ListingCard({
             onClick={handleSelect}
             style={{
               position: "absolute", top: 6, right: 6,
-              width: 20, height: 20, borderRadius: 4,
-              background: isSelected ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
+              width: 20, height: 20, borderRadius: 3,
+              background: isSelected ? "var(--accent)" : "rgba(0,0,0,0.5)",
               border: isSelected ? "none" : "1px solid rgba(255,255,255,0.2)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", fontSize: 12, color: "#fff", fontWeight: 700,
+              cursor: "pointer", fontSize: 13, color: "var(--on-accent)", fontWeight: 700,
               transition: "background 0.15s",
             }}
           >
@@ -170,20 +170,20 @@ const ListingCard = memo(function ListingCard({
         ) : nft.salePrice ? (
           <div className="listing-card-price" style={{ color: "var(--text-dim)" }}>
             <Eth size={12} /> {nft.salePrice.toFixed(4)}
-            <span style={{ fontSize: 9, color: "var(--text-dim)", marginLeft: 4 }}>sold</span>
+            <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 4 }}>sold</span>
             {nft.time && (
-              <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
                 {formatTimeAgo(nft.time)}
               </span>
             )}
           </div>
         ) : (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
             {floor != null ? `Floor: ${floor.toFixed(4)} ETH` : "View on marketplace"}
           </div>
         )}
         {bestOffer && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--naka-blue)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", marginTop: 2 }}>
             Best offer: <Eth size={8} /> {bestOffer.toFixed(4)}
           </div>
         )}
@@ -654,7 +654,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   // SUPPLY come from the collection stats endpoint rather than from `listings`,
   // so they are unaffected and carry no marker.
   const partialScopeNote = isNativeOnly && hasRealListings ? (
-    <span style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
+    <span style={{ fontSize: 11, color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
       native book only
     </span>
   ) : null;
@@ -687,7 +687,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           <div className="listings-stat-value" style={{ color: "var(--naka-blue)" }}>
             {hasRealListings ? listedNfts.length : "\u2014"}
             {listedPct && hasRealListings && (
-              <span style={{ fontSize: 11, color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
+              <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
                 ({listedPct}%)
               </span>
             )}
@@ -701,7 +701,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             <div className="listings-stat-label">MEDIAN / AVG</div>
             <div className="listings-stat-value" style={{ color: "var(--text)", fontSize: 18 }}>
               <Eth size={14} /> {priceStats.median.toFixed(4)}
-              <span style={{ fontSize: 11, color: "var(--text-dim)", fontWeight: 400, marginLeft: 4 }}>
+              <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 400, marginLeft: 4 }}>
                 / {priceStats.avg.toFixed(4)}
               </span>
               {partialScopeNote}
@@ -748,9 +748,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         <summary style={{
           cursor: "pointer", userSelect: "none", listStyle: "none",
           display: "flex", alignItems: "center", gap: 8, padding: "10px 14px",
-          background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.08)",
-          borderRadius: 10, marginBottom: 12,
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)",
+          background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
+          borderRadius: 6, marginBottom: 12,
+          fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)",
           letterSpacing: "0.1em",
         }}>
           <span style={{ transition: "transform 0.2s", display: "inline-block" }} className="details-arrow">&#9654;</span>
@@ -773,7 +773,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           <button
             onClick={() => setTraitOfferOpen(prev => !prev)}
             className="btn-primary"
-            style={{ fontSize: 10, padding: "8px 14px", whiteSpace: "nowrap" }}
+            style={{ fontSize: 11, padding: "8px 14px", whiteSpace: "nowrap" }}
           >
             Trait Offer
           </button>
@@ -781,11 +781,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             <div style={{
               position: "absolute", top: "100%", right: 0, marginTop: 6,
               background: "var(--card)", border: "1px solid var(--border)",
-              borderRadius: 10, padding: 14, minWidth: 220, zIndex: 50,
+              borderRadius: 6, padding: 14, minWidth: 220, zIndex: 50,
               boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
             }}>
               <div style={{
-                fontFamily: "var(--pixel)", fontSize: 9, color: "var(--text-dim)",
+                fontFamily: "var(--pixel)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.08em", marginBottom: 8,
               }}>
                 PICK A TRAIT
@@ -794,9 +794,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                 value={traitCategory}
                 onChange={(e) => { setTraitCategory(e.target.value); setTraitValue(""); }}
                 style={{
-                  width: "100%", fontFamily: "var(--mono)", fontSize: 11,
+                  width: "100%", fontFamily: "var(--mono)", fontSize: 12,
                   background: "var(--surface)", color: "var(--text)",
-                  border: "1px solid var(--border)", borderRadius: 6,
+                  border: "1px solid var(--border)", borderRadius: 4,
                   padding: "6px 8px", marginBottom: 8, cursor: "pointer", outline: "none",
                 }}
               >
@@ -810,9 +810,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                   value={traitValue}
                   onChange={(e) => setTraitValue(e.target.value)}
                   style={{
-                    width: "100%", fontFamily: "var(--mono)", fontSize: 11,
+                    width: "100%", fontFamily: "var(--mono)", fontSize: 12,
                     background: "var(--surface)", color: "var(--text)",
-                    border: "1px solid var(--border)", borderRadius: 6,
+                    border: "1px solid var(--border)", borderRadius: 4,
                     padding: "6px 8px", marginBottom: 10, cursor: "pointer", outline: "none",
                   }}
                 >
@@ -830,7 +830,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                 }}
                 className="btn-primary"
                 style={{
-                  width: "100%", fontSize: 10, padding: "7px 0", textAlign: "center",
+                  width: "100%", fontSize: 11, padding: "7px 0", textAlign: "center",
                   opacity: (!traitCategory || !traitValue) ? 0.4 : 1,
                 }}
               >
@@ -854,9 +854,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       {!hasRealListings && !hasRecentSales && (listingsLoading || activitiesLoading) && (
         <>
           <div style={{
-            padding: "12px 18px", borderRadius: 10, marginBottom: 20,
-            background: "rgba(111, 168, 220, 0.04)", border: "1px solid rgba(111, 168, 220, 0.08)",
-            fontFamily: "var(--mono)", fontSize: 11, color: "var(--naka-blue)",
+            padding: "12px 18px", borderRadius: 6, marginBottom: 20,
+            background: "rgba(255,255,255,0.028)", border: "1px solid rgba(255,255,255,0.09)",
+            fontFamily: "var(--mono)", fontSize: 12, color: "var(--naka-blue)",
             display: "flex", alignItems: "center", gap: 8,
           }}>
             <span className="pulse-dot" /> {listingsLoading ? "Fetching live listings from marketplaces..." : "Loading recent market activity..."}
@@ -878,9 +878,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       {/* Data source indicator — live listings */}
       {hasRealListings && (
         <div style={{
-          padding: "8px 14px", borderRadius: 8, marginBottom: 16,
-          background: "rgba(74, 222, 128, 0.04)", border: "1px solid rgba(74, 222, 128, 0.1)",
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)",
+          padding: "8px 14px", borderRadius: 4, marginBottom: 16,
+          background: "rgba(47,217,139,0.04)", border: "1px solid rgba(47,217,139,0.1)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)",
           display: "flex", alignItems: "center", gap: 6,
         }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
@@ -891,14 +891,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       {/* Fallback state — no active listings or API error (wait for activities too) */}
       {!listingsLoading && !activitiesLoading && !hasRealListings && (
         <div style={{
-          padding: "12px 18px", borderRadius: 10, marginBottom: 20,
+          padding: "12px 18px", borderRadius: 6, marginBottom: 20,
           background: listingsSource === "opensea"
-            ? "rgba(74, 222, 128, 0.04)"
-            : "rgba(111, 168, 220, 0.04)",
+            ? "rgba(47,217,139,0.04)"
+            : "rgba(255,255,255,0.028)",
           border: listingsSource === "opensea"
-            ? "1px solid rgba(74, 222, 128, 0.1)"
-            : "1px solid rgba(111, 168, 220, 0.08)",
-          fontFamily: "var(--mono)", fontSize: 11,
+            ? "1px solid rgba(47,217,139,0.1)"
+            : "1px solid rgba(255,255,255,0.056)",
+          fontFamily: "var(--mono)", fontSize: 12,
           color: listingsSource === "opensea" ? "var(--text-dim)" : "var(--naka-blue)",
           display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
         }}>
@@ -915,7 +915,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           </span>
           <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
             <a href={`https://opensea.io/collection/${osSlug}`} target="_blank" rel="noopener noreferrer"
-              style={{ color: "var(--naka-blue)", textDecoration: "underline", fontSize: 11 }}>
+              style={{ color: "var(--naka-blue)", textDecoration: "underline", fontSize: 12 }}>
               Browse on OpenSea
             </a>
           </span>
@@ -931,7 +931,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <label style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               letterSpacing: "0.08em",
             }}>
               SORT
@@ -940,9 +940,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
               style={{
-                fontFamily: "var(--mono)", fontSize: 11,
+                fontFamily: "var(--mono)", fontSize: 12,
                 background: "var(--surface)", color: "var(--text)",
-                border: "1px solid var(--border)", borderRadius: 8,
+                border: "1px solid var(--border)", borderRadius: 4,
                 padding: "6px 10px", cursor: "pointer",
                 outline: "none",
               }}
@@ -956,7 +956,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             display: "flex", alignItems: "center", gap: 6,
           }}>
             <label style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
               letterSpacing: "0.08em",
             }}>
               MAX PRICE
@@ -967,17 +967,17 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               value={maxPrice}
               onChange={e => setMaxPrice(e.target.value)}
               style={{
-                fontFamily: "var(--mono)", fontSize: 11, width: 90,
+                fontFamily: "var(--mono)", fontSize: 12, width: 90,
                 background: "var(--surface)", color: "var(--text)",
-                border: "1px solid var(--border)", borderRadius: 8,
+                border: "1px solid var(--border)", borderRadius: 4,
                 padding: "6px 10px", outline: "none",
               }}
             />
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>ETH</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>ETH</span>
           </div>
           {maxPrice && displayNfts.length !== listedNfts.length && (
             <span style={{
-              fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
             }}>
               Showing {displayNfts.length} of {listedNfts.length}
             </span>
@@ -1002,14 +1002,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               marginBottom: 12, paddingLeft: 2, flexWrap: "wrap", gap: 8,
             }}>
               <div style={{
-                fontFamily: "var(--pixel)", fontSize: 9, color: "var(--text-dim)",
+                fontFamily: "var(--pixel)", fontSize: 11, color: "var(--text-dim)",
                 letterSpacing: "0.08em",
               }}>
                 RECENT SALES ({displaySales.length})
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <label style={{
-                  fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
+                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
                   letterSpacing: "0.08em",
                 }}>
                   SORT
@@ -1018,9 +1018,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                   value={saleSortBy}
                   onChange={e => setSaleSortBy(e.target.value)}
                   style={{
-                    fontFamily: "var(--mono)", fontSize: 11,
+                    fontFamily: "var(--mono)", fontSize: 12,
                     background: "var(--surface)", color: "var(--text)",
-                    border: "1px solid var(--border)", borderRadius: 8,
+                    border: "1px solid var(--border)", borderRadius: 4,
                     padding: "6px 10px", cursor: "pointer", outline: "none",
                   }}
                 >
@@ -1036,7 +1036,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               "No Listings Available" needs a listings read that answered; an
               unread feed keeps only the unavailable notice above. */}
           {!listingsLoading && !activitiesLoading && !hasRealListings && !hasRecentSales && (activitiesEmpty || listingsRead) && (
-            <div className="empty-state" style={{ borderRadius: 16, background: "var(--surface-glass)", border: "1px solid var(--border)", backdropFilter: "var(--glass-blur)" }}>
+            <div className="empty-state" style={{ borderRadius: 8, background: "var(--surface-glass)", border: "1px solid var(--border)",}}>
               <div className="empty-state-icon">{"\uD83D\uDCC9"}</div>
               <div className="empty-state-title">
                 {activitiesEmpty ? "No Recent Sales" : "No Listings Available"}
@@ -1052,7 +1052,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-primary"
-                style={{ display: "inline-block", fontSize: 11, padding: "10px 24px", textDecoration: "none", marginTop: 20 }}
+                style={{ display: "inline-block", fontSize: 12, padding: "10px 24px", textDecoration: "none", marginTop: 20 }}
               >
                 View on OpenSea
               </a>
@@ -1086,7 +1086,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               <button
                 className="btn-secondary"
                 onClick={() => setVisibleCount((c) => c + LISTINGS_RENDER_CHUNK)}
-                style={{ fontSize: 11, padding: "10px 24px" }}
+                style={{ fontSize: 12, padding: "10px 24px" }}
               >
                 Show {Math.min(LISTINGS_RENDER_CHUNK, gridItems.length - visibleCount)} more ({visibleCount} of {gridItems.length})
               </button>
@@ -1105,19 +1105,19 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       {selectedIds.size > 0 && (
         <div className="batch-selection-bar" style={{
           position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
-          background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
+          background: "var(--surface-glass)",
           borderTop: "1px solid var(--border)",
           padding: "12px 24px",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 16,
         }}>
           <span style={{
-            fontFamily: "var(--pixel)", fontSize: 11, color: "var(--text)",
+            fontFamily: "var(--pixel)", fontSize: 12, color: "var(--text)",
             letterSpacing: "0.04em",
           }}>
             {visibleSelectedCount} selected
           </span>
           <span style={{
-            fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)",
+            fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)",
           }}>
             <Eth size={12} /> {selectionTotal.toFixed(4)} total
           </span>
@@ -1131,9 +1131,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               clearSelection();
             }}
             style={{
-              background: "var(--naka-blue)", color: "#fff", border: "none",
-              borderRadius: 8, padding: "8px 18px", cursor: "pointer",
-              fontFamily: "var(--pixel)", fontSize: 10, letterSpacing: "0.04em",
+              background: "var(--accent)", color: "var(--on-accent)", border: "none",
+              borderRadius: 4, padding: "8px 18px", cursor: "pointer",
+              fontFamily: "var(--pixel)", fontSize: 11, letterSpacing: "0.04em",
             }}
           >
             Add All to Cart
@@ -1142,8 +1142,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             onClick={clearSelection}
             style={{
               background: "transparent", color: "var(--text-dim)", border: "1px solid var(--border)",
-              borderRadius: 8, padding: "8px 14px", cursor: "pointer",
-              fontFamily: "var(--pixel)", fontSize: 10,
+              borderRadius: 4, padding: "8px 14px", cursor: "pointer",
+              fontFamily: "var(--pixel)", fontSize: 11,
             }}
           >
             Clear

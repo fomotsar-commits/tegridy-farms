@@ -41,7 +41,7 @@ function Chip({ color, children }) {
         padding: "3px 10px",
         borderRadius: 999,
         fontFamily: "var(--mono)",
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 700,
         letterSpacing: "0.04em",
         color,
@@ -60,19 +60,19 @@ function StatTile({ label, value, sub, color }) {
     <div
       style={{
         padding: "12px 14px",
-        borderRadius: 12,
+        borderRadius: 6,
         background: "var(--surface-glass)",
         border: "1px solid var(--border)",
       }}
     >
-      <div style={{ fontFamily: "var(--mono)", fontSize: 8, letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6 }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 6 }}>
         {label}
       </div>
       <div style={{ fontFamily: "var(--display)", fontSize: 20, fontWeight: 700, color: color || "var(--text)", lineHeight: 1.1 }}>
         {value}
       </div>
       {sub != null && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>
       )}
     </div>
   );
@@ -85,7 +85,7 @@ function Section({ title, subtitle, chip, children }) {
         <div>
           <h3 style={{ margin: 0 }}>{title}</h3>
           {subtitle && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{subtitle}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{subtitle}</div>
           )}
         </div>
         {chip}
@@ -97,7 +97,7 @@ function Section({ title, subtitle, chip, children }) {
 
 function SectionEmpty({ reason }) {
   return (
-    <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+    <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
       <div className="empty-state-icon">{"🔎"}</div>
       <div className="empty-state-title">Not enough data to measure</div>
       <div className="empty-state-text">{reason || "No on-chain data available for this window."}</div>
@@ -147,7 +147,7 @@ export function OwnershipPanel({ result, truncated }) {
 
       {/* Exclusions — show what was removed before the math */}
       {a.exclusions.buckets.some((b) => b.excluded) && (
-        <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+        <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
           Excluded before counting:{" "}
           {a.exclusions.buckets
             .filter((b) => b.excluded && b.count > 0)
@@ -156,32 +156,32 @@ export function OwnershipPanel({ result, truncated }) {
         </div>
       )}
       {a.holderCounts.unclassified > 0 && (
-        <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
+        <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
           {a.holderCounts.unclassified} large wallet(s) are unlabeled ({pct(a.exclusions.unclassifiedShareOfTotal)} of supply) — counted, but they lower confidence rather than being assumed hostile.
         </div>
       )}
 
       {/* Coordinated-cluster wallets, if any (clickable to profile) */}
       {clustered != null && clustered > 0 && (
-        <div style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+        <div style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
           Coordinated wallets are those linked by reciprocal trading in the sales window (see Wash-trade signals below).
         </div>
       )}
 
       {/* Confidence + caveats */}
-      <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+      <div style={{ marginTop: 14, padding: 12, borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.08em" }}>DATA CONFIDENCE</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.08em" }}>DATA CONFIDENCE</span>
           <Chip color={CONFIDENCE_COLOR[a.confidence.level]}>{a.confidence.level.toUpperCase()}</Chip>
         </div>
-        <ul style={{ margin: 0, paddingLeft: 16, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.6 }}>
+        <ul style={{ margin: 0, paddingLeft: 16, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
           {a.confidence.reasons.map((r, i) => (
             <li key={i}>{r}</li>
           ))}
           {truncated && <li>Owner list was paginated to a cap — a very large collection may be partially sampled.</li>}
         </ul>
       </div>
-      <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", lineHeight: 1.6 }}>
+      <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
         {a.caveats.map((c, i) => (
           <div key={i}>• {c}</div>
         ))}
@@ -224,13 +224,13 @@ function WashPanel({ result, capped, onViewProfile }) {
 
       {result.coordinatedClusters.clusters.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 8 }}>
             COORDINATED WALLET GROUPS (reciprocal trading in window)
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {result.coordinatedClusters.clusters.slice(0, 6).map((c, i) => (
-              <div key={i} style={{ padding: 10, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginBottom: 6 }}>
+              <div key={i} style={{ padding: 10, borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
                   {c.size} wallets · {c.saleCount} internal sales · <Eth size={9} />{num(c.volumeEth, 3)}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -240,7 +240,7 @@ function WashPanel({ result, capped, onViewProfile }) {
                       onClick={() => onViewProfile && onViewProfile(w)}
                       title={w}
                       style={{
-                        fontFamily: "var(--mono)", fontSize: 10, padding: "2px 8px", borderRadius: 6,
+                        fontFamily: "var(--mono)", fontSize: 11, padding: "2px 8px", borderRadius: 4,
                         border: "1px solid var(--border)", background: "var(--surface-glass)",
                         color: onViewProfile ? "var(--naka-blue)" : "var(--text-dim)",
                         cursor: onViewProfile ? "pointer" : "default",
@@ -256,7 +256,7 @@ function WashPanel({ result, capped, onViewProfile }) {
         </div>
       )}
 
-      <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", lineHeight: 1.6 }}>
+      <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <div>• "Suspect" = same-wallet sales plus sales inside a reciprocal wallet group. It excludes ordinary one-off trades and round-trips (shown separately as context).</div>
         <div>• A wallet appearing here is a description of an on-chain trading pattern, not proof of intent — groups can also be one person tidying their own inventory.</div>
       </div>
@@ -297,7 +297,7 @@ function FloorPanel({ result }) {
           )}
         </>
       )}
-      <div style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
+      <div style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
         {result.bandReason}
         {result.unattributedListings > 0 && (
           <> {" · "}{result.unattributedListings} listing(s) had no readable seller and were left out of the seller count.</>
@@ -410,7 +410,7 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
         <h2 style={{ fontFamily: "var(--display)", fontSize: 24, fontWeight: 800, margin: 0, color: "var(--text)" }}>
           Market Integrity
         </h2>
-        <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.6, marginTop: 8, maxWidth: 720 }}>
+        <p style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6, marginTop: 8, maxWidth: 720 }}>
           A descriptive, point-in-time measurement of on-chain manipulation signals for {collection.name}:
           self-dealing / wash trades, floor concentration, and coordinated ownership. It reports what the
           chain shows with the method and exclusions disclosed — it is <strong>not an accusation</strong> and
@@ -422,15 +422,15 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
       {data && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
           <Chip color={CONFIDENCE_COLOR[data.dataConfidence.level]}>DATA {data.dataConfidence.level.toUpperCase()}</Chip>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>{data.method.version}</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>{data.method.version}</span>
           {observedLabel && (
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>measured {observedLabel}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>measured {observedLabel}</span>
           )}
           <button
             onClick={remeasure}
             disabled={loading}
             style={{
-              marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 10, padding: "4px 12px", borderRadius: 8,
+              marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 11, padding: "4px 12px", borderRadius: 4,
               border: "1px solid var(--border)", background: "var(--surface-glass)", color: "var(--text)",
               cursor: loading ? "wait" : "pointer", opacity: loading ? 0.6 : 1,
             }}
@@ -440,12 +440,12 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
         </div>
       )}
       {data && data.dataConfidence.gaps.length > 0 && (
-        <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+        <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
           Coverage gaps: {data.dataConfidence.gaps.join(" · ")}
         </div>
       )}
       {data && (meta.salesUnavailable || meta.ownersUnavailable || meta.listingsUnavailable) && (
-        <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--yellow)" }}>
+        <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow)" }}>
           {meta.salesUnavailable && "Live sales feed was unavailable (no synthetic data substituted). "}
           {meta.ownersUnavailable && "Owner set could not be read this cycle. "}
           {meta.listingsUnavailable && "Active listings could not be read this cycle \u2014 floor concentration is not measured."}
@@ -456,18 +456,18 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
       {loading && !data && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 20 }}>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 160, borderRadius: 14, animationDelay: `${i * 80}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 160, borderRadius: 6, animationDelay: `${i * 80}ms` }} />
           ))}
         </div>
       )}
 
       {/* Hard error (all feeds failed at the orchestration level) */}
       {error && !data && (
-        <div className="empty-state" style={{ marginTop: 20, borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+        <div className="empty-state" style={{ marginTop: 20, borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"⚠️"}</div>
           <div className="empty-state-title">Could not measure right now</div>
           <div className="empty-state-text">{error}</div>
-          <button onClick={remeasure} style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 11, padding: "6px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-glass)", color: "var(--text)", cursor: "pointer" }}>
+          <button onClick={remeasure} style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 12, padding: "6px 16px", borderRadius: 4, border: "1px solid var(--border)", background: "var(--surface-glass)", color: "var(--text)", cursor: "pointer" }}>
             Try again
           </button>
         </div>
@@ -480,12 +480,12 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
           <WashPanel result={data.wash} capped={meta.salesCapped} onViewProfile={onViewProfile} />
           <FloorPanel result={data.floor} />
 
-          <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 6 }}>METHOD & CORRECTION</div>
-            <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", lineHeight: 1.7, margin: 0 }}>
+          <div style={{ marginTop: 18, padding: 14, borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 6 }}>METHOD & CORRECTION</div>
+            <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.7, margin: 0 }}>
               {data.method.description}
             </p>
-            <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 8 }}>
+            <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 8 }}>
               {data.correctionPath}
             </p>
           </div>

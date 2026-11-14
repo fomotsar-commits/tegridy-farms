@@ -125,14 +125,14 @@ const styles = {
     height: "100%",
     minHeight: 0,
     background: "var(--bg-card, rgba(20,20,30,0.85))",
-    borderRadius: 16,
-    border: "1px solid rgba(200,168,80,0.15)",
+    borderRadius: 8,
+    border: "1px solid rgba(255,255,255,0.16)",
     overflow: "hidden",
   },
   header: {
     padding: "16px 20px 12px",
-    borderBottom: "1px solid rgba(200,168,80,0.12)",
-    fontFamily: "'Press Start 2P', monospace",
+    borderBottom: "1px solid rgba(255,255,255,0.09)",
+    fontFamily: "var(--heading)",
     fontSize: 13,
     color: "var(--gold)",
     letterSpacing: 1,
@@ -142,15 +142,15 @@ const styles = {
     justifyContent: "space-between",
   },
   modeIndicator: (live) => ({
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: 700,
     letterSpacing: 0.5,
     padding: "3px 8px",
-    borderRadius: 8,
-    background: live ? "rgba(74,222,128,0.12)" : "var(--border)",
+    borderRadius: 4,
+    background: live ? "rgba(47,217,139,0.12)" : "var(--border)",
     color: live ? "var(--green)" : "var(--text-faint)",
     border: live
-      ? "1px solid rgba(74,222,128,0.25)"
+      ? "1px solid rgba(47,217,139,0.25)"
       : "1px solid rgba(255,255,255,0.08)",
     fontFamily: "inherit",
   }),
@@ -162,13 +162,13 @@ const styles = {
   },
   filterTab: (active) => ({
     padding: "5px 14px",
-    borderRadius: 20,
-    border: "1px solid " + (active ? "var(--gold)" : "rgba(200,168,80,0.2)"),
+    borderRadius: 8,
+    border: "1px solid " + (active ? "var(--gold)" : "rgba(255,255,255,0.16)"),
     background: active
-      ? "linear-gradient(135deg, rgba(200,168,80,0.25), rgba(200,168,80,0.10))"
+      ? "linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.07))"
       : "transparent",
     color: active ? "var(--gold)" : "var(--text-faint)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
     transition: "all 0.2s",
@@ -187,12 +187,10 @@ const styles = {
     maxWidth: "85%",
     alignSelf: isOwn ? "flex-end" : "flex-start",
     background: isOwn
-      ? "linear-gradient(135deg, rgba(200,168,80,0.18), rgba(200,168,80,0.06))"
+      ? "linear-gradient(135deg, rgba(255,255,255,0.081), rgba(255,255,255,0.042))"
       : "var(--border)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
     border: isOwn
-      ? "1px solid rgba(200,168,80,0.25)"
+      ? "1px solid rgba(255,255,255,0.1)"
       : "1px solid var(--border)",
     borderRadius: isOwn ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
     padding: "10px 14px",
@@ -205,20 +203,20 @@ const styles = {
     marginBottom: 4,
   },
   authorName: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 700,
     color: "var(--gold)",
     letterSpacing: 0.3,
   },
   timestamp: {
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-faint)",
   },
   tag: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: 700,
     padding: "2px 7px",
-    borderRadius: 8,
+    borderRadius: 4,
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -245,12 +243,12 @@ const styles = {
     lineHeight: 1,
   }),
   likeCount: {
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-faint)",
   },
   inputArea: {
     padding: "12px 16px 16px",
-    borderTop: "1px solid rgba(200,168,80,0.12)",
+    borderTop: "1px solid rgba(255,255,255,0.09)",
     flexShrink: 0,
   },
   textarea: {
@@ -259,8 +257,8 @@ const styles = {
     maxHeight: 120,
     resize: "vertical",
     background: "var(--border)",
-    border: "1px solid rgba(200,168,80,0.15)",
-    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.16)",
+    borderRadius: 6,
     padding: "10px 14px",
     color: "var(--text)",
     fontSize: 13,
@@ -277,20 +275,20 @@ const styles = {
     marginTop: 8,
   },
   charCount: (over) => ({
-    fontSize: 11,
+    fontSize: 12,
     color: over ? "var(--red)" : "var(--text-faint)",
     transition: "color 0.2s",
   }),
   sendBtn: (disabled) => ({
     padding: "8px 20px",
-    borderRadius: 10,
+    borderRadius: 6,
     border: "none",
     background: disabled
-      ? "rgba(200,168,80,0.12)"
-      : "linear-gradient(135deg, #c8a850, #a08030)",
+      ? "rgba(255,255,255,0.054)"
+      : "linear-gradient(135deg, #c6f432, #a08030)",
     color: disabled ? "var(--text-faint)" : "var(--bg)",
     fontWeight: 700,
-    fontSize: 12,
+    fontSize: 13,
     cursor: disabled ? "not-allowed" : "pointer",
     transition: "all 0.2s",
     letterSpacing: 0.5,
@@ -317,19 +315,19 @@ const styles = {
     fontSize: 13,
   },
   tokenBadge: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: 700,
-    color: "rgba(200,168,80,0.7)",
-    background: "rgba(200,168,80,0.08)",
+    color: "rgba(255,255,255,0.62)",
+    background: "rgba(255,255,255,0.056)",
     padding: "2px 7px",
-    borderRadius: 6,
+    borderRadius: 4,
     marginLeft: "auto",
   },
 };
 
 const tagColors = {
-  Alpha: { bg: "rgba(74,222,128,0.12)", color: "var(--green)", border: "rgba(74,222,128,0.25)" },
-  Discussion: { bg: "rgba(129,140,248,0.12)", color: "var(--purple)", border: "rgba(129,140,248,0.25)" },
+  Alpha: { bg: "rgba(47,217,139,0.12)", color: "var(--green)", border: "rgba(47,217,139,0.25)" },
+  Discussion: { bg: "rgba(164,139,255,0.12)", color: "var(--purple)", border: "rgba(164,139,255,0.25)" },
 };
 
 /* ── component ──────────────────────────────────────────────────── */
@@ -344,14 +342,14 @@ function renderMessageText(text, metadataBase, pixelated) {
       return (
         <span key={i} style={{
           display: "inline-flex", alignItems: "center", gap: 3,
-          background: "rgba(200,168,80,0.1)", borderRadius: 4,
-          padding: "1px 6px", fontSize: 12, color: "var(--gold)",
+          background: "rgba(255,255,255,0.07)", borderRadius: 3,
+          padding: "1px 6px", fontSize: 13, color: "var(--gold)",
           verticalAlign: "middle",
         }}>
           {metadataBase && <IpfsImg
             src={`${metadataBase}/${tokenId}.png`}
             alt={`#${tokenId}`}
-            style={{ width: 16, height: 16, borderRadius: 2, imageRendering: pixelated ? "pixelated" : "auto" }}
+            style={{ width: 16, height: 16, borderRadius: 3, imageRendering: pixelated ? "pixelated" : "auto" }}
             onExhausted={(img) => { img.style.display = "none"; }}
           />}
           #{tokenId}
@@ -655,10 +653,10 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                   key={v}
                   onClick={() => setChatView(v)}
                   style={{
-                    fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.06em",
-                    padding: "3px 10px", borderRadius: 6, cursor: "pointer",
-                    background: chatView === v ? "rgba(111,168,220,0.12)" : "transparent",
-                    border: `1px solid ${chatView === v ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
+                    fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
+                    padding: "3px 10px", borderRadius: 4, cursor: "pointer",
+                    background: chatView === v ? "rgba(255,255,255,0.054)" : "transparent",
+                    border: `1px solid ${chatView === v ? "rgba(255,255,255,0.1)" : "var(--border)"}`,
                     color: chatView === v ? "var(--naka-blue)" : "var(--text-dim)",
                   }}
                 >
@@ -671,7 +669,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {CHAT_ENABLED && onlineCount > 0 && (
             <span
-              style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.04em" }}
+              style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.04em" }}
               title="Wallets and viewers in this room right now"
             >
               {"●"} {onlineCount} online
@@ -714,7 +712,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       <div ref={listRef} style={styles.messageList}>
         {visibleMessages.length === 0 ? (
           loadFailed ? (
-            <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+            <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
               <div className="empty-state-icon">{"\uD83D\uDCE1"}</div>
               <div className="empty-state-title">Chat Unreachable</div>
               <div className="empty-state-text">
@@ -722,7 +720,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
               </div>
             </div>
           ) : (
-          <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+          <div className="empty-state" style={{ borderRadius: 6, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
             <div className="empty-state-icon">{isTokenMode ? "\uD83D\uDCAC" : "\uD83D\uDDE8\uFE0F"}</div>
             <div className="empty-state-title">
               {isTokenMode
@@ -744,7 +742,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
           <>
             {hiddenCount > 0 && (
               <div style={{
-                textAlign: "center", fontFamily: "var(--mono)", fontSize: 9,
+                textAlign: "center", fontFamily: "var(--mono)", fontSize: 11,
                 color: "var(--text-muted)", padding: "4px 0 8px",
               }}>
                 Showing the latest {MAX_RENDERED_MESSAGES} messages
@@ -808,10 +806,10 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                         onClick={() => handleReaction(msg.id, emoji)}
                         title={mine ? "Remove your reaction" : "React"}
                         style={{
-                          background: mine ? "rgba(111,168,220,0.12)" : "rgba(255,255,255,0.04)",
-                          border: `1px solid ${mine ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
-                          borderRadius: 10, padding: "1px 7px", cursor: "pointer",
-                          fontSize: 10, color: "var(--text)", fontFamily: "var(--mono)",
+                          background: mine ? "rgba(255,255,255,0.054)" : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${mine ? "rgba(255,255,255,0.16)" : "var(--border)"}`,
+                          borderRadius: 6, padding: "1px 7px", cursor: "pointer",
+                          fontSize: 11, color: "var(--text)", fontFamily: "var(--mono)",
                         }}
                       >
                         {emoji} {wallets.length}
@@ -823,14 +821,14 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                     title="Add reaction"
                     style={{
                       background: "none", border: "none", cursor: "pointer",
-                      fontSize: 11, color: "rgba(255,255,255,0.25)", padding: "2px 4px",
+                      fontSize: 12, color: "rgba(255,255,255,0.25)", padding: "2px 4px",
                     }}
                   >
                     {"☺+"}
                   </button>
                   {pickerFor === msg.id && (
                     <span style={{
-                      display: "inline-flex", gap: 4, padding: "2px 6px", borderRadius: 10,
+                      display: "inline-flex", gap: 4, padding: "2px 6px", borderRadius: 6,
                       background: "rgba(0,0,0,0.5)", border: "1px solid var(--border)",
                     }}>
                       {REACTION_EMOJIS.map((e) => (
@@ -852,7 +850,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                       title="Mute this wallet (only hides messages for you)"
                       style={{
                         background: "none", border: "none", cursor: "pointer",
-                        fontSize: 10, color: "rgba(255,255,255,0.2)", padding: "2px 4px",
+                        fontSize: 11, color: "rgba(255,255,255,0.2)", padding: "2px 4px",
                       }}
                     >
                       {"🔇"}
@@ -867,7 +865,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                       }}
                       style={{
                         background: "none", border: "none", cursor: "pointer",
-                        fontSize: 11, color: "rgba(255,255,255,0.25)", padding: "2px 4px",
+                        fontSize: 12, color: "rgba(255,255,255,0.25)", padding: "2px 4px",
                       }}
                       title="Reply"
                     >
@@ -886,7 +884,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       {muted.size > 0 && (
         <div style={{
           display: "flex", justifyContent: "center", gap: 8, alignItems: "center",
-          padding: "4px 0", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+          padding: "4px 0", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
         }}>
           {muted.size} wallet{muted.size !== 1 ? "s" : ""} muted
           <button
@@ -894,7 +892,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
               setMuted(new Set());
               try { localStorage.setItem("nakamigos_muted_wallets", "[]"); } catch { /* quota */ }
             }}
-            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 9, color: "var(--naka-blue)", padding: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", padding: 0 }}
           >
             unmute all
           </button>
@@ -911,8 +909,8 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                 borderColor: overLimit
                   ? "var(--red)"
                   : document.activeElement === document.querySelector("textarea")
-                  ? "rgba(200,168,80,0.4)"
-                  : "rgba(200,168,80,0.15)",
+                  ? "rgba(198,244,50,0.4)"
+                  : "rgba(255,255,255,0.068)",
               }}
               placeholder={
                 isTokenMode
@@ -946,11 +944,11 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         ) : wallet && !holderTier ? (
           <div style={{ ...styles.connectPrompt, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <span style={{
-              fontSize: 9, fontFamily: "var(--mono)", color: "var(--gold)",
-              background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.2)",
-              borderRadius: 4, padding: "2px 8px", letterSpacing: "0.06em",
+              fontSize: 11, fontFamily: "var(--mono)", color: "var(--gold)",
+              background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.16)",
+              borderRadius: 3, padding: "2px 8px", letterSpacing: "0.06em",
             }}>HOLDER EXCLUSIVE</span>
-            <span style={{ fontSize: 12 }}>Own a {collection.name} to post</span>
+            <span style={{ fontSize: 13 }}>Own a {collection.name} to post</span>
           </div>
         ) : (
           <div style={styles.connectPrompt}>

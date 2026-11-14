@@ -52,7 +52,7 @@ function Sparkline({ data, width = 80, height = 28, color = "var(--gold)", fillA
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = resolved.startsWith("#") ? resolved : "#c8a850";
+    ctx.strokeStyle = resolved.startsWith("#") ? resolved : "#c6f432";
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }, [data, width, height, color, fillAlpha]);
@@ -81,7 +81,7 @@ function HealthCircle({ score, size = 100 }) {
         cx="50" cy="50" r={radius} fill="none"
         stroke={color} strokeWidth="6" strokeLinecap="round"
         strokeDasharray={circumference} strokeDashoffset={offset}
-        style={{ transform: "rotate(-90deg)", transformOrigin: "50px 50px", transition: "stroke-dashoffset 0.8s ease" }}
+        style={{ transform: "rotate(-90deg)", transformOrigin: "50px 50px", transition: "stroke-dashoffset 0.15s ease" }}
       />
       {/* Score text */}
       <text x="50" y="46" textAnchor="middle" dominantBaseline="central"
@@ -89,7 +89,7 @@ function HealthCircle({ score, size = 100 }) {
         {score}
       </text>
       <text x="50" y="64" textAnchor="middle" dominantBaseline="central"
-        fill="var(--text-muted)" fontSize="7" fontFamily="var(--mono)" letterSpacing="0.08em">
+        fill="var(--text-muted)" fontSize="10" fontFamily="var(--mono)" letterSpacing="0.08em">
         HEALTH
       </text>
     </svg>
@@ -108,7 +108,7 @@ function TrendArrow({ value, suffix = "" }) {
   if (value == null || value === 0) return <span style={{ color: "var(--text-muted)" }}>{suffix}</span>;
   const up = value > 0;
   return (
-    <span style={{ color: up ? "var(--green)" : "var(--red)", fontFamily: "var(--mono)", fontSize: 9 }}>
+    <span style={{ color: up ? "var(--green)" : "var(--red)", fontFamily: "var(--mono)", fontSize: 11 }}>
       {up ? "\u2191" : "\u2193"}{Math.abs(value).toFixed(1)}{suffix}
     </span>
   );
@@ -370,7 +370,7 @@ export default function CollectionHealth({ stats, activities }) {
         <div className="analytics-panel-header"><h3>Collection Health</h3></div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 0" }}>
           {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 24, borderRadius: 4, animationDelay: `${i * 50}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 24, borderRadius: 3, animationDelay: `${i * 50}ms` }} />
           ))}
         </div>
       </div>
@@ -379,13 +379,13 @@ export default function CollectionHealth({ stats, activities }) {
 
   const panelStyle = {
     padding: "18px 20px",
-    background: "rgba(200,170,100,0.02)",
-    borderRadius: 12,
-    border: "1px solid rgba(200,170,100,0.04)",
+    background: "rgba(255,255,255,0.025)",
+    borderRadius: 6,
+    border: "1px solid rgba(255,255,255,0.09)",
   };
 
   const labelStyle = {
-    fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)",
+    fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
     letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4,
   };
 
@@ -412,7 +412,7 @@ export default function CollectionHealth({ stats, activities }) {
             <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
               Composite Health Score
             </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", lineHeight: 1.6 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
               Based on holder trend, listing rate, volume trend, floor stability, buyer/seller ratio, and whale concentration.
               {!listingMetrics.measured && " Listing rate is excluded from this score \u2014 listing data unavailable."}
             </div>
@@ -424,11 +424,11 @@ export default function CollectionHealth({ stats, activities }) {
                 { label: "Floor", ok: floorMetrics?.change24h != null && Math.abs(floorMetrics.change24h) < 10 },
               ].map(({ label, ok, unknown }) => (
                 <div key={label} style={{
-                  fontFamily: "var(--mono)", fontSize: 8, letterSpacing: "0.06em",
-                  padding: "3px 8px", borderRadius: 6,
-                  background: unknown ? "rgba(255,255,255,0.04)" : ok ? "rgba(74,222,128,0.08)" : "rgba(255,100,100,0.08)",
+                  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
+                  padding: "3px 8px", borderRadius: 4,
+                  background: unknown ? "rgba(255,255,255,0.04)" : ok ? "rgba(47,217,139,0.08)" : "rgba(255,92,92,0.08)",
                   color: unknown ? "var(--text-muted)" : ok ? "var(--green)" : "var(--red)",
-                  border: `1px solid ${unknown ? "var(--border)" : ok ? "rgba(74,222,128,0.15)" : "rgba(255,100,100,0.15)"}`,
+                  border: `1px solid ${unknown ? "var(--border)" : ok ? "rgba(47,217,139,0.15)" : "rgba(255,92,92,0.15)"}`,
                 }}>
                   {unknown ? "\u2014" : ok ? "\u2713" : "\u2717"} {label}
                 </div>
@@ -452,10 +452,10 @@ export default function CollectionHealth({ stats, activities }) {
             <div style={{ ...bigValueStyle, color: "var(--purple)" }}>
               {totalOwners ? totalOwners.toLocaleString() : "\u2014"}
             </div>
-            {recentSales.week.length > 0 && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>7d</span>}
+            {recentSales.week.length > 0 && <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>7d</span>}
           </div>
           <div style={{ marginTop: 6 }} title="Estimated trend based on sales activity">
-            <Sparkline data={holderSparkline} color="#818cf8" width={100} height={22} />
+            <Sparkline data={holderSparkline} color="#a48bff" width={100} height={22} />
           </div>
         </div>
 
@@ -467,14 +467,14 @@ export default function CollectionHealth({ stats, activities }) {
               <div style={{ ...bigValueStyle, color: listingHealthColor(listingMetrics.pct) }}>
                 {listingMetrics.pct.toFixed(1)}%
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 {listingMetrics.count.toLocaleString()} of {supply ? supply.toLocaleString() : "?"}
               </div>
             </>
           ) : (
             <>
               <div style={{ ...bigValueStyle, color: "var(--text-muted)" }}>{"\u2014"}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 listing data unavailable
               </div>
             </>
@@ -490,11 +490,11 @@ export default function CollectionHealth({ stats, activities }) {
               {volumeMetrics.dayVol.toFixed(2)}
             </span>
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
             7d avg: {volumeMetrics.weekAvgDay.toFixed(2)} ETH/day
           </div>
           <div style={{ marginTop: 6 }}>
-            <Sparkline data={volumeSparkline} color="#c8a850" width={100} height={22} />
+            <Sparkline data={volumeSparkline} color="#c6f432" width={100} height={22} />
           </div>
         </div>
 
@@ -514,7 +514,7 @@ export default function CollectionHealth({ stats, activities }) {
                 { label: "24h", val: floorMetrics.change24h },
                 { label: "7d", val: floorMetrics.change7d },
               ].map(({ label, val }) => (
-                <span key={label} style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)" }}>
+                <span key={label} style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
                   {label}: <TrendArrow value={val} suffix="%" />
                 </span>
               ))}
@@ -528,7 +528,7 @@ export default function CollectionHealth({ stats, activities }) {
           <div style={{ ...bigValueStyle, color: "var(--naka-sky, #22d3ee)" }}>
             {diamondHands ? `${diamondHands.pct}%` : "\u2014"}
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
             {diamondHands ? `${diamondHands.count} with no recent sells` : "No data"}
           </div>
         </div>
@@ -546,27 +546,27 @@ export default function CollectionHealth({ stats, activities }) {
             <>
               {/* Horizontal split bar */}
               <div style={{
-                height: 28, borderRadius: 8, overflow: "hidden",
+                height: 28, borderRadius: 4, overflow: "hidden",
                 display: "flex", marginBottom: 12,
               }}>
                 <div style={{
                   width: `${(buyerSeller.buyers / buyerSeller.total) * 100}%`,
                   background: "var(--green)", minWidth: 2,
-                  transition: "width 0.5s ease",
+                  transition: "width 0.15s ease",
                 }} />
                 <div style={{
                   width: `${(buyerSeller.sellers / buyerSeller.total) * 100}%`,
                   background: "var(--red)", minWidth: 2,
-                  transition: "width 0.5s ease",
+                  transition: "width 0.15s ease",
                 }} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)" }}>
                     {buyerSeller.buyers} buyers
                   </span>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", margin: "0 6px" }}>vs</span>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", margin: "0 6px" }}>vs</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)" }}>
                     {buyerSeller.sellers} sellers
                   </span>
                 </div>
@@ -577,7 +577,7 @@ export default function CollectionHealth({ stats, activities }) {
                   {buyerSeller.ratio}:1
                 </div>
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
                 {buyerSeller.phase}
               </div>
             </>
@@ -603,8 +603,8 @@ export default function CollectionHealth({ stats, activities }) {
                   {floorDepth.label}
                 </div>
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 9, padding: "2px 8px",
-                  borderRadius: 6, background: "rgba(255,255,255,0.04)",
+                  fontFamily: "var(--mono)", fontSize: 11, padding: "2px 8px",
+                  borderRadius: 4, background: "rgba(255,255,255,0.04)",
                   color: "var(--text-dim)",
                 }}>
                   {floorDepth.count} within 5% of floor
@@ -612,17 +612,17 @@ export default function CollectionHealth({ stats, activities }) {
               </div>
               {/* Visual depth bar */}
               <div style={{
-                height: 12, borderRadius: 6, background: "rgba(255,255,255,0.04)",
+                height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)",
                 overflow: "hidden", marginBottom: 8,
               }}>
                 <div style={{
-                  height: "100%", borderRadius: 6,
+                  height: "100%", borderRadius: 4,
                   width: `${Math.min((floorDepth.count / 50) * 100, 100)}%`,
                   background: floorDepth.color,
-                  transition: "width 0.5s ease",
+                  transition: "width 0.15s ease",
                 }} />
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                 {floorDepth.gapPct != null
                   ? `Next listing after floor is ${floorDepth.gapPct}% higher`
                   : "No gap data available"
@@ -647,9 +647,9 @@ export default function CollectionHealth({ stats, activities }) {
             <h3>Listing Velocity</h3>
             {listingVelocity.spike && (
               <span style={{
-                fontFamily: "var(--mono)", fontSize: 8, padding: "2px 8px",
-                borderRadius: 6, background: "rgba(255,100,100,0.1)",
-                color: "var(--red)", border: "1px solid rgba(255,100,100,0.2)",
+                fontFamily: "var(--mono)", fontSize: 10, padding: "2px 8px",
+                borderRadius: 4, background: "rgba(255,92,92,0.1)",
+                color: "var(--red)", border: "1px solid rgba(255,92,92,0.2)",
                 animation: "pulse 2s infinite",
               }}>
                 SPIKE
@@ -662,16 +662,16 @@ export default function CollectionHealth({ stats, activities }) {
               {listingVelocity.measured ? listingVelocity.count.toLocaleString() : "\u2014"}
             </div>
             {!listingVelocity.measured && (
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 listing data unavailable
               </div>
             )}
           </div>
           {listingVelocity.spike && (
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)",
-              marginTop: 10, padding: "6px 10px", borderRadius: 8,
-              background: "rgba(255,100,100,0.05)", border: "1px solid rgba(255,100,100,0.1)",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)",
+              marginTop: 10, padding: "6px 10px", borderRadius: 4,
+              background: "rgba(255,92,92,0.05)", border: "1px solid rgba(255,92,92,0.1)",
             }}>
               Listing rate above 15% of supply — possible sell pressure
             </div>
@@ -684,9 +684,9 @@ export default function CollectionHealth({ stats, activities }) {
             <h3>Whale Concentration</h3>
             {whaleConcentration?.warning && (
               <span style={{
-                fontFamily: "var(--mono)", fontSize: 8, padding: "2px 8px",
-                borderRadius: 6, background: "rgba(251,191,36,0.1)",
-                color: "var(--yellow)", border: "1px solid rgba(251,191,36,0.2)",
+                fontFamily: "var(--mono)", fontSize: 10, padding: "2px 8px",
+                borderRadius: 4, background: "rgba(242,193,78,0.1)",
+                color: "var(--yellow)", border: "1px solid rgba(242,193,78,0.2)",
               }}>
                 HIGH
               </span>
@@ -701,32 +701,32 @@ export default function CollectionHealth({ stats, activities }) {
                 }}>
                   {whaleConcentration.pct}%
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                   of supply held by top 10
                 </div>
               </div>
               {/* Concentration bar */}
               <div style={{
-                height: 12, borderRadius: 6, background: "rgba(255,255,255,0.04)",
+                height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)",
                 overflow: "hidden", marginBottom: 8,
               }}>
                 <div style={{
-                  height: "100%", borderRadius: 6,
+                  height: "100%", borderRadius: 4,
                   width: `${Math.min(parseFloat(whaleConcentration.pct), 100)}%`,
                   background: whaleConcentration.warning
                     ? "linear-gradient(90deg, var(--yellow), var(--red))"
                     : "linear-gradient(90deg, var(--green), var(--naka-sky, #22d3ee))",
-                  transition: "width 0.5s ease",
+                  transition: "width 0.15s ease",
                 }} />
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
                 Top 10 hold {whaleConcentration.top10Held.toLocaleString()} of {supply ? supply.toLocaleString() : "?"} total
               </div>
               {whaleConcentration.warning && (
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 9, color: "var(--yellow)",
-                  marginTop: 8, padding: "6px 10px", borderRadius: 8,
-                  background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.1)",
+                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow)",
+                  marginTop: 8, padding: "6px 10px", borderRadius: 4,
+                  background: "rgba(242,193,78,0.05)", border: "1px solid rgba(242,193,78,0.1)",
                 }}>
                   Concentrated ownership above 30% — higher manipulation risk
                 </div>
