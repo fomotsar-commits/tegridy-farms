@@ -123,6 +123,7 @@ export const RANGE_COPY = {
   noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against an outside price. Anyone can open a range pool at any price.',
   priceUnread: (why: string) =>
     `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
+  thin: (said: string) => `${said} This pool has less liquidity at its price than your deposit would add, so nothing was built.`,
   removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
   rewardsPaused: 'Collecting rewards from this pool is switched off by the venue’s vault right now.',
@@ -466,6 +467,11 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
       } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
       else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+      // A thin pool (less liquidity at its price than this deposit adds; none, when empty) holds
+      // whatever price its opener set: one not shown to agree with the market is refused (RNG-11).
+      if (check.state !== 'agrees' && pool.liquidity < plan.liquidity) {
+        return (check.state === 'unread' ? notRead : notSent)('build', RANGE_COPY.thin(warnings.join(' ')));
+      }
       return { check, warnings };
     },
     create: null,
@@ -626,8 +632,8 @@ interface Opening {
   /** The opening's price bands nobody has used yet: each keeps a deposit that never comes back. */
   newBands: number;
   toleranceBps: number;
-  /** The price check and the words it puts on the review, from the plan. */
-  price: (plan: DepositPlan) => Promise<{ check: RangePriceCheck; warnings: string[] }>;
+  /** The price check and the words it puts on the review, from the plan; or why nothing is built. */
+  price: (plan: DepositPlan) => Promise<{ check: RangePriceCheck; warnings: string[] } | Extract<Prepared, { ok: false }>>;
   /** A new pool only: the step that opens it, its price, the program's fee and what its accounts keep. */
   create: { ix: TransactionInstruction; sqrtPriceX64: bigint; fee: bigint; rent: bigint } | null;
 }
@@ -682,7 +688,9 @@ async function openingTx(
   const max = sides(pair, max0, max1);
   const quoted = sides(pair, plan.amount0, plan.amount1);
 
-  const { check, warnings } = await o.price(plan);
+  const priced = await o.price(plan);
+  if ('outcome' in priced) return priced;
+  const { check, warnings } = priced;
   const freezes = freezeLines(pair, tokenMintRaw ?? null, coinMintRaw ?? null);
   if (!Array.isArray(freezes)) return notSent('build', freezes.refuse);
   warnings.push(...freezes);

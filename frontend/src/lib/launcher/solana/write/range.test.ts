@@ -75,7 +75,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
   chain.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
 }
 
-function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean | RewardFields; freezeAuthority?: PublicKey } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean | RewardFields; freezeAuthority?: PublicKey; liquidity?: bigint } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
   c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
@@ -86,7 +86,7 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
       ammConfig: CONFIG, mint0: MINT0, mint1: MINT1,
       vault0: VAULT0, vault1: VAULT1,
       observation: deriveObservation(PROG, POOL),
-      decimals0: D0, decimals1: D1, tickSpacing: SPACING, liquidity: L_POOL, sqrtPriceX64: SQRT, tickCurrent: TICK, status: o.status,
+      decimals0: D0, decimals1: D1, tickSpacing: SPACING, liquidity: o.liquidity ?? L_POOL, sqrtPriceX64: SQRT, tickCurrent: TICK, status: o.status,
       // A reward the vault set up on the pool: its mint and vault.
       rewards: o.reward === true ? [{ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey }] : o.reward ? [o.reward] : undefined,
     }),
@@ -387,6 +387,29 @@ describe('the pool’s price against the outside market, asked fresh at Review',
     expect(priceLine(await notices(readsAt({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 500)' })))).toBe(RANGE_COPY.priceUnread('Jupiter did not give a price (HTTP 500)'));
     const throws: RangeOpenReads = { outsidePrice: async () => Promise.reject(new Error('offline')) };
     expect(priceLine(await notices(throws))).toBe(RANGE_COPY.priceUnread('offline'));
+  });
+
+  // RNG-11: anyone can open a range pool at any price, and a thin pool's price is its opener's.
+  it('a thin pool (less liquidity at its price than the deposit adds, or none) is refused unless its price agrees', async () => {
+    const args = { owner: ME, pool: POOL, ...inRange, side: 'token' as const, amount: 5_000_000n, toleranceBps: 100 };
+    // The deposit's own liquidity, as built in a deep pool.
+    const deep = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, READS, args));
+    const L = (deep.steps.find((s) => s.kind === 'range-open') as Extract<IntentStep, { kind: 'range-open' }>).liquidity;
+    const at = (liquidity: bigint, reads: RangeOpenReads) => prepareRangeOpen(W(ready(chainWith({ liquidity }))), cfgLocal, PROG, reads, args);
+    const off = readsAt({ kind: 'ok', solPerToken: POOL_PRICE * 1.1, source: 'Jupiter' });
+    for (const liquidity of [0n, L - 1n]) {
+      const r = await at(liquidity, off);
+      expect(r.ok, `a pool holding ${liquidity} at its price, off the market`).toBe(false);
+      expect(r.ok ? null : r.outcome.message).toMatch(/^This pool’s price is 9\.1% below the outside price .* This pool has less liquidity at its price than your deposit would add, so nothing was built\.$/);
+    }
+    const noRoute = await at(0n, readsAt({ kind: 'no-route', detail: 'no route' }));
+    expect(noRoute.ok ? null : noRoute.outcome.message).toBe(RANGE_COPY.thin(RANGE_COPY.noMarket));
+    const unread = await at(0n, readsAt({ kind: 'unread', detail: 'HTTP 500' }));
+    expect(unread.ok ? null : [unread.outcome.message, unread.outcome.retry]).toEqual([RANGE_COPY.thin(RANGE_COPY.priceUnread('HTTP 500')), true]);
+    // Thin and agreeing: built. As deep as the deposit and off the market: built, with the warning.
+    ok(await at(0n, READS));
+    const even = ok(await at(L, off));
+    expect((even.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings.some((w) => /^This pool’s price is 9\.1% below/.test(w))).toBe(true);
   });
 });
 
