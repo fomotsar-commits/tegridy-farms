@@ -222,7 +222,7 @@ export default function EmptyState({
     ? { fontSize: 28, marginBottom: 8 }
     : undefined;
   const compactTitleStyle = compact ? { fontSize: 13 } : undefined;
-  const compactTextStyle = compact ? { fontSize: 10 } : undefined;
+  const compactTextStyle = compact ? { fontSize: 11 } : undefined;
 
   return (
     <div

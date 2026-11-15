@@ -9,8 +9,8 @@ export default function NotFound({ onGoHome }) {
       }}
     >
       <div style={{
-        fontFamily: "var(--pixel)", fontSize: 64, color: "var(--gold)",
-        lineHeight: 1, marginBottom: 16, opacity: 0.3,
+        fontFamily: "var(--heading)", fontSize: "clamp(72px, 14vw, 160px)", fontWeight: 900,
+        letterSpacing: "-0.05em", color: "var(--text)", lineHeight: 0.9, marginBottom: 20,
       }}>
         404
       </div>
@@ -21,7 +21,7 @@ export default function NotFound({ onGoHome }) {
         Page Not Found
       </div>
       <div style={{
-        fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)",
+        fontFamily: "var(--mono)", fontSize: 13, color: "var(--text-dim)",
         maxWidth: 360, lineHeight: 1.6, marginBottom: 24,
       }}>
         This page doesn't exist. Maybe what you're looking for is back on the home page.
@@ -29,7 +29,7 @@ export default function NotFound({ onGoHome }) {
       <button
         className="btn-primary"
         onClick={onGoHome || (() => { window.location.href = "/nakamigos"; })}
-        style={{ fontSize: 12, padding: "10px 28px" }}
+        style={{ fontSize: 13, padding: "10px 28px" }}
       >
         Back to Home
       </button>

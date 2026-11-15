@@ -105,8 +105,10 @@ export interface RouteSpec {
 export const ROUTE_MOUNT_TIMEOUT = 20_000;
 
 /**
- * The Tradermigos splash and the landing after it get a larger budget: on WebKit
- * with nine workers sharing one preview server they have been measured past 20s.
+ * The Tradermigos landing gets a larger budget: on WebKit with nine workers
+ * sharing one preview server it has been measured past 20s. (It was named for
+ * the splash that used to play first; the splash was removed on 2026-11-14 and
+ * the name is kept because a dozen specs import it.)
  */
 export const SPLASH_MOUNT_TIMEOUT = 60_000;
 
@@ -206,10 +208,9 @@ export async function waitForQuiescence(
 }
 
 /**
- * `/nakamigos` as a first visit: the splash plays, leaves by itself within 3.2 s,
- * and the landing's `main` follows. Never tap it: a tap only skips ahead, and on a
- * WebKit worker drawing few frames a click's "stable" check outlasts the splash,
- * then waits on a button that is gone (e2e/nakamigos-splash.spec.ts).
+ * `/nakamigos` as a first visit: the landing's `main` and its heading. There is
+ * no splash in front of it any more (removed 2026-11-14), so this only waits for
+ * the lazy marketplace chunk to mount.
  */
 export async function gotoNakamigos(page: Page): Promise<void> {
   await page.goto('/nakamigos');
@@ -455,6 +456,17 @@ export const ROUTES: readonly RouteSpec[] = [
     why:
       'Opened 2026-10-24 (CARDANO_SWAP_OPEN, lib/cardano/flags.ts). The form audits with no wallet ' +
       'connected; quotes need the /api/cardano chain reads, so it renders without live prices in this suite.',
+    knownViolations: [],
+  },
+  {
+    path: '/cardano-pools',
+    voice: null,
+    owner: 'pages/CardanoPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · cardano-pools',
+    gate: 'not-yet-routed',
+    why:
+      'The venue’s own Cardano pools: routed only once CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts), which waits on ' +
+      'the deploy filling api/_lib/cardano-own-pools.js. Walked in a --mode cardano-preview build until then.',
     knownViolations: [],
   },
   {

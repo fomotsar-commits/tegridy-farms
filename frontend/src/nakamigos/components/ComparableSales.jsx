@@ -60,14 +60,14 @@ export default function ComparableSales({ nft, allTokens }) {
     return (
       <div style={{ marginTop: 16 }}>
         <div style={{
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
           letterSpacing: "0.08em", marginBottom: 8,
         }}>
           COMPARABLE SALES
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="skeleton" style={{ height: 32, borderRadius: 8, animationDelay: `${i * 60}ms` }} />
+            <div key={i} className="skeleton" style={{ height: 32, borderRadius: 4, animationDelay: `${i * 60}ms` }} />
           ))}
         </div>
       </div>
@@ -82,12 +82,12 @@ export default function ComparableSales({ nft, allTokens }) {
     return (
       <div style={{ marginTop: 16 }}>
         <div style={{
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
           letterSpacing: "0.08em", marginBottom: 8,
         }}>
           COMPARABLE SALES
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)" }}>
           {unavailable
             ? "Sales history unavailable right now, so no comparison can be drawn."
             : "No comparable sales in the last 90 days."}
@@ -102,7 +102,7 @@ export default function ComparableSales({ nft, allTokens }) {
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{
-        fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+        fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
         letterSpacing: "0.08em", marginBottom: 8,
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
@@ -120,18 +120,18 @@ export default function ComparableSales({ nft, allTokens }) {
               alignItems: "center",
               gap: 8,
               padding: "6px 10px",
-              borderRadius: 8,
+              borderRadius: 4,
               background: "rgba(255,255,255,0.02)",
               border: "1px solid rgba(255,255,255,0.03)",
             }}
           >
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", flex: 1 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", flex: 1 }}>
               {sale.token?.name || `#${sale.token?.id}`}
             </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", fontWeight: 600 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
               <Eth size={10} /> {sale.price?.toFixed(4) ?? "\u2014"}
             </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
               {formatTimeAgo(sale.time)}
             </span>
           </div>

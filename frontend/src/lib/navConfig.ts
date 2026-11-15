@@ -6,8 +6,8 @@ import {
 } from './constants';
 import { GONDI_LOAN_ADDRESS } from './gondi/loanOffer.js';
 import { isSolanaSwapLive } from './solana';
-// Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
-import { cardanoSwapVisible } from './cardano/flags';
+// Plain text only, like rangePoolsVisible below: the Cardano swap's and own pools' switches (lib/cardano/flags.ts).
+import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
 import { sheetHref, type SheetKind } from './sheet';
 import { roomSheetOr } from './sheetRooms';
@@ -137,6 +137,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: '/pools', label: 'Venue AMM', tabLabel: 'Add / Remove' },
       // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
+      // The venue's own Cardano pools: hidden, with no route, until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts).
+      ...(cardanoOwnPoolsVisible() ? [{ to: '/cardano-pools', label: 'Cardano pools', tabLabel: 'Cardano' }] : []),
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
       { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
     ],

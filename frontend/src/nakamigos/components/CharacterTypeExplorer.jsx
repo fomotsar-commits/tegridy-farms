@@ -13,13 +13,8 @@ function tierColor(name) {
 
 function tierBg(name) {
   if (ULTRA_RARE.has(name)) return "rgba(255,215,0,0.06)";
-  if (NON_HUMAN.has(name)) return "rgba(111,168,220,0.06)";
+  if (NON_HUMAN.has(name)) return "rgba(255,255,255,0.042)";
   return "transparent";
-}
-
-function tierGlow(name) {
-  if (ULTRA_RARE.has(name)) return "0 0 12px rgba(255,215,0,0.25)";
-  return "none";
 }
 
 /* ── Ninja subtypes from TRAIT_LORE ── */
@@ -41,18 +36,18 @@ const S = {
     marginBottom: 48,
   },
   sectionTitle: {
-    fontFamily: "var(--pixel)",
-    fontSize: 22,
-    letterSpacing: 2,
-    color: "var(--gold)",
+    fontFamily: "var(--heading)",
+    fontSize: 30,
+    color: "var(--text)",
     marginBottom: 4,
-    textAlign: "center",
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   sectionSubtitle: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-dim)",
-    textAlign: "center",
     marginBottom: 24,
   },
 
@@ -66,11 +61,10 @@ const S = {
   typeCard: (name) => ({
     background: tierBg(name),
     border: `2px solid ${tierColor(name)}`,
-    borderRadius: 14,
+    borderRadius: 6,
     padding: "18px 20px",
     cursor: "pointer",
-    transition: "transform .15s, box-shadow .15s",
-    boxShadow: tierGlow(name),
+    transition: "border-color .15s",
     position: "relative",
     overflow: "hidden",
   }),
@@ -84,16 +78,16 @@ const S = {
   badge: (isHuman) => ({
     display: "inline-block",
     fontFamily: "var(--mono)",
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: 700,
     letterSpacing: 1.5,
     textTransform: "uppercase",
     padding: "2px 8px",
-    borderRadius: 4,
+    borderRadius: 3,
     marginBottom: 8,
-    background: isHuman ? "rgba(111,168,220,0.15)" : "rgba(255,215,0,0.15)",
+    background: isHuman ? "rgba(255,255,255,0.068)" : "rgba(255,215,0,0.15)",
     color: isHuman ? "var(--naka-blue)" : "var(--gold)",
-    border: `1px solid ${isHuman ? "rgba(111,168,220,0.3)" : "rgba(255,215,0,0.3)"}`,
+    border: `1px solid ${isHuman ? "rgba(255,255,255,0.16)" : "rgba(255,215,0,0.3)"}`,
   }),
   typeStats: {
     display: "flex",
@@ -102,7 +96,7 @@ const S = {
   },
   typeStat: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-muted)",
   },
   typeStatNum: {
@@ -111,13 +105,13 @@ const S = {
   },
   typeDesc: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-dim)",
     lineHeight: 1.5,
   },
   floorTag: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--green)",
     marginTop: 6,
   },
@@ -145,9 +139,8 @@ const S = {
     alignItems: "center",
     gap: 12,
     background: "var(--surface-glass)",
-    backdropFilter: "var(--glass-blur)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: "12px 18px",
     flex: "1 1 200px",
     minWidth: 200,
@@ -168,17 +161,17 @@ const S = {
   },
   ninjaCount: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-muted)",
   },
   viewBtn: {
     padding: "4px 10px",
     border: "1px solid var(--naka-blue)",
-    borderRadius: 6,
+    borderRadius: 4,
     background: "transparent",
     color: "var(--naka-blue)",
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     cursor: "pointer",
     transition: "background .15s, color .15s",
     marginLeft: "auto",
@@ -198,7 +191,7 @@ const S = {
     gap: 12,
     background: "rgba(255,215,0,0.04)",
     border: "1px solid rgba(255,215,0,0.2)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: "14px 20px",
     flex: "1 1 260px",
   },
@@ -214,7 +207,7 @@ const S = {
   },
   comboCount: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text-muted)",
   },
 
@@ -230,7 +223,7 @@ const S = {
   },
   barLabel: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--text)",
     width: 110,
     textAlign: "right",
@@ -242,7 +235,7 @@ const S = {
   barTrack: {
     flex: 1,
     height: 18,
-    borderRadius: 4,
+    borderRadius: 3,
     background: "rgba(255,255,255,0.04)",
     overflow: "hidden",
     position: "relative",
@@ -250,7 +243,7 @@ const S = {
   barFill: (pct, name) => ({
     height: "100%",
     width: `${Math.max(pct, 0.5)}%`,
-    borderRadius: 4,
+    borderRadius: 3,
     background: ULTRA_RARE.has(name)
       ? "linear-gradient(90deg, var(--gold), #ffd700aa)"
       : NON_HUMAN.has(name)
@@ -261,7 +254,7 @@ const S = {
   }),
   barPct: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     width: 50,
     textAlign: "right",
@@ -360,10 +353,7 @@ export default function CharacterTypeExplorer({ tokens, listings, onFilterGaller
               key={type.name}
               style={{
                 ...S.typeCard(type.name),
-                transform: isHov ? "translateY(-3px)" : "none",
-                boxShadow: isHov
-                  ? `${tierGlow(type.name)}, 0 8px 24px rgba(0,0,0,.3)`
-                  : tierGlow(type.name),
+                background: isHov ? "var(--surface-hover)" : S.typeCard(type.name).background,
               }}
               onClick={() => handleTypeClick(type.name)}
               role="button"

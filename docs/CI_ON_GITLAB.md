@@ -87,6 +87,7 @@ A branch push with no merge request runs nothing, so no commit gets two pipeline
 | `contracts-ci` | `contracts-ci.yml` | yes |
 | `slither` | `slither.yml` | yes |
 | `solana-ci` | `solana-ci.yml` | yes |
+| `cardano-ci` | `cardano-ci.yml` | yes |
 | `npm-advisories` | `npm-advisories.yml` | yes |
 | `registry-onchain` | `registry-onchain.yml` (reads mainnet over public RPCs) | no: it shows red, but a flaky RPC must not block a merge |
 
@@ -124,8 +125,8 @@ closes each one:
   outside contracts), its `test` matrix never starts. GitHub skips that job too, so the
   wrapper reports it as "not reached" and accepts it, but only when a job it needs was
   skipped (`scripts/ci/act/job-needs.sh` reads the needs with yq inside the act image).
-- **The `scope` jobs call `gh api .../pulls/N/files`.** There is no GitHub here, and four of
-  the six scope scripts would fail outright, which turns every run red. A small stand-in
+- **The `scope` jobs call `gh api .../pulls/N/files`.** There is no GitHub here, and five of
+  the seven scope scripts would fail outright, which turns every run red. A small stand-in
   (`scripts/ci/act/gh`) answers that one call from `git diff`. Any doubt makes it answer
   "no files", and every scope script reads that as "run everything".
 - **Slither's SARIF upload goes to GitHub.** It is replaced by a stand-in that skips it.

@@ -55,10 +55,46 @@ export interface HarvestUnread {
   detail: string;
 }
 
+/**
+ * What the wallet's stake in one pool earns a day if today's rate and today's pool weight
+ * held, and that as a yearly rate on the stake that earns it (owner, 2026-11-14: the bar that
+ * "adds them all together plus shows % and daily yield", on Earn as on the pool's own page).
+ *
+ * A PROJECTION, so it is drawn only beside its basis (today's rate, and the date the pool is
+ * funded to), and it exists only where the pool's own page states the same two figures by the
+ * same rule: today that is the lock ladder on Solana (lib/harvest/solana.ts ladderEarning). A
+ * pool whose page prints no such figure has none here, and a figure that cannot be stated is
+ * left out, never a zero.
+ */
+export interface HarvestEarning {
+  key: string;
+  chain: HarvestChain;
+  roomId: string;
+  symbol: string;
+  /** "lock ladder". */
+  where: string;
+  decimals: number;
+  /** The stake that earns it: the wallet's open positions in this pool, added up. */
+  principalRaw: bigint;
+  /** Each position's own figure, added up, so the pool page's rows add up to it too. */
+  perDayRaw: bigint;
+  /** `perDayRaw` a year over `principalRaw`, floored, in the pool page's own words: "14.2%". */
+  apr: string;
+  /** The pool's rewards are funded to this time (unix seconds); the stream stops there unless it is refilled. */
+  fundedToSecs: number;
+}
+
 export interface HarvestPlan<C extends HarvestClaim = HarvestClaim> {
   claims: C[];
   held: HarvestHeld[];
   unread: HarvestUnread[];
+  /** Absent when no pool's daily figure could be stated. */
+  earning?: HarvestEarning[];
+  /**
+   * A daily figure was held back because its read may predate the wallet's own confirmed
+   * write (lib/ladder/writeFence.ts): the card asks again a little later, as for a pool not read.
+   */
+  settling?: true;
 }
 
 export const EMPTY_PLAN: HarvestPlan<never> = { claims: [], held: [], unread: [] };

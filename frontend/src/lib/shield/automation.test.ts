@@ -159,12 +159,13 @@ describe('the shield never claims an execution nobody performs', () => {
   });
 
   it('says the smaller moves a borrower would look for do not exist here', () => {
-    // A borrower's `repayLoan` on Gondi's loan contract repays every tranche whole.
-    // A user hunting for a partial repay or a deleverage is hunting for something
-    // that is not there, with a deadline running.
+    // A borrower's `repayLoan` on Gondi's loan contract repays every tranche whole, and the
+    // collateral is one NFT. The contract can also move a loan to a new lender's offer
+    // (refinanceFromLoanExecutionData), which this site does not build: so the honest claim
+    // is about this site, not about the contract.
     expect(ONLY_FULL_REPAYMENT).toMatch(/no partial repayment/i);
     expect(ONLY_FULL_REPAYMENT).toMatch(/no collateral top-up/i);
-    expect(ONLY_FULL_REPAYMENT).toMatch(/no deleverage/i);
+    expect(ONLY_FULL_REPAYMENT).toMatch(/this site does not build/i);
   });
 
   it.each(BANNED_PROMISES.map((re) => [re.source, re] as const))(

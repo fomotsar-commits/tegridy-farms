@@ -13,6 +13,8 @@ import {
   PERSONAL_POSITION_OFFSETS,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
+  POSITION_REWARD_INFO_LEN,
+  POSITION_REWARD_INFO_OFFSETS,
   REWARD_INFO_LEN,
   REWARD_INFO_OFFSETS,
   TICK_ARRAY_SIZE,
@@ -75,7 +77,22 @@ export interface PoolFields {
   feeGrowth1?: bigint;
   /** Set bits of the 1024-bit band map. */
   bitmapBits?: number[];
-  rewards?: { mint: PublicKey; vault: PublicKey }[];
+  rewards?: RewardFields[];
+}
+
+/** One reward slot of a pool. Unset counters are zero, as `initialize_reward` leaves them. */
+export interface RewardFields {
+  mint: PublicKey;
+  vault: PublicKey;
+  state?: number;
+  openTime?: bigint;
+  endTime?: bigint;
+  lastUpdateTime?: bigint;
+  emissionsPerSecondX64?: bigint;
+  totalEmitted?: bigint;
+  claimed?: bigint;
+  authority?: PublicKey;
+  growthGlobalX64?: bigint;
 }
 
 export function encodePool(p: PoolFields): Uint8Array {
@@ -99,8 +116,18 @@ export function encodePool(p: PoolFields): Uint8Array {
   w.u8(o.feeOn, p.feeOn ?? 0);
   (p.rewards ?? []).forEach((r, i) => {
     const at = o.rewardInfos + i * REWARD_INFO_LEN;
-    w.key(at + REWARD_INFO_OFFSETS.tokenMint, r.mint);
-    w.key(at + REWARD_INFO_OFFSETS.tokenVault, r.vault);
+    const ro = REWARD_INFO_OFFSETS;
+    w.key(at + ro.tokenMint, r.mint);
+    w.key(at + ro.tokenVault, r.vault);
+    w.u8(at + ro.rewardState, r.state ?? 0);
+    w.u64(at + ro.openTime, r.openTime ?? 0n);
+    w.u64(at + ro.endTime, r.endTime ?? 0n);
+    w.u64(at + ro.lastUpdateTime, r.lastUpdateTime ?? 0n);
+    w.u128(at + ro.emissionsPerSecondX64, r.emissionsPerSecondX64 ?? 0n);
+    w.u64(at + ro.rewardTotalEmitted, r.totalEmitted ?? 0n);
+    w.u64(at + ro.rewardClaimed, r.claimed ?? 0n);
+    if (r.authority) w.key(at + ro.authority, r.authority);
+    w.u128(at + ro.rewardGrowthGlobalX64, r.growthGlobalX64 ?? 0n);
   });
   for (const bit of p.bitmapBits ?? []) w.d[o.tickArrayBitmap + (bit >> 3)]! |= 1 << (bit & 7);
   return w.d;
@@ -112,6 +139,7 @@ export interface TickFields {
   liquidityGross: bigint;
   feeGrowthOutside0?: bigint;
   feeGrowthOutside1?: bigint;
+  rewardGrowthsOutside?: bigint[];
   ordersAmount?: bigint;
 }
 
@@ -131,6 +159,7 @@ export function encodeTickArray(pool: PublicKey, start: number, spacing: number,
     w.u128(at + s.liquidityGross, t.liquidityGross);
     w.u128(at + s.feeGrowthOutside0X64, t.feeGrowthOutside0 ?? 0n);
     w.u128(at + s.feeGrowthOutside1X64, t.feeGrowthOutside1 ?? 0n);
+    (t.rewardGrowthsOutside ?? []).forEach((g, j) => w.u128(at + s.rewardGrowthsOutsideX64 + j * 16, g));
     w.u64(at + s.ordersAmount, t.ordersAmount ?? 0n);
     if (t.liquidityGross > 0n || (t.ordersAmount ?? 0n) > 0n) used++;
   }
@@ -148,6 +177,8 @@ export function encodePosition(p: {
   feeGrowthInside1Last?: bigint;
   feesOwed0?: bigint;
   feesOwed1?: bigint;
+  /** Per reward slot: growth inside as of its last change, and what it was owed then. */
+  rewards?: { growthInsideLast?: bigint; owed?: bigint }[];
 }): Uint8Array {
   const w = new W(PERSONAL_POSITION_LEN, ACCOUNT_PERSONAL_POSITION_STATE);
   const o = PERSONAL_POSITION_OFFSETS;
@@ -160,5 +191,10 @@ export function encodePosition(p: {
   w.u128(o.feeGrowthInside1LastX64, p.feeGrowthInside1Last ?? 0n);
   w.u64(o.tokenFeesOwed0, p.feesOwed0 ?? 0n);
   w.u64(o.tokenFeesOwed1, p.feesOwed1 ?? 0n);
+  (p.rewards ?? []).forEach((r, i) => {
+    const at = o.rewardInfos + i * POSITION_REWARD_INFO_LEN;
+    w.u128(at + POSITION_REWARD_INFO_OFFSETS.growthInsideLastX64, r.growthInsideLast ?? 0n);
+    w.u64(at + POSITION_REWARD_INFO_OFFSETS.rewardAmountOwed, r.owed ?? 0n);
+  });
   return w.d;
 }

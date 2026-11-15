@@ -120,7 +120,7 @@ export function InfoTooltip({
              mouseleave on the wrapper and yanked the tooltip away mid-read
              (WCAG 1.4.13 hoverable). The bubble is a child of the wrapper, so
              keeping events on it keeps the hover alive. */
-          className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal left-1/2 ${
+          className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal normal-case tracking-normal left-1/2 ${
             position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           }`}
           style={{

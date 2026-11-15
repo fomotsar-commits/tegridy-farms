@@ -7,12 +7,15 @@
 //
 // Without CRON_SECRET set it counts nothing (503), and the hourly job carries on alone.
 // Each source gets 20 seconds: a five-minute run has only a few minutes of swaps to read.
+// The whole run gets 50: with the two database calls that may follow (30 s each at most),
+// it ends inside vercel.json's 120-second maxDuration, whatever an RPC does.
 import { timingSafeEqual } from "node:crypto";
 import { main } from "../scripts/venue-volume.mjs";
 import { EVM_CHAINS, evmRpc, solanaRpc } from "../scripts/lib/venue-volume-chain.mjs";
 import { logSafe } from "./_lib/logSafe.js";
 
 const SOURCE_BUDGET_MS = 20_000;
+const RUN_BUDGET_MS = 50_000;
 
 function bearerMatches(req, secret) {
   const got = Buffer.from(String(req.headers?.authorization || ""));
@@ -45,6 +48,7 @@ export default async function handler(req, res, { run = main, fetchImpl = global
       fetchImpl,
     },
     budgetMs: SOURCE_BUDGET_MS,
+    runMs: RUN_BUDGET_MS,
     log: note,
     error: note,
   }).catch((e) => {

@@ -7,9 +7,10 @@ const BLOCKS = 'h3, p, li, div';
 /**
  * What moves a line without the transaction changing, marked on the element with
  * `data-review-line` (or an ancestor): `market`, a row read against a market price;
- * `warning`, a warning that restates such a row; `fee`, a line the network's fees move.
+ * `warning`, a warning that restates such a row; `fee`, a line the network's fees move;
+ * `clock`, a line the chain's clock moves (a running reward owed).
  */
-export type LineGroup = 'market' | 'warning' | 'fee';
+export type LineGroup = 'market' | 'warning' | 'fee' | 'clock';
 
 /** A review as its reader sees it, sorted by what can move each line. */
 export interface ReviewText {
@@ -18,6 +19,7 @@ export interface ReviewText {
   market: string[];
   warnings: string[];
   fees: string[];
+  clock: string[];
 }
 
 /** Where a line goes. A mark this file does not know is the transaction's own. */
@@ -29,6 +31,8 @@ function groupOf(el: Element): keyof ReviewText {
       return 'warnings';
     case 'fee':
       return 'fees';
+    case 'clock':
+      return 'clock';
     default:
       return 'lines';
   }
@@ -43,7 +47,7 @@ function groupOf(el: Element): keyof ReviewText {
 export function reviewLines(review: ReactElement): ReviewText {
   const host = document.createElement('div');
   const root = createRoot(host);
-  const out: ReviewText = { lines: [], market: [], warnings: [], fees: [] };
+  const out: ReviewText = { lines: [], market: [], warnings: [], fees: [], clock: [] };
   try {
     flushSync(() => root.render(review));
     for (const el of Array.from(host.querySelectorAll(BLOCKS))) {

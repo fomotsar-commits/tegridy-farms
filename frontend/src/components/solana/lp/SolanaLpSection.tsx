@@ -365,7 +365,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
             {programBelow ? 'below' : 'on the Pools page'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
-          {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
+          {/* Multisig read 2026-11-14, finalized slot 469,431,196: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
               no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
               update_amm_config, create_amm_config, collect_protocol_fee) and its upgrade authority. Since the upgrade
               of 2026-11: collect_fund_fee is the fund owner's alone (the island's Workshop on both tiers, read
@@ -374,7 +374,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
               setting 8 switches a tier's swap guard. The ceiling is said in words: this page prints no fee
               figure that was not read from the chain (PoolsPage.test.tsx). */}
           <p>
-            Read on chain 2026-10-20: one key is both the admin of pool program{' '}
+            Read on chain 2026-11-14: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
             That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
             of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig

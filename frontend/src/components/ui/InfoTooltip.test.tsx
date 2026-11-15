@@ -15,6 +15,21 @@ describe('InfoTooltip', () => {
     expect(screen.getByText('?')).toBeInTheDocument();
   });
 
+  // Many call sites put the ? inside an uppercase, letter-spaced label (the stat tiles, the
+  // lending form). The bubble inherited both, so a whole explanation read in spaced capitals.
+  // A class pin: jsdom computes no Tailwind styles.
+  it('reads in sentence case even inside an uppercase label', () => {
+    renderWithTheme(
+      <p className="uppercase tracking-wider">
+        Venue Fee <InfoTooltip text="The venue keeps this share." />
+      </p>,
+    );
+    fireEvent.mouseEnter(screen.getByText('?').parentElement!);
+    const bubble = screen.getByRole('tooltip');
+    expect(bubble.className).toContain('normal-case');
+    expect(bubble.className).toContain('tracking-normal');
+  });
+
   it('shows tooltip text on hover', () => {
     renderWithTheme(<InfoTooltip text="Helpful info" />);
     fireEvent.mouseEnter(screen.getByText('?').parentElement!);

@@ -970,6 +970,48 @@ input, textarea, select {
   will-change: transform;
 }
 
+/* ─── Earn's drawing (owner, 2026-11-14: "avantegarde edition 5d architect vibes"). The
+   reduced-motion rule above holds every one of these still.
+   The title (FarmPage.tsx VenueEarn): the word rises from under its mask, and its outline stands
+   a step down and to the right of it, as a plan's projection does. The outline is drawn from
+   data-echo, so the heading holds the one word. ─── */
+@keyframes editorial-rise {
+  from { transform: translateY(105%); }
+  to { transform: none; }
+}
+.earn-word { animation: editorial-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.earn-word::after {
+  content: attr(data-echo);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  transform: translate(0.05em, 0.05em);
+  color: transparent;
+  -webkit-text-stroke: 1px var(--color-kyle-bright);
+  pointer-events: none;
+}
+/* The site model (farm/IsoIsland.tsx): a lit block's name arrives with it. */
+@keyframes iso-label-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+.iso-label { animation: iso-label-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* Harvest's figure (farm/HarvestStack.tsx): the line that crosses the pad while the pools are
+   read (--scan-x and --scan-y are the pad's far edge), and the plate at the wallet breathing. */
+@keyframes harvest-scan {
+  0% { transform: translate(0, 0); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate(var(--scan-x, 0), var(--scan-y, 0)); opacity: 0; }
+}
+.harvest-scan { animation: harvest-scan 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes harvest-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.harvest-breathe { animation: harvest-breathe 1.4s ease-in-out infinite; }
+
 /* The island order's split (IslandBasket.tsx): a hairline in cream, filled green up to the coin's
    share (--fill), and a hard square to drag. The input itself is 28px tall, so a thumb on a phone
    has room; the line is drawn in its middle. */

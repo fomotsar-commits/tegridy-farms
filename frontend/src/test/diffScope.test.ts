@@ -40,6 +40,7 @@ const SCOPED = [
   'contracts-ci.yml',
   'registry-onchain.yml',
   'solana-ci.yml',
+  'cardano-ci.yml',
   'ci.yml',
   'codeql.yml',
 ];
