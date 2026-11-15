@@ -15,6 +15,36 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: `Pubkey::is_on_curve` panics inside a Solana program, and the Solana version moves a build's size
+
+**Believed:** a program can tell a wallet's key from a program-derived address with
+`Pubkey::is_on_curve()`, and a source change's size is the same whichever `cargo build-sbf`
+builds it.
+
+**Measured** (PR #1248, cp-swap's keeper check): solana-pubkey 2.4.0's `bytes_are_curve_point`
+is `unimplemented!()` under `target_os = "solana"`; only the host build has a body (curve25519-dalek).
+A program that calls it compiles, passes `cargo test`, and dies on chain. `solana-curve25519`
+2.3.13's `edwards::validate_edwards` has an on-chain body, the `sol_curve_validate_point` syscall,
+and a host body; it agreed with `is_on_curve` on 1,000 `Pubkey::new_unique()` keys, both kinds, and
+on a local validator it accepted generated keypairs and refused PDAs. Any program that depends on
+anchor-spl with Token-2022 already compiles that crate, so naming it adds one edge to `Cargo.lock`
+and no crate.
+
+The same cp-swap source built with `cargo build-sbf -- --locked` gave 731,520 bytes under Solana
+3.1.11 and 721,488 under 2.3.0 (CI's `SOLANA_VERSION`). Trunk under 2.3.0 gave `9f0150e3…`,
+#35's buffer, byte for byte. The live program's room was 725,176 bytes: the 3.1.11 build said an
+enlarge was needed, CI's toolchain said it was not.
+
+**Do:** never call `is_on_curve` in program code; use `solana_curve25519::edwards::validate_edwards`.
+Size a program upgrade against its room with the toolchain the upgrade binary is built with, and
+check that toolchain reproduces the live build's hash first.
+
+`key-guard.mjs` refuses `new_from_array`, `Pubkey::from(` and `[u8; 32]` in a copy's unit tests
+too. A test that needs keys on and off the curve can draw them from `Pubkey::new_unique()` and sort
+them with `is_on_curve` (host only).
+
+---
+
 ## 2026-11-14: a local production build can be walked on live pool data, but not through the live RPC proxy
 
 **Believed:** `vite preview` can't show the Solana pool lists, because `/api/pools` and
