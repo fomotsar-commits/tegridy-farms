@@ -1,14 +1,17 @@
 //! Every key this SDK names, and every account a swap through it touches, is the venue's
-//! own or a public token program. Owner rulings: venue money and liquidity never go to
-//! another venue; every fee owner, receiver and authority is ours.
+//! own, the island's Workshop or a public token program. Owner rulings: venue money and
+//! liquidity never go to another venue; every fee owner, receiver and authority is ours,
+//! except the island's share, which the split of 2026-10-18 gives to the island's Workshop.
 
 mod common;
 
 use std::collections::HashMap;
 
-use jupiter_amm_interface::{Amm, SwapMode, SwapParams};
-use memetics_jupiter_sdk::state::{AmmConfig, PoolState, config_fields};
-use memetics_jupiter_sdk::{AUTHORITY, PROGRAM_ID, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, VENUE_VAULT};
+use jupiter_amm_interface::{Amm, QuoteParams, SwapMode, SwapParams};
+use memetics_jupiter_sdk::state::{AmmConfig, Field, PoolState, config_fields};
+use memetics_jupiter_sdk::{
+    AUTHORITY, ISLAND_WORKSHOP, PROGRAM_ID, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, VENUE_VAULT,
+};
 use solana_pubkey::Pubkey;
 
 /// The keys the SDK may name, each with what it is. Written out as text, so changing a
@@ -34,7 +37,14 @@ const ALLOWED: &[(&str, &str)] = &[
         "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
         "the Token-2022 program",
     ),
+    (
+        "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu",
+        "the island's Workshop: collects the island's share of the fee under the split of 2026-10-18",
+    ),
 ];
+
+const REFUSED_COLLECTOR: &str =
+    "fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)";
 
 fn allowed(key: &Pubkey) -> bool {
     ALLOWED
@@ -49,6 +59,7 @@ fn the_named_keys_are_ours() {
     assert_eq!(VENUE_VAULT.to_string(), ALLOWED[2].0);
     assert_eq!(TOKEN_PROGRAM.to_string(), ALLOWED[3].0);
     assert_eq!(TOKEN_2022_PROGRAM.to_string(), ALLOWED[4].0);
+    assert_eq!(ISLAND_WORKSHOP.to_string(), ALLOWED[5].0);
     // lib.rs `AUTH_SEED` under our program, not a key copied from anywhere.
     let (derived, _) = Pubkey::find_program_address(&[b"vault_and_lp_mint_auth_seed"], &PROGRAM_ID);
     assert_eq!(AUTHORITY, derived);
@@ -90,10 +101,10 @@ fn the_sdk_names_no_other_key() {
 }
 
 /// The live pools, as snapshotted: owned by our program, priced by a fee tier our program
-/// owns whose two fee collectors are the venue's vault, holding their tokens in accounts
-/// only our program's signer controls.
+/// owns whose venue share goes to the venue's vault and island share to the vault or the
+/// island's Workshop, holding their tokens in accounts only our program's signer controls.
 #[test]
-fn the_live_pools_pay_only_the_venue() {
+fn the_live_pools_pay_only_the_venue_and_the_island() {
     for pool_key in common::POOLS {
         let snapshot = common::snapshot(&pool_key);
         let pool_account = common::account(&snapshot, &pool_key);
@@ -107,7 +118,10 @@ fn the_live_pools_pay_only_the_venue() {
             config.protocol_owner, VENUE_VAULT,
             "{pool_key} protocol fee owner"
         );
-        assert_eq!(config.fund_owner, VENUE_VAULT, "{pool_key} fund fee owner");
+        assert!(
+            [VENUE_VAULT, ISLAND_WORKSHOP].contains(&config.fund_owner),
+            "{pool_key} fund fee owner"
+        );
 
         for vault in [pool.token_0_vault, pool.token_1_vault] {
             let data = common::account(&snapshot, &vault).data;
@@ -201,13 +215,42 @@ fn a_fee_tier_paying_anyone_else_is_refused() {
         let refused = common::amm_from(&snapshot, &pool_key, &accounts)
             .err()
             .map(|e| e.to_string());
-        assert_eq!(
-            refused.as_deref(),
-            Some("fee tier names a fee collector that is not the venue's vault"),
-            "{}",
-            f.name,
-        );
+        assert_eq!(refused.as_deref(), Some(REFUSED_COLLECTOR), "{}", f.name);
     }
+}
+
+/// Under the split the island's share (`fund_owner`) may be collected by the vault or by the
+/// island's Workshop, and the pool is quoted either way. The venue's share stays the vault's.
+#[test]
+fn the_islands_share_may_go_to_its_workshop_but_the_venues_may_not() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let workshop: Pubkey = ALLOWED[5].0.parse().unwrap();
+    let with = |f: Field, key: &Pubkey| {
+        let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
+        let config = accounts.get_mut(&pool.amm_config).unwrap();
+        config.data[f.offset..f.offset + f.size].copy_from_slice(key.as_ref());
+        common::amm_from(&snapshot, &pool_key, &accounts).map_err(|e| e.to_string())
+    };
+    let mints = common::amm(&pool_key).get_reserve_mints();
+    for key in [VENUE_VAULT, workshop] {
+        let amm = with(config_fields::FUND_OWNER, &key)
+            .unwrap_or_else(|e| panic!("the island's share to {key}: {e}"));
+        let quote = amm.quote(&QuoteParams {
+            amount: 1_000_000_000,
+            input_mint: mints[0],
+            output_mint: mints[1],
+            swap_mode: SwapMode::ExactIn,
+            fee_mode: Default::default(),
+        });
+        assert!(quote.is_ok(), "the island's share to {key}: {quote:?}");
+    }
+    assert_eq!(
+        with(config_fields::PROTOCOL_OWNER, &workshop).err().as_deref(),
+        Some(REFUSED_COLLECTOR),
+        "the venue's share to the Workshop",
+    );
 }
 
 /// `update` refuses a fee tier whose swap guard is on: Jupiter calls every swap from its own

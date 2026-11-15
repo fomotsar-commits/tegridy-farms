@@ -20,8 +20,10 @@ stays in the pool, booked to the venue, until the venue's Squads vault
 `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` collects it. The rest of the fee stays in the pool
 for the people who supplied it. A swap pays nobody outside the pool.
 
-`update` refuses a fee tier whose fee collectors are not that vault, so Jupiter never gets a
-quote for a pool whose venue cut would go anywhere else.
+`update` refuses a fee tier whose venue share is not collected by that vault, or whose island
+share is collected by anyone but the vault or the island's Workshop
+`G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu`, so Jupiter never gets a quote for a pool whose
+shares would go anywhere else.
 
 ## Run the tests
 

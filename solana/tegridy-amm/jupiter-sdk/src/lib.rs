@@ -6,12 +6,12 @@
 //! vaults and its two mints in `update`; quote ExactIn swaps in `quote`, with no network call;
 //! and list the accounts of the program's own `swap_base_input`.
 //!
-//! HOW MONEY MOVES on a swap: the trader pays the fee tier's trade fee out of the input. The
-//! venue's cut of that fee (protocol_fee_rate and fund_fee_rate, taken OUT of the trade fee)
-//! stays in the pool's token account, booked to the venue, until the venue's vault collects
-//! it; the rest of the fee stays in the pool for the people who supplied it. A swap pays
-//! nobody outside the pool. `update` refuses a fee tier whose collectors are not the
-//! venue's vault, so no quote is ever given for a pool whose cut would go anywhere else.
+//! HOW MONEY MOVES on a swap: the trader pays the fee tier's trade fee out of the input. Two
+//! shares are taken OUT of that fee and stay in the pool's token account, booked: the venue's
+//! (protocol_fee_rate) until the venue's vault collects it, the island's (fund_fee_rate) until
+//! its collector (the island's Workshop on the live tiers) does. The rest stays in the pool for
+//! the people who supplied it. A swap pays nobody outside the pool. `update` refuses a fee tier naming any other
+//! collector, so no quote is ever given for a pool whose shares would go anywhere else.
 
 pub mod math;
 pub mod state;
@@ -37,8 +37,11 @@ pub const PROGRAM_ID: Pubkey = pubkey!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ
 /// The program's own signer over every pool's token accounts: the address of
 /// `[b"vault_and_lp_mint_auth_seed"]` under `PROGRAM_ID` (lib.rs `AUTH_SEED`).
 pub const AUTHORITY: Pubkey = pubkey!("Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB");
-/// The venue's Squads vault: the only fee collector a fee tier may name.
+/// The venue's Squads vault: the only collector of a fee tier's venue share (`protocol_owner`).
 pub const VENUE_VAULT: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+/// The island's Workshop: under the split of 2026-10-18 it collects the island's share
+/// (`fund_owner`) on the live fee tiers. The vault may still be named there instead.
+pub const ISLAND_WORKSHOP: Pubkey = pubkey!("G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu");
 pub const TOKEN_PROGRAM: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 pub const TOKEN_2022_PROGRAM: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
@@ -173,8 +176,10 @@ impl Amm for MemeticsAmm {
             AmmConfig::decode(account.data())
                 .ok_or_else(|| AmmError::from("account is not a Memetics fee tier"))?
         };
-        if config.protocol_owner != VENUE_VAULT || config.fund_owner != VENUE_VAULT {
-            return Err("fee tier names a fee collector that is not the venue's vault".into());
+        if config.protocol_owner != VENUE_VAULT
+            || (config.fund_owner != VENUE_VAULT && config.fund_owner != ISLAND_WORKSHOP)
+        {
+            return Err("fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)".into());
         }
         // Jupiter calls every swap from its own program, and a tier with its swap guard on
         // refuses that (6015 SwapNotDirect): a quote for it would fail every route.
