@@ -1,8 +1,72 @@
 {
  "note": "Written by WORD_BUDGET_RECORD=1 (e2e/word-budget.spec.ts). Do not edit by hand: record again. Keyed \"<method>:<first param>\"; each value is the JSON-RPC result as mainnet answered.",
- "recordedAt": "2026-11-14",
+ "recordedAt": "2026-11-15",
  "slot": 469256022,
  "answers": {
+  "getAccountInfo:7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump": {
+   "context": {
+    "apiVersion": "4.4.0",
+    "slot": 469627899
+   },
+   "value": {
+    "data": {
+     "parsed": {
+      "info": {
+       "decimals": 6,
+       "extensions": [
+        {
+         "extension": "metadataPointer",
+         "state": {
+          "authority": null,
+          "metadataAddress": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump"
+         }
+        },
+        {
+         "extension": "tokenMetadata",
+         "state": {
+          "additionalMetadata": [],
+          "mint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+          "name": "BAYLA",
+          "symbol": "BAYLA",
+          "updateAuthority": null,
+          "uri": "https://ipfs.io/ipfs/bafkreifzclcd2ctrxnpsbrotgyazv5m7bdjpkajmax47sjw7ip7tgxevu4"
+         }
+        }
+       ],
+       "freezeAuthority": null,
+       "isInitialized": true,
+       "mintAuthority": null,
+       "supply": "984221906918707"
+      },
+      "type": "mint"
+     },
+     "program": "spl-token-2022",
+     "space": 408
+    },
+    "executable": false,
+    "lamports": 1993343308,
+    "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "rentEpoch": 18446744073709552000,
+    "space": 408
+   }
+  },
+  "getAccountInfo:EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f": {
+   "context": {
+    "apiVersion": "4.4.0",
+    "slot": 469627524
+   },
+   "value": {
+    "data": [
+     "eSLOFU9//xz+AWOXqlJul9FDfGHf+VZIG9qUaE+1xnVBhGM+WDQx51D/4b2f1qn63HpE1xXkDgqGaMekzhTpH+p3vh8CWikaHzjdXXfY6YZEqI+5Vcfpe/oVqslLn90DJ1txjpzMfB1w6QDKmjsAAAAAAPIFKgEAAACAUQEAAAAAAIAz4QEAAAAAAEMJ+btLJPh8JULq2CIIM50iUQpS7Dw5JlDMeoHVWkKvCgYh2/kv0BbeUk5RM4jvR6ihGnHNTDKkOY0j5io2U30+dQCMJQIAAGAOrQFj8k2SsAEAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+     "base64"
+    ],
+    "executable": false,
+    "lamports": 2951040,
+    "owner": "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH",
+    "rentEpoch": 18446744073709552000,
+    "space": 296
+   }
+  },
   "getMultipleAccounts:4HjxickXVJ98vdosH9idfKfsombYrk2nNbWZETS8PjVN,8YBj4RCdDKKs4MG6Ck9A3TSciRRocASr12ie7EsxLTe,CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy,CLC63CyS3SYjvEhGVo3rjEMWQuGQ5hGFSTTUEUoVKzm2,H4aGbEkvJjVd1FaRn8NaEojoHBFpXSJ1cZGFsKKP2Dou,FnLH5FFAjpgFjsLcZ7BYthSCzKdEvwCRponRdbESdSNW,CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy,G45WwZq4o1V5RAxpWz3zNaW7HRkQPknNwPaS9uviqDqZ": {
    "context": {
     "apiVersion": "4.4.0",
@@ -209,6 +273,35 @@
      "space": 904
     }
    ]
+  },
+  "getProgramAccounts:RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj": [
+   {
+    "pubkey": "3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf",
+    "account": {
+     "lamports": 3006720,
+     "data": [
+      "hnnF04WaUiD+AMTfxtaHP+iSD9i4FUx+B6Ng/8JtfQT9FCNPZz71+oR+Y5eqUm6X0UN8Yd/5Vkgb2pRoT7XGdUGEYz5YNDHnUP/hvZ/WqfrcekTXFeQOCoZox6TOFOkf6ne+HwJaKRofON1dd9jphkSoj7lVx+l7+hWqyUuf3QMnW3GOnMx8HXDpBwAAAAAAAAABAAAAAAAAAAHAJwkAAAAAAIBRAQAAAAAAMWWWagAAAAAxZZZqAAAAAEkqdhAzfqA10E3AB02u4/qTbMNLNQW1uvYb7PGiXEJ2ABCl1OgAAADgKqLcZwAAAHTQk2oAAAAAEA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "base64"
+     ],
+     "owner": "RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj",
+     "executable": false,
+     "rentEpoch": 18446744073709552000,
+     "space": 304
+    }
+   }
+  ],
+  "getProgramAccounts:RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez": [],
+  "getTokenAccountBalance:5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq": {
+   "context": {
+    "apiVersion": "4.4.0",
+    "slot": 469627900
+   },
+   "value": {
+    "amount": "553916753184",
+    "decimals": 6,
+    "uiAmount": 553916.753184,
+    "uiAmountString": "553916.753184"
+   }
   },
   "getTokenSupply:7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump": {
    "context": {
