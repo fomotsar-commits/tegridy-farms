@@ -40,11 +40,14 @@ import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  AuthorityType,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
+  createFreezeAccountInstruction,
   createMint,
+  createSetAuthorityInstruction,
   createSyncNativeInstruction,
-  createTransferInstruction,
+  getAccount,
   getAssociatedTokenAddressSync,
   getMint,
   mintTo,
@@ -89,6 +92,9 @@ const PERMISSION_SEED = Buffer.from("permission");
  *  so the canonical address can be occupied by anyone to brick a graduation; a PDA
  *  of the launch program cannot. See LAUNCH_POOL_SEED in state.rs. */
 const LAUNCH_POOL_SEED = Buffer.from("launchpool");
+/** The launch's coins are staged at [STAGING_SEED, mint] of the launch program, an account
+ *  `migrate_to_amm` creates and closes itself. See STAGING_SEED in state.rs. */
+const STAGING_SEED = Buffer.from("staging");
 
 // cp-swap seeds — from programs/cp-swap/src/states/{config,pool}.rs and lib.rs.
 const AMM_CONFIG_SEED = Buffer.from("amm_config");
@@ -278,7 +284,32 @@ describe("tegridy-launch full migration rehearsal", () => {
 
   it("creates a launch, buys it to target, migrates, and BURNS the LP", async () => {
     // ── create ────────────────────────────────────────────────────────────────
-    launchMint = await createMint(provider.connection, wallet, wallet.publicKey, null, 9);
+    // ADVERSARIAL PRECONDITION 1 (LCH-01): the creator keeps a freeze authority just long
+    // enough to create and freeze the migration authority's associated account for this
+    // mint, the address graduation used to stage the coins in, then drops it. create_launch
+    // only sees a mint with no freeze authority. Graduation must not depend on that account.
+    launchMint = await createMint(provider.connection, wallet, wallet.publicKey, wallet.publicKey, 9);
+    const oldStaging = getAssociatedTokenAddressSync(
+      launchMint,
+      pda([MIGRATION_AUTH_SEED], launch.programId),
+      true
+    );
+    await provider.sendAndConfirm(
+      new Transaction()
+        .add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            oldStaging,
+            pda([MIGRATION_AUTH_SEED], launch.programId),
+            launchMint
+          )
+        )
+        .add(createFreezeAccountInstruction(oldStaging, launchMint, wallet.publicKey))
+        .add(createSetAuthorityInstruction(launchMint, wallet.publicKey, AuthorityType.FreezeAccount, null)),
+      []
+    );
+    assert.isTrue((await getAccount(provider.connection, oldStaging)).isFrozen, "precondition: frozen");
+    assert.isNull((await getMint(provider.connection, launchMint)).freezeAuthority, "precondition: no freeze authority");
     curve = pda([CURVE_SEED, launchMint.toBuffer()], launch.programId);
     curveVault = pda([VAULT_SEED, launchMint.toBuffer()], launch.programId);
 
@@ -418,37 +449,6 @@ describe("tegridy-launch full migration rehearsal", () => {
         ? [NATIVE_MINT, launchMint]
         : [launchMint, NATIVE_MINT];
 
-    // ── ADVERSARIAL PRECONDITION 1: dust the migration authority's token ATA ─
-    // `auth_token`'s address is derivable from the launch mint the moment the launch
-    // is created, and the Associated Token Program lets ANYONE create an ATA for any
-    // owner, PDA or not. SPL Token then refuses to close a NON-NATIVE account holding
-    // a balance (TokenError::NonNativeHasBalance), so a single donated token unit
-    // survives cp-swap's exact-amount pull and made the unconditional close revert —
-    // a permissionless, ~0.002 SOL, PERMANENT graduation brick, with no path in the
-    // program to ever empty that account.
-    //
-    // The handler now drains any residual to the curve vault before closing. Donate
-    // the unit here so that regression turns this test red instead of shipping.
-    const authTokenAta = getAssociatedTokenAddressSync(launchMint, migAuth, true);
-    await provider.sendAndConfirm(
-      new Transaction()
-        .add(
-          createAssociatedTokenAccountInstruction(
-            wallet.publicKey,
-            authTokenAta,
-            migAuth,
-            launchMint
-          )
-        )
-        .add(createTransferInstruction(buyerAta, authTokenAta, wallet.publicKey, 1)),
-      []
-    );
-    assert.equal(
-      (await provider.connection.getTokenAccountBalance(authTokenAta)).value.amount,
-      "1",
-      "the dust donation must really be in place or this test proves nothing"
-    );
-
     // ── ADVERSARIAL PRECONDITION 2: occupy cp-swap's canonical pool ──────────
     // `create_pool` refuses a `pool_state` that is no longer System-owned, so whoever
     // opens the canonical [POOL_SEED, amm_config, mint0, mint1] pool first bricks a
@@ -565,7 +565,7 @@ describe("tegridy-launch full migration rehearsal", () => {
         creator: wallet.publicKey,
         migrationAuthority: migAuth,
         authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
-        authToken: getAssociatedTokenAddressSync(launchMint, migAuth, true),
+        // `authToken` is left to the IDL, which names the program's own staging address.
         authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
         cpSwapProgram: cpSwap.programId,
         ammConfig,
@@ -751,7 +751,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     }
     for (const [name, addr] of [
       ["auth_wsol", getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true)],
-      ["auth_token", getAssociatedTokenAddressSync(launchMint, migAuth, true)],
+      ["auth_token", pda([STAGING_SEED, launchMint.toBuffer()], launch.programId)],
       ["auth_lp", getAssociatedTokenAddressSync(lpMint, migAuth, true)],
     ] as [string, PublicKey][]) {
       assert.isNull(
@@ -760,15 +760,15 @@ describe("tegridy-launch full migration rehearsal", () => {
       );
     }
 
-    // The donated dust was drained rather than left to block the close. Asserting
-    // where it LANDED, not merely that migration survived: a close made conditional
-    // instead of draining would also pass the checks above while silently stranding
-    // the rent, so pin the actual destination. The platform reserve is not here:
-    // it went to the treasury at create, so the dust unit is all the vault holds.
+    // LCH-01: the coins never touched the frozen associated account, which is still
+    // there, still frozen and empty, and the vault gave every coin to the pool.
+    const old = await getAccount(provider.connection, oldStaging);
+    assert.isTrue(old.isFrozen, "the old staging address stays frozen");
+    assert.equal(old.amount.toString(), "0");
     assert.equal(
       (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
-      "1",
-      "the vault must hold exactly the swept dust unit"
+      "0",
+      "the vault must be empty: the pool received every unsold coin"
     );
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
@@ -806,7 +806,6 @@ describe("tegridy-launch full migration rehearsal", () => {
           creator: wallet.publicKey,
           migrationAuthority: pda([MIGRATION_AUTH_SEED], launch.programId),
           authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, pda([MIGRATION_AUTH_SEED], launch.programId), true),
-          authToken: getAssociatedTokenAddressSync(launchMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
           authLp: getAssociatedTokenAddressSync(lpMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
           cpSwapProgram: cpSwap.programId,
           ammConfig,
@@ -909,7 +908,7 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     // Every token minted is in exactly one of the places this launch can have put
     // it. The squatter's pool holds the 1,000,000 units the adversarial
-    // precondition seeded it with; the curve vault holds the swept dust unit.
+    // precondition seeded it with; the curve vault and the frozen account hold none.
     const [mint0, mint1] =
       NATIVE_MINT.toBuffer() < launchMint.toBuffer()
         ? [NATIVE_MINT, launchMint]

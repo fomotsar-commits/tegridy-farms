@@ -36,6 +36,11 @@ pub const VAULT_SEED: &[u8] = b"vault";
 /// before returning — so a shared authority never accumulates value to steal.
 pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 
+/// Seed, with the mint, of the token account that stages a launch's coins inside
+/// `migrate_to_amm`. That instruction creates and closes it, so nothing can exist, or be
+/// frozen, at the address beforehand.
+pub const STAGING_SEED: &[u8] = b"staging";
+
 /// cp-swap's `PERMISSION_SEED`, restated so the derivation is visible at the call
 /// site rather than reached for through the dependency. Asserted equal to
 /// `raydium_cp_swap::states::PERMISSION_SEED` in the tests, so a fork bump that
