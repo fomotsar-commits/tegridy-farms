@@ -99,6 +99,7 @@ export interface LaunchListItem {
   openingBuyTokens: bigint | null;
   boughtByOwner: LaunchOrigin['boughtByOwner'];
   birthSupply: bigint | null;
+  plant: LaunchOrigin['plant'];
   curve: Read<CurveAccount>;
   metadata: Read<TokenMetadata>;
 }
@@ -540,6 +541,7 @@ async function enrich(rpc: SolanaRpc, cfg: CurveWriteConfig, origins: LaunchOrig
         openingBuyTokens: o.openingBuyTokens,
         boughtByOwner: o.boughtByOwner,
         birthSupply: o.birthSupply,
+        plant: o.plant,
         curve,
         metadata,
       },

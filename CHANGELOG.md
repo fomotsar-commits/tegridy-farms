@@ -21,6 +21,7 @@ The site's Changelog tab shows both files.
 - Pools, Range, putting coins into a pool: a pool that holds less liquidity at its price than your deposit would add (or none) is now refused, not only warned about, when its price is more than 3% from Jupiter's or could not be checked against it. A deeper pool off the market still gets the warning with its estimated cost.
 - Pools, your positions: a share too small to take out now says why (one side would pay less than its coin's smallest unit, and the pool program never pays out zero) and what works: waiting, or adding an amount that lands just under a whole number of those units, since the least the pool takes costs one of them.
 - Launches on the Solana curve: a coin whose launcher account was frozen before launch can never move to its pool, so the list now leaves it out and its page offers no Buy, saying why; selling still works. A launch page offers Buy only once it has checked that account.
+- Launches on the Solana curve: a list row now says "No plant: its launch transaction carried none." for a launch made without the island's plant, as its page already did, and says when that could not be read.
 
 ### 2026-11-14
 

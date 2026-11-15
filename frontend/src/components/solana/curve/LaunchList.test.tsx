@@ -26,6 +26,7 @@ function item(over: Partial<LaunchListItem> = {}): LaunchListItem {
     birthSupply: 1_000_000_000_000_000n,
     curve: { kind: 'ok', value: curveAccount(bondingCurve()) },
     metadata: { kind: 'ok', value: md() },
+    plant: { burned: 50_000_000_000n, toWorkshop: 50_000_000_000n },
     ...over,
   };
 }
@@ -172,6 +173,19 @@ describe('launch list', () => {
     answer({ kind: 'ok', value: { items: [], before: 'cursor2', scanned: 20, hidden: 0 } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Show more' })).not.toHaveAttribute('aria-disabled'));
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show more' }));
+  });
+});
+
+// LCH-07: a launch made by calling the program directly skips the plant and is still listed.
+describe('launch list: the plant', () => {
+  it('a row says "No plant" for a launch that carried none, "could not read" when unread, and nothing for one that carried it', async () => {
+    const items = [item({ plant: { burned: 0n, toWorkshop: 0n } }), item({ mint: KEY(31), plant: null }), item({ mint: KEY(32) })];
+    renderList(fakeApi({ listRecentLaunches: vi.fn(async () => ({ kind: 'ok' as const, value: { items, before: null, scanned: 20, hidden: 0 } })) }));
+    const rows = await screen.findAllByTestId('launch-row');
+    expect(rows[0]).toHaveTextContent('No plant: its launch transaction carried none.');
+    expect(rows[1]).toHaveTextContent('Could not read whether this launch carried a plant.');
+    expect(rows[1]!.textContent).not.toMatch(/No plant/);
+    expect(rows[2]!.textContent).not.toMatch(/No plant|carried a plant|Plant:/);
   });
 });
 

@@ -659,6 +659,18 @@ describe('listRecentLaunches', () => {
     }
   });
 
+  // LCH-07: the plant read from each launch transaction rides on its list item.
+  it("carries each launch transaction's plant: none reads 0 and 0, a balance record it could not read is null", async () => {
+    const f = new FakeJsonRpc();
+    const maker = Keypair.generate();
+    const planted: Launch = { sig: sig(1), creator: maker, mint: Keypair.generate(), bayla: plantBalances(maker.publicKey) };
+    const bare: Launch = { sig: sig(2), creator: Keypair.generate(), mint: Keypair.generate() };
+    const unread: Launch = { sig: sig(3), creator: Keypair.generate(), mint: Keypair.generate(), noPre: true };
+    f.index(INDEX, [planted, bare, unread].map((l) => ({ sig: l.sig, tx: launchTx(l) })));
+    const r = await listRecentLaunches(f.rpc, cfgLocal);
+    expect(r.kind === 'ok' && r.value.items.map((i) => i.plant)).toEqual([{ burned: B(50_000n), toWorkshop: B(50_000n) }, { burned: 0n, toWorkshop: 0n }, null]);
+  });
+
   it('by creator: only launches that wallet created', async () => {
     const f = new FakeJsonRpc();
     const me = Keypair.generate();
