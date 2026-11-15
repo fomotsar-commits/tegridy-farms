@@ -126,13 +126,13 @@ test.describe('bungalow doors', () => {
 
   const DOORS = BUNGALOWS.map((b) => b.id);
 
-  test('there are thirteen doors, twelve bungalows and the open lot, and this file knows all of them', () => {
+  test('there are twelve doors, eleven bungalows and the open lot, and this file knows all of them', () => {
     // The sweep below is generated from this list. If a door is added and this
     // number is not deliberately changed with it, the new room is swept anyway —
     // this exists so the COUNT in the status block cannot drift from the code.
-    expect(DOORS).toHaveLength(13);
-    // The island: "12 BUNGALOWS · 3 LOTS OPEN". /nb1 is its next lot, not a bungalow.
-    expect(BUNGALOW_COUNT).toBe(12);
+    expect(DOORS).toHaveLength(12);
+    // The island: 11 bungalows since 2026-11-14, when the QR room left. /nb1 is its next lot, not a bungalow.
+    expect(BUNGALOW_COUNT).toBe(11);
     expect(DOORS).toContain('toweli');
   });
 

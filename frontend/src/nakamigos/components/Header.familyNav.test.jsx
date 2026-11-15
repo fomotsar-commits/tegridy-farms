@@ -78,7 +78,7 @@ describe("Header", () => {
   it("ellipsises a long collection name, and keeps the whole name in its title", async () => {
     await renderHeader({ onCartToggle: () => {} });
     const name = screen.getByTitle(new RegExp(LONG, "i"));
-    expect(name.textContent).toMatch(/THE MEMES BY JUNGLE BAY/);
+    expect(name.textContent).toMatch(/the memes by jungle bay/i);
     expect(name.style.overflow).toBe("hidden");
     expect(name.style.textOverflow).toBe("ellipsis");
     expect(name.style.whiteSpace).toBe("nowrap");

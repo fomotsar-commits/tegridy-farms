@@ -193,7 +193,7 @@ const styles = {
   panel: {
     background: "var(--surface)",
     border: "1px solid var(--border)",
-    borderRadius: 12,
+    borderRadius: 6,
     padding: 20,
     fontFamily: "var(--mono)",
   },
@@ -218,13 +218,13 @@ const styles = {
     lineHeight: 1,
   },
   permissionBtn: {
-    background: "var(--naka-blue)",
-    color: "#fff",
+    background: "var(--accent)",
+    color: "var(--on-accent)",
     border: "none",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "6px 14px",
     fontFamily: "var(--pixel)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
@@ -240,7 +240,7 @@ const styles = {
   input: {
     background: "var(--card)",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "6px 10px",
     color: "inherit",
     fontFamily: "var(--mono)",
@@ -256,7 +256,7 @@ const styles = {
   },
   toggleGroup: {
     display: "flex",
-    borderRadius: 6,
+    borderRadius: 4,
     overflow: "hidden",
     border: "1px solid var(--border)",
   },
@@ -266,7 +266,7 @@ const styles = {
     border: "none",
     padding: "6px 10px",
     fontFamily: "var(--pixel)",
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     transition: "background 0.2s",
   }),
@@ -274,10 +274,10 @@ const styles = {
     background: "var(--green)",
     color: "var(--bg)",
     border: "none",
-    borderRadius: 6,
+    borderRadius: 4,
     padding: "6px 14px",
     fontFamily: "var(--pixel)",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "pointer",
     fontWeight: 700,
   },
@@ -296,15 +296,13 @@ const styles = {
     padding: "10px 12px",
     background: "var(--card)",
     border: triggered ? "1px solid var(--green)" : "1px solid var(--border)",
-    borderRadius: 8,
-    boxShadow: triggered ? "0 0 12px rgba(0,255,120,0.25)" : "none",
-    animation: triggered ? "pulseGlow 2s ease-in-out infinite" : "none",
-    transition: "box-shadow 0.3s, border-color 0.3s",
+    borderRadius: 4,
+    transition: "border-color 0.15s",
   }),
   alertImage: {
     width: 36,
     height: 36,
-    borderRadius: 6,
+    borderRadius: 4,
     objectFit: "cover",
     flexShrink: 0,
   },
@@ -320,7 +318,7 @@ const styles = {
     textOverflow: "ellipsis",
   },
   alertMeta: {
-    fontSize: 12,
+    fontSize: 13,
     opacity: 0.7,
     display: "flex",
     alignItems: "center",
@@ -328,20 +326,20 @@ const styles = {
     marginTop: 2,
   },
   directionBadge: (direction) => ({
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: "var(--pixel)",
     padding: "1px 6px",
-    borderRadius: 4,
+    borderRadius: 3,
     background: direction === "above" ? "var(--green)" : "var(--red)",
     color: "var(--bg)",
     fontWeight: 700,
     textTransform: "uppercase",
   }),
   triggeredBadge: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: "var(--pixel)",
     padding: "1px 6px",
-    borderRadius: 4,
+    borderRadius: 3,
     background: "var(--green)",
     color: "var(--bg)",
     fontWeight: 700,
@@ -350,7 +348,7 @@ const styles = {
   removeBtn: {
     background: "none",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 4,
     color: "var(--red)",
     cursor: "pointer",
     padding: "4px 8px",
@@ -362,11 +360,11 @@ const styles = {
   empty: {
     textAlign: "center",
     fontFamily: "var(--pixel)",
-    fontSize: 12,
+    fontSize: 13,
     padding: "28px 16px",
     background: "var(--card)",
     border: "1px dashed var(--border)",
-    borderRadius: 8,
+    borderRadius: 4,
   },
   dropdown: {
     position: "absolute",
@@ -375,7 +373,7 @@ const styles = {
     right: 0,
     background: "var(--card)",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 4,
     maxHeight: 180,
     overflowY: "auto",
     zIndex: 20,
@@ -392,21 +390,6 @@ const styles = {
     borderBottom: "1px solid var(--border)",
   },
 };
-
-const keyframesInjected = { current: false };
-
-function injectKeyframes() {
-  if (keyframesInjected.current) return;
-  keyframesInjected.current = true;
-  const sheet = document.createElement("style");
-  sheet.textContent = `
-    @keyframes pulseGlow {
-      0%, 100% { box-shadow: 0 0 8px rgba(0,255,120,0.2); }
-      50% { box-shadow: 0 0 20px rgba(0,255,120,0.45); }
-    }
-  `;
-  document.head.appendChild(sheet);
-}
 
 /* ─── Component ─── */
 
@@ -448,10 +431,6 @@ export default function PriceAlertPanel({ tokens = [], addToast, engine }) {
       setShowDropdown(false);
     }
   }, [collection.slug]);
-
-  useEffect(() => {
-    injectKeyframes();
-  }, []);
 
   useEffect(() => {
     const handler = (e) => {
@@ -530,7 +509,7 @@ export default function PriceAlertPanel({ tokens = [], addToast, engine }) {
       {/* Current Floor */}
       <div style={{
         fontFamily: "var(--mono)",
-        fontSize: 12,
+        fontSize: 13,
         color: "var(--text-dim)",
         marginBottom: 12,
         display: "flex",
@@ -541,7 +520,7 @@ export default function PriceAlertPanel({ tokens = [], addToast, engine }) {
         {floorPrice != null ? (
           <>
             {collection.name} floor: <Eth size={10} /> <span style={{ color: "var(--gold)", fontWeight: 700 }}>{floorPrice.toFixed(4)}</span>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>(alerts trigger based on floor price)</span>
+            <span style={{ fontSize: 11, opacity: 0.5 }}>(alerts trigger based on floor price)</span>
           </>
         ) : (
           <span style={{ opacity: 0.5 }}>Loading {collection.name} floor price...</span>

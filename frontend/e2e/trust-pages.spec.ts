@@ -199,7 +199,7 @@ test.describe('SEO & social metadata', () => {
     expect(doc.schema).toBe('memetics.finance/held-through/1');
     expect(doc.site).toBe('https://memetics.finance');
     const ids = [...doc.chains.solana, ...doc.chains.ethereum, ...doc.chains.base].map((c: { id: string }) => c.id);
-    expect(ids).toEqual(expect.arrayContaining(['lighthouse-bayla', 'tegridy-staking', 'ladder-pepe', 'ladder-qr']));
+    expect(ids).toEqual(expect.arrayContaining(['lighthouse-bayla', 'tegridy-staking', 'ladder-pepe', 'ladder-mfer']));
   });
 
   test('og.svg hero banner is served', async ({ page }) => {

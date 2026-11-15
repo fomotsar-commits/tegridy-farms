@@ -26,11 +26,13 @@ const styles = {
     padding: "24px 16px",
   },
   title: {
-    fontFamily: "var(--pixel, var(--display))",
-    fontSize: 22,
+    fontFamily: "var(--heading)",
+    fontSize: 30,
     color: "var(--text)",
-    letterSpacing: "0.04em",
     marginBottom: 20,
+    fontWeight: 800,
+    letterSpacing: "-0.025em",
+    lineHeight: 1.05,
   },
   tabBar: {
     display: "flex",
@@ -40,7 +42,7 @@ const styles = {
   },
   tab: (active) => ({
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: "0.06em",
     padding: "12px 16px",
     minHeight: 44,
@@ -57,20 +59,18 @@ const styles = {
   card: {
     background: "var(--surface-glass)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
+    borderRadius: 6,
     padding: "12px 16px",
     marginBottom: 8,
     display: "flex",
     alignItems: "center",
     gap: 12,
     flexWrap: "wrap",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
   },
   nftThumb: {
     width: 52,
     height: 52,
-    borderRadius: 8,
+    borderRadius: 4,
     overflow: "hidden",
     flexShrink: 0,
     cursor: "pointer",
@@ -91,7 +91,7 @@ const styles = {
   },
   cardMeta: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-dim)",
     marginTop: 3,
     display: "flex",
@@ -110,11 +110,11 @@ const styles = {
   },
   btnCancel: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
+    fontSize: 12,
     color: "var(--red)",
-    background: "rgba(248,113,113,0.06)",
-    border: "1px solid rgba(248,113,113,0.15)",
-    borderRadius: 5,
+    background: "rgba(255,92,92,0.06)",
+    border: "1px solid rgba(255,92,92,0.15)",
+    borderRadius: 4,
     padding: "8px 14px",
     minHeight: 36,
     cursor: "pointer",
@@ -122,11 +122,11 @@ const styles = {
   },
   btnAccept: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
-    color: "var(--green, #4ade80)",
-    background: "rgba(74,222,128,0.06)",
-    border: "1px solid rgba(74,222,128,0.12)",
-    borderRadius: 5,
+    fontSize: 12,
+    color: "var(--green, #2fd98b)",
+    background: "rgba(47,217,139,0.06)",
+    border: "1px solid rgba(47,217,139,0.12)",
+    borderRadius: 4,
     padding: "8px 14px",
     minHeight: 36,
     cursor: "pointer",
@@ -134,11 +134,11 @@ const styles = {
   },
   btnCounter: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
-    color: "var(--naka-blue, #6fa8dc)",
-    background: "rgba(111,168,220,0.06)",
-    border: "1px solid rgba(111,168,220,0.12)",
-    borderRadius: 5,
+    fontSize: 12,
+    color: "var(--naka-blue, #ffffff)",
+    background: "rgba(255,255,255,0.042)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 4,
     padding: "8px 14px",
     minHeight: 36,
     cursor: "pointer",
@@ -146,25 +146,25 @@ const styles = {
   },
   btnConnect: {
     fontFamily: "var(--mono)",
-    fontSize: 11,
-    color: "var(--naka-blue, #6fa8dc)",
-    background: "rgba(111,168,220,0.08)",
-    border: "1px solid rgba(111,168,220,0.18)",
-    borderRadius: 8,
+    fontSize: 12,
+    color: "var(--naka-blue, #ffffff)",
+    background: "rgba(255,255,255,0.056)",
+    border: "1px solid rgba(255,255,255,0.16)",
+    borderRadius: 4,
     padding: "10px 22px",
     cursor: "pointer",
     marginTop: 8,
   },
   empty: {
     fontFamily: "var(--mono)",
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--text-muted)",
     textAlign: "center",
     padding: "40px 16px",
   },
   status: (color) => ({
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: "0.04em",
     color,
     textTransform: "uppercase",
@@ -177,7 +177,7 @@ const styles = {
   // skeleton styles moved to SkeletonRows using shared .skeleton CSS class
   refreshNote: {
     fontFamily: "var(--mono)",
-    fontSize: 10,
+    fontSize: 11,
     color: "var(--text-muted)",
     textAlign: "right",
     marginBottom: 8,
@@ -207,7 +207,7 @@ function expiryColor(expiry) {
   if (ms <= 0) return "var(--red)";
   if (ms < 3600000) return "var(--red)";           // < 1 hour
   if (ms < 86400000) return "var(--gold)";          // < 24 hours
-  return "var(--green, #4ade80)";                   // > 24 hours
+  return "var(--green, #2fd98b)";                   // > 24 hours
 }
 
 function isExpiringUrgent(expiry) {
@@ -218,7 +218,7 @@ function isExpiringUrgent(expiry) {
 
 function bidStatus(order) {
   if (order.cancelled) return { label: "Cancelled", color: "var(--red)" };
-  if (order.finalized) return { label: "Fulfilled", color: "var(--green, #4ade80)" };
+  if (order.finalized) return { label: "Fulfilled", color: "var(--green, #2fd98b)" };
   if (order.expiry && order.expiry.getTime() <= Date.now()) return { label: "Expired", color: "var(--text-dim)" };
   return { label: "Active", color: "var(--gold)" };
 }
@@ -257,11 +257,11 @@ function normalizeOrder(order) {
 
 function SkeletonRows({ count = 4 }) {
   return Array.from({ length: count }, (_, i) => (
-    <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
-      <div className="skeleton" style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0, animationDelay: `${i * 60}ms` }} />
+    <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
+      <div className="skeleton" style={{ width: 52, height: 52, borderRadius: 4, flexShrink: 0, animationDelay: `${i * 60}ms` }} />
       <div style={{ flex: 1 }}>
-        <div className="skeleton" style={{ height: 10, borderRadius: 4, width: "60%", marginBottom: 6, animationDelay: `${i * 60}ms` }} />
-        <div className="skeleton" style={{ height: 10, borderRadius: 4, width: "35%", animationDelay: `${i * 60 + 30}ms` }} />
+        <div className="skeleton" style={{ height: 10, borderRadius: 3, width: "60%", marginBottom: 6, animationDelay: `${i * 60}ms` }} />
+        <div className="skeleton" style={{ height: 10, borderRadius: 3, width: "35%", animationDelay: `${i * 60 + 30}ms` }} />
       </div>
     </div>
   ));
@@ -597,11 +597,11 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                 onChange={(e) => setBidSort(e.target.value)}
                 style={{
                   fontFamily: "var(--mono)",
-                  fontSize: 11,
+                  fontSize: 12,
                   color: "var(--text-dim)",
                   background: "var(--border)",
                   border: "1px solid var(--border)",
-                  borderRadius: 5,
+                  borderRadius: 4,
                   padding: "6px 10px",
                   cursor: "pointer",
                   minHeight: 32,
@@ -629,8 +629,8 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                 <div key={bid.orderHash} style={{
                   ...styles.card,
                   ...(urgent ? {
-                    border: "1px solid rgba(248,113,113,0.35)",
-                    boxShadow: "0 0 12px rgba(248,113,113,0.15)",
+                    border: "1px solid rgba(255,92,92,0.35)",
+                    boxShadow: "none",
                   } : {}),
                 }}>
                   {bid.tokenId && (
@@ -701,7 +701,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                         {/* #8/#10: relative-to-floor badge so accept/decline is a
                             one-glance call instead of leaving to check the floor. */}
                         {stats?.floor > 0 && offer.price > 0 && (
-                          <span style={{ color: offer.price >= stats.floor ? "var(--green, #4ade80)" : "var(--red, #f87171)", fontWeight: 600 }}>
+                          <span style={{ color: offer.price >= stats.floor ? "var(--green, #2fd98b)" : "var(--red, #ff5c5c)", fontWeight: 600 }}>
                             {Math.round((offer.price / stats.floor) * 100)}% of floor
                           </span>
                         )}

@@ -176,7 +176,7 @@ describe('CONTRACTS.md names the addresses that are actually deployed', () => {
   // From bungalows.ts, so a ladder redeploy cannot leave the doc naming the retired pools.
   const ladders = ladderPools();
   it('reads the ladder pools bungalows.ts ships', () => {
-    expect(ladders.length).toBeGreaterThanOrEqual(6);
+    expect(ladders.length).toBeGreaterThanOrEqual(5);
   });
 
   for (const addr of ladders) {

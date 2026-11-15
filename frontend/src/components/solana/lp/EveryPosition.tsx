@@ -32,7 +32,7 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
         {list === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : list.kind === 'unread' ? (
-          <Notice tone="warn">The pools could not be read just now, so neither could their holders. That does not mean there are none.</Notice>
+          <Notice tone="warn">Positions could not be read just now. That does not mean there are none.</Notice>
         ) : list.list.pools.length === 0 ? (
           <p className="text-white/70 text-[13px]">No pools yet.</p>
         ) : (

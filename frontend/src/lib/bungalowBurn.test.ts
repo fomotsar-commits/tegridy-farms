@@ -39,7 +39,7 @@ describe('the burn record covers the registry', () => {
   const tokenRooms = BUNGALOWS.filter((b) => b.address);
 
   it('has one record for every bungalow with a token, and none for the unmarked lot', () => {
-    expect(tokenRooms.length, 'the loop below must not run empty').toBe(12);
+    expect(tokenRooms.length, 'the loop below must not run empty').toBe(11);
     expect(new Set(Object.keys(BUNGALOW_BURN_FACTS))).toEqual(new Set(tokenRooms.map((b) => b.id)));
     const unmarked = BUNGALOWS.find((b) => !b.address);
     expect(unmarked?.id).toBe('nb1');
@@ -57,9 +57,9 @@ describe('the burn record covers the registry', () => {
     else expect(f.mintTx).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
-  it('counts a fall in supply for every token except the three with a bridge burn', () => {
+  it('counts a fall in supply for every token except the two with a bridge burn', () => {
     const notCounted = Object.entries(BUNGALOW_BURN_FACTS).filter(([, f]) => !f.countsSupplyDrop).map(([id]) => id);
-    expect(notCounted.sort()).toEqual(['drb', 'jbm', 'qr']);
+    expect(notCounted.sort()).toEqual(['drb', 'jbm']);
   });
 
   // Facts about past transactions: they never change, so they are pinned as literals. A shape
@@ -69,7 +69,6 @@ describe('the burn record covers the registry', () => {
       toweli: '1000000000',
       bayla: '1000000000',
       pepe: '420690000000000',
-      qr: '100000000000',
       mfer: '1000000000',
       bnkr: '100000000000',
       drb: '100000000000',
@@ -81,9 +80,9 @@ describe('the burn record covers the registry', () => {
     });
   });
 
-  it('counts a token contract\'s own balance for the seven EVM tokens proven stuck, and for no other', () => {
+  it('counts a token contract\'s own balance for the six EVM tokens proven stuck, and for no other', () => {
     const counted = Object.entries(BUNGALOW_BURN_FACTS).filter(([, f]) => f.countsOwnBalance).map(([id]) => id);
-    expect(counted.sort()).toEqual(['bnkr', 'drb', 'jbm', 'mfer', 'pepe', 'qr', 'toweli']);
+    expect(counted.sort()).toEqual(['bnkr', 'drb', 'jbm', 'mfer', 'pepe', 'toweli']);
   });
 
   it('reads the same burn address the scanner excludes from holders', () => {
@@ -117,9 +116,9 @@ describe('tallyBurn', () => {
     expect(t.burntPpm).toBe(16_443);
   });
 
-  it('QR: a fall in supply is not counted, because a bridge can cause one', () => {
+  it('DRB: a fall in supply is not counted, because a bridge can cause one', () => {
     const minted = 100_000_000_000n * E18;
-    const t = okTally(tallyBurn(fact('qr'), {
+    const t = okTally(tallyBurn(fact('drb'), {
       supplyRaw: minted - 5_000_000_000n * E18,
       decimals: 18,
       atBurnAddressRaw: 6_669_949_934n * E18,
@@ -133,9 +132,9 @@ describe('tallyBurn', () => {
     expect(formatNotBurnt(t)).toBeNull();
   });
 
-  it('QR at full supply: no fall, so what is not burnt is known', () => {
+  it('DRB at full supply: no fall, so what is not burnt is known', () => {
     const minted = 100_000_000_000n * E18;
-    const t = okTally(tallyBurn(fact('qr'), { supplyRaw: minted, decimals: 18, atBurnAddressRaw: 6_669_949_934n * E18 }));
+    const t = okTally(tallyBurn(fact('drb'), { supplyRaw: minted, decimals: 18, atBurnAddressRaw: 6_669_949_934n * E18 }));
     expect(t.uncountedFallRaw).toBe(0n);
     expect(t.notBurntRaw).toBe(minted - 6_669_949_934n * E18);
     expect(formatNotBurnt(t)).toBe('93,330,050,066');

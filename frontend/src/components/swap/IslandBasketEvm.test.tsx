@@ -43,7 +43,7 @@ const ME = '0x00000000000000000000000000000000000000aa' as const;
 const row = (key: string) => screen.getByTestId(`island-basket-row-${key}`);
 const open = async () => {
   fireEvent.click(screen.getByTestId('island-basket-open'));
-  await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent(/Buy all 7|Connect/));
+  await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent(/Buy all 6|Connect/));
 };
 
 beforeEach(() => {
@@ -65,11 +65,11 @@ describe('IslandBasketEvm', () => {
 
   it('lists every Base coin, the bridged ones marked, and says the venue takes its fee on V3 coins and nothing on the V2 one', async () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
-    expect(screen.getByTestId('island-basket-open')).toHaveTextContent('7');
+    expect(screen.getByTestId('island-basket-open')).toHaveTextContent('6');
     await open();
-    for (const k of ['qr', 'mfer', 'bnkr', 'drb', 'jbm']) expect(row(`${k}-${(await import('../../lib/islandBasket')).EVM_BASKET.base.find((c) => c.room === k)!.token}`)).toBeInTheDocument();
+    for (const k of ['mfer', 'bnkr', 'drb', 'jbm']) expect(row(`${k}-${(await import('../../lib/islandBasket')).EVM_BASKET.base.find((c) => c.room === k)!.token}`)).toBeInTheDocument();
     const list = screen.getByRole('list', { name: 'Coins in this order' });
-    await waitFor(() => expect(within(list).getAllByText(/· Uniswap V3$/)).toHaveLength(6));
+    await waitFor(() => expect(within(list).getAllByText(/· Uniswap V3$/)).toHaveLength(5));
     expect(within(list).getByText(/^from Ethereum · Uniswap V3$/)).toBeInTheDocument();
     expect(within(list).getByText(/^from Solana · Uniswap V3$/)).toBeInTheDocument();
     expect(within(list).getByText(/^· Uniswap V2$/)).toBeInTheDocument();
@@ -81,14 +81,14 @@ describe('IslandBasketEvm', () => {
   it('sends the Uniswap batch, then the V2 coin, and marks every coin bought', async () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
     await waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
     expect(h.send.mock.calls[0]![0].to).toBe(universalRouterOn(8453));
     expect(h.send.mock.calls[1]![0].to).toBe(swapVenueOn(8453)!.uniswapV2Router);
     // The test run came first, as this wallet.
     expect(h.client.estimateGas).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(7));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(6));
   });
 
   it('buys in the split the sliders set: $mfer at 0% is left out, so its V2 transaction is never sent', async () => {
@@ -97,13 +97,13 @@ describe('IslandBasketEvm', () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
     fireEvent.change(screen.getByTestId(`island-basket-split-mfer-${mfer.token}`), { target: { value: '0' } });
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy 6 coins'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy 5 coins'));
     expect(within(row(`mfer-${mfer.token}`)).getByText(/Not in this order/)).toBeInTheDocument();
     const legs = h.quotes.mock.calls.at(-1)![2] as { coin: { room: string } }[];
     expect(legs.map((l) => l.coin.room)).not.toContain('mfer');
-    expect(legs).toHaveLength(6);
+    expect(legs).toHaveLength(5);
     fireEvent.click(screen.getByTestId('island-basket-buy'));
-    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(5));
     // One Uniswap batch, and no V2 transaction for the coin left out.
     expect(h.send).toHaveBeenCalledTimes(1);
     expect(h.send.mock.calls[0]![0].to).toBe(universalRouterOn(8453));
@@ -112,7 +112,7 @@ describe('IslandBasketEvm', () => {
   it('sends nothing when prices moved past slippage since they were shown', async () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     h.quotes.mockImplementation(quoting(989_999n));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
     await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/Prices moved/));
@@ -124,7 +124,7 @@ describe('IslandBasketEvm', () => {
     h.client.estimateGas.mockRejectedValueOnce(new Error('execution reverted: Too little received'));
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
     await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/failed its test run/));
     expect(h.send).not.toHaveBeenCalled();
@@ -134,20 +134,20 @@ describe('IslandBasketEvm', () => {
     h.send.mockRejectedValueOnce(Object.assign(new Error('User rejected the request.'), { code: 4001 }));
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
-    await waitFor(() => expect(screen.getAllByText('You declined')).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByText('You declined')).toHaveLength(5));
     expect(h.send).toHaveBeenCalledTimes(1);
-    expect(within(row(`mfer-${(await import('../../lib/islandBasket')).EVM_BASKET.base[1]!.token}`)).getByText('Not sent')).toBeInTheDocument();
+    expect(within(row(`mfer-${(await import('../../lib/islandBasket')).EVM_BASKET.base.find((c) => c.room === 'mfer')!.token}`)).getByText('Not sent')).toBeInTheDocument();
   });
 
   it('stops when a receipt cannot be read: nothing more is sent until the buyer checks', async () => {
     h.receipt.mockResolvedValueOnce({ kind: 'unreadable', error: new Error('timeout') });
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     fireEvent.click(screen.getByTestId('island-basket-buy'));
-    await waitFor(() => expect(screen.getAllByText('Sent, not confirmed')).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByText('Sent, not confirmed')).toHaveLength(5));
     expect(h.send).toHaveBeenCalledTimes(1);
   });
 
@@ -155,14 +155,14 @@ describe('IslandBasketEvm', () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
     fireEvent.change(screen.getByLabelText('Dollars to spend'), { target: { value: '5' } });
-    expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Enter at least $7.00');
+    expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Enter at least $6.00');
     expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
   });
 
   it('sizes the order on a heartbeat-fresh ETH price, and says so plainly when there is none', async () => {
     renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
     await open();
-    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 6'));
     price.ethUsdForDisplay = 0;
     fireEvent.change(screen.getByLabelText('Dollars to spend'), { target: { value: '25' } });
     await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/ETH price could not be read/));

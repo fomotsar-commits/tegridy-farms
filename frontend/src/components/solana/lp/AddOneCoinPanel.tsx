@@ -153,7 +153,7 @@ function OneCoinInner({
   poolRows?: ReactNode;
 }) {
   const { connection } = useConnection();
-  const { sendTransaction } = useWallet();
+  const { sendTransaction, signTransaction } = useWallet();
   // In the LP door this panel is the page's first screen (island, answer twenty-two): the
   // green button comes right after the amount and the pool's figures, the line and the setting after it.
   const inDoor = useInDoor();
@@ -575,6 +575,7 @@ function OneCoinInner({
           hold: (n) => venueSwap.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
           stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
           release: (sig) => venueSwap.pending.release(sig, scope),
+          sign: signTransaction ? (tx) => signTransaction(tx) : undefined,
           send: (tx) => sendTransaction(tx, connection),
           rpc: connection,
         },
