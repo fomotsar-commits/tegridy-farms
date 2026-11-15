@@ -9,11 +9,11 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-15
 
+- Receipt card: Share on X after a buy or an add in a room now posts the moment itself, as a GIF.
 - Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 
 ### 2026-11-14
 
-- Receipt card: Share on X after a buy or an add in a room now posts the moment itself, as a GIF.
 - Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
 - Marketplace: a new look, on the same contracts. It opens straight on the collections with no splash, and the collage background, the scrolling strip, the glitch between tabs and the click sounds are gone. Pages are dark and plain with one accent colour (the theme button switches between lime, ice blue and amber), a collection opens on its name, its numbers and five of its pieces, gallery pictures are square, and the phone's bottom bar has drawn icons. Buying, listing, offers and the flat 0.5% fee are unchanged. The art studio no longer has marketplace slots, so a bungalow's skin does not dress the marketplace. Elsewhere on the site, loading placeholders shimmer in the site's own purple tint.
 - Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.
