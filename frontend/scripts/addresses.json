@@ -1240,6 +1240,46 @@
       }
     },
     {
+      "id": "unlisted-pool-kwif-sol-signer",
+      "address": "H3ruuiAi2Z4kq51YaRjKFUDDh3wHwNLQF64QeDnA88Gp",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier (CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy), opened 2026-10-28T21:44:20Z at a signer address by 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF. Token 0 wrapped SOL, token 1 KWIF (6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt); share mint DWX8b2FH4ZcTTY1Zhz8KmZwHRX96hWtS48hQTR8pwuHF. The venue's KWIF/SOL pool is venue-pool-kwif-sol. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 5 lamports and 2,138 KWIF units left for LPs, and 135,200 lamports of fees owed to the vault and 72,800 to the island. A deposit into it is made at that leftover price.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-tbb-bayla",
+      "address": "6511GLnToAGtwVREnLXVJ5rgat4cm2Uvgvyoj5oaLoLD",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-05T23:59:21Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump), token 1 bayla-mint; share mint AqxvRhura3RjbqRyCiJeudzb1nHF7W6tHxNScK9V7r42. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 137 TBB units and 74 BAYLA units left, nothing owed. A deposit into it is made at that leftover price.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-tbb-sol",
+      "address": "6tNCdzjDAEKamjZQmKwdb5sm8yzyqa8FxCKidNbPz5AA",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, opened 2026-11-06T00:15:47Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump); share mint CThuDRJN5NbnoMycTqgyXySpSsTvecRvToUZBeYRbLzx. It sits at the SOL/TBB pair's standard address on that tier, while the venue's SOL/TBB pool, venue-pool-tbb-sol, sits at a signer address: anything that derives the pool from the pair instead of reading this registry lands here. The site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 18 lamports and 567 TBB units left for LPs, and 15,376 lamports and 1,430,760 TBB units of fees owed to the vault. A deposit into it is made at that leftover price.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-9x9mkbh-sol",
+      "address": "AvYPHmnArhEH8JK5PNjRuhjTjQATEo3pSpe1CfBMVavw",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-12T21:36:31Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 9x9MKbh5pq8fsTAH6fpSi17UuBgGNAVJPwMYTyXLTRiX, a coin this registry has no other row for; share mint 3eG67ht6g9zruDcvXznEus3jqR89zM2CMFyECGB4Mi3e. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 1 lamport and 33,682 coin units left for LPs, and 11,123 lamports of fees owed to the vault. A deposit into it is made at that leftover price.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
       "id": "cp-swap-authority-restart",
       "address": "Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB",
       "role": "The pool program's one signer for every pool: PDA seeds [\"vault_and_lp_mint_auth_seed\"] under cp-swap-program-restart, bump 254, derived and matched. It is the mint authority of every pool-share mint AND the owner of every pool vault, so an instruction that signs as it deserves the care of one that can move pool funds.",
