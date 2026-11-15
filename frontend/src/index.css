@@ -991,12 +991,32 @@ input, textarea, select {
   -webkit-text-stroke: 1px var(--color-kyle-bright);
   pointer-events: none;
 }
-/* The site model (farm/IsoIsland.tsx): a lit block's name arrives with it. */
+/* The site model (farm/IsoBungalow.tsx): the name over a bungalow pointed at, and the guides its roof lifts along, arrive with it. */
 @keyframes iso-label-in {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: none; }
 }
 .iso-label { animation: iso-label-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* A room's picture fades onto its bungalow's walls once its size is read (farm/IsoBungalow.tsx). */
+@keyframes iso-mural-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.iso-mural { animation: iso-mural-in 0.6s ease-out both; }
+/* The chimney of a bungalow pointed at (farm/IsoBungalow.tsx): four soft puffs, each rising,
+   leaning with the same wind and thinning out. Twice, then still: the page does not animate for
+   as long as a house stays pointed at. */
+@keyframes iso-smoke {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(9px, -26px) scale(2); }
+}
+.iso-smoke {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: iso-smoke 2.1s ease-out 2;
+}
 /* Harvest's figure (farm/HarvestStack.tsx): the line that crosses the pad while the pools are
    read (--scan-x and --scan-y are the pad's far edge), and the plate at the wallet breathing. */
 @keyframes harvest-scan {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -38,6 +38,7 @@ import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { IsoIsland } from '../components/farm/IsoIsland';
 import { venuePoolRows } from '../lib/venuePools';
+import { planAspect } from '../lib/isoPlan';
 import { earnPoolPath } from '../lib/earnRoutes';
 import { EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT } from '../lib/editorial';
 import { HarvestCard } from '../components/farm/HarvestCard';
@@ -102,6 +103,9 @@ function VenueEarn() {
   const [active, setActive] = useState<string | null>(null);
   const pools = venuePoolRows();
   const chains = new Set(pools.map((r) => r.chain).filter((c) => c !== 'tbd')).size;
+  // The model takes 84% of the sheet, but never more than 66% of the screen's height, so on a
+  // short laptop screen the schedule is not pushed far down by the drawing.
+  const modelWidth = { '--model-w': `min(84%, calc(66vh * ${planAspect(pools).toFixed(3)}))` } as CSSProperties;
   return (
     <div className="relative">
       <PageArtBackdrop pageId="earn" />
@@ -116,20 +120,27 @@ function VenueEarn() {
           {/* One heading, one line (owner, 2026-10-14: as few words as possible).
               The island's name is in the list's own heading below. */}
           <header
-            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,57%)] md:items-end md:gap-x-4"
+            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 md:grid md:grid-cols-1"
             style={{ background: 'rgba(5,8,15,0.9)' }}
           >
             <div aria-hidden="true" className="absolute inset-0 -z-10 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
-            {/* A phone: the model stands behind the word and fades out above the line under it, so
+            {/* The village takes most of the sheet (owner, 2026-11-14: the bungalows "much much
+                further"), and the words stand in the corners its plan leaves empty: the count top
+                left, the title bottom left. All three share one grid cell from 768px, so the sheet
+                is as tall as the taller of them. The words let a pointer through to the houses
+                behind them, and take it back on their own text and controls. The small print has a
+                row of its own under that cell, so opening it makes the sheet taller below the model
+                rather than lifting the word onto the houses.
+                A phone: the model stands behind the word and fades out above the line under it, so
                 the first row is no further down the screen and the line is read on plain black. */}
-            <div className="max-md:absolute max-md:-z-10 max-md:-right-10 max-md:-top-1 max-md:w-[74%] max-md:opacity-80 max-md:[mask-image:linear-gradient(to_bottom,#000_58%,transparent_96%)] md:order-2 md:-mr-5 lg:-mr-7 md:-mt-2">
+            <div className="max-md:absolute max-md:-z-10 max-md:-right-10 max-md:-top-1 max-md:w-[min(74%,21rem)] max-md:opacity-80 max-md:[mask-image:linear-gradient(to_bottom,#000_58%,transparent_96%)] md:[grid-area:1/1] md:justify-self-end md:w-[var(--model-w)] md:-mr-6 lg:-mr-9 md:-mt-4 md:mb-2" style={modelWidth}>
               <IsoIsland rows={pools} active={active} onActive={setActive} onOpen={(id) => navigate(earnPoolPath(id))} />
             </div>
-            <div className="relative min-w-0 md:order-1 md:pb-3">
-              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60">
-                <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
-                {pools.length} pools · {chains} chains
-              </p>
+            <p className="relative flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60 md:[grid-area:1/1] md:self-start md:justify-self-start">
+              <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
+              {pools.length} pools · {chains} chains
+            </p>
+            <div className="relative min-w-0 md:[grid-area:1/1] md:self-end md:justify-self-start md:max-w-[46%] md:pointer-events-none md:[&>*]:pointer-events-auto">
               {/* The word rises from under a mask, as the menu's do; its outline stands a step
                   down and to the right of it, as a plan's projection does (drawn from `data-echo`,
                   so the heading holds the one word). */}
@@ -144,7 +155,8 @@ function VenueEarn() {
               <p className="mt-3 text-[14px] md:text-[15px] leading-snug text-[#f5e4b8]/80 max-w-[62ch]">
                 Pick a coin, open its pool, stake.
               </p>
-              <FinePrint summary="How it works" className="mt-1 max-w-[62ch]">
+            </div>
+            <FinePrint summary="How it works" className="relative mt-1 max-w-[62ch] md:[grid-area:2/1] md:max-w-[46%]">
                 <p>
                   Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
                 </p>
@@ -154,12 +166,14 @@ function VenueEarn() {
                   rewards.
                 </p>
                 <p>
-                  The drawing is the island&rsquo;s pools, one street per chain. A ramp is a pool with a lock
-                  ladder, drawn to scale: the longer the lock, the higher the share. A flat block has no ladder.
-                  It shows each pool&rsquo;s terms, never a rate.
+                  The drawing is the island&rsquo;s pools, one street per chain. Every pool is the same brick
+                  bungalow, wearing its own room&rsquo;s picture on its walls and its colour on its ridge and
+                  chimney. A ladder on its wall means the pool has a lock ladder, its rungs drawn to scale from
+                  0.40&times; at seven days to 4.00&times; at four years: the longer the lock, the higher the
+                  share. It shows each pool&rsquo;s terms, never a rate. Point at a bungalow, or its row, and its
+                  roof lifts off.
                 </p>
               </FinePrint>
-            </div>
           </header>
           {/* One press claims every pool's rewards (owner, 2026-10-24). */}
           <HarvestCard className="px-3 pb-5 md:px-7 lg:px-10 bg-[#05080f]/90" />

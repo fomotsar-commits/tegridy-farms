@@ -70,3 +70,20 @@ export function groundMatrix([x, y, z]: P3, u = 1): string {
   const r = (n: number) => Math.round(n * 1000) / 1000;
   return `matrix(${r(COS30)} ${r(SIN30)} ${r(-COS30)} ${r(SIN30)} ${r(ox)} ${r(oy)})`;
 }
+
+/**
+ * The matrix that stands flat artwork up on a wall, for an SVG `transform`. `origin` is the
+ * wall's top corner nearest the eye's left; inside the transform one unit across is one unit
+ * along the wall and one unit down is one unit of height, both at `u` pixels to the world's
+ * unit, so a picture is sheared onto the wall and never squeezed.
+ *
+ *  - `'x'`: a wall that faces the lower left and runs along x (a block's `left` face).
+ *  - `'-y'`: a wall that faces the lower right, read from its front corner back along y (a
+ *    block's `right` face). A picture laid across an `'x'` wall and on round the corner onto a
+ *    `'-y'` wall is one picture wrapped round the building.
+ */
+export function wallMatrix(origin: P3, along: 'x' | '-y', u = 1): string {
+  const [ox, oy] = iso(origin, u);
+  const r = (n: number) => Math.round(n * 1000) / 1000;
+  return `matrix(${r(COS30)} ${r(along === 'x' ? SIN30 : -SIN30)} 0 1 ${r(ox)} ${r(oy)})`;
+}
