@@ -119,8 +119,7 @@ import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
-import { jupiterLastValidAtMost } from '../lib/solana/swap/jupiterNote';
-import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../lib/solana/blockhashWindow';
+import { sendWalletSwap } from '../lib/solana/swap/walletSwapSend';
 import type { AggregatorSeen } from '../lib/launcher/solana/write/types';
 import { readSendThrow } from '../lib/solana/walletThrow';
 import { noteKey, readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
@@ -1470,7 +1469,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
  */
 export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolean; sheet?: boolean } = {}) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   // Inside the sheet (island answer twenty-five, build 3): opens on SOL to the room's coin, drawn as the
   // island drew it; either coin is a press that picks another from the page's own lists (owner, 2026-11-05).
   const sheetPlace = useSheet();
@@ -2243,10 +2242,6 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     // nothing was sent. The note a signature writes belongs to the wallet that signed.
     let step: 'quote' | 'build' = 'quote';
     let signed: string | null = null;
-    let tradeWords = '';
-    // Writes this press's note once the wallet has answered: by its signature, or null for an
-    // answer that was lost (owner, 2026-10-14, D1). Set just before the wallet is asked.
-    const press: { note: ((signature: string | null) => void) | null } = { note: null };
     const noteScope = swapPendingScope(publicKey.toBase58());
     setSwapping(true);
     // Until this swap is answered the page does not reload itself (lib/staleBuild.ts).
@@ -2398,41 +2393,47 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       const b64 = prepared.swapTransaction;
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
-      tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
-      // Read after Jupiter built it, so its blockhash is older than this height (jupiterNote.ts).
-      const lastValid: { at: number | null } = { at: null };
-      const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
-      // Its own blockhash, seen valid now: later, the first proof that it can no longer land.
-      const proof: { bh: NoteBlockhash | null } = { bh: null };
-      const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
-      press.note = (signature) => {
-        const sentAt = Date.now();
-        const write = () =>
-          holdNote({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, noteScope);
-        write();
-        // A read that lands after the note: the note learns when it can no longer land.
-        const had = { at: lastValid.at, bh: proof.bh };
-        void Promise.all([heightRead, bhRead]).then(() => {
-          const learned = (signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null);
-          if (learned && readPendingTrades(noteScope).some((n) => noteKey(n) === noteKey({ signature, sentAt }))) write();
-        });
-      };
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
+      const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
+      // The wallet signs; this page sends, sends again until the chain answers, and says
+      // a refusal in the network's words with nothing spent (lib/solana/swap/walletSwapSend.ts).
+      // A signature's note holds Buy for this wallet, in every tab of this site, until the
+      // chain answers for it (useVenueSwap). Never throws; 90 s is SPEC_S3's wait for a swap.
+      const end = await sendWalletSwap(
+        {
+          rpc: connection,
+          owner: publicKey,
+          sign: signTransaction ? (t) => signTransaction(t) : undefined,
+          signAndSend: (t) => sendTransaction(t, connection),
+          holdsNow: () => holdsNow(noteScope),
+          hold: (n) => holdNote({ kind: 'jupiter-swap', ...n }, noteScope),
+          stillHeld: (n) => readPendingTrades(noteScope).some((x) => noteKey(x) === noteKey(n)),
+          release: (s) => releaseNote(s, noteScope),
+        },
+        tx,
+        { words: tradeWords, slippageBps, timeoutMs: SWAP_CONFIRM_TIMEOUT_MS },
+      );
+      if (end.kind === 'not-sent') {
+        // Nothing reached the network: the form stands, as the person left it.
+        if (end.declined) toast.info('Not sent', { description: end.message });
+        else toast.error('Not sent', { description: end.message });
+        return;
+      }
+      if (end.kind === 'lost') {
+        // Only a wallet that cannot sign alone: it may be out with no signature to look up,
+        // and its note holds Buy until it can no longer land (owner, 2026-10-14, D1).
+        toast.warning(LOST_ANSWER_TITLE, { description: end.message });
+        setAmount('');
+        setQuote(null);
+        return;
+      }
+      const sig = end.signature;
       signed = sig;
-      // A signature exists: the swap may be on chain. Its note holds Buy for this wallet,
-      // in every tab of this site, until the chain answers for it (useVenueSwap).
-      press.note(sig);
+      const { outcome } = end;
       // From here nothing below may say "failed" unless the chain itself said so.
-      // pollConfirm (lib/solana/confirm.ts, the one poller the ladder and the DCA and
-      // limit tabs also use) never throws; a timeout or an unreadable status is
-      // 'unknown'. 90 s is SPEC_S3's wait for a swap.
       const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
-      const { outcome } = await pollConfirm(connection, sig, SWAP_CONFIRM_TIMEOUT_MS);
       // Whatever the chain said, the wallet spent something: Balance, MAX and the
       // insufficient guard are read again, not left on the pre-trade figure.
       retryPayBalance();
-      // Landed or refused: the chain answered, Buy is free. Unread: the note stays.
-      if (outcome !== 'unknown') releaseNote(sig, noteScope);
       if (outcome === 'reverted') {
         toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
         return;
@@ -2482,20 +2483,11 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       setAmount('');
       setQuote(null);
     } catch (err) {
-      // The wallet's throw, in the words every Solana write uses for it. One that can come
-      // after it signed is "we cannot tell", never "failed": the form is cleared so the
-      // same buy is not one click away.
-      const said = sayWalletThrew(err, `it sent ${tradeWords || 'this swap'}`);
-      if (said === 'unsure') {
-        // It may be out with no signature to look up: Buy is held for this wallet until its
-        // blockhash can no longer land, 2 minutes at most (owner, 2026-10-14, D1).
-        press.note?.(null);
-        setAmount('');
-        setQuote(null);
-      } else if (said === 'other' && signed) {
+      // The wallet's own answers never land here: sendWalletSwap says each one and never throws.
+      if (signed) {
         // After the signature: its note stands until the chain answers.
         surfaceUnconfirmedTx(toast, { hash: signed, explorerUrl: `https://solscan.io/tx/${signed}`, repeatCost: 'swapping again buys a second time.' });
-      } else if (said === 'other') {
+      } else {
         // Stopped on a read before the wallet: nothing was sent, nothing failed, the form stands.
         toast.error('Not sent', {
           description: nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),
