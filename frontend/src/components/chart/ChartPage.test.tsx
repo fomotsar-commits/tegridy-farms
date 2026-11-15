@@ -102,7 +102,7 @@ describe('ChartPage when GeckoTerminal cannot be reached', () => {
     const buttons = poolButtons();
     // Pre-change: zero buttons and a sentence saying no pool could be read.
     expect(buttons.length).toBe(chartableMarkets().length);
-    expect(buttons.length).toBeGreaterThanOrEqual(12);
+    expect(buttons.length).toBeGreaterThanOrEqual(11);
     // Exactly one selected — a picker with none selected leaves the chart
     // heading unattributed, and one with several is a lie about what is drawn.
     expect(buttons.filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);

@@ -5,7 +5,7 @@ import { BungalowDoorLanding } from './BungalowDoorLanding';
 import { BUNGALOWS, BUNGALOW_COUNT } from '../../lib/bungalows';
 
 // /nb1 is the island's next open lot, not an unmarked bungalow. The island labels a lot
-// "Lot 13, for the next community" (the number after its bungalows) and heads its harbor
+// "Lot 12, for the next community" (the number after its bungalows) and heads its harbor
 // "How a community gets a bungalow here."
 const LOT = BUNGALOWS.find((b) => b.chain === 'tbd')!;
 
@@ -22,7 +22,7 @@ describe('the open lot speaks as the island’s lot', () => {
     renderLot();
     const description = document.querySelector('meta[name="description"]')?.getAttribute('content');
     expect(description).toBe(`Lot ${BUNGALOW_COUNT + 1}, for the next community.`);
-    expect(description).toBe('Lot 13, for the next community.');
+    expect(description).toBe('Lot 12, for the next community.');
   });
 
   it('sends a visitor to the island’s harbor, in the island’s words', () => {
@@ -35,7 +35,7 @@ describe('the open lot speaks as the island’s lot', () => {
 
   it('heads the lot with the island’s lot label, and says nobody is building on it', () => {
     renderLot();
-    expect(document.querySelector('h1')?.textContent).toBe('Unmarked. Lot 13, for the next community.');
+    expect(document.querySelector('h1')?.textContent).toBe('Unmarked. Lot 12, for the next community.');
     expect(document.body.textContent).not.toMatch(/someone is building here/i);
     // The lot's paragraph is the harbor link alone.
     const link = screen.getByRole('link', { name: /How a community gets a bungalow here\./ });

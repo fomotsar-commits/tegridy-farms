@@ -476,8 +476,8 @@ describe('tradeRoute', () => {
 
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
     expect(tradeRoute(), "PEPE's room, on Ethereum").toBe('/swap');
-    window.localStorage.setItem('tegridy-bungalow', 'qr');
-    expect(tradeRoute(), "QR's room, on Base").toBe('/swap');
+    window.localStorage.setItem('tegridy-bungalow', 'drb');
+    expect(tradeRoute(), "DRB's room, on Base").toBe('/swap');
   });
 
   // Island answer twenty-five, build 3: in a room the sheet acts on, Swap and Add raise its sheet over the room.
@@ -494,8 +494,8 @@ describe('tradeRoute', () => {
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
     expect(swapWord()).toBe('/pepe?sheet=buy');
     expect(addWord()).toBe('/pepe?sheet=add');
-    window.localStorage.setItem('tegridy-bungalow', 'qr');
-    expect(addWord()).toBe('/qr?sheet=add');
+    window.localStorage.setItem('tegridy-bungalow', 'drb');
+    expect(addWord()).toBe('/drb?sheet=add');
     window.localStorage.clear();
     expect(swapWord()).toBe('/?sheet=buy');
     expect(addWord()).toBe('/pools');

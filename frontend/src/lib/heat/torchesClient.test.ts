@@ -34,11 +34,11 @@ function answer(status: number, body: unknown) {
 beforeEach(() => clearTorchesCache());
 afterEach(() => vi.unstubAllGlobals());
 
-describe('the pinned twelve', () => {
+describe('the pinned eleven', () => {
   it('pins every live room on the island, and nothing else', () => {
     const live = BUNGALOWS.filter((b) => b.live && b.chain !== 'tbd').map((b) => b.id).sort();
     expect(Object.keys(ISLAND_ROOMS).sort()).toEqual(live);
-    expect(live).toHaveLength(12);
+    expect(live).toHaveLength(11);
   });
 
   it('a chain-and-address place is the registry chain and address, lowercase, as the island serves them', () => {
@@ -49,9 +49,9 @@ describe('the pinned twelve', () => {
     }
   });
 
-  it('the keys are the twelve the island named in answer eighteen', () => {
+  it('the keys are the ones the island named in answer eighteen, less the QR room (left 2026-11-14)', () => {
     expect(Object.values(ISLAND_ROOMS).map((r) => r.key).sort()).toEqual(
-      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jungle-bay', 'mfer', 'pepe', 'qr', 'rizz', 'soy', 'toweli'],
+      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jungle-bay', 'mfer', 'pepe', 'rizz', 'soy', 'toweli'],
     );
     expect(islandRoomHref('bayla')).toBe('https://memetics.wtf/b/bayla');
     expect(islandRoomHref('jbm')).toBe('https://memetics.wtf/b/jungle-bay');

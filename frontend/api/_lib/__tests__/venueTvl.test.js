@@ -458,8 +458,11 @@ describe("the staking pools, as their programs and the site name them", () => {
   });
 
   it("lists every EVM staking contract in the registry, each with its room's coin", () => {
+    // A room that left the venue keeps its contracts in the registry and in the sum (island answer 37, 2026-11-15).
+    const LEFT = { qr: "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf" };
     const coinOf = (id) => {
       const room = id.replace(/^(ladder|lighthouse)-/, "").replace(/-retired$/, "");
+      if (LEFT[room]) return LEFT[room];
       return (/^(tegridy-staking|legacy-staking-v\d)$/.test(id) ? BUNGALOWS.find((b) => b.id === "toweli") : BUNGALOWS.find((b) => b.id === room)).address.toLowerCase();
     };
     for (const name of ["ethereum", "base", "robinhood"]) {

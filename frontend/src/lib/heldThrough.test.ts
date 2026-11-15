@@ -87,10 +87,10 @@ describe('held-through.json lists every contract that holds user positions', () 
     }
   });
 
-  it('counts 18 contracts with the ladder: Solana 7, Ethereum 6, Base 5', () => {
+  it('counts 17 contracts with the ladder: Solana 7, Ethereum 6, Base 4', () => {
     const doc = withLadder();
-    expect([doc.chains.solana.length, doc.chains.ethereum.length, doc.chains.base.length]).toEqual([7, 6, 5]);
-    expect(new Set(all(doc).map((c) => c.id)).size, 'ids are unique').toBe(18);
+    expect([doc.chains.solana.length, doc.chains.ethereum.length, doc.chains.base.length]).toEqual([7, 6, 4]);
+    expect(new Set(all(doc).map((c) => c.id)).size, 'ids are unique').toBe(17);
   });
 
   it('shows a pool added to the registry with no edit here', () => {
@@ -121,7 +121,7 @@ describe('held-through.json lists every contract that holds user positions', () 
 
   it('every staked registry row carries its token decimals, as read on chain', () => {
     const expected: Record<string, number> = {
-      bayla: 6, pepe: 18, qr: 18, mfer: 18, bnkr: 18, drb: 18, bobo: 6, jbm: 18, soy: 6, brainlet: 6, rizz: 6,
+      bayla: 6, pepe: 18, mfer: 18, bnkr: 18, drb: 18, bobo: 6, jbm: 18, soy: 6, brainlet: 6, rizz: 6,
     };
     const staked = BUNGALOWS.filter((b) => b.stakePool || b.ladderPool).map((b) => [b.id, b.decimals]);
     expect(Object.fromEntries(staked)).toEqual(expected);
@@ -500,7 +500,7 @@ describe('each EVM read names a real function with its selector', () => {
   });
 
   it('every function exists in the contract source the venue deployed', () => {
-    expect(evm.length).toBe(11);
+    expect(evm.length).toBe(10);
     for (const c of evm) {
       const file = SOLIDITY[c.kind === 'tegridy-staking-legacy' ? 'tegridy-staking' : c.kind];
       expect(file, `${c.kind} has no source pin`).toBeTruthy();
@@ -614,7 +614,7 @@ describe('the rendered file', () => {
   });
 
   it('every listed token has integer decimals', () => {
-    expect(all(withLadder()).length).toBe(18);
+    expect(all(withLadder()).length).toBe(17);
     for (const c of all(withLadder())) {
       expect(c.tokens.length, c.id).toBeGreaterThan(0);
       for (const t of c.tokens) expect(Number.isInteger(t.decimals), `${c.id} ${t.symbol}`).toBe(true);

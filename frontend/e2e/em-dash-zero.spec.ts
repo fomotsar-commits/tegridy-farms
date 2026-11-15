@@ -275,7 +275,6 @@ const ROOM_VOICE_DEBT: Record<string, number> = {
   '/towelie': 9,
   '/bayla': 0,
   '/pepe': 0,
-  '/qr': 0,
   '/mfer': 0,
   '/bnkr': 0,
   '/drb': 0,
@@ -326,7 +325,7 @@ test.describe('element I: em dashes in the rooms', () => {
     const doors = ROUTES
       .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
       .map(navigablePath);
-    expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
+    expect(doors.length, 'the app routes thirteen doors, twelve ids plus the towelie alias').toBe(13);
     expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
   });
 });
@@ -343,9 +342,8 @@ const ROOM_FARM_DEBT: Record<string, number> = {
   soy: 0,
   brainlet: 0,
   rizz: 0,
-  // The six EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
+  // The five EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
   pepe: 0,
-  qr: 0,
   mfer: 0,
   bnkr: 0,
   drb: 0,
@@ -391,7 +389,7 @@ test.describe("element I: em dashes on each room's farm", () => {
       .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
       .map((r) => navigablePath(r).slice(1))
       .filter((id) => id !== 'towelie');
-    expect(ids.length, 'thirteen registry ids').toBe(13);
+    expect(ids.length, 'twelve registry ids').toBe(12);
     expect(Object.keys(ROOM_FARM_DEBT).sort()).toEqual([...ids].sort());
   });
 });
