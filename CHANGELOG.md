@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-15
 
+- NFT Finance: the page background is now the same photo as the NFT Lending card, four apes leaning over a stairwell rail, in place of the campfire.
 - Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 
 ### 2026-11-14
