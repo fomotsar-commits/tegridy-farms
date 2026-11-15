@@ -937,6 +937,18 @@ This branch sets `REWARDS_DURATION_SECS` to four years. Mainnet still runs the 9
 - **After the first four-year window opens**, the "reload every ~60–75 days" rule above becomes:
   top up whenever it suits, with at least `reward_rate × seconds since the last notify`, or the rate
   guard refuses.
+- **The December refill's rules (the Solana audit of 2026-11-15).** Sweep both pools' idle
+  penalties first, from any wallet (`sweep --pool <P>`, §11), then propose the refill alone: the
+  sweep fails when there is nothing left to sweep, so a vault transaction that bundles it can be
+  made to fail by sweeping first. Fund the vault's BAYLA account
+  `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` before the proposal runs (it held 0). Size the
+  refill as BAYLA a day times 1,460 and name the swept amount in it. Approve it by 2026-12-21
+  15:32 UTC and execute it just after 2026-12-23 15:32:16 UTC: before that second it is refused
+  unless it brings about 33 million BAYLA.
+- **Until a fix for the "degraded" flag ships, queue the flag only when no reward window is
+  running,** and sweep before queuing it. A flag queued while rewards are paying can be used
+  during its 48-hour notice to take reward share from stakers who stay. After a four-year refill a
+  window is always running, so decide the fix before the December refill.
 
 ## 8A. The multisig handover — the last irreversible step
 
@@ -1414,12 +1426,12 @@ fee, whatever the program would refuse. Two limits:
 | task | command | who signs |
 | --- | --- | --- |
 | reload the next 90-day window — every window, ~60–75 days in, never lapse (§8) | `notify --pool <P> --amount <WHOLE-BAYLA> [--from-budget <WHOLE-BAYLA>]` — before `period_finish` the scheduled total must be at least `reward_rate × seconds since the last notify`, or it is refused with 6028 | the authority (built in the multisig's app — §1) |
-| move a hatch penalty into the reward vault, before a reload schedules it | `sweep --pool <P>` | anyone |
+| move a hatch penalty into the reward vault, before a reload schedules it | `sweep --pool <P>` | anyone, in its own transaction: never inside a vault transaction (§8B) |
 | propose a higher cap | `propose-cap-raise --pool <P> --cap <WHOLE-BAYLA>` | the authority |
 | apply it, 48h later | `execute-cap-raise --pool <P>` | anyone |
 | abandon a proposal | `cancel-cap-raise --pool <P>` | the authority |
 | hand over pool authority | `propose-authority --pool <P> --new-authority <KEY>`, then `accept-authority --pool <P>` signed by `<KEY>` | both, in turn |
-| declare the pool degraded | `declare-degraded --pool <P> --confirm-permanent` | the authority — **one-way** |
+| declare the pool degraded | `declare-degraded --pool <P> --confirm-permanent` | the authority: **one-way**, and only while no reward window runs (§8B) |
 
 A Squads vault cannot sign the CLI's `accept-authority`; that half must be run from inside
 Squads. A new proposal replaces a pending one and restarts its 48-hour clock.
