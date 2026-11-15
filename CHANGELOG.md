@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-15
 
 - Marketplace, first-visit tour on a phone: it points at the Gallery and Floor buttons in the bottom bar, with its card above them, where it used to point at the top of the screen at a tab row a phone does not show. Its last step, keyboard shortcuts, sits in the middle of the screen on a phone, and on a computer its card no longer covers the Keys button.
+- Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 
 ### 2026-11-14
 
