@@ -164,7 +164,15 @@ export function VenuePoolIndex({ activeId = null, onActive }: {
         Earn across Jungle Bay Island
       </h2>
 
-      <table role="table" className="block w-full text-left" onMouseLeave={() => onActive?.(null)}>
+      <table
+        role="table"
+        className="block w-full text-left"
+        onMouseLeave={() => onActive?.(null)}
+        // Focus leaving the table (not moving between its rows) lets go of the row it marked.
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onActive?.(null);
+        }}
+      >
         <thead className="block max-md:hidden border-y border-white/25">
           <tr role="row" className={`py-2 md:pl-3 ${ROW_GRID} ${CAPTION}`}>
             <th role="columnheader" scope="col" className="[grid-area:coin] p-0 font-normal">Pool</th>
@@ -199,8 +207,8 @@ export function VenuePoolIndex({ activeId = null, onActive }: {
           <p>
             Pick a pool to see its live rate and rewards. &ldquo;Lock 7d–4y, 0.40×–4.00×&rdquo; is a
             lock ladder: lock from seven days to four years for that share of the pool&rsquo;s rewards,
-            growing evenly with the lock, as the wedge and the model&rsquo;s ramps draw it. A flat block
-            is a pool with no ladder.
+            growing evenly with the lock, as the wedge and the ladders on the model&rsquo;s bungalows draw
+            it. A bungalow with no ladder is a pool with none.
           </p>
           <p>
             Every resident community runs its own pool, in its own token, on its own chain. Pick a

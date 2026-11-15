@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-15
+
+- Earn: the island's model draws every pool as the same brick bungalow on its chain's street, wearing its room's picture on both its walls (the front at the crop its door card shows) and its colour on its ridge and chimney. A pool with a lock ladder has a ladder against its wall, its rungs drawn to scale, and a key in the corner gives its two ends (7 days at 0.40×, 4 years at 4.00×). Each street has a road with its chain's name. Pointing at a house or its row lifts its roof and names the coin. It shows terms only, never a rate.
+
 ### 2026-11-14
 
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
