@@ -7,10 +7,16 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-14
+### 2026-11-15
 
 - Marketplace, first-visit tour on a phone: it points at the Gallery and Floor buttons in the bottom bar, with its card above them, where it used to point at the top of the screen at a tab row a phone does not show. Its last step, keyboard shortcuts, sits in the middle of the screen on a phone, and on a computer its card no longer covers the Keys button.
+
+### 2026-11-14
+
+- Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
 - Marketplace: a new look, on the same contracts. It opens straight on the collections with no splash, and the collage background, the scrolling strip, the glitch between tabs and the click sounds are gone. Pages are dark and plain with one accent colour (the theme button switches between lime, ice blue and amber), a collection opens on its name, its numbers and five of its pieces, gallery pictures are square, and the phone's bottom bar has drawn icons. Buying, listing, offers and the flat 0.5% fee are unchanged. The art studio no longer has marketplace slots, so a bungalow's skin does not dress the marketplace. Elsewhere on the site, loading placeholders shimmer in the site's own purple tint.
+- Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.
+- Pools, Range: the Risks list beside the deposit now says that if a pool runs a reward, the team's vault can lower its rate or end it early, and rewards not yet earned go back to whoever started it.
 - NFT lending: the Venue Fee tile says its 5.00% is of the interest, not of the loan, and the Risks page's NFT Lending card now says what the venue's 2-key Safe can do with no wait: stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid. Solana pools: the full notice's small print dates its read of the team's vault 2026-11-14, as its first line already did.
 - NFT Finance: the NFT Lending intro card shows a new photo, four apes leaning over a stairwell rail, and the three intro cards' dark layer is lighter so each card's picture shows.
 - Earn: the page is redrawn as an architect's sheet. A model of the island stands beside the title: every pool is a block on its chain's street, a pool with a lock ladder is a ramp drawn to scale (the longer the lock, the higher the share) and a pool with none is a flat block. It shows terms only, never a rate. The list under it is a numbered schedule with each room's door picture, and the whole row opens the pool. Pointing at a row lights its block, and the other way round. Harvest draws your claims as plates, one stack per network: a plate turns green and comes down on its pad when its claim is paid, and one that was refused, not confirmed or cancelled stays afloat. The same Harvest shows on each pool's page and on the dashboard. What Harvest claims, and in what order, is unchanged.
