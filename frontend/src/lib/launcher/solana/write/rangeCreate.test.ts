@@ -52,7 +52,21 @@ const below = Math.floor(TICK / SPACING) * SPACING;
 /** A range around the opening price, its two ends in different bands. */
 const RANGE = { tickLower: below - 7_200, tickUpper: below + 7_200 };
 
-function chainWith(o: { deploy?: boolean; tier?: boolean; pool?: boolean; token2022?: boolean } = {}): FakeChain {
+/** The slot mainnet's range program was last deployed at before the fix round (RNG-01). */
+const PRE_FIX_SLOT = 465_140_737n;
+
+/** A ProgramData account's header: tag 3, the slot it was last deployed at, then its upgrade authority. */
+function programData(slot: bigint, tag = 3): Uint8Array {
+  const d = new Uint8Array(45);
+  const v = new DataView(d.buffer);
+  v.setUint32(0, tag, true);
+  v.setBigUint64(4, slot, true);
+  d[12] = 1;
+  d.set(VAULT.toBytes(), 13);
+  return d;
+}
+
+function chainWith(o: { deploy?: boolean; deploySlot?: bigint; tier?: boolean; pool?: boolean; token2022?: boolean } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) {
     const pd = Keypair.generate().publicKey;
@@ -60,7 +74,8 @@ function chainWith(o: { deploy?: boolean; tier?: boolean; pool?: boolean; token2
     new DataView(stub.buffer).setUint32(0, 2, true);
     stub.set(pd.toBytes(), 4);
     c.set(PROG, { lamports: 1, owner: BPF_LOADER_UPGRADEABLE_ID, data: stub, executable: true });
-    c.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
+    // Deployed after the fix round unless a test says otherwise.
+    c.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: programData(o.deploySlot ?? 469_700_000n) });
   }
   if (o.tier !== false) {
     c.set(TIER0, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: VAULT, fundOwner: STRANGER }) });
@@ -248,6 +263,39 @@ describe('opening a range pool with its first position', () => {
     expect(said(await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, readsAt({ kind: 'no-route', detail: 'no route' }), ARGS))).toBe(RANGE_COPY.createNoMarket);
     const unread = await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, readsAt({ kind: 'unread', detail: 'timed out' }), ARGS);
     expect(unread.ok ? null : [unread.outcome.message, unread.outcome.retry]).toEqual([RANGE_COPY.createPriceUnread('timed out'), true]);
+  });
+
+  // RNG-01: the build from before the fix round opens every pool with limit orders on.
+  it('opens no pool while the program is the build from before the fix round: one 12-byte read of its ProgramData decides', async () => {
+    const pdOf = (c: FakeChain) => new PublicKey(c.accounts.get(PROG.toBase58())!.data.subarray(4, 36));
+    const reads: Array<{ address: string; config: unknown }> = [];
+    const old = chainWith({ deploySlot: PRE_FIX_SLOT });
+    old.getAccountInfo = async (address: PublicKey, config?: unknown) => {
+      reads.push({ address: address.toBase58(), config });
+      return old.info(address);
+    };
+    const refused = await prepareRangeCreate(W(old), cfgLocal, PROG, MARKET, ARGS);
+    expect(refused.ok, 'a pool opened on the old build').toBe(false);
+    expect(said(refused)).toBe(RANGE_COPY.preFixBuild);
+    expect(old.simulateCalls).toHaveLength(0);
+    // The stub's own ProgramData, its 12-byte head only: never the whole program.
+    expect(reads).toEqual([{ address: pdOf(old).toBase58(), config: { commitment: 'confirmed', dataSlice: { offset: 0, length: 12 } } }]);
+    // Deployed after it (the upgrade): it builds, with no second site release.
+    ok(await prepareRangeCreate(W(chainWith({ deploySlot: PRE_FIX_SLOT + 1n })), cfgLocal, PROG, MARKET, ARGS));
+    // Anything but a ProgramData at the pointer is never taken for the new build.
+    const notPd = chainWith();
+    notPd.set(pdOf(notPd), { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: programData(469_700_000n, 1) });
+    expect(said(await prepareRangeCreate(W(notPd), cfgLocal, PROG, MARKET, ARGS))).toBe(RANGE_COPY.preFixBuild);
+    const gone = chainWith();
+    gone.accounts.delete(pdOf(gone).toBase58());
+    expect(said(await prepareRangeCreate(W(gone), cfgLocal, PROG, MARKET, ARGS))).toBe(RANGE_COPY.preFixBuild);
+    // A read that failed is said as that, and may be tried again.
+    const down = chainWith();
+    down.getAccountInfo = async () => {
+      throw new Error('HTTP 429');
+    };
+    const r = await prepareRangeCreate(W(down), cfgLocal, PROG, MARKET, ARGS);
+    expect(r.ok ? null : [r.outcome.message, r.outcome.retry]).toEqual([RANGE_COPY.buildUnread, true]);
   });
 
   it('refuses with no program, no tier 0, a coin the site does not pair, a range off the spacing or an opening price past the pool’s limits', async () => {

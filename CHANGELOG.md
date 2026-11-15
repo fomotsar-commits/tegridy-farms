@@ -17,6 +17,7 @@ The site's Changelog tab shows both files.
 - NFT Finance: the page background is now the same photo as the NFT Lending card, four apes leaning over a stairwell rail, in place of the campfire.
 - Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 - Pools, Every position: when the pools cannot be read, the card says it in fewer words: "Positions could not be read just now. That does not mean there are none."
+- Pools, Range, Open this pool: Review now builds nothing until the range program's upgrade is on chain, and says so; it opens again by itself once the upgrade runs. Putting coins into a range pool that already exists, and swapping through one, are unchanged.
 
 ### 2026-11-14
 

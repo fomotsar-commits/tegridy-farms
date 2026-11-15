@@ -11,6 +11,7 @@ import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-t
 import { Keypair, PublicKey, SystemProgram, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
+import { BPF_LOADER_UPGRADEABLE_ID } from '../curve/read';
 import { formatTokenAmount } from '../curve/format';
 import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { EXACT_EXTENSIONS, EXTENSION, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
@@ -153,6 +154,8 @@ export const RANGE_COPY = {
     'the test run does not show the venue’s vault receiving exactly the 0.5 SOL opening fee, so the range program on this network may not charge it yet',
   createPriceOff: (pct: string, side: 'above' | 'below') =>
     `Your opening price is ${pct} ${side} the market price (Jupiter’s). The first trader could buy from your deposit at it, so nothing was built. Use the market price.`,
+  preFixBuild: 'Opening a new range pool waits for the range program’s upgrade, which is not on chain yet. Nothing was built.',
+  buildUnread: 'Whether the range program’s upgrade is on chain could not be read just now, so nothing was built. Try again in a moment.',
 } as const;
 
 /** The largest a position's Token-2022 NFT mint gets: its name, symbol and link included (469 bytes for ours). */
@@ -191,6 +194,26 @@ export async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: Publi
 }
 
 export const deployed = (a: RawAccount | null) => a !== null && BPF_LOADERS.has(a.owner);
+
+/** The slot the range program's build from before the fix round was deployed at (RNG-01). */
+const PRE_FIX_DEPLOY_SLOT = 465_140_737n;
+
+/**
+ * When the program was last deployed: the stub's pointer followed to its ProgramData, and
+ * 12 bytes of that read (tag 3, then the slot). Null when something else is there.
+ */
+async function lastDeployed(rpc: WriteRpc, program: RawAccount | null): Promise<bigint | null | 'unread'> {
+  const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (!program || program.owner !== BPF_LOADER_UPGRADEABLE_ID.toBase58() || program.data.length < 36 || view(program.data).getUint32(0, true) !== 2) return null;
+  let pd: Awaited<ReturnType<WriteRpc['getAccountInfo']>>;
+  try {
+    pd = await rpc.getAccountInfo(new PublicKey(program.data.subarray(4, 36)), { commitment: 'confirmed', dataSlice: { offset: 0, length: 12 } });
+  } catch {
+    return 'unread';
+  }
+  if (!pd || !pd.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || pd.data.length < 12 || view(pd.data).getUint32(0, true) !== 3) return null;
+  return view(pd.data).getBigUint64(4, true);
+}
 
 /** The pool as decoded, after the checks every range builder makes of it. A string says why not. */
 export function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | null): PoolStateView | string {
@@ -492,6 +515,10 @@ export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, p
   const fresh = await readFresh(rpc, programId, poolKey, ammConfig, [token0, token1], poolOwn);
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
+  // The build from before the fix round opens every pool with limit orders on (RNG-01).
+  const built = await lastDeployed(rpc, fresh.program);
+  if (built === 'unread') return notRead('build', RANGE_COPY.buildUnread);
+  if (built === null || built <= PRE_FIX_DEPLOY_SLOT) return notSent('build', RANGE_COPY.preFixBuild);
   if (!absent(fresh.pool)) {
     const there = decodePool(programId, poolKey, fresh.pool);
     const pr = typeof there === 'string' ? null : pairOf(there);
