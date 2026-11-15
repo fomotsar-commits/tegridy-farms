@@ -122,8 +122,9 @@ The 2026-11-14 entry below and its paper still hold. Add these:
 After the pending range upgrade (#36) a new pool is born with limit orders off. **Never switch them
 on for any pool until the second range round has executed:** branch
 `fix/range-program-second-round-2026-11-15`, its own pull request and its own upgrade. That round
-patches the limit orders' arithmetic, and it also sends the LPs' share of a limit-order fill's fee
-to the venue. Before it executes, follow its pull request's "To go live".
+is planned to patch the limit orders' arithmetic and to send the LPs' share of a limit-order fill's
+fee to the venue; it had no pull request when this was written. Before it executes, check that its
+pull request says it does both, and follow its "To go live".
 
 How money moves on a range pool meanwhile: a trader pays 1% of each swap. 84% of that fee goes to
 the LPs whose range holds the price, 5.6% to the island's Workshop and 10.4% to the vault. Opening
