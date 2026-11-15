@@ -445,7 +445,7 @@ const MULTISIG_COPY_NOTE =
   'The site tells LPs these settings: change RISK_SHORT (src/components/solana/lp/LpDisclosures.tsx) and ' +
   "LpDisclosure's small print (src/components/solana/lp/SolanaLpSection.tsx) in the same PR as this row's expect.";
 const EXPECT_KEYS = {
-  solana: new Set(['type', 'funded', 'holdsProgram', ...MULTISIG_SETTINGS]),
+  solana: new Set(['type', 'funded', 'holdsProgram', 'stagedProgram', ...MULTISIG_SETTINGS]),
   evm: new Set(['type']),
 };
 function checkExpectKeys(entries) {
@@ -465,23 +465,28 @@ function checkExpectKeys(entries) {
         );
       }
     }
-    const hp = e.expect.holdsProgram;
-    if (hp === undefined) continue;
     if (e.kind !== 'solana') continue; // already failed above: not a key an EVM row may carry
-    if (hp === null || typeof hp !== 'object' || Array.isArray(hp)) {
-      fail(`${label}: expect.holdsProgram must be { bytes, sha256 }`);
-      continue;
-    }
-    if (e.expect.type !== 'program-owned') {
-      fail(`${label}: expect.holdsProgram belongs on a program's DATA account, which is expect.type "program-owned"; this row is "${e.expect.type}"`);
-    }
-    const extra = Object.keys(hp).filter((k) => k !== 'bytes' && k !== 'sha256');
-    if (extra.length) fail(`${label}: expect.holdsProgram carries ${extra.join(', ')}, which nothing reads; it takes bytes and sha256 only`);
-    if (!Number.isInteger(hp.bytes) || hp.bytes < 1 || hp.bytes > LARGEST_PROGRAM) {
-      fail(`${label}: expect.holdsProgram.bytes is ${JSON.stringify(hp.bytes)}; it must be the program's size, a whole number of bytes from 1 to ${LARGEST_PROGRAM}`);
-    }
-    if (typeof hp.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(hp.sha256)) {
-      fail(`${label}: expect.holdsProgram.sha256 must be the program's full sha256, 64 lowercase hex characters (never a shortened one)`);
+    // stagedProgram: the one build a vault proposal is staged to install, accepted beside holdsProgram.
+    const { holdsProgram, stagedProgram } = e.expect;
+    if (stagedProgram !== undefined && holdsProgram === undefined) fail(`${label}: expect.stagedProgram is accepted only beside expect.holdsProgram, the build mainnet runs today`);
+    if (stagedProgram?.sha256 !== undefined && stagedProgram.sha256 === holdsProgram?.sha256) fail(`${label}: expect.stagedProgram names the same build as expect.holdsProgram; drop it`);
+    for (const [key, hp] of Object.entries({ holdsProgram, stagedProgram })) {
+      if (hp === undefined) continue;
+      if (hp === null || typeof hp !== 'object' || Array.isArray(hp)) {
+        fail(`${label}: expect.${key} must be { bytes, sha256 }`);
+        continue;
+      }
+      if (e.expect.type !== 'program-owned') {
+        fail(`${label}: expect.${key} belongs on a program's DATA account, which is expect.type "program-owned"; this row is "${e.expect.type}"`);
+      }
+      const extra = Object.keys(hp).filter((k) => k !== 'bytes' && k !== 'sha256');
+      if (extra.length) fail(`${label}: expect.${key} carries ${extra.join(', ')}, which nothing reads; it takes bytes and sha256 only`);
+      if (!Number.isInteger(hp.bytes) || hp.bytes < 1 || hp.bytes > LARGEST_PROGRAM) {
+        fail(`${label}: expect.${key}.bytes is ${JSON.stringify(hp.bytes)}; it must be the program's size, a whole number of bytes from 1 to ${LARGEST_PROGRAM}`);
+      }
+      if (typeof hp.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(hp.sha256)) {
+        fail(`${label}: expect.${key}.sha256 must be the program's full sha256, 64 lowercase hex characters (never a shortened one)`);
+      }
     }
   }
 }
@@ -606,6 +611,8 @@ function checkSolanaFields(registry, entries) {
     if (e.id.startsWith('devnet-') || e.onchain === false || e.expect?.type === 'absent') fail(`${label}: the row is not a live mainnet account, so the read would assert nothing`);
     const layout = SOLANA_FIELD_LAYOUTS[spec?.layout];
     if (!layout) { fail(`${label}: layout "${spec?.layout}" is not one of ${Object.keys(SOLANA_FIELD_LAYOUTS).join(', ')}`); continue; }
+    // Check 3c's hash pin on every live program, so no upgrade of any of them passes unseen.
+    if (spec.layout === 'programdata' && !e.expect?.holdsProgram) fail(`solana/${id}: a live program's data account must say which build it holds (expect.holdsProgram)`);
     const needsOwner = !layout.ownerAddress;
     for (const k of Object.keys(spec)) {
       if (k === 'layout' || (k === 'owner' && needsOwner) || Object.hasOwn(layout.fields, k)) continue;
@@ -1104,13 +1111,13 @@ export function classifySolanaBatch(json, expectedCount) {
  * comes back with its size (`space`), and a data account smaller than header + program
  * cannot hold that program. Null when the size is enough, or was not stated.
  */
-export function holdsProgramSpaceProblem(v, want) {
+export function holdsProgramSpaceProblem(v, want, staged) {
   if (!v || !Number.isInteger(v.space)) return null;
-  const need = PROGRAMDATA_HEADER + want.bytes;
+  const need = PROGRAMDATA_HEADER + Math.min(want.bytes, staged?.bytes ?? Infinity);
   if (v.space >= need) return null;
   return (
-    `registry says it holds the ${want.bytes}-byte program ${want.sha256}; the account is ${v.space} bytes, ` +
-    `too small for it (${need} needed): mainnet does NOT run that build`
+    `registry says it holds the ${want.bytes}-byte program ${want.sha256}${staged ? ` or the staged ${staged.bytes}-byte program ${staged.sha256}` : ''}; ` +
+    `the account is ${v.space} bytes, too small for it (${need} needed): mainnet does NOT run that build`
   );
 }
 
@@ -1120,7 +1127,7 @@ export function holdsProgramSpaceProblem(v, want) {
  * and the bytes are that build (problem null), answered and they are not (a problem), or
  * no usable answer (not answered, so skipped and counted, never a pass).
  */
-export function classifyProgramData(json, want) {
+export function classifyProgramData(json, want, staged) {
   if (json === null || typeof json !== 'object' || Array.isArray(json)) return unanswered('response was not a JSON-RPC object');
   if (json.error) return unanswered(`RPC error ${json.error.code ?? '?'}: ${json.error.message ?? 'unknown'}`);
   if (json.result === null || typeof json.result !== 'object' || !('value' in json.result)) return unanswered('response carried no result.value');
@@ -1130,9 +1137,10 @@ export function classifyProgramData(json, want) {
   if (v.owner !== UPGRADEABLE_LOADER) return { answered: true, problem: `expected a program data account of the upgradeable loader; owner is ${v.owner}` };
   if (!Array.isArray(v.data) || v.data[1] !== 'base64' || typeof v.data[0] !== 'string') return unanswered('the account came back without base64 data');
   const bytes = Buffer.from(v.data[0], 'base64');
+  const builds = staged ? [want, staged] : [want];
   // A short body must never read as "the program is too small". When the RPC states the
   // account's size, the slice on the wire has to be all of what was asked for.
-  const asked = PROGRAMDATA_HEADER + want.bytes;
+  const asked = PROGRAMDATA_HEADER + Math.max(...builds.map((b) => b.bytes));
   if (Number.isInteger(v.space) && bytes.length !== Math.min(v.space, asked)) {
     return unanswered(`asked for ${Math.min(v.space, asked)} bytes of the account, the response carried ${bytes.length}`);
   }
@@ -1141,23 +1149,20 @@ export function classifyProgramData(json, want) {
   }
   const slot = bytes.readBigUInt64LE(4);
   const room = bytes.length - PROGRAMDATA_HEADER;
-  if (room < want.bytes) {
-    return {
-      answered: true,
-      slot,
-      problem: `it holds ${room} bytes of program, too few for the ${want.bytes}-byte program ${want.sha256}: mainnet does NOT run that build (last deployed in slot ${slot})`,
-    };
-  }
-  const sha256 = createHash('sha256').update(bytes.subarray(PROGRAMDATA_HEADER, asked)).digest('hex');
-  if (sha256 !== want.sha256) {
-    return {
-      answered: true,
-      slot,
-      sha256,
-      problem: `the first ${want.bytes} bytes of the program hash to ${sha256}, not ${want.sha256}: mainnet does NOT run that build (last deployed in slot ${slot})`,
-    };
-  }
-  return { answered: true, slot, sha256, problem: null };
+  const hashes = builds.map((b) => (room < b.bytes ? null : createHash('sha256').update(bytes.subarray(PROGRAMDATA_HEADER, PROGRAMDATA_HEADER + b.bytes)).digest('hex')));
+  const i = builds.findIndex((b, k) => hashes[k] === b.sha256);
+  if (i >= 0) return { answered: true, slot, sha256: hashes[i], problem: null, staged: i === 1 };
+  const why = builds.map((b, k) =>
+    hashes[k] === null
+      ? `it holds ${room} bytes of program, too few for the ${b.bytes}-byte program ${b.sha256}`
+      : `the first ${b.bytes} bytes of the program hash to ${hashes[k]}, not ${b.sha256}`,
+  );
+  return {
+    answered: true,
+    slot,
+    ...(hashes[0] ? { sha256: hashes[0] } : {}),
+    problem: `${why.join('; ')}: mainnet does NOT run ${builds.length > 1 ? 'either build' : 'that build'} (last deployed in slot ${slot})`,
+  };
 }
 
 /**
@@ -1284,7 +1289,7 @@ async function onchain() {
     if (want === 'squads-multisig' && v.owner !== SQUADS_V4_PROGRAM) return `expected a Squads v4 multisig; owner is ${v.owner}`;
     if (e.expect?.funded === true && !(v.lamports > 0)) return 'registry says FUNDED; the balance is 0';
     // Check 3c, the cheap half: an account too small for the program it is said to hold.
-    if (e.expect?.holdsProgram) return holdsProgramSpaceProblem(v, e.expect.holdsProgram);
+    if (e.expect?.holdsProgram) return holdsProgramSpaceProblem(v, e.expect.holdsProgram, e.expect.stagedProgram);
     return null;
   };
 
@@ -1326,22 +1331,22 @@ async function onchain() {
   }
 
   // Check 3c, the other half: WHICH program each such data account holds. One read per
-  // row (there is one today), of the header and the program's own length and no more.
-  // An answer that is not that build FAILS. No usable answer is NOT CHECKED: counted and
-  // named below like every other skip, and never a pass.
+  // row (four today), of the header and the longer build's length and no more. An answer
+  // that is neither the registered nor the staged build FAILS. No usable answer is NOT
+  // CHECKED: counted and named below like every other skip, and never a pass.
   for (const e of programReads) {
-    const want = e.expect.holdsProgram;
+    const { holdsProgram: want, stagedProgram: staged } = e.expect;
     const res = await post(
       SOL_RPC,
       {
         jsonrpc: '2.0',
         id: 1,
         method: 'getAccountInfo',
-        params: [safeAddress(e.address), { encoding: 'base64', dataSlice: { offset: 0, length: PROGRAMDATA_HEADER + want.bytes } }],
+        params: [safeAddress(e.address), { encoding: 'base64', dataSlice: { offset: 0, length: PROGRAMDATA_HEADER + Math.max(want.bytes, staged?.bytes ?? 0) } }],
       },
       PROGRAM_READ_TIMEOUT_MS,
     );
-    const cls = res.ok ? classifyProgramData(res.json, want) : unanswered(res.reason);
+    const cls = res.ok ? classifyProgramData(res.json, want, staged) : unanswered(res.reason);
     const label = `${e.id} (program bytes)`;
     if (!cls.answered) {
       warn(`Solana program read SKIPPED for ${e.id}: ${cls.reason}. Whether it holds the registered build is NOT KNOWN from this run.`);
@@ -1352,6 +1357,9 @@ async function onchain() {
     if (cls.problem) {
       console.log(`  ${label.padEnd(30)} <-- ${cls.problem}`);
       fail(`solana/${e.id}: ${cls.problem}`);
+    } else if (cls.staged) {
+      console.log(`  ${label.padEnd(30)} ${staged.bytes} bytes, sha256 ${cls.sha256}, the STAGED build (last deployed in slot ${cls.slot})`);
+      warn(`solana/${e.id} holds the staged build ${cls.sha256}: the release that names it moves expect.holdsProgram to it and drops stagedProgram`);
     } else {
       console.log(`  ${label.padEnd(30)} ${want.bytes} bytes, sha256 ${cls.sha256}, the registered build (last deployed in slot ${cls.slot})`);
     }
@@ -2162,6 +2170,21 @@ function selfTest() {
     'CONTROL: check 3c (batched read) passes an account of exactly header + program, a larger one, and one whose size was not stated',
     [{ space: PROGRAMDATA_HEADER + want.bytes }, { space: PROGRAMDATA_HEADER + want.bytes + 10_240 }, { lamports: 1 }].every((v) => holdsProgramSpaceProblem(v, want) === null),
   );
+  // 13a. XCH-28: a row may also name the one build a vault proposal is staged to install, so
+  //      the job stays green between that upgrade and the release that names it. Any other
+  //      bytes still fail.
+  const stagedBuild = Buffer.from(Array.from({ length: 3500 }, (_, i) => (i * 17 + 3) % 253));
+  const staged = { bytes: stagedBuild.length, sha256: createHash('sha256').update(stagedBuild).digest('hex') };
+  const held2 = (json) => classifyProgramData(json, want, staged);
+  const afterUpgrade = held2(info(Buffer.concat([header(800), stagedBuild, Buffer.alloc(want.bytes - staged.bytes)])));
+  t('check 3c accepts the staged build when the row names one', afterUpgrade.answered === true && afterUpgrade.problem === null && afterUpgrade.staged === true);
+  t('CONTROL: check 3c still accepts the registered build when a staged one is named', held2(info(Buffer.concat([header(700), newBuild]))).problem === null);
+  const third = held2(info(Buffer.concat([header(900), oneByteOff])));
+  t('check 3c REFUSES a third build when two are named', third.answered === true && (third.problem ?? '').includes('hash to') && (third.problem ?? '').includes('either build'));
+  t(
+    'check 3c (batched read): an account too small for the registered build but big enough for the staged one is not refused',
+    holdsProgramSpaceProblem({ space: PROGRAMDATA_HEADER + staged.bytes }, want, staged) === null,
+  );
 
   // 13b. The offline half of 3c, on a synthetic registry through the REAL checkRows and
   //      checkExpectKeys: a claim about a program that the chain read could not check.
@@ -2196,17 +2219,32 @@ function selfTest() {
   t('check 3c rejects holdsProgram on an EVM row', keyFailsWith((r) => { r.ethereum[0].expect.holdsProgram = { ...want }; }, 'ethereum/staking-admin', 'expect.holdsProgram'));
   t('check 3c rejects an expect that is not an object', keyFailsWith((r) => { r.solana[1].expect = 'wallet'; }, 'solana/some-wallet', 'must be an object'));
   t('CONTROL: check 3c passes every expect block of the real addresses.json', collect(() => checkExpectKeys(allEntries)).failed.length === 0);
-  // 13c. The check is ARMED on the real registry: the pool program's data account says
-  //      which build it holds, and it is the build the program's own row names in prose.
-  //      Taking the expectation off that row would turn the chain read back into the
-  //      type-only check that was green before the program had been upgraded at all.
-  const poolData = allEntries.find((e) => e.section === 'solana' && e.id === 'cp-swap-programdata-restart');
-  const poolProgram = allEntries.find((e) => e.section === 'solana' && e.id === 'cp-swap-program-restart');
-  const armed = poolData?.expect?.holdsProgram;
-  t('the real registry says WHICH build the pool program data account holds', /^[0-9a-f]{64}$/.test(armed?.sha256 ?? '') && Number.isInteger(armed?.bytes));
+  t('CONTROL: check 3c passes a staged build beside the registered one', keyFailures((r) => { r.solana[0].expect.stagedProgram = { ...staged }; }).length === 0);
   t(
-    'and that is the build the pool program row names in its status, hash and size',
-    !!armed && (poolProgram?.status ?? '').includes(`expected bytecode sha256 ${armed.sha256}, ${armed.bytes.toLocaleString('en-US')} bytes`),
+    'check 3c rejects a staged build with no registered build beside it',
+    keyFailsWith((r) => { r.solana[0].expect.stagedProgram = { ...staged }; delete r.solana[0].expect.holdsProgram; }, 'solana/pool-program-data', 'stagedProgram is accepted only beside'),
+  );
+  t('check 3c rejects a staged build that is the registered build', keyFailsWith((r) => { r.solana[0].expect.stagedProgram = { ...want }; }, 'solana/pool-program-data', 'stagedProgram', 'same build'));
+  t('check 3c rejects a SHORTENED staged sha256', keyFailsWith((r) => { r.solana[0].expect.stagedProgram = { ...staged, sha256: '9f0150e3…' }; }, 'solana/pool-program-data', 'stagedProgram.sha256'));
+  // 13c. The check is ARMED on the real registry: every live program's data account says
+  //      which build it holds, and it is the build the program's own row names in prose.
+  //      Until 2026-11-15 only the pool program's did (XCH-28).
+  const dataRows = Object.entries(reg.solanaFields.accounts).filter(([, s]) => s.layout === 'programdata').map(([id]) => id);
+  const pins = dataRows.map((id) => ({
+    armed: allEntries.find((e) => e.section === 'solana' && e.id === id)?.expect?.holdsProgram,
+    program: allEntries.find((e) => e.section === 'solana' && e.id === id.replace('programdata', 'program')),
+  }));
+  t(
+    'the real registry says WHICH build each of the four program data accounts holds',
+    dataRows.length === 4 && pins.every(({ armed }) => /^[0-9a-f]{64}$/.test(armed?.sha256 ?? '') && Number.isInteger(armed?.bytes)),
+  );
+  t(
+    'and each is the build its program row names in its status, hash and size',
+    pins.every(({ armed, program }) => !!armed && (program?.status ?? '').includes(`expected bytecode sha256 ${armed.sha256}, ${armed.bytes.toLocaleString('en-US')} bytes`)),
+  );
+  t(
+    'check 3c fails a live program data row that does not say which build it holds',
+    fieldFailsWith((r) => { delete r.solana.find((e) => e.id === 'bayla-ladder-programdata').expect.holdsProgram; }, 'solana/bayla-ladder-programdata', 'holdsProgram'),
   );
 
   for (const r of rows) console.log(`  ${r.ok ? 'ok  ' : 'FAIL'} ${r.name}`);
