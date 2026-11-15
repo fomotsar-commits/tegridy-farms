@@ -37,8 +37,6 @@ first (`deploy-devnet.sh`).
 >   `88b98aa9…`) and tegridy_launch.mainnet.so (sha256 `a3c41afa…`), both built with Agave
 >   2.3.0. (The escrow build `9b78be02…` is superseded: see the banner above.) A
 >   `solana-verify` build made now would produce different bytes that nobody rehearsed.
-> - The deploy command below has no `--keypair` or `--upgrade-authority`, so the CLI's
->   default key would pay and become the upgrade authority. The checklist's command has both.
 > - The vault needs **at least 4,572,000 lamports** before the two cp-swap admin steps, not
 >   ~0.0019 SOL. Both steps are Squads proposals now, because `admin::ID` is the vault.
 > - The whole flow passed on a local validator (the exact mainnet bytes, through a stand-in of
@@ -298,6 +296,9 @@ solana account 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa --url mainnet-beta
 # owner MUST be TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA — NOT the System Program
 ```
 
+**Never close this account to unwrap the fees in it.** While it does not exist, every pool
+opening and every graduation fails. Move wrapped SOL out with a transfer and unwrap the copy.
+
 ## 3. Build the verifiable mainnet binary
 The CI `tegridy-cp-amm-devnet-sbf` artifact is a **devnet** build — do NOT deploy it to mainnet.
 For mainnet, do a local **verifiable build** (`solana-verify build`, default/non-devnet features
@@ -306,14 +307,14 @@ Confirm the built program-id matches step 1 and that the sentinels are gone.
 
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
-solana program deploy <artifact>.so --program-id keys/mainnet-program.json --max-len <binary bytes>   # see §0 for real rent
+solana program deploy <artifact>.so --program-id keys/mainnet-program.json --max-len <binary bytes> --url mainnet-beta --keypair <deployer-keyfile>   # see §0 for real rent
 # Move upgrade authority to the Squads VAULT PDA — NOT the multisig account EVGSnRZ…,
 # which can never sign an upgrade (§0 "Which Squads address"). The vault cannot sign
 # this handover either, hence the skip flag. Or burn it if you want immutability.
 solana program set-upgrade-authority <PROGRAM_ID> \
   --new-upgrade-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd \
-  --skip-new-upgrade-authority-signer-check
-solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deployed slot
+  --skip-new-upgrade-authority-signer-check --url mainnet-beta --keypair <deployer-keyfile>
+solana program show <PROGRAM_ID> --url mainnet-beta   # verify authority == GRMtSx… + last-deployed slot
 ```
 > Optionally publish a verifiable build so explorers show source == bytecode.
 
@@ -1513,6 +1514,11 @@ deep enough to stay above Jupiter's routing threshold (§8).
 
 ## 7. 🔑 Collect fees (recurring)
 `collect_protocol_fee` → treasury (the fee owner signs — through the vault if it is the vault). Protocol fee accrues on every swap.
+
+**Before signing any fee collection, on either pool program** (swap pools, and range pools
+`7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`), **check that neither receiver is one of that
+pool's own two vaults.** Both programs pay whatever token account the proposal names, and a pool
+vault as receiver hands the venue's fee to that pool's LPs.
 
 ## 8. 🌐 Get routed + drive volume
 - **Submit to Jupiter's DEX integration** — until then retail won't auto-route to our AMM.
