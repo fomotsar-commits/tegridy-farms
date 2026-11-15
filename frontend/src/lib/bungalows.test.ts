@@ -50,14 +50,14 @@ afterEach(() => {
 });
 
 describe('bungalow registry', () => {
-  it('counts 12 bungalows, and the open lot is not one of them', () => {
-    // The island: "12 BUNGALOWS · 3 LOTS OPEN". Its lot is 'nb1', chain 'tbd'.
-    expect(BUNGALOW_COUNT).toBe(12);
+  it('counts 11 bungalows, and the open lot is not one of them', () => {
+    // The island: 11 bungalows since 2026-11-14, when the QR room left. Its lot is 'nb1', chain 'tbd'.
+    expect(BUNGALOW_COUNT).toBe(11);
     expect(BUNGALOWS.filter((b) => b.chain === 'tbd').map((b) => b.id)).toEqual(['nb1']);
-    // Its tile line is the island's lot label ("Lot 13, for the next community"), unnumbered.
+    // Its tile line is the island's lot label ("Lot 12, for the next community"), unnumbered.
     expect(BUNGALOWS.find((b) => b.chain === 'tbd')!.tagline).toBe('For the next community.');
-    // The lot keeps its row, tile and art: 13 rows, unique ids.
-    expect(BUNGALOWS).toHaveLength(13);
+    // The lot keeps its row, tile and art: 12 rows, unique ids.
+    expect(BUNGALOWS).toHaveLength(12);
     expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(BUNGALOWS.length);
   });
 
@@ -113,7 +113,6 @@ describe('bungalow registry', () => {
       toweli: ['ethereum', '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D'],
       bayla: ['solana', '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'],
       pepe: ['ethereum', '0x6982508145454ce325ddbe47a25d4ec3d2311933'],
-      qr: ['base', '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf'],
       mfer: ['base', '0xe3086852a4b125803c815a158249ae468a3254ca'],
       bnkr: ['base', '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b'],
       drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
@@ -304,7 +303,6 @@ describe('resolution order', () => {
       // MIN_STAKE() == 100e18 — a function that exists ONLY in the post-fix
       // build, and which the retired six revert on — and rewardsDistribution
       // == the chain's own remittance Safe.
-      qr: '0x55B72f09d31f43834bf7Eba42f53a419a716F554',
       mfer: '0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6',
       bnkr: '0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf',
       drb: '0x0aCB93fcFD5b1950D94064998017a2601b36D7bB',
@@ -337,7 +335,6 @@ describe('resolution order', () => {
     // (cast name()/symbol() for EVM, GeckoTerminal + getAccountInfo for Solana).
     const VERIFIED: Record<string, [string, string]> = {
       pepe: ['ethereum', '0x6982508145454ce325ddbe47a25d4ec3d2311933'],
-      qr: ['base', '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf'],
       mfer: ['base', '0xe3086852a4b125803c815a158249ae468a3254ca'],
       bnkr: ['base', '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b'],
       drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
@@ -364,7 +361,6 @@ describe('resolution order', () => {
     // error anywhere — the exact bug the OHLCV cache-key fix guarded against.
     const MARKETS: Record<string, [string, string]> = {
       pepe: ['eth', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f'],
-      qr: ['base', '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0'],
       mfer: ['base', '0xb08a99ab559e5456907278727a3b0d968c0a313b'],
       bnkr: ['base', '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703'],
       drb: ['base', '0x5116773e18a9c7bb03ebb961b38678e45e238923'],
@@ -554,7 +550,7 @@ describe('read by the island, per pool', () => {
   });
 
   it('reads no for every other staking pool the registry carries', () => {
-    const no = ['pepe', 'qr', 'mfer', 'bnkr', 'drb', 'jbm', 'bobo', 'soy', 'brainlet', 'rizz'];
+    const no = ['pepe', 'mfer', 'bnkr', 'drb', 'jbm', 'bobo', 'soy', 'brainlet', 'rizz'];
     for (const id of no) {
       const b = BUNGALOWS.find((x) => x.id === id)!;
       expect(b.stakePool, `${id} carries a pool`).toBeTruthy();

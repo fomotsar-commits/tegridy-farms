@@ -70,14 +70,16 @@ export const SENDERS: Record<string, How> = {
   // A swap in the venue's own pool, through the review screen.
   'components/swap/useVenueSwap.ts': { ends: 'submitPrepared' },
   // The island basket: several buys, one prompt.
-  'components/swap/IslandBasketSolana.tsx': { ends: 'pollConfirm' },
+  'components/swap/IslandBasketSolana.tsx': { ends: 'sendSigned' },
   'lib/solana/swap/islandBasketSol.ts': { ends: 'pollConfirm' },
   // Add, remove, open a pool, range pools, the launch curve: the review screen's one writer.
   'lib/launcher/solana/write/submit.ts': { ends: 'submitPrepared' },
   'components/solana/curve/ports.ts': { ends: 'submitPrepared' },
   'components/solana/curve/useTxFlow.ts': { ends: 'submitPrepared' },
-  // Add with one coin: the swap leg is sent by the wallet and watched in oneCoinSwap.ts.
-  'components/solana/lp/AddOneCoinPanel.tsx': { passes: 'components/solana/lp/oneCoinSwap.ts' },
+  // Add with one coin: its swap leg (oneCoinSwap.ts) is signed by the wallet and sent and watched by the swap's own send.
+  'components/solana/lp/AddOneCoinPanel.tsx': { passes: 'lib/solana/swap/walletSwapSend.ts' },
+  // A Jupiter swap: the wallet signs, the page sends, sends again and watches (the swap, step 1 of a one-coin add, a basket coin alone).
+  'lib/solana/swap/walletSwapSend.ts': { ends: 'sendSigned' },
   // The BAYLA ladder: stake, claim, extend, exit.
   'lib/ladder/write.ts': { ends: 'pollConfirm' },
   // Claim all: each claim sent and watched by the basket's sendSigned.

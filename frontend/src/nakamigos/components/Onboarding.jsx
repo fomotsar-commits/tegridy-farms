@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { pickTourTarget, placeTourCard } from "../lib/tourTarget";
 
 const STEPS = [
   {
@@ -46,9 +47,9 @@ function injectKeyframes() {
   const sheet = document.createElement("style");
   sheet.textContent = `
     @keyframes onboarding-pulse {
-      0%   { box-shadow: 0 0 0 0 rgba(111,168,220,0.55); }
-      70%  { box-shadow: 0 0 0 14px rgba(111,168,220,0); }
-      100% { box-shadow: 0 0 0 0 rgba(111,168,220,0); }
+      0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0.55); }
+      70%  { box-shadow: 0 0 0 14px rgba(0,0,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
     }
     @keyframes onboarding-fade-in {
       from { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -63,7 +64,9 @@ function injectKeyframes() {
 }
 
 // ═══ Tooltip arrow helper ═══
-function arrowStyle(position) {
+// `left` is where the arrow sits along the card (px), so it points at the
+// target's middle even when the card is pushed in from the screen's edge.
+function arrowStyle(position, left) {
   const base = {
     position: "absolute",
     width: 0,
@@ -71,22 +74,23 @@ function arrowStyle(position) {
     borderLeft: "8px solid transparent",
     borderRight: "8px solid transparent",
   };
+  const along = left == null ? "50%" : left;
   if (position.startsWith("bottom")) {
     return {
       ...base,
       top: -8,
-      left: "50%",
+      left: along,
       transform: "translateX(-50%)",
-      borderBottom: "8px solid rgba(30,32,38,0.92)",
+      borderBottom: "8px solid rgba(17,19,22,0.96)",
     };
   }
   if (position.startsWith("top")) {
     return {
       ...base,
       bottom: -8,
-      left: "50%",
+      left: along,
       transform: "translateX(-50%)",
-      borderTop: "8px solid rgba(30,32,38,0.92)",
+      borderTop: "8px solid rgba(17,19,22,0.96)",
     };
   }
   if (position === "left") {
@@ -95,7 +99,7 @@ function arrowStyle(position) {
       right: -8,
       top: "50%",
       transform: "translateY(-50%)",
-      borderLeft: "8px solid rgba(30,32,38,0.92)",
+      borderLeft: "8px solid rgba(17,19,22,0.96)",
       borderTop: "8px solid transparent",
       borderBottom: "8px solid transparent",
       borderRight: "none",
@@ -107,22 +111,13 @@ function arrowStyle(position) {
       left: -8,
       top: "50%",
       transform: "translateY(-50%)",
-      borderRight: "8px solid rgba(30,32,38,0.92)",
+      borderRight: "8px solid rgba(17,19,22,0.96)",
       borderTop: "8px solid transparent",
       borderBottom: "8px solid transparent",
       borderLeft: "none",
     };
   }
   return base;
-}
-
-// ═══ Resolve first matching selector ═══
-function resolveTarget(selectorGroup) {
-  for (const sel of selectorGroup.split(",")) {
-    const el = document.querySelector(sel.trim());
-    if (el) return el;
-  }
-  return null;
 }
 
 export default function Onboarding({ onComplete }) {
@@ -138,6 +133,9 @@ export default function Onboarding({ onComplete }) {
   const [active, setActive] = useState(false);
   const [step, setStep] = useState(0);
   const [tooltipPos, setTooltipPos] = useState(null);
+  // Which side of its target the card ended up on, and where its arrow sits;
+  // null when the step has no target on screen (the card is centred, arrowless).
+  const [cardSide, setCardSide] = useState(null);
   const [spotlightRect, setSpotlightRect] = useState(null);
   const tooltipRef = useRef(null);
 
@@ -158,12 +156,14 @@ export default function Onboarding({ onComplete }) {
     const cfg = STEPS[step];
     if (!cfg) return;
 
-    const el = resolveTarget(cfg.target);
-    const gap = 14;
+    // The first copy of the target the visitor can see (a phone hides the
+    // header's tab row and shows the bottom bar instead), or none at all.
+    const el = pickTourTarget(cfg.target);
 
     if (!el) {
-      // fallback: center on screen
+      // No target on screen: the card sits in the middle, with no arrow.
       setSpotlightRect(null);
+      setCardSide(null);
       setTooltipPos({
         top: "50%",
         left: "50%",
@@ -179,31 +179,16 @@ export default function Onboarding({ onComplete }) {
       left: rect.left - pad,
       width: rect.width + pad * 2,
       height: rect.height + pad * 2,
-      borderRadius: 8,
+      borderRadius: 4,
     });
 
-    // calculate tooltip placement
-    const pos = {};
-    const position = cfg.position || "bottom";
-
-    if (position.startsWith("bottom")) {
-      pos.top = rect.bottom + gap;
-      pos.left = position === "bottom-end"
-        ? rect.right - 320
-        : rect.left + rect.width / 2 - 160;
-    } else if (position.startsWith("top")) {
-      pos.bottom = window.innerHeight - rect.top + gap;
-      pos.left = rect.left + rect.width / 2 - 160;
-    }
-
-    // clamp to viewport
-    if (pos.left !== undefined) {
-      pos.left = Math.max(16, Math.min(pos.left, window.innerWidth - 336));
-    }
-    if (pos.top !== undefined) {
-      pos.top = Math.max(16, Math.min(pos.top, window.innerHeight - 220));
-    }
-
+    // Below the target as the step asks, or above it when there is no room.
+    const { pos, side, arrowLeft } = placeTourCard(rect, cfg.position || "bottom", {
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      height: tooltipRef.current?.offsetHeight || 220,
+    });
+    setCardSide({ side, arrowLeft });
     setTooltipPos(pos);
   }, [step]);
 
@@ -280,7 +265,7 @@ export default function Onboarding({ onComplete }) {
     zIndex: 99998,
     background: "rgba(0,0,0,0.72)",
     animation: "onboarding-spotlight 300ms ease-out",
-    transition: "clip-path 350ms cubic-bezier(.4,0,.2,1)",
+    transition: "clip-path 350ms ease",
     clipPath: spotlightRect
       ? `polygon(
           0% 0%, 0% 100%, 100% 100%, 100% 0%,
@@ -303,11 +288,11 @@ export default function Onboarding({ onComplete }) {
     width: spotlightRect.width,
     height: spotlightRect.height,
     borderRadius: spotlightRect.borderRadius,
-    border: "2px solid var(--naka-blue, #6fa8dc)",
+    border: "2px solid var(--naka-blue, #ffffff)",
     animation: "onboarding-pulse 1.8s ease-out infinite",
     pointerEvents: "none",
     zIndex: 99999,
-    transition: "all 350ms cubic-bezier(.4,0,.2,1)",
+    transition: "all 350ms ease",
   } : null;
 
   // ═══ Tooltip card ═══
@@ -316,16 +301,14 @@ export default function Onboarding({ onComplete }) {
     zIndex: 100000,
     width: 320,
     ...tooltipPos,
-    background: "rgba(30,32,38,0.92)",
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
+    background: "rgba(17,19,22,0.96)",
     border: "1px solid var(--border, rgba(255,255,255,0.08))",
-    borderRadius: 14,
+    borderRadius: 6,
     padding: "22px 22px 18px",
     color: "var(--text, #f0f0f0)",
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
     animation: "onboarding-fade-in 280ms ease-out",
-    boxShadow: "0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(111,168,220,0.12)",
+    boxShadow: "none",
   };
 
   const stepCountStyle = {
@@ -333,10 +316,10 @@ export default function Onboarding({ onComplete }) {
     alignItems: "center",
     gap: 6,
     marginBottom: 10,
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
-    color: "var(--naka-blue, #6fa8dc)",
+    color: "var(--naka-blue, #ffffff)",
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
   };
 
@@ -367,9 +350,9 @@ export default function Onboarding({ onComplete }) {
   const dotStyle = (i) => ({
     width: i === step ? 18 : 7,
     height: 7,
-    borderRadius: 4,
+    borderRadius: 3,
     background: i === step
-      ? "var(--naka-blue, #6fa8dc)"
+      ? "var(--naka-blue, #ffffff)"
       : "var(--text-muted, rgba(255,255,255,0.18))",
     transition: "all 300ms ease",
   });
@@ -387,7 +370,7 @@ export default function Onboarding({ onComplete }) {
     fontFamily: "var(--mono, 'IBM Plex Mono', monospace)",
     fontSize: 13,
     fontWeight: 600,
-    borderRadius: 8,
+    borderRadius: 4,
     padding: "8px 18px",
     transition: "all 180ms ease",
     letterSpacing: "0.02em",
@@ -407,7 +390,7 @@ export default function Onboarding({ onComplete }) {
 
   const nextBtnStyle = {
     ...btnBase,
-    background: "var(--naka-blue, #6fa8dc)",
+    background: "var(--naka-blue, #ffffff)",
     color: "var(--bg)",
   };
 
@@ -421,8 +404,8 @@ export default function Onboarding({ onComplete }) {
 
       {/* Tooltip */}
       <div ref={tooltipRef} style={tooltipStyle} onClick={(e) => e.stopPropagation()}>
-        {/* Arrow */}
-        <div style={arrowStyle(cfg.position || "bottom")} />
+        {/* Arrow, toward the target; none when the card is centred */}
+        {cardSide && <div style={arrowStyle(cardSide.side, cardSide.arrowLeft)} />}
 
         {/* Step indicator */}
         <div style={stepCountStyle}>
@@ -433,8 +416,8 @@ export default function Onboarding({ onComplete }) {
             width: 20,
             height: 20,
             borderRadius: "50%",
-            background: "rgba(111,168,220,0.15)",
-            fontSize: 11,
+            background: "rgba(255,255,255,0.068)",
+            fontSize: 12,
             fontWeight: 700,
           }}>
             {step + 1}

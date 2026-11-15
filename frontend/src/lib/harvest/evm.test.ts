@@ -8,7 +8,7 @@ import type { ClaimResult } from './types';
 
 const rooms = evmHarvestRooms();
 const pepe = rooms.find((b) => b.id === 'pepe')!;
-const qr = rooms.find((b) => b.id === 'qr')!;
+const drb = rooms.find((b) => b.id === 'drb')!;
 const ok = (room: EvmHarvestRoom, over: Partial<Parameters<typeof planEvmPool>[1]> = {}) =>
   planEvmPool(room, { earnedRaw: 5n * 10n ** 18n, stakingToken: room.address, rewardsToken: room.address, surplusRaw: 10n ** 24n, decimals: 18, ...over });
 
@@ -24,9 +24,9 @@ describe('which pools Harvest reads on Ethereum and Base', () => {
 
 describe('planEvmPool', () => {
   it('a read amount above zero is one claim on that pool, on its own chain', () => {
-    const p = ok(qr);
+    const p = ok(drb);
     expect(p.claims).toHaveLength(1);
-    expect(p.claims[0]).toMatchObject({ chain: 'base', chainId: 8453, pool: qr.stakePool, symbol: 'QR', amountRaw: 5n * 10n ** 18n, caution: null });
+    expect(p.claims[0]).toMatchObject({ chain: 'base', chainId: 8453, pool: drb.stakePool, symbol: 'DRB', amountRaw: 5n * 10n ** 18n, caution: null });
     expect(ok(pepe).claims[0]).toMatchObject({ chain: 'ethereum', chainId: 1 });
   });
 

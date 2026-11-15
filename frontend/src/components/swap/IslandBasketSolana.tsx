@@ -9,12 +9,12 @@ import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, sendSigned, signatureO
 import { freshDecision, within } from '../../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
-import { pollConfirm } from '../../lib/solana/confirm';
-import { readSendThrow, signThrowCopy } from '../../lib/solana/walletThrow';
-import { HELD_NOT_SENT, LOST_ANSWER_TITLE, lostAnswerCopy } from '../../lib/solana/swap/walletCopy';
+import { signThrowCopy } from '../../lib/solana/walletThrow';
+import { sendWalletSwap } from '../../lib/solana/swap/walletSwapSend';
+import { HELD_NOT_SENT, LOST_ANSWER_TITLE } from '../../lib/solana/swap/walletCopy';
 import { jupiterLastValidAtMost } from '../../lib/solana/swap/jupiterNote';
 import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../../lib/solana/blockhashWindow';
-import { swapPendingScope } from '../solana/curve/pendingTrade';
+import { noteKey, readPendingTrades, swapPendingScope } from '../solana/curve/pendingTrade';
 import type { PendingTradesState } from '../solana/curve/usePendingTrades';
 import type { PreparedTx, SwapOpenGate, TxSigner, VenueSwapApi } from '../solana/curve/ports';
 import { recordActivity } from '../../lib/solanaActivity';
@@ -387,20 +387,25 @@ export function IslandBasketSolana(p: {
   /**
    * The note that holds Buy for this wallet until the chain answers for a Jupiter coin: the
    * swap's own. Its reads start now, before the wallet is asked; the returned function
-   * writes it once there is a signature (null: the wallet's answer went missing).
+   * writes it once there is a signature, with the blockhash the SIGNED transaction carries.
+   * A wallet may swap in its own (Phantom does, 2026-11-15): the proof read on the one
+   * handed to it then proves nothing about the one sent, and is not used, so the hold
+   * cannot end while the swap can still land (walletSwapSend.ts).
    */
   function jupiterNote(tx: VersionedTransaction, scope: string) {
     const lastValid: { at: number | null } = { at: null };
     const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
+    const handed = recentBlockhashOf(tx);
     const proof: { bh: NoteBlockhash | null } = { bh: null };
-    const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
-    return (signature: string | null) => {
+    const bhRead = blockhashSeen(connection, handed).then((b) => (proof.bh = b));
+    return (signature: string, carried: string | null) => {
       const sentAt = Date.now();
-      const write = () => p.pending.hold({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, scope);
+      const bh = () => (carried !== null && carried === handed ? proof.bh : null);
+      const write = () => p.pending.hold({ kind: 'jupiter-swap', signature, lastValidBlockHeight: lastValid.at, blockhash: bh(), sentAt }, scope);
       write();
-      const had = { at: lastValid.at, bh: proof.bh };
+      const had = { at: lastValid.at, bh: bh() };
       void Promise.all([heightRead, bhRead]).then(() => {
-        if ((signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null)) write();
+        if ((had.at === null && lastValid.at !== null) || (had.bh === null && bh() !== null)) write();
       });
     };
   }
@@ -452,28 +457,38 @@ export function IslandBasketSolana(p: {
     }
   }
 
-  /** One coin through Jupiter, its own wallet prompt: the wallet signs and sends it. */
+  /**
+   * One coin through Jupiter, its own wallet prompt: the wallet signs, the page sends and
+   * watches, as the swap's Buy does (lib/solana/swap/walletSwapSend.ts).
+   */
   async function sendJupiterAlone(b: Built & { via: 'jupiter' }, user: string, scope: string): Promise<Sent> {
-    const note = jupiterNote(b.tx, scope);
-    let sig: string;
-    try {
-      sig = await sendTransaction(b.tx, connection);
-    } catch (e) {
-      const t = readSendThrow(e);
-      if (t.kind === 'unsure') {
-        note(null);
-        setLeg(b.i, { kind: 'unknown' });
-        toast.warning(LOST_ANSWER_TITLE, { description: lostAnswerCopy(t.reason, `it sent ${b.words} for ${sol(b.leg.amountIn).toFixed(4)} SOL`) });
-      } else {
-        setLeg(b.i, { kind: 'not-sent', why: t.message });
-      }
-      // A cancel, a wallet that did not sign, or an answer that went missing stops the order.
+    const end = await sendWalletSwap(
+      {
+        rpc: connection,
+        owner: new PublicKey(user),
+        sign: signTransaction ? (t) => signTransaction(t) : undefined,
+        signAndSend: (t) => sendTransaction(t, connection),
+        holdsNow: () => p.pending.holdsNow(scope),
+        hold: (n) => p.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
+        stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
+        release: (s) => p.pending.release(s, scope),
+        onSent: () => setLeg(b.i, { kind: 'busy', text: 'Confirming…' }),
+      },
+      b.tx,
+      { words: `${b.words} for ${sol(b.leg.amountIn).toFixed(4)} SOL`, slippageBps: p.slippageBps, timeoutMs: CONFIRM_TIMEOUT_MS },
+    );
+    if (end.kind === 'not-sent') {
+      setLeg(b.i, { kind: 'not-sent', why: end.message });
+      // A cancel or a wallet that did not sign stops the order; a refusal at the first send does not.
+      return end.stage === 'network' ? 'next' : 'stop';
+    }
+    if (end.kind === 'lost') {
+      // Only a wallet that cannot sign alone: an answer that went missing stops the order.
+      setLeg(b.i, { kind: 'unknown' });
+      toast.warning(LOST_ANSWER_TITLE, { description: end.message });
       return 'stop';
     }
-    note(sig);
-    setLeg(b.i, { kind: 'busy', text: 'Confirming…' });
-    const { outcome } = await pollConfirm(connection, sig, CONFIRM_TIMEOUT_MS);
-    return settleJupiter(b, sig, outcome, user, scope);
+    return settleJupiter(b, end.signature, end.outcome, user, scope);
   }
 
   /**
@@ -541,7 +556,7 @@ export function IslandBasketSolana(p: {
           return 'next';
         }
         // The note exists before the first byte leaves: from here it may land even if the page goes.
-        notes.get(b.i)?.(sig);
+        notes.get(b.i)?.(sig, recentBlockhashOf(tx));
         setLeg(b.i, { kind: 'busy', text: 'Confirming…' });
         const r = await sendSigned(connection, tx.serialize(), sig, CONFIRM_TIMEOUT_MS);
         if (r.kind === 'not-sent') {

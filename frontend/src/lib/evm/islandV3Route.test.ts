@@ -39,7 +39,7 @@ describe('v3MidOut', () => {
 describe('swapTokensFor', () => {
   it('lists the island coins on the Base swap, and only there (the pool forms keep the default list)', () => {
     const swap = swapTokensFor(8453).map((t) => t.symbol);
-    expect(swap).toEqual(expect.arrayContaining(['ETH', 'WETH', 'USDC', 'BNKR', 'DRB', 'QR', 'JBM', '$mfer', 'TOWELI', 'RIZZ']));
+    expect(swap).toEqual(expect.arrayContaining(['ETH', 'WETH', 'USDC', 'BNKR', 'DRB', 'JBM', '$mfer', 'TOWELI', 'RIZZ']));
     expect(defaultTokensFor(8453).map((t) => t.symbol)).toEqual(['ETH', 'WETH', 'USDC']);
     expect(swapTokensFor(1)).toBe(defaultTokensFor(1));
   });

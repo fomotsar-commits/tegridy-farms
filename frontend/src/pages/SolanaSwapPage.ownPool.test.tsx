@@ -188,6 +188,17 @@ vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => wallet,
 }));
 
+// Since 2026-11-15 a wallet that can sign alone only signs Jupiter's swap and the page sends
+// it (lib/solana/swap/walletSwapSend.ts). web3 cannot serialize a transaction under jsdom, so
+// here Jupiter's swap goes through the wallet's own send, as before: what these tests pin is
+// WHEN the wallet is asked and what holds it, the same on either path. The page's send of
+// signed bytes is pinned in SolanaSwapPage.signThenSend.test.tsx and walletSwapSend.test.ts.
+vi.mock('../lib/solana/swap/walletSwapSend', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/solana/swap/walletSwapSend')>();
+  const viaWallet: typeof real.sendWalletSwap = (d, tx, a) => real.sendWalletSwap({ ...d, sign: undefined }, tx, a);
+  return { ...real, sendWalletSwap: viaWallet };
+});
+
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';

@@ -1,12 +1,10 @@
-import { VersionedTransaction, type Connection } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
 import { fromBaseUnits, NoRouteError, quoteHasPlatformFee, type JupiterQuote, type PriorityLevel } from '../../../lib/jupiter';
-import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../../../lib/solana/blockhashWindow';
-import { pollConfirm } from '../../../lib/solana/confirm';
+import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
 import { NOT_TEST_RUN_COPY, prepareJupiterSwap, refusalWhy, refusedSaid, type FeeRetryDeps } from '../../../lib/solana/swap/jupiterFeeRetry';
-import { jupiterLastValidAtMost } from '../../../lib/solana/swap/jupiterNote';
 import { OWN_ROUTE_COPY } from '../../../lib/solana/swap/ownPoolRoute';
-import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, lostAnswerCopy, nothingSentCopy } from '../../../lib/solana/swap/walletCopy';
-import { readSendThrow } from '../../../lib/solana/walletThrow';
+import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, nothingSentCopy } from '../../../lib/solana/swap/walletCopy';
+import { sendWalletSwap, type WalletSwapDeps } from '../../../lib/solana/swap/walletSwapSend';
 import { DEFAULT_SLIPPAGE_BPS, fractionToBps } from '../curve/uiFormat';
 
 /**
@@ -31,9 +29,11 @@ export interface JupiterLegDeps extends FeeRetryDeps {
   /** Is this note still there? A late read only completes a note that is, never brings back a released one. */
   stillHeld(note: { signature: string | null; sentAt: number }): boolean;
   release(signature: string): void;
-  /** The wallet signs and sends. */
+  /** The wallet signs and nothing leaves the page; this page sends. Absent: the wallet cannot sign alone. */
+  sign?(tx: VersionedTransaction): Promise<VersionedTransaction>;
+  /** The wallet signs and sends: only for a wallet that cannot sign alone. */
   send(tx: VersionedTransaction): Promise<string>;
-  rpc: Pick<Connection, 'getBlockHeight' | 'getSignatureStatuses'> & Partial<Pick<Connection, 'isBlockhashValid'>>;
+  rpc: WalletSwapDeps['rpc'];
   confirm?(signature: string): Promise<'confirmed' | 'reverted' | 'unknown'>;
 }
 
@@ -133,37 +133,26 @@ export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Prom
   if (d.holdsNow()) return { kind: 'not-sent', title: 'Not sent', message: HELD_NOT_SENT };
 
   const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(prepared.swapTransaction), (c) => c.charCodeAt(0)));
-  // Read after Jupiter built it, so its blockhash is older than this height (jupiterNote.ts).
-  const lastValid: { at: number | null } = { at: null };
-  const heightRead = jupiterLastValidAtMost(() => d.rpc.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
-  const proof: { bh: NoteBlockhash | null } = { bh: null };
-  const bhRead = blockhashSeen(d.rpc, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
-  const sentAt = Date.now();
-  const note = (signature: string | null) => {
-    const write = () => d.hold({ signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt });
-    write();
-    const had = { at: lastValid.at, bh: proof.bh };
-    // A read that lands after the note: the note learns when the swap can no longer land.
-    void Promise.all([heightRead, bhRead]).then(() => {
-      const learned = (signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null);
-      if (learned && d.stillHeld({ signature, sentAt })) write();
-    });
-  };
-  let signature: string;
-  try {
-    signature = await d.send(tx);
-  } catch (e) {
-    const t = readSendThrow(e);
-    if (t.kind !== 'unsure') return { kind: 'not-sent', title: 'Not sent', message: t.message };
-    // It may be out with no signature to look up: held until its blockhash can no longer land (D1).
-    note(null);
-    return { kind: 'lost', message: lostAnswerCopy(t.reason, `it sent ${a.words}`) };
-  }
-  note(signature);
-  const outcome = d.confirm ? await d.confirm(signature) : (await pollConfirm(d.rpc, signature, SWAP_CONFIRM_TIMEOUT_MS)).outcome;
-  // Landed or refused: the chain answered. Unread: the note stays and holds.
-  if (outcome !== 'unknown') d.release(signature);
-  return { kind: 'sent', signature, outcome, quote: sent, feeWaived: prepared.siteFeeWaived };
+  // The swap page's send, step for step: the wallet signs, the page sends and watches, and
+  // the note is written on the signature before the first byte leaves (walletSwapSend.ts).
+  const end = await sendWalletSwap(
+    {
+      rpc: d.rpc,
+      owner: new PublicKey(a.user),
+      sign: d.sign,
+      signAndSend: d.send,
+      holdsNow: d.holdsNow,
+      hold: d.hold,
+      stillHeld: d.stillHeld,
+      release: d.release,
+      confirm: d.confirm,
+    },
+    tx,
+    { words: a.words, slippageBps: a.slippageBps, timeoutMs: SWAP_CONFIRM_TIMEOUT_MS },
+  );
+  if (end.kind === 'not-sent') return { kind: 'not-sent', title: 'Not sent', message: end.message };
+  if (end.kind === 'lost') return { kind: 'lost', message: end.message };
+  return { kind: 'sent', signature: end.signature, outcome: end.outcome, quote: sent, feeWaived: prepared.siteFeeWaived };
 }
 
 /**
