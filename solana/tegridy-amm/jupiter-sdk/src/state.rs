@@ -211,6 +211,12 @@ pub fn token_account_amount(data: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(data.get(64..72)?.try_into().ok()?))
 }
 
+/// spl-token (and Token-2022) account: its state byte at 108 is 1 (initialized, not frozen).
+/// The token program moves no tokens out of or into a frozen account.
+pub fn token_account_usable(data: &[u8]) -> bool {
+    data.get(108) == Some(&1)
+}
+
 /// spl-token (and Token-2022) account: the mint it holds, at its first 32 bytes.
 pub fn token_account_mint(data: &[u8]) -> Option<Pubkey> {
     Pubkey::try_from(data.get(..32)?).ok()

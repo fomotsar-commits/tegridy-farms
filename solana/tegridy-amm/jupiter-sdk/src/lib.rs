@@ -30,6 +30,7 @@ use std::sync::atomic::Ordering;
 use crate::math::{FEE_RATE_DENOMINATOR_VALUE, Refusal, swap_exact_in};
 use crate::state::{
     AmmConfig, PoolState, has_transfer_fee, token_account_amount, token_account_mint,
+    token_account_usable,
 };
 
 /// The pool program, on mainnet since 2026-09-29.
@@ -88,7 +89,7 @@ impl MemeticsAmm {
     }
 
     /// One of the pool's token accounts: owned by the token program the pool names, holding
-    /// the mint the pool names. Returns its balance.
+    /// the mint the pool names, not frozen. Returns its balance.
     fn vault_amount(
         provider: &impl AccountProvider,
         vault: &Pubkey,
@@ -98,6 +99,12 @@ impl MemeticsAmm {
         let account = provider.try_get(vault)?;
         if account.owner() != token_program || token_account_mint(account.data()) != Some(*mint) {
             return Err(format!("pool token account {vault} is not the pool's").into());
+        }
+        if !token_account_usable(account.data()) {
+            return Err(format!(
+                "pool token account {vault} is frozen or not initialized: the program cannot move its tokens"
+            )
+            .into());
         }
         token_account_amount(account.data())
             .ok_or_else(|| format!("pool token account {vault} did not decode").into())
