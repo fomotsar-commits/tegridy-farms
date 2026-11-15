@@ -64,6 +64,7 @@ function data(over: Partial<LaunchData> = {}): LaunchData {
     pool: null,
     // Who the launch's own create transaction paid the reserve to.
     reserveRecipient: KEY(4),
+    staging: { kind: 'ok', value: false },
     ...over,
   };
 }
@@ -315,6 +316,25 @@ describe('the launch page', () => {
     renderView();
     expect(screen.getByTestId('curve-trade-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('graduation-panel')).not.toBeInTheDocument();
+  });
+
+  // LCH-01 (interim): a coin whose staging account was frozen before launch can never graduate.
+  it('a coin that can never move to its pool offers no Buy and says why, and still sells; an unchecked one offers no Buy either', () => {
+    renderView({ data: data({ staging: { kind: 'ok', value: true } }) });
+    expect(screen.getByTestId('curve-trade-panel')).toHaveTextContent(
+      "No buying here: the launcher's account for this coin was frozen before launch, so it can never move to its pool. You can still sell.",
+    );
+    expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'sell' }));
+    expect(screen.getByLabelText('Sell (tokens)')).not.toBeDisabled();
+    cleanup();
+    renderView({ data: data({ staging: { kind: 'unreadable', detail: 'HTTP 429' } }) });
+    expect(screen.getByTestId('curve-trade-panel')).toHaveTextContent('No buying until this page can check that this coin can move to its pool.');
+    expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
+    cleanup();
+    // Read, and not frozen: Buy as before.
+    renderView();
+    expect(screen.getByLabelText('Spend at most (SOL)')).not.toBeDisabled();
   });
 
   it('paused: selling stays available on the page', () => {

@@ -183,6 +183,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     listLaunchesByCreator: vi.fn(async () => ({ kind: 'ok' as const, value: { items: [], before: null, scanned: 20, hidden: 0 } })),
     readLaunchOrigin: vi.fn(async () => ({ kind: 'absent' as const })),
     readCreatorHolding: vi.fn(async () => ({ kind: 'ok' as const, value: { amount: 0n, accountExists: false } })),
+    readStagingFrozen: vi.fn(async () => ({ kind: 'ok' as const, value: false })),
     readLaunchPool: vi.fn(async () => ({ kind: 'not-graduated' as const })),
     meta: {
       LIMITS: validate.LIMITS,

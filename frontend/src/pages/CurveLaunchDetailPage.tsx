@@ -86,6 +86,8 @@ export interface LaunchData {
    * `null` = not read. Never today's config: the fee recipient can be changed later.
    */
   reserveRecipient?: PublicKey | null;
+  /** Whether the account graduation pays the coin into was frozen before launch. `null` = not read (no curve was read). */
+  staging: Read<boolean> | null;
 }
 
 export interface SolanaLaunchViewProps {
@@ -129,6 +131,10 @@ const backLink = (
     Back to all launches
   </Link>
 );
+
+/** Said in place of Buy while the account graduation pays this coin into is frozen, or unchecked (LCH-01). */
+const STAGING_FROZEN = "No buying here: the launcher's account for this coin was frozen before launch, so it can never move to its pool. You can still sell.";
+const STAGING_UNREAD = 'No buying until this page can check that this coin can move to its pool. Reload the page to try again.';
 
 /** Presentational: every state of the page can be driven in a test without a chain or a wallet. */
 export function SolanaLaunchView({
@@ -179,6 +185,9 @@ export function SolanaLaunchView({
       : null;
   const phase = launch?.phase.kind;
   const tradable = phase === 'trading' || phase === 'at-target' || phase === 'awaiting-migration';
+  // Buy only once a read says the coin's staging account is not frozen.
+  const staging = data?.staging ?? null;
+  const buyRefusal = staging === null ? null : staging.kind !== 'ok' ? STAGING_UNREAD : staging.value ? STAGING_FROZEN : null;
   // A trade this browser sent may still land: no form until the chain has answered.
   const tradeHeld = !!pendingTrade && pendingTrade.notes.length > 0;
   const onSent = pendingTrade?.sent;
@@ -345,6 +354,7 @@ export function SolanaLaunchView({
           onSettled={onSettled}
           onSent={onSent}
           walletHolding={walletHolding}
+          buyRefusal={buyRefusal}
         />
       )}
       {open && launch && curve && actions && !tradeHeld && (
@@ -402,7 +412,7 @@ async function loadLaunchData(
     ),
   ]);
   const curve = launch.curve;
-  const [json, origin, holding, pool] = await Promise.all([
+  const [json, origin, holding, pool, staging] = await Promise.all([
     metadata.kind === 'ok'
       ? api.meta
           .readLaunchMetadataJson(metadata.value.uri, mintStr)
@@ -425,11 +435,14 @@ async function loadLaunchData(
           .readLaunchPool(curveRpc, cfg, mint, curve.curve, gate.global)
           .catch((e: unknown): LaunchPoolRead => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
+    curve
+      ? api.readStagingFrozen(curveRpc, cfg, mint).catch((e: unknown): Read<boolean> => ({ kind: 'unreadable', detail: clipDetail(e) }))
+      : Promise.resolve(null),
   ]);
   const makerBuy = origin && curve ? makerBuyFromOrigin(origin, curve.curve.creator) : null;
   const plant = origin ? plantFromOrigin(origin) : null;
   const reserveRecipient = origin?.kind === 'ok' ? origin.value.reserveRecipient : null;
-  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, makerBuy, plant, holding, pool, reserveRecipient };
+  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, makerBuy, plant, holding, pool, reserveRecipient, staging };
 }
 
 /** How often a page waiting for its own just-sent launch looks again. */
@@ -477,6 +490,7 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
           plant: null,
           holding: null,
           pool: null,
+          staging: null,
         });
       });
     return () => {

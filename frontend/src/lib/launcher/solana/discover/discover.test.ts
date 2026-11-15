@@ -17,6 +17,7 @@ import {
   WSOL_MINT,
   curvePda,
   curveVaultPda,
+  migrationAuthorityPda,
   poolStatePda,
 } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -45,6 +46,7 @@ import {
   WORKSHOP_BAYLA,
   cfgLocal,
   encodeCurve,
+  encodeTokenAccountWith,
   freshCurve,
   globalValue,
   rent,
@@ -63,6 +65,7 @@ import {
   parseLaunchTransaction,
   readCreatorHolding,
   readLaunchOrigin,
+  readStagingFrozen,
   shareBps,
 } from './list';
 import { readLaunchPool } from './pool';
@@ -664,6 +667,43 @@ describe('listRecentLaunches', () => {
     f.index(me.publicKey, [{ sig: mine.sig, tx: launchTx(mine) }, { sig: theirs.sig, tx: launchTx(theirs) }]);
     const r = await listLaunchesByCreator(f.rpc, cfgLocal, me.publicKey);
     expect(r.kind === 'ok' && r.value.items.map((i) => i.mint.toBase58())).toEqual([mine.mint.publicKey.toBase58()]);
+  });
+});
+
+// LCH-01 (interim): a creator who froze the account graduation pays into, before launching,
+// made a coin that can never graduate. Nobody can thaw it, so one read is final.
+describe('a launch whose staging account was frozen before launch', () => {
+  const migAuth = migrationAuthorityPda(LAUNCH);
+  const stagingOf = (mint: PublicKey) => associatedTokenAddress(mint, migAuth);
+  const staging = (mint: PublicKey, state: 1 | 2) => ({ data: encodeTokenAccountWith(mint, migAuth, 0n, { state }), owner: TOKEN_PROGRAM_ID, lamports: rent(165) });
+
+  it('is never listed, and is counted; one not frozen is listed; the read rides in the curves call', async () => {
+    const f = new FakeJsonRpc();
+    const trap: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };
+    const plain: Launch = { sig: sig(2), creator: Keypair.generate(), mint: Keypair.generate() };
+    f.index(INDEX, [{ sig: trap.sig, tx: launchTx(trap) }, { sig: plain.sig, tx: launchTx(plain) }]);
+    for (const l of [trap, plain]) f.curve(l.mint.publicKey, l.creator.publicKey);
+    f.accounts.set(stagingOf(trap.mint.publicKey).toBase58(), staging(trap.mint.publicKey, 2));
+    f.accounts.set(stagingOf(plain.mint.publicKey).toBase58(), staging(plain.mint.publicKey, 1));
+    const r = await listRecentLaunches(f.rpc, cfgLocal);
+    expect(r.kind === 'ok' && r.value.items.map((i) => i.mint.toBase58())).toEqual([plain.mint.publicKey.toBase58()]);
+    expect(r.kind === 'ok' && r.value.hidden).toBe(1);
+    expect(f.calls.filter((c) => c === 'getMultipleAccounts')).toHaveLength(2);
+  });
+
+  it('one read per coin: frozen, not frozen and not made yet are answers; a failed read is "could not read"', async () => {
+    const chain = new FakeChain();
+    const mint = Keypair.generate().publicKey;
+    expect(await readStagingFrozen(chain, cfgLocal, mint)).toEqual({ kind: 'ok', value: false });
+    chain.tokenAccount(stagingOf(mint), mint, migAuth, 0n);
+    expect(await readStagingFrozen(chain, cfgLocal, mint)).toEqual({ kind: 'ok', value: false });
+    chain.tokenAccount(stagingOf(mint), mint, migAuth, 0n, { state: 2 });
+    expect(await readStagingFrozen(chain, cfgLocal, mint)).toEqual({ kind: 'ok', value: true });
+    expect(chain.calls.filter((c) => c === 'getAccountInfo')).toHaveLength(3);
+    chain.getAccountInfo = async () => {
+      throw new Error('HTTP 429');
+    };
+    expect(await readStagingFrozen(chain, cfgLocal, mint)).toEqual({ kind: 'unreadable', detail: 'HTTP 429' });
   });
 });
 
