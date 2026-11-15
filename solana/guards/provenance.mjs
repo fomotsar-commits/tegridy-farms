@@ -27,8 +27,9 @@ export const PINNED = {
 };
 
 export const COPIES = {
-  // The live mainnet program CAMMCzo5... was last deployed at slot 451,479,902 (2026-09-29
-  // 00:27 UTC) and carries text that first appears in this commit's tree.
+  // The mainnet program CAMMCzo5... as deployed at slot 451,479,902 (2026-09-29 00:27 UTC) carried
+  // text that first appears in this commit's tree. Raydium deployed it again at slot 459,932,378
+  // (2026-10-22 06:24 UTC), after this pin; what that deploy holds cannot be read from outside.
   'tegridy-clmm': {
     ours: 'solana/tegridy-clmm',
     repo: 'https://github.com/raydium-io/raydium-clmm',
