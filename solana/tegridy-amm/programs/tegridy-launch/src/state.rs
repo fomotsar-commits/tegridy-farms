@@ -41,6 +41,10 @@ pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 /// frozen, at the address beforehand.
 pub const STAGING_SEED: &[u8] = b"staging";
 
+/// The most a funded curve may be short of `target + reserve` and still graduate, the
+/// caller paying the gap: a dust sell takes a few lamports off a full curve.
+pub const MAX_GRADUATION_GAP_LAMPORTS: u64 = 10_000;
+
 /// cp-swap's `PERMISSION_SEED`, restated so the derivation is visible at the call
 /// site rather than reached for through the dependency. Asserted equal to
 /// `raydium_cp_swap::states::PERMISSION_SEED` in the tests, so a fork bump that

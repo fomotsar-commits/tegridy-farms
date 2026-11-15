@@ -349,17 +349,13 @@ PRICE is only about ±0.7% on the TARGET. Both test suites now use exact continu
 values, and the rehearsal is finally economically representative rather than merely
 fast.
 
-### 11. A dust `sell` can stall migration — accepted
+### 11. A dust `sell` no longer stalls migration (LCH-06, 2026-11-15)
 
-On a fully funded curve the lamport budget check is satisfied at exact equality, so a
-1-lamport `sell` front-run makes `migrate_to_amm` revert with
-`MigrationReserveTooLow`/`NotReadyToGraduate` until someone buys again. `sell` is
-unpausable by design (a halt must never trap holders), so this cannot be switched off.
-
-Accepted, not fixed: it is a stall, not a brick. The griefer pays a trade fee every
-time, any buy restores the balance, and no funds are at risk. Worth knowing about
-because it makes migration a retry-until-it-lands operation for keepers rather than a
-single shot.
+A sell of a few lamports takes a full curve just under `target + reserve`, and `sell` is
+unpausable by design (a halt must never trap holders). `migrate_to_amm` now graduates a
+curve short by at most `MAX_GRADUATION_GAP_LAMPORTS` (10,000), the caller paying the gap,
+so a graduation sent to a full curve lands even after such a sell. A curve short by more
+is a real sale, not dust: it waits for a buy, and graduation answers `NotReadyToGraduate`.
 
 ## Still not proven, even with CI green
 

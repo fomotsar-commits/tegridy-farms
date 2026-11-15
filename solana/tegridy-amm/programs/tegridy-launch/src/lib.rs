@@ -1101,32 +1101,17 @@ pub mod tegridy_launch {
         let curve = &ctx.accounts.curve;
         require!(!curve.complete, LaunchError::AlreadyComplete);
 
-        // Gate on the ACCOUNTING quantity, because that is what the debit at the end
-        // of this instruction uses.
-        //
-        // This used to read `real_sol_reserves >= graduation_target_lamports`, which
-        // omitted the reserve — while the `spendable` check below measured the PDA's
-        // actual lamports, which anyone can inflate by sending it a donation. One
-        // lamport into the curve address turned a genuinely under-raised launch into
-        // a migration that ran the whole sequence — five account creations, the WSOL
-        // wrap, cp-swap's pool build, the LP burn, ~250k CU — and then underflowed the
-        // subtraction at the very end and returned `Overflow` (6000). Atomic, so
-        // nothing was lost; but a keeper reading 6000 on the highest-stakes
-        // instruction in the system has no way to learn the curve was simply short.
-        //
-        // Checking the sum here makes that subtraction unreachable by construction and
-        // gives one honest error code. It costs nothing: `buy` caps the raise at
-        // exactly `target + reserve`, so no legitimately funded curve is affected.
-        // The `spendable` check stays as the independent rent-survival guard it was
-        // always meant to be, rather than doubling as the funding test.
+        // Gate on the accounting quantity, which a donation to the curve cannot move. A
+        // dust sell takes a few lamports off a full curve, and a caller cannot know which
+        // state its transaction will meet: the caller pays such a gap, up to
+        // `MAX_GRADUATION_GAP_LAMPORTS`. A curve short by more is not ready (LCH-06).
         let move_lamports = curve
             .graduation_target_lamports
             .checked_add(curve.migration_reserve_lamports)
             .ok_or(LaunchError::Overflow)?;
-        require!(
-            curve.real_sol_reserves >= move_lamports,
-            LaunchError::NotReadyToGraduate
-        );
+        let gap = move_lamports.saturating_sub(curve.real_sol_reserves);
+        require!(gap <= MAX_GRADUATION_GAP_LAMPORTS, LaunchError::NotReadyToGraduate);
+        let from_curve = move_lamports - gap;
 
         let deposit_lamports = curve.graduation_target_lamports;
         // Every unsold token the curve could sell — and ONLY those. The platform
@@ -1141,18 +1126,16 @@ pub mod tegridy_launch {
         // `collect_creator_fee` will ever accept — see the CPI comment below.
         let pool_creator_key = curve.creator;
 
-        // The curve PDA must retain enough lamports beyond the deposit to cover
-        // cp-swap's create_pool_fee (charged as a NATIVE SOL transfer from the payer,
-        // in `initialize_with_permission`) plus rent on five accounts it creates.
-        // Checked BEFORE anything moves: discovering the shortfall mid-migration
-        // would leave the curve half-graduated.
+        // The curve must hold what is about to leave it, above its own rent floor.
+        // Checked before anything moves: finding it short mid-migration would leave the
+        // curve half-graduated.
         let curve_ai = ctx.accounts.curve.to_account_info();
         let rent_floor = Rent::get()?.minimum_balance(curve_ai.data_len());
         let spendable = curve_ai
             .lamports()
             .checked_sub(rent_floor)
             .ok_or(LaunchError::InsufficientRentExemptBalance)?;
-        require!(spendable >= move_lamports, LaunchError::MigrationReserveTooLow);
+        require!(spendable >= from_curve, LaunchError::MigrationReserveTooLow);
 
         // ── The cp-swap permission account ───────────────────────────────────
         //
@@ -1263,16 +1246,18 @@ pub mod tegridy_launch {
         ];
         let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
 
-        // The caller pays whatever cp-swap will charge the authority beyond the reserve
-        // this curve saved: rent for the accounts it opens plus the tier's opening fee,
-        // read now. A fee raised after launch then costs the caller the difference
-        // instead of stranding every funded curve (LCH-05).
+        // The caller pays the curve's dust gap, and whatever cp-swap will charge the
+        // authority beyond the reserve this curve saved: rent for the accounts it opens
+        // plus the tier's opening fee, read now. A fee raised after launch then costs the
+        // caller the difference instead of stranding every funded curve (LCH-05).
         let charge = cp_swap_rent(&Rent::get()?)
             .checked_add(tier_open_fee(&ctx.accounts.amm_config, &g.cp_swap_program)?)
             .ok_or(LaunchError::Overflow)?;
-        let shortfall = charge
-            .saturating_sub(auth_ai.lamports().saturating_add(curve.migration_reserve_lamports));
-        if shortfall > 0 {
+        let topup = charge
+            .saturating_sub(auth_ai.lamports().saturating_add(curve.migration_reserve_lamports))
+            .checked_add(gap)
+            .ok_or(LaunchError::Overflow)?;
+        if topup > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -1281,7 +1266,7 @@ pub mod tegridy_launch {
                         to: auth_ai.clone(),
                     },
                 ),
-                shortfall,
+                topup,
             )?;
         }
 
@@ -1291,11 +1276,11 @@ pub mod tegridy_launch {
         // runtime until reconciled — see the block above.
         **curve_ai.try_borrow_mut_lamports()? = curve_ai
             .lamports()
-            .checked_sub(move_lamports)
+            .checked_sub(from_curve)
             .ok_or(LaunchError::Overflow)?;
         **auth_ai.try_borrow_mut_lamports()? = auth_ai
             .lamports()
-            .checked_add(move_lamports)
+            .checked_add(from_curve)
             .ok_or(LaunchError::Overflow)?;
 
         // ── RECONCILIATION BARRIER — LOAD-BEARING, NOT DEAD CODE ─────────────
@@ -1593,19 +1578,14 @@ pub mod tegridy_launch {
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
         let curve = &mut ctx.accounts.curve;
-        // Subtract EVERYTHING that left, not just the deposit. `move_lamports` is
-        // deposit + reserve and all of it went to the migration authority, so
-        // subtracting only the deposit left a migrated curve reporting a balance of
-        // exactly `migration_reserve_lamports` that it does not hold. Harmless
-        // on-chain — nothing reads it once `complete` is set — but every indexer,
-        // Fact Sheet and explorer reading curve state would have shown a number that
-        // is simply false.
+        // Subtract everything that left the curve, not just the deposit, so a graduated
+        // curve reports the zero real SOL it holds to every indexer and explorer.
         curve.real_sol_reserves = curve
             .real_sol_reserves
-            .checked_sub(move_lamports)
+            .checked_sub(from_curve)
             .ok_or(LaunchError::Overflow)?;
-        // Zero sellable tokens remain. The vault holds only any swept dust; the
-        // platform reserve went to the treasury at `create_launch`.
+        // Zero sellable tokens remain: the pool took them all, and the platform reserve
+        // went to the treasury at `create_launch`.
         curve.real_token_reserves = 0;
         curve.complete = true;
         curve.pool = pool;

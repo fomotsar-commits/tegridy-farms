@@ -1117,4 +1117,56 @@ describe("tegridy-launch full migration rehearsal", () => {
       await setTierFee(CREATE_POOL_FEE.toNumber());
     }
   });
+
+  // ─── LCH-06: a dust sell after the curve is full ────────────────────────────
+  //
+  // A sell of a few lamports takes a full curve just under target + reserve, and a buy
+  // cannot share a transaction with a graduation that expects the curve full. The
+  // caller pays such a gap, up to a small limit; a real sale still makes it wait.
+  it("graduates a curve a dust sell left 2 lamports short, the caller paying them", async () => {
+    const mint = await fullLaunch();
+    const curveKey = pda([CURVE_SEED, mint.toBuffer()], launch.programId);
+    const realSol = async (): Promise<string> =>
+      ((await (launch.account as any).bondingCurve.fetch(curveKey)) as any).realSolReserves.toString();
+    const full = GRAD_TARGET.add(MIGRATION_RESERVE);
+    assert.equal(await realSol(), full.toString(), "precondition: full");
+    // The fewest tokens whose sale takes `gross` lamports off the curve, at its price now.
+    const sellGross = async (gross: bigint) => {
+      const c: any = await (launch.account as any).bondingCurve.fetch(curveKey);
+      const S = BigInt(c.virtualSolReserves.add(c.realSolReserves).toString());
+      const T = BigInt(c.virtualTokenReserves.add(c.realTokenReserves).toString());
+      const tokens = (gross * T + (S - gross) - 1n) / (S - gross);
+      await launch.methods.sell(new BN(tokens.toString()), new BN(0)).accountsPartial(tradeAccountsFor(mint)).rpc();
+    };
+    const caller = await fundedKeypair(1);
+
+    // A real sale (20,000 lamports, over the limit): not ready, as before.
+    await sellGross(20_000n);
+    assert.equal(await realSol(), full.subn(20_000).toString());
+    let refused = "";
+    try {
+      await migrate(mint, caller);
+    } catch (e) {
+      refused = String(e);
+    }
+    assert.include(refused, "NotReadyToGraduate");
+    await launch.methods.buy(new BN(LAMPORTS_PER_SOL), new BN(0)).accountsPartial(tradeAccountsFor(mint)).rpc();
+    assert.equal(await realSol(), full.toString(), "a capped buy refills the curve exactly");
+
+    // Dust: 2 lamports.
+    await sellGross(2n);
+    assert.equal(await realSol(), full.subn(2).toString(), "precondition: 2 lamports short");
+    const callerBefore = await lamportsOf(caller.publicKey);
+    const treasuryBefore = await lamportsOf(cfgFeeRecipient);
+    await migrate(mint, caller);
+    assert.equal(callerBefore - (await lamportsOf(caller.publicKey)), 2, "the caller pays the 2 lamports");
+    assert.equal(
+      (await lamportsOf(cfgFeeRecipient)) - treasuryBefore,
+      MIGRATION_RESERVE.toNumber() - (await poolRent(mint)) - CREATE_POOL_FEE.toNumber(),
+      "the venue's share is what it would be on a full curve"
+    );
+    const c: any = await (launch.account as any).bondingCurve.fetch(curveKey);
+    assert.isTrue(c.complete);
+    assert.equal(c.realSolReserves.toString(), "0");
+  });
 });
