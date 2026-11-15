@@ -123,6 +123,12 @@ export const COPIES = {
       manifest: { file: 'Cargo.toml', sha256: '507aabe0bca91903c94d71f7dc259919b3f02f1eed82eaa664c2f0c0ad10e1a2' },
       lock: { file: 'Cargo.lock', root: 'raydium-cp-swap', sha256: '2fafdb6b101e39ab4f42dbe52c6f62c648da217b91e453e3473c71f945f189c0' },
       programs: ['bayla-ladder', 'cp-swap', 'tegridy-launch'],
+      // Our own programs beside it, with no upstream: each one's programs/<name>/Cargo.toml
+      // whole (dependencies, features, source path, tool version) and the crates it builds with.
+      own: {
+        'bayla-ladder': { manifest: 'c1b7caddd04dbd2b1ff41673b92195a0c5040bb1bcc850c362bad74cc578cb90', lock: 'f9dbb731ae63c38b87f505d814f2acaf41f801b85eb157fd59dbe9d640c5d055' },
+        'tegridy-launch': { manifest: 'eb73e715907c8eca2c71f29b7cdb9b0316177e65db1ccecf5bd41a71d94e6a1e', lock: 'ef3e236fa98ba53be00a5d22301b5ac396c245d8a3193c941f5995abf87d6d3e' },
+      },
     },
   },
 };
@@ -132,6 +138,7 @@ export const COPIES = {
 export const REPIN_MAY_TOUCH = [
   'solana/guards/',
   ...Object.values(COPIES).map((c) => `${c.ours}/`),
+  ...Object.keys(COPIES['cp-swap'].workspace.own).map((p) => `solana/tegridy-amm/programs/${p}/`),
   'solana/tegridy-amm/Cargo.toml',
   'solana/tegridy-amm/Cargo.lock',
   'solana/tegridy-amm/TEGRIDY_FORK.md',
@@ -300,14 +307,26 @@ export function checkWorkspace(w, root) {
   const got = manifest === null ? 'nothing' : sha256(manifest);
   if (got !== w.manifest.sha256) problems.push(`${w.dir}/${w.manifest.file} hashes to ${got}, not the pinned ${w.manifest.sha256}: it sets how the program builds (patch tables, release profile, members), so a change needs a re-pin here`);
   let crates = [];
+  const lock = read(w.lock.file);
   try {
-    const lock = read(w.lock.file);
     if (lock === null) throw new Error('is missing');
     crates = lockClosure(lock, w.lock.root);
     const h = sha256(crates.join('\n'));
     if (h !== w.lock.sha256) problems.push(`the ${crates.length} crates ${w.lock.root} builds with in ${w.dir}/${w.lock.file} hash to ${h}, not the pinned ${w.lock.sha256}: re-pin only after reading which crate changed`);
   } catch (e) {
     problems.push(`${w.dir}/${w.lock.file} ${e.message}`);
+  }
+  for (const [name, pin] of Object.entries(w.own ?? {})) {
+    const toml = read(`programs/${name}/Cargo.toml`);
+    const m = toml === null ? 'nothing' : sha256(toml);
+    if (m !== pin.manifest) problems.push(`${w.dir}/programs/${name}/Cargo.toml hashes to ${m}, not the pinned ${pin.manifest}: it sets what ${name} builds from (dependencies, features, source path, tool version), so a change needs a re-pin here`);
+    if (lock === null) continue;
+    try {
+      const h = sha256(lockClosure(lock, name).join('\n'));
+      if (h !== pin.lock) problems.push(`the crates ${name} builds with in ${w.dir}/${w.lock.file} hash to ${h}, not the pinned ${pin.lock}: re-pin only after reading which crate changed`);
+    } catch (e) {
+      problems.push(`${w.dir}/${w.lock.file} ${e.message}`);
+    }
   }
   const progs = existsSync(join(dir, 'programs')) ? readdirSync(join(dir, 'programs')).sort() : [];
   if (progs.join('|') !== w.programs.join('|')) problems.push(`${w.dir}/programs holds ${progs.join(', ')}, not exactly ${w.programs.join(', ')}: each folder there joins the workspace`);
@@ -516,7 +535,8 @@ function main() {
     for (const p of r.problems) console.log(`::error::${name}: ${p}`);
     if (r.problems.length) fail = true;
     else {
-      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact` : '';
+      const own = Object.keys(c.workspace?.own ?? {}).join(' and ');
+      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact; ${own}: Cargo.toml and crates pinned` : '';
       const how = c.delta ? 'plus the reviewed patch' : 'exactly';
       console.log(`${name} = ${c.repo} @ ${c.commit.slice(0, 8)} ${how} (${r.compared} upstream files compared, ${r.patched ?? 0} patched, ${r.changed} changed lines${lock})`);
     }
