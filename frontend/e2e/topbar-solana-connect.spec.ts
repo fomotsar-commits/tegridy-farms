@@ -5,6 +5,7 @@ import {
   CONNECT_ONLY_WALLET_NAME,
   installConnectOnlySolanaWallet,
 } from './fixtures/solanaConnectOnlyWallet';
+import { resizeViewport } from './fixtures/pageWidth';
 
 // ON A SOLANA PAGE THE TOP BAR'S CONNECT CONNECTS SOLANA (owner, 2026-10-02:
 // "trust wallet still seems to be having issues connecting to solana", with
@@ -144,7 +145,7 @@ test.describe('connected from the top bar', () => {
       const sweep = async (label: string) => {
         const failures: string[] = [];
         for (const width of [360, 375, 390, 399, 400, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1023, 1024, 1440]) {
-          await page.setViewportSize({ width, height: 900 });
+          await resizeViewport(page, { width, height: 900 });
           await expect(chip).toBeVisible();
           const box = await chip.boundingBox();
           if (!box || box.x < 0 || box.x + box.width > width) {

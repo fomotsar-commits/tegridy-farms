@@ -11,8 +11,8 @@
 // a zero: a surface shows only the parts that came back.
 
 /**
- * The venue's twelve rooms, each with the island's place for it as /api/torches/places
- * serves it (read 2026-10-23): six by slug and six by chain and address. `key` is the
+ * The venue's eleven rooms, each with the island's place for it as /api/torches/places
+ * serves it (read 2026-10-23; the QR room left 2026-11-14): six by slug and five by chain and address. `key` is the
  * name the island gave each room in answer eighteen §3, which its bungalow pages already
  * answer at memetics.wtf/b/<key>. When the island serves `key` on its places, match on
  * it and drop `place`. A room not listed here, or a place the island did not serve,
@@ -22,7 +22,6 @@ export const ISLAND_ROOMS: Readonly<Record<string, { key: string; place: string 
   toweli: { key: 'toweli', place: 'toweli' },
   bayla: { key: 'bayla', place: 'solana-7hmvkpxmvagxoptaepx4jbzzvhwgldfj6c1y42qxpump' },
   pepe: { key: 'pepe', place: 'ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933' },
-  qr: { key: 'qr', place: 'base-0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf' },
   mfer: { key: 'mfer', place: 'base-0xe3086852a4b125803c815a158249ae468a3254ca' },
   bnkr: { key: 'bnkr', place: 'base-0x22af33fe49fd1fa80c7149773dde5890d3c76f3b' },
   drb: { key: 'drb', place: 'base-0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2' },

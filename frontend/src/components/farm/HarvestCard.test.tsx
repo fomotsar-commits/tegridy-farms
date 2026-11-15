@@ -126,6 +126,111 @@ describe('Harvest card', () => {
     expect(evm.refetch).toHaveBeenCalled();
   });
 
+  it('the figure draws each claim as a plate, and after a run shows where each one stands', async () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [claim('qr', 'base', 10n ** 18n), claim('pepe', 'ethereum', 10n ** 18n)], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    evm.switchTo.mockResolvedValue({ kind: 'ok' });
+    evm.send.mockImplementation(async (c: EvmClaim): Promise<ClaimResult> =>
+      c.chain === 'base' ? { kind: 'claimed', tx: '0xfeed' } : { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: '0xbad' });
+    show();
+    const figure = screen.getByTestId('harvest-stack');
+    const plates = () => Object.fromEntries(Array.from(figure.querySelectorAll('[data-plate]')).map((g) => [g.getAttribute('data-plate'), g.getAttribute('data-state')]));
+    expect(plates()).toEqual({ 'evm:qr': 'ready', 'evm:pepe': 'ready' });
+    // A picture: what each claim came to is said in the ledger's words.
+    expect(figure.getAttribute('aria-hidden')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Harvest all · 2 claims' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+    expect(plates()).toEqual({ 'evm:qr': 'claimed', 'evm:pepe': 'reverted' });
+  });
+
+  it('while reading, and with nothing to claim, the figure holds no plate: nothing is drawn that was not read', () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: null, batchable: ONE_BY_ONE };
+    const reading = show();
+    expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+    reading.unmount();
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    show();
+    expect(screen.getByText('Nothing to claim right now.')).toBeTruthy();
+    expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+  });
+
+  // The bar (owner, 2026-11-14: "the bar that adds them all together plus shows % and daily
+  // yield"). The pool's own page has always had it; Earn's Harvest listed each lock and no sum.
+  describe('the totals bar', () => {
+    const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
+    const earning = { key: 'ladder:P', chain: 'solana' as const, roomId: 'bayla', symbol: 'BAYLA', where: 'lock ladder', decimals: 6, principalRaw: 3_000_000_000n, perDayRaw: 4_200n, apr: '0.1%', fundedToSecs: Date.UTC(2026, 11, 11) / 1000 };
+    const withSolana = async (plan: HarvestPlan<SolanaClaim>, body: () => Promise<void>) => {
+      sol.read.mockResolvedValue(plan);
+      const owner = {};
+      act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: {} }, true));
+      try {
+        show();
+        await body();
+      } finally {
+        act(() => setSolanaSurface(owner, null));
+      }
+    };
+
+    it('adds a coin’s claims together, and states what the stake earns a day and a year beside its basis', () => withSolana(
+      { claims: [solClaim('ladder:1', send), solClaim('ladder:2', send), solClaim('ladder:3', send)], held: [], unread: [], earning: [earning] },
+      async () => {
+        const bar = await screen.findByRole('group', { name: 'BAYLA total' });
+        // Three claims of 12.5 BAYLA, by the rows' own formatter.
+        expect(within(bar).getByText('37.5')).toBeTruthy();
+        expect(within(bar).getByText('BAYLA · 3 claims')).toBeTruthy();
+        // The pool reader's own two figures, in the pool page's words.
+        expect(within(bar).getByText('0.0042')).toBeTruthy();
+        expect(within(bar).getByText('BAYLA a day')).toBeTruthy();
+        expect(within(bar).getByText('0.1%')).toBeTruthy();
+        expect(within(bar).getByText('APR')).toBeTruthy();
+        // A projection, so its basis stands with it.
+        expect(within(bar).getByText(/at today’s rate, funded to .*2026/)).toBeTruthy();
+        expect(bar.textContent).not.toMatch(/—/);
+      },
+    ));
+
+    it('never adds one coin to another, and a coin with one claim has no bar of its own', async () => {
+      evm.state = { address: '0xabc', chain: 'base', plan: { claims: [claim('qr', 'base', 1500n * 10n ** 18n)], held: [], unread: [] }, batchable: ONE_BY_ONE };
+      await withSolana({ claims: [solClaim('ladder:1', send), solClaim('ladder:2', send)], held: [], unread: [] }, async () => {
+        const bar = await screen.findByRole('group', { name: 'BAYLA total' });
+        expect(within(bar).getByText('25')).toBeTruthy();
+        expect(screen.queryByRole('group', { name: 'QR total' })).toBeNull();
+        // (The "How it works" drop-down is a group by role too, so the bars are counted by name.)
+        expect(screen.getAllByRole('group', { name: / total$/ })).toHaveLength(1);
+      });
+    });
+
+    it('with no daily figure stated the bar is the total alone: no rate, no zero, no dash', () => withSolana(
+      { claims: [solClaim('ladder:1', send), solClaim('ladder:2', send)], held: [], unread: [] },
+      async () => {
+        const bar = await screen.findByRole('group', { name: 'BAYLA total' });
+        expect(bar.textContent).toBe('BAYLA · 2 claims25BAYLA total');
+      },
+    ));
+
+    it('a stake that is earning with nothing to claim still says what it earns a day', () => withSolana(
+      { claims: [], held: [], unread: [], earning: [earning] },
+      async () => {
+        const bar = await screen.findByRole('group', { name: 'BAYLA total' });
+        expect(within(bar).getByText('0.0042')).toBeTruthy();
+        expect(within(bar).queryByText('BAYLA total')).toBeNull();
+        expect((screen.getByRole('button', { name: 'Nothing to claim' }) as HTMLButtonElement).disabled).toBe(true);
+      },
+    ));
+
+    it('after a run it adds up the claims that were sent', () => withSolana(
+      { claims: [solClaim('ladder:1', send), solClaim('ladder:2', send)], held: [], unread: [], earning: [earning] },
+      async () => {
+        fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 2 claims' }));
+        // The next read finds nothing left to claim; the bar still totals this harvest.
+        sol.read.mockResolvedValue({ claims: [], held: [], unread: [], earning: [earning] });
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+        const bar = screen.getByRole('group', { name: 'BAYLA total' });
+        expect(within(bar).getByText('25')).toBeTruthy();
+        expect(within(bar).getByText('BAYLA · 2 claims')).toBeTruthy();
+      },
+    ));
+  });
+
   it('Check again reads the pools afresh: a pool read held from before the press is forgotten first', async () => {
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
     sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send)], held: [], unread: [] });
@@ -205,6 +310,25 @@ describe('Harvest card', () => {
       expect(sol.read).toHaveBeenCalledTimes(3);
       await tick(10 * 60_000);
       expect(sol.read).toHaveBeenCalledTimes(3);
+    }));
+
+    it('a daily figure held back behind your own write is asked again the same way, and shows once it can be stated', () => withWallet(async () => {
+      const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
+      const claims = () => [solClaim('ladder:1', send), solClaim('ladder:2', send)];
+      const earning = { key: 'ladder:P', chain: 'solana' as const, roomId: 'bayla', symbol: 'BAYLA', where: 'lock ladder', decimals: 6, principalRaw: 3_000_000_000n, perDayRaw: 4_200n, apr: '0.1%', fundedToSecs: 1_797_000_000 };
+      sol.read.mockResolvedValueOnce({ claims: claims(), held: [], unread: [], settling: true })
+        .mockResolvedValue({ claims: claims(), held: [], unread: [], earning: [earning] });
+      render(<MemoryRouter><HarvestCard /></MemoryRouter>);
+      await tick(0);
+      // The total stands; the rate is left out, never guessed from the older read.
+      expect(screen.getByText('BAYLA total')).toBeTruthy();
+      expect(screen.queryByText('BAYLA a day')).toBeNull();
+      await tick(20_000);
+      expect(sol.read).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('BAYLA a day')).toBeTruthy();
+      // Stated now, so it is not asked a third time.
+      await tick(10 * 60_000);
+      expect(sol.read).toHaveBeenCalledTimes(2);
     }));
 
     it('a read with nothing unread is not asked again', () => withWallet(async () => {

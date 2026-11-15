@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
+import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence, waitForReads } from './fixtures/routes';
 
 // The word Cannot, nowhere on the venue (island answer twenty-four, build 5; answer twenty-five,
 // screen 2: "grep the page text of every route, red first against today's trunk"). A visitor is
@@ -63,7 +63,10 @@ async function cannots(page: Page): Promise<Hit[]> {
 /** Mount the route, let the whileInView sections arrive, then wait for the page to stop moving. */
 async function settle(page: Page, path: string) {
   if (path === '/nakamigos') await gotoNakamigos(page);
-  else await gotoRoute(page, path);
+  else {
+    await gotoRoute(page, path);
+    await waitForReads(page);
+  }
   for (let i = 0; i < 3; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);
@@ -105,8 +108,8 @@ test.describe('the word Cannot appears nowhere on the venue', () => {
     });
   }
 
-  test('the walk covers every route the census renders, and the thirteen farms', () => {
-    expect(DOOR_IDS.length, 'thirteen registry ids').toBe(13);
+  test('the walk covers every route the census renders, and the twelve farms', () => {
+    expect(DOOR_IDS.length, 'twelve registry ids').toBe(12);
     for (const route of AUDITABLE_ROUTES) expect(PATHS).toContain(navigablePath(route));
     for (const path of Object.keys(CANNOT_DEBT)) expect(PATHS, `${path} is owed but never walked`).toContain(path);
   });

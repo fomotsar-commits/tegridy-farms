@@ -27,7 +27,7 @@ import {
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
 import { fmtRaw, fmtRawParts, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
-import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
+import { basisBehindWrite, confirmedSlotOf, noteWriteFence, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
@@ -376,12 +376,16 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
     setConfirmFor(null);
     const res = await fn();
     if (res.ok) {
+      // Harvest's daily figure rests on the same share, and reads again on the note below: it
+      // is fenced first, closed until the slot is known (lib/ladder/writeFence.ts).
+      noteWriteFence({ key: walletKey, slot: slotOrNull(res.slot) });
       noteStakesChanged(me);
       setStaleRead(latestWalletRead.current);
       // One more ask for the confirmed slot if the write had none; if it still has none,
       // the fence fails closed (stale until a later write carries a slot).
       const slot = slotOrNull(res.slot) ?? await confirmedSlotOf(connection, res.signature);
       setWriteFence({ key: walletKey, slot });
+      noteWriteFence({ key: walletKey, slot });
       setAction({ note: `${label} confirmed.`, sig: res.signature });
       setAmount('');
     } else {

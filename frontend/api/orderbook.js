@@ -15,6 +15,11 @@
 //   POST { action: "loan-offer-create", offer, signature }    → store a signed offer
 //   POST { action: "loan-offer-sync", lender, offerId }       → re-read it on chain
 //   POST { action: "loan-record", txHash }                    → record a tx's loans
+// NFT loan requests (a borrower's signed ask; api/_lib/loanRequests.js):
+//   GET  ?action=loan-requests[&collection=0x..][&borrower=0x..] → open requests
+//   POST { action: "loan-request-create", request, signature }   → store a signed request
+//   POST { action: "loan-request-cancel", borrower, nonce, signature } → close it
+//   POST { action: "loan-request-sync", collection, tokenId }    → re-read the NFT's holder
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
@@ -32,6 +37,7 @@ import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failov
 import { sendPushToWallet } from "./_lib/push.js";
 // The NFT loan offer book (signed Gondi offers) shares this route's perimeter.
 import { LOAN_GET_ACTIONS, LOAN_POST_ACTIONS, handleLoanAction } from "./_lib/loanOffers.js";
+import { REQUEST_GET_ACTIONS, REQUEST_POST_ACTIONS, handleLoanRequestAction } from "./_lib/loanRequests.js";
 
 // The venue's Ethereum collections (lowercase): the only contracts a bundle or
 // a P2P trade may carry. A single listing, its query, cancel and fill also take
@@ -430,6 +436,10 @@ export default async function handler(req, res) {
       await handleLoanAction(req, res, { supabase });
       return;
     }
+    if (REQUEST_GET_ACTIONS.has(action)) {
+      await handleLoanRequestAction(req, res, { supabase });
+      return;
+    }
 
     // ── P2P trades inbox/outbox ──
     // Trades are signed Seaport swap offers on public NFTs (same privacy
@@ -640,6 +650,10 @@ export default async function handler(req, res) {
 
     if (LOAN_POST_ACTIONS.has(action)) {
       await handleLoanAction(req, res, { supabase });
+      return;
+    }
+    if (REQUEST_POST_ACTIONS.has(action)) {
+      await handleLoanRequestAction(req, res, { supabase });
       return;
     }
 

@@ -105,8 +105,10 @@ export interface RouteSpec {
 export const ROUTE_MOUNT_TIMEOUT = 20_000;
 
 /**
- * The Tradermigos splash and the landing after it get a larger budget: on WebKit
- * with nine workers sharing one preview server they have been measured past 20s.
+ * The Tradermigos landing gets a larger budget: on WebKit with nine workers
+ * sharing one preview server it has been measured past 20s. (It was named for
+ * the splash that used to play first; the splash was removed on 2026-11-14 and
+ * the name is kept because a dozen specs import it.)
  */
 export const SPLASH_MOUNT_TIMEOUT = 60_000;
 
@@ -119,9 +121,17 @@ export const SPLASH_MOUNT_TIMEOUT = 60_000;
  * probe that a real page can fail turns a content defect into a timeout on an
  * unrelated line.
  *
- * What it waits on instead: the layout's `main` exists, no Suspense fallback is
- * still inside it (every skeleton in src/components/PageSkeleton*.tsx carries
- * `aria-busy="true"`), and the route put content there.
+ * What it waits on instead: the layout's `main` exists, no route fallback is still
+ * inside it (each one a page's code is loading behind carries `data-route-loading`:
+ * PageSkeleton, the PageSkeletons, FirstFrame, DoorFrame and PoolsFrame), and the
+ * route put content there.
+ *
+ * NOT `aria-busy`, which it read until 2026-11-13. A section reading the chain is busy
+ * too, and a read is not the page arriving: /earn/toweli's LP farm stayed busy while the
+ * live Ethereum RPC did not answer, and with that RPC held this probe timed out on every
+ * run (chromium and ipad-safari), as gauge-voting.spec.ts and page-width.spec.ts did
+ * three attempts in a row on CI on 2026-10-22. With every outside host held, /earn/toweli
+ * and a connected /dashboard were the only audited routes it could not mount.
  */
 export async function gotoRoute(page: Page, path: string): Promise<void> {
   await page.goto(path);
@@ -129,9 +139,27 @@ export async function gotoRoute(page: Page, path: string): Promise<void> {
     () => {
       const main = document.querySelector('main#main-content');
       if (!main) return false;
-      if (main.querySelector('[aria-busy="true"]')) return false;
+      if (main.querySelector('[data-route-loading]')) return false;
       return (main.textContent ?? '').trim().length > 30;
     },
+    undefined,
+    { timeout: ROUTE_MOUNT_TIMEOUT },
+  );
+}
+
+/**
+ * Wait until no section in `main` is still reading (`aria-busy="true"`), after gotoRoute.
+ *
+ * For a spec whose subject is the page as its reads leave it: an audit, or a sweep of its
+ * words. gotoRoute no longer waits for reads, and the connected a11y audit of /earn/toweli
+ * then found none of the LP farm's inputs its route entry declares: they arrive with the
+ * read. A spec that only measures the page's frame does not need this.
+ *
+ * It waits on whatever the page reads: on /earn/toweli, the live Ethereum RPC.
+ */
+export async function waitForReads(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => !document.querySelector('main#main-content [aria-busy="true"]'),
     undefined,
     { timeout: ROUTE_MOUNT_TIMEOUT },
   );
@@ -180,10 +208,9 @@ export async function waitForQuiescence(
 }
 
 /**
- * `/nakamigos` as a first visit: the splash plays, leaves by itself within 3.2 s,
- * and the landing's `main` follows. Never tap it: a tap only skips ahead, and on a
- * WebKit worker drawing few frames a click's "stable" check outlasts the splash,
- * then waits on a button that is gone (e2e/nakamigos-splash.spec.ts).
+ * `/nakamigos` as a first visit: the landing's `main` and its heading. There is
+ * no splash in front of it any more (removed 2026-11-14), so this only waits for
+ * the lazy marketplace chunk to mount.
  */
 export async function gotoNakamigos(page: Page): Promise<void> {
   await page.goto('/nakamigos');
@@ -296,7 +323,7 @@ export const ROUTES: readonly RouteSpec[] = [
   // literal list CANNOT drift: add a bungalow and the vitest guard fails until
   // its door is added here. LIVE doors render HomePage under the bungalow's
   // skin; settled-but-not-live doors render BungalowDoorLanding (2026-08-30).
-  ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
+  ...(['toweli', 'bayla', 'pepe', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
       voice: slug === 'toweli' || slug === 'towelie' ? ('toweli' as const) : ('bungalow' as const),
@@ -429,6 +456,17 @@ export const ROUTES: readonly RouteSpec[] = [
     why:
       'Opened 2026-10-24 (CARDANO_SWAP_OPEN, lib/cardano/flags.ts). The form audits with no wallet ' +
       'connected; quotes need the /api/cardano chain reads, so it renders without live prices in this suite.',
+    knownViolations: [],
+  },
+  {
+    path: '/cardano-pools',
+    voice: null,
+    owner: 'pages/CardanoPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · cardano-pools',
+    gate: 'not-yet-routed',
+    why:
+      'The venue’s own Cardano pools: routed only once CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts), which waits on ' +
+      'the deploy filling api/_lib/cardano-own-pools.js. Walked in a --mode cardano-preview build until then.',
     knownViolations: [],
   },
   {

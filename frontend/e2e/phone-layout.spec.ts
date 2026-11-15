@@ -78,12 +78,40 @@ test('in the TOWELI room at 390px with motion on, a press on a tab sliding under
   // first step that brought a tab ("My Pools", then) under it pressed Towelie (2026-10-14).
   // NFT Lending's "My Loans" is the tab that passes under it now. The other tests run
   // with motion reduced, where only WebKit's fade lasts long enough to see.
+  //
+  // THE FADE IS HELD, NOT CAUGHT. Sampling it frame by frame flaked (CI 2026-10-22, and 3 of
+  // 10 here on 11-13): a loaded WebKit draws a frame every 200 to 970 ms, so the whole 200ms
+  // fade often fell between two samples, which then read 1.00 and 0.00 and never a press
+  // mid-fade. Now the fade is stopped one frame in, the moment the corner's change lands
+  // (a MutationObserver callback runs before the next frame), so every run presses at that
+  // moment whatever the frame rate: the corner still at about 0.98, and the press must land
+  // on the tab.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await settle(page, '/nft-finance?section=nftlending&bungalow=toweli', { width: 390, height: 844 });
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
     const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
     const corner = document.querySelector('button[aria-label="Towelie says hi"]')!;
+    // A fade OUT of the corner (or of a box around it), held one frame in once it begins.
+    let held: Animation | null = null;
+    const fadesOut = (a: Animation) => {
+      if (!(a instanceof CSSTransition) || a.transitionProperty !== 'opacity' || a.playState === 'finished') return false;
+      if (!(a.effect instanceof KeyframeEffect) || !(a.effect.target instanceof Element) || !a.effect.target.contains(corner)) return false;
+      const kf = a.effect.getKeyframes();
+      return Number(kf[kf.length - 1]?.opacity) < Number(kf[0]?.opacity);
+    };
+    const hold = new MutationObserver(() => {
+      if (held) return;
+      // getAnimations() flushes style, so a fade the change just started is already listed.
+      const fade = document.getAnimations().find(fadesOut);
+      if (!fade) return;
+      fade.pause();
+      fade.currentTime = Math.min(16, Number(fade.effect?.getTiming().duration ?? 0) / 2);
+      held = fade;
+    });
+    for (let e = corner.parentElement; e && e !== document.body; e = e.parentElement) {
+      hold.observe(e, { attributes: true, attributeFilter: ['class', 'style', 'inert'] });
+    }
     const opacity = () => {
       let o = 1;
       for (let e: Element | null = corner; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
@@ -103,8 +131,8 @@ test('in the TOWELI room at 390px with motion on, a press on a tab sliding under
     const max = document.documentElement.scrollHeight - innerHeight;
     for (let y = 0; y <= max; y += 40) {
       window.scrollTo(0, y);
-      // Press at the first frame the corner has begun to step aside, mid-fade.
-      for (let i = 0; i < 30 && under().length && opacity() >= 1; i++) await frame();
+      // Press while the corner is stepping aside: its fade held one frame in.
+      for (let i = 0; i < 30 && under().length && !held && opacity() >= 1; i++) await frame();
       const o = opacity();
       for (const { tab, x, y: py } of under()) {
         if (o > 0 && o < 1) fading += 1;
@@ -114,7 +142,11 @@ test('in the TOWELI room at 390px with motion on, a press on a tab sliding under
           missed.push(`at ${y}px scrolled, a press on "${(tab.textContent ?? '').trim().slice(0, 20)}" lands on ${hit ? hit.tagName.toLowerCase() : 'nothing'} in "${owner}" (corner opacity ${o.toFixed(2)})`);
         }
       }
+      // Let the fade end before the next step, so the corner can step aside again.
+      (held as Animation | null)?.finish();
+      held = null;
     }
+    hold.disconnect();
     return { missed, fading };
   });
   expect(scan.fading, 'no press was made while the corner faded: the page or its timing changed').toBeGreaterThan(0);

@@ -294,4 +294,82 @@ describe("loan offer book: sync and loan records", () => {
     expect((await call("POST", { action: "loan-record", txHash: TX }, { supabase: db, chain: reverted })).status).toBe(400);
     expect(db.tables.nft_loans).toHaveLength(0);
   });
+
+  // ── loan-sync: a loan the chain closed somewhere the site did not see ──
+  // Gondi lets another lender take a loan over (refinanceFull) without the borrower or the
+  // site, and logs no indexed loan id. The book must still find it, or My Loans says
+  // "Closed" and the dashboard drops a loan whose NFT is still locked under new terms.
+  const NEW_LENDER = "0x5555555555555555555555555555555555555555";
+  const TAKEOVER_TX = `0x${"2".repeat(64)}`;
+  const ZERO = `0x${"0".repeat(64)}`;
+  const takenOver = { ...loanStruct, tranche: [{ ...loanStruct.tranche[0], loanId: 2n, lender: NEW_LENDER, aprBps: 800n }] };
+
+  /** A chain where loan 1 opened at block 100 and its hash went to zero at `closedAt`. */
+  function syncChain({ closedAt = 150n, latest = 200n, closeLogs } = {}) {
+    return okChain({
+      latestBlock: vi.fn(async () => latest),
+      loanHashAt: vi.fn(async ({ blockNumber }) => (closedAt !== null && blockNumber >= closedAt ? ZERO : `0x${"ab".repeat(32)}`)),
+      loanTxsInBlock: vi.fn(async ({ blockNumber }) => (blockNumber === closedAt ? [TAKEOVER_TX] : [])),
+      getReceipt: vi.fn(async (hash) =>
+        hash === TX
+          ? { status: "success", blockNumber: 100n, logs: [eventLog("LoanEmitted", [1n, [7n], loanStruct, 0n])] }
+          : { status: "success", blockNumber: closedAt, logs: closeLogs ?? [eventLog("LoanRefinanced", [0n, 1n, 2n, takenOver, 0n])] },
+      ),
+    });
+  }
+  function openLoan(db) {
+    db.tables.nft_loans.push({ loan_id: "1", borrower: BORROWER.toLowerCase(), lender: LENDER.toLowerCase(), status: "open", emit_tx: TX });
+  }
+
+  it("finds a takeover made off the site, in the block the loan's hash went to zero, and records the new loan", async () => {
+    const db = fakeSupabase();
+    openLoan(db);
+    const chain = syncChain();
+    const out = await call("POST", { action: "loan-sync", loanId: "1" }, { supabase: db, chain });
+    expect(out.status).toBe(200);
+    expect(out.body).toEqual({ status: "refinanced", loans: [{ loanId: "2", status: "open" }] });
+    expect(chain.loanTxsInBlock).toHaveBeenCalledWith({ loanAddress: LOAN, blockNumber: 150n });
+    // Halving 100 blocks: a handful of archive reads, not one per block.
+    expect(chain.loanHashAt.mock.calls.length).toBeLessThanOrEqual(10);
+    // The borrower's loans now list the new one, with the new lender, and the old one as moved.
+    const mine = await call("GET", { action: "loans", wallet: BORROWER }, { supabase: db });
+    expect(Object.fromEntries(mine.body.loans.map((l) => [l.loanId, l.status]))).toEqual({ 1: "refinanced", 2: "open" });
+    expect(db.tables.nft_loans.find((r) => r.loan_id === "2")).toMatchObject({ lender: NEW_LENDER.toLowerCase(), emit_tx: TAKEOVER_TX });
+  });
+
+  it("finds a repayment made elsewhere the same way", async () => {
+    const db = fakeSupabase();
+    openLoan(db);
+    const out = await call("POST", { action: "loan-sync", loanId: "1" }, { supabase: db, chain: syncChain({ closeLogs: [eventLog("LoanRepaid", [1n, ONE, 0n])] }) });
+    expect(out.body.status).toBe("repaid");
+  });
+
+  it("a loan closed in the block that opened it is found in that block", async () => {
+    const db = fakeSupabase();
+    openLoan(db);
+    const chain = syncChain({ closedAt: 100n });
+    await call("POST", { action: "loan-sync", loanId: "1" }, { supabase: db, chain });
+    expect(chain.loanTxsInBlock).toHaveBeenCalledWith({ loanAddress: LOAN, blockNumber: 100n });
+  });
+
+  it("leaves a loan the chain still holds open alone, after one read", async () => {
+    const db = fakeSupabase();
+    openLoan(db);
+    const chain = syncChain({ closedAt: null });
+    const out = await call("POST", { action: "loan-sync", loanId: "1" }, { supabase: db, chain });
+    expect(out.body).toEqual({ status: "open", loans: [] });
+    expect(chain.loanHashAt).toHaveBeenCalledTimes(1);
+    expect(chain.loanTxsInBlock).not.toHaveBeenCalled();
+    expect(db.tables.nft_loans[0].status).toBe("open");
+  });
+
+  it("reads no chain for a loan the book already closed, and refuses ids it does not hold", async () => {
+    const db = fakeSupabase();
+    db.tables.nft_loans.push({ loan_id: "1", status: "repaid", emit_tx: TX });
+    const chain = syncChain();
+    expect((await call("POST", { action: "loan-sync", loanId: "1" }, { supabase: db, chain })).body.status).toBe("repaid");
+    expect(chain.loanHashAt).not.toHaveBeenCalled();
+    expect((await call("POST", { action: "loan-sync", loanId: "9" }, { supabase: db, chain })).status).toBe(404);
+    expect((await call("POST", { action: "loan-sync", loanId: "-1" }, { supabase: db, chain })).status).toBe(400);
+  });
 });

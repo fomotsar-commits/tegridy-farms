@@ -15,7 +15,16 @@ import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, loansPerOffer
 import { downloadIcs, loanDueIcs } from '../../lib/gondi/calendar';
 import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/gondi/loanMath';
 import { nextRepayStep, repayCovered, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
-import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
+import {
+  recordLoanTx,
+  syncOffer,
+  useBookLoans,
+  useBookOffers,
+  useRefreshBook,
+  useSyncClosedLoans,
+  type BookLoan,
+  type BookOffer,
+} from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
 import { LoanTimeline } from './LoanTimeline';
 import { FinePrint } from '../ui/FinePrint';
@@ -45,6 +54,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   repaid: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
   defaulted: { bg: 'rgba(239,68,68,0.12)', text: 'text-red-400', border: 'border-red-500/30' },
   closed: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
+  moved: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
   unknown: { bg: 'rgba(255,255,255,0.05)', text: 'text-white/80', border: 'border-white/20' },
 };
 
@@ -72,6 +82,8 @@ export function MyLoansTab() {
     }) as const),
     query: { enabled: LENDING_LIVE && openRows.length > 0, refetchInterval: 30_000 },
   });
+  // Closed on chain but open in the book (repaid elsewhere, claimed, taken over): ask how.
+  useSyncClosedLoans(openRows, hashes.data);
 
   if (!isConnected || !address) {
     return <Notice title="Connect your wallet to view your loans." />;
@@ -180,7 +192,7 @@ function LoanTotals({
 }
 
 /* ─── Loan Card ─────────────────────────────────────────────────── */
-type LoanView = 'active' | 'overdue' | 'repaid' | 'defaulted' | 'closed' | 'unknown';
+type LoanView = 'active' | 'overdue' | 'repaid' | 'defaulted' | 'closed' | 'moved' | 'unknown';
 
 function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: Hex | 'unread' | undefined; userAddress: Address }) {
   const chainId = useChainId();
@@ -197,7 +209,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
   let view: LoanView;
   if (row.status === 'repaid') view = 'repaid';
   else if (row.status === 'liquidated') view = 'defaulted';
-  else if (row.status === 'refinanced') view = 'closed';
+  else if (row.status === 'refinanced') view = 'moved';
   else if (chainHash === undefined || chainHash === 'unread') view = 'unknown';
   else if (chainHash === ZERO_HASH) view = 'closed';
   else if (chainHash.toLowerCase() !== loanHash(loan).toLowerCase()) view = 'unknown';
@@ -334,7 +346,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
     const mins = Math.floor((r % 3600) / 60);
     return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(r % 60).padStart(2, '0')}s`;
   })();
-  const label: Record<LoanView, string> = { active: 'Active', overdue: 'Overdue', repaid: 'Repaid', defaulted: 'Claimed', closed: 'Closed', unknown: 'Checking' };
+  const label: Record<LoanView, string> = { active: 'Active', overdue: 'Overdue', repaid: 'Repaid', defaulted: 'Claimed', closed: 'Closed', moved: 'Moved', unknown: 'Checking' };
 
   return (
     <div className="relative isolate rounded-xl p-3 md:p-5 space-y-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
@@ -372,6 +384,20 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
 
       {view === 'unknown' && (
         <p className="text-yellow-300 text-[11px]">Checking this loan on chain. No action until it reads back.</p>
+      )}
+      {/* A takeover (refinanceFull) or a change of terms gives the loan a new number. */}
+      {view === 'moved' && (
+        <p className="text-white/80 text-[11px]" data-testid="loan-moved">
+          Moved to a new loan: another lender took it over, or its terms changed.{' '}
+          {isBorrower
+            ? 'Your NFT stays locked in the new loan, listed here with its own deadline.'
+            : "If you do not lend on the new loan, you were paid your WETH back plus the interest so far, less the venue's share."}
+        </p>
+      )}
+      {view === 'closed' && (
+        <p className="text-white/80 text-[11px]">
+          Closed on chain: repaid, claimed, or moved to a new loan. If it moved, the new loan shows here once found.
+        </p>
       )}
 
       {open && (

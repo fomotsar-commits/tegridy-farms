@@ -111,3 +111,13 @@ export function newOfferId(): bigint {
 export function nowSeconds(): bigint {
   return BigInt(Math.floor(Date.now() / 1000));
 }
+
+/** Loan lengths the Lend form and the ask form offer. */
+export const DURATION_PRESETS = [
+  { label: '7d', seconds: 7 * 86400 },
+  { label: '14d', seconds: 14 * 86400 },
+  { label: '30d', seconds: 30 * 86400 },
+  { label: '90d', seconds: 90 * 86400 },
+  { label: '180d', seconds: 180 * 86400 },
+  { label: '365d', seconds: 365 * 86400 },
+];

@@ -179,3 +179,25 @@ describe('liquidity failures, in the words of what the person was doing', () => 
     expect(say(LAUNCH.toBase58(), 6000, 'lp-withdraw')).not.toMatch(/Withdrawals are switched off/);
   });
 });
+
+describe('a range take-out that a reward started under', () => {
+  const RANGE = '7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso';
+  const logs = [
+    `Program ${RANGE} invoke [1]`,
+    'Program log: Instruction: DecreaseLiquidityV2',
+    'Program log: AnchorError thrown in programs/amm/src/instructions/decrease_liquidity.rs:519. Error Code: InvalidRewardInputAccountNumber. Error Number: 6030. Error Message: Invalid collect reward input account number.',
+    failed(RANGE, '178e'),
+  ];
+  const err = { InstructionError: [1, { Custom: 6030 }] };
+
+  it('says a reward started after the review, and to review again, for a collect, a take-out and a close', () => {
+    for (const kind of ['range-remove', 'range-close'] as const) {
+      expect(explainFailure(err, logs, cfgLocal, kind).message).toBe('A reward started on this pool after you reviewed. Review again.');
+    }
+  });
+
+  it('the same number with no such log line, or on another kind, keeps the general copy', () => {
+    expect(explainFailure(err, [failed(RANGE, '178e')], cfgLocal, 'range-remove').message).not.toMatch(/reward started/);
+    expect(explainFailure(err, logs, cfgLocal, 'range-open').message).not.toMatch(/reward started/);
+  });
+});

@@ -22,6 +22,7 @@ import { noteStakesChanged, useOnStakesChanged } from '../lib/harvest/stakesChan
 import { HarvestCard } from './farm/HarvestCard';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
+import { LadderWedge } from './ui/LadderWedge';
 
 /**
  * The island's dashboard (owner, 2026-10-21: "give it an avantegarde upgrade" and "put the
@@ -222,22 +223,7 @@ const rise = (i: number) =>
     ? {}
     : { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.55, ease: EDITORIAL_EASE, delay: Math.min(i, 10) * 0.05 } };
 
-/**
- * The lock ladder drawn to scale: every staking program on the island grows a lock's share in a
- * straight line, from the floor at seven days to the ceiling at four years (lib/ladder/program.ts
- * boostBpsForLock, lib/lighthouseLadder.ts boostBpsFor, TegridyStaking.sol calculateBoost).
- */
-function LadderWedge({ className = '' }: { className?: string }) {
-  const h = 14;
-  const floor = (MIN_BOOST_BPS / MAX_BOOST_BPS) * h;
-  return (
-    <svg width="40" height={h} viewBox={`0 0 40 ${h}`} aria-hidden="true" className={`flex-shrink-0 ${className}`}>
-      <path d={`M0 ${h} L40 ${h} L40 0 L0 ${h - floor} Z`} fill="currentColor" />
-    </svg>
-  );
-}
-
-/** A lock's place on that ladder, from the boost its pool read: a green mark on the wedge. */
+/** A lock's place on the ladder (ui/LadderWedge.tsx), from the boost its pool read: a green mark on the wedge. */
 function LockMark({ boost }: { boost: number }) {
   const w = 40;
   const h = 14;

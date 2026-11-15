@@ -335,8 +335,10 @@ describe('a press that ends before a signature says what happened', () => {
 });
 
 // A lost answer: the wallet threw in a way that can come after it signed, with no signature
-// (owner, 2026-10-14, D1). Buy is held for that wallet until the swap's blockhash can no
-// longer land, 2 minutes at most, or "Turn Buy back on now".
+// (owner, 2026-10-14, D1). Buy is held for that wallet 2 minutes, or "Turn Buy back on now".
+// These wallets sign AND send (no signTransaction here), and such a wallet may swap in its
+// own blockhash (Phantom does, read on chain 2026-11-15): the one handed to it proves
+// nothing about the one it sent, so it never ends a hold (lib/solana/swap/walletSwapSend.ts).
 describe('a wallet answer lost before a signature came back', () => {
   const BH = 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi';
   const lost = () => new WalletSendTransactionError('failed to send transaction: fetch failed', new TypeError('fetch failed'));
@@ -373,24 +375,22 @@ describe('a wallet answer lost before a signature came back', () => {
     expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('ends once its blockhash can no longer land, by a server past the slot it was seen valid at', async () => {
+  it('the blockhash handed to the wallet, gone, does not end it: the wallet may have sent another', async () => {
     blockhashAnswers({ context: { slot: 200 }, value: false });
     wallet.sendTransaction.mockRejectedValue(lost());
     fireEvent.click(await readyToBuy());
-    await waitFor(() => expect(readPendingTrades(mine())[0]?.blockhash).toEqual({ hash: BH, validAt: 100 }));
+    await waitFor(() => expect(readPendingTrades(mine())).toEqual([expect.objectContaining({ signature: null, blockhash: null })]));
     expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(21_000); });
-    await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
-    expect(readPendingTrades(mine())).toEqual([]);
-    const buy = await typeAgain();
-    await waitFor(() => expect(buy).toBeEnabled());
+    expect(screen.getByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(connection.isBlockhashValid).not.toHaveBeenCalledWith(BH, expect.objectContaining({ minContextSlot: expect.anything() }));
   });
 
-  it('"not valid" from a server behind that slot does not end it; 2 minutes do', async () => {
+  it('2 minutes end it', async () => {
     blockhashAnswers({ context: { slot: 90 }, value: false });
     wallet.sendTransaction.mockRejectedValue(lost());
     fireEvent.click(await readyToBuy());
-    await waitFor(() => expect(readPendingTrades(mine())[0]?.blockhash).toEqual({ hash: BH, validAt: 100 }));
+    await waitFor(() => expect(readPendingTrades(mine())[0]).toMatchObject({ signature: null, blockhash: null }));
     await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
     expect(screen.getByTestId('venue-swap-pending')).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(LOST_ANSWER_TTL_MS - 61_000 + 2_000); });
@@ -398,17 +398,14 @@ describe('a wallet answer lost before a signature came back', () => {
     expect(readPendingTrades(mine())).toEqual([]);
   });
 
-  it('a swap that did get a signature keeps its blockhash, and its check asks the blockhash first', async () => {
+  it('a swap the wallet sent with a signature is checked on Jupiter’s bound alone, never the blockhash handed to it', async () => {
     blockhashAnswers({ context: { slot: 200 }, value: true });
     fireEvent.click(await readyToBuy());
-    await waitFor(() => expect(readPendingTrades(mine())[0]).toMatchObject({ signature: SIG, blockhash: { hash: BH, validAt: 100 } }));
+    await waitFor(() => expect(readPendingTrades(mine())[0]).toMatchObject({ signature: SIG, blockhash: null, lastValidBlockHeight: HEIGHT + JUPITER_WINDOW_BLOCKS }));
     await outlastTheWatch();
     cleanup();
     render(<SolanaSwapPage />);
-    await waitFor(() => expect(recheckOutcome).toHaveBeenCalledWith(connection, SIG, {
-      lastValidBlockHeight: HEIGHT + JUPITER_WINDOW_BLOCKS,
-      blockhash: { hash: BH, validAt: 100 },
-    }));
+    await waitFor(() => expect(recheckOutcome).toHaveBeenCalledWith(connection, SIG, { lastValidBlockHeight: HEIGHT + JUPITER_WINDOW_BLOCKS }));
   });
 });
 

@@ -41,7 +41,7 @@ describe("nakamigos ThemeProvider hands the global theme back on unmount", () =>
   it("takes over documentElement + meta theme-color while mounted", () => {
     const { unmount } = render(<ThemeProvider><div /></ThemeProvider>);
     expect(document.documentElement.getAttribute("data-theme")).toBe("default");
-    expect(document.querySelector('meta[name="theme-color"]').getAttribute("content")).toBe("#09090b");
+    expect(document.querySelector('meta[name="theme-color"]').getAttribute("content")).toBe("#0a0b0d");
     unmount();
   });
 

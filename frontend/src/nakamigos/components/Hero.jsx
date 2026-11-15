@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useMemo } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { COLLECTION_LORE } from "../constants";
@@ -6,83 +6,29 @@ import { descriptionSourceTag } from "../lib/venue";
 import Usd from "./Usd";
 import { FinePrint } from "../../components/ui/FinePrint";
 
-function HeroShowcase({ tokens, onPick }) {
+// The opening's picture: five of the collection's own pieces on one sheet, the
+// first one large. Each opens its piece. Nothing rotates and nothing is
+// downloaded beyond the pieces themselves.
+function HeroMosaic({ tokens, onPick }) {
   const featured = useMemo(
-    () => tokens.filter((n) => n.image && n.id != null).slice(0, 6),
+    () => tokens.filter((n) => n.image && n.id != null).slice(0, 5),
     [tokens]
   );
-  const [active, setActive] = useState(0);
-  const pausedRef = useRef(false);
-
-  useEffect(() => {
-    setActive((prev) => (prev >= featured.length ? 0 : prev));
-  }, [featured.length]);
-
-  useEffect(() => {
-    if (!featured.length) return;
-    const iv = setInterval(() => {
-      // Don't advance while paused (hover/focus) or while the tab is hidden —
-      // a backgrounded tab shouldn't burn the rotation (F591).
-      if (!pausedRef.current && !document.hidden) setActive((p) => (p + 1) % featured.length);
-    }, 4000);
-    return () => clearInterval(iv);
-  }, [featured.length]);
-
-  const handlePause = useCallback(() => { pausedRef.current = true; }, []);
-  const handleResume = useCallback(() => { pausedRef.current = false; }, []);
-
-  if (!featured.length) return null;
-  const cur = featured[active % featured.length];
+  if (featured.length < 5) return null;
 
   return (
-    <div
-      style={{ display: "flex", gap: 32, alignItems: "center", padding: "20px 0", flexWrap: "wrap" }}
-      onMouseEnter={handlePause}
-      onMouseLeave={handleResume}
-      onFocus={handlePause}
-      onBlur={handleResume}
-    >
-      <div onClick={() => onPick(cur)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(cur); } }} role="button" tabIndex={0} aria-label={`Featured: ${cur.name}`} className="hero-feature">
-        <NftImage nft={cur} large priority style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.6s, transform 0.6s" }} />
-        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(transparent 40%, rgba(9,9,11,0.85))" }} />
-        {cur.rank && !cur.rankApproximate && (
-          <div className="hero-rank-pill">
-            <span style={{ fontFamily: "var(--pixel)", fontSize: 7 }}>RANK</span> #{cur.rank}
-          </div>
-        )}
-        <div style={{ position: "absolute", bottom: 16, left: 16, right: 16 }}>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, fontWeight: 400, color: "var(--text)", letterSpacing: "0.02em" }}>{cur.name}</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginTop: 6 }}>
-            {cur.attributes?.length > 0 && (
-              <span style={{ color: "var(--text-dim)" }}>{cur.attributes.map(a => a.value).join(" \u00b7 ")}</span>
-            )}
-          </div>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {featured.map((n, idx) => (
-          <div
-            key={n.id}
-            onClick={() => setActive(idx)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActive(idx); } }}
-            role="button"
-            tabIndex={0}
-            aria-label={`Select ${n.name}`}
-            className={`hero-side-item ${idx === active ? "active" : ""}`}
-          >
-            <NftImage nft={n} style={{ width: 44, height: 44, borderRadius: 4, objectFit: "cover" }} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 600, color: idx === active ? "var(--text)" : "var(--text-dim)" }}>{n.name}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: idx === active ? "var(--gold)" : "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {n.attributes?.[0] && `${n.attributes[0].key}: ${n.attributes[0].value}`}
-              </div>
-            </div>
-            {n.rank && !n.rankApproximate && (
-              <span className="hero-side-rank">#{n.rank}</span>
-            )}
-          </div>
-        ))}
-      </div>
+    <div className="mk-mosaic">
+      {featured.map((n, idx) => (
+        <button key={n.id} className="mk-mosaic-cell" onClick={() => onPick(n)} aria-label={`Open ${n.name}`}>
+          <NftImage nft={n} large={idx === 0} priority={idx === 0} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          {idx === 0 && (
+            <span className="mk-mosaic-cap">
+              <span>{n.name}</span>
+              {n.rank && !n.rankApproximate && <b>Rank #{n.rank}</b>}
+            </span>
+          )}
+        </button>
+      ))}
     </div>
   );
 }
@@ -97,7 +43,7 @@ function formatVolume(n) {
 function StatSkeleton({ label }) {
   return (
     <div className="stat-card">
-      <div className="stat-skeleton-bar" style={{ width: 64, height: 16, marginBottom: 6 }} />
+      <div className="stat-skeleton-bar" style={{ width: 64, height: 18 }} />
       <div className="stat-label">{label}</div>
     </div>
   );
@@ -107,15 +53,7 @@ function StatSkeleton({ label }) {
 // fallback rather than a live fetch (F582) — honest disclosure, no number change.
 function CachedTag() {
   return (
-    <span
-      title="Cached estimate — live stats unavailable right now"
-      style={{
-        marginLeft: 6, fontFamily: "var(--mono)", fontSize: 8,
-        letterSpacing: "0.06em", color: "var(--text-muted)",
-        border: "1px solid var(--border)", borderRadius: 4,
-        padding: "0 4px", verticalAlign: "middle", textTransform: "uppercase",
-      }}
-    >
+    <span className="mk-tag-cached" style={{ marginLeft: 6 }} title="Cached estimate — live stats unavailable right now">
       cached
     </span>
   );
@@ -127,13 +65,10 @@ export default function Hero({ stats, tokens, onPick }) {
   const supply = stats.supply ?? collection.supply ?? null;
   const isLoading = stats.floor == null && stats.owners == null && stats.volume == null;
   const isFallback = !!stats.fallback;
+  const tagline = COLLECTION_LORE[collection.slug]?.tagline;
 
   return (
-    <section className="hero">
-      {/* Pixel art decorative corners */}
-      <div className="hero-pixel-deco top-right" />
-      <div className="hero-pixel-deco bottom-left" />
-
+    <section className="hero mk-plane">
       <div className="hero-wrap">
         <div className="hero-info">
           <div className="hero-badge-row">
@@ -148,32 +83,25 @@ export default function Hero({ stats, tokens, onPick }) {
           {/* One line under the heading: the tagline. The description is the
               collection's own words and sits in the small print (owner
               2026-10-14: fewer words; explanations go in closed drop-downs). */}
-          {COLLECTION_LORE[collection.slug]?.tagline && (
-            <div style={{
-              fontFamily: "var(--display)", fontSize: 12, color: "var(--gold)",
-              fontStyle: "italic", marginTop: -4, marginBottom: 8, opacity: 0.8,
-            }}>
-              {COLLECTION_LORE[collection.slug].tagline}
-            </div>
-          )}
+          {tagline && <div className="hero-tagline">{tagline}</div>}
           {collection.description && (
             <FinePrint summary="About">
               <p className="hero-desc">
                 {collection.description}
                 {descriptionSourceTag(collection) && (
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}> ({descriptionSourceTag(collection)})</span>
+                  <span style={{ color: "var(--text-muted)" }}> ({descriptionSourceTag(collection)})</span>
                 )}
               </p>
             </FinePrint>
           )}
 
-          {/* Premium stat cards */}
+          {/* The collection's numbers, on one ruled strip */}
           <div className="stats-row">
             {/* Supply -- usually from config; shimmer (not a bare em-dash) while
                 the value is still resolving so it doesn't read as "no data". F620 */}
             {supply != null ? (
               <div className="stat-card">
-                <div className="stat-value" style={{ color: "var(--text)" }}>
+                <div className="stat-value">
                   {supply.toLocaleString()}
                 </div>
                 <div className="stat-label">SUPPLY</div>
@@ -182,14 +110,14 @@ export default function Hero({ stats, tokens, onPick }) {
               <StatSkeleton label="SUPPLY" />
             )}
 
-            {/* Floor price */}
+            {/* Floor price: the one figure in the accent, because it is the price */}
             {stats.floor != null ? (
               <div className="stat-card">
-                <div className="stat-value" style={{ color: "var(--gold)" }}>
+                <div className="stat-value mk-money">
                   {Number(stats.floor).toFixed(4)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
-                <Usd eth={Number(stats.floor)} size={11} style={{ display: "block", marginTop: 2 }} />
+                <Usd eth={Number(stats.floor)} size={12} style={{ display: "block", marginTop: 4, fontFamily: "var(--num)" }} />
                 <div className="stat-label">FLOOR{isFallback && <CachedTag />}</div>
               </div>
             ) : isLoading ? (
@@ -199,7 +127,7 @@ export default function Hero({ stats, tokens, onPick }) {
             {/* Volume */}
             {stats.volume != null && (
               <div className="stat-card">
-                <div className="stat-value" style={{ color: "var(--naka-blue)" }}>
+                <div className="stat-value">
                   {formatVolume(stats.volume)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
@@ -212,7 +140,7 @@ export default function Hero({ stats, tokens, onPick }) {
             {/* Owners */}
             {stats.owners != null ? (
               <div className="stat-card">
-                <div className="stat-value" style={{ color: "var(--green)" }}>
+                <div className="stat-value">
                   {stats.owners.toLocaleString()}
                 </div>
                 <div className="stat-label">OWNERS{isFallback && <CachedTag />}</div>
@@ -224,7 +152,7 @@ export default function Hero({ stats, tokens, onPick }) {
             {/* Total sales (if available) */}
             {stats.totalSales != null && (
               <div className="stat-card">
-                <div className="stat-value" style={{ color: "var(--purple)" }}>
+                <div className="stat-value">
                   {formatVolume(stats.totalSales)}
                 </div>
                 <div className="stat-label">TOTAL SALES</div>
@@ -233,20 +161,20 @@ export default function Hero({ stats, tokens, onPick }) {
           </div>
 
           {/* Collection highlights */}
-          <div style={{ display: "flex", gap: 16, marginTop: 20, flexWrap: "wrap" }}>
+          <div className="hero-highlights">
             <div className="hero-highlight-tag">
-              <span style={{ color: "var(--green)", fontSize: 10 }}>{"\u25CF"}</span>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>Live on Ethereum</span>
+              <i style={{ background: "var(--green)" }} aria-hidden="true" />
+              <span>Live on Ethereum</span>
             </div>
             {(collection.highlights || []).map((h, i) => (
               <div key={i} className="hero-highlight-tag">
-                <span style={{ color: h.color || "var(--gold)", fontSize: 10 }}>{"\u25CF"}</span>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>{h.label}</span>
+                <i style={{ background: h.color || "var(--accent)" }} aria-hidden="true" />
+                <span>{h.label}</span>
               </div>
             ))}
           </div>
         </div>
-        <HeroShowcase tokens={tokens} onPick={onPick} />
+        <HeroMosaic tokens={tokens} onPick={onPick} />
       </div>
       <div className="hero-divider" />
     </section>

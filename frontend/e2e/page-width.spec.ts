@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './fixtures/wallet';
-import { expectNoSidewaysScroll, readPageWidth } from './fixtures/pageWidth';
+import { expectNoSidewaysScroll, readPageWidth, resizeViewport } from './fixtures/pageWidth';
 import { AUDITABLE_ROUTES, GECKO_EDGE_GLOB, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
 
 const IPAD_WIDTHS = [820, 1024];
@@ -49,7 +49,7 @@ for (const route of AUDITABLE_ROUTES) {
 
     for (const width of IPAD_WIDTHS) {
       await test.step(`${width}px`, async () => {
-        await page.setViewportSize({ width, height: 1080 });
+        await resizeViewport(page, { width, height: 1080 });
         await waitForQuiescence(page, { quietMs: 500, timeout: 6_000 });
         await page.evaluate(() => document.fonts.ready);
         await expectNoSidewaysScroll(page);
@@ -81,7 +81,7 @@ test("/terminal with its market table drawn is no wider than an iPad's window", 
 
   for (const width of [768, ...IPAD_WIDTHS]) {
     await test.step(`${width}px`, async () => {
-      await page.setViewportSize({ width, height: 1080 });
+      await resizeViewport(page, { width, height: 1080 });
       await waitForQuiescence(page, { quietMs: 500, timeout: 6_000 });
       await page.evaluate(() => document.fonts.ready);
       await expectNoSidewaysScroll(page);

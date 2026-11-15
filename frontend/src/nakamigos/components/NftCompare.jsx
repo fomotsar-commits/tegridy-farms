@@ -14,9 +14,8 @@ import { createTradeOffer as createDirectedTrade } from "../lib/trades";
 
 const cardStyle = {
   background: "var(--surface-glass)",
-  backdropFilter: "var(--glass-blur)",
   border: "1px solid var(--border)",
-  borderRadius: 16,
+  borderRadius: 8,
   padding: 20,
   display: "flex",
   flexDirection: "column",
@@ -27,12 +26,12 @@ const cardStyle = {
 const searchInputStyle = {
   width: "100%",
   padding: "10px 14px",
-  borderRadius: 10,
+  borderRadius: 6,
   border: "1px solid var(--border)",
   background: "rgba(255,255,255,0.04)",
   color: "var(--text)",
   fontFamily: "var(--mono)",
-  fontSize: 12,
+  fontSize: 13,
   outline: "none",
   boxSizing: "border-box",
 };
@@ -40,7 +39,7 @@ const searchInputStyle = {
 const ethInputStyle = {
   width: "100%",
   padding: "10px 14px",
-  borderRadius: 10,
+  borderRadius: 6,
   border: "1px solid var(--border)",
   background: "rgba(255,255,255,0.04)",
   color: "var(--text)",
@@ -55,19 +54,19 @@ const resultItemStyle = {
   alignItems: "center",
   gap: 10,
   padding: "8px 10px",
-  borderRadius: 8,
+  borderRadius: 4,
   cursor: "pointer",
   transition: "background 0.15s",
 };
 
 const tradeButtonStyle = {
   padding: "14px 32px",
-  borderRadius: 12,
+  borderRadius: 6,
   border: "none",
   background: "var(--gold)",
   color: "var(--bg)",
   fontFamily: "var(--pixel)",
-  fontSize: 10,
+  fontSize: 11,
   letterSpacing: "0.06em",
   cursor: "pointer",
   fontWeight: 700,
@@ -82,12 +81,12 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
           <NftImage
             nft={nft}
             large
-            style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 12 }}
+            style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 6 }}
           />
           <div style={{
             position: "absolute", top: 6, right: 6, width: 22, height: 22, borderRadius: "50%",
             background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: 12, lineHeight: 1,
+            justifyContent: "center", fontSize: 13, lineHeight: 1,
           }}>
             x
           </div>
@@ -95,10 +94,10 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
         <div style={{ textAlign: "center" }}>
           <div style={{ fontFamily: "var(--display)", fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{nft.name}</div>
           {nft.rank && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", marginTop: 4 }}>Rank #{nft.rank}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)", marginTop: 4 }}>Rank #{nft.rank}</div>
           )}
           {nft.owner && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
               Owner: {shortenAddress(nft.owner)}
             </div>
           )}
@@ -107,7 +106,7 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", maxWidth: 220 }}>
             {nft.attributes.slice(0, 6).map((a) => (
               <span key={a.key} style={{
-                fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 6,
+                fontFamily: "var(--mono)", fontSize: 11, padding: "3px 7px", borderRadius: 4,
                 background: "rgba(255,255,255,0.06)", color: "var(--text-dim)", border: "1px solid var(--border)",
               }}>
                 {a.key}: {a.value}
@@ -131,7 +130,7 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
       {searchResults.length > 0 && (
         <div style={{
           maxHeight: 240, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2,
-          background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: 6,
+          background: "rgba(0,0,0,0.2)", borderRadius: 6, padding: 6,
         }}>
           {searchResults.map((n) => (
             <div
@@ -141,9 +140,9 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
-              <NftImage nft={n} style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover" }} />
+              <NftImage nft={n} style={{ width: 36, height: 36, borderRadius: 4, objectFit: "cover" }} />
               <span style={{ fontFamily: "var(--display)", fontSize: 13, color: "var(--text)" }}>{n.name}</span>
-              {n.rank && <span style={{ marginLeft: "auto", color: "var(--gold)", fontFamily: "var(--mono)", fontSize: 10 }}>#{n.rank}</span>}
+              {n.rank && <span style={{ marginLeft: "auto", color: "var(--gold)", fontFamily: "var(--mono)", fontSize: 11 }}>#{n.rank}</span>}
             </div>
           ))}
         </div>
@@ -304,7 +303,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
     <section style={{ maxWidth: 900, margin: "0 auto", padding: "32px 16px" }}>
       {/* Title */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <div style={{ fontFamily: "var(--pixel)", fontSize: 12, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--pixel)", fontSize: 13, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 8 }}>
           P2P TRADE
         </div>
         <div style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--text-dim)", maxWidth: 500, margin: "0 auto" }}>
@@ -316,20 +315,20 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 16, alignItems: "start", marginBottom: 32 }}>
         {/* Left: YOUR NFT */}
         <div style={cardStyle}>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 9, color: "var(--naka-blue)", letterSpacing: "0.06em", textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.06em", textAlign: "center" }}>
             YOUR NFT
           </div>
           {loadingOwned ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 0" }}>
               {Array.from({ length: 4 }, (_, i) => (
-                <div key={i} className="skeleton" style={{ height: 40, borderRadius: 8, animationDelay: `${i * 60}ms` }} />
+                <div key={i} className="skeleton" style={{ height: 40, borderRadius: 4, animationDelay: `${i * 60}ms` }} />
               ))}
             </div>
           ) : ownedNfts.length === 0 ? (
             <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
               <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDDBC"}</div>
               <div className="empty-state-title" style={{ fontSize: 13 }}>No {collection.name} Found</div>
-              <div className="empty-state-text" style={{ fontSize: 10 }}>Your wallet does not hold any {collection.name} NFTs to trade.</div>
+              <div className="empty-state-text" style={{ fontSize: 11 }}>Your wallet does not hold any {collection.name} NFTs to trade.</div>
             </div>
           ) : (
             <NftSlot
@@ -345,7 +344,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
 
           {/* ETH sweetener */}
           <div style={{ marginTop: "auto" }}>
-            <div style={{ fontFamily: "var(--pixel)", fontSize: 8, color: "var(--text-dim)", marginBottom: 6, letterSpacing: "0.04em" }}>
+            <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--text-dim)", marginBottom: 6, letterSpacing: "0.04em" }}>
               ADD ETH (OPTIONAL)
             </div>
             <div style={{ position: "relative" }}>
@@ -360,7 +359,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
               />
               <span style={{
                 position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", pointerEvents: "none",
+                fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", pointerEvents: "none",
               }}>
                 <Eth size={10} /> ETH
               </span>
@@ -391,7 +390,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
 
         {/* Right: THEIR NFT */}
         <div style={cardStyle}>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 9, color: "var(--gold)", letterSpacing: "0.06em", textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.06em", textAlign: "center" }}>
             THEIR NFT
           </div>
           <NftSlot
@@ -408,7 +407,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
 
           {/* ETH request */}
           <div style={{ marginTop: "auto" }}>
-            <div style={{ fontFamily: "var(--pixel)", fontSize: 8, color: "var(--text-dim)", marginBottom: 6, letterSpacing: "0.04em" }}>
+            <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--text-dim)", marginBottom: 6, letterSpacing: "0.04em" }}>
               REQUEST ETH (OPTIONAL)
             </div>
             <div style={{ position: "relative" }}>
@@ -423,7 +422,7 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
               />
               <span style={{
                 position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", pointerEvents: "none",
+                fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", pointerEvents: "none",
               }}>
                 <Eth size={10} /> ETH
               </span>
@@ -436,15 +435,15 @@ export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab
           settled in the audited P2P Trades surface \u2014 this tab is for picking
           the pair and firing the offer. */}
       <div style={{
-        background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
-        border: "1px solid var(--border)", borderRadius: 16, padding: 24,
+        background: "var(--surface-glass)",
+        border: "1px solid var(--border)", borderRadius: 8, padding: 24,
         display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14,
       }}>
         <div>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 8 }}>
             INCOMING &amp; SENT TRADES
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", maxWidth: 460, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", maxWidth: 460, lineHeight: 1.5 }}>
             Review, accept, counter, or cancel offers in the Trades tab &mdash; the same book your sent offers post to. Offers are wallet-signed Seaport orders, held off-chain until someone fills them; the swap itself settles atomically on-chain.
           </div>
         </div>

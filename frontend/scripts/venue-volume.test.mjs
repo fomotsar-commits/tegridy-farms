@@ -31,7 +31,7 @@ import {
   base58,
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
-import { READERS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
+import { DB_TIMEOUT_MS, READERS, RUN_BUDGET_MS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
 import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -565,15 +565,20 @@ describe("valuation: once, at the price of the run that first sees the swap", ()
 });
 
 // A fake PostgREST that keeps rows by source and honours `version=eq.N`.
-function fakeDb(initial = []) {
+// venue_volume's NOT NULL columns (028): Postgres refuses a null in any of them, so the fake does too.
+const NOT_NULL = ["source", "swaps", "usd", "unpriced", "bot_swaps", "bot_usd", "cursor", "version"];
+function fakeDb(initial = [], { orders = [] } = {}) {
   const rows = new Map(initial.map((r) => [r.source, { ...r }]));
   const writes = [];
   const fetchImpl = vi.fn(async (url, init = {}) => {
     const u = new URL(url);
     const method = init.method ?? "GET";
+    if (method === "GET" && u.pathname.endsWith("/native_orders")) return new Response(JSON.stringify(orders), { status: 200 });
     if (method === "GET") return new Response(JSON.stringify([...rows.values()]), { status: 200 });
     const body = JSON.parse(init.body);
     writes.push({ method, url: u.pathname + u.search, body });
+    const nulls = NOT_NULL.filter((k) => k in body && body[k] === null);
+    if (nulls.length) return new Response(JSON.stringify({ code: "23502", message: `null value in column "${nulls[0]}"` }), { status: 400 });
     if (method === "POST") {
       if (rows.has(body.source)) return new Response("{}", { status: 409 });
       rows.set(body.source, body);
@@ -648,6 +653,70 @@ describe("main: totals and cursor are written together, or not at all", () => {
     await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, ...quiet });
     expect(deadline - before).toBeGreaterThanOrEqual(20_000);
     expect(deadline - before).toBeLessThan(25_000);
+    // Less when the run itself has less left.
+    const second = Date.now();
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, runMs: 5_000, ...quiet });
+    expect(deadline - second).toBeGreaterThan(4_000);
+    expect(deadline - second).toBeLessThan(6_000);
+  });
+
+  // A source's budget is checked only between reads, and the Solana readers never check it:
+  // one stuck RPC call ran the Vercel count past its 120-second cap and lost every source after it.
+  it("a source still reading when the run's time is up is let go unsaved, and the rest wait for the next run", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+    const errors = [];
+    const readers = { jupiter: () => new Promise(() => {}), ethereum: reader([], { block: 9, pairs: [] }) };
+    const code = await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter", "ethereum"], readers, runMs: 50, log: () => {}, error: (m) => errors.push(m) });
+    expect(code).toBe(1);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, cursor: { k: "old" }, version: 2 });
+    expect(db.rows.get("jupiter").last_error).toMatch(/out of time/);
+    expect(db.rows.has("ethereum")).toBe(false);
+    expect(errors.join(" ")).toMatch(/ethereum not counted::the run was out of time before it began/);
+  }, 5_000);
+
+  // Node's timers keep their own clock and can call time up a millisecond before Date.now()
+  // does. Here Date.now() reads one behind them, so the let-go fires with a millisecond left.
+  it("once a source is let go, no other source starts, even with Date.now() a millisecond short", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const timersNow = Date.now;
+    const t0 = timersNow();
+    const behind = vi.spyOn(Date, "now").mockImplementation(() => Math.max(t0, timersNow() - 1));
+    try {
+      const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+      const errors = [];
+      const started = [];
+      const readers = { jupiter: () => new Promise(() => {}), ethereum: (...a) => (started.push("ethereum"), reader([], { block: 9, pairs: [] })(...a)) };
+      const run = main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter", "ethereum"], readers, runMs: 50, log: () => {}, error: (m) => errors.push(m) });
+      while (vi.getTimerCount() === 0) await new Promise((r) => setImmediate(r)); // jupiter is reading
+      await vi.advanceTimersByTimeAsync(50);
+      expect(Date.now()).toBe(t0 + 49);
+      expect(await run).toBe(1);
+      expect(started).toEqual([]);
+      expect(db.rows.has("ethereum")).toBe(false);
+      expect(errors.join(" ")).toMatch(/ethereum not counted::the run was out of time before it began/);
+    } finally {
+      behind.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("what a let-go source reads after the run ends is never written", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+    const late = new Promise((r) => setTimeout(r, 100));
+    const readers = { jupiter: async () => (await late, reader(oneUsdcSwap, { k: "new" })()) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, runMs: 20, ...quiet })).toBe(1);
+    await late;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, cursor: { k: "old" }, version: 2 });
+    expect(db.writes.filter((w) => w.url.includes("version=eq."))).toHaveLength(0);
+  });
+
+  // setTimeout fires at once for a wait past 2^31 ms, Infinity included.
+  it("a run with no time limit waits for a slow source", async () => {
+    const db = fakeDb();
+    const readers = { jupiter: async () => (await new Promise((r) => setTimeout(r, 30)), reader(oneUsdcSwap, { k: "s" })()) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, runMs: Infinity, ...quiet })).toBe(0);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, cursor: { k: "s" } });
   });
 
   it("a source that fails keeps its totals and cursor, records the error, and the rest still count", async () => {
@@ -673,6 +742,14 @@ describe("main: totals and cursor are written together, or not at all", () => {
 });
 
 describe("pins", () => {
+  // After the run's time is up, a write and an error note can still each wait DB_TIMEOUT_MS;
+  // checkout and Node take about two minutes of the job's own limit.
+  it("the hourly job's run ends inside the workflow's timeout-minutes", () => {
+    const yml = readFileSync(join(HERE, "..", "..", ".github", "workflows", "venue-volume.yml"), "utf-8");
+    const limitMs = Number(yml.match(/timeout-minutes:\s*(\d+)/)[1]) * 60_000;
+    expect(RUN_BUDGET_MS + 2 * DB_TIMEOUT_MS + 2 * 60_000).toBeLessThanOrEqual(limitMs);
+  });
+
   it("Base reads through every keyless RPC that serves its old blocks", () => {
     expect(EVM_CHAINS.base.rpcs).toEqual(expect.arrayContaining(["https://base.drpc.org", "https://base.gateway.tenderly.co"]));
   });
@@ -908,10 +985,31 @@ describe("the NFT order book: each sale it marked filled, at its price", () => {
   it("is handed the counter's own database by main", async () => {
     const db = fakeDb();
     let got = null;
-    const readers = { "nft-orderbook": async (cursor, d) => ((got = d.db), reader([], null)()) };
+    const readers = { "nft-orderbook": async (cursor, d) => ((got = d.db), reader([], {})()) };
     expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], readers, ...quiet })).toBe(0);
     expect(typeof got).toBe("function");
     expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, version: 1 });
+  });
+
+  // 2026-11-14: with no sale yet the reader handed back a null cursor, Postgres refused the
+  // first write, the row never existed, and the home page showed no volume at all.
+  it("with no sale yet, the first run still writes its row, and the next run reads on from it", async () => {
+    const db = fakeDb();
+    const run = () => main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, usd: 0, unpriced: 0, cursor: {}, version: 1, last_error: null });
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 0, cursor: {}, version: 2 });
+  });
+
+  it("the first sale after that is counted once", async () => {
+    const db = fakeDb([], { orders: [fill("0xa", T1, 10n ** 17n)] });
+    const quotes = async (url) => new Response(JSON.stringify(url.includes("coinbase") ? { data: { amount: "2000" } } : { ethereum: { usd: 2000 } }));
+    const fetchImpl = async (url, init) => (new URL(String(url)).host === "db.test" ? db.fetchImpl(url, init) : quotes(String(url)));
+    const run = () => main({ env, fetchImpl, deps: {}, sources: ["nft-orderbook"], ...quiet });
+    expect(await run()).toBe(0);
+    expect(await run()).toBe(0);
+    expect(db.rows.get("nft-orderbook")).toMatchObject({ swaps: 1, usd: 200, cursor: { at: T1, orders: ["0xa"] }, version: 2 });
   });
 });
 

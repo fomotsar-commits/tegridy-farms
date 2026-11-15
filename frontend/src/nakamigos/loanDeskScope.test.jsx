@@ -1,7 +1,7 @@
 // A loan is offered only on a collection the lending contract accepts.
 //
-// TegridyNFTLending whitelists three collections in its constructor (JBAC,
-// Nakamigos, GNSS Art) and reverts CollectionNotWhitelisted for any other.
+// Gondi's loan contract takes the three collections its deploy whitelisted (JBAC,
+// Nakamigos, GNSS Art: contracts/script/DeployGondiLending.s.sol) and no other.
 // Gold Cards now trades on this venue, so an owner of one reaches the detail
 // Modal and My NFTs, the two places that point a holder at NFT Finance. A
 // Gold Cards loan cannot be taken, so neither may offer one. The venue's
@@ -124,9 +124,9 @@ async function renderMyNfts(slug) {
 }
 
 describe("the lending whitelist", () => {
-  it("the venue's loan collections are exactly the ones TegridyNFTLending whitelists", () => {
-    const sol = readFileSync(join(process.cwd(), "..", "contracts", "src", "TegridyNFTLending.sol"), "utf8");
-    const whitelisted = [...sol.matchAll(/whitelistedCollections\[(0x[0-9a-fA-F]{40})\]\s*=\s*true/g)].map((m) => m[1].toLowerCase());
+  it("the venue's loan collections are exactly the ones the Gondi deploy whitelisted", () => {
+    const sol = readFileSync(join(process.cwd(), "..", "contracts", "script", "DeployGondiLending.s.sol"), "utf8");
+    const whitelisted = [...sol.matchAll(/address public constant (?:JBAC|NAKAMIGOS|GNSS) = (0x[0-9a-fA-F]{40});/g)].map((m) => m[1].toLowerCase());
     expect(whitelisted.length).toBe(3);
     const desk = constants.NFT_LOAN_DESK_CONTRACTS;
     expect(desk, "constants.js exports no NFT_LOAN_DESK_CONTRACTS").toBeInstanceOf(Set);
@@ -153,13 +153,14 @@ describe("the detail Modal", () => {
 describe("My NFTs", () => {
   it("tells a Gold Cards holder nothing about a loan their cards cannot back", async () => {
     await renderMyNfts("junglebaygoldcards");
-    expect(screen.queryByText(/can back an ETH loan/)).toBeNull();
+    expect(screen.queryByText(/can back a WETH loan/)).toBeNull();
     expect(loanLinks()).toEqual([]);
   });
 
   it("control: a Nakamigos holder still sees the loan banner", async () => {
     await renderMyNfts("nakamigos");
-    await waitFor(() => expect(screen.getByText(/Your Nakamigos NFTs can back an ETH loan in NFT Finance/)).toBeInTheDocument());
+    // Gondi lends WETH, not ETH.
+    await waitFor(() => expect(screen.getByText(/Your Nakamigos NFTs can back a WETH loan in NFT Finance/)).toBeInTheDocument());
     expect(loanLinks().length).toBe(1);
   });
 });

@@ -258,6 +258,14 @@ const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_
 const NOT_ENOUGH_SOL =
   'Your wallet does not have enough SOL for this, including the network fee and any one-time account costs.';
 
+/**
+ * The range program's InvalidRewardInputAccountNumber (error.rs, 6030): a take-out names one
+ * reward account group per reward, and a reward started after it was built adds one.
+ */
+const RANGE_REWARD_COUNT_CODE = 6030;
+const RANGE_REWARD_COUNT_LOG = /Error Code: InvalidRewardInputAccountNumber\./;
+export const RANGE_REWARD_STARTED = 'A reward started on this pool after you reviewed. Review again.';
+
 /** True whether it failed in the test run or on chain, so it says nothing about what was sent. */
 const PLANT_SHORT = 'This wallet holds less than 100,000 $BAYLA, so the plant cannot be paid.';
 
@@ -302,6 +310,9 @@ export function explainFailure(
     const program = programOf(id, cfg);
     const lp = lpFailure(kind, program, id, code);
     if (lp !== null) return { program, code, message: lp };
+    if ((kind === 'range-remove' || kind === 'range-close') && code === RANGE_REWARD_COUNT_CODE && RANGE_REWARD_COUNT_LOG.test(joined)) {
+      return { program, code, message: RANGE_REWARD_STARTED };
+    }
     // In a create, Token-2022 runs only the $BAYLA plant, so its "insufficient funds"
     // is the plant's. Only in a create: a liquidity transaction's pool token can be a
     // Token-2022 token (so can BAYLA, as a pool's coin), and its shortfall is said below.

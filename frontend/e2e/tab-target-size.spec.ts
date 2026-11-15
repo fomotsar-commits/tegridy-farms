@@ -11,7 +11,7 @@
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
-import { expectNoSidewaysScroll } from './fixtures/pageWidth';
+import { expectNoSidewaysScroll, resizeViewport } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 import { playLiveVenue } from './fixtures/playedVenue';
 
@@ -366,7 +366,7 @@ test('/pools: the venue status card\'s Refresh and copy buttons are 44px press t
     const card = page.getByRole('region', { name: 'Venue status' });
     await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
     for (const width of [390, 820, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
+      await resizeViewport(page, { width, height: 900 });
       const sweeps = await card.evaluate((el) => {
         const copies = Array.from(el.querySelectorAll('button')).filter((b) => b.title === 'Copy to clipboard');
         return copies.map((copy) => {

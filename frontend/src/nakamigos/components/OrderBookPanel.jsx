@@ -222,28 +222,28 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
 
   return (
     <div style={{
-      background: "rgba(111,168,220,0.02)",
-      border: "1px solid rgba(111,168,220,0.08)",
-      borderRadius: 12,
+      background: "rgba(255,255,255,0.025)",
+      border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 6,
       padding: 20,
       marginBottom: 24,
     }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
             NATIVE LISTINGS
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
             Direct Seaport orders &middot; {NATIVE_FEE_PCT}% fee
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Flat-fee badge — parity with OpenSea, no creator royalty on native fills */}
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 10,
-            background: "rgba(76,175,80,0.1)", border: "1px solid rgba(76,175,80,0.2)",
-            borderRadius: 8, padding: "5px 10px",
+            fontFamily: "var(--mono)", fontSize: 11,
+            background: "rgba(47,217,139,0.1)", border: "1px solid rgba(47,217,139,0.2)",
+            borderRadius: 4, padding: "5px 10px",
             color: "var(--green)",
           }}>
             Flat {NATIVE_FEE_PCT}% &middot; fees fund the treasury
@@ -252,8 +252,8 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
             onClick={fetchOrders}
             style={{
               background: "transparent", border: "1px solid var(--border)",
-              borderRadius: 6, padding: "5px 10px", cursor: "pointer",
-              fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+              borderRadius: 4, padding: "5px 10px", cursor: "pointer",
+              fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
             }}
           >
             Refresh
@@ -264,27 +264,27 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
       {/* Fee comparison bar */}
       <div style={{
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16,
-        fontFamily: "var(--mono)", fontSize: 10,
+        fontFamily: "var(--mono)", fontSize: 11,
       }}>
         <div style={{
-          background: "rgba(76,175,80,0.06)", border: "1px solid rgba(76,175,80,0.15)",
-          borderRadius: 8, padding: "8px 12px", textAlign: "center",
+          background: "rgba(47,217,139,0.06)", border: "1px solid rgba(47,217,139,0.15)",
+          borderRadius: 4, padding: "8px 12px", textAlign: "center",
         }}>
           <div style={{ color: "var(--green)", fontWeight: 600 }}>Platform fee: {NATIVE_FEE_PCT}%</div>
-          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Funds the Tegridy treasury</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Funds the Tegridy treasury</div>
         </div>
         <div style={{
-          background: "rgba(111,168,220,0.06)", border: "1px solid rgba(111,168,220,0.15)",
-          borderRadius: 8, padding: "8px 12px", textAlign: "center",
+          background: "rgba(255,255,255,0.042)", border: "1px solid rgba(255,255,255,0.16)",
+          borderRadius: 4, padding: "8px 12px", textAlign: "center",
         }}>
           <div style={{ color: "var(--naka-blue)" }}>Creator royalty: 0%</div>
-          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Not collected on native fills</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>Not collected on native fills</div>
         </div>
       </div>
 
       {/* Loading / Error / Empty states */}
       {loading && (
-        <div style={{ textAlign: "center", padding: "20px 0", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+        <div style={{ textAlign: "center", padding: "20px 0", fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
           <span className="pulse-dot" style={{ marginRight: 8 }} />
           Fetching native listings...
         </div>
@@ -292,7 +292,7 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
       {!loading && error && (
         <div style={{
           textAlign: "center", padding: "16px 0",
-          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
+          fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)",
         }}>
           {error === "Orderbook database not configured"
             ? "Native orderbook not yet configured for this deployment."
@@ -305,7 +305,7 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
       {!loading && !error && activeOrders.length === 0 && activeBundles.length === 0 && (
         <div style={{
           textAlign: "center", padding: "20px 0",
-          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
+          fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)",
         }}>
           No native listings for {collection.name} right now. Create one from the token detail panel.
         </div>
@@ -330,7 +330,7 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
           renders bundle rows with a "Bundle · N NFTs" label. Renders nothing while off. */}
       {BUNDLE_LISTING_ENABLED && !loading && !error && activeBundles.length > 0 && (
         <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.1em", marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--gold)", letterSpacing: "0.1em", marginBottom: 8 }}>
             BUNDLES · buy every NFT in one transaction
           </div>
           <NativeListingsList
@@ -399,25 +399,25 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
 
   return (
     <div style={{
-      background: "rgba(111,168,220,0.02)",
-      border: "1px solid rgba(111,168,220,0.08)",
-      borderRadius: 12,
+      background: "rgba(255,255,255,0.025)",
+      border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 6,
       padding: "20px",
       marginBottom: 24,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
             ORDER BOOK
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
             Bid/ask depth &middot; {listings.length} asks &middot; {collectionOffers.length} bids
           </div>
         </div>
         {spreadPct != null && (
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 11,
-            background: "rgba(111,168,220,0.08)", borderRadius: 8, padding: "6px 12px",
+            fontFamily: "var(--mono)", fontSize: 12,
+            background: "rgba(255,255,255,0.056)", borderRadius: 4, padding: "6px 12px",
           }}>
             <span style={{ color: "var(--text-muted)" }}>Spread </span>
             <span style={{ color: "var(--gold)" }}>{spread.toFixed(4)}</span>
@@ -428,9 +428,9 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
             a negative one, and keep the crossing bid in the depth below. */}
         {crossed && (
           <div style={{
-            fontFamily: "var(--mono)", fontSize: 11,
-            background: "rgba(251,191,36,0.08)", borderRadius: 8, padding: "6px 12px",
-            color: "var(--yellow, #fbbf24)",
+            fontFamily: "var(--mono)", fontSize: 12,
+            background: "rgba(242,193,78,0.08)", borderRadius: 4, padding: "6px 12px",
+            color: "var(--yellow, #f2c14e)",
           }}>
             Spread unavailable &middot; best bid is at or above best ask
           </div>
@@ -440,19 +440,19 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
       {/* Best Bid / Best Ask */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         <div style={{
-          background: "rgba(76,175,80,0.06)", border: "1px solid rgba(76,175,80,0.15)",
-          borderRadius: 8, padding: "10px 14px", textAlign: "center",
+          background: "rgba(47,217,139,0.06)", border: "1px solid rgba(47,217,139,0.15)",
+          borderRadius: 4, padding: "10px 14px", textAlign: "center",
         }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.1em", marginBottom: 4 }}>BEST BID</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", letterSpacing: "0.1em", marginBottom: 4 }}>BEST BID</div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 16, color: "var(--green)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
             <Eth size={12} />{bestBid ? bestBid.toFixed(4) : "\u2014"}
           </div>
         </div>
         <div style={{
-          background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.15)",
-          borderRadius: 8, padding: "10px 14px", textAlign: "center",
+          background: "rgba(255,92,92,0.06)", border: "1px solid rgba(255,92,92,0.15)",
+          borderRadius: 4, padding: "10px 14px", textAlign: "center",
         }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)", letterSpacing: "0.1em", marginBottom: 4 }}>BEST ASK</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)", letterSpacing: "0.1em", marginBottom: 4 }}>BEST ASK</div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 16, color: "var(--red)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
             <Eth size={12} />{bestAsk ? bestAsk.toFixed(4) : "\u2014"}
           </div>
@@ -462,28 +462,28 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
       {/* Depth bars */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
         <div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginBottom: 8, letterSpacing: "0.05em" }}>BIDS (BUYERS)</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginBottom: 8, letterSpacing: "0.05em" }}>BIDS (BUYERS)</div>
           {bidBuckets.map((b, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, height: 22 }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, textAlign: "right", flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", width: 52, textAlign: "right", flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
               <div style={{ flex: 1, position: "relative", height: 16, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(76,175,80,0.15)", borderRadius: 3, transition: "width 0.3s ease" }} />
-                <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(76,175,80,0.35)", borderRadius: 3, transition: "width 0.3s ease" }} />
+                <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(47,217,139,0.15)", borderRadius: 3, transition: "width 0.15s ease" }} />
+                <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(47,217,139,0.35)", borderRadius: 3, transition: "width 0.15s ease" }} />
               </div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", width: 28, textAlign: "right", flexShrink: 0 }}>{b.count || ""}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", width: 28, textAlign: "right", flexShrink: 0 }}>{b.count || ""}</span>
             </div>
           ))}
         </div>
         <div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginBottom: 8, letterSpacing: "0.05em" }}>ASKS (SELLERS)</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginBottom: 8, letterSpacing: "0.05em" }}>ASKS (SELLERS)</div>
           {askBuckets.map((b, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, height: 22 }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--red)", width: 28, flexShrink: 0 }}>{b.count || ""}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--red)", width: 28, flexShrink: 0 }}>{b.count || ""}</span>
               <div style={{ flex: 1, position: "relative", height: 16, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(244,67,54,0.15)", borderRadius: 3, transition: "width 0.3s ease" }} />
-                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(244,67,54,0.35)", borderRadius: 3, transition: "width 0.3s ease" }} />
+                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(255,92,92,0.15)", borderRadius: 3, transition: "width 0.15s ease" }} />
+                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(255,92,92,0.35)", borderRadius: 3, transition: "width 0.15s ease" }} />
               </div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", width: 52, flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
             </div>
           ))}
         </div>
