@@ -195,6 +195,7 @@ impl SwapState {
         is_fee_on_input: bool,
         protocol_fee_rate: u32,
         fund_fee_rate: u32,
+        is_limit_order_fill: bool,
     ) -> Result<()> {
         // Calculate the actual amount_in consumed by user
         // If fee is from input, user pays amount_in + fee_amount; otherwise just amount_in
@@ -228,7 +229,7 @@ impl SwapState {
                 .checked_add(amount_in_consumed)
                 .ok_or(ErrorCode::CalculateOverflow)?;
         }
-        self.spilt_fees(fee_amount, protocol_fee_rate, fund_fee_rate)?;
+        self.spilt_fees(fee_amount, protocol_fee_rate, fund_fee_rate, is_limit_order_fill)?;
         Ok(())
     }
 
@@ -237,6 +238,7 @@ impl SwapState {
         fee_amont: u64,
         protocol_fee_rate: u32,
         fund_fee_rate: u32,
+        is_limit_order_fill: bool,
     ) -> Result<()> {
         let denom = FEE_RATE_DENOMINATOR_VALUE as u128;
         let fee_u128 = fee_amont as u128;
@@ -270,7 +272,10 @@ impl SwapState {
             .and_then(|v| v.checked_sub(fund_fee_delta))
             .ok_or(ErrorCode::CalculateOverflow)?;
 
-        if self.liquidity > 0 {
+        // memetics.finance: no LP sells on a limit-order fill, so the LPs' part of its fee is
+        // the venue's whatever liquidity is in range (2026-11-15 audit, RNG-03, the owner's
+        // ruling). An ordinary swap step splits as before.
+        if self.liquidity > 0 && !is_limit_order_fill {
             let fee_growth_global_x64_delta = U128::from(remaining_fee)
                 .mul_div_floor(U128::from(fixed_point_64::Q64), U128::from(self.liquidity))
                 .ok_or(ErrorCode::CalculateOverflow)?
@@ -664,6 +669,7 @@ pub fn swap_internal<'info>(
                     is_fee_on_input,
                     amm_config.protocol_fee_rate,
                     amm_config.fund_fee_rate,
+                    false,
                 )?;
                 swap_computed_result
             } else {
@@ -704,6 +710,7 @@ pub fn swap_internal<'info>(
                         is_fee_on_input,
                         amm_config.protocol_fee_rate,
                         amm_config.fund_fee_rate,
+                        true,
                     )?;
                 }
                 if !next_initialized_tick.is_initialized() {
@@ -4491,6 +4498,89 @@ mod swap_test {
 
                 let after = get_tick_state(&tick_array_states, tick_with_orders).unwrap();
                 assert_eq!(after.limit_order_unfilled_amount().unwrap(), 0);
+            }
+        }
+
+        /// memetics.finance (2026-11-15 audit, RNG-03, the owner's ruling): on a limit-order
+        /// fill the LPs' part of the fee is the venue's, whatever liquidity is in range; an
+        /// ordinary swap step still pays in-range LPs their part. The tier is the venue's 1%:
+        /// 10.4% of the fee to the venue, 5.6% to the island.
+        mod limit_order_fill_fee_test {
+            use super::*;
+
+            fn swap_one_for_zero(
+                ticks: Vec<TickState>,
+                tick_current: i32,
+                price_at_tick: i32,
+                liquidity: u128,
+                amount_in: u64,
+            ) -> (SwapInternalResult, RefCell<PoolState>, VecDeque<RefCell<TickArrayState>>) {
+                let sqrt_price_x64 = tick_math::get_sqrt_price_at_tick(price_at_tick).unwrap();
+                let (mut amm_config, pool_state, tick_array_states, observation_state) =
+                    build_swap_param(
+                        tick_current,
+                        1,
+                        sqrt_price_x64,
+                        liquidity,
+                        vec![TickArrayInfo { start_tick_index: 0, ticks }],
+                    );
+                amm_config.trade_fee_rate = 10_000;
+                amm_config.protocol_fee_rate = 104_000;
+                amm_config.fund_fee_rate = 56_000;
+                // From zero, so the growth read after the swap is the swap's own.
+                pool_state.borrow_mut().fee_growth_global_1_x64 = 0;
+                let result = swap_internal(
+                    &amm_config,
+                    &mut pool_state.borrow_mut(),
+                    &mut get_tick_array_states_mut(&tick_array_states).borrow_mut(),
+                    &mut observation_state.borrow_mut(),
+                    None,
+                    amount_in,
+                    tick_math::MAX_SQRT_PRICE_X64 - 1,
+                    false,
+                    true,
+                    oracle::block_timestamp_mock() as u32,
+                )
+                .unwrap();
+                (result, pool_state, tick_array_states)
+            }
+
+            #[test]
+            fn fill_with_liquidity_in_range_books_the_lp_part_to_the_venue() {
+                // An ask resting at tick 10, the pool's price, with LP liquidity in range.
+                let mut ask = build_tick(10, 1, -1).take();
+                ask.orders_amount = 10_000_000;
+                let (result, pool_state, tick_array_states) =
+                    swap_one_for_zero(vec![ask], 9, 10, 1_000_000_000, 1_000_000);
+                let pool = pool_state.borrow();
+                // The whole swap met the ask: 1% of 1,000,000, paid in token 1.
+                assert_eq!(result.trade_fee_1, 10_000);
+                assert_eq!({ pool.protocol_fees_token_1 }, 9_440);
+                assert_eq!({ pool.fund_fees_token_1 }, 560);
+                assert_eq!({ pool.fee_growth_global_1_x64 }, 0);
+                let after = get_tick_state(&tick_array_states, 10).unwrap();
+                assert!(after.limit_order_unfilled_amount().unwrap() < 10_000_000);
+            }
+
+            #[test]
+            fn ordinary_step_with_liquidity_in_range_pays_lps_their_part() {
+                // A position from 0 to 50 and no order: the swap stays inside it.
+                let liquidity: u128 = 1_000_000_000_000;
+                let upper = build_tick(50, liquidity, -(liquidity as i128)).take();
+                let (result, pool_state, _) =
+                    swap_one_for_zero(vec![upper], 0, 0, liquidity, 1_000_000);
+                let pool = pool_state.borrow();
+                let fee = result.trade_fee_1;
+                let (venue, island) = (fee * 104_000 / 1_000_000, fee * 56_000 / 1_000_000);
+                assert_eq!({ pool.protocol_fees_token_1 }, venue);
+                assert_eq!({ pool.fund_fees_token_1 }, island);
+                let lps = fee - venue - island;
+                assert_eq!(lps * 100 / fee, 84);
+                let growth = U128::from(lps)
+                    .mul_div_floor(U128::from(fixed_point_64::Q64), U128::from(liquidity))
+                    .unwrap()
+                    .as_u128();
+                assert_eq!({ pool.fee_growth_global_1_x64 }, growth);
             }
         }
     }
