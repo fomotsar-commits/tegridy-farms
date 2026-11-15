@@ -71,7 +71,7 @@
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
       "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because losing it is how this registry started. It is NOT the restart's deploy key (that is tegridy-launch-deployer, 2026-09-25), and it was cp-swap admin::ID in source until 2026-09-26; verify-program-constants forbids it in both restart binaries.",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
-      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, not recovered to any address this registry knows), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
+      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, which vault proposal #4 sent to squads-member-a when it closed them on 2026-08-13), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
       "expect": {
         "type": "absent"
       }
@@ -189,7 +189,7 @@
     {
       "id": "cp-swap-amm-config-restart",
       "address": "BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW",
-      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's first three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 200,000 to 130,000 and fund_fee_rate 0 to 70,000 per million of the trade fee, so the take stays 20% of it (0.05% of each swap: 0.0325% protocol fee to squads-vault, 0.0175% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee (as can cp-swap's admin, squads-vault: collect_fund_fee.rs). Then update_amm_config(7, 5000) raised the creator fee from 0.05% to 0.50% of the swap (Squads #12, executed 2026-10-19T07:59:04Z, slot 458,758,678), while no pool used this tier and launches were paused. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's first three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 200,000 to 130,000 and fund_fee_rate 0 to 70,000 per million of the trade fee, so the take stays 20% of it (0.05% of each swap: 0.0325% protocol fee to squads-vault, 0.0175% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee. Only a tier's fund owner can (collect_fund_fee.rs), so the vault cannot collect it. Then update_amm_config(7, 5000) raised the creator fee from 0.05% to 0.50% of the swap (Squads #12, executed 2026-10-19T07:59:04Z, slot 458,758,678), while no pool used this tier and launches were paused. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
@@ -199,7 +199,7 @@
     {
       "id": "cp-swap-amm-config-public-restart",
       "address": "CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy",
-      "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed up to that read: its other five transactions then were the two pool openings and three swaps. Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 160,000 to 104,000 and fund_fee_rate 0 to 56,000 per million of the trade fee, so the take stays 16% of it (0.16% of each swap: 0.104% protocol fee to squads-vault, 0.056% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee (as can cp-swap's admin, squads-vault: collect_fund_fee.rs). Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed up to that read: its other five transactions then were the two pool openings and three swaps. Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 160,000 to 104,000 and fund_fee_rate 0 to 56,000 per million of the trade fee, so the take stays 16% of it (0.16% of each swap: 0.104% protocol fee to squads-vault, 0.056% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee. Only a tier's fund owner can (collect_fund_fee.rs), so the vault cannot collect it. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED, and read: at finalized slot 455,314,217 (2026-10-10) it is owned by cp-swap-program-restart and holds 1,849,120 lamports. Registered 2026-10-10; until then the registry named this address only inside the two venue-pool rows, so nothing asserted it against the chain.",
       "expect": {
@@ -272,6 +272,26 @@
       }
     },
     {
+      "id": "squads-member-a",
+      "address": "5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz",
+      "role": "One of the two members of squads-multisig (2 of 2): every vault proposal needs its approval. It executed proposals #19 and #21, and vault proposal #4 (executed 2026-08-13) sent it the rent of the two programs closed that day.",
+      "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
+      "status": "live, system-owned. Read on mainnet-beta 2026-11-15: 2,151,332 lamports. An approval, a cancel vote or an execute costs 5,000 lamports; making a new proposal costs its maker the rent of two Squads records, which is more than it holds.",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
+      "id": "squads-member-b",
+      "address": "6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY",
+      "role": "The other member of squads-multisig (2 of 2): every vault proposal needs its approval too. It created proposals #19, #21 and #30.",
+      "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
+      "status": "live, system-owned. Read on mainnet-beta 2026-11-15: 1,595,730 lamports. The same costs as squads-member-a: enough to approve and execute, not to make a new proposal.",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
       "id": "system-program",
       "address": "11111111111111111111111111111111",
       "role": "The System Program. Registered because it WAS tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the non-devnet arm until 2026-09-26 (now tegridy-launch-deployer) — a binary still carrying it can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
@@ -334,6 +354,16 @@
       "role": "The Squads vault's USDT associated token account: ATA(USDT Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB, squads-vault) under the classic token program, derived and matched. It is where the site's Solana swap fee lands when that fee is taken in USDT: since 2026-11-02 (#1105) src/lib/jupiter.ts picks the fee mint from {wrapped SOL, USDC, USDT}, USDC first, then USDT, then wrapped SOL, and pays the fee owner's associated token account. Jupiter refuses a swap whose fee account does not exist, so this account had to exist before that build reached production. An SPL token account, NOT a wallet. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts; frontend/create-fee-atas.mjs --dry-run derives and reads it.",
       "custody": "owned by the Squads vault",
       "status": "live, balance 0. Created 2026-11-02T02:49:07Z (slot 464,333,061, signature 4oQ6nCyKA3Re3XazmjAnfcuUaUsShCe7Gdj2JSQ8UpjfAoLWxVMNCFyPGYYDRYQTWPZApx7uVYv2uCQdB2nV189T) by the owner running frontend/create-fee-atas.mjs; the payer was 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz, not a registered wallet, and paid the 1,488,440 lamports of rent plus the 5,000-lamport fee. That creation is its only transaction, so no USDT fee has arrived yet. Read at finalized slot 464,333,605 (2026-11-02): 165 bytes, 1,488,440 lamports, program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, mint USDT, owner field squads-vault, state initialized, amount 0. Registered 2026-11-02.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "squads-vault-bayla-ata",
+      "address": "4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy",
+      "role": "The Squads vault's $BAYLA account: ATA(bayla-mint, squads-vault) under TOKEN-2022, bump 255, derived and matched. A refill of the BAYLA ladder's rewards (notify_reward) is paid from this account, so the BAYLA must be here before that vault proposal runs.",
+      "custody": "owned by the Squads vault",
+      "status": "live, Token-2022, balance 0. Read on mainnet-beta 2026-11-15: no delegate, no close authority, not frozen.",
       "expect": {
         "type": "token-account"
       }
@@ -2992,11 +3022,11 @@
       "bayla-ladder-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "range-clmm-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
-      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-bobo": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-soy": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-brainlet": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-rizz": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-bobo": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-soy": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-brainlet": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-rizz": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
       "cp-swap-amm-config-restart": {
         "layout": "cp-swap-amm-config",
         "owner": "cp-swap-program-restart",
@@ -3058,6 +3088,7 @@
         "creatorFeeShareBps": 5000,
         "cpSwapProgram": "cp-swap-program-restart",
         "ammConfig": "cp-swap-amm-config-restart",
+        "paused": 1,
         "platformReserveBps": 369
       }
     },

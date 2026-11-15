@@ -549,7 +549,7 @@ const SOLANA_FIELD_LAYOUTS = {
   programdata: { ownerAddress: 'BPFLoaderUpgradeab1e11111111111111111111111', tag: { at: 0, value: 3 }, some: 12, fields: { upgradeAuthority: { at: 13, kind: 'holder' } } },
   'anchor-idl': { fields: { authority: { at: 8, kind: 'holder' } } },
   // solana/tegridy-amm/programs/bayla-ladder; offsets as in src/lib/ladder/program.ts.
-  'bayla-ladder-pool': { size: 508, fields: { authority: { at: 75, kind: 'holder' }, pendingAuthority: { at: 107, kind: 'pubkey' } } },
+  'bayla-ladder-pool': { size: 508, fields: { authority: { at: 75, kind: 'holder' }, pendingAuthority: { at: 107, kind: 'pubkey' }, degraded: { at: 387, kind: 'u8' } } },
   // solana/tegridy-amm/programs/cp-swap/src/states/config.rs, AmmConfig::LEN 236.
   'cp-swap-amm-config': {
     size: 236,
@@ -581,10 +581,13 @@ const SOLANA_FIELD_LAYOUTS = {
       authority: { at: 8, kind: 'holder' }, feeRecipient: { at: 40, kind: 'holder' },
       tradeFeeBps: { at: 72, kind: 'u64' }, creatorFeeShareBps: { at: 80, kind: 'u64' },
       cpSwapProgram: { at: 128, kind: 'pubkey' }, ammConfig: { at: 160, kind: 'pubkey' },
-      platformReserveBps: { at: 194, kind: 'u64' },
+      paused: { at: 192, kind: 'u8' }, platformReserveBps: { at: 194, kind: 'u64' },
     },
   },
 };
+/** How far into an account a layout's fields reach: the field read asks for that much. */
+const FIELD_BYTES = { holder: 32, pubkey: 32, oneOf: 32, u64: 8, u32: 4, u16: 2, u8: 1 };
+const fieldSpan = (layout) => Math.max(...Object.values(layout.fields).map((f) => f.at + FIELD_BYTES[f.kind]));
 /** Rows that must be listed in solanaFields.accounts (or in notAsserted, with a reason). */
 const FIELD_COVERAGE = /amm-config|programdata|global/;
 const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'fundOwnerUnderTheSplit', 'accounts', 'notAsserted']);
@@ -657,7 +660,7 @@ export function solanaFieldProblems(spec, v, ids) {
   if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
   if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
   const b = Buffer.from(v.data[0], 'base64');
-  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, oneOf: 32, u64: 8, u32: 4, u16: 2, u8: 1 })[f.kind]));
+  const need = fieldSpan(layout);
   if (b.length < need) return unanswered(`asked for ${need} bytes of data, the response carried ${b.length}`);
   const problems = [];
   const owner = layout.ownerAddress ?? ids.get(spec.owner);
@@ -1468,7 +1471,10 @@ async function onchain() {
       jsonrpc: '2.0',
       id: 1,
       method: 'getMultipleAccounts',
-      params: [fieldRows.map(([id]) => safeAddress(ids.get(id))), { encoding: 'base64', dataSlice: { offset: 0, length: 240 } }],
+      params: [
+        fieldRows.map(([id]) => safeAddress(ids.get(id))),
+        { encoding: 'base64', dataSlice: { offset: 0, length: Math.max(...fieldRows.map(([, s]) => fieldSpan(SOLANA_FIELD_LAYOUTS[s.layout]))) } },
+      ],
     });
     const cls = res.ok ? classifySolanaBatch(res.json, fieldRows.length) : unanswered(res.reason);
     fieldRows.forEach(([id, spec], i) => {
@@ -1879,6 +1885,33 @@ function selfTest() {
   t('check 3d fails a tier that leaves the swap guard out', fieldFailsWith((r) => { delete r.solanaFields.accounts[cfg0].swapGuard; }, 'swapGuard is missing'));
   t('check 3d fails a keeper written as one id, not a list', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].keeper = 'price-keeper-wallet'; }, `solanaFields/${cfg0}`, 'keeper', 'list'));
   t('check 3d fails a keeper list that names no row', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].keeper = ['system-program', 'nobody']; }, 'keeper', '"nobody" is not a solana row id'));
+  // XCH-29: the switches the vault can flip. The launcher's pause; a ladder pool's one-way
+  // "degraded" flag, which makes both early exits free.
+  const layoutBytes = (id, over = {}) => {
+    const s = { ...reg.solanaFields.accounts[id], ...over };
+    const layout = SOLANA_FIELD_LAYOUTS[s.layout];
+    const b = Buffer.alloc(layout.size);
+    for (const [name, f] of Object.entries(layout.fields)) {
+      const v = s[name];
+      if (v === undefined) continue;
+      if (f.kind === 'holder' || f.kind === 'pubkey') Buffer.from(base58Decode(fid.get(v))).copy(b, f.at);
+      else if (f.kind === 'u64') b.writeBigUInt64LE(BigInt(v), f.at);
+      else if (f.kind === 'u8') b[f.at] = v;
+    }
+    return { owner: fid.get(s.owner), space: layout.size, lamports: 1, data: [b.toString('base64'), 'base64'] };
+  };
+  const readAs = (id, over) => solanaFieldProblems(reg.solanaFields.accounts[id], layoutBytes(id, over), fid);
+  t(
+    'CONTROL: check 3d (chain) passes the launcher and a ladder pool exactly as registered',
+    readAs('tegridy-launch-global-restart').problems.length === 0 && readAs('bayla-ladder-pool').problems.length === 0,
+  );
+  t('check 3d (chain) fails a launcher that is no longer paused', readAs('tegridy-launch-global-restart', { paused: 0 }).problems.some((p) => p.includes('paused is 0')));
+  t('check 3d (chain) fails a ladder pool declared degraded', readAs('bayla-ladder-pool', { degraded: 1 }).problems.some((p) => p.includes('degraded is 1')));
+  t(
+    'the real registry holds the launcher paused and all five ladder pools not degraded',
+    reg.solanaFields.accounts['tegridy-launch-global-restart']?.paused === 1 &&
+      Object.values(reg.solanaFields.accounts).filter((s) => s.layout === 'bayla-ladder-pool').map((s) => s.degraded).join() === '0,0,0,0,0',
+  );
   t(
     'the real registry holds both swap-pool tiers to the guard on, and to nobody or the price keeper as keeper',
     ['cp-swap-amm-config-restart', 'cp-swap-amm-config-public-restart'].every((id) => {
