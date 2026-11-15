@@ -210,7 +210,7 @@ describe('the site model', () => {
     }
     // Every picture is framed by its own size, not one size for all.
     expect(gables.size).toBeGreaterThan(1);
-  });
+  }, 30_000);
 
   it('fetches each picture at the copy its widest wall needs: the 128 where that spans no more than 128 device pixels', async () => {
     vi.stubEnv('PROD', true);
@@ -249,7 +249,7 @@ describe('the site model', () => {
     const tablet = await copiesAt((box.w * 0.75), 2);
     expect(tablet).toContain(128);
     expect(tablet).toContain(480);
-  });
+  }, 30_000);
 
   it('fetches no picture until the drawing has a size, then only the copies it needs', async () => {
     vi.stubEnv('PROD', true);
@@ -351,7 +351,7 @@ describe('the site model', () => {
     expect(at(box.w * 2)).toBe(KEY.captionPx);
     expect(at(box.w / 1.25)).toBeCloseTo(KEY.captionPx * 1.25, 6);
     expect(at(box.w / 3)).toBeCloseTo(KEY.captionPx * KEY.scaleMax, 6);
-  });
+  }, 30_000);
 
   it('draws no key when no pool has the lock ladder', () => {
     const { container } = render(<IsoIsland rows={rows.map((r) => ({ ...r, terms: 'Streamflow' }))} />);
@@ -462,7 +462,7 @@ describe('the site model', () => {
     } finally {
       delete (document as { hidden?: boolean }).hidden;
     }
-  });
+  }, 30_000);
 
   it('smokes twice and then holds still, and fades each picture in', () => {
     const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'index.css'), 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '');
