@@ -279,9 +279,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
+      # avm at the commit that made the live ladder's file (run 41619695555): a branch
+      # name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 

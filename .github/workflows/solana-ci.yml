@@ -54,7 +54,7 @@ name: solana-ci
 #      mainnet program id, and prices the deploy at the rent rate read from mainnet.
 on:
   push:
-    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts"]
+    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts", ".github/scripts/solana-build-pins.mjs"]
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
   # path filter on a pull_request is what forced the `-not-applicable.yml`
   # shim, and the shim is what let a failing gate be reported as a pass.
@@ -135,7 +135,8 @@ jobs:
           verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
             'solana/**' \
             '.github/workflows/solana-ci.yml' \
-            'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts')
+            'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts' \
+            '.github/scripts/solana-build-pins.mjs')
           case "$verdict" in
             true|false) say "$verdict" ;;
             *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
@@ -156,6 +157,8 @@ jobs:
       # 2026-10-06: this file's git log. What the patch holds: solana/tegridy-amm/TEGRIDY_FORK.md.
       - name: Assert the delta from audited upstream is EXACTLY the pinned one
         run: node solana/guards/provenance.mjs cp-swap
+      - name: The build pipeline's own pins hold
+        run: node .github/scripts/solana-build-pins.mjs
 
   # The Raydium CLMM vendor guard lived here until 2026-08-23.
   #
@@ -847,9 +850,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -968,9 +973,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -1115,9 +1122,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
