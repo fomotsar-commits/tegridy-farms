@@ -43,7 +43,7 @@ describe('what each side is told', () => {
     for (const line of [lenderTakeoverLine(takeoverWindow(undefined)), borrowerTakeoverLine(takeoverWindow(undefined))]) {
       expect(line).not.toMatch(/\d+%/);
       expect(line).toMatch(/^For part of (a loan's|the) term, another lender can take (the|this) loan over/);
-      expect(line).toContain("That part of the term is the loan contract's setting, and it could not be read just now, so none is shown.");
+      expect(line).toContain("That part of the term is the loan contract's setting, and it could not be read just now, so no number is shown.");
     }
     expect(lenderTakeoverLine(takeoverWindow(undefined, true))).toContain('still being read');
   });

@@ -24,11 +24,11 @@ const LISTS = {
 };
 const said = (text: string, phrase: RegExp) => (text.match(new RegExp(phrase.source, `g${phrase.flags}`)) ?? []).length;
 /** Every way the lists have said that no one outside checked the changes. */
-const NO_REVIEW = /unaudited|independent review|outside firm/i;
+const NO_REVIEW = /unaudited|independent review|outside firm|outside audit/i;
 
 describe('the first line says whose changes no outside firm has checked', () => {
   it('names them as our changes to Raydium\'s program, within 40 words', () => {
-    expect(RISK_SHORT).toContain("Our changes to Raydium's program are unaudited.");
+    expect(RISK_SHORT).toContain("Our changes to Raydium's program have no outside audit.");
     expect(RISK_SHORT).not.toMatch(/checked our changes\./);
     expect(RISK_SHORT.split(/\s+/).length).toBeLessThanOrEqual(40);
     expect(RISK_SHORT).not.toContain('—');

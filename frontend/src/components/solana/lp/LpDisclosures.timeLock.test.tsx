@@ -14,7 +14,7 @@ const TIER: AmmConfigView = {
   fundFeeRate: 56_000n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: 'vault', fundOwner: 'workshop',
 };
 const SAYS_NO_WAIT = /at once|no waiting period|time lock of 0/i;
-const AS_READ = '(as read on chain on 2026-11-14)';
+const AS_READ = '(read on chain 2026‑11‑14)';
 /** The vault line after RISK_SHORT: every other action, the other switch-offs too, waits the same. */
 const SAME_WAIT = 'every action it takes has the same wait';
 const timesSaid = (text: string, said: string) => text.split(said).length - 1;

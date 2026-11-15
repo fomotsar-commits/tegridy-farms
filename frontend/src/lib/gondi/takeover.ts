@@ -33,7 +33,7 @@ export function takeoverWindow(minLockPeriod: unknown, reading = false): Takeove
 function source(w: TakeoverWindow): string {
   const safe = "The venue's Safe can change it at once, for open loans too.";
   if (w.kind === 'reading') return `That part of the term is the loan contract's setting, still being read. ${safe}`;
-  if (w.kind === 'unread') return `That part of the term is the loan contract's setting, and it could not be read just now, so none is shown. ${safe}`;
+  if (w.kind === 'unread') return `That part of the term is the loan contract's setting, and it could not be read just now, so no number is shown. ${safe}`;
   return `${w.kind === 'window' ? 'That window' : 'That'} is the loan contract's setting, read just now. ${safe}`;
 }
 

@@ -762,11 +762,11 @@ describe('the review and a confirmed opening', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: open a pool' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveAttribute('data-kind', 'create');
-    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     expect(disclosure).toHaveTextContent(/It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait\./);
     expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     // The two risk notices stand once, above the rows (island, answer eighteen).
-    expect(within(panel).getAllByText(/Our changes to Raydium's program are unaudited\./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/Our changes to Raydium's program have no outside audit\./)).toHaveLength(1);
     expect(within(panel).getAllByText(/It can also switch off deposits or swaps on this pool, or change the public fee tier's fee to open a pool; every action it takes has the same wait\./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(isCreatedPool(pool.toBase58())).toBe(false);

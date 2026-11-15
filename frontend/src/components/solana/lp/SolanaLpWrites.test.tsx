@@ -1005,17 +1005,17 @@ describe('the review', () => {
     });
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
-    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     expect(disclosure).toHaveTextContent(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./);
     // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
     // the panel said them again under the Sign button; it keeps its other lines.
-    expect(within(panel).getAllByText(/Our changes to Raydium's program are unaudited\./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/Our changes to Raydium's program have no outside audit\./)).toHaveLength(1);
     expect(within(panel).getAllByText(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.
     fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
-    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
   });
 });
 

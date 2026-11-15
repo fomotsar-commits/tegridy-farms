@@ -97,7 +97,7 @@ describe('the LP section', () => {
   it('always discloses the missing review and what the vault can do', async () => {
     mount(readers(), '/pools');
     const d = screen.getByTestId('lp-disclosure');
-    expect(d).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(d).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
     expect(d).toHaveTextContent(/only reads/);
     // Both tabs that mount this section end with "The program", so the pointer is plain text.
@@ -460,7 +460,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (as read on chain on 2026-11-14). Our changes to Raydium's program are unaudited. Only add what you can afford to lose.";
+    "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (read on chain 2026‑11‑14). Our changes to Raydium's program have no outside audit. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -498,12 +498,12 @@ describe('the order of the section', () => {
   it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait as read, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('48 hours after both keys approve (as read on chain on 2026-11-14).');
+    expect(line).toContain('48 hours after both keys approve (read on chain 2026‑11‑14).');
     expect(line).not.toMatch(/no waiting period|at once/);
     expect(line).toContain('can switch off withdrawals');
     expect(line).toContain('change fees');
     expect(line).toContain('replace the program');
-    expect(line).toContain("Our changes to Raydium's program are unaudited.");
+    expect(line).toContain("Our changes to Raydium's program have no outside audit.");
     expect(line).toMatch(/Only add what you can afford to lose\.$/);
     // The line it replaced did not say that removing can be paused; it is gone from the page.
     expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
@@ -526,7 +526,7 @@ describe('the order of the section', () => {
     expect(small).not.toHaveAttribute('open');
     expect(small).toContainElement(sentence!);
     expect(small!.querySelector('p')).toBe(sentence);
-    expect(small).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(small).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     for (const fact of [
       'Read on chain 2026-11-14',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,

@@ -201,7 +201,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // said "waiting". The assistant is a surface like any other: keep it in
     // sync with constants.ts in BOTH directions.
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending, live on mainnet on Gondi's own v3.2 loan contracts. Lock a Jungle Bay Ape Club, Nakamigos or GNSS Art NFT to borrow WETH from a lender's signed offer, and pay interest only for the days you borrow. The lender keeps 95% of the interest and the venue 5%. Between 15% and 85% of the term, another lender can take your loan over at a lower rate without asking you, a window the venue's Safe can change at once.",
+    answer: "NFT Finance → NFT Lending, live on mainnet on Gondi's own v3.2 loan contracts. Lock a Jungle Bay Ape Club, Nakamigos or GNSS Art NFT to borrow WETH from a lender's signed offer, and pay interest only for the days you borrow. The lender keeps 95% of the interest and the venue 5%. Between 15% and 85% of the term (a window the venue's Safe can change at once), another lender can take your loan over at a lower rate without asking you.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],

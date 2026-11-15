@@ -99,7 +99,7 @@ describe('the takeover window is the loan contract\'s, read now', () => {
     const text = aboutOffers().textContent ?? '';
     expect(text).not.toMatch(/\d+% to \d+%/);
     expect(text).toContain("For part of a loan's term, another lender can take the loan over at a lower rate without asking you or the borrower.");
-    expect(text).toContain('it could not be read just now, so none is shown');
+    expect(text).toContain('it could not be read just now, so no number is shown');
   });
 
   it('the borrower reads the same window before taking a loan, and that it can change', async () => {
@@ -161,7 +161,7 @@ describe('my loans: the deadline second, and where the money goes', () => {
     await waitFor(() => expect(loanDueIcs).toHaveBeenCalledTimes(1));
     const { description, dueSeconds } = vi.mocked(loanDueIcs).mock.calls[0]![0];
     expect(dueSeconds).toBe(NOW - 86400 + 30 * 86400);
-    expect(description).toMatch(/^Loan #3: repay about \d+\.\d{6} WETH before this moment\. From then, the loan cannot be repaid and the lender can take NAKA #77\.$/);
+    expect(description).toMatch(/^Loan #3: repay about \d+\.\d{6} WETH before this event ends\. From then, the loan cannot be repaid and the lender can take NAKA #77\.$/);
     expect(description).not.toMatch(/due by this moment|After it/);
     // And the reminders' small print says the same second.
     const reminders = within(c).getByText('About reminders').closest('details')!.textContent ?? '';

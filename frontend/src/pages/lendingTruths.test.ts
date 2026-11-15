@@ -58,7 +58,7 @@ describe('Towelie on NFT lending', () => {
 
   it('says another lender can take a loan over, inside a window the Safe can change', () => {
     const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
-    expect(entry?.answer).toMatch(/another lender can take your loan over at a lower rate without asking you, a window the venue's Safe can change at once\./);
+    expect(entry?.answer).toMatch(/Between 15% and 85% of the term \(a window the venue's Safe can change at once\), another lender can take your loan over at a lower rate without asking you\./);
   });
 
   it('says to repay before the deadline: Gondi refuses a repayment at the deadline second', () => {

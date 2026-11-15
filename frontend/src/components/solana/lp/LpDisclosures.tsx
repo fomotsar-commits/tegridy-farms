@@ -18,7 +18,7 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // switch on. src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness
 // pins, so the two only move together (a roll-back too). It names no trader: the notice says
 // which routes exist, never who uses them. It follows RISK_SHORT wherever it is drawn, so the
-// unaudited changes and the afford-to-lose clause are said there, once.
+// no-outside-audit line and the afford-to-lose clause are said there, once.
 const FORK_LINE =
   "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.";
 /**
@@ -28,7 +28,7 @@ const FORK_LINE =
  * print (SolanaLpSection.tsx) says it in full. It names no program change, so an upgrade leaves it true.
  */
 export const RISK_SHORT =
-  "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (as read on chain on 2026-11-14). Our changes to Raydium's program are unaudited. Only add what you can afford to lose.";
+  "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (read on chain 2026‑11‑14). Our changes to Raydium's program have no outside audit. Only add what you can afford to lose.";
 // What the vault adds to RISK_SHORT, which is drawn above it on every list: that it is a
 // Squads multisig, the switch-offs RISK_SHORT does not name, that every action waits the
 // same, and what a switch-off of withdrawals does to a deposit.
@@ -130,7 +130,6 @@ export function LpRisksDetails({ children, anyonePool }: { children?: ReactNode;
         {children}
         <li>{anyonePool ?? 'Anyone can open a pool for any token, at any price, so being listed here does not make it "the" pool.'}</li>
         <li>Whether a token&apos;s creator can still freeze accounts is checked only when you look; it is not watched for you.</li>
-        <li>When withdrawals are switched off on a pool, the pool program refuses every withdrawal from it.</li>
         <li>Adding and then removing costs at most one smallest unit per side in rounding, plus the network fees.</li>
         <li>This browser remembers a transaction you sent until the network answers for it. Another tab does not know about it.</li>
       </ul>

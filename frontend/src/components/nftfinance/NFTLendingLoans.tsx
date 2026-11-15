@@ -328,7 +328,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
         loanId: row.loanId,
         title: `Repay loan #${row.loanId} or lose ${nft}`,
         // Gondi refuses repayment AT the deadline second (_baseLoanChecks: end <= now), and a claim is open from it.
-        description: `Loan #${row.loanId}: repay about ${fmtWeth(owedAt(loan, end).total, 6)} WETH before this moment. From then, the loan cannot be repaid and the lender can take ${nft}.`,
+        description: `Loan #${row.loanId}: repay about ${fmtWeth(owedAt(loan, end).total, 6)} WETH before this event ends. From then, the loan cannot be repaid and the lender can take ${nft}.`,
         dueSeconds: Number(end),
         nowSeconds: Number(nowSeconds()),
       }),

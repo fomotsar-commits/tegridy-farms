@@ -77,7 +77,7 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (as read on chain on 2026-11-14). Our changes to Raydium's program are unaudited. Only add what you can afford to lose.";
+  "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (read on chain 2026‑11‑14). Our changes to Raydium's program have no outside audit. Only add what you can afford to lose.";
 const LP_PARTS = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
@@ -139,7 +139,7 @@ describe('/pools opens on the pool finder', () => {
     expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('fee-tiers'));
     expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     expect(screen.getByTestId('lp-routes').nextElementSibling).toBe(full);
-    expect(full).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(full).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     expect(full).toHaveTextContent(/The vault can switch off deposits, withdrawals or swaps on any pool/);
     expect(full).toHaveTextContent(PROGRAM);
     expect(screen.getAllByTestId('lp-disclosure')).toHaveLength(1);
@@ -163,7 +163,7 @@ describe('the disclosure on /pools', () => {
     const d = await screen.findByTestId('lp-disclosure');
     expect(d).toHaveTextContent('(see “The program” below)');
     expect(within(d).queryByRole('link')).toBeNull();
-    expect(d).toHaveTextContent(/Our changes to Raydium's program are unaudited\./);
+    expect(d).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     const program = screen.getByRole('region', { name: 'The program' });
     expect(d.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

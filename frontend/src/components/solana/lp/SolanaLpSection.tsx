@@ -353,7 +353,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
   const risks = (
         <FinePrint summary="Risks">
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere").
-              It says the changes below are unaudited and to add only what you can afford to lose, so they are not said twice. */}
+              It says the changes below have no outside audit and to add only what you can afford to lose, so they are not said twice. */}
           <p>{RISK_SHORT}</p>
           {/* True of the pool program RUNNING on mainnet since its upgrade of 2026-11 to the build that has
               create_lp_metadata, refuses a public opening on fee tier 0, holds a fee tier's fees inside limits
