@@ -233,15 +233,13 @@ dust-funded PDA survives too, via the allocate+assign branch.
 
 Constraining it also stops the CALLER choosing where a launch's liquidity lands.
 
-### 8. Migration costs — RESOLVED: **reimburse the caller**
+### 8. Migration costs: **the caller ends even, the venue keeps the rest**
 
-Migration is permissionless, so `payer` fronts rent for `auth_wsol`/`auth_token`
-plus the authority's rent-exempt floor, and the authority absorbs whatever
-`migration_reserve_lamports` over-provisioned. None of it is reachable afterwards
-(only this program signs for the authority; a `complete` curve never releases
-lamports), so the instruction closes all three token accounts and sweeps the
-authority to zero, destination `payer`. Otherwise every migration is a permanent
-leak AND a guaranteed loss for whoever calls it.
+Migration is permissionless, so `payer` fronts the rent of the two staging accounts
+(`auth_wsol`, `auth_token`) and gets exactly that back when they close. The share
+account's rent and whatever `migration_reserve_lamports` did not spend were raised from
+buyers, so they go to `fee_recipient`, and the authority is swept to zero. Nothing is
+left behind, and calling migration neither pays nor costs the caller (LCH-08, 2026-11-15).
 
 ## Implemented and RUNTIME-PROVEN
 

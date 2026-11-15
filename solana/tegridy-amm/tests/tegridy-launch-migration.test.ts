@@ -528,13 +528,17 @@ describe("tegridy-launch full migration rehearsal", () => {
     const feeReceiverBefore = BigInt(
       (await provider.connection.getTokenAccountBalance(feeReceiver)).value.amount
     );
-    // AUDIT 2026-08-08: the unspent migration reserve used to be swept to `payer`,
-    // and migration is permissionless — so any bot could call this and pocket the
-    // surplus, which is money BUYERS raised (the reserve sits on top of the
-    // graduation target). Capture both balances so the regression assertions below
-    // can prove the surplus goes to the protocol and not to the caller.
-    const payerLamportsPre =
-      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
+    // LCH-08: migration is permissionless, so its caller must end exactly even and every
+    // lamport of the reserve it does not spend must reach the venue. The caller here is
+    // not the fee payer, so its balance moves only by what migrate_to_amm takes and gives.
+    const caller = Keypair.generate();
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: caller.publicKey, lamports: LAMPORTS_PER_SOL })
+      ),
+      []
+    );
+    const callerLamportsPre = (await provider.connection.getAccountInfo(caller.publicKey))!.lamports;
     const cfgFeeRecipientPre =
       (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
 
@@ -553,7 +557,7 @@ describe("tegridy-launch full migration rehearsal", () => {
       // can never be mistaken for the lamport-reconciliation bug coming back.
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
       .accountsPartial({
-        payer: wallet.publicKey,
+        payer: caller.publicKey,
         global: globalKey,
         feeRecipient: cfgFeeRecipient,
         launchMint,
@@ -581,6 +585,7 @@ describe("tegridy-launch full migration rehearsal", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
+      .signers([caller])
       .rpc({ skipPreflight: false });
 
     // ── assert ───────────────────────────────────────────────────────────────
@@ -649,33 +654,29 @@ describe("tegridy-launch full migration rehearsal", () => {
     );
 
     // ── the migration reserve must not be MEV ────────────────────────────────
-    // Regression test for the audit finding. The unspent reserve belongs to the
-    // protocol, not to whoever won the race to call a permissionless instruction.
+    // The unspent reserve belongs to the venue, not to whoever won the race to call a
+    // permissionless instruction (LCH-08). The caller gets back exactly the rent it
+    // fronted; the venue gets the reserve less what cp-swap kept for good: the opening
+    // fee and the rent of the pool's five new accounts.
     const cfgFeeRecipientPost =
       (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
-    const payerLamportsPost =
-      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
-
-    const residualToProtocol = cfgFeeRecipientPost - cfgFeeRecipientPre;
-    assert.isAbove(
-      residualToProtocol,
-      0,
-      "the unspent migration reserve must reach the config's fee recipient"
-    );
-
-    // The caller fronts a seed top-up plus two ATA rents and gets three ATA rents
-    // back, so it ends slightly up — but by RENT, not by a share of the reserve.
-    // Anything near the reserve size means the sweep is paying the caller again.
-    const payerDelta = payerLamportsPost - payerLamportsPre;
-    assert.isBelow(
-      payerDelta,
-      residualToProtocol,
-      "the caller must never gain more than the protocol does — that is the leak"
-    );
-    assert.isBelow(
-      payerDelta,
-      MIGRATION_RESERVE.toNumber() / 2,
-      "the caller's gain must be rent-scale, not reserve-scale"
+    const callerLamportsPost = (await provider.connection.getAccountInfo(caller.publicKey))!.lamports;
+    assert.equal(callerLamportsPost, callerLamportsPre, "the caller must end exactly even");
+    let keptByPool = 0;
+    for (const k of [
+      poolState,
+      lpMint,
+      pda([POOL_VAULT_SEED, poolState.toBuffer(), mint0.toBuffer()], cpSwap.programId),
+      pda([POOL_VAULT_SEED, poolState.toBuffer(), mint1.toBuffer()], cpSwap.programId),
+      pda([OBSERVATION_SEED, poolState.toBuffer()], cpSwap.programId),
+    ]) {
+      const info = (await provider.connection.getAccountInfo(k))!;
+      keptByPool += await provider.connection.getMinimumBalanceForRentExemption(info.data.length);
+    }
+    assert.equal(
+      cfgFeeRecipientPost - cfgFeeRecipientPre,
+      MIGRATION_RESERVE.toNumber() - keptByPool - CREATE_POOL_FEE.toNumber(),
+      "the venue must receive every lamport of the reserve the pool did not keep"
     );
 
     // ── report the REAL compute cost ─────────────────────────────────────────
@@ -731,13 +732,11 @@ describe("tegridy-launch full migration rehearsal", () => {
     );
 
     // ── nothing recoverable is left stranded ─────────────────────────────────
-    // Migration is permissionless, so `payer` fronts rent on two ATAs plus the
-    // authority's floor, and the authority also absorbs whatever the migration
-    // reserve over-provisioned. After migration NONE of it is reachable — only the
-    // program signs for the authority, and a `complete` curve never releases
-    // lamports — so the handler closes the three token accounts and sweeps the
-    // authority to zero. Assert it actually happened: a silent regression here is a
-    // permanent leak and it makes calling this instruction lose money.
+    // Migration is permissionless, so `payer` fronts rent on the two staging accounts,
+    // and the authority also absorbs whatever the migration reserve over-provisioned.
+    // After migration NONE of it is reachable — only the program signs for the
+    // authority, and a `complete` curve never releases lamports — so the handler
+    // closes the three token accounts and sweeps the authority to zero.
     const authInfo = await provider.connection.getAccountInfo(migAuth);
     assert.isTrue(
       authInfo === null || authInfo.lamports === 0,
@@ -754,10 +753,7 @@ describe("tegridy-launch full migration rehearsal", () => {
       ["auth_token", pda([STAGING_SEED, launchMint.toBuffer()], launch.programId)],
       ["auth_lp", getAssociatedTokenAddressSync(lpMint, migAuth, true)],
     ] as [string, PublicKey][]) {
-      assert.isNull(
-        await provider.connection.getAccountInfo(addr),
-        `${name} must be closed so its rent goes back to the caller`
-      );
+      assert.isNull(await provider.connection.getAccountInfo(addr), `${name} must be closed`);
     }
 
     // LCH-01: the coins never touched the frozen associated account, which is still

@@ -1235,36 +1235,6 @@ pub mod tegridy_launch {
         ];
         let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
 
-        // Top the authority up to the rent-exempt floor for a zero-data account.
-        //
-        // NOT for account creation — a direct credit to a zero-lamport,
-        // System-owned, zero-data address is a legal `set_lamports` target and
-        // materialises the account at commit. It is for the END-OF-TRANSACTION rent
-        // check: `migration_authority` is writable, so the SVM verifies its
-        // rent-state transition, and a residual strictly between 1 lamport and
-        // `minimum_balance(0)` is rejected with `InsufficientFundsForRent` — AFTER
-        // the pool has already been created. Seeding to the floor makes the residual
-        // (floor + reserve - cp-swap's costs) unconditionally rent-exempt.
-        //
-        // Topped up rather than skipped when non-zero: this address is derivable, so
-        // anyone can send it 1 lamport, and an `== 0` guard would let them push the
-        // residual into that rejected band and brick graduation for the price of a
-        // transaction.
-        let seed_lamports = Rent::get()?.minimum_balance(0);
-        let seed_topup = seed_lamports.saturating_sub(auth_ai.lamports());
-        if seed_topup > 0 {
-            system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    system_program::Transfer {
-                        from: ctx.accounts.payer.to_account_info(),
-                        to: auth_ai.clone(),
-                    },
-                ),
-                seed_topup,
-            )?;
-        }
-
         // The bulk, curve -> authority. Both halves legal: we own the curve, so the
         // debit passes `set_lamports`' ExternalAccountLamportSpend guard, and a
         // credit to a System-owned account is never blocked. INVISIBLE to the
@@ -1530,61 +1500,31 @@ pub mod tegridy_launch {
         let lp_after = token::accessor::amount(&lp_ai)?;
         require!(lp_after == 0, LaunchError::LpNotBurned);
 
-        // ── 5. Return every recoverable lamport to whoever paid for migration ─
+        // ── 5. Settle: the caller ends even, the venue keeps the rest ────────
         //
-        // Migration is permissionless and `payer` fronts real money for it: rent on
-        // `auth_wsol` and `auth_token`, plus the authority's rent-exempt floor. The
-        // authority additionally ends up holding however much
-        // `migration_reserve_lamports` over-provisioned cp-swap's real costs.
-        //
-        // None of that is reachable afterwards. Only this program can sign for the
-        // authority, no instruction moves lamports out of a curve once `complete` is
-        // set, and this instruction cannot run twice. So leaving it behind is a
-        // permanent leak — and worse, it means calling this instruction always loses
-        // money, which is a poor foundation for a step anyone is allowed to trigger.
-
         // The closes follow the burn: SPL Token refuses to close a non-native account
-        // holding a balance. `auth_token` is empty: it was created in this instruction and
-        // cp-swap pulled exactly what it held. The rent goes to `payer` directly, not via
-        // the authority, so it does not change what the sweep below forwards.
-        for account in [
-            ctx.accounts.auth_wsol.to_account_info(),
-            ctx.accounts.auth_token.to_account_info(),
-            lp_ai.clone(),
+        // holding a balance (`auth_token` was made here and cp-swap pulled all it held).
+        // The caller gets back the rent it fronted for the two staging accounts. The share
+        // account's rent came from the reserve, so it goes to `fee_recipient`, before the
+        // sweep: an empty treasury is then rent-exempt when the sweep lands.
+        for (account, destination) in [
+            (ctx.accounts.auth_wsol.to_account_info(), ctx.accounts.payer.to_account_info()),
+            (ctx.accounts.auth_token.to_account_info(), ctx.accounts.payer.to_account_info()),
+            (lp_ai.clone(), ctx.accounts.fee_recipient.to_account_info()),
         ] {
             token::close_account(CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::CloseAccount {
                     account,
-                    destination: ctx.accounts.payer.to_account_info(),
+                    destination,
                     authority: auth_ai.clone(),
                 },
                 auth_signer,
             ))?;
         }
 
-        // Sweeping to zero retires the authority entirely, which is why the
-        // rent-band hazard the seed top-up guards against cannot bite here. Keep
-        // that top-up anyway: it is what makes this safe if the sweep is ever
-        // removed.
-        //
-        // ── WHO GETS THE RESIDUAL, AND WHY IT IS NOT THE CALLER ──────────────
-        // This used to pay `payer`. It is NOT the caller's money: `move_lamports`
-        // is `deposit + reserve` (above) and only `deposit` goes into the pool, so
-        // `residual` is the unspent migration reserve — which buyers funded, because
-        // the reserve is raised ON TOP of the graduation target and `buy` caps the
-        // raise at `target + reserve`.
-        //
-        // Migration is deliberately permissionless, so paying it to `payer` made
-        // graduation a standing MEV bounty: watch for `real_sol_reserves == target +
-        // reserve`, call this instruction, collect the surplus. With the runbook's
-        // recommended 0.25 SOL reserve that is roughly 0.06 SOL of traders' money per
-        // graduation to whoever wins the race, and ~0.21 SOL if the operator ever
-        // sets `create_pool_fee = 0`.
-        //
-        // `payer` is still made whole and then some: the three `close_account` calls
-        // above return 3x ATA rent to it, against the 2x ATA rent + seed top-up it
-        // fronted. It does not need — and must not get — the reserve as well.
+        // What the reserve did not spend is buyers' money, never the caller's: all of
+        // it goes to `fee_recipient`, and the authority ends at zero.
         let residual = auth_ai.lamports();
         if residual > 0 {
             system_program::transfer(
