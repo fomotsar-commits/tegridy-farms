@@ -241,6 +241,11 @@ account's rent and whatever `migration_reserve_lamports` did not spend were rais
 buyers, so they go to `fee_recipient`, and the authority is swept to zero. Nothing is
 left behind, and calling migration neither pays nor costs the caller (LCH-08, 2026-11-15).
 
+One exception, by design: when the reserve a curve saved at creation cannot cover what
+cp-swap charges at graduation (rent for its six accounts plus the tier's opening fee, read
+live), the caller pays the difference, so a fee raised after launch never strands a funded
+curve (LCH-05, 2026-11-15).
+
 ## Implemented and RUNTIME-PROVEN
 
 Green in CI's `migration-rehearsal`: curve created, bought to target, migrated,

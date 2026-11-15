@@ -380,6 +380,34 @@ fn payable_protocol_leg(fee_recipient_ai: &AccountInfo, protocol_lamports: u64) 
     Ok(protocol_lamports)
 }
 
+/// Rent of the six accounts cp-swap's `initialize_with_permission` opens with its payer's
+/// lamports at graduation: the pool, its price record, two vaults, the share mint and the
+/// share account (classic SPL Token only, so 165-byte token accounts).
+fn cp_swap_rent(rent: &Rent) -> u64 {
+    [
+        raydium_cp_swap::states::ObservationState::LEN,
+        raydium_cp_swap::states::PoolState::LEN,
+        TokenAccount::LEN,
+        TokenAccount::LEN,
+        Mint::LEN,
+        TokenAccount::LEN,
+    ]
+    .iter()
+    .map(|len| rent.minimum_balance(*len))
+    .sum()
+}
+
+/// The pool-opening fee of a cp-swap fee tier, refusing any account that is not a tier
+/// owned by `program`. Its own frame: `migrate_to_amm` has little stack to spare.
+#[inline(never)]
+fn tier_open_fee(tier: &AccountInfo, program: &Pubkey) -> Result<u64> {
+    require_keys_eq!(*tier.owner, *program, LaunchError::NotAFeeTier);
+    let data = tier.try_borrow_data()?;
+    let tier = raydium_cp_swap::states::AmmConfig::try_deserialize(&mut &data[..])
+        .map_err(|_| error!(LaunchError::NotAFeeTier))?;
+    Ok(tier.create_pool_fee)
+}
+
 #[program]
 pub mod tegridy_launch {
     use super::*;
@@ -1235,6 +1263,28 @@ pub mod tegridy_launch {
         ];
         let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
 
+        // The caller pays whatever cp-swap will charge the authority beyond the reserve
+        // this curve saved: rent for the accounts it opens plus the tier's opening fee,
+        // read now. A fee raised after launch then costs the caller the difference
+        // instead of stranding every funded curve (LCH-05).
+        let charge = cp_swap_rent(&Rent::get()?)
+            .checked_add(tier_open_fee(&ctx.accounts.amm_config, &g.cp_swap_program)?)
+            .ok_or(LaunchError::Overflow)?;
+        let shortfall = charge
+            .saturating_sub(auth_ai.lamports().saturating_add(curve.migration_reserve_lamports));
+        if shortfall > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.payer.to_account_info(),
+                        to: auth_ai.clone(),
+                    },
+                ),
+                shortfall,
+            )?;
+        }
+
         // The bulk, curve -> authority. Both halves legal: we own the curve, so the
         // debit passes `set_lamports`' ExternalAccountLamportSpend guard, and a
         // credit to a System-owned account is never blocked. INVISIBLE to the
@@ -2050,6 +2100,7 @@ mod layout_tests {
         assert_eq!(LaunchError::PlatformReserveLocked as u32 + 6000, 6022);
         assert_eq!(LaunchError::PlatformReserveAlreadyReleased as u32 + 6000, 6023);
         assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
+        assert_eq!(LaunchError::NotAFeeTier as u32 + 6000, 6025);
     }
 
     /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,

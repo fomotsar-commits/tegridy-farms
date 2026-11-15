@@ -60,6 +60,8 @@ pub enum LaunchError {
     PlatformReserveAlreadyReleased,
     #[msg("cp-swap program is not the one compiled into this build; the graduation venue cannot be repointed")]
     CpSwapProgramNotPinned,
+    #[msg("Account is not a fee tier of the configured pool program")]
+    NotAFeeTier,
 }
 
 /// Lift a pure-curve error into the program's error space.

@@ -185,6 +185,107 @@ describe("tegridy-launch full migration rehearsal", () => {
   });
   const tokenBalance = async (account: PublicKey): Promise<bigint> =>
     BigInt((await provider.connection.getTokenAccountBalance(account)).value.amount);
+  const lamportsOf = async (k: PublicKey): Promise<number> =>
+    (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+  /** A new wallet holding `sol`; the provider wallet pays every transaction fee. */
+  const fundedKeypair = async (sol: number): Promise<Keypair> => {
+    const k = Keypair.generate();
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: k.publicKey, lamports: sol * LAMPORTS_PER_SOL })
+      ),
+      []
+    );
+    return k;
+  };
+  /** The wallet trading its own launch of `mint`. */
+  const tradeAccountsFor = (mint: PublicKey) => ({
+    trader: wallet.publicKey,
+    global: pda([GLOBAL_SEED], launch.programId),
+    feeRecipient: cfgFeeRecipient,
+    creator: wallet.publicKey,
+    mint,
+    curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+    curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+    traderTokenAccount: getAssociatedTokenAddressSync(mint, wallet.publicKey),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+  });
+  /** A new launch by the wallet, bought until it awaits migration. */
+  const fullLaunch = async (): Promise<PublicKey> => {
+    const mint = await createMint(provider.connection, wallet, wallet.publicKey, null, 9);
+    await launch.methods.createLaunch().accountsPartial(launchAccounts(mint, cfgFeeRecipient)).rpc();
+    await createAssociatedTokenAccount(provider.connection, wallet, mint, wallet.publicKey);
+    for (let i = 0; i < 24; i++) {
+      try {
+        await launch.methods
+          .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
+          .accountsPartial(tradeAccountsFor(mint))
+          .rpc();
+      } catch (e) {
+        if (!String(e).includes("AwaitingMigration")) throw e;
+        return mint;
+      }
+    }
+    throw new Error("the curve never filled");
+  };
+  /** Every `migrate_to_amm` account for `mint`; `authToken` is left to the IDL. */
+  const migrateAccounts = (mint: PublicKey, payer: PublicKey) => {
+    const migAuth = pda([MIGRATION_AUTH_SEED], launch.programId);
+    const poolState = pda([LAUNCH_POOL_SEED, mint.toBuffer()], launch.programId);
+    const lpMint = pda([POOL_LP_MINT_SEED, poolState.toBuffer()], cpSwap.programId);
+    const [m0, m1] =
+      Buffer.compare(NATIVE_MINT.toBuffer(), mint.toBuffer()) < 0 ? [NATIVE_MINT, mint] : [mint, NATIVE_MINT];
+    return {
+      payer,
+      global: pda([GLOBAL_SEED], launch.programId),
+      feeRecipient: cfgFeeRecipient,
+      launchMint: mint,
+      curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+      curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+      wsolMint: NATIVE_MINT,
+      creator: wallet.publicKey,
+      migrationAuthority: migAuth,
+      authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
+      authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
+      cpSwapProgram: cpSwap.programId,
+      ammConfig,
+      cpSwapPermission: pda([PERMISSION_SEED, migAuth.toBuffer()], cpSwap.programId),
+      ammAuthority: pda([AUTH_SEED], cpSwap.programId),
+      poolState,
+      lpMint,
+      token0Vault: pda([POOL_VAULT_SEED, poolState.toBuffer(), m0.toBuffer()], cpSwap.programId),
+      token1Vault: pda([POOL_VAULT_SEED, poolState.toBuffer(), m1.toBuffer()], cpSwap.programId),
+      createPoolFee: feeReceiver,
+      observationState: pda([OBSERVATION_SEED, poolState.toBuffer()], cpSwap.programId),
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    };
+  };
+  const migrate = (mint: PublicKey, payer: Keypair) =>
+    launch.methods
+      .migrateToAmm()
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+      .accountsPartial(migrateAccounts(mint, payer.publicKey))
+      .signers([payer])
+      .rpc();
+  /** Rent held for good by the five accounts cp-swap opened for `mint`'s pool. */
+  const poolRent = async (mint: PublicKey): Promise<number> => {
+    const a = migrateAccounts(mint, wallet.publicKey);
+    let sum = 0;
+    for (const k of [a.poolState, a.lpMint, a.token0Vault, a.token1Vault, a.observationState]) {
+      const info = (await provider.connection.getAccountInfo(k))!;
+      sum += await provider.connection.getMinimumBalanceForRentExemption(info.data.length);
+    }
+    return sum;
+  };
+  /** Sets the launch tier's pool-opening fee (cp-swap admin: the wallet, in this build). */
+  const setTierFee = (lamports: number) =>
+    cpSwap.methods
+      .updateAmmConfig(5, new BN(lamports))
+      .accountsPartial({ owner: wallet.publicKey, ammConfig })
+      .rpc();
 
   before(async () => {
     launch = loadIdlProgram(provider, "tegridy_launch");
@@ -662,20 +763,9 @@ describe("tegridy-launch full migration rehearsal", () => {
       (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
     const callerLamportsPost = (await provider.connection.getAccountInfo(caller.publicKey))!.lamports;
     assert.equal(callerLamportsPost, callerLamportsPre, "the caller must end exactly even");
-    let keptByPool = 0;
-    for (const k of [
-      poolState,
-      lpMint,
-      pda([POOL_VAULT_SEED, poolState.toBuffer(), mint0.toBuffer()], cpSwap.programId),
-      pda([POOL_VAULT_SEED, poolState.toBuffer(), mint1.toBuffer()], cpSwap.programId),
-      pda([OBSERVATION_SEED, poolState.toBuffer()], cpSwap.programId),
-    ]) {
-      const info = (await provider.connection.getAccountInfo(k))!;
-      keptByPool += await provider.connection.getMinimumBalanceForRentExemption(info.data.length);
-    }
     assert.equal(
       cfgFeeRecipientPost - cfgFeeRecipientPre,
-      MIGRATION_RESERVE.toNumber() - keptByPool - CREATE_POOL_FEE.toNumber(),
+      MIGRATION_RESERVE.toNumber() - (await poolRent(launchMint)) - CREATE_POOL_FEE.toNumber(),
       "the venue must receive every lamport of the reserve the pool did not keep"
     );
 
@@ -992,5 +1082,39 @@ describe("tegridy-launch full migration rehearsal", () => {
       CREATE_POOL_FEE.toString(),
       "the fee tier charges its opening fee"
     );
+  });
+
+  // ─── LCH-05: a launch-tier fee raised after launch ──────────────────────────
+  //
+  // A curve's reserve is fixed when it is created; the tier's opening fee is read at
+  // graduation. Raised past what the reserve can pay, graduation must still open the
+  // pool, with the caller paying exactly the difference.
+  it("the caller pays the part of a raised opening fee the reserve cannot", async () => {
+    const mint = await fullLaunch();
+    const highFee = 2 * MIGRATION_RESERVE.toNumber();
+    await setTierFee(highFee);
+    try {
+      const caller = await fundedKeypair(1);
+      const callerBefore = await lamportsOf(caller.publicKey);
+      const treasuryBefore = await lamportsOf(cfgFeeRecipient);
+      const feeBefore = await tokenBalance(feeReceiver);
+      await migrate(mint, caller);
+
+      // cp-swap's whole charge: the fee and the rent of the six accounts it opened. The
+      // share account is closed again and its rent goes to the venue.
+      const shareRent = await provider.connection.getMinimumBalanceForRentExemption(165);
+      const charge = highFee + (await poolRent(mint)) + shareRent;
+      assert.equal(
+        callerBefore - (await lamportsOf(caller.publicKey)),
+        charge - MIGRATION_RESERVE.toNumber(),
+        "the caller pays exactly what the reserve could not"
+      );
+      assert.equal((await lamportsOf(cfgFeeRecipient)) - treasuryBefore, shareRent);
+      assert.equal((await tokenBalance(feeReceiver)) - feeBefore, BigInt(highFee), "the whole fee was charged");
+      const c: any = await (launch.account as any).bondingCurve.fetch(pda([CURVE_SEED, mint.toBuffer()], launch.programId));
+      assert.isTrue(c.complete, "the coin graduated");
+    } finally {
+      await setTierFee(CREATE_POOL_FEE.toNumber());
+    }
   });
 });
