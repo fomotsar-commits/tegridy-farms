@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-15
+
+- Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
+
 ### 2026-11-14
 
 - Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
