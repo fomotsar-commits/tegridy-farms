@@ -213,6 +213,10 @@ const LP_POST = (coin: string | null) =>
     : `Just added liquidity to $${bare(coin)}. I'm part of the floor now. Every trade in the pool pays me.`;
 /** The link it ends with: the coin's room, or its mint (middleware.js unfurls it, and sends a person to the Add). */
 const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
+/** A buy's post in a room, beside its GIF (island answer thirty-six): the shore's own line, said by the buyer. */
+const BUY_POST = (coin: string) => `Just bought $${bare(coin)}. I'm on the shore now. Every light here holds it.`;
+/** The link it ends with: the room with its Buy open. */
+const BUY_LINK = (roomId: string) => `${SITE_URL}/${roomId}?sheet=buy`;
 
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
@@ -250,6 +254,13 @@ export const RECEIPT_WORDS = {
   lpLink: LP_LINK,
   /** X's composer with the post written: nothing is published until the person posts it. */
   lpIntent: (coin: string | null, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
+  buyPost: BUY_POST,
+  buyLink: BUY_LINK,
+  /** Under Share on X while the GIF is fetched (a phone tapped before it was in hand), then when it is. */
+  momentGetting: 'Getting your GIF…',
+  momentReady: 'Your GIF is ready. Tap Share on X.',
+  /** On a computer: X's composer opens with the words, and the GIF is saved to drop in. */
+  momentSaved: 'Your GIF is saved. Add it to the post.',
 } as const;
 
 export const TRENCHER_WORDS = {
