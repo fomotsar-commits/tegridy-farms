@@ -180,6 +180,18 @@ test.describe('the Jungle Bay family on the marketplace', () => {
     await expectNoSidewaysScroll(page);
   });
 
+  // Owner 2026-11-15: "user should always land on floor not gallery". A bare
+  // address is how a visitor arrives (a landing card, its search, a shared link).
+  test('a bare address opens Floor, and Gallery is one press away', async ({ page }) => {
+    await openCollection(page, '/nakamigos/junglebaygoldcards');
+    await expect(page).toHaveTitle('Jungle Bay Gold Cards - Listings | Tradermigos', { timeout: 20_000 });
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    await expect(nav.getByRole('button', { name: 'Floor' })).toHaveAttribute('aria-current', 'page');
+    await nav.getByRole('button', { name: 'Gallery' }).click();
+    await expect(page).toHaveURL(/\/nakamigos\/junglebaygoldcards\/gallery$/);
+    await expect(page.locator('.nft-card').first()).toBeVisible({ timeout: 20_000 });
+  });
+
   test('a deep link into a trade tab of a view-only collection says it is not offered, and why', async ({ page }) => {
     await openCollection(page, '/nakamigos/bojungles/trades');
     await expect(page.getByText(/is not offered for Bojungles here\./)).toBeVisible({ timeout: 20_000 });
@@ -338,7 +350,9 @@ for (const viewport of [{ width: 820, height: 1180 }, { width: 1440, height: 900
     // The sound toggle that used to sit beside Keys left with the click sounds
     // (2026-11-14), so Keys is the one neighbour Back to top has to clear.
     test('Back to top sits clear of Keys once the page is scrolled', async ({ page }) => {
-      await openCollection(page, '/nakamigos/junglebaygoldcards');
+      // The Gallery by name: a bare address opens Floor, and Gold Cards' Floor is
+      // empty, too short to scroll.
+      await openCollection(page, '/nakamigos/junglebaygoldcards/gallery');
       await expect(page.getByText('JUNGLE BAY GOLD CARDS', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
       await expectOpenedAtTheTopAndFilled(page);
       await page.evaluate(() => window.scrollTo(0, 1600));

@@ -46,10 +46,14 @@ describe("App.jsx routing regression guards (source-level)", () => {
 
   it("nft deep-link parse is strict-digits, not lenient parseInt (F547)", () => {
     // parseInt("12abc") === 12 used to resolve junk segments to a real token.
-    expect(src).toMatch(/\/\^\\d\{1,10\}\$\/\.test\(seg\)/);
-    expect(src, "lenient parseInt token-id parse must be gone").not.toMatch(
+    // The parser moved to lib/parseRoute.js (2026-11-15); lib/parseRoute.test.js
+    // runs it, this keeps the source guard where the code now lives.
+    const routeSrc = readFileSync(join(process.cwd(), "src", "nakamigos", "lib", "parseRoute.js"), "utf8");
+    expect(routeSrc).toMatch(/\/\^\\d\{1,10\}\$\/\.test\(seg\)/);
+    expect(routeSrc, "lenient parseInt token-id parse must be gone").not.toMatch(
       /tokenId:\s*!isNaN\(id\)/,
     );
+    expect(src, "App.jsx reads routes through lib/parseRoute.js").toMatch(/import \{ parseRoute \} from "\.\/lib\/parseRoute"/);
   });
 
   it("both /nft/ modal-close paths land on the explicit /gallery segment (F538)", () => {

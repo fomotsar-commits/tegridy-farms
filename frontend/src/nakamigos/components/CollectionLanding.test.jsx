@@ -13,8 +13,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within, waitFor, fireEvent, cleanup } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { COLLECTIONS } from "../constants";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { COLLECTIONS, DEFAULT_COLLECTION } from "../constants";
 import { EXPECTED_FAMILY, REGISTRY_ORDER, VIEW_ONLY_SLUGS, VENUE_SLUGS } from "../__fixtures__/jungleBayFamily";
 import bojStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.bojungless.json";
 import seedsStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.seeds-from-the-memetic-garden.json";
@@ -122,6 +122,20 @@ describe("the landing lists nine collections", () => {
     for (const name of ["Browse", "Buy", "Sell / List", "Make offer"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
+  });
+
+  // Owner 2026-11-15: "user should always land on floor not gallery", then
+  // "Browse to Floor too".
+  it("Browse opens the flagship collection's Floor, like every other way in", async () => {
+    const { default: CollectionLanding } = await import("./CollectionLanding.jsx");
+    let path = null;
+    function Where() {
+      path = useLocation().pathname;
+      return null;
+    }
+    render(<MemoryRouter initialEntries={["/nakamigos"]}><CollectionLanding /><Where /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+    expect(path).toBe(`/nakamigos/${DEFAULT_COLLECTION}/listings`);
   });
 });
 
