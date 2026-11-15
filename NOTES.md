@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
+
+**Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on
+POP) jumps only when the path changes, since a page's own `?mint=` push keeps the same key.
+
+**Measured** (memetics.finance/pools, Playwright, iPhone 14 and 1440x900, a scroll listener on the
+window): it keeps the same key only after a PUSH arrival. Opened from its address (a POP, key null),
+the first token pick (a PUSH on the same path) is a new key, and the window went to 0 before the
+answer scrolled it to 732 then 1873. A REPLACE after a PUSH on one page flips the key the same way.
+
+**Do:** key the jump on the arrival at a new path (`frontend/src/hooks/useNewPageKey.ts`), so a move
+that changes only the query never jumps whatever its type. Separately, a `scrollIntoView` run in a
+click handler measures the layout before that click's own re-render: run it in a layout effect when
+the click also draws something above the target.
+
 ## 2026-11-15: a timer set for the time left can fire while `Date.now()` still shows time left
 
 **Believed:** `setTimeout(f, stopBy - Date.now())` runs `f` only once `Date.now() >= stopBy`, so

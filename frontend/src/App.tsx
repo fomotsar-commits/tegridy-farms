@@ -17,6 +17,7 @@ import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { useOpensAtTheTop } from './hooks/useOpensAtTheTop';
+import { useNewPageKey } from './hooks/useNewPageKey';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
 import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { useSectionLink } from './hooks/useSectionLink';
@@ -170,11 +171,12 @@ function NotFoundPage() {
   );
 }
 
-// Scroll to top on PUSH/REPLACE; on POP (Back/Forward) the browser restores the position.
+// Scroll to top on a PUSH/REPLACE to another page; on POP (Back/Forward) the browser restores
+// the position, and a move that changes only the query stays where it is (useNewPageKey).
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
   const navType = useNavigationType();
-  useOpensAtTheTop(navType === 'POP' || hash ? null : `${navType} ${pathname}`);
+  useOpensAtTheTop(useNewPageKey());
   useEffect(() => {
     if (navType === 'POP') return;
     // A #section link is useSectionLink's to place, below: it waits for the section,
