@@ -266,6 +266,11 @@ describe('Add more liquidity is on a position', () => {
     await waitFor(() => expect(r).toHaveAttribute('data-remove', 'dust'));
     expect(within(r).queryByRole('button', { name: 'Remove liquidity' })).toBeNull();
     expect(await within(r).findByRole('button', { name: ADD_MORE })).toBeEnabled();
+    // CPS-11: why, and what works: waiting, or a top-up sized just under whole units, never the least the pool takes.
+    expect(r).toHaveTextContent("one side would pay less than its coin's smallest unit, and the pool program never pays out zero.");
+    expect(r).toHaveTextContent('Waiting loses nothing: it comes out once that side of the pool grows.');
+    expect(r).toHaveTextContent('add an amount that lands just under a whole number of those units: the least the pool takes costs you one of them.');
+    expect(r).not.toHaveTextContent(/Add at least/);
   });
 
   it('a share whose pool does not name that share is not offered it', async () => {

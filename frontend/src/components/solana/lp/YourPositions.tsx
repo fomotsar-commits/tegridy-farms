@@ -983,8 +983,9 @@ function RemoveBlock({
     case 'dust':
       line = (
         <Notice tone="warn">
-          This share is too small to take out at the pool&apos;s current size: one side would round to zero (the pool program&apos;s rule).
-          Nothing is lost by waiting; if the pool grows, it may become possible.
+          This share is too small to take out: one side would pay less than its coin&apos;s smallest unit, and the pool program never pays out
+          zero. Waiting loses nothing: it comes out once that side of the pool grows. To free it by adding, add an amount that lands just under a
+          whole number of those units: the least the pool takes costs you one of them.
         </Notice>
       );
       break;

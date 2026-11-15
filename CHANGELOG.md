@@ -19,6 +19,7 @@ The site's Changelog tab shows both files.
 - Pools, Every position: when the pools cannot be read, the card says it in fewer words: "Positions could not be read just now. That does not mean there are none."
 - Pools, Range, Open this pool: Review now builds nothing until the range program's upgrade is on chain, and says so; it opens again by itself once the upgrade runs. Putting coins into a range pool that already exists, and swapping through one, are unchanged.
 - Pools, Range, putting coins into a pool: a pool that holds less liquidity at its price than your deposit would add (or none) is now refused, not only warned about, when its price is more than 3% from Jupiter's or could not be checked against it. A deeper pool off the market still gets the warning with its estimated cost.
+- Pools, your positions: a share too small to take out now says why (one side would pay less than its coin's smallest unit, and the pool program never pays out zero) and what works: waiting, or adding an amount that lands just under a whole number of those units, since the least the pool takes costs one of them.
 
 ### 2026-11-14
 
