@@ -306,7 +306,7 @@
       "address": "27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9",
       "role": "cp-swap create_pool_fee_reveiver::ID on the `--features devnet` arm — the devnet admin's WSOL ATA. Registered so verify-program-constants can carry it as a FORBIDDEN key: baked into a mainnet binary, every pool-creation fee is paid to an account that does not exist on mainnet.",
       "custody": "owned by devnet-admin",
-      "status": "devnet only — 0 on mainnet: no account exists at this address there (read 2026-11-15). The mainnet chain read skips devnet- rows, so this row carries no expect; until 2026-11-15 it carried a token-account expect that described devnet and was never read."
+      "status": "devnet only, 0 on mainnet: no account exists at this address there (read 2026-11-15). The mainnet chain read skips devnet- rows, so this row carries no expect; until 2026-11-15 it carried a token-account expect that described devnet and was never read."
     },
     {
       "id": "devnet-tegridy-launch-deployer",
@@ -408,7 +408,7 @@
     {
       "id": "meteora-locker-program",
       "address": "LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn",
-      "role": "The locker program the Meteora DBC rail used. Third-party, never ours, and not Meteora's: see custody. RETIRED alongside the DBC rail on 2026-08-23 — it locked the LP of launches that graduated into DAMM v2, and no Tegridy launch graduates there any more. Still live on mainnet as a third-party program.",
+      "role": "The locker program the Meteora DBC rail used. Third-party, never ours, and not Meteora's: see custody. RETIRED alongside the DBC rail on 2026-08-23: it locked the LP of launches that graduated into DAMM v2, and no Tegridy launch graduates there any more. Still live on mainnet as a third-party program.",
       "custody": "upgrade authority CvQZZ23qYDWF2RUpxYJ8y9K4skmuvYEEjH7fK58jtipQ, the same key that holds Jupiter's swap program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 (both read on mainnet-beta 2026-11-15 at slot 469,917,042). This row said Meteora until then.",
       "status": "live third-party program — RETIRED as a Tegridy rail 2026-08-23",
       "expect": {
