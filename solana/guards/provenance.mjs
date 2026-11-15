@@ -23,7 +23,7 @@ export const PINNED = {
   'raydium-clmm.sha256': '522f72803ccc79b84790c66b8b654301093b720851d972dc7e834479cc01e91e',
   'parity-common-uint.sha256': 'aa732379604aad5b429692a1f312b25863c10f795e20ab526457309bacc7e97a',
   'raydium-cp-swap.sha256': 'b695714e31afd52e7ac6a68b661c9c97ac77ae994502ba1aa636bd8abef10d53',
-  'deny-keys.txt': '5c9632f8614d0ffbe3044638891234ad86ceed6006f25bba081065e025224111',
+  'deny-keys.txt': '3a56a460e21c7166bbf84d312251df7add1674b82bd0ae57b0da105c30ab355b',
 };
 
 export const COPIES = {
@@ -155,6 +155,8 @@ export const REPIN_MAY_TOUCH = [
   'CHANGELOG.md',
   'frontend/src/test/solanaGuardTampers.test.ts',
   'frontend/src/test/solanaKeyGuard.test.ts',
+  // It reads the deny list and the allow-list, so a change to either moves it too.
+  'frontend/src/test/siteNoRaydiumKeys.test.ts',
   // The site's range client where its tests read the program's source: ix.test.ts holds each
   // account list equal to the program's Accounts struct, and quote.test.ts holds the vectors'
   // stamp to the source. A patch that changes either moves them in the same pull request.

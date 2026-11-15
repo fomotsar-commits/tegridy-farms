@@ -317,6 +317,8 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
     expect(repinAlone('M\tsolana/guards/allowed-keys.json\nM\t.github/workflows/ci.yml\n')).toHaveLength(1);
     expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\nM\tfrontend/src/App.tsx\n').join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/new-pin.sha256');
     expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\n')).toEqual([]);
+    // The site's own test reads the deny list, so it moves with it.
+    expect(repinAlone('M\tsolana/guards/upstream/deny-keys.txt\nM\tfrontend/src/test/siteNoRaydiumKeys.test.ts\n')).toEqual([]);
   });
 });
 
