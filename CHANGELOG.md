@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-15
+
+- Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
+
 ### 2026-11-14
 
 - Receipt card: Share on X after a buy or an add in a room now posts the moment itself, as a GIF.
