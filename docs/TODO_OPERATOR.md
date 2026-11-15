@@ -29,6 +29,180 @@ stop and say so — a surprise is information.
 
 ---
 
+## 2026-11-15: after the Solana audit
+
+The Solana audit of 2026-11-15 found no way for an outsider to take or freeze the money in the
+venue today (27 swap pools, 30.4 million staked BAYLA). These are the steps only you can take, in
+order. Each says what to do, what you should see and why.
+
+**Venue money may be leaving now in one place: the GROYPER/SOL pool (step g, first decision).**
+
+### a. Tonight: proposals #35 and #34 (from 2026-11-16 05:13 UTC, 22:13 your time on 11-15)
+
+Both members approved both on 2026-11-14. Read on chain 2026-11-15 at 10:49 UTC: still approved
+by both keys, no cancel votes.
+
+**On chain #35 is the upgrade and #34 is the keeper, the other way round from the paper.** Before
+every press, read back the page's "Ready to execute ... proposal #N" line against the step (law 24).
+Squads keeps two accounts per proposal, and a page may show either, so both are here in full.
+
+| | What it does | Squads accounts | Executable from (UTC) |
+|---|---|---|---|
+| #35 | Upgrades the pool program to `9f0150e3…` (715,224 bytes) | transaction `437mxChpQn1mWUNeu3LtqKCLp8Huq5nVSebaF4pGHGBo`, proposal `5f3D1cA8FvcvVrXmND77QLocHqTsHy6LpbBz8uHy1kAC` | 2026-11-16 05:13:35 |
+| #34 | Names the price robot `9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz` keeper on both fee settings | transaction `9DvNSamLD4Bp8efjhz1NKVjHt2zctLnqDesJhF6eu23m`, proposal `D1wD5jmHTaaNAJwZ6T1Hr1xwyLZm1FkaouV7X9tRDL99` | 2026-11-16 05:13:59 |
+
+**How the money moves.** When #35 runs, 3.634176121 SOL of upload deposit goes back to the paying
+wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, the wallet that paid it: not venue income.
+Once both have run, the robot pays no fee on its own swaps, so the LPs, the vault, the island and
+coin creators earn nothing on those trades, and the robot's profit stays in the robot's wallet, not
+the vault. Everyone else pays as before.
+
+**If you hold #34.** The order the reviewers recommend is #35, then the upgrade that lets the keeper
+resign (pull request #1248, three days away or more), then #34. Or run #34 now, knowing that until
+that build is on chain a stolen robot key trades fee-free past the swap guard until the vault
+un-names it, 48 hours or more. Either order of #34 and #35 ends in the same state. **A held #34
+stays approved and armed:** either key alone can run it at any time from 05:13:59 UTC, and it never
+expires. If it is not going to run, cancel it (both keys vote Cancel). Never run the #1248 upgrade
+while an older upgrade proposal can still execute.
+
+**If an execute fails with "Program was deployed in this block already",** send it again. A failed
+execute does not spend the proposal; it costs the member 5,000 lamports.
+
+**After #35 executes,** pull request #1213 moves the pins: the registry row's size (715,224 bytes)
+and hash, and the e2e pins. Until it merges, the daily registry job and `e2e-solana` are red. It
+has conflicts today; a session readies it and asks you to merge.
+
+### b. Top up, before anything else
+
+The two vault member wallets are nearly empty: `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
+holds 0.002151332 SOL and `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` 0.00159573 SOL (read
+2026-11-15). That covers approving, cancelling and executing (5,000 lamports each). It does not
+cover a new proposal, which costs its proposer 0.0032 to 0.0061 SOL of rent, so today neither key
+can propose anything, a pause included.
+
+- Send 0.02 SOL to each member wallet. The 2026-11-14 entry below already sends 0.02 SOL to member
+  A, one of these two; this adds the other, so either key can propose.
+- The 2026-11-14 entry's other amounts stand: 7.00 SOL to the paying wallet and 0.01 SOL to the
+  vault. The vault holds 0.01273992 SOL of plain SOL and the range operation account costs it
+  0.01857756 SOL, so it needs at least 0.0065 SOL more; the 0.01 covers that.
+
+You should see each member wallet above 0.02 SOL before you sit down to propose anything.
+
+### c. The range upgrade sitting: additions (the pack stays as it is)
+
+The 2026-11-14 entry below and its paper still hold. Add these:
+
+1. **List the range program's accounts three times:** before sitting 1, again right before you
+   execute #36, and after. The repo has no read-only command for this; a session can run it (every
+   account the range program `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso` owns, counted by size:
+   a pool is 1,544 bytes, a limit order 173, the operation account 3,529). At the audit you should
+   see two accounts, the two fee settings, and nothing else.
+2. **If a pool appears before #36 executes,** it was born with limit orders on: today's build does
+   that.
+   - Propose status 32 for it at once. It is its own 48-hour proposal, it works on today's build,
+     and it need not wait for the upgrade.
+   - List its limit orders.
+   - Read its fee coin. A pool opened with a fixed fee coin keeps it for good on trunk's build:
+     accept it knowingly, or treat the pool on the other fee setting as that pair's pool.
+   - Status 32 stops new orders only. Orders already resting keep filling, and the vault cannot
+     cancel them. Only status 48 stops fills, and it stops that pool's swaps too.
+   - A new proposal takes the next number, so the paper's #36 and #37 would move. Tell a session
+     before sitting 1.
+3. **Decide the spill account on purpose.** The upgrade names one account to receive leftover SOL.
+   It receives the whole upload deposit (about 6.99 SOL) and, only if Solana's resize-on-upgrade
+   rule is on that day, about 0.80 SOL of the range program's rent as well. The audit read that
+   rule as not scheduled. Name the vault and both sums land in the vault, and the paying wallet gets
+   its deposit back only through a 48-hour proposal. Name the paying wallet, as #22 to #24 and #35
+   did, and the 0.80 SOL, if released, goes there with the deposit. Ask a session which account the
+   pack names, and to re-read that rule and the one that would refuse the build's old program format,
+   before you stage.
+
+### c2. Range limit orders stay, and their arithmetic is patched (your decision of 2026-11-15)
+
+After the pending range upgrade (#36) a new pool is born with limit orders off. **Never switch them
+on for any pool until the second range round has executed:** branch
+`fix/range-program-second-round-2026-11-15`, its own pull request and its own upgrade. That round
+patches the limit orders' arithmetic, and it also sends the LPs' share of a limit-order fill's fee
+to the venue. Before it executes, follow its pull request's "To go live".
+
+How money moves on a range pool meanwhile: a trader pays 1% of each swap. 84% of that fee goes to
+the LPs whose range holds the price, 5.6% to the island's Workshop and 10.4% to the vault. Opening
+a pool pays the vault 0.5 SOL. Limit-order makers earn no fee.
+
+### d. Old proposals: #30, #18 and #3
+
+Your rule of 2026-11-04: every approved, not yet executed proposal is one you mean to run. Today
+there are five: #3, #18, #30, #34 and #35.
+
+- **#30 makes the vault the multisig's rent collector.** Approved since 2026-11-04; either key alone
+  can run it. Run it on purpose, or cancel it. Running it loses nothing: 0.131 SOL of rent locked in
+  finished proposal records becomes reclaimable to the vault, and from then on anyone can close a
+  finished record, its rent going to the vault. Two registry rows expect #19's two records to exist,
+  so close those two in the same sitting (any wallet can send the close; a session prepares it), and
+  then a session sets the two rows to "absent". The audit simulated #30 on 2026-11-15: it made no
+  other proposal stale, and #34 and #35 stayed runnable (the 2026-11-04 entry below says otherwise;
+  the simulation is newer). Keep the 2026-11-14 paper's rule anyway: not between its steps 10 and
+  11. To cancel instead, both keys vote Cancel, and the 0.131 SOL stays locked.
+- **#18 can do nothing** (its buffer is gone). Cancel it with both keys. Never press Execute on it.
+- **#3 is dead:** a stale settings change that can never run. Nothing to do; it stays listed.
+
+### e. The ladder: sweep now, refill in December
+
+1. **Sweep the idle penalties now,** from any wallet you hold as a keyfile. It pays only the network
+   fee, and it moves the penalties from each pool's stake vault into its reward vault:
+   ```
+   node frontend/scripts/bayla-ladder-ops.mjs sweep --pool Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV --program EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --rpc https://api.mainnet-beta.solana.com --keypair <your keyfile>
+   ```
+   It is a dry run until you add `--broadcast`. Then the same for the RIZZ pool
+   `AenisnJhCvL7cPz49T7UHhePvBi1bjhJAfY4bV2t1Hgw`. You should see `orphaned penalty` near
+   273,857.833139 BAYLA and 2,140.495356 RIZZ (the audit's read), and 0 after. Why: until swept and
+   scheduled they pay nobody. **Never put a sweep inside a vault transaction:** anyone can sweep
+   first, and the bundled transaction then fails.
+2. **The refill, in a proposal of its own.** The reward stream ends 2026-12-23 15:32:16 UTC. A
+   refill that executes before that second is refused unless it brings about 33 million BAYLA; after
+   it, any refill is spread over four years.
+   - Fund the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` first. It holds 0,
+     and the refill is paid from it.
+   - Size it as the BAYLA a day you want to pay times 1,460. Today's 22,678.6176 a day would take
+     about 33.1 million; 2,000,000 BAYLA pays about 1,370 a day. Name the swept amount in it too.
+   - Approve it by 2026-12-21 15:32 UTC and execute it just after 2026-12-23 15:32:16 UTC. Between
+     the stream's end and the execute nobody earns, so execute promptly.
+   - Tell stakers before the daily rate changes.
+3. **Until the ladder's fix ships, queue a "degraded" flag only when no reward window is running.**
+   A flag queued while rewards are paying can be used during its 48-hour notice to take reward share
+   from stakers who stay. After a four-year refill a window is always running, so decide that fix
+   (LDR-01) before the December refill. Sweep before any flag is queued.
+
+### f. Never close the vault's wrapped-SOL account
+
+`2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` holds the venue's fees (5.6378 SOL on 2026-11-15).
+Never close it to unwrap them: it is the account the pool program pays opening fees into, and while
+it does not exist every pool opening and every graduation fails. Move wrapped SOL out with a
+transfer, then unwrap the copy.
+
+### g. Your decisions
+
+1. **GROYPER/SOL. In pool `9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ` the coin GROYPER
+   (`7QAn5wqkBcGuvfLLC16iLvX8fPyqXrzkMqnzHLS9NNna`) gives its issuer 3% of every GROYPER moved in
+   or out (5.91% on a full add and remove), and the issuer can raise that to 100%. The fork notes of
+   2026-11-10 say the venue's own wallet held 88% of this pool's liquidity; nobody has re-read it.
+   If venue liquidity is still there, that 3% is venue money going to the issuer each time it
+   moves.** Your rule allowing such coins stands; decide whether venue liquidity stays in this pool.
+2. **The old Streamflow pools' eight authorities** (six stake pools and two BAYLA reward pools,
+   among them the lighthouse pool `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`) answer to one
+   wallet, `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, with no 48-hour wait. It cannot reach
+   staked coins or cut the reward rate before 2027-09-01, but it can hand the pools away and rename
+   the receipt coin at once. Either hand all eight to the vault with Streamflow's `change_authority`
+   (one step with no acceptance: paste the vault's whole address and read it back), or record that
+   they stay with that wallet by choice.
+3. **A larger Jupiter plan.** The free key's whole allowance is 60 calls a minute, and the site's
+   relay lets one visitor use all of it. Other visitors then fall back to Jupiter's keyless host,
+   which Jupiter is retiring; while it lasts the venue misses its 0.5% on Jupiter swaps. A larger
+   plan is the only fix that works. Your earlier word, "stay on free now", is in the 2026-10-24
+   entry below.
+4. **A rule on trunk.** Nothing on `mvp-launch` requires a pull request or a passing check today. A
+   ruleset that requires both changes how merges work, so it is your call.
+
 ## 🔴 2026-11-14: the range program's fixes, and the operation account rewards need (two sittings; the pack is ready)
 
 Nothing has been sent on mainnet. Your paper is `START-HERE.md` in
