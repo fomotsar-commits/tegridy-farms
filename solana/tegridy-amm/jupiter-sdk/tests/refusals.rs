@@ -4,8 +4,11 @@
 
 mod common;
 
+use std::collections::HashMap;
+
 use jupiter_amm_interface::{Amm, QuoteParams, SwapMode};
-use memetics_jupiter_sdk::state::{PoolState, has_transfer_fee};
+use memetics_jupiter_sdk::state::{PoolState, config_fields, has_transfer_fee};
+use solana_account::Account;
 use solana_pubkey::{Pubkey, pubkey};
 
 const BAYLA: Pubkey = pubkey!("7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump");
@@ -102,6 +105,34 @@ fn exact_out_and_other_pairs_get_no_quote() {
             quote(&amm, input, output, SwapMode::ExactIn),
             Err("mints are not this pool's pair".into()),
         );
+    }
+}
+
+/// A refused `update` leaves no quote. After a good update the tier changes (its guard goes
+/// on, or its venue share names someone else); the next update is refused, and the state read
+/// before it must not go on quoting.
+#[test]
+fn a_refused_update_leaves_no_quote() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    for f in [config_fields::SWAP_GUARD, config_fields::PROTOCOL_OWNER] {
+        let mut accounts = common::accounts_to_update(&snapshot, &pool_key);
+        let mut amm = common::amm_from(&snapshot, &pool_key, &accounts).expect("first update");
+        assert!(quote(&amm, WSOL, BAYLA, SwapMode::ExactIn).is_ok(), "{}", f.name);
+
+        let config = accounts.get_mut(&pool.amm_config).unwrap();
+        config.data[f.offset..f.offset + f.size].fill(0xff);
+        let provider: HashMap<Pubkey, &Account> = accounts.iter().map(|(k, a)| (*k, a)).collect();
+        assert!(amm.update(provider).is_err(), "{}: the second update", f.name);
+        for (input, output) in [(WSOL, BAYLA), (BAYLA, WSOL)] {
+            assert_eq!(
+                quote(&amm, input, output, SwapMode::ExactIn),
+                Err("no quote: the pool's last update was refused, or none has run".into()),
+                "{}",
+                f.name,
+            );
+        }
     }
 }
 

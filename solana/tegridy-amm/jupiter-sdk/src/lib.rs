@@ -72,7 +72,7 @@ struct Market {
 pub struct MemeticsAmm {
     key: Pubkey,
     pool: PoolState,
-    /// `None` until the first `update`; a quote before it is refused.
+    /// `Some` only after an `update` that passed every check; a quote without it is refused.
     market: Option<Market>,
     clock: ClockRef,
 }
@@ -166,6 +166,8 @@ impl Amm for MemeticsAmm {
     }
 
     fn update(&mut self, account_provider: impl AccountProvider) -> Result<(), AmmError> {
+        // Cleared first, so every refusal below also stops quotes from the last good state.
+        self.market = None;
         let pool = Self::decode_pool(&account_provider.try_get(&self.key)?)?;
 
         let config = {
@@ -221,7 +223,9 @@ impl Amm for MemeticsAmm {
         let market = self
             .market
             .as_ref()
-            .ok_or_else(|| AmmError::from("pool not updated yet"))?;
+            .ok_or_else(|| {
+                AmmError::from("no quote: the pool's last update was refused, or none has run")
+            })?;
         if market.transfer_fee {
             return Err("a mint in this pool charges a transfer fee; no quote is given".into());
         }
