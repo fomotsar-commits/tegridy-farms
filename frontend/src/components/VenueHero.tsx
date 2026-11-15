@@ -4,7 +4,7 @@ import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraf
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
-import { BAR_NAV, MENU_MARKETPLACE, NFT_FINANCE_LIVE, SWAP_SECTION, YIELD_SECTION } from '../lib/navConfig';
+import { BAR_NAV, EARN_SECTION, MENU_MARKETPLACE, NFT_FINANCE_LIVE, SWAP_SECTION } from '../lib/navConfig';
 import { opensSheet, SHEET_PRESS } from '../lib/sheet';
 import { VenueStats } from './VenueStats';
 import { HeatCard } from './HeatCard';
@@ -52,7 +52,7 @@ function heroDoors(): HeroDoor[] {
   return [
     { label: 'Trade', to: barTo(SWAP_SECTION.heading, SWAP_SECTION.hub), tone: 'trade' },
     { label: 'Add', to: barTo('Add', '/pools'), tone: 'pool' },
-    { label: 'Stake', to: barTo(YIELD_SECTION.heading, YIELD_SECTION.hub), tone: 'stake' },
+    { label: 'Stake', to: barTo(EARN_SECTION.heading, EARN_SECTION.hub), tone: 'stake' },
     { label: 'Scan', to: '/scan', tone: 'trust' },
     { label: MENU_MARKETPLACE.label, to: MENU_MARKETPLACE.to, tone: 'trust' },
     ...(NFT_FINANCE_LIVE ? [{ label: 'NFT loans', to: '/nft-finance', tone: 'trust' as const }] : []),
