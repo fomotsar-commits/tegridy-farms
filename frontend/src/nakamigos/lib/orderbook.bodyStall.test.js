@@ -10,7 +10,12 @@ import { neverAnswered, stalledBody, watch } from "../../test/quietHost";
 
 const WALLET = "0x" + "a".repeat(40);
 
-vi.mock("../api", () => ({ getProvider: () => ({}) }));
+// No account is named as connected here, so the same-account check has nothing to compare.
+vi.mock("../api", () => ({
+  getProvider: () => ({}),
+  getActiveWalletProvider: async () => ({ provider: {}, address: null }),
+  assertSameWallet: () => null,
+}));
 // The bundle path is behind a flag that is off in production; on here so it runs.
 vi.mock("../constants", async (importOriginal) => ({ ...(await importOriginal()), BUNDLE_LISTING_ENABLED: true }));
 vi.mock("ethers", async (importOriginal) => {

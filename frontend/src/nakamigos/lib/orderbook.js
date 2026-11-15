@@ -10,7 +10,7 @@
  */
 
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget, SEAPORT_ADDRESSES_BY_CHAIN, SEAPORT_DOMAINS, PLATFORM_FEE_RECIPIENTS } from "../constants";
-import { getProvider } from "../api";
+import { getActiveWalletProvider, assertSameWallet } from "../api";
 import { venueRefusalForAll, buyChainFor, walletChainLabel, cancelChainFor } from "./venue";
 import { cancelSeaportOrder } from "./seaportCancel";
 import { waitForTxOutcome, txOutcomeResult } from "./txOutcome";
@@ -170,7 +170,7 @@ export async function fulfillNativeOrder(order) {
   if (nativeOrderAsksBeyondEth(order)) {
     return { error: "not-eth-priced", message: "This order asks for something other than ETH. This venue fills only orders paid in ETH." };
   }
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
   try {
@@ -181,11 +181,11 @@ export async function fulfillNativeOrder(order) {
       return { error: "wrong-chain", chainId: book.chainId, message: `Please switch to ${walletChainLabel(book.chain)} to buy NFTs` };
     }
     const signer = await provider.getSigner();
-    // Address itself is unused (Seaport fulfilment authorises via msg.sender),
-    // but the call is KEPT as an early liveness check: it throws for a locked
-    // or disconnected wallet, and that throw is what turns into the friendly
-    // error below instead of a failure deep in the transaction path.
-    await signer.getAddress();
+    // The wallet that pays must be the wallet on screen (api.js assertSameWallet).
+    // getAddress also throws for a locked or disconnected wallet, which turns
+    // into the friendly error below instead of a failure deep in the send.
+    const mismatch = assertSameWallet(await signer.getAddress(), connectedAddress);
+    if (mismatch) return mismatch;
 
     // Reconstruct the Seaport order from stored parameters + signature
     const params = order.parameters;
@@ -376,7 +376,7 @@ export async function cancelNativeListing(order) {
   const where = cancelChainFor(params);
   if (where.error) return where;
   if (!params || !order?.order_hash) return { error: "invalid-order", message: "Order missing parameters" };
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
   try {
     const { ethers } = await import("ethers");
@@ -387,6 +387,8 @@ export async function cancelNativeListing(order) {
     }
     const signer = await provider.getSigner();
     const me = (await signer.getAddress()).toLowerCase();
+    const mismatch = assertSameWallet(me, connectedAddress);
+    if (mismatch) return mismatch;
     if (String(params.offerer || "").toLowerCase() !== me) {
       return { error: "not-maker", message: "Only the wallet that listed this NFT can cancel the listing." };
     }
@@ -432,7 +434,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
   const seaportAddress = SEAPORT_ADDRESSES_BY_CHAIN[book.chainId];
   const seaportDomain = SEAPORT_DOMAINS[book.chainId];
   const feeRecipient = PLATFORM_FEE_RECIPIENTS[book.chainId];
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
   try {
@@ -444,6 +446,8 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     }
     const signer = await provider.getSigner();
     const sellerAddress = await signer.getAddress();
+    const mismatch = assertSameWallet(sellerAddress, connectedAddress);
+    if (mismatch) return mismatch;
 
     // Check NFT approval for Seaport conduit (battle-tested pattern from OpenSea/Blur)
     const nftContract = new ethers.Contract(contract, [
@@ -667,7 +671,7 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     return { error: "multi-collection", message: "All NFTs in a bundle must be from the same collection." };
   }
 
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
   try {
@@ -679,6 +683,8 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     }
     const signer = await provider.getSigner();
     const sellerAddress = await signer.getAddress();
+    const mismatch = assertSameWallet(sellerAddress, connectedAddress);
+    if (mismatch) return mismatch;
 
     // Approve the Seaport conduit for each UNIQUE collection in the bundle (one
     // setApprovalForAll per collection, not per NFT). Same check-then-set-then-reverify
