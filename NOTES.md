@@ -15,6 +15,25 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-15: a timer set for the time left can fire while `Date.now()` still shows time left
+
+**Believed:** `setTimeout(f, stopBy - Date.now())` runs `f` only once `Date.now() >= stopBy`, so
+whatever runs after `f` and reads `stopBy - Date.now()` finds no time left.
+
+**Measured** (`frontend/scripts/venue-volume.test.mjs`, PR #1219's CI run 43666499082, ubuntu,
+2026-11-15 02:14Z): the volume counter let a stuck source go on that timer, then started the next
+source because `stopBy - Date.now()` was still above zero, and a fake reader finished in the sliver
+and was saved. Node counts a timer on libuv's own clock, kept in whole milliseconds, so its verdict
+and Date.now()'s can disagree near the deadline. On this PC (Windows, Node 24.13) none of 2000 such
+timers fired before Date.now() reached its target: Windows timers fire late, which is why the test
+passed 79 of 79 here. The Linux rate was not measured; WSL here has no Node.
+
+**Do:** when a timer's firing decides that time is up, let that verdict end the work; do not read
+the clock again to decide it (the counter now ends the run on its first let-go, PR #1256). To
+reproduce, fake `setTimeout` and `Date` and put `Date.now()` one millisecond behind the timers'
+clock. Wait for the timer to be set by polling `vi.getTimerCount()` with `setImmediate`: under fake
+timers `vi.waitFor` advances the clock on every check, so it moved time before the timer existed.
+
 ## 2026-11-14: `Pubkey::is_on_curve` panics inside a Solana program, and the Solana version moves a build's size
 
 **Believed:** a program can tell a wallet's key from a program-derived address with
