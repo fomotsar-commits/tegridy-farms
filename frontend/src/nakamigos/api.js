@@ -4,6 +4,7 @@ import { venueCollectionByContract, venueRefusalForAll, buyChainFor, walletChain
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { buyTradeRefusal, decodeSeaportTrade, shownPriceCeilingWei } from "./lib/seaportTrade";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
+import { buildSweepCall, filledOrderHashes, FULFILL_AVAILABLE_ADVANCED_ORDERS } from "./lib/seaportSweep";
 import { exactEth } from "./lib/formatPrice";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
@@ -1404,14 +1405,44 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress, chain = 
   });
   if (tradeRefusal) return tradeRefusal;
 
-  return { to: txData.to, value: txValue, data: encoded };
+  // `fn` lets the cart re-pack this checked order into one batch (lib/seaportSweep.js).
+  return { to: txData.to, value: txValue, data: encoded, fn: txData.function };
 }
 
-// Buy several OpenSea (Seaport) listings in ONE wallet confirmation via EIP-5792
-// wallet_sendCalls. Returns { unsupported: true } when the wallet can't batch, so
-// the caller runs its sequential path (zero regression). Builds every call first
-// (in parallel) with the same validated builder as the single buy; one build
-// failure aborts the batch and the caller falls back to per-item buys.
+// Run `fn` over `items`, at most `limit` at a time, keeping the order.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+const isRejection = (err) =>
+  err?.code === 4001 || err?.code === "ACTION_REJECTED" || err?.error?.code === 4001;
+
+// Buy several OpenSea (Seaport) listings in ONE transaction, on any wallet:
+// Seaport's fulfillAvailableAdvancedOrders (lib/seaportSweep.js), the call
+// OpenSea's own seaport-js uses to buy many listings. Measured on a mainnet fork
+// 2026-11-15 with three live Nakamigos listings and OpenSea's real zone
+// signatures: one transaction, 367k gas for three, the buyer paid exactly the
+// three prices, and a cancelled listing in the batch was skipped with its ETH
+// left with the buyer.
+//
+// Each listing's fill is fetched and checked on its own first, with every check
+// the single buy makes (buildSeaportFulfillCall). A listing that cannot be
+// fetched or fails a check is left out, with its reason, and the rest are bought
+// together. A listing that sells to someone else before the transaction lands is
+// skipped by Seaport; the receipt says which, so nothing is reported bought that
+// was not.
+//
+// Returns { success, hash, bought: listing[], missed: [{ listing, reason, gone }] }
+// (`gone` = it can no longer be bought), or { error, message }.
 export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
   // One listing the venue cannot settle refuses the whole cart, before any wallet call.
   for (const l of Array.isArray(listings) ? listings : []) {
@@ -1444,27 +1475,138 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
     const mismatch = assertSameWallet(buyerAddress, connectedAddress || opts.buyerAddress);
     if (mismatch) return mismatch;
 
-    const built = await Promise.all(
-      listings.map(l => buildSeaportFulfillCall(l, { ethers, buyerAddress }))
-    );
-    const calls = [];
-    for (const c of built) {
+    // A few at a time: the OpenSea proxy allows each visitor 30 requests a minute.
+    const built = await mapLimit(listings, 3, (l) => buildSeaportFulfillCall(l, { ethers, buyerAddress }));
+    const fills = [];
+    const missed = [];
+    for (let i = 0; i < built.length; i++) {
+      const c = built[i];
       if (c.error === "not-venue-tradeable") return c;
-      if (c.error) return { error: "build-failed", message: c.message };
-      calls.push({ to: c.to, value: "0x" + c.value.toString(16), data: c.data });
+      if (c.error) missed.push({ listing: listings[i], reason: c.message, gone: false });
+      else fills.push({ listing: listings[i], ...c });
+    }
+    if (fills.length === 0) {
+      return { error: "build-failed", message: missed[0]?.reason || "None of these listings could be prepared.", bought: [], missed };
     }
 
-    const { tryAtomicBatch } = await import("./lib/trades");
-    const res = await tryAtomicBatch(provider, buyerAddress, calls);
-    if (res === null) return { unsupported: true }; // wallet can't 5792 — fall back
-    return { success: true, hash: res.hash };
-  } catch (err) {
-    if (err.code === 4001 || err.code === "ACTION_REJECTED" || err.code === "rejected") {
-      return { error: "rejected", message: "Batch cancelled by user" };
+    // One transaction per Seaport contract. Every OpenSea listing today is on 1.6.
+    const groups = new Map();
+    for (const f of fills) {
+      const key = String(f.to).toLowerCase();
+      groups.set(key, [...(groups.get(key) ?? []), f]);
     }
+    const bought = [];
+    const hashes = [];
+    for (const group of groups.values()) {
+      const res = await sendFillGroup(ethers, provider, signer, group, buyerAddress);
+      bought.push(...res.bought);
+      missed.push(...res.missed);
+      if (res.hash) hashes.push(res.hash);
+      // Cancelled in the wallet, or a result nobody could read: send nothing more.
+      if (res.stop) return { ...res.stop, bought, missed, hashes };
+    }
+    if (bought.length === 0) {
+      return { error: "none-bought", message: missed[0]?.reason || "None of these listings could be bought.", bought, missed, hashes };
+    }
+    return { success: true, hash: hashes[hashes.length - 1], hashes, bought, missed };
+  } catch (err) {
+    if (isRejection(err)) return { error: "rejected", message: "Purchase cancelled" };
     console.error("Seaport batch error:", err);
     return { error: "failed", message: err.shortMessage || err.message || "Batch purchase failed" };
   }
+}
+
+const wouldRevert = (err) =>
+  err?.code === "CALL_EXCEPTION"
+  || /missing revert data|cannot estimate gas|unpredictable_gas_limit|execution reverted/i.test(err?.shortMessage || err?.message || "");
+
+// One Seaport contract's fills, sent as ONE transaction (one wallet prompt).
+// Seaport skips an order that has SOLD, but a seller who moved or un-approved
+// their NFT makes the whole batch revert. When the wallet's gas estimate says
+// the batch would revert, each fill is tried alone as a free read-only call, the
+// ones that would fail are left out, and the rest are sent once more.
+async function sendFillGroup(ethers, provider, signer, group, buyer) {
+  const missed = [];
+  let live = group;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const call = live.length === 1
+      ? live[0]
+      : buildSweepCall(ethers, live, buyer, live.map((f) => shownPriceCeilingWei(f.listing)));
+    if (call.error) {
+      return { bought: [], missed: [...missed, ...live.map((f) => ({ listing: f.listing, reason: call.message, gone: false }))] };
+    }
+    if (live.length > 1) {
+      // The same venue check every single fill passed, on the call as packed.
+      const iface = new ethers.Interface([FULFILL_AVAILABLE_ADVANCED_ORDERS]);
+      const nftRefusal = fulfillCallRefusal(
+        seaportCallNftTokens(iface, "fulfillAvailableAdvancedOrders", call.data),
+        live.flatMap((f) => listingNftTokens(f.listing)),
+      );
+      if (nftRefusal) return { bought: [], missed, stop: nftRefusal };
+    }
+
+    let tx;
+    try {
+      tx = await signer.sendTransaction({ to: call.to, value: call.value, data: call.data });
+    } catch (err) {
+      if (isRejection(err)) return { bought: [], missed, stop: { error: "rejected", message: "Purchase cancelled" } };
+      if (/insufficient funds/i.test(err?.shortMessage || err?.message || "")) {
+        return { bought: [], missed, stop: { error: "insufficient", message: "Not enough ETH for these items and gas" } };
+      }
+      if (!wouldRevert(err) || attempt === 1) {
+        const reason = err?.shortMessage || err?.message || "The purchase could not be sent.";
+        return { bought: [], missed: [...missed, ...live.map((f) => ({ listing: f.listing, reason, gone: false }))] };
+      }
+      const alone = await Promise.all(live.map((f) =>
+        provider.call({ from: buyer, to: f.to, value: f.value, data: f.data }).then(() => true, () => false)));
+      const keep = live.filter((_, i) => alone[i]);
+      live.forEach((f, i) => {
+        if (!alone[i]) missed.push({ listing: f.listing, reason: "This listing can no longer be bought.", gone: true });
+      });
+      if (keep.length === 0) return { bought: [], missed };
+      if (keep.length === live.length) {
+        return { bought: [], missed: [...missed, ...live.map((f) => ({ listing: f.listing, reason: "These items could not be bought together.", gone: false }))] };
+      }
+      live = keep;
+      continue;
+    }
+
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return {
+        bought: [],
+        missed,
+        stop: txOutcomeResult(done, {
+          reverted: { error: "failed", message: "The purchase reverted on-chain. No NFT changed hands." },
+          ifLanded: "the NFTs are already yours and buying them again will not go through.",
+        }),
+      };
+    }
+    // What was bought is what Seaport says it filled. A mined batch always fills
+    // at least one order, so an empty read means the receipt could not be read:
+    // say so, and never call an item bought, or sold elsewhere, on a guess.
+    const filled = filledOrderHashes(ethers, done.receipt, call.to);
+    if (filled.size === 0) {
+      return {
+        bought: [],
+        missed,
+        hash: done.hash,
+        stop: {
+          error: "unconfirmed",
+          hash: done.hash,
+          sentHash: done.sentHash,
+          message: "Your purchase confirmed, but we couldn't read which items it bought. Check it on Etherscan before you buy any of them again.",
+        },
+      };
+    }
+    const bought = [];
+    for (const f of live) {
+      if (filled.has(String(f.listing.orderHash).toLowerCase())) bought.push(f.listing);
+      else missed.push({ listing: f.listing, reason: "Sold to someone else before your purchase landed. Its ETH stayed in your wallet.", gone: true });
+    }
+    return { bought, missed, hash: done.hash };
+  }
+  return { bought: [], missed };
 }
 
 // One listing, bought on the chain its NFT lives on (lib/venue.js buyChainFor):

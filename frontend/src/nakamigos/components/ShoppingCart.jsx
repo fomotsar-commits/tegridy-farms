@@ -102,16 +102,26 @@ export default function ShoppingCart({
   // No item has a live order: there is no total to state and no purchase to start.
   const nothingPurchasable = cart.length > 0 && purchasableItems.length === 0;
 
-  // Estimate gas for the batch purchase
+  // Gas units for the purchase. OpenSea items share one transaction when there
+  // are two or more: 367k measured for three on a mainnet fork (2026-11-15), so
+  // 125k each. A lone item, or one from our own order book, is its own
+  // transaction (~200k, conservative).
+  const purchaseGasUnits = useMemo(() => {
+    const seaportCount = purchasableItems.filter(i => !(i.isNative && i.nativeOrder)).length;
+    const batchedCount = seaportCount >= 2 ? seaportCount : 0;
+    return BigInt(batchedCount * 125_000 + (purchasableItems.length - batchedCount) * 200_000);
+  }, [purchasableItems]);
+
+  // Estimate gas for the purchase
   const estimateGas = useCallback(async () => {
     if (!wallet) return;
     setEstimatingGas(true);
+    // Fallback: the same gas units at ~30 gwei.
+    const fallback = () => Number(purchaseGasUnits * 30_000_000_000n) / 1e18;
     try {
       const ethProvider = getProvider();
       if (!ethProvider) {
-        // Fallback: rough estimate of ~150k gas per Seaport fill at ~30 gwei
-        const perTxGas = 0.0045; // ~150k gas * 30 gwei
-        setEstimatedGas(purchasableItems.length * perTxGas);
+        setEstimatedGas(fallback());
         return;
       }
 
@@ -120,22 +130,14 @@ export default function ShoppingCart({
       const feeData = await provider.getFeeData();
       // Use EIP-1559 pricing: baseFee + maxPriorityFee, fallback to legacy gasPrice
       const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || BigInt(30e9);
-
-      // Estimate ~200k gas per Seaport fulfillment (conservative)
-      const gasPerTx = BigInt(200000);
-      const totalGasWei = gasPrice * gasPerTx * BigInt(purchasableItems.length);
-      const totalGasEth = parseFloat(ethers.formatEther(totalGasWei));
-
-      setEstimatedGas(totalGasEth);
+      setEstimatedGas(parseFloat(ethers.formatEther(gasPrice * purchaseGasUnits)));
     } catch (err) {
       console.warn("Gas estimation failed:", err.message);
-      // Fallback estimate
-      const perTxGas = 0.0045;
-      setEstimatedGas(purchasableItems.length * perTxGas);
+      setEstimatedGas(fallback());
     } finally {
       setEstimatingGas(false);
     }
-  }, [wallet, purchasableItems.length]);
+  }, [wallet, purchaseGasUnits]);
 
   // Validate all cart items before checkout
   const validateCart = useCallback(async () => {
@@ -274,42 +276,59 @@ export default function ShoppingCart({
       return;
     }
 
-    // EIP-5792 fast path: buy every OpenSea listing in ONE wallet confirmation
-    // when the wallet supports atomic batching and the cart is all-Seaport with
-    // 2+ items. fulfillSeaportOrdersBatch returns { unsupported } (or a build
-    // failure) → we fall through to the per-item sequential path below, so there
-    // is zero regression on wallets that can't batch or on mixed/native carts.
-    const allSeaport = fresh.length >= 2 && fresh.every(i => !(i.isNative && i.nativeOrder));
-    if (allSeaport) {
-      addToast?.(`Preparing one-click purchase of ${fresh.length} items...`, "info");
-      const res = await fulfillSeaportOrdersBatch(fresh, { buyerAddress: wallet });
-      if (res.success) {
-        for (const item of fresh) {
-          recordTransaction({ type: "buy", nft: item, price: item.price, hash: res.hash, wallet, slug });
-          onRemove(item.id);
-        }
-        addToast?.(`Purchased ${fresh.length} items in one transaction! 🎉`, "success");
-        setBuying(false);
-        setProgress({ current: 0, total: 0 });
-        setEstimatedGas(null);
-        return;
+    const finish = () => {
+      setBuying(false);
+      setProgress({ current: 0, total: 0 });
+      setEstimatedGas(null);
+    };
+
+    // Every OpenSea listing in the cart goes in ONE transaction, on any wallet
+    // (api.js fulfillSeaportOrdersBatch, Seaport's fulfillAvailableAdvancedOrders).
+    // Listings from our own order book still go one at a time below.
+    const seaportItems = fresh.filter(i => !(i.isNative && i.nativeOrder));
+    const batched = seaportItems.length >= 2;
+    if (batched) {
+      addToast?.(`Preparing one purchase for ${seaportItems.length} items...`, "info");
+      const res = await fulfillSeaportOrdersBatch(seaportItems, { buyerAddress: wallet });
+      const bought = res.bought ?? [];
+      const missed = res.missed ?? [];
+      for (const item of bought) {
+        recordTransaction({ type: "buy", nft: item, price: item.price, hash: res.hash, wallet, slug });
+        onRemove(item.id);
+      }
+      const gone = missed.filter(m => m.gone);
+      for (const m of gone) onRemove(m.listing.id);
+      const kept = missed.filter(m => !m.gone);
+      if (bought.length) addToast?.(`Bought ${bought.length} item${bought.length !== 1 ? "s" : ""} in one transaction`, "success");
+      if (gone.length) {
+        addToast?.(`${gone.length} item${gone.length !== 1 ? "s were" : " was"} no longer for sale and came out of your cart. You were not charged for ${gone.length !== 1 ? "them" : "it"}.`, "warning");
+      }
+      if (kept.length) {
+        addToast?.(`${kept.length} item${kept.length !== 1 ? "s" : ""} could not be bought and stayed in your cart: ${getFriendlyError(kept[0].reason)}`, "error");
       }
       if (res.error === "rejected") {
         addToast?.("Purchase cancelled", "info");
-        setBuying(false);
-        setProgress({ current: 0, total: 0 });
-        setEstimatedGas(null);
-        return;
+        return finish();
       }
-      // unsupported / build-failed / other → fall through to the sequential path.
+      // Unconfirmed, replaced, out of ETH: stop rather than send more blind.
+      if (toastTxNotice(addToast, res)) return finish();
+      if (res.error === "insufficient") {
+        addToast?.(res.message, "error");
+        return finish();
+      }
+      if (res.error && !bought.length && !missed.length) {
+        addToast?.(getFriendlyError(res.message || res.error), "error");
+        return finish();
+      }
     }
 
-    // Sequential path: one confirmation per item (also the fallback above).
-    setProgress({ current: 0, total: fresh.length });
-    for (let i = 0; i < fresh.length; i++) {
-      const item = fresh[i];
-      setProgress({ current: i + 1, total: fresh.length });
-      addToast?.(`Buying ${item.name}... (${i + 1}/${fresh.length})`, "info");
+    // One confirmation per item: our own order book's listings, or a lone item.
+    const oneByOne = batched ? fresh.filter(i => i.isNative && i.nativeOrder) : fresh;
+    setProgress({ current: 0, total: oneByOne.length });
+    for (let i = 0; i < oneByOne.length; i++) {
+      const item = oneByOne[i];
+      setProgress({ current: i + 1, total: oneByOne.length });
+      addToast?.(`Buying ${item.name}... (${i + 1}/${oneByOne.length})`, "info");
 
       const result = item.isNative && item.nativeOrder
         ? await fulfillNativeOrder(item.nativeOrder)
@@ -785,7 +804,7 @@ export default function ShoppingCart({
                 marginBottom: 10,
                 letterSpacing: "0.04em",
               }}>
-                Buying {progress.current}/{progress.total}...
+                {progress.total > 0 ? `Buying ${progress.current}/${progress.total}...` : "Buying in one transaction..."}
               </div>
             )}
 
@@ -931,7 +950,7 @@ export default function ShoppingCart({
                 }}
               >
                 {buying
-                  ? `BUYING ${progress.current}/${progress.total}...`
+                  ? (progress.total > 0 ? `BUYING ${progress.current}/${progress.total}...` : "BUYING...")
                   : validating
                     ? "VALIDATING..."
                     : wallet

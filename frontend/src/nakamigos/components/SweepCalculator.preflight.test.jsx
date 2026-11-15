@@ -2,16 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // The sweep queue is drawn from a listings snapshot, so its cheapest — most
-// contested — rows go stale first. Before the cart's pre-flight was shared with
-// this path, those rows reached the wallet: the EIP-5792 batch reverted as a
-// whole on one dead order, and the sequential fallback spent a confirmation per
-// corpse. The queue must now shed the invalidated items, say which ones, and
-// keep sweeping the rest.
+// contested — rows go stale first. The queue must shed the invalidated items, say
+// which ones, and sweep the rest in ONE transaction (api.js
+// fulfillSeaportOrdersBatch, Seaport's fulfillAvailableAdvancedOrders).
 
 vi.mock("../api", () => ({
   fulfillSeaportOrder: vi.fn(async () => ({ success: true, hash: "0xhash" })),
-  // Force the sequential path so per-item behaviour is observable.
-  fulfillSeaportOrdersBatch: vi.fn(async () => ({ error: "unsupported" })),
+  // Two or more OpenSea listings are ONE transaction on every wallet; there is no
+  // per-item fallback. This one buys whatever it is handed.
+  fulfillSeaportOrdersBatch: vi.fn(async (list) => ({ success: true, hash: "0xone", bought: list, missed: [] })),
   getProvider: vi.fn(() => null), // no wallet RPC -> pre-flight runs Layer 1 only
 }));
 vi.mock("../lib/orderbook", () => ({ fulfillNativeOrder: vi.fn(async () => ({ success: true, hash: "0xnative" })) }));
@@ -66,11 +65,11 @@ describe("sweep pre-flight", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Sweep 3 Nakamigos/ }));
 
-    await waitFor(() => expect(fulfillSeaportOrder).toHaveBeenCalledTimes(2));
-    const bought = fulfillSeaportOrder.mock.calls.map(([nft]) => nft.id);
-    expect(bought).toEqual([1, 3]);
+    await waitFor(() => expect(fulfillSeaportOrdersBatch).toHaveBeenCalledTimes(1));
     expect(fulfillSeaportOrdersBatch.mock.calls[0][0].map((n) => n.id)).toEqual([1, 3]);
+    expect(fulfillSeaportOrder).not.toHaveBeenCalled();
     expect(addToast).toHaveBeenCalledWith(expect.stringMatching(/Skipping 1 listing/i), "warning");
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.stringMatching(/Swept 2 of 2/), "success"));
   });
 
   it("names what it skipped on screen, not only in a toast that scrolls away", async () => {
@@ -99,7 +98,8 @@ describe("sweep pre-flight", () => {
     const addToast = renderSweep([listing(1, 0.10), listing(2, 0.11)]);
     fireEvent.click(screen.getByRole("button", { name: /^Sweep 2 Nakamigos/ }));
 
-    await waitFor(() => expect(fulfillSeaportOrder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fulfillSeaportOrdersBatch).toHaveBeenCalledTimes(1));
+    expect(fulfillSeaportOrdersBatch.mock.calls[0][0].map((n) => n.id)).toEqual([1, 2]);
     expect(screen.queryByText(/SKIPPED/)).toBeNull();
     expect(addToast).not.toHaveBeenCalledWith(expect.stringMatching(/Skipping/i), "warning");
   });
