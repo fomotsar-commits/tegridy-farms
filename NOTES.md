@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-14: a local production build can be walked on live pool data, but not through the live RPC proxy
+
+**Believed:** `vite preview` can't show the Solana pool lists, because `/api/pools` and
+`/api/solrpc` are Vercel functions, so a UI change to them can only be seen after a deploy.
+
+**Measured** (PR #1245, the "Priced in X" card, Playwright 1.62.1 Chromium against
+`vite preview`): a `page.route('**/api/**')` that re-sends each call to
+`https://memetics.finance` with Node's `fetch` and no `Origin` header gets 200 for
+`/api/pools`, `/api/aggregator`, `/api/outside-prices` and the Jupiter quote. `/api/solrpc` alone
+answers **403** to a request with no site Origin, which stops the pool reads cold. Sending the
+RPC bodies to `https://api.mainnet-beta.solana.com` instead works, but one /pools load makes
+about 48 RPC calls, and the public RPC 429s after about 21 quick ones. The page then says "27
+more pools could not be read just now". That is the harness, not a site bug. Spacing the
+RPC calls 400 ms apart, retrying a 429 twice after 2.5 s, and waiting 60 s loaded the card whole.
+
+**Do:** for a client-only change to a page that reads pools, build, serve with `vite preview`,
+answer `/api/*` from the live site in a route, and send `/api/solrpc` to a public RPC at about 2
+calls a second. Open one page at a time and stop on `x-vercel-mitigated`. Read a "could not be
+read" line as rate limiting until a slower run says otherwise.
+
+## 2026-11-14: Jupiter's price/v3 answer carries each coin's market depth
+
+**Believed:** `https://lite-api.jup.ag/price/v3?ids=` gives a price and nothing to judge it by,
+so a thin coin's price has to be trusted or checked against another source.
+
+**Measured** (one read-only GET, 2026-11-14): each mint's entry carries `liquidity` in dollars
+beside `usdPrice`, `decimals`, `blockId`, `createdAt` and `priceChange24h`. It read BOBO about
+$146.7k, BAYLA $24.3k, BRAINLET $10.9k, RIZZ $8.8k, SOY $6.9k, SOL about $785M. A GET with 51 ids
+answered 200 and priced the real ones among them. Whether ids after the 50th are dropped
+silently was not tested.
+
+**Do:** gate any use of a Jupiter price that money or a trust mark depends on with its own
+`liquidity` (PR #1245 values a pool's island coin only at $5,000 or more). Send at most 50 ids a
+call and merge the answers.
+
 ## 2026-11-14: a test that clicks a hover-to-open tooltip shuts it whenever the hover draws first
 
 **Believed:** `click()` on `InfoTooltip`'s "?" opens its bubble on every project. It did locally on
