@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-15
 
+- Marketplace, first-visit tour on a phone: it points at the Gallery and Floor buttons in the bottom bar, with its card above them, where it used to point at the top of the screen at a tab row a phone does not show. Its last step, keyboard shortcuts, sits in the middle of the screen on a phone, and on a computer its card no longer covers the Keys button.
 - Receipt card: Share on X after a buy or an add in a room now posts the moment itself, as a GIF.
 - Earn: the island's model draws every pool as the same brick bungalow on its chain's street, wearing its room's picture on both its walls (the front at the crop its door card shows) and its colour on its ridge and chimney. A pool with a lock ladder has a ladder against its wall, its rungs drawn to scale, and a key in the corner gives its two ends (7 days at 0.40×, 4 years at 4.00×). Each street has a road with its chain's name. Pointing at a house or its row lifts its roof and names the coin. It shows terms only, never a rate.
 - NFT Finance: the page background is now the same photo as the NFT Lending card, four apes leaning over a stairwell rail, in place of the campfire.
