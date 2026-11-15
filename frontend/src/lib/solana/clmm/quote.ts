@@ -220,6 +220,12 @@ type MutableTick = TickStateView;
 /** `limit_order_unfilled_amount`. */
 const unfilled = (t: MutableTick) => u64(t.ordersAmount + t.partFilledOrdersRemaining);
 
+/**
+ * tick_array.rs `UNFILLED_RATIO_ONE`. The ratio is carried as the program carries it but never
+ * read: no quoted amount depends on it, so one an older build wrote at 2^64 is not rescaled here.
+ */
+const UNFILLED_RATIO_ONE = 1n << 126n;
+
 /** `get_limit_order_output_with_price`: what the resting orders pay for `amountIn`, rounded down. */
 function limitOrderOutput(amountIn: bigint, token0PriceX64: bigint, zeroForOne: boolean): bigint {
   const r = zeroForOne ? mulDivFloor(amountIn, token0PriceX64, Q64, U128_MAX) : mulDivFloor(amountIn, Q64, token0PriceX64, U128_MAX);
@@ -290,7 +296,7 @@ export function matchLimitOrder(
     if (t.partFilledOrdersRemaining !== 0n) fail('RequireEqViolated');
     if (!(t.ordersAmount >= rest)) fail('InvalidLimitOrderAmount');
     t.orderPhase = t.orderPhase === U64_MAX ? U64_MAX : t.orderPhase + 1n;
-    t.unfilledRatioX64 = mulDivFloor(Q64, t.ordersAmount - rest, t.ordersAmount, U128_MAX) ?? fail('CalculateOverflow');
+    t.unfilledRatioX64 = mulDivFloor(UNFILLED_RATIO_ONE, t.ordersAmount - rest, t.ordersAmount, U128_MAX) ?? fail('CalculateOverflow');
     t.partFilledOrdersRemaining = t.ordersAmount - rest;
     t.ordersAmount = 0n;
   }

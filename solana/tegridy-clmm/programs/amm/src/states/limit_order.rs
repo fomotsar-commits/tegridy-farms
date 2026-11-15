@@ -1,8 +1,7 @@
 use crate::error::ErrorCode;
 use crate::instructions::check_limit_order_amount;
-use crate::libraries::fixed_point_64;
 use crate::libraries::{big_num::U128, full_math::Upcast256};
-use crate::states::tick_array::TickState;
+use crate::states::tick_array::{unfilled_ratio_at_one, TickState, UNFILLED_RATIO_ONE};
 use anchor_lang::prelude::*;
 
 #[account]
@@ -29,8 +28,10 @@ pub struct LimitOrderState {
     pub settled_output: u64,
     /// Order open time
     pub open_time: u64,
-    /// Snapshot of `TickState.unfilled_ratio_x64` at the time this segment started (Q64.64).
-    /// Initialized to Q64 on open; reset to tick's current ratio on decrease.
+    /// Snapshot of `TickState.unfilled_ratio_x64` when this segment started, in units of
+    /// `UNFILLED_RATIO_ONE` (2^126): one on open, the tick's current ratio on decrease.
+    /// memetics.finance: `padding[0]` is 1 once it is held so; 0 means an older build wrote it
+    /// at 2^64.
     pub unfilled_ratio_x64: u128,
     pub padding: [u64; 4],
 }
@@ -63,10 +64,20 @@ impl LimitOrderState {
         self.total_amount = amount;
         self.filled_amount = 0;
         self.open_time = timestamp;
-        self.unfilled_ratio_x64 = fixed_point_64::Q64;
         self.settle_base = amount;
         self.settled_output = 0;
         self.padding = [0; 4];
+        self.set_unfilled_ratio(UNFILLED_RATIO_ONE);
+    }
+
+    /// memetics.finance: `unfilled_ratio_x64` in units of `UNFILLED_RATIO_ONE`, whoever wrote it.
+    fn unfilled_ratio(&self) -> Result<u128> {
+        unfilled_ratio_at_one(self.unfilled_ratio_x64, self.padding[0] == 1)
+    }
+
+    fn set_unfilled_ratio(&mut self, ratio: u128) {
+        self.unfilled_ratio_x64 = ratio;
+        self.padding[0] = 1;
     }
 
     /// Check if order is fully filled
@@ -104,8 +115,8 @@ impl LimitOrderState {
             // Floor on ideal_remaining ensures each order's unfilled <= proportional share,
             // so the sum never exceeds tick.part_filled_orders_remaining.
             let numerator = U128::from(self.settle_base).as_u256()
-                * U128::from(tick_state.unfilled_ratio_x64).as_u256();
-            let denominator = U128::from(self.unfilled_ratio_x64).as_u256();
+                * U128::from(tick_state.unfilled_ratio()?).as_u256();
+            let denominator = U128::from(self.unfilled_ratio()?).as_u256();
 
             let ideal_remaining = (numerator / denominator).as_u64();
             let is_exact = (numerator % denominator).is_zero();
@@ -233,7 +244,7 @@ impl LimitOrderState {
         if self.order_phase.saturating_add(1) == tick_state.order_phase {
             let new_unfilled = self.get_unfilled_amount()?;
             self.settle_base = new_unfilled;
-            self.unfilled_ratio_x64 = tick_state.unfilled_ratio_x64;
+            self.set_unfilled_ratio(tick_state.unfilled_ratio()?);
             self.settled_output = 0;
         } else {
             // Same phase: remaining = total_amount (all unfilled)
@@ -348,8 +359,8 @@ mod tests {
             order_phase,
             orders_amount: limit_order_amount,
             part_filled_orders_remaining,
-            unfilled_ratio_x64: fixed_point_64::Q64,
-            padding: [0; 3],
+            unfilled_ratio_x64: UNFILLED_RATIO_ONE,
+            padding: [1, 0, 0], // the ratio is held at UNFILLED_RATIO_ONE
         }
     }
 
@@ -2596,5 +2607,219 @@ mod tests {
             }
         }
         assert!(zero_count == 0,);
+    }
+
+    /// memetics.finance (2026-11-15 audit, RNG-02): one ask of 9e18 units at price 1, no fee,
+    /// filled one unit at a time, 1,000 times. Its settle pays what the takers paid in.
+    #[test]
+    fn large_cohort_settle_pays_what_takers_paid_test() {
+        let zero_for_one = true;
+        let mut ts = create_mock_tick_state(0, 0, 0, 0);
+        let mut order = open_order(9_000_000_000_000_000_000, zero_for_one, 0, &mut ts);
+        let mut paid_in = 0u64;
+        for _ in 0..1_000 {
+            let fill = ts
+                .match_limit_order(1, !zero_for_one, false, 0, true)
+                .unwrap();
+            assert_eq!(fill.amount_out, 1);
+            paid_in += fill.amount_in;
+        }
+        assert_eq!(paid_in, 1_000);
+        assert_eq!(order.settle_filled_order(&ts).unwrap(), paid_in);
+    }
+
+    /// memetics.finance (2026-11-15 audit, RNG-02): makers open, takers fill, makers settle,
+    /// add, cancel and close, on one tick, at random. After every step the makers are paid or
+    /// owed no more of the paid coin than takers paid in, and the tick's own books hold.
+    #[test]
+    fn makers_never_credited_more_than_takers_paid_test() {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        // (most orders at once, order sizes, fills of 1 to 3 units in a hundred, steps). The
+        // first is a few makers holding 1e18 to 3e18 units each, filled a unit or so at a time.
+        let markets: [(usize, (u64, u64), u32, usize); 2] = [
+            (3, (1_000_000_000_000_000_000, 3_000_000_000_000_000_000), 100, 1_500),
+            (12, (1, 1 << 60), 50, 400),
+        ];
+        for (m, &(max_orders, (lo, hi), tiny, steps)) in markets.iter().enumerate() {
+            for seed in 0..12u64 {
+                let mut r = StdRng::seed_from_u64(seed * 2 + m as u64);
+                let zfo = r.gen_bool(0.5);
+                let tick = if m == 0 { 0 } else { [-23_040, 0, 23_040][r.gen_range(0..3)] };
+                let fee_rate = if r.gen_bool(0.85) { 10_000 } else { 0 };
+                let fee_on_input = r.gen_bool(0.7);
+                let mut ts = create_mock_tick_state(tick, 0, 0, 0);
+                let mut orders: Vec<LimitOrderState> = Vec::new();
+                // The sold coin: makers put in, took back, fills took. The paid coin: takers
+                // paid in for fills (the fee aside), makers were paid.
+                let (mut deposited, mut refunded, mut consumed) = (0u128, 0u128, 0u128);
+                let (mut paid_in, mut paid_out) = (0u128, 0u128);
+                for step in 0..steps {
+                    let roll = r.gen_range(0..100);
+                    if roll < 8 {
+                        if orders.len() < max_orders {
+                            let amount = r.gen_range(lo..hi);
+                            orders.push(open_order(amount, zfo, ts.order_phase, &mut ts));
+                            deposited += u128::from(amount);
+                        }
+                    } else if roll < 83 {
+                        let swap_amount = if r.gen_range(0..100) < tiny {
+                            r.gen_range(1..=3)
+                        } else {
+                            let bits = r.gen_range(1..62);
+                            r.gen_range(1..=1u64 << bits)
+                        };
+                        let is_base_input = r.gen_bool(0.5);
+                        let mut t = ts;
+                        let before = t.limit_order_unfilled_amount().unwrap();
+                        let fill = t.match_limit_order(
+                            swap_amount,
+                            !zfo,
+                            is_base_input,
+                            fee_rate,
+                            fee_on_input,
+                        );
+                        if let Ok(fill) = fill {
+                            let after = t.limit_order_unfilled_amount().unwrap();
+                            let used = if !is_base_input {
+                                fill.amount_out
+                            } else if fee_on_input {
+                                fill.amount_in + fill.amm_fee_amount
+                            } else {
+                                fill.amount_in
+                            };
+                            // swap.rs: a swap with some left must have emptied the tick.
+                            if used <= swap_amount
+                                && (used == swap_amount || after == before || after == 0)
+                            {
+                                consumed += u128::from(before - after);
+                                paid_in += u128::from(fill.amount_in);
+                                ts = t;
+                            }
+                        }
+                    } else if roll < 92 {
+                        if !orders.is_empty() {
+                            let i = r.gen_range(0..orders.len());
+                            let mut o = orders[i].clone();
+                            let out = o.settle_filled_order(&ts).unwrap();
+                            // settle_limit_order pays something to an order not yet filled.
+                            if o.get_unfilled_amount().unwrap() == 0 || out > 0 {
+                                paid_out += u128::from(out);
+                                orders[i] = o;
+                            }
+                        }
+                    } else if roll < 97 {
+                        if !orders.is_empty() {
+                            let i = r.gen_range(0..orders.len());
+                            let unfilled = orders[i].get_unfilled_amount().unwrap();
+                            let amount = if r.gen_bool(0.5) {
+                                u64::MAX
+                            } else {
+                                r.gen_range(1..=unfilled.max(1))
+                            };
+                            let (mut o, mut t) = (orders[i].clone(), ts);
+                            if let Ok(d) = o.decrease_amount(&mut t, amount) {
+                                paid_out += u128::from(d.settled_output_amount);
+                                refunded += u128::from(d.real_decrease_amount);
+                                orders[i] = o;
+                                ts = t;
+                            }
+                        }
+                    } else if roll < 98 {
+                        if !orders.is_empty() {
+                            let i = r.gen_range(0..orders.len());
+                            let amount = r.gen_range(1..1u64 << 40);
+                            let (mut o, mut t) = (orders[i].clone(), ts);
+                            if o.increase_amount(&mut t, amount).is_ok() {
+                                deposited += u128::from(amount);
+                                orders[i] = o;
+                                ts = t;
+                            }
+                        }
+                    } else if let Some(i) = orders
+                        .iter()
+                        .position(|o| o.get_unfilled_amount().unwrap() == 0)
+                    {
+                        orders.remove(i);
+                    }
+
+                    let held = u128::from(ts.orders_amount) + u128::from(ts.part_filled_orders_remaining);
+                    assert_eq!(deposited - refunded - consumed, held, "market {m} seed {seed} step {step}: the tick's books");
+                    let untouched: u64 = orders
+                        .iter()
+                        .filter(|o| o.order_phase == ts.order_phase)
+                        .map(|o| o.get_unfilled_amount().unwrap())
+                        .sum();
+                    assert_eq!(untouched, { ts.orders_amount }, "market {m} seed {seed} step {step}: untouched orders");
+                    let owed: u128 = orders
+                        .iter()
+                        .map(|o| u128::from(o.clone().settle_filled_order(&ts).unwrap()))
+                        .sum();
+                    assert!(
+                        paid_out + owed <= paid_in,
+                        "market {m} seed {seed} step {step}: makers paid or owed {} of the {} takers paid in",
+                        paid_out + owed,
+                        paid_in
+                    );
+                }
+            }
+        }
+    }
+
+    /// memetics.finance (2026-11-15 audit, RNG-02): an older build held the ratio at 2^64 and
+    /// left padding[0] at 0, in a tick and in an order. Such orders settle, cancel and close as
+    /// ones written at 2^126 would: in a cohort begun before the change, and in one begun after.
+    #[test]
+    fn orders_from_an_older_build_settle_cancel_and_close_test() {
+        let zfo = true;
+        let old_one: u128 = 1 << 64;
+        let opened_by_an_older_build = |amount: u64, phase: u64| {
+            let mut o = LimitOrderState::default();
+            o.initialize(Pubkey::default(), Pubkey::default(), 0, zfo, amount, phase, 0);
+            o.unfilled_ratio_x64 = old_one;
+            o.padding = [0; 4];
+            o
+        };
+
+        // A cohort an older build began: 300 of 1,000 filled, its ratio at 2^64.
+        let mut ts = create_mock_tick_state(0, 1, 0, 700);
+        ts.unfilled_ratio_x64 = old_one * 700 / 1_000;
+        ts.padding = [0; 3];
+        let mut a = opened_by_an_older_build(600, 0);
+        let mut b = opened_by_an_older_build(400, 0);
+        let fill = ts.match_limit_order(200, !zfo, false, 0, true).unwrap();
+        assert_eq!(fill.amount_in, 200);
+        assert_eq!({ ts.padding }, [1, 0, 0]);
+        // Half of each order sold; one unit held back of each, as for any inexact settle.
+        assert_eq!(a.settle_filled_order(&ts).unwrap(), 300);
+        assert_eq!(b.settle_filled_order(&ts).unwrap(), 200);
+        assert_eq!(a.decrease_amount(&mut ts, u64::MAX).unwrap().real_decrease_amount, 299);
+        assert_eq!(b.decrease_amount(&mut ts, u64::MAX).unwrap().real_decrease_amount, 199);
+        assert_eq!(a.get_unfilled_amount().unwrap(), 0);
+        assert_eq!(b.get_unfilled_amount().unwrap(), 0);
+        assert_eq!({ ts.part_filled_orders_remaining }, 1_000 - 500 - 299 - 199);
+
+        // Two orders an older build opened, waiting; this build begins their cohort.
+        let mut ts = create_mock_tick_state(0, 0, 1_000, 0);
+        ts.unfilled_ratio_x64 = 0;
+        ts.padding = [0; 3];
+        let mut c = opened_by_an_older_build(800, 0);
+        let mut d = opened_by_an_older_build(200, 0);
+        let fill = ts.match_limit_order(600, !zfo, false, 0, true).unwrap();
+        assert_eq!(fill.amount_in, 600);
+        assert_eq!(c.settle_filled_order(&ts).unwrap(), 480);
+        assert_eq!(d.settle_filled_order(&ts).unwrap(), 120);
+        // C takes 100 back, so its snapshot is written again; then 150 more are filled.
+        let part = c.decrease_amount(&mut ts, 100).unwrap();
+        assert_eq!((part.settled_output_amount, part.real_decrease_amount), (0, 100));
+        assert_eq!({ c.padding[0] }, 1);
+        let fill = ts.match_limit_order(150, !zfo, false, 0, true).unwrap();
+        assert_eq!(fill.amount_in, 150);
+        assert_eq!(c.settle_filled_order(&ts).unwrap(), 109);
+        assert_eq!(d.settle_filled_order(&ts).unwrap(), 40);
+        assert_eq!(c.decrease_amount(&mut ts, u64::MAX).unwrap().real_decrease_amount, 109);
+        assert_eq!(d.decrease_amount(&mut ts, u64::MAX).unwrap().real_decrease_amount, 39);
+        assert_eq!(c.get_unfilled_amount().unwrap(), 0);
+        assert_eq!(d.get_unfilled_amount().unwrap(), 0);
+        assert_eq!({ ts.part_filled_orders_remaining }, 2);
     }
 }

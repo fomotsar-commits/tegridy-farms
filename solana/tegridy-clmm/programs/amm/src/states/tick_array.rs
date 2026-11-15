@@ -13,6 +13,22 @@ pub const TICK_ARRAY_SEED: &str = "tick_array";
 pub const TICK_ARRAY_SIZE_USIZE: usize = 60;
 pub const TICK_ARRAY_SIZE: i32 = 60;
 
+/// memetics.finance: one, for a cohort's unfilled ratio (2026-11-15 audit, RNG-02). At 2^126 the
+/// ratio, rounded down at every fill, stays within the unit a settle holds back; 2^64 did not.
+pub const UNFILLED_RATIO_ONE: u128 = 1 << 126;
+
+/// memetics.finance: a stored unfilled ratio in units of `UNFILLED_RATIO_ONE`. `held_at_one` is
+/// false only for a value a build before 2026-11-15 wrote at 2^64: it is scaled up exactly, or
+/// refused if it cannot be one of those.
+pub fn unfilled_ratio_at_one(ratio: u128, held_at_one: bool) -> Result<u128> {
+    if held_at_one {
+        return Ok(ratio);
+    }
+    ratio
+        .checked_mul(UNFILLED_RATIO_ONE >> fixed_point_64::RESOLUTION)
+        .ok_or(error!(ErrorCode::CalculateOverflow))
+}
+
 /// Result of limit order matching
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LimitOrderMatchResult {
@@ -298,8 +314,10 @@ pub struct TickState {
     pub orders_amount: u64,
     /// Remaining part filled orders amount
     pub part_filled_orders_remaining: u64,
-    /// Cumulative unfilled ratio for the current part-filled cohort (Q64.64 format).
-    /// Starts at Q64(1) when a new cohort forms, multiplied down as fills occur.
+    /// Share of the part-filled cohort still unfilled, in units of `UNFILLED_RATIO_ONE` (2^126;
+    /// the name is upstream's). One when a cohort forms, multiplied down as fills occur.
+    /// memetics.finance: `padding[0]` is 1 once it is held so; 0 means an older build wrote it
+    /// at 2^64.
     pub unfilled_ratio_x64: u128,
     pub padding: [u32; 3],
 }
@@ -485,6 +503,16 @@ impl TickState {
         Ok(total_unfilled_amount)
     }
 
+    /// memetics.finance: `unfilled_ratio_x64` in units of `UNFILLED_RATIO_ONE`, whoever wrote it.
+    pub fn unfilled_ratio(&self) -> Result<u128> {
+        unfilled_ratio_at_one(self.unfilled_ratio_x64, self.padding[0] == 1)
+    }
+
+    fn set_unfilled_ratio(&mut self, ratio: u128) {
+        self.unfilled_ratio_x64 = ratio;
+        self.padding[0] = 1;
+    }
+
     #[cfg(test)]
     pub fn match_limit_order(
         &mut self,
@@ -599,13 +627,14 @@ impl TickState {
             consume_from_part_remaining = self.part_filled_orders_remaining.min(result.amount_out);
             // Update unfilled_ratio: ratio *= (remaining - consumed) / remaining
             if consume_from_part_remaining > 0 {
-                self.unfilled_ratio_x64 = U128::from(self.unfilled_ratio_x64)
+                let unfilled_ratio = U128::from(self.unfilled_ratio()?)
                     .mul_div_floor(
                         U128::from(self.part_filled_orders_remaining - consume_from_part_remaining),
                         U128::from(self.part_filled_orders_remaining),
                     )
                     .ok_or(ErrorCode::CalculateOverflow)?
                     .as_u128();
+                self.set_unfilled_ratio(unfilled_ratio);
             }
             self.part_filled_orders_remaining = self
                 .part_filled_orders_remaining
@@ -627,13 +656,14 @@ impl TickState {
             self.order_phase = self.order_phase.saturating_add(1);
 
             // Reset unfilled_ratio for new phase, then update for consumption
-            self.unfilled_ratio_x64 = U128::from(fixed_point_64::Q64)
+            let unfilled_ratio = U128::from(UNFILLED_RATIO_ONE)
                 .mul_div_floor(
                     U128::from(self.orders_amount - amount_out_continue_to_consume),
                     U128::from(self.orders_amount),
                 )
                 .ok_or(ErrorCode::CalculateOverflow)?
                 .as_u128();
+            self.set_unfilled_ratio(unfilled_ratio);
 
             // Move remaining orders_amount to part_filled_orders_remaining
             self.part_filled_orders_remaining = self.orders_amount - amount_out_continue_to_consume;
@@ -1870,7 +1900,7 @@ pub mod tick_array_test {
                                                 let mut t = build_tick(tick, 0, 0).take();
                                                 t.orders_amount = orders_amount;
                                                 t.order_phase = 1;
-                                                t.unfilled_ratio_x64 = fixed_point_64::Q64;
+                                                t.set_unfilled_ratio(UNFILLED_RATIO_ONE);
                                                 t.match_limit_order(
                                                     swap_amount,
                                                     zfo,

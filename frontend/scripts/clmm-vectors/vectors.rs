@@ -4,11 +4,11 @@
 // run is repeatable. Outputs: {"ok": value} or {"err": "<ErrorCode name>"} or {"err": "panic"}.
 
 use crate::instructions::{calculate_latest_token_fees, swap_internal};
-use crate::libraries::{big_num::U1024, fixed_point_64, liquidity_math, sqrt_price_math, swap_math, tick_array_bit_map, tick_math};
+use crate::libraries::{big_num::U1024, liquidity_math, sqrt_price_math, swap_math, tick_array_bit_map, tick_math};
 use crate::states::pool_test::build_pool;
 use crate::states::tick_array_bitmap_extension_test::build_tick_array_bitmap_extension_info;
 use crate::states::tick_array_test::build_tick_array_with_tick_states;
-use crate::states::{get_fee_growth_inside, get_reward_growths_inside, AmmConfig, ObservationState, PersonalPositionState, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, REWARD_NUM};
+use crate::states::{get_fee_growth_inside, get_reward_growths_inside, AmmConfig, ObservationState, PersonalPositionState, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, REWARD_NUM, UNFILLED_RATIO_ONE};
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::prelude::AccountLoader;
 use std::cell::RefCell;
@@ -359,7 +359,8 @@ fn write_vectors() {
                 e.orders_amount = wide(&mut r, 56) as u64;
                 if r.gen_bool(0.4) {
                     e.part_filled_orders_remaining = wide(&mut r, 50) as u64;
-                    e.unfilled_ratio_x64 = r.gen_range(1..fixed_point_64::Q64);
+                    e.unfilled_ratio_x64 = r.gen_range(1..UNFILLED_RATIO_ONE);
+                    e.padding = [1, 0, 0]; // the ratio is held at UNFILLED_RATIO_ONE
                     e.order_phase = r.gen_range(1..20);
                 }
             }
