@@ -254,13 +254,19 @@ test("a buy of an island coin at 390, through its room's Buy sheet: the shore, t
   await expect(card(p).getByTestId('receipt-shore-slot')).toHaveCount(1);
   await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'), { timeout: 15_000 });
 
-  // At rest, after the beats: still lit, the line and its marked words, the clock line, the island's card.
+  // At rest, after the beats: still lit, the line and its marked words, the clock line, and Share on X with
+  // the shore's post (island answer thirty-six: a buy in a room shares its moment).
   await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
   await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit');
   await expect(shoreLine(p)).toHaveText(RECEIPT_WORDS.shore('BAYLA'));
   await expect(shoreLine(p).locator('strong')).toHaveText(RECEIPT_WORDS.shoreMark('BAYLA'));
   await expect(card(p).getByTestId('receipt-clock')).toHaveText(RECEIPT_WORDS.kept('BAYLA'));
-  await expect(card(p).getByTestId('receipt-share')).toHaveText(RECEIPT_WORDS.share);
+  const share = card(p).getByTestId('receipt-share');
+  await expect(share).toHaveText(RECEIPT_WORDS.shareX);
+  // Built from the words alone: lib/momentShare.ts reaches lib/solana.ts, which reads Vite's import.meta.env and
+  // cannot load in Playwright's Node.
+  const post = `${RECEIPT_WORDS.buyPost('BAYLA')} ${RECEIPT_WORDS.buyLink('bayla')}`;
+  await expect(share).toHaveAttribute('href', `https://x.com/intent/post?text=${encodeURIComponent(post)}`);
   await expect(card(p).getByTestId('receipt-title')).toHaveText(/^Bought (.+ )?BAYLA$/);
   await headOnScreen(p);
 

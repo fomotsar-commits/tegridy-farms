@@ -10,6 +10,8 @@ import { tick } from '../lib/tick';
 import { FlameCatch, type FlameState } from './FlameCatch';
 import { FloorHead } from './FloorHead';
 import { hueOf, type FloorState } from '../lib/floorMoment';
+import { momentClip } from '../lib/momentShare';
+import { useMomentShare } from '../hooks/useMomentShare';
 
 /** The veil first, then the card rises (its 300 ms transition). */
 const RISE_AFTER_MS = 250;
@@ -32,8 +34,8 @@ let caughtFor: string | null = null;
 /**
  * The receipt card (island answer twenty-five, screen 3, build 6): one card over the page the
  * action landed on. What was done, the fee and where it went (read from the signature:
- * lib/solana/receiptRead.ts), what it did to the wallet's clock, one green button that hands
- * over the island's card, and Back to the room. The toast is for errors only. Its head answers the
+ * lib/solana/receiptRead.ts), what it did to the wallet's clock, one green button that shares
+ * (in a room, the moment's GIF on X: answer thirty-six), and Back to the room. The toast is for errors only. Its head answers the
  * action the moment the card is up: a buy's or a sale's is the shore (answer thirty:
  * FlameCatch.tsx and the island's engine, lib/shoreMoment.ts), for every coin; its line under the
  * title is said only for a coin the island reads (answer thirty-four); an add's is the pool, where the
@@ -118,6 +120,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const title = receipt.title ?? (receipt.action === 'added' ? added : `${receipt.action === 'sold' ? 'Sold' : 'Bought'} ${receipt.coin.symbol}`);
   // An add shares on X (island answer thirty-one): its link names the coin's room, else its mint.
   const lpTarget = receipt.action === 'added' ? (sheetRoom(receipt.coin.mint)?.id ?? receipt.coin.mint) : null;
+  // A buy or an add in a room shares its moment as a GIF with the post (island answer thirty-six, the owner's word 11-14).
+  const clip = momentClip(receipt);
+  const moment = useMomentShare(clip);
 
   return createPortal(
     <div ref={layerRef} className="fixed inset-0 z-[85] flex items-start justify-center overflow-y-auto px-4" data-testid="receipt-layer">
@@ -216,18 +221,26 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
           </p>
         )}
 
-        {/* The one green button: after an add, X with the post written; else the island's card for this wallet, the object that travels. */}
+        {/* The one green button: in a room, X with the moment's GIF and the post; any other add, X with the post; else the island's card. */}
         <a
-          href={lpTarget ? RECEIPT_WORDS.lpIntent(floorCoin, lpTarget) : RECEIPT_WORDS.cardUrl(receipt.wallet)}
+          href={clip ? clip.intent : lpTarget ? RECEIPT_WORDS.lpIntent(floorCoin, lpTarget) : RECEIPT_WORDS.cardUrl(receipt.wallet)}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={tick}
+          onClick={(e) => {
+            tick();
+            moment.onClick(e);
+          }}
           className="btn-primary mt-5 w-full inline-flex items-center justify-center"
           style={{ height: 52, fontSize: 15, fontWeight: 700 }}
           data-testid="receipt-share"
         >
-          {lpTarget ? RECEIPT_WORDS.shareX : RECEIPT_WORDS.share}
+          {clip || lpTarget ? RECEIPT_WORDS.shareX : RECEIPT_WORDS.share}
         </a>
+        {moment.note && (
+          <p aria-live="polite" className="mt-2 text-center text-[13px]" style={{ color: 'var(--color-text-secondary)' }} data-testid="receipt-moment-note">
+            {moment.note}
+          </p>
+        )}
         <button type="button" onClick={close} className="mt-1 w-full min-h-[44px] text-[13px] font-semibold" style={{ color: '#c4b5fd' }} data-testid="receipt-back">
           {RECEIPT_WORDS.back}
         </button>
