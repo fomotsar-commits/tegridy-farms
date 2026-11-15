@@ -553,6 +553,9 @@ const SOLANA_FIELD_LAYOUTS = {
       tradeFeeRate: { at: 12, kind: 'u64' }, protocolFeeRate: { at: 20, kind: 'u64' }, fundFeeRate: { at: 28, kind: 'u64' },
       createPoolFee: { at: 36, kind: 'u64' }, protocolOwner: { at: 44, kind: 'holder' }, fundOwner: { at: 76, kind: 'holder' },
       creatorFeeRate: { at: 108, kind: 'u64' },
+      // The keeper swaps past the swap guard and pays no trade or creator fee. `oneOf` is a
+      // list of row ids and the chain must hold one of them; system-program is the all-zero key.
+      swapGuard: { at: 116, kind: 'u64' }, keeper: { at: 124, kind: 'oneOf' },
     },
   },
   // solana/tegridy-clmm/programs/amm/src/states/config.rs, AmmConfig::LEN 117. Its `owner`
@@ -616,6 +619,9 @@ function checkSolanaFields(registry, entries) {
         fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours (the one exception: fundOwner may be solanaFields.fundOwnerUnderTheSplit, the island's Workshop under the 2026-10-18 split)`);
       } else if ((f.kind === 'holder' || f.kind === 'pubkey') && !sol.has(v)) {
         fail(`${label}: ${name} "${v}" is not a solana row id`);
+      } else if (f.kind === 'oneOf') {
+        if (!Array.isArray(v) || !v.length) fail(`${label}: ${name} must be a list of solana row ids, one of which the chain must hold`);
+        else for (const id of v) if (!sol.has(id)) fail(`${label}: ${name} "${id}" is not a solana row id`);
       } else if (f.kind !== 'holder' && f.kind !== 'pubkey' && !(Number.isSafeInteger(v) && v >= 0)) {
         fail(`${label}: ${name} must be a whole number, as the chain stores it`);
       }
@@ -644,7 +650,7 @@ export function solanaFieldProblems(spec, v, ids) {
   if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
   if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
   const b = Buffer.from(v.data[0], 'base64');
-  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u32: 4, u16: 2, u8: 1 })[f.kind]));
+  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, oneOf: 32, u64: 8, u32: 4, u16: 2, u8: 1 })[f.kind]));
   if (b.length < need) return unanswered(`asked for ${need} bytes of data, the response carried ${b.length}`);
   const problems = [];
   const owner = layout.ownerAddress ?? ids.get(spec.owner);
@@ -655,7 +661,10 @@ export function solanaFieldProblems(spec, v, ids) {
   const key = (at) => base58Encode(b.subarray(at, at + 32));
   for (const [name, f] of Object.entries(layout.fields)) {
     const want = spec[name];
-    if (f.kind === 'holder' || f.kind === 'pubkey') {
+    if (f.kind === 'oneOf') {
+      const got = key(f.at);
+      if (!want.some((id) => ids.get(id) === got)) problems.push(`${name} is ${got}, registry allows only ${want.map((id) => `${id} (${ids.get(id)})`).join(' or ')}`);
+    } else if (f.kind === 'holder' || f.kind === 'pubkey') {
       const got = key(f.at);
       if (got !== ids.get(want)) problems.push(`${name} is ${got}, registry says ${want} (${ids.get(want)})`);
     } else {
@@ -1831,6 +1840,8 @@ function selfTest() {
     Buffer.from(base58Decode(fid.get(s.protocolOwner))).copy(b, 44);
     Buffer.from(base58Decode(fid.get(s.fundOwner))).copy(b, 76);
     b.writeBigUInt64LE(BigInt(s.creatorFeeRate), 108);
+    b.writeBigUInt64LE(BigInt(s.swapGuard ?? 0), 116);
+    Buffer.from(base58Decode(fid.get(over.keeper ?? 'system-program'))).copy(b, 124);
     return b;
   };
   const acct = (b, extra = {}) => ({ owner: fid.get(spec0.owner), space: 236, lamports: 1, data: [b.toString('base64'), 'base64'], ...extra });
@@ -1850,6 +1861,23 @@ function selfTest() {
   t('check 3d (chain) fails an account another program owns', onChain(acct(cfgBytes(), { owner: '11111111111111111111111111111111' })).problems.some((p) => p.startsWith('owner is')));
   t('check 3d (chain): a missing account is a definite failure', onChain(null).problems.some((p) => p.includes('DOES NOT EXIST')));
   t('check 3d (chain): a SHORT body is NOT an answer', onChain(acct(cfgBytes().subarray(0, 60))).answered === false);
+  // CPS-06: the swap guard and the keeper. The keeper swaps past the guard, and fee-free.
+  t(
+    'CONTROL: check 3d (chain) passes a tier whose keeper is nobody, and one whose keeper is the price keeper',
+    onChain(acct(cfgBytes())).problems.length === 0 && onChain(acct(cfgBytes({ keeper: 'price-keeper-wallet' }))).problems.length === 0,
+  );
+  t('check 3d (chain) fails a tier whose keeper is any other key', onChain(acct(cfgBytes({ keeper: 'operator-payer' }))).problems.some((p) => p.startsWith('keeper is 5hNA2MXk')));
+  t('check 3d (chain) fails a tier whose swap guard is off', onChain(acct(cfgBytes({ swapGuard: 0 }))).problems.some((p) => p.includes('swapGuard is 0')));
+  t('check 3d fails a tier that leaves the swap guard out', fieldFailsWith((r) => { delete r.solanaFields.accounts[cfg0].swapGuard; }, 'swapGuard is missing'));
+  t('check 3d fails a keeper written as one id, not a list', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].keeper = 'price-keeper-wallet'; }, `solanaFields/${cfg0}`, 'keeper', 'list'));
+  t('check 3d fails a keeper list that names no row', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].keeper = ['system-program', 'nobody']; }, 'keeper', '"nobody" is not a solana row id'));
+  t(
+    'the real registry holds both swap-pool tiers to the guard on, and to nobody or the price keeper as keeper',
+    ['cp-swap-amm-config-restart', 'cp-swap-amm-config-public-restart'].every((id) => {
+      const s = reg.solanaFields.accounts[id];
+      return s?.swapGuard === 1 && JSON.stringify(s?.keeper) === JSON.stringify(['system-program', 'price-keeper-wallet']);
+    }),
+  );
 
   // 11c'. The same read on the range program's tiers (tegridy-clmm's 117-byte AmmConfig),
   //       whose rates are u32: read as u64, each would swallow the field after it.
