@@ -15,6 +15,90 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-15: a timer set for the time left can fire while `Date.now()` still shows time left
+
+**Believed:** `setTimeout(f, stopBy - Date.now())` runs `f` only once `Date.now() >= stopBy`, so
+whatever runs after `f` and reads `stopBy - Date.now()` finds no time left.
+
+**Measured** (`frontend/scripts/venue-volume.test.mjs`, PR #1219's CI run 43666499082, ubuntu,
+2026-11-15 02:14Z): the volume counter let a stuck source go on that timer, then started the next
+source because `stopBy - Date.now()` was still above zero, and a fake reader finished in the sliver
+and was saved. Node counts a timer on libuv's own clock, kept in whole milliseconds, so its verdict
+and Date.now()'s can disagree near the deadline. On this PC (Windows, Node 24.13) none of 2000 such
+timers fired before Date.now() reached its target: Windows timers fire late, which is why the test
+passed 79 of 79 here. The Linux rate was not measured; WSL here has no Node.
+
+**Do:** when a timer's firing decides that time is up, let that verdict end the work; do not read
+the clock again to decide it (the counter now ends the run on its first let-go, PR #1256). To
+reproduce, fake `setTimeout` and `Date` and put `Date.now()` one millisecond behind the timers'
+clock. Wait for the timer to be set by polling `vi.getTimerCount()` with `setImmediate`: under fake
+timers `vi.waitFor` advances the clock on every check, so it moved time before the timer existed.
+
+## 2026-11-14: `Pubkey::is_on_curve` panics inside a Solana program, and the Solana version moves a build's size
+
+**Believed:** a program can tell a wallet's key from a program-derived address with
+`Pubkey::is_on_curve()`, and a source change's size is the same whichever `cargo build-sbf`
+builds it.
+
+**Measured** (PR #1248, cp-swap's keeper check): solana-pubkey 2.4.0's `bytes_are_curve_point`
+is `unimplemented!()` under `target_os = "solana"`; only the host build has a body (curve25519-dalek).
+A program that calls it compiles, passes `cargo test`, and dies on chain. `solana-curve25519`
+2.3.13's `edwards::validate_edwards` has an on-chain body, the `sol_curve_validate_point` syscall,
+and a host body; it agreed with `is_on_curve` on 1,000 `Pubkey::new_unique()` keys, both kinds, and
+on a local validator it accepted generated keypairs and refused PDAs. Any program that depends on
+anchor-spl with Token-2022 already compiles that crate, so naming it adds one edge to `Cargo.lock`
+and no crate.
+
+The same cp-swap source built with `cargo build-sbf -- --locked` gave 731,520 bytes under Solana
+3.1.11 and 721,488 under 2.3.0 (CI's `SOLANA_VERSION`). Trunk under 2.3.0 gave `9f0150e3…`,
+#35's buffer, byte for byte. The live program's room was 725,176 bytes: the 3.1.11 build said an
+enlarge was needed, CI's toolchain said it was not.
+
+**Do:** never call `is_on_curve` in program code; use `solana_curve25519::edwards::validate_edwards`.
+Size a program upgrade against its room with the toolchain the upgrade binary is built with, and
+check that toolchain reproduces the live build's hash first.
+
+`key-guard.mjs` refuses `new_from_array`, `Pubkey::from(` and `[u8; 32]` in a copy's unit tests
+too. A test that needs keys on and off the curve can draw them from `Pubkey::new_unique()` and sort
+them with `is_on_curve` (host only).
+
+---
+
+## 2026-11-14: a local production build can be walked on live pool data, but not through the live RPC proxy
+
+**Believed:** `vite preview` can't show the Solana pool lists, because `/api/pools` and
+`/api/solrpc` are Vercel functions, so a UI change to them can only be seen after a deploy.
+
+**Measured** (PR #1245, the "Priced in X" card, Playwright 1.62.1 Chromium against
+`vite preview`): a `page.route('**/api/**')` that re-sends each call to
+`https://memetics.finance` with Node's `fetch` and no `Origin` header gets 200 for
+`/api/pools`, `/api/aggregator`, `/api/outside-prices` and the Jupiter quote. `/api/solrpc` alone
+answers **403** to a request with no site Origin, which stops the pool reads cold. Sending the
+RPC bodies to `https://api.mainnet-beta.solana.com` instead works, but one /pools load makes
+about 48 RPC calls, and the public RPC 429s after about 21 quick ones. The page then says "27
+more pools could not be read just now". That is the harness, not a site bug. Spacing the
+RPC calls 400 ms apart, retrying a 429 twice after 2.5 s, and waiting 60 s loaded the card whole.
+
+**Do:** for a client-only change to a page that reads pools, build, serve with `vite preview`,
+answer `/api/*` from the live site in a route, and send `/api/solrpc` to a public RPC at about 2
+calls a second. Open one page at a time and stop on `x-vercel-mitigated`. Read a "could not be
+read" line as rate limiting until a slower run says otherwise.
+
+## 2026-11-14: Jupiter's price/v3 answer carries each coin's market depth
+
+**Believed:** `https://lite-api.jup.ag/price/v3?ids=` gives a price and nothing to judge it by,
+so a thin coin's price has to be trusted or checked against another source.
+
+**Measured** (one read-only GET, 2026-11-14): each mint's entry carries `liquidity` in dollars
+beside `usdPrice`, `decimals`, `blockId`, `createdAt` and `priceChange24h`. It read BOBO about
+$146.7k, BAYLA $24.3k, BRAINLET $10.9k, RIZZ $8.8k, SOY $6.9k, SOL about $785M. A GET with 51 ids
+answered 200 and priced the real ones among them. Whether ids after the 50th are dropped
+silently was not tested.
+
+**Do:** gate any use of a Jupiter price that money or a trust mark depends on with its own
+`liquidity` (PR #1245 values a pool's island coin only at $5,000 or more). Send at most 50 ids a
+call and merge the answers.
+
 ## 2026-11-14: a test that clicks a hover-to-open tooltip shuts it whenever the hover draws first
 
 **Believed:** `click()` on `InfoTooltip`'s "?" opens its bubble on every project. It did locally on

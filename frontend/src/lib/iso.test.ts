@@ -1,6 +1,6 @@
 // The drawing board under Earn's two figures: a length keeps its scale on every axis, so a
-// height in a figure can be compared with another by eye. If that stops being true, the site
-// model's ramps stop being the ladder "to scale".
+// height in a figure can be compared with another by eye. If that stops being true, the
+// bungalows' ladders stop being "to scale".
 import { describe, it, expect } from 'vitest';
 import { bounds, groundMatrix, iso, pts, solid } from './iso';
 import { mixHex } from './editorial';
