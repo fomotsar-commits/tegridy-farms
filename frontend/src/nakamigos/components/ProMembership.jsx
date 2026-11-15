@@ -34,12 +34,12 @@ function StatusPill({ isPro, loading }) {
     return <span style={{ ...pill, color: "var(--text-dim)", borderColor: "var(--border)" }}>NOT YET DEPLOYED</span>;
   }
   if (loading) return <span style={{ ...pill, color: "var(--text-dim)", borderColor: "var(--border)" }}>CHECKING…</span>;
-  if (isPro) return <span style={{ ...pill, color: "var(--gold)", borderColor: "var(--gold)", background: "rgba(212,168,67,0.1)" }}>✦ YOU'RE PRO</span>;
+  if (isPro) return <span style={{ ...pill, color: "var(--gold)", borderColor: "var(--gold)", background: "rgba(255,255,255,0.07)" }}>✦ YOU'RE PRO</span>;
   return <span style={{ ...pill, color: "var(--naka-blue)", borderColor: "var(--naka-blue)" }}>NOT YET A MEMBER</span>;
 }
 
 const pill = {
-  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
+  fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em",
   padding: "4px 12px", borderRadius: 999, border: "1px solid",
 };
 
@@ -86,11 +86,11 @@ export default function ProMembership({ wallet, onConnect }) {
           data-testid="pro-not-live-disclosure"
           role="note"
           style={{
-            fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.65,
+            fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.65,
             color: "var(--text-dim)", marginBottom: 20,
-            padding: "14px 18px", borderRadius: 12,
-            background: "rgba(250,204,21,0.05)",
-            border: "1px solid rgba(250,204,21,0.22)",
+            padding: "14px 18px", borderRadius: 6,
+            background: "rgba(242,193,78,0.05)",
+            border: "1px solid rgba(242,193,78,0.22)",
           }}
         >
           <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>
@@ -108,11 +108,11 @@ export default function ProMembership({ wallet, onConnect }) {
       )}
 
       <div style={{
-        background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
-        border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 20,
+        background: "var(--surface-glass)",
+        border: "1px solid var(--border)", borderRadius: 8, padding: 24, marginBottom: 20,
       }}>
         <div style={{
-          fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+          fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.08em",
           color: "var(--text-muted)", marginBottom: 14, textTransform: "uppercase",
         }}>
           {PRO_PASS_LIVE ? "What the Pass unlocks" : "Planned perks — none of these are live yet"}
@@ -123,7 +123,7 @@ export default function ProMembership({ wallet, onConnect }) {
               <span style={{ fontSize: 18, lineHeight: 1.2, width: 24, textAlign: "center", flexShrink: 0 }}>{icon}</span>
               <div>
                 <div style={{ fontFamily: "var(--display)", fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{title}</div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
               </div>
             </div>
           ))}
@@ -135,12 +135,12 @@ export default function ProMembership({ wallet, onConnect }) {
           className="btn-primary"
           onClick={onCta}
           disabled={!PRO_PASS_LIVE}
-          style={{ padding: "12px 32px", fontSize: 12, opacity: PRO_PASS_LIVE ? 1 : 0.55, cursor: PRO_PASS_LIVE ? "pointer" : "default" }}
+          style={{ padding: "12px 32px", fontSize: 13, opacity: PRO_PASS_LIVE ? 1 : 0.55, cursor: PRO_PASS_LIVE ? "pointer" : "default" }}
         >
           {ctaLabel}
         </button>
         {!PRO_PASS_LIVE && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 10 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 10 }}>
             There is no mint date. When the Pass is deployed, its address is wired here
             and this button goes live — perks land as they are built, not on day one.
           </div>
@@ -148,12 +148,12 @@ export default function ProMembership({ wallet, onConnect }) {
         {PRO_PASS_LIVE && (
           /* Post-launch the button still only opens a block explorer. Saying so
              beats letting a user click "mint" and land somewhere they did not expect. */
-          <div data-testid="pro-cta-linkout-note" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 10 }}>
+          <div data-testid="pro-cta-linkout-note" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 10 }}>
             Minting is not wired into this page — this opens the Pass contract on Etherscan.
           </div>
         )}
         {PRO_PASS_LIVE && !isPro && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 10 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 10 }}>
             One mint, lifetime access — and it's yours to resell on the native book.
           </div>
         )}

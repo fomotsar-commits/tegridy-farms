@@ -41,14 +41,14 @@ export default memo(function Favorites({ tokens, favorites, onPick, onToggleFavo
         </div>
         <div className="favorites-stats">
           <div className="favorites-stat">
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em" }}>SAVED</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>SAVED</div>
             <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 700, color: "var(--red)" }}>
               {safeFavorites.length}
             </div>
           </div>
           {totalValue > 0 && (
             <div className="favorites-stat">
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em" }}>EST. VALUE</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", letterSpacing: "0.06em" }}>EST. VALUE</div>
               <div style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 700, color: "var(--gold)" }}>
                 <Eth size={14} /> {formatPrice(totalValue)}
               </div>
@@ -72,7 +72,7 @@ export default memo(function Favorites({ tokens, favorites, onPick, onToggleFavo
       </div>
 
       {favoriteNfts.length < safeFavorites.length && (
-        <div style={{ textAlign: "center", padding: 24, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+        <div style={{ textAlign: "center", padding: 24, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
           {safeFavorites.length - favoriteNfts.length} favorited NFTs not yet loaded. Scroll the gallery to load more.
         </div>
       )}
