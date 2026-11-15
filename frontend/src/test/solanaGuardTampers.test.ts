@@ -271,6 +271,8 @@ const TAMPERS: Record<string, [(root: string) => void, boolean, boolean]> = {
     false,
     true,
   ],
+  'C9 the range copy\'s own README edited': [(r) => append(r, `${CLMM}/README.md`, '\nOne more line.\n'), false, true],
+  'C10 the range copy\'s own fee-rule test edited': [(r) => append(r, `${CLMM}/programs/amm/tests/swap_math_fee_rule.rs`, '\n// one more line\n'), false, true],
 };
 
 const OURS = [CP, CLMM, LAUNCH, LADDER];
@@ -305,7 +307,7 @@ describe('every tamper is refused by the guard whose field it is', () => {
 });
 
 describe('a pin, the reviewed patch or the allow-list changes in a pull request of its own', () => {
-  it('refuses other work beside a changed guard file, and passes one that is new or alone', () => {
+  it('refuses other work beside a changed or added guard file, and passes one alone', () => {
     const pin = 'M\tsolana/guards/upstream/cp-swap.diff\nM\tsolana/tegridy-amm/programs/cp-swap/src/lib.rs\n';
     expect(repinAlone(pin)).toEqual([]);
     expect(repinAlone(`${pin}M\tsolana/tegridy-amm/tests/tegridy-launch-migration.test.ts\n`)).toEqual([]);
@@ -313,7 +315,8 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
     expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\tsolana/tegridy-amm/programs/bayla-ladder/Cargo.toml\nM\tsolana/tegridy-amm/programs/tegridy-launch/src/lib.rs\n')).toEqual([]);
     expect(repinAlone(`${pin}M\tfrontend/src/App.tsx\n`).join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/cp-swap.diff');
     expect(repinAlone('M\tsolana/guards/allowed-keys.json\nM\t.github/workflows/ci.yml\n')).toHaveLength(1);
-    expect(repinAlone('A\tsolana/guards/key-guard.mjs\nM\tfrontend/src/App.tsx\n')).toEqual([]);
+    expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\nM\tfrontend/src/App.tsx\n').join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/new-pin.sha256');
+    expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\n')).toEqual([]);
   });
 });
 

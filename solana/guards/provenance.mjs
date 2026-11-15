@@ -72,8 +72,12 @@ export const COPIES = {
       'programs/amm/src/util/system.rs',
       'programs/amm/src/util/token.rs',
     ],
-    // The test in place of upstream's compute_swap_step_test, which solana-ci.yml skips.
-    oursOnly: ['README.md', 'programs/amm/tests/swap_math_fee_rule.rs'],
+    // Files upstream does not have, each pinned by hash: the copy's README, and the test in place
+    // of upstream's compute_swap_step_test, which solana-ci.yml skips.
+    oursOnly: {
+      'README.md': '598a9e776dc4beb2a5fb0da243939db72f36d21ccb7fa56b6b51a1306a0e5ef2',
+      'programs/amm/tests/swap_math_fee_rule.rs': '59d665105c621d8056b706b990419dc3067cb4306d8e6220231fbec3ad56362c',
+    },
     nested: ['vendor/uint'],
     // Raydium's lock pruned to the program's own crates, with uint read from vendor/uint.
     // Any change, even to a version upstream's lock also lists, needs a re-pin here.
@@ -88,7 +92,7 @@ export const COPIES = {
     take: (p) => p.startsWith('uint/') || p === 'LICENSE-APACHE2' || p === 'LICENSE-MIT',
     map: (p) => p.replace(/^uint\//, ''),
     patched: [],
-    oursOnly: [],
+    oursOnly: {},
   },
   // The program on mainnet since 2026-09-26. The pin's history is in the commit bodies of
   // .github/workflows/solana-ci.yml, where this hash lived until 2026-10-14.
@@ -114,7 +118,7 @@ export const COPIES = {
       'src/utils/token.rs',
       'Cargo.toml',
     ],
-    oursOnly: [],
+    oursOnly: {},
     // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
     // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only
     // these folders, since each one there joins the workspace.
@@ -133,7 +137,7 @@ export const COPIES = {
   },
 };
 
-// A pull request that changes a file in solana/guards/ (a pin, the reviewed patch, the
+// A pull request that changes or adds a file in solana/guards/ (a pin, the reviewed patch, the
 // allow-list, a guard) may change only these, so the person reading it reads nothing else.
 export const REPIN_MAY_TOUCH = [
   'solana/guards/',
@@ -356,7 +360,7 @@ export function committedBuildFiles(dirs, root) {
 /** `git diff --name-status` of a pull request: one that changes solana/guards/ changes nothing else. */
 export function repinAlone(nameStatus) {
   const rows = strip(nameStatus).split('\n').filter(Boolean).map((l) => l.split('\t'));
-  const pins = rows.filter(([s, p]) => p?.startsWith('solana/guards/') && s !== 'A').map(([, p]) => p);
+  const pins = rows.filter(([, p]) => p?.startsWith('solana/guards/')).map(([, p]) => p);
   if (!pins.length) return [];
   const mayTouch = (p) => REPIN_MAY_TOUCH.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a));
   return rows.map(([, p]) => p).filter((p) => !mayTouch(p)).map((p) => `${p}: this pull request changes ${pins.join(', ')}, so it may change nothing outside solana/guards/ and the programs they pin`);
@@ -386,7 +390,7 @@ export function checkCopy(name, oursDir, root = process.cwd()) {
 
   const nested = (c.nested ?? []).map((n) => `${n}/`);
   const actual = files(dir).filter((f) => !f.startsWith('target/') && !nested.some((n) => f.startsWith(n)));
-  const expected = new Set([...manifest.keys(), ...c.oursOnly]);
+  const expected = new Set([...manifest.keys(), ...Object.keys(c.oursOnly)]);
   for (const f of actual) if (!expected.has(f)) problems.push(`${f} is in our copy but is not upstream's, and no rule names it as ours`);
   for (const f of expected) if (!actual.includes(f)) problems.push(`${f} is missing from our copy`);
   for (const n of c.nested ?? []) if (!Object.values(COPIES).some((o) => o.ours === `${c.ours}/${n}`)) problems.push(`${n} is nested but no copy checks it`);
@@ -415,6 +419,11 @@ export function checkCopy(name, oursDir, root = process.cwd()) {
     }
   }
   for (const f of sections.keys()) if (!manifest.has(f)) problems.push(`${c.delta} patches ${f}, which upstream does not have`);
+  for (const [f, pin] of Object.entries(c.oursOnly)) {
+    if (!actual.includes(f)) continue;
+    const got = sha256(strip(readFileSync(join(dir, f), 'utf-8')));
+    if (got !== pin) problems.push(`${f} is ours only and hashes to ${got}, not the pinned ${pin}: a change needs a re-pin here`);
+  }
   const ws = c.workspace ? checkWorkspace(c.workspace, root) : null;
   if (ws) problems.push(...ws.problems);
   problems.push(...committedBuildFiles([join(dir, 'target'), ...(ws ? [resolve(root, c.workspace.dir, 'target')] : [])], root));
