@@ -144,3 +144,41 @@ describe('the address typed before the hero arrived (ruling 2)', () => {
     expect(card.props?.focusField).toBe(false);
   });
 });
+
+// Owner, 2026-11-14: "all these functions missing from when youre in no specific bungalow".
+// A room's hero has Trade, Add, Stake, Scan, Marketplace and NFT loans; the venue's had none.
+const { BAR_NAV, NFT_FINANCE_LIVE } = await import('../lib/navConfig');
+
+describe("the venue's doors, a room's doors with no coin named", () => {
+  const barTo = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
+
+  it('shows every door a room shows, in the room order', () => {
+    mount();
+    const doors = screen.getByRole('navigation', { name: 'Island actions' });
+    const names = Array.from(doors.querySelectorAll('a')).map((a) => a.textContent);
+    expect(names).toEqual(['Trade', 'Add', 'Stake', 'Scan', 'Marketplace', ...(NFT_FINANCE_LIVE ? ['NFT loans'] : [])]);
+  });
+
+  it('opens what the top bar opens for Trade, Add and Stake, so a door and its word never part', () => {
+    mount();
+    expect(screen.getByRole('link', { name: 'Trade' }).getAttribute('href')).toBe(barTo('Swap'));
+    expect(screen.getByRole('link', { name: 'Add' }).getAttribute('href')).toBe(barTo('Add'));
+    expect(screen.getByRole('link', { name: 'Stake' }).getAttribute('href')).toBe(barTo('Yield'));
+  });
+
+  it('sends Scan, Marketplace and NFT loans where a room sends them', () => {
+    mount();
+    expect(screen.getByRole('link', { name: 'Scan' }).getAttribute('href')).toBe('/scan');
+    expect(screen.getByRole('link', { name: 'Marketplace' }).getAttribute('href')).toBe('/nakamigos');
+    if (NFT_FINANCE_LIVE) expect(screen.getByRole('link', { name: 'NFT loans' }).getAttribute('href')).toBe('/nft-finance');
+  });
+
+  it('draws every door as an outline: Read Heat stays the hero’s one filled button', () => {
+    mount();
+    const doors = screen.getByRole('navigation', { name: 'Island actions' });
+    for (const a of Array.from(doors.querySelectorAll('a'))) {
+      expect(a.style.background, `${a.textContent} is filled`).toBe('rgba(0, 0, 0, 0.72)');
+      expect(a.style.border, `${a.textContent} has no outline`).toMatch(/^1px solid rgba\(/);
+    }
+  });
+});
