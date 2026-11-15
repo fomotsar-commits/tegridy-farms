@@ -211,7 +211,7 @@
       "address": "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz",
       "role": "The price keeper's wallet: the robot that trades the venue's pools back toward the market price. Vault proposal #34 names it the keeper of both swap-pool fee tiers (cp-swap-amm-config-restart and cp-swap-amm-config-public-restart). A tier's keeper may swap past the swap guard, and once the pool program runs the build with the keeper's fee (proposal #35) it pays no trade fee and no creator fee on that tier, so its trades earn nothing for liquidity providers, the vault, the island's Workshop or a coin's creator, and its profit stays in this wallet. solanaFields lets each tier's keeper be this wallet or nobody, and nothing else.",
       "custody": "single key, operator-held: it signs the price keeper's trades. Not a Squads key.",
-      "status": "live, system-owned. Read on mainnet-beta 2026-11-15: 0.060 SOL, and the keeper of neither tier yet (both read the all-zero key). Proposal #34, approved 2 of 2, can run from 2026-11-16T05:13:59Z. It paid the rent of squads-vault-usdt-ata on 2026-11-02.",
+      "status": "live, system-owned; its balance moves with every trade it makes. Read on mainnet-beta 2026-11-15: the keeper of neither tier yet (both read the all-zero key). Proposal #34, approved 2 of 2, can run from 2026-11-16T05:13:59Z. It paid the rent of squads-vault-usdt-ata on 2026-11-02.",
       "expect": {
         "type": "wallet"
       }
