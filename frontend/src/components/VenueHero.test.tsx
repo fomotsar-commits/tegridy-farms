@@ -163,7 +163,7 @@ describe("the venue's doors, a room's doors with no coin named", () => {
     mount();
     expect(screen.getByRole('link', { name: 'Trade' }).getAttribute('href')).toBe(barTo('Swap'));
     expect(screen.getByRole('link', { name: 'Add' }).getAttribute('href')).toBe(barTo('Add'));
-    expect(screen.getByRole('link', { name: 'Stake' }).getAttribute('href')).toBe(barTo('Yield'));
+    expect(screen.getByRole('link', { name: 'Stake' }).getAttribute('href')).toBe(barTo('Earn'));
   });
 
   it('sends Scan, Marketplace and NFT loans where a room sends them', () => {

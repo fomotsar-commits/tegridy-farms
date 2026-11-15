@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-15
 
+- Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 - Pools, Every position: when the pools cannot be read, the card says it in fewer words: "Positions could not be read just now. That does not mean there are none."
 
 ### 2026-11-14
