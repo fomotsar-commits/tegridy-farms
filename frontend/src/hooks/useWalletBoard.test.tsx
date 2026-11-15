@@ -46,7 +46,7 @@ const fail: Entry = { status: 'failure', error: new Error('execution reverted') 
 const legOf = (legs: { key: string; leg: unknown }[], key: string) => legs.find((l) => l.key === key)!.leg as { status: string; rows?: { title?: string; symbol?: string; amount?: string; usd?: number | null; facts?: string[] }[] };
 
 const pepe = BUNGALOWS.find((b) => b.id === 'pepe')!;
-const qr = BUNGALOWS.find((b) => b.id === 'qr')!;
+const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
 const LOCK_END = BigInt(Math.floor(Date.UTC(2031, 5, 1, 12) / 1000));
 
 beforeEach(() => {
@@ -110,9 +110,9 @@ describe('useWalletBoard on Ethereum and Base', () => {
   it('lists each Ethereum and Base lock from its own pool, with that pool’s earned on its first lock', () => {
     const base = chain.read;
     chain.read = (c) => {
-      if (c.address === qr.stakePool && c.functionName === 'positionsOf') return ok([7n, 8n]);
-      if (c.address === qr.stakePool && c.functionName === 'earned') return ok(3n * 10n ** 18n);
-      if (c.address === qr.stakePool && c.functionName === 'positions') {
+      if (c.address === drb.stakePool && c.functionName === 'positionsOf') return ok([7n, 8n]);
+      if (c.address === drb.stakePool && c.functionName === 'earned') return ok(3n * 10n ** 18n);
+      if (c.address === drb.stakePool && c.functionName === 'positions') {
         const amount = c.args![0] === 7n ? 1000n * 10n ** 18n : 500n * 10n ** 18n;
         return ok([USER, LOCK_END, amount, amount * 4n]);
       }
@@ -120,10 +120,10 @@ describe('useWalletBoard on Ethereum and Base', () => {
     };
     const { result } = renderHook(() => useWalletBoard());
     const leg = legOf(result.current.positions, 'evm-ladders');
-    expect(evmLadderRooms().some((b) => b.id === 'qr'), 'precondition: QR runs a lock ladder').toBe(true);
+    expect(evmLadderRooms().some((b) => b.id === 'drb'), 'precondition: DRB runs a lock ladder').toBe(true);
     expect(leg.rows!.map((r) => [r.title, ...r.facts!])).toEqual([
-      ['QR lock', '1,000 QR', 'unlocks 1 Jun 2031', '4.00×', 'earned 3 QR across these locks'],
-      ['QR lock', '500 QR', 'unlocks 1 Jun 2031', '4.00×'],
+      ['DRB lock', '1,000 DRB', 'unlocks 1 Jun 2031', '4.00×', 'earned 3 DRB across these locks'],
+      ['DRB lock', '500 DRB', 'unlocks 1 Jun 2031', '4.00×'],
     ]);
   });
 

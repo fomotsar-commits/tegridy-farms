@@ -21,14 +21,13 @@ export interface BurnFact {
 
 // One row per token bungalow, keyed by bungalow id. Each `minted` is the single mint in
 // `mintTx`, re-derived twice on 2026-10-03; none of these tokens has a live mint path.
-// QR, DRB and JBM carry a dormant bridge mint and burn, so a fall in their supply is not counted.
+// DRB and JBM carry a dormant bridge mint and burn, so a fall in their supply is not counted.
 // `countsOwnBalance`: each of the seven EVM contracts was read for any way out of its own
 // balance and its whole history searched for one (2026-10-03). None has one. A new token starts off.
 export const BUNGALOW_BURN_FACTS: Readonly<Record<string, BurnFact>> = {
   toweli: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x6cce8d54940c37fdfed3041daf76923d7adfd487f459b026ff456073a26a673b' },
   bayla: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '57z5CJ5j5UhnQz5qBwvzxKPFJJUeRv3BiWNNgddF5XrjESivCqNUc2bqQN8HGTuLMxUFbZQX8BS6rc1kT5HNhzeQ' },
   pepe: { minted: '420690000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x2afae7763487e60b893cb57803694810e6d3d136186a6de6719921afd7ca304a' },
-  qr: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, countsOwnBalance: true, mintTx: '0x18a677ce1fc39876aa2a75b9d78c77a0f58cf6a539e5edf30b2f15595cefa47f' },
   mfer: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0xb23ea44e81cf3546ed2a4a13c1e6d27b6de21f419230bbc6a7ed67c3185b3912' },
   bnkr: { minted: '100000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x661d7c8f088bb866b756bf17cf74ca43890c18260318deab861e37e8d7594662' },
   drb: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, countsOwnBalance: true, mintTx: '0x2cf2f8330f8e1b72c5efdc1db80790e6f47ff0c3af6a33cec31186f2c7df795e' },

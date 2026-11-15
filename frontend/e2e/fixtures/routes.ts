@@ -323,7 +323,7 @@ export const ROUTES: readonly RouteSpec[] = [
   // literal list CANNOT drift: add a bungalow and the vitest guard fails until
   // its door is added here. LIVE doors render HomePage under the bungalow's
   // skin; settled-but-not-live doors render BungalowDoorLanding (2026-08-30).
-  ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
+  ...(['toweli', 'bayla', 'pepe', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
       voice: slug === 'toweli' || slug === 'towelie' ? ('toweli' as const) : ('bungalow' as const),

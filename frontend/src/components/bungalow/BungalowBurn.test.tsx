@@ -78,16 +78,16 @@ describe('BungalowBurn, a full read', () => {
     expect(card.textContent).not.toContain('when this card loaded');
   });
 
-  it('QR: counts the burn address and its own contract, and says why a fall in supply is left out', () => {
-    set(read('qr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 6_669_949_934n * E18, inOwnContractRaw: 112_159n * E18 }));
-    render(<BungalowBurn bungalow={room('qr')} />);
-    expect(row('Burnt')).toBe('6,670,062,093 QR');
-    expect(row('Sent to the burn address')).toBe('6,669,949,934 QR');
-    expect(row('Stuck in the token contract')).toBe('112,159 QR');
+  it('DRB: counts the burn address and its own contract, and says why a fall in supply is left out', () => {
+    set(read('drb', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 6_669_949_934n * E18, inOwnContractRaw: 112_159n * E18 }));
+    render(<BungalowBurn bungalow={room('drb')} />);
+    expect(row('Burnt')).toBe('6,670,062,093 DRB');
+    expect(row('Sent to the burn address')).toBe('6,669,949,934 DRB');
+    expect(row('Stuck in the token contract')).toBe('112,159 DRB');
     expect(screen.queryByText('Destroyed outright')).toBeNull();
-    expect(row('Not burnt')).toBe('93,329,937,907 QR');
+    expect(row('Not burnt')).toBe('93,329,937,907 DRB');
     expect(screen.getByRole('region').textContent).toContain(
-      'Burnt counts QR sent to the burn address and stuck for good in the token\'s own contract. This token has a bridge path',
+      'Burnt counts DRB sent to the burn address and stuck for good in the token\'s own contract. This token has a bridge path',
     );
     expect(screen.queryByText('Supply fall, not counted')).toBeNull();
     expect(screen.getByRole('region').textContent).toContain('a fall in supply is not counted as burnt');
@@ -253,7 +253,7 @@ describe('BungalowBurn, the frame', () => {
   ];
 
   it('speaks only this bungalow\'s token, with no em dash, in every state', () => {
-    expect(tokenRooms.length).toBe(12);
+    expect(tokenRooms.length).toBe(11);
     for (const b of tokenRooms) {
       for (const [name, make] of states) {
         set(make(b));

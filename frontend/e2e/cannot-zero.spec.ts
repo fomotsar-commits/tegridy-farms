@@ -108,8 +108,8 @@ test.describe('the word Cannot appears nowhere on the venue', () => {
     });
   }
 
-  test('the walk covers every route the census renders, and the thirteen farms', () => {
-    expect(DOOR_IDS.length, 'thirteen registry ids').toBe(13);
+  test('the walk covers every route the census renders, and the twelve farms', () => {
+    expect(DOOR_IDS.length, 'twelve registry ids').toBe(12);
     for (const route of AUDITABLE_ROUTES) expect(PATHS).toContain(navigablePath(route));
     for (const path of Object.keys(CANNOT_DEBT)) expect(PATHS, `${path} is owed but never walked`).toContain(path);
   });
