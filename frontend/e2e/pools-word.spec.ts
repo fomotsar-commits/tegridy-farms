@@ -23,7 +23,7 @@ async function expectAddRemoveTab(page: Page): Promise<void> {
 test('Pools is not a bar word at any width', async ({ page, walletMock: _w }) => {
   await gotoRoute(page, '/');
   const bar = page.locator('nav[aria-label="Main navigation"]:visible');
-  await expect(bar.getByRole('link', { name: 'Yield', exact: true })).toBeVisible();
+  await expect(bar.getByRole('link', { name: 'Earn', exact: true })).toBeVisible();
   await expect(bar.getByRole('link', { name: 'Pools', exact: true })).toHaveCount(0);
 });
 

@@ -1,4 +1,4 @@
-// The top bar reads Island · Swap · Add · Yield · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// The top bar reads Island · Swap · Add · Earn · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
 // 2026-11-01), and everything else is one drawer that opens at every width. navReach.test.tsx
 // proves no page is stranded; SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
@@ -34,7 +34,7 @@ import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
-const WORDS = ['Island', 'Swap', 'Add', 'Yield', 'Launch'];
+const WORDS = ['Island', 'Swap', 'Add', 'Earn', 'Launch'];
 
 /** Where the router is: what "Jump to" opened. */
 function Where() {
@@ -66,7 +66,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Island · Swap · Add · Yield · Launch, and nothing else', () => {
+  it('reads Island · Swap · Add · Earn · Launch, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -83,7 +83,7 @@ describe('TopNav: the bar', () => {
       expect(within(bar()).getByRole('link', { name: w.label }).getAttribute('href'), w.label).toBe(w.to);
     }
     expect(within(bar()).getByRole('link', { name: 'Island' }).getAttribute('href')).toBe('/');
-    expect(within(bar()).getByRole('link', { name: 'Yield' }).getAttribute('href')).toBe('/earn');
+    expect(within(bar()).getByRole('link', { name: 'Earn' }).getAttribute('href')).toBe('/earn');
   });
 
   it('keeps Dashboard off the bar, connected or not', () => {
@@ -95,8 +95,8 @@ describe('TopNav: the bar', () => {
     ['/', 'Island'],
     ['/bayla', 'Island'],
     ['/island', 'Island'],
-    ['/earn/pepe', 'Yield'],
-    ['/nft-finance', 'Yield'],
+    ['/earn/pepe', 'Earn'],
+    ['/nft-finance', 'Earn'],
     ['/eth-curve', 'Launch'],
     ['/solana', 'Swap'],
     ['/pools', 'Add'],
@@ -131,11 +131,11 @@ describe('TopNav: the menu', () => {
   // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
   // direct access on the app"; 2026-10-19: organise them, on the desktop as on a phone.
   // Owner, 2026-11-10: the menu cut down; Launch and Check left as groups.
-  it("is the site's index: Island, Swap, Pools, Yield, then the records", () => {
+  it("is the site's index: Island, Swap, Pools, Earn, then the records", () => {
     const drawer = openDrawer();
     const index = within(drawer).getByRole('navigation', { name: 'Site index' });
     expect(within(index).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(
-      ['Island', 'Swap', 'Pools', 'Yield', 'Records'],
+      ['Island', 'Swap', 'Pools', 'Earn', 'Records'],
     );
   });
 
@@ -220,7 +220,7 @@ describe('TopNav: the menu', () => {
     const drawer = openDrawer('/pools');
     expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
     expect(within(drawer).getByRole('link', { name: 'Add / Remove' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Yield' })).not.toHaveAttribute('aria-current');
+    expect(within(drawer).getByRole('link', { name: 'Earn' })).not.toHaveAttribute('aria-current');
     expect(within(drawer).getByRole('link', { name: 'Lore' })).not.toHaveAttribute('aria-current');
   });
 
