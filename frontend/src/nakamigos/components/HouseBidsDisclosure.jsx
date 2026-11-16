@@ -27,7 +27,7 @@ export default function HouseBidsDisclosure() {
         House bids
       </h3>
       <p style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--text-dim)", lineHeight: 1.7, margin: 0 }}>
-        The venue runs its own bidder for some collections. Its bids are labelled House.
+        The venue&apos;s operator runs a bidder for some collections, with their own money. Its bids are labelled House.
       </p>
       <FinePrint summary="Details" testId="house-bids-small-print">
         <p>
@@ -40,9 +40,15 @@ export default function HouseBidsDisclosure() {
           ))}
           .
         </p>
+        {/* Owner 2026-11-16: "I'll fund it myself". Say whose money it is, so nobody reads a
+            House bid as the venue's treasury or as revenue shared under the split. */}
+        <p>
+          It is funded by the venue&apos;s operator personally, not by the venue or the revenue it shares, so its gains and
+          losses are the operator&apos;s alone.
+        </p>
         <p>Every house bid is fully funded, so a house bid is one it will honour.</p>
         <p>Its bids change only for reasons it publishes, and it uses only public OpenSea and chain data.</p>
-        <p>Nobody who works on the venue or shares its revenue trades with it.</p>
+        <p>No one who works on the venue or shares its revenue, the operator included, sells to it or buys from it.</p>
         <p>House bids are left out of the lending desk&apos;s numbers, and every house trade is published.</p>
         <p>A house bid is not a promise to hold any price.</p>
         <p>

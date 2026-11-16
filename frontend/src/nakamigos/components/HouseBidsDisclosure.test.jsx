@@ -44,7 +44,9 @@ describe("HouseBidsDisclosure", () => {
     const section = document.getElementById(HOUSE_BIDS_ID);
     expect(section).toBeTruthy();
     expect(within(section).getByRole("heading", { name: "House bids" })).toBeTruthy();
-    expect(within(section).getByText("The venue runs its own bidder for some collections. Its bids are labelled House.")).toBeTruthy();
+    // Owner 2026-11-16: the operator funds the bidder personally, so the page must not call it
+    // the venue's own money.
+    expect(within(section).getByText("The venue's operator runs a bidder for some collections, with their own money. Its bids are labelled House.")).toBeTruthy();
     const small = screen.getByTestId("house-bids-small-print");
     expect(small.tagName).toBe("DETAILS");
     expect(small.hasAttribute("open")).toBe(false);
@@ -60,7 +62,8 @@ describe("HouseBidsDisclosure", () => {
       "one it will honour",
       "change only for reasons it publishes",
       "only public OpenSea and chain data",
-      "Nobody who works on the venue or shares its revenue trades with it.",
+      "It is funded by the venue's operator personally, not by the venue or the revenue it shares, so its gains and losses are the operator's alone.",
+      "No one who works on the venue or shares its revenue, the operator included, sells to it or buys from it.",
       "left out of the lending desk's numbers",
       "every house trade is published",
       "not a promise to hold any price",

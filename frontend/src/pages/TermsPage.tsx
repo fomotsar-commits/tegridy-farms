@@ -37,11 +37,12 @@ const FEE_CONSTITUTION_TEXT = DEFAULT_FEE_CONSTITUTION.map(
     `${l.role === 'protocol-stakers' ? PROTOCOL_FEE_RECIPIENT : l.recipient} ${(l.shareBps / 100).toFixed(0)}%`,
 ).join(', ');
 
-// The venue's own NFT bidder, in §2 only once lib/house/houseRegistry.json names its wallet.
-// §15 promises notice of material changes, so the sentence arrives with the bidder, not
-// before; termsHouseBidder.test.ts also holds the "Last updated" line to that change.
+// The operator's NFT bidder (funded with the operator's own money, owner 2026-11-16), in §2 only
+// once lib/house/houseRegistry.json names its wallet. §15 promises notice of material changes, so
+// the sentence arrives with the bidder, not before; termsHouseBidder.test.ts also holds the
+// "Last updated" line to that change.
 export const HOUSE_BIDDER_SENTENCE =
-  'The venue may run a disclosed house bidder; when it does, its wallet, rules and trades are published.';
+  "The venue's operator may run a disclosed bidder with their own money; when they do, its wallet, rules and trades are published.";
 const HOUSE_BIDDER_TERMS = houseWallets().length > 0 ? ` ${HOUSE_BIDDER_SENTENCE}` : '';
 
 /** The "Last updated" line. Change it in the same commit as any change to these Terms. */

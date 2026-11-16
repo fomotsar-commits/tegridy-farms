@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import COMMITTED from '../lib/house/houseRegistry.json';
 
-const SENTENCE = 'The venue may run a disclosed house bidder; when it does, its wallet, rules and trades are published.';
+const SENTENCE = "The venue's operator may run a disclosed bidder with their own money; when they do, its wallet, rules and trades are published.";
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
