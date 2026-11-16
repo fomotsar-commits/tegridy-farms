@@ -220,7 +220,10 @@
     {
       "name": "declare_degraded",
       "docs": [
-        "ONE-WAY. After this, the emergency hatch charges no penalty while locked."
+        "ONE-WAY. `notice_start`: when the proposal to call this was made (unix seconds, in",
+        "the past). After this, `stake` and `extend_lock` are refused, and both early doors",
+        "are free for a position whose weight was set at or before `notice_start`; weight",
+        "set later pays the normal penalty."
       ],
       "discriminator": [
         107,
@@ -242,7 +245,12 @@
           "writable": true
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "notice_start",
+          "type": "i64"
+        }
+      ]
     },
     {
       "name": "early_exit",
@@ -362,7 +370,7 @@
       "name": "emergency_withdraw",
       "docs": [
         "THE LAST RESORT. Principal only, at ANY time — including while locked (paying",
-        "the same time-left penalty as `early_exit` unless the pool is degraded) and including when the reward vault is",
+        "the same time-left penalty as `early_exit`, waived alike in a degraded pool) and including when the reward vault is",
         "empty, closed, or wedged. This instruction declares NO reward vault (I-12).",
         "",
         "AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and",
@@ -1478,7 +1486,7 @@
     {
       "code": 6026,
       "name": "PoolDegraded",
-      "msg": "This pool has been declared degraded — it accepts no new stakes; existing positions exit penalty-free"
+      "msg": "This pool has been declared degraded: it takes no new stakes or lock extensions"
     },
     {
       "code": 6027,
@@ -1869,12 +1877,10 @@
           {
             "name": "degraded",
             "docs": [
-              "ONE-WAY. When set, BOTH early doors (`early_exit` and `emergency_withdraw`)",
-              "charge no penalty while locked, and `stake` is refused. It answers \"what if the",
-              "operator is the failure\", and it only ever moves in the direction that frees",
-              "stakers — but it is not worthless to a thief: a key-holder who also holds a",
-              "locked position escapes their own penalty (up to 75%) by firing it. Its cost is honest —",
-              "it stops future penalty inflow."
+              "ONE-WAY, set by `declare_degraded`. Then `stake` and `extend_lock` are refused, and",
+              "both early doors are free for a position whose weight was set at or before",
+              "`degraded_notice_start`; weight set later pays the normal penalty. It only frees",
+              "stakers, but a key-holder with an older locked position escapes its penalty by firing it."
             ],
             "type": "bool"
           },
@@ -1895,11 +1901,19 @@
             "type": "u128"
           },
           {
+            "name": "degraded_notice_start",
+            "docs": [
+              "The `notice_start` passed to `declare_degraded` (unix seconds); 0 until then.",
+              "Carved from `_reserved`, so `8 + Pool::INIT_SPACE` stays 508."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "_reserved",
             "type": {
               "array": [
                 "u8",
-                88
+                80
               ]
             }
           }
@@ -1974,21 +1988,25 @@
             "type": "u128"
           },
           {
+            "name": "weight_set_at",
+            "docs": [
+              "When the weight was last set (unix seconds), by `stake` or `extend_lock`. 0 means",
+              "no stamp: a position opened before this field existed, which counts as set before",
+              "any degraded notice. Carved from `_reserved`, so the size stays 205."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "_reserved",
             "docs": [
-              "AUDIT L-8, and it is FREE NOW AND IMPOSSIBLE LATER. `Pool` reserved padding and",
-              "these two did not. An upgrade that grows this struct fails Borsh (3003) on every",
-              "pre-existing account across all four exit paths, and `stake` fails one step",
-              "earlier on `ConstraintSpace` (2019). Recoverable by redeploying the prior",
-              "binary — but only because nothing is live yet.",
-              "",
-              "Padding only helps ADDITIVE growth. Reordering or widening an existing field",
-              "still breaks every account, reserve or no reserve."
+              "Upgrade padding (audit L-8). Growing this struct would fail every live position",
+              "(Borsh 3003), so a new field is carved out of these bytes, which are zero on every",
+              "existing account. Reordering or widening a field breaks every account too."
             ],
             "type": {
               "array": [
                 "u8",
-                64
+                56
               ]
             }
           }

@@ -1236,107 +1236,114 @@ describe("bayla-ladder", () => {
       assert.equal(stats.principal.toString(), MAX_WALLET.add(tok(100)).toString());
     });
 
-    it("declare_degraded is ONE-WAY and closes the pool to new stakes (audit M-3)", async () => {
+    it("declare_degraded is ONE-WAY, closes the pool, and frees only weight set before its notice (audit M-3)", async () => {
       const ctx2 = await makePool({ nonce: 61 });
-      const dave = await newWallet();
-      const daveAta = await distribute(
-        ctx2.mint,
-        ctx2.userAta,
-        dave,
-        tok(10_000),
-        ctx2.programId
-      );
-
-      // POSITIVE CONTROL: staking works before the flag
-      await program.methods
-        .stake(tok(1_000), new BN(MIN_LOCK))
-        .accounts({
-          owner: dave.publicKey,
-          pool: ctx2.pool,
-          mint: ctx2.mint,
-          userStats: userPda(ctx2.pool, dave.publicKey),
-          position: positionPda(ctx2.pool, dave.publicKey, 0),
-          ownerAta: daveAta,
-          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx2.pool),
-          tokenProgram: ctx2.programId,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([dave])
-        .rpc();
-
-      const extendDave = (lock: number) =>
+      const [dave, frank, mallory] = [await newWallet(), await newWallet(), await newWallet()];
+      const ata = new Map<Keypair, PublicKey>();
+      for (const w of [dave, frank, mallory]) {
+        ata.set(w, await distribute(ctx2.mint, ctx2.userAta, w, tok(10_000), ctx2.programId));
+      }
+      const stake = (who: Keypair, nonce: number, amount: BN, lock: number) =>
         program.methods
-          .extendLock(new BN(lock))
+          .stake(amount, new BN(lock))
           .accounts({
-            owner: dave.publicKey,
-            pool: ctx2.pool,
-            position: positionPda(ctx2.pool, dave.publicKey, 0),
-          })
-          .signers([dave]);
-      // POSITIVE CONTROL for the extend refusal below: same position, same scaffolding.
-      await extendDave(30 * 86_400).rpc();
-
-      await program.methods
-        .declareDegraded()
-        .accounts({ authority: payer.publicKey, pool: ctx2.pool })
-        .rpc();
-
-      await rejectsWith(
-        extendDave(MAX_LOCK).rpc(),
-        "PoolDegraded",
-        "both early doors are free now, so a 4.00x extension would be reward for no commitment"
-      );
-
-      await rejectsWith(
-        program.methods
-          .stake(tok(1_000), new BN(MAX_LOCK))
-          .accounts({
-            owner: dave.publicKey,
+            owner: who.publicKey,
             pool: ctx2.pool,
             mint: ctx2.mint,
-            userStats: userPda(ctx2.pool, dave.publicKey),
-            position: positionPda(ctx2.pool, dave.publicKey, 1),
-            ownerAta: daveAta,
+            userStats: userPda(ctx2.pool, who.publicKey),
+            position: positionPda(ctx2.pool, who.publicKey, nonce),
+            ownerAta: ata.get(who)!,
             stakeVault: vaultPda(STAKE_VAULT_SEED, ctx2.pool),
             tokenProgram: ctx2.programId,
             systemProgram: SystemProgram.programId,
           })
-          .signers([dave])
-          .rpc(),
+          .signers([who]);
+      const extend = (who: Keypair, nonce: number, lock: number) =>
+        program.methods
+          .extendLock(new BN(lock))
+          .accounts({
+            owner: who.publicKey,
+            pool: ctx2.pool,
+            position: positionPda(ctx2.pool, who.publicKey, nonce),
+          })
+          .signers([who]);
+      const degrade = (noticeStart: number) =>
+        program.methods
+          .declareDegraded(new BN(noticeStart))
+          .accounts({ authority: payer.publicKey, pool: ctx2.pool });
+      /** What `who` received from leaving position `nonce` through `door`. */
+      const leave = async (who: Keypair, nonce: number, door: "earlyExit" | "emergencyWithdraw") => {
+        const before = await bal(ata.get(who)!, ctx2.programId);
+        const accounts = {
+          owner: who.publicKey,
+          pool: ctx2.pool,
+          mint: ctx2.mint,
+          userStats: userPda(ctx2.pool, who.publicKey),
+          position: positionPda(ctx2.pool, who.publicKey, nonce),
+          ownerAta: ata.get(who)!,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx2.pool),
+          tokenProgram: ctx2.programId,
+        };
+        await (door === "earlyExit"
+          ? program.methods
+              .earlyExit()
+              .accounts({ ...accounts, rewardVault: vaultPda(REWARD_VAULT_SEED, ctx2.pool) })
+          : program.methods.emergencyWithdraw().accounts(accounts)
+        )
+          .signers([who])
+          .rpc();
+        return (await bal(ata.get(who)!, ctx2.programId)).sub(before).toString();
+      };
+
+      // Before the notice. POSITIVE CONTROLS for the refusals below: same scaffolding.
+      await stake(dave, 0, tok(1_000), MIN_LOCK).rpc();
+      await extend(dave, 0, 30 * 86_400).rpc();
+      await stake(dave, 1, tok(1_000), MIN_LOCK).rpc();
+      await stake(frank, 0, tok(1_000), MIN_LOCK).rpc();
+
+      // The notice begins: the moment the authority's proposal is made public.
+      const noticeStart = await chainNow(conn);
+      for (let i = 0; i < 40 && (await chainNow(conn)) <= noticeStart; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      assert.isAbove(await chainNow(conn), noticeStart, "the chain clock never advanced");
+
+      // During the notice: a buyer takes the top rung, and frank lengthens onto it.
+      await stake(mallory, 0, tok(10_000), MAX_LOCK).rpc();
+      await extend(frank, 0, MAX_LOCK).rpc();
+
+      await rejectsWith(
+        degrade((await chainNow(conn)) + 3_600).rpc(),
+        "InvalidParameter",
+        "a notice that has not begun yet is no notice"
+      );
+      await degrade(noticeStart).rpc();
+      const flagged = await program.account.pool.fetch(ctx2.pool);
+      assert.isTrue(flagged.degraded);
+      assert.equal(flagged.degradedNoticeStart.toString(), String(noticeStart));
+
+      await rejectsWith(
+        extend(dave, 0, MAX_LOCK).rpc(),
+        "PoolDegraded",
+        "a degraded pool takes no new commitment"
+      );
+      await rejectsWith(
+        stake(dave, 2, tok(1_000), MAX_LOCK).rpc(),
         "PoolDegraded",
         "otherwise the 4.00x rung is buyable with no lock at all"
       );
-      await rejectsWith(
-        program.methods
-          .declareDegraded()
-          .accounts({ authority: payer.publicKey, pool: ctx2.pool })
-          .rpc(),
-        "AlreadyDegraded",
-        "the flag is one-way"
-      );
+      await rejectsWith(degrade(noticeStart).rpc(), "AlreadyDegraded", "the flag is one-way");
 
-      // and BOTH early doors now charge nothing
-      const before = await bal(daveAta, ctx2.programId);
-      await program.methods
-        .earlyExit()
-        .accounts({
-          owner: dave.publicKey,
-          pool: ctx2.pool,
-          mint: ctx2.mint,
-          userStats: userPda(ctx2.pool, dave.publicKey),
-          position: positionPda(ctx2.pool, dave.publicKey, 0),
-          ownerAta: daveAta,
-          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx2.pool),
-          rewardVault: vaultPda(REWARD_VAULT_SEED, ctx2.pool),
-          tokenProgram: ctx2.programId,
-        })
-        .signers([dave])
-        .rpc();
-      assert.equal(
-        (await bal(daveAta, ctx2.programId)).sub(before).toString(),
-        tok(1_000).toString(),
-        "in a degraded pool early_exit must not charge — the hatch would otherwise dominate it"
-      );
+      // Weight set during the notice keeps the normal penalty, through either door: four
+      // years left, so the 75% cap.
+      assert.equal(await leave(mallory, 0, "earlyExit"), tok(2_500).toString(), "the buyer must pay");
+      assert.equal(await leave(frank, 0, "emergencyWithdraw"), tok(250).toString(), "so must a lengthener");
+      const after = await program.account.pool.fetch(ctx2.pool);
+      assert.equal(after.orphanedPenalty.toString(), tok(750).toString(), "the hatch's penalty parks for the sweep");
+
+      // Weight set before the notice leaves free, through either door.
+      assert.equal(await leave(dave, 0, "earlyExit"), tok(1_000).toString(), "an earlier staker leaves free");
+      assert.equal(await leave(dave, 1, "emergencyWithdraw"), tok(1_000).toString(), "through the hatch too");
     });
 
     it("authority rotation is two-step and the incoming key must sign", async () => {

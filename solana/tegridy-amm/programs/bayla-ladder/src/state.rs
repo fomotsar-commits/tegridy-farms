@@ -97,12 +97,10 @@ pub struct Pool {
     /// `total_principal` already excludes it.
     pub orphaned_penalty: u64,
 
-    /// ONE-WAY. When set, BOTH early doors (`early_exit` and `emergency_withdraw`)
-    /// charge no penalty while locked, and `stake` is refused. It answers "what if the
-    /// operator is the failure", and it only ever moves in the direction that frees
-    /// stakers — but it is not worthless to a thief: a key-holder who also holds a
-    /// locked position escapes their own penalty (up to 75%) by firing it. Its cost is honest —
-    /// it stops future penalty inflow.
+    /// ONE-WAY, set by `declare_degraded`. Then `stake` and `extend_lock` are refused, and
+    /// both early doors are free for a position whose weight was set at or before
+    /// `degraded_notice_start`; weight set later pays the normal penalty. It only frees
+    /// stakers, but a key-holder with an older locked position escapes its penalty by firing it.
     pub degraded: bool,
 
     /// Truncation remainders (audit M-2 / L-4). Carved OUT of `_reserved` rather than
@@ -114,7 +112,11 @@ pub struct Pool {
     pub rpw_residue: u128,
     pub emitted_residue: u128,
 
-    pub _reserved: [u8; 88],
+    /// The `notice_start` passed to `declare_degraded` (unix seconds); 0 until then.
+    /// Carved from `_reserved`, so `8 + Pool::INIT_SPACE` stays 508.
+    pub degraded_notice_start: i64,
+
+    pub _reserved: [u8; 80],
 }
 
 /// One position. PDA at [`POSITION_SEED`, pool, owner, nonce_le]. Every stake is its
@@ -144,15 +146,15 @@ pub struct Position {
     /// when the vault is short (I-2).
     pub rewards_owed: u128,
 
-    /// AUDIT L-8, and it is FREE NOW AND IMPOSSIBLE LATER. `Pool` reserved padding and
-    /// these two did not. An upgrade that grows this struct fails Borsh (3003) on every
-    /// pre-existing account across all four exit paths, and `stake` fails one step
-    /// earlier on `ConstraintSpace` (2019). Recoverable by redeploying the prior
-    /// binary — but only because nothing is live yet.
-    ///
-    /// Padding only helps ADDITIVE growth. Reordering or widening an existing field
-    /// still breaks every account, reserve or no reserve.
-    pub _reserved: [u8; 64],
+    /// When the weight was last set (unix seconds), by `stake` or `extend_lock`. 0 means
+    /// no stamp: a position opened before this field existed, which counts as set before
+    /// any degraded notice. Carved from `_reserved`, so the size stays 205.
+    pub weight_set_at: i64,
+
+    /// Upgrade padding (audit L-8). Growing this struct would fail every live position
+    /// (Borsh 3003), so a new field is carved out of these bytes, which are zero on every
+    /// existing account. Reordering or widening a field breaks every account too.
+    pub _reserved: [u8; 56],
 }
 
 /// Per-(pool, wallet) bookkeeping. PDA at [`USER_SEED`, pool, owner].

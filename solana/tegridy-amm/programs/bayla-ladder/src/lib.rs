@@ -115,13 +115,10 @@
 //! one — the pool authority belongs in a multisig before any funds go in. Also: every
 //! guarantee here holds only while the UPGRADE authority does not replace the program.
 //!
-//! CORRECTED 2026-09-06 (audit M-3): this used to end "or change what anyone was
-//! promised", which was false. `declare_degraded` cannot touch
-//! the penalty schedule, but it zeroes the penalty on both exit doors and ends
-//! penalty inflow permanently — and before this commit it left `stake` open too, so
-//! the 4.00x rung could be bought with no lock at all. What is true is narrower and
-//! worth saying exactly: the flag can only move in the direction that frees stakers
-//! and closes the pool to new money.
+//! `declare_degraded` cannot touch the penalty schedule. It waives the penalty on both
+//! early doors for a position whose weight was set at or before the notice start it is
+//! given, and closes the pool to new stakes and lock extensions. It can only move in the
+//! direction that frees stakers.
 //!
 //! ## Two couplings a future change could break without noticing
 //!
@@ -172,14 +169,10 @@
 //!
 //! `LighthouseLadder.emergencyWithdraw` charges its 25% while locked, unconditionally
 //! (and the rate itself is not ported either: this program charges veYFI's schedule).
-//! Here BOTH early doors charge nothing once `declare_degraded` has been called — the
-//! one-way flag that answers "what if the operator is the failure". Under the venue's
-//! own upgrade authority, holders will want a hatch that works when the venue is the
-//! problem, and charging them up to 75% then reads badly.
-//!
-//! Its cost is honest and belongs in the panel copy: it stops future penalty inflow,
-//! transferring value from stayers to leavers, and it CLOSES THE POOL TO NEW STAKES
-//! permanently. A terminal state, not a maintenance mode.
+//! Here both early doors charge nothing after `declare_degraded`, the one-way answer to
+//! "what if the operator is the failure", for a position whose weight was set at or
+//! before the flag's notice start. Weight set during the public notice keeps the normal
+//! penalty. A terminal state, not a maintenance mode.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -420,22 +413,9 @@ pub mod bayla_ladder {
     /// Open a position. Every stake is its OWN position: no top-up, so no boost
     /// blending and no way to buy a high multiplier for a short commitment.
     pub fn stake(ctx: Context<Stake>, amount: u64, lock_secs: i64) -> Result<()> {
-        // AUDIT M-3, entry side. `degraded` used to be read in exactly ONE expression in
-        // the whole program (the hatch's penalty), so after it fired anyone could open a
-        // 4-year position, take the 4.00x weight, and close it in the next slot for full
-        // principal and zero penalty — accrual preserved into `rewards_carried`. The
-        // ladder prices exactly one thing, commitment, and the flag removed the
-        // commitment while leaving the price. Honest stakers on short rungs were diluted
-        // by an actor who posted no lock at all.
-        //
-        // THE TRADE-OFF, stated rather than glossed: this hands the authority an
-        // IRREVERSIBLE deposit freeze, and `pause` is on the deliberately-absent list.
-        // The objection is weaker than it looks. A pause is reversible and its abuse is
-        // to TRAP people; this is one-way and can only ever RELEASE them — firing it gives
-        // every staker a free exit. (It is NOT worthless to a thief: a key-holder who also
-        // holds a locked position escapes their own penalty (up to 75%) by firing it. That is why
-        // the pool authority must be a multisig, and it is outside what code can fix.) And a
-        // pool whose operator has declared it broken should not be taking new money.
+        // AUDIT M-3: a pool whose operator has declared it broken takes no new money. This
+        // hands the authority an irreversible deposit freeze (`pause` stays absent), but
+        // the flag can only release stakers, never trap them.
         require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
         require!(amount > 0, LadderError::ZeroAmount);
         require!(lock_secs >= MIN_LOCK_SECS, LadderError::LockTooShort);
@@ -511,6 +491,7 @@ pub mod bayla_ladder {
         position.amount = received;
         position.weight = weight;
         position.lock_end = now.checked_add(lock_secs).ok_or(LadderError::Overflow)?;
+        position.weight_set_at = now;
         // A fresh position starts at the CURRENT accumulator, so it earns forward only.
         position.reward_per_weight_paid = pool.reward_per_weight_stored;
         position.rewards_owed = 0;
@@ -552,8 +533,7 @@ pub mod bayla_ladder {
     /// position at its OLD weight, THEN write the new one. The other way round, the new
     /// boost would be paid backwards over time already served at the old one.
     pub fn extend_lock(ctx: Context<ExtendLock>, lock_secs: i64) -> Result<()> {
-        // AUDIT M-3, the reason `stake` reads it: in a degraded pool both early doors are
-        // free, so an extension would sell the 4.00x weight for no commitment at all.
+        // AUDIT M-3, as in `stake`: a degraded pool takes no new commitment.
         require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
         let now = Clock::get()?.unix_timestamp;
         let (lock_end, weight) = extended_lock(
@@ -579,6 +559,7 @@ pub mod bayla_ladder {
             .saturating_add(weight);
         position.weight = weight;
         position.lock_end = lock_end;
+        position.weight_set_at = now;
 
         emit!(LockExtended {
             pool: pool.key(),
@@ -655,17 +636,15 @@ pub mod bayla_ladder {
             now < ctx.accounts.position.lock_end,
             LadderError::UseWithdrawMatured
         );
-        // AUDIT M-3, exit side. This used to charge unconditionally, so in a degraded
-        // pool `emergency_withdraw` STRICTLY DOMINATED the door named after what the
-        // user is actually doing: all of the principal against principal minus the
-        // penalty, with `claim_carried` delivering the identical reward payout. Nobody
-        // could be forced into the paying door — `EmergencyWithdraw`'s account set is a
-        // strict subset of `Exit`'s — but they could pick it by name and burn the penalty
-        // for nothing (25% when M-3 was found). The doors now agree, and
-        // they MUST keep agreeing: both call `penalty_for` with the position's own
-        // `lock_end` and this instruction's `now`, which
-        // `layout_tests::both_early_doors_charge_the_same_penalty` pins.
-        let penalty = if ctx.accounts.pool.degraded {
+        // The two early doors MUST charge alike, or every leaver takes the cheaper one: both
+        // waive through `penalty_waived` and charge `penalty_for` with the position's own
+        // `lock_end` and this instruction's `now`
+        // (`layout_tests::both_early_doors_charge_the_same_penalty`).
+        let penalty = if penalty_waived(
+            ctx.accounts.pool.degraded,
+            ctx.accounts.position.weight_set_at,
+            ctx.accounts.pool.degraded_notice_start,
+        ) {
             0
         } else {
             penalty_for(
@@ -678,7 +657,7 @@ pub mod bayla_ladder {
     }
 
     /// THE LAST RESORT. Principal only, at ANY time — including while locked (paying
-    /// the same time-left penalty as `early_exit` unless the pool is degraded) and including when the reward vault is
+    /// the same time-left penalty as `early_exit`, waived alike in a degraded pool) and including when the reward vault is
     /// empty, closed, or wedged. This instruction declares NO reward vault (I-12).
     ///
     /// AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and
@@ -700,7 +679,12 @@ pub mod bayla_ladder {
 
         let position = &ctx.accounts.position;
         let locked = now < position.lock_end;
-        let penalty = if locked && !ctx.accounts.pool.degraded {
+        let penalty = if locked
+            && !penalty_waived(
+                ctx.accounts.pool.degraded,
+                position.weight_set_at,
+                ctx.accounts.pool.degraded_notice_start,
+            ) {
             penalty_for(position.amount, position.lock_end, now)
         } else {
             0
@@ -1061,11 +1045,19 @@ pub mod bayla_ladder {
         Ok(())
     }
 
-    /// ONE-WAY. After this, the emergency hatch charges no penalty while locked.
-    pub fn declare_degraded(ctx: Context<AuthorityOnly>) -> Result<()> {
+    /// ONE-WAY. `notice_start`: when the proposal to call this was made (unix seconds, in
+    /// the past). After this, `stake` and `extend_lock` are refused, and both early doors
+    /// are free for a position whose weight was set at or before `notice_start`; weight
+    /// set later pays the normal penalty.
+    pub fn declare_degraded(ctx: Context<AuthorityOnly>, notice_start: i64) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         require!(!pool.degraded, LadderError::AlreadyDegraded);
+        require!(
+            notice_start < Clock::get()?.unix_timestamp,
+            LadderError::InvalidParameter
+        );
         pool.degraded = true;
+        pool.degraded_notice_start = notice_start;
         emit!(Degraded { pool: pool.key() });
         Ok(())
     }
@@ -1883,6 +1875,143 @@ mod layout_tests {
                 "{door} must measure time left from the position's own lock_end, got {args:?}"
             );
             assert_eq!(args[2], "now", "{door} must price the penalty at this instruction's now");
+
+            // ...and waive it on one rule: in a degraded pool, only for weight set at or
+            // before the notice start. `degraded` is read nowhere else in either door.
+            let at = body
+                .find("penalty_waived(")
+                .unwrap_or_else(|| panic!("{door} must waive through penalty_waived:\n{body}"));
+            let call = &body[at + "penalty_waived(".len()..];
+            let args: Vec<&str> = call[..call.find(')').expect("unclosed penalty_waived call")]
+                .split(',')
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .collect();
+            assert_eq!(args.len(), 3, "{door}: penalty_waived takes three arguments, got {args:?}");
+            assert!(args[0].ends_with("pool.degraded"), "{door}: {args:?}");
+            assert!(args[1].ends_with("position.weight_set_at"), "{door}: {args:?}");
+            assert!(args[2].ends_with("pool.degraded_notice_start"), "{door}: {args:?}");
+            for (i, _) in body.match_indices(".degraded") {
+                let rest = &body[i + ".degraded".len()..];
+                assert!(
+                    rest.starts_with(',') || rest.starts_with("_notice_start"),
+                    "{door} reads `degraded` outside penalty_waived:\n{body}"
+                );
+            }
         }
+    }
+
+    /// Both writers of a position's weight stamp the time, or weight bought during a
+    /// degraded notice would read as older than the notice and leave free.
+    #[test]
+    fn every_weight_write_stamps_the_time() {
+        let src = include_str!("lib.rs");
+        let program = &src[..src.find("mod layout_tests").expect("re-anchor this test")];
+        for writer in ["pub fn stake(", "pub fn extend_lock("] {
+            let start = program.find(writer).expect("writer not found: re-anchor this test");
+            let body = &program[start..start + program[start..].find("\n    }").unwrap()];
+            assert!(body.contains("position.weight = weight;"), "{writer}: re-anchor");
+            assert!(
+                body.contains("position.weight_set_at = now;"),
+                "{writer} sets a weight without stamping it"
+            );
+        }
+        assert_eq!(program.matches("position.weight = ").count(), 2, "a new weight writer");
+        assert_eq!(program.matches("weight_set_at = ").count(), 2, "a new stamp writer");
+    }
+
+    /// The stamps are carved from padding, so no live account moves: every field that
+    /// existed before them keeps its byte offset (trunk's layout, written out below), the
+    /// sizes stay 508 and 205, and padding that reads all zero is "no stamp".
+    #[test]
+    fn the_stamps_move_no_existing_field() {
+        let pk = |n: u8| Pubkey::new_from_array([n; 32]);
+        let u8x8 = |n: u8| u64::from_le_bytes([n; 8]);
+        let i8x8 = |n: u8| i64::from_le_bytes([n; 8]);
+        let u8x16 = |n: u8| u128::from_le_bytes([n; 16]);
+        let filled = |buf: &[u8], at: usize, len: usize, n: u8| buf[at..at + len].iter().all(|b| *b == n);
+
+        let mut pool = Pool {
+            bump: 2,
+            nonce: 3,
+            mint: pk(4),
+            token_program: pk(5),
+            decimals: 6,
+            authority: pk(7),
+            pending_authority: pk(8),
+            stake_vault: pk(9),
+            reward_vault: pk(10),
+            min_stake: u8x8(11),
+            deposit_cap: u8x8(12),
+            pending_cap: u8x8(13),
+            pending_cap_ts: i8x8(14),
+            max_wallet_principal: u8x8(15),
+            total_principal: u8x8(16),
+            total_weighted: u8x16(17),
+            reward_rate: u8x16(18),
+            period_finish: i8x8(19),
+            last_update_time: i8x8(20),
+            reward_per_weight_stored: u8x16(21),
+            rewards_emitted: u8x16(22),
+            rewards_paid: u8x16(23),
+            reward_funded_cumulative: u8x16(24),
+            penalty_collected_cumulative: u8x16(25),
+            orphaned_penalty: u8x8(26),
+            degraded: true,
+            rpw_residue: u8x16(27),
+            emitted_residue: u8x16(28),
+            degraded_notice_start: i8x8(29),
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        pool.try_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 508);
+        for (at, len, n) in [
+            (8, 1, 2), (9, 1, 3), (10, 32, 4), (42, 32, 5), (74, 1, 6), (75, 32, 7),
+            (107, 32, 8), (139, 32, 9), (171, 32, 10), (203, 8, 11), (211, 8, 12),
+            (219, 8, 13), (227, 8, 14), (235, 8, 15), (243, 8, 16), (251, 16, 17),
+            (267, 16, 18), (283, 8, 19), (291, 8, 20), (299, 16, 21), (315, 16, 22),
+            (331, 16, 23), (347, 16, 24), (363, 16, 25), (379, 8, 26), (387, 1, 1),
+            (388, 16, 27), (404, 16, 28),
+        ] {
+            assert!(filled(&buf, at, len, n), "the Pool field at byte {at} moved");
+        }
+        assert!(filled(&buf, 420, 8, 29), "degraded_notice_start sits where padding began");
+        assert!(filled(&buf, 428, 80, 0), "the rest is still padding");
+        // A pool written before the stamp existed has zero there: never degraded, no notice.
+        buf[420..428].fill(0);
+        pool = Pool::try_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(pool.degraded_notice_start, 0);
+
+        let position = Position {
+            bump: 2,
+            pool: pk(3),
+            owner: pk(4),
+            nonce: u32::from_le_bytes([5; 4]),
+            amount: u8x8(6),
+            weight: u8x16(7),
+            lock_end: i8x8(8),
+            reward_per_weight_paid: u8x16(9),
+            rewards_owed: u8x16(10),
+            weight_set_at: i8x8(11),
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        position.try_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 205);
+        for (at, len, n) in [
+            (8, 1, 2), (9, 32, 3), (41, 32, 4), (73, 4, 5), (77, 8, 6), (85, 16, 7),
+            (101, 8, 8), (109, 16, 9), (125, 16, 10),
+        ] {
+            assert!(filled(&buf, at, len, n), "the Position field at byte {at} moved");
+        }
+        assert!(filled(&buf, 141, 8, 11), "weight_set_at sits where padding began");
+        assert!(filled(&buf, 149, 56, 0), "the rest is still padding");
+        // Every position open today has zero there: no stamp, which leaves free in a
+        // degraded pool, as it did before the stamp existed.
+        buf[141..149].fill(0);
+        let old = Position::try_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!((old.weight_set_at, old.lock_end), (0, i8x8(8)));
+        assert!(penalty_waived(true, old.weight_set_at, 1_800_000_000));
     }
 }

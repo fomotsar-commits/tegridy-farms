@@ -57,7 +57,7 @@ pub enum LadderError {
     RewardRateTooSmall,
     #[msg("Mint carries a live mint authority — it could conjure the asset this pool prices")]
     MintHasMintAuthority,
-    #[msg("This pool has been declared degraded — it accepts no new stakes; existing positions exit penalty-free")]
+    #[msg("This pool has been declared degraded: it takes no new stakes or lock extensions")]
     PoolDegraded,
     #[msg("This wallet already holds its maximum share of the pool")]
     WalletCapExceeded,

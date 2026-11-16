@@ -449,6 +449,13 @@ pub fn penalty_for(amount: u64, lock_end: i64, now: i64) -> u64 {
     ((amount as u128) * penalty_ratio / PENALTY_SCALE) as u64
 }
 
+/// Whether a degraded pool waives an early exit's penalty: only for a position whose weight
+/// was set at or before the flag's notice began. Weight set during the notice keeps the
+/// normal penalty. A stamp of 0 (a position opened before stamps existed) counts as before.
+pub fn penalty_waived(degraded: bool, weight_set_at: i64, notice_start: i64) -> bool {
+    degraded && weight_set_at <= notice_start
+}
+
 /// Synthetix `notifyRewardAmount` rate: a reload after the window ends starts fresh;
 /// a reload inside it folds the unspent remainder into the new window.
 pub fn new_reward_rate(amount: u64, now: i64, period_finish: i64, old_rate: u128) -> u128 {
@@ -921,6 +928,23 @@ mod tests {
             t += 3_600;
         }
         assert_eq!(prev, 0, "at lock_end the penalty is zero");
+    }
+
+    #[test]
+    fn a_degraded_pool_waives_the_penalty_only_for_weight_set_before_its_notice() {
+        let notice = 1_800_000_000i64;
+        // Set before the notice, or in its very second: free.
+        assert!(penalty_waived(true, notice - DAY, notice));
+        assert!(penalty_waived(true, notice, notice));
+        // Set during the notice: the normal penalty stands.
+        assert!(!penalty_waived(true, notice + 1, notice));
+        assert!(!penalty_waived(true, notice + 2 * DAY, notice));
+        // No stamp (every position opened before stamps existed) counts as before.
+        assert!(penalty_waived(true, 0, notice));
+        assert!(penalty_waived(true, 0, 0));
+        // Never outside a degraded pool, however old the position.
+        assert!(!penalty_waived(false, 0, notice));
+        assert!(!penalty_waived(false, notice - DAY, notice));
     }
 
     #[test]
