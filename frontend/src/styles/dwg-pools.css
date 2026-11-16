@@ -90,8 +90,9 @@ section[data-dwg='door'] {
 .dwg-sheet[data-sheet='P'] .p01-field {
   position: absolute; top: 0; right: 0; width: 70%; aspect-ratio: var(--p01-aspect);
   container-type: inline-size; opacity: 0.55; pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 96%);
-  mask-image: linear-gradient(to bottom, #000 55%, transparent 96%);
+  /* It fades from its top right corner toward the word and the lede, which lie over it on a phone. */
+  -webkit-mask-image: radial-gradient(135% 105% at 100% 0%, #000 38%, transparent 88%);
+  mask-image: radial-gradient(135% 105% at 100% 0%, #000 38%, transparent 88%);
 }
 @media (min-width: 48rem) {
   .dwg-sheet[data-sheet='P'] .p01-field { top: 15px; width: 58%; opacity: 1; pointer-events: auto; -webkit-mask-image: none; mask-image: none; }
@@ -321,7 +322,7 @@ section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools'] ul:has(> [data-testid='lp-all-pools-row']) { counter-reset: pool; border-top: 1px solid var(--dwg-line-3); }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] {
   counter-increment: pool;
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; column-gap: 14px; row-gap: 10px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 14px; row-gap: 10px;
   margin: 0; padding: 14px 0 14px 12px; border-radius: 0;
   /* Replaces the row's inline box: rgba(0,0,0,0.35) on a white border. */
   border: 0 !important;
@@ -331,28 +332,42 @@ section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--
 }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row']:is(:hover, :focus-within, [data-hot]) { background-size: 3px 100% !important; }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row']::before {
-  content: counter(pool, decimal-leading-zero); content: counter(pool, decimal-leading-zero) / ""; align-self: start; padding-top: 0.55em;
+  content: counter(pool, decimal-leading-zero); content: counter(pool, decimal-leading-zero) / ""; grid-column: 1; grid-row: 1; align-self: start; padding-top: 0.55em;
   font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.45);
 }
-.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type { grid-column: 2; }
-.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { grid-column: 3; grid-row: 1; width: 64px; }
-.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 2 / -1; }
+/* Under 48rem the facts take the row's whole width, the index run in on the pair's own line; the
+   buttons stand below, the gauge in what is left beside them. A column for the index or the gauge
+   took the width two coin names need to share a line: 28 pools, about 900px more page on a phone. */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type { grid-column: 1 / -1; grid-row: 1; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child { text-indent: 26px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 1; grid-row: 2; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { grid-column: 2; grid-row: 2; justify-self: end; width: min(64px, 100%); }
+@media (max-width: 22.49rem) {
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { display: none; }
+}
+/* From 48rem: the index, the facts, and one column for the gauge over the three buttons, as wide
+   as they are. Beside them it took 118px from the facts, whose lines broke: the list ran a tenth longer.
+   The facts span both rows whether or not a gauge was drawn, so no rule here asks :has(). */
 @media (min-width: 48rem) {
-  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] { grid-template-columns: 26px minmax(0, 1fr) auto auto; }
-  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { width: 104px; }
-  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 4; grid-row: 1; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] { grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type { grid-column: 2; grid-row: 1 / span 2; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child { text-indent: 0; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { grid-column: 3; grid-row: 1; justify-self: stretch; align-self: end; width: auto; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 3; grid-row: 2; align-self: start; }
 }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child,
 .dwg-sheet[data-sheet='P'] :is([data-testid='lp-arb-row'] > div:first-child > p:first-child, [data-testid='lp-every-position-pool'] > p:first-child) {
   font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.15rem, 2.4vw, 1.75rem); letter-spacing: -0.035em; line-height: 1.05; color: var(--dwg-ink);
 }
-/* The pair, then its dollars on a line of their own (the ml-auto utility pushed them to the far right). */
-.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child { display: block; }
-.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-worth'] { display: block; margin: 6px 0 2px; font: 700 13px/1.3 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-ink); }
+/* The pair, then its dollars beside it; on a line of their own only where the two do not fit
+   (the ml-auto utility pushed them to the row's far right). */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child { justify-content: flex-start; column-gap: 14px; row-gap: 3px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-worth'] { margin: 0; font: 700 13px/1.3 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-ink); }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > p { font: 500 11px/1.45 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-dim); }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'] {
   border-radius: 0; background: transparent; border-color: currentColor;
-  font: 700 9.5px/1.4 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase;
+  /* 11px: a warning is drawn no smaller than the tag it replaces. */
+  font: 700 11px/1.4 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase;
 }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'].text-rose-300 { color: var(--dwg-bad); }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'].text-amber-300 { color: var(--dwg-warn); }
@@ -386,7 +401,7 @@ section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--
 }
 /* Replaces the pool's share's inline #4ade80 with the sheet's green. */
 .dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] > td:nth-of-type(2) .stat-value { color: var(--dwg-green) !important; }
-.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] .stat-value + span { margin-top: 4px; font: 500 9.5px/1.2 var(--font-family-mono); letter-spacing: 0.08em; }
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] .stat-value + span { margin-top: 4px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.08em; }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-open-cost'] { font: 500 11px/1.5 var(--font-family-mono); letter-spacing: 0.04em; }
 .dwg-sheet[data-sheet='P'] .p01-manifold { position: relative; max-width: 520px; margin-bottom: 10px; }
 .dwg-sheet[data-sheet='P'] .p01-manifold .p01-pipe-in { stroke: var(--dwg-ink); stroke-opacity: 0.9; }
