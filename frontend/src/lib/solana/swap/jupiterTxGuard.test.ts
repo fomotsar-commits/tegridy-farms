@@ -273,11 +273,24 @@ describe('the test run holds the payer’s balances to the trade shown (XCHL-01,
 
   it('rent for accounts the route opens is room up to 0.005 SOL in one run, never past it', () => {
     const sale = { user: LIVE_USER, inputMint: SOL, inAmount: '1000' };
-    const opens = (rent: bigint): Run => ({
-      fee: 5000, preBalances: [10_000_000_000, 0], postBalances: [10_000_000_000 - 5000 - 1000 - Number(rent), Number(rent)], preTokenBalances: [], postTokenBalances: [],
+    // `was`: what the account held before the run, when someone sent its address SOL first.
+    const opens = (rent: bigint, was = 0): Run => ({
+      fee: 5000, preBalances: [10_000_000_000, was], postBalances: [10_000_000_000 - 5000 - 1000 - (Number(rent) - was), Number(rent)], preTokenBalances: [], postTokenBalances: [],
     });
     expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS), sale)).toBeNull();
     expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n), sale)).toMatch(/takes more than the amount shown/);
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS, 890_880), sale)).toBeNull();
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n, 890_880), sale)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('the exchange’s record of the wallet, sent SOL by someone first, is topped up from the payer: that is room too', () => {
+    // The chain leaves no less than 890,880 lamports at an empty address, so that is where the record starts.
+    const r = copy(RUN_SOL_BAYLA);
+    r.preBalances[4] = 890_880;
+    r.postBalances[0] += 890_880;
+    expect(balanceRefusal(r, SOLD)).toBeNull();
+    r.postBalances[0] -= 1;
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
   });
 
   it('another account past 2^53 lamports (a large pool vault) is no reason to refuse; the payer’s own past it is no verdict', () => {

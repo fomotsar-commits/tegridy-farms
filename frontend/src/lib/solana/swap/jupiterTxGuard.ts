@@ -326,8 +326,9 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
 export interface TradeShown { user: string; inputMint: string; inAmount: string }
 
 /**
- * Rent for accounts a route opens that hold no coin (an exchange's own record of a wallet:
- * 1,346,200 lamports for PumpSwap's, read 2026-11-16), at most 0.005 SOL in one run.
+ * Rent a route pays into accounts that hold no coin (an exchange's own record of a wallet:
+ * 1,346,200 lamports for PumpSwap's, read 2026-11-16), opened or topped up: each ends with at
+ * most this, and all of them get at most this in one run.
  */
 export const ROUTE_RENT_CAP_LAMPORTS = 5_000_000n;
 
@@ -386,8 +387,14 @@ export function balanceRefusal(
     if (mint !== shown.inputMint) return 'its test run takes a coin you are not selling';
     if (drop > sold) return 'its test run takes more than the amount shown';
   }
+  // What the run adds counts, not only what an empty account gets: someone may send an exchange's
+  // record address SOL first (the chain leaves no less than 890,880 lamports at an empty address).
   let opened = 0n;
-  for (let i = 1; i < pre.length; i += 1) if (pre[i] === 0 && post[i] !== 0 && !after.tokens.has(i)) opened += lamport(post[i]);
+  const cap = Number(ROUTE_RENT_CAP_LAMPORTS);
+  for (let i = 1; i < pre.length; i += 1) {
+    const [was, now] = [pre[i], post[i]];
+    if (typeof was === 'number' && typeof now === 'number' && was < now && now <= cap && !after.tokens.has(i)) opened += lamport(now) - lamport(was);
+  }
   const rent = opened < ROUTE_RENT_CAP_LAMPORTS ? opened : ROUTE_RENT_CAP_LAMPORTS;
   const sum = (balances: unknown[], at: Set<number>) => [...at].reduce((s, i) => s + lamport(balances[i]), 0n);
   const spent = sum(pre, before.accounts) - sum(post, after.accounts);
