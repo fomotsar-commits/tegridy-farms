@@ -385,10 +385,9 @@ describe("tegridy-launch full migration rehearsal", () => {
 
   it("creates a launch, buys it to target, migrates, and BURNS the LP", async () => {
     // ── create ────────────────────────────────────────────────────────────────
-    // ADVERSARIAL PRECONDITION 1 (LCH-01): the creator keeps a freeze authority just long
-    // enough to create and freeze the migration authority's associated account for this
-    // mint, the address graduation used to stage the coins in, then drops it. create_launch
-    // only sees a mint with no freeze authority. Graduation must not depend on that account.
+    // ADVERSARIAL PRECONDITION 1 (LCH-01): the address graduation used to stage the coins
+    // in, the migration authority's associated account for this mint, exists and is frozen
+    // before the launch. Graduation must not depend on it.
     launchMint = await createMint(provider.connection, wallet, wallet.publicKey, wallet.publicKey, 9);
     const oldStaging = getAssociatedTokenAddressSync(
       launchMint,
