@@ -93,6 +93,13 @@ names one, is the one exception: see "The keeper's fee".
 > the source before this and does not carry it: it needs a cp-swap upgrade of its own after
 > that one. `diff-guard` was re-pinned for it.
 
+> **2026-11-14: the keeper can resign, in source.** A fee tier's keeper can give the role up
+> itself, at once, signing alone, so a stolen keeper key is switched off without waiting on a
+> vault proposal and its 48-hour lock. Only a wallet's key may be named keeper, and every change
+> of keeper or swap guard is logged. See "The keeper resigns" below. It needs a cp-swap upgrade
+> of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it. `diff-guard`
+> was re-pinned for it.
+
 > **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
 > vault's proposal #32 upgraded the program to the build made from this source at the merge of
 > pull request #1177 (sha256 `01fe923b…`, 714,776 bytes). The build before it, `1e55bcdc…`, is
@@ -118,7 +125,11 @@ Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" below),
 **plus the keeper's fee** of 2026-11-11 (the rates `swap_base_input.rs` and
 `swap_base_output.rs` hand to the fee arithmetic, chosen by `swap_fee_rates` in
-`states/config.rs`; see "The keeper's fee" below).
+`states/config.rs`; see "The keeper's fee" below), **plus the keeper's resignation** of
+2026-11-14 (a second added instruction, `resign_keeper`, in `lib.rs`; the wallet check on
+naming a keeper and two logged events in `states/config.rs` and `update_config.rs`; two errors
+in `error.rs`; one dependency, `solana-curve25519`, already compiled into the program through
+anchor-spl; see "The keeper resigns" below).
 **No other code**: all swap, curve, and fee math is byte-identical to upstream (the guard
 refuses a swap before any of it runs, or leaves it alone; for the keeper, the same arithmetic
 is handed a rate of 0), and no other upstream instruction is changed. After the fork,
@@ -522,7 +533,8 @@ transaction for rounding dust, where anyone else pays about 2% for the round tri
 should take these pools' spot price or their observations as a price feed.
 
 **Name only the robot's own wallet, never a program's address.** Param 9 takes any address
-and checks nothing about it. A program-derived address that a shared program signs with (an
+and checks nothing about it (on the builds up to `9f0150e3…`; since 2026-11-14 the source
+refuses a program's address: see "The keeper resigns"). A program-derived address that a shared program signs with (an
 aggregator's routing authority, say) would make every swap through that program free and let
 it through the guard. Before the proposal, check that the key is an ordinary wallet's (on the
 ed25519 curve, as no program-derived address is) and that it is the robot's. The robot signs
@@ -555,6 +567,42 @@ nothing changes there.
 | the keeper file against the same build with the exemption undone | the two keeper-free tests fail; the controls pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
 
+### The keeper resigns (2026-11-14)
+
+The contract audit of 2026-11-14 found that the keeper above is a hot key that only a vault
+proposal can clear: a stolen key would trade free, and wrap every visitor's swap between two
+free trades of its own, for at least the 48 hours of the lock. It also found that param 9
+named any address and logged nothing.
+
+| Rule | Where | Before |
+|---|---|---|
+| The tier's keeper can give the role up itself, signing alone: `resign_keeper` sets the tier's keeper to the all-zero key, as the vault's param 9 would, but at once, with no proposal and no lock. One transaction can carry one instruction per tier it keeps. | `resign_keeper` and `ResignKeeper` in `lib.rs`, the second instruction this fork adds | only the vault cleared it, behind the lock |
+| Nobody else can resign it: not a stranger, not the vault; not twice; not on a tier with no keeper (6016 `NotKeeper`). It changes that one field of that one tier: the guard, the other tiers, every lamport and token stay as they were. A thief with the key can resign too, which only ends the thief's own advantage; naming a keeper stays the vault's alone. | the `is_keeper` constraint on `ResignKeeper` | |
+| The vault names only a wallet's key: a key on the ed25519 curve, as no program-derived address is (6017 `KeeperNotAWallet`). The all-zero key still clears it. On chain the check is the runtime's own curve syscall, through `solana-curve25519`, a crate the program already compiled through anchor-spl's Token-2022 code; solana-pubkey's own `is_on_curve` panics on chain, so it cannot be used. | `may_name_keeper` in `states/config.rs`, called by `set_keeper` in `update_config.rs` | any address |
+| Every change of keeper or guard is logged: `KeeperChanged` (the tier, the keeper before and after, and whether the keeper itself resigned) and `SwapGuardChanged` (the tier and its new setting). | `states/config.rs`, emitted in `update_config.rs` and `resign_keeper` | nothing was logged |
+
+**What the robot does with it.** Nothing, day to day. If its key may have leaked, it signs one
+`resign_keeper` per tier it keeps, in one transaction. Its swaps then pay the fee like
+anyone's, and the guard refuses them from inside another program, until the vault names a new
+keeper.
+
+**What it changes on chain, once upgraded.** Nothing for anyone but a keeper. The account is
+the same 236 bytes. Every number of the errors and every event before is kept. It needs a
+cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it.
+
+**How it was proved, 2026-11-14.** The same way as the swap guard's (Agave 3.1.11, Anchor
+0.32.1, the test wallet as admin, throwaway program ids, one validator holding each build).
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): `may_name_keeper` agrees with solana-pubkey's own `is_on_curve` on 1,000 keys, both kinds; refuses 64 program-derived addresses, the program's own vault signer and the mainnet vault; `set_keeper` names a wallet, clears it, and refuses a program's address leaving the tier as it was | 44 of 44 with the 39 before |
+| the same with `may_name_keeper` made to say yes to anything | the two refusal tests fail |
+| `tests/cp-swap-keeper-resign.test.ts` on a local validator: the vault's guard and keeper changes are logged with the keeper before and after; while named, the keeper swaps free and is let through the guard; a program's address is refused with 6017 and nothing changes; a stranger and the vault are refused with 6016; the keeper resigns alone, as the only signer and the fee payer, and the tier logs who resigned with the guard still on; then its swaps pay the fee and the guard refuses them from inside a program; its other tier is untouched; it cannot resign twice and nobody can resign a tier with no keeper; it gives up both tiers in one transaction of its own; the vault clearing a keeper is logged as the vault's | 10 of 10 |
+| `tests/cp-swap-fee-rules.test.ts`, `tests/cp-swap-swap-guard.test.ts` and `tests/cp-swap-keeper-fee.test.ts` against the same build | 8 of 8, 9 of 9 and 8 of 8 |
+| the resignation file against trunk's build (no `resign_keeper`, param 9 unchecked, no events) | 7 fail; the 3 controls pass |
+| the resignation file against the build with `resign_keeper`'s keeper check removed (anyone may resign) | 3 fail: a stranger resigns the keeper, so the keeper's own resignation then logs the wrong keeper, and a tier with no keeper can be "resigned"; the 7 others pass |
+| `node solana/guards/provenance.mjs cp-swap` after the re-pin, and `key-guard.mjs` over every copy | upstream plus the reviewed patch: 37 files compared, 11 patched; no outside key |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte |
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)
