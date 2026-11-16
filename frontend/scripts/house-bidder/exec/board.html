@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House bidder</title>
+<style>
+  :root { --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --line: #d9d9d4; --card: #ffffff; --warn: #9a5b00; --bad: #a31d1d; --ok: #2f6b2f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #e9e9e4; --muted: #a0a09a; --line: #34342f; --card: #1e1e1c; --warn: #e0a24a; --bad: #ef7a7a; --ok: #8fcf8f; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .state { font-weight: 600; }
+  .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
+  ul { margin: 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>House bidder</h1>
+  <p class="muted" id="sub">reading status.json…</p>
+  <p class="state" id="state"></p>
+  <div class="row" id="collections"></div>
+  <div class="row">
+    <section><h2>Wallet</h2><dl id="wallet"></dl></section>
+    <section><h2>Today</h2><dl id="today"></dl></section>
+    <section><h2>Recent breaker trips</h2><ul id="trips"></ul></section>
+  </div>
+  <section><h2>Recent problems</h2><ul id="errors"></ul></section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "chainId": 1,
+  "house": null,
+  "fundingWallet": null,
+  "collections": {
+    "junglebay": { "address": "0xd37264c71e9af940e49795F0d3a8336afAaFDdA9", "enabled": true, "maxUnitPriceWei": "45000000000000000", "maxQty": 2, "inventoryCap": 3, "creatorFee": null },
+    "gnssart": { "address": "0xa1De9f93c56C290C48849B1393b09eB616D55dbb", "enabled": false, "maxUnitPriceWei": "16000000000000000", "maxQty": 1, "inventoryCap": 2, "creatorFee": null }
+  },
+  "openseaFee": { "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719", "bps": 100 },
+  "venueFee": null,
+  "maxLifetimeSec": 1800,
+  "maxAllowanceWei": "150000000000000000",
+  "maxWrapWei": "200000000000000000",
+  "gas": { "maxFeeGwei": 20, "priorityGwei": 0.05, "killPriorityGwei": 2, "maxGasLimit": 300000 },
+  "listing": { "enabled": false, "maxLifetimeSec": 259200, "minUnitPriceWei": { "junglebay": "40000000000000000", "gnssart": "15000000000000000" } }
+}
