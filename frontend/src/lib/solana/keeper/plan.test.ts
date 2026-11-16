@@ -239,6 +239,13 @@ describe('jupiterLegProblem: what the keeper’s key signs', () => {
     const raydium = Keypair.generate().publicKey;
     expect(jupiterLegProblem(routeIx({ extra: [raydium] }), expectLeg({ refused: new Set([raydium.toBase58()]) }))).toMatch(/refused venue/);
   });
+
+  it('refuses a route that names the venue’s pool program or either fee tier, with no venue refused', () => {
+    // The pool program, the launch tier (0) and the public tier (1), on mainnet.
+    for (const ours of ['EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT', 'BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW', 'CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy']) {
+      expect(jupiterLegProblem(routeIx({ extra: [new PublicKey(ours)] }), expectLeg({ refused: new Set() }))).toMatch(/venue’s pool program or one of its fee tiers/);
+    }
+  });
 });
 
 describe('simulationProblem: what the test run must show', () => {

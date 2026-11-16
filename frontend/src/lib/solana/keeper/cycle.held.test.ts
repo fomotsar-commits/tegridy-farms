@@ -5,7 +5,7 @@
 // is built, each beside the same leg naming no such account, which reaches the trip's build. The
 // chain and Jupiter are made up here; the keeper's own steps run as they do live.
 import { describe, it, expect, vi } from 'vitest';
-import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
@@ -45,6 +45,9 @@ const b58 = (k: PublicKey) => k.toBase58();
 const ata = (mint: PublicKey, owner: PublicKey) => getAssociatedTokenAddressSync(mint, owner, true, TOKEN);
 const settings = { ...DEFAULT_LIMITS, ...DEFAULT_SETTINGS, allowRaydium: true, raydiumPrograms: [], outsidePools: [] };
 const REACHED = 'the trip reached its build';
+// The venue's pool program, and its launch tier (0) and public tier (1), on mainnet.
+const POOL_PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+const TIERS = [new PublicKey('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW'), new PublicKey('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy')] as const;
 
 /** A token account of `owner` holding `amount` of `mint`, as the RPC answers it. */
 function tokenAccount(amount: bigint, mint = key(), owner = key()) {
@@ -55,8 +58,11 @@ function tokenAccount(amount: bigint, mint = key(), owner = key()) {
   return { data: [Buffer.from(data).toString('base64'), 'base64'], owner: b58(TOKEN), lamports: 2_039_280, executable: false, rentEpoch: 0 };
 }
 
-/** The chain: every account holds 5 coins' worth, a mint reads 6 decimals, and a trip stops at its build. */
-function chain(owner: PublicKey, accounts: { mint: PublicKey; amount: bigint }[] = []) {
+/**
+ * The chain: every account holds 5 coins' worth, a mint reads 6 decimals, and a trip stops at its
+ * build, or, given `tested`, at its test run, which keeps the transaction there.
+ */
+function chain(owner: PublicKey, accounts: { mint: PublicKey; amount: bigint }[] = [], tested?: string[]) {
   const asked: string[] = [];
   const mints = new Set(accounts.map((a) => b58(a.mint)));
   const rpc = vi.fn(async (method: string, params: unknown[]) => {
@@ -70,11 +76,16 @@ function chain(owner: PublicKey, accounts: { mint: PublicKey; amount: bigint }[]
       if ((params[1] as { programId: string }).programId !== b58(TOKEN)) return { value: [] };
       return { value: accounts.map((a) => ({ pubkey: b58(ata(a.mint, owner)), account: tokenAccount(a.amount, a.mint, owner) })) };
     }
-    if (method === 'getLatestBlockhash') throw new Error(REACHED);
+    if (method === 'getLatestBlockhash' && tested) return { value: { blockhash: b58(key()) } };
+    if (method === 'simulateTransaction' && tested) tested.push(params[0] as string);
+    if (method === 'getLatestBlockhash' || method === 'simulateTransaction') throw new Error(REACHED);
     throw new Error(`unexpected ${method}`);
   });
   return { rpc, asked };
 }
+
+/** Jupiter's event account, one address as on mainnet. */
+const EVENTS = key();
 
 function routeData(shared: boolean, inAmount: bigint, quoted: bigint, slippageBps: number): Buffer {
   const at = shared ? 9 : 8;
@@ -114,7 +125,7 @@ function jupiter(o: { names?: { from: PublicKey; keys: PublicKey[] }; dear?: Pub
     const named = o.names && b58(o.names.from) === q.inputMint ? o.names.keys : [];
     const keys = shared
       ? [key(), user, ata(inMint, user), key(), key(), ata(outMint, user), inMint, outMint, ...venue, ...named]
-      : [user, ata(inMint, user), ata(outMint, user), inMint, outMint, TOKEN, TOKEN, JUPITER_PROGRAM, key(), JUPITER_PROGRAM, ...venue, ...named];
+      : [user, ata(inMint, user), ata(outMint, user), inMint, outMint, TOKEN, TOKEN, JUPITER_PROGRAM, EVENTS, JUPITER_PROGRAM, ...venue, ...named];
     return {
       swap: new TransactionInstruction({ programId: JUPITER_PROGRAM, keys: keys.map((pubkey) => ({ pubkey, isSigner: pubkey.equals(user), isWritable: true })), data: routeData(shared, BigInt(q.inAmount), BigInt(q.outAmount), q.slippageBps) }),
       lookupTables: [],
@@ -126,7 +137,7 @@ function jupiter(o: { names?: { from: PublicKey; keys: PublicKey[] }; dear?: Pub
   return { api: { quote, swapInstructions, labels, prices } as unknown as JupiterApi, asked };
 }
 
-/** One of our pools, `quote` against `token`, both sides plain tokens. */
+/** One of our pools on the public fee tier, `quote` against `token`, both sides plain tokens. */
 function ourPool(quote: QuoteCoin, token: PublicKey): PoolView {
   return {
     address: b58(key()),
@@ -137,23 +148,24 @@ function ourPool(quote: QuoteCoin, token: PublicKey): PoolView {
     quoteReserve: 1n,
     tokenReserve: 1n,
     config: {},
-    snapshot: { pool: { token0Mint: quote.mint, token1Mint: b58(token), token0Program: b58(TOKEN), token1Program: b58(TOKEN), token0Vault: b58(key()), token1Vault: b58(key()), ammConfig: b58(key()), observationKey: b58(key()) } },
+    snapshot: { pool: { token0Mint: quote.mint, token1Mint: b58(token), token0Program: b58(TOKEN), token1Program: b58(TOKEN), token0Vault: b58(key()), token1Vault: b58(key()), ammConfig: b58(TIERS[1]), observationKey: b58(key()) } },
   } as unknown as PoolView;
 }
 
 const arb = (side: 'buy' | 'sell'): Arbitrage => ({ side, gap: 0.05, profitUsd: 0.4, tradeUsd: 20 }) as unknown as Arbitrage;
 const BAYLA = new PublicKey(BAYLA_QUOTE.mint);
 const USDC = new PublicKey(USDC_QUOTE.mint);
+const PATHS = ['jupiter-sell', 'jupiter-buy', 'via-first', 'via-last', 'outside-first', 'outside-last'] as const;
 
 /**
  * One pass with one trip on offer, the keeper holding `held`: what it logged and whether the trip
  * reached its build. The route of the leg the path names (a trip against Jupiter has one Jupiter
- * leg, the others two: first or last) also names `named`.
+ * leg, the others two: first or last) also names `named`. Given `tested`, the trip goes on to its test run.
  */
-async function trip(path: 'jupiter-sell' | 'jupiter-buy' | 'via-first' | 'via-last' | 'outside-first' | 'outside-last', named: PublicKey[], held: (owner: PublicKey, token: PublicKey) => Set<string> | undefined) {
+async function trip(path: (typeof PATHS)[number], named: PublicKey[], held: (owner: PublicKey, token: PublicKey) => Set<string> | undefined, tested?: string[]) {
   const owner = key();
   const token = key();
-  const { rpc, asked } = chain(owner);
+  const { rpc, asked } = chain(owner, [], tested);
   const log = vi.fn();
   const dexes = { DexA: { program: key(), pool: key() }, DexB: { program: key(), pool: key() } };
   const sells = path === 'jupiter-buy' || path === 'via-last' || path === 'outside-last' ? token : SOL;
@@ -176,8 +188,6 @@ async function trip(path: 'jupiter-sell' | 'jupiter-buy' | 'via-first' | 'via-la
 
 /** What the keeper holds: its accounts of both floats, of the trip's token and of BAYLA, and the account `leftover`. */
 const holding = (leftover: PublicKey) => (owner: PublicKey, token: PublicKey) => new Set([...[SOL, USDC, token, BAYLA].map((m) => b58(ata(m, owner))), b58(leftover)]);
-
-const PATHS = ['jupiter-sell', 'jupiter-buy', 'via-first', 'via-last', 'outside-first', 'outside-last'] as const;
 
 describe('a Jupiter leg that names a token account the keeper holds', () => {
   it.each(PATHS)('%s: refused, asked again through Jupiter’s shared accounts, and refused again', async (path) => {
@@ -217,6 +227,42 @@ describe('the leftover sale', () => {
     expect(lines.find((l) => l.includes(b58(a)))).toContain(NAMES_OTHER_ACCOUNT);
     expect(lines.find((l) => l.includes(b58(b)))).toContain(REACHED);
     expect(asked.filter((m) => m === 'getLatestBlockhash')).toHaveLength(1);
+  });
+});
+
+describe('a Jupiter leg that names the venue’s pool program or a fee tier', () => {
+  const SAID = 'venue’s pool program or one of its fee tiers';
+
+  it.each(PATHS)('%s: refused at once, with no venue refused', async (path) => {
+    const r = await trip(path, [POOL_PROGRAM, ...TIERS], holding(key()));
+    expect(r.lines.some((l) => l.includes(SAID))).toBe(true);
+    expect(r.asked.at(-1)).toBe(false);
+    expect(r.built).toBe(false);
+  });
+
+  it('the leftover sale: refused', async () => {
+    const owner = key();
+    const [a, b] = [key(), key()];
+    const { rpc } = chain(owner, [a, b].map((mint) => ({ mint, amount: 5_000_000_000n })));
+    const j = jupiter({ names: { from: a, keys: [POOL_PROGRAM] }, prices: { [b58(a)]: 0.1, [b58(b)]: 0.1 } });
+    const log = vi.fn();
+    await sellDust({ rpc, jupiter: j.api, owner, indexFetch: fetch, log, held: new Set() }, settings);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines.find((l) => l.includes(b58(a)))).toContain(SAID);
+    expect(lines.find((l) => l.includes(b58(b)))).toContain(REACHED);
+  });
+
+  // The keeper's own pool legs are its own (cycle.ts ownSwap), never Jupiter's, so they are not held to this.
+  it.each(['jupiter-sell', 'jupiter-buy', 'via-first'] as const)('%s: the keeper’s own leg names both, and the trip goes on to its test run', async (path) => {
+    const tested: string[] = [];
+    const r = await trip(path, [], holding(key()), tested);
+    expect(r.lines.some((l) => l.includes(REACHED))).toBe(true);
+    const tx = VersionedTransaction.deserialize(Buffer.from(tested[0]!, 'base64'));
+    const keys = tx.message.staticAccountKeys.map(b58);
+    const calls = (program: PublicKey) => tx.message.compiledInstructions.filter((ix) => keys[ix.programIdIndex] === b58(program));
+    expect(calls(POOL_PROGRAM)).toHaveLength(1);
+    expect(calls(POOL_PROGRAM)[0]!.accountKeyIndexes.map((i) => keys[i])).toContain(b58(TIERS[1]));
+    expect(calls(JUPITER_PROGRAM).length).toBeGreaterThan(0);
   });
 });
 

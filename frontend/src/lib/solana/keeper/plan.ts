@@ -1,6 +1,6 @@
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { swapEnabled } from '../cpswap/program';
+import { REGISTERED_PROGRAM_ID, swapEnabled } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
@@ -209,11 +209,19 @@ export interface JupiterLegExpect {
 export const NAMES_OTHER_ACCOUNT = 'the swap names another of the keeper’s accounts';
 
 /**
+ * The venue's pool program and its two fee tiers (`deriveAmmConfig` 0, the launch tier, and 1, the
+ * public one): no Jupiter leg may name them, whatever venues are refused. The keeper's own pool
+ * swaps are built by the keeper (cycle.ts `ownSwap`), never by Jupiter, so none of its trips needs one.
+ */
+const VENUE_POOL_KEYS = [REGISTERED_PROGRAM_ID, new PublicKey('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW'), new PublicKey('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy')];
+
+/**
  * Why Jupiter's swap instruction must not be signed, or null. It must be a `route_v2` (or the
  * shared-accounts one) into Jupiter, spending exactly `inAmount` from the keeper's own account
  * of the input coin, paying the keeper's own account of the output coin, with no platform fee,
- * a floor of at least `minOut`, no signer but the keeper, no refused program anywhere, and no
- * other token account of the keeper's. Account order is the IDL's.
+ * a floor of at least `minOut`, no signer but the keeper, no refused program anywhere, nothing of
+ * the venue's pools (`VENUE_POOL_KEYS`), and no other token account of the keeper's. Account
+ * order is the IDL's.
  */
 export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpect): string | null {
   if (!ix.programId.equals(JUPITER_PROGRAM)) return 'the swap is not a call into Jupiter';
@@ -227,6 +235,7 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   const k = ix.keys.map((m) => m.pubkey);
   if (ix.keys.some((m) => m.isSigner && !m.pubkey.equals(e.owner))) return 'the swap asks another signer';
   if (k.some((p) => e.refused.has(p.toBase58()))) return 'the route passes through a refused venue';
+  if (k.some((p) => VENUE_POOL_KEYS.some((v) => v.equals(p)))) return 'the swap names the venue’s pool program or one of its fee tiers';
   if (k.some((p) => e.untouchable.some((u) => u.equals(p)))) return NAMES_OTHER_ACCOUNT;
   const held = e.held;
   if (!held) return 'the keeper’s own token accounts were not read';
