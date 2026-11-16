@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Marketplace: bids work again. Collection, trait and single-NFT bids had failed since OpenSea changed its bid format in April 2024. Nothing costs gas until a bid is fully built and checked, one WETH approval covers all your open bids, sellers see the bid's real fee (OpenSea's 1%), and the venue takes no fee on bids for now.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.
