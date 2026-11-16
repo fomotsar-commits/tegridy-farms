@@ -982,11 +982,18 @@ function RemoveBlock({
     }
     case 'dust':
       line = (
-        <Notice tone="warn">
-          This share is too small to take out: one side would pay less than its coin&apos;s smallest unit, and the pool program never pays out
-          zero. Waiting loses nothing: it comes out once that side of the pool grows. To free it by adding, add an amount that lands just under a
-          whole number of those units: the least the pool takes costs you one of them.
-        </Notice>
+        <>
+          <Notice tone="warn">
+            This share is too small to take out now: one side would round to zero. Waiting loses nothing; it can be taken out once that side of
+            the pool grows.
+          </Notice>
+          <FinePrint summary="Freeing it by adding">
+            <p>
+              Add an amount that lands just under a whole number of that side&apos;s smallest units. The least the pool takes rounds that side up,
+              which costs you nearly one of them.
+            </p>
+          </FinePrint>
+        </>
       );
       break;
     case 'other-pair':

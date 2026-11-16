@@ -266,10 +266,13 @@ describe('Add more liquidity is on a position', () => {
     await waitFor(() => expect(r).toHaveAttribute('data-remove', 'dust'));
     expect(within(r).queryByRole('button', { name: 'Remove liquidity' })).toBeNull();
     expect(await within(r).findByRole('button', { name: ADD_MORE })).toBeEnabled();
-    // CPS-11: why, and what works: waiting, or a top-up sized just under whole units, never the least the pool takes.
-    expect(r).toHaveTextContent("one side would pay less than its coin's smallest unit, and the pool program never pays out zero.");
-    expect(r).toHaveTextContent('Waiting loses nothing: it comes out once that side of the pool grows.');
-    expect(r).toHaveTextContent('add an amount that lands just under a whole number of those units: the least the pool takes costs you one of them.');
+    // CPS-11: one line says why, and that waiting loses nothing. The fine print sizes a top-up; nothing names the least the pool takes.
+    expect(within(r).getByText(/too small to take out/)).toHaveTextContent(
+      /^This share is too small to take out now: one side would round to zero\. Waiting loses nothing; it can be taken out once that side of the pool grows\.$/,
+    );
+    expect(within(r).getByText('Freeing it by adding').closest('details')).toHaveTextContent(
+      "Add an amount that lands just under a whole number of that side's smallest units. The least the pool takes rounds that side up, which costs you nearly one of them.",
+    );
     expect(r).not.toHaveTextContent(/Add at least/);
   });
 
