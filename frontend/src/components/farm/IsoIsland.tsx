@@ -1,35 +1,21 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
-import { BUNGALOWS } from '../../lib/bungalows';
+import { useDrawnWidth } from '../../hooks/useDrawnWidth';
 import { MAX_BOOST_BPS, MAX_LOCK_DURATION, MIN_BOOST_BPS, MIN_LOCK_DURATION } from '../../lib/constants';
-import { doorArt } from '../../lib/doorArt';
 import { EDITORIAL_BG, EDITORIAL_GREEN, EDITORIAL_INK, mixHex } from '../../lib/editorial';
 import { groundMatrix, iso, pts, type Pt } from '../../lib/iso';
 import { HOUSE_D, MURAL_ACROSS, RAIL_GAP, RAIL_TOP, U, gableFrame, muralFrame, rungHeights } from '../../lib/isoBungalow';
-import { muralSrc, muralWidth, pictureFacts, restDim, usePictures, type PictureFacts } from '../../lib/isoMural';
+import { muralOf, muralWidth, readFacts, restDim, usePictures } from '../../lib/isoMural';
 import { KEY, NAME_PX, PAD, TURN, groundOf, keyFoot, planBox, planStreets, roadOf } from '../../lib/isoPlan';
 import type { VenuePoolRow } from '../../lib/venuePools';
 import { BungalowDefs, IsoBungalow } from './IsoBungalow';
 
 /**
- * Earn's site model (owner, 2026-11-14: "avantegarde edition 5d architect vibes", then "use art
- * from said bungalows to wrap around brick style bungalows ... much much further go next level"):
- * every pool on the island as a brick bungalow on a site plan, drawn as an architect's
- * axonometric, one street per chain, each house wearing its own room's picture on both its
- * walls (IsoBungalow.tsx; the plan is lib/isoPlan.ts).
- *
- * ⚠️ IT DRAWS ONLY WHAT THE REGISTRY KNOWS. The list beside it reads no chain (VenuePoolIndex.tsx
- * says why), so neither does this: a house says which room it is (its picture, its colour), which
- * chain it is on (its street) and whether its pool has the lock ladder (a ladder on its wall),
- * never a rate, a balance or a size. Every house is the same house, so nothing here can be read
- * as "this pool pays more". One thing is to scale: the ladder's rungs, from the floor of its
- * share to the ceiling; the key in the top right corner gives those two figures, from the
- * contract's constants (as lib/poolShape.ts words them), beside a ladder drawn to the same scale.
- *
- * A picture, not a control: it is hidden from assistive tech, and every pool it shows is a row
- * with a real link in the schedule under it. Pointing at a house lights its row there and the
- * other way round (`active`), and lifts its roof; a press on a house opens its pool for a
- * pointer's convenience. Left alone it lights each house in turn without lifting a roof, and
- * holds still under reduced motion or off screen.
+ * Earn's site model: every pool as the same brick bungalow on its chain's street, wearing its room's
+ * picture (IsoBungalow.tsx; the plan is lib/isoPlan.ts). ⚠️ It draws only what the registry knows,
+ * never a rate, a balance or a size; one thing is to scale, a ladder's rungs, with the key giving
+ * their two ends from the contract's constants. Hidden from assistive tech: each house is a linked
+ * row in the schedule, and pointing at either lights both; a press on a house opens its pool. Idle,
+ * it lights each house in turn, and holds still under reduced motion or off screen.
  */
 
 const FLOOR_LABEL = `${(MIN_BOOST_BPS / 10_000).toFixed(2)}×`;
@@ -39,42 +25,6 @@ const LONG_LOCK = `${Math.round(MAX_LOCK_DURATION / (365 * 86_400))}y`;
 
 const MONO = { fontFamily: 'var(--font-family-mono)' } as const;
 
-/** The room's picture and its own crop, at a given copy's width (lib/isoMural.ts). */
-function muralOf(roomId: string, want: 128 | 480): { src: string; position?: string } | null {
-  const room = BUNGALOWS.find((b) => b.id === roomId);
-  if (!room) return null;
-  const door = doorArt(room);
-  if (!door?.src) return null;
-  return { src: muralSrc(door.src, want, import.meta.env.PROD), position: door.objectPosition };
-}
-
-/**
- * How wide the drawing is drawn on the screen: `now` in CSS pixels, and `first` in device pixels
- * at its first measure (0 until then). The key's words are sized by `now`; the copy of each
- * picture the walls take, by `first`, so it is chosen once per page view. Measured once as it
- * mounts, since a browser that is not drawing frames (a hidden pane, a tab still in the
- * background) reads a size but never reports a resize, and again on every resize after.
- */
-function useDrawnWidth(host: RefObject<SVGSVGElement | null>): { now: number; first: number } {
-  const [drawn, setDrawn] = useState({ now: 0, first: 0 });
-  useEffect(() => {
-    const el = host.current;
-    if (!el) return;
-    const measure = () => {
-      const px = el.getBoundingClientRect().width;
-      if (px > 0) {
-        setDrawn((d) => (d.now === px ? d : { now: px, first: d.first || px * (window.devicePixelRatio || 1) }));
-      }
-    };
-    measure();
-    if (typeof ResizeObserver !== 'function') return;
-    const watch = new ResizeObserver(measure);
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [host]);
-  return drawn;
-}
-
 /**
  * The copy of each picture the walls take first (lib/isoMural.ts muralWidth), from the device
  * pixels a picture spans on the front wall at the drawing's first measure. Null until then, so
@@ -83,12 +33,6 @@ function useDrawnWidth(host: RefObject<SVGSVGElement | null>): { now: number; fi
 function pictureCopy(firstDevicePx: number, unitsWide: number): 128 | 480 | null {
   if (firstDevicePx > 0) return muralWidth((MURAL_ACROSS * firstDevicePx) / unitsWide);
   return typeof ResizeObserver === 'function' ? null : 480;
-}
-
-/** A picture's size and lightness where read; null while it loads, where it failed, or where none was asked for. */
-function readFacts(src: string | undefined): PictureFacts | null {
-  const facts = src ? pictureFacts(src) : undefined;
-  return facts && facts !== 'failed' ? facts : null;
 }
 
 /**

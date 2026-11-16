@@ -74,7 +74,7 @@ describe('planStreamflow', () => {
   it('more than the vault holds is held, not sent: it would revert (6012)', () => {
     const p = planStreamflow(target, pool([rp({ fundedRaw: 10n })]), [entry({ 0: 11n })]);
     expect(p.claims).toEqual([]);
-    expect(p.held[0]).toMatchObject({ amountRaw: 11n });
+    expect(p.held[0]).toMatchObject({ amountRaw: 11n, reason: 'The reward vault cannot cover this yet, so a claim would fail. Nothing is lost: it stays owed.' });
   });
 
   it('an unread vault is not a gate, as on the card', () => {
@@ -97,7 +97,8 @@ describe('planStreamflow', () => {
   it('a stake older than the pool’s rate change is still sent, with a warning (a warning is never a gate)', () => {
     const p = planStreamflow(target, pool([rp({ rateChangedAtTs: 5_000 })]), [entry({ 0: 7n }, { createdTs: 1_000 })]);
     expect(p.claims).toHaveLength(1);
-    expect(p.claims[0]!.caution).toMatch(/may not pay/);
+    // Refused in its test run it is never sent; sent and refused, its fee is spent: "nothing is claimed" holds either way.
+    expect(p.claims[0]!.caution).toBe('This stake was made before the pool changed its reward rate, so this claim may not pay. If it does not, nothing is claimed.');
   });
 
   it('a pool that does not stake this room’s coin is not this coin’s', () => {
@@ -446,7 +447,8 @@ describe('sendClaimsTogether: several claims, ONE wallet prompt, one transaction
     const wallet = walletOf();
     const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn, 0);
     const [t1, t2] = wallet.prompts[0]!;
-    expect(got.get('c1')).toEqual({ kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: sigOf(t1!) });
+    // Its row already says "Refused on chain": the reason says what that cost, and nothing twice.
+    expect(got.get('c1')).toEqual({ kind: 'reverted', reason: 'Nothing was claimed, so it stays owed. Only the network fee was spent.', tx: sigOf(t1!) });
     expect(got.get('c2')).toMatchObject({ kind: 'unconfirmed', tx: sigOf(t2!), stop: true });
     expect((got.get('c2') as { reason: string }).reason).toMatch(/may still land/);
     expect(got.get('c3')).toMatchObject({ kind: 'claimed' });
