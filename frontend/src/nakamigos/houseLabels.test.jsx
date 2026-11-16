@@ -161,6 +161,17 @@ async function renderListings(maker) {
   );
   return (id) => screen.getByRole("button", { name: new RegExp(`#${id}, `) });
 }
+async function renderNativeListings(isNarrow) {
+  const { default: NativeListingsList } = await import("./components/NativeListingsList.jsx");
+  const at = new Date().toISOString();
+  const orders = [
+    { order_hash: "0xn1", token_id: "42", price_eth: 0.05, maker: HOUSE, status: "active", created_at: at },
+    { order_hash: "0xn2", token_id: "43", price_eth: 0.06, maker: OUTSIDE, status: "active", created_at: at },
+  ];
+  return render(
+    <NativeListingsList orders={orders} wallet={null} isNarrow={isNarrow} buying={null} cancelling={null} onBuy={() => {}} onCancel={() => {}} floorPrice={0.05} />,
+  );
+}
 async function renderModal(owner) {
   const { default: Modal } = await import("./components/Modal.jsx");
   const nft = { id: "7", name: "Token #7", image: null, attributes: [], owner, contract: JBAC, price: null, lastSale: null, rank: null };
@@ -217,6 +228,16 @@ describe("with a house wallet registered", () => {
     expect(within(card("1001")).queryByText("House")).toBeNull();
   });
 
+  it('a house listing on our own order book reads "House" as its maker, on the table and on the phone card', async () => {
+    await renderNativeListings(false);
+    const row = screen.getByText("#42").closest("tr");
+    expect(within(row).getByText("House")).toBeTruthy();
+    expect(within(screen.getByText("#43").closest("tr")).getByText("0xbbbb...bbbb")).toBeTruthy();
+    cleanup();
+    await renderNativeListings(true);
+    expect(screen.getByTestId("orderbook-cards").textContent).toMatch(/House · /);
+  });
+
   it('the NFT the house owns reads "Owner: House", and the copy button still copies the address', async () => {
     await renderModal(HOUSE);
     const owner = screen.getByTitle("Copy owner address");
@@ -258,6 +279,14 @@ describe("with the committed registry (empty): nothing changes", () => {
     expect(card("1000").textContent).not.toMatch(/House/);
     // The house's card has exactly the elements an outside seller's has.
     expect(card("1000").querySelectorAll("*").length).toBe(card("1001").querySelectorAll("*").length);
+  });
+
+  it("our own order book shows every maker's address as before", async () => {
+    await renderNativeListings(false);
+    expect(within(screen.getByText("#42").closest("tr")).getByText(HOUSE_SHORT)).toBeTruthy();
+    cleanup();
+    await renderNativeListings(true);
+    expect(screen.getByTestId("orderbook-cards").textContent).not.toMatch(/House/);
   });
 
   it("the owner line shows the address as before", async () => {

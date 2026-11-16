@@ -215,6 +215,15 @@ describe("house trades: the venue's own bidder never makes a seller look coordin
     expect(r.suspect.volumeEth).toBe(0);
   });
 
+  it("a seller who sells to the house and later buys the NFT back from it is NOT clustered with it", () => {
+    // Both directions between two wallets is the other coordinated-pair fingerprint.
+    const sales = [sold(A, HOUSE, 1, 0.04, 1), sold(HOUSE, A, 1, 0.05, 2)];
+    const r = analyzeWashTrading(sales, { houseWallets: [HOUSE] });
+    expect(r.coordinatedClusters.count).toBe(0);
+    expect(r.suspect.sales).toBe(0);
+    expect(r.houseTrades.trades.map((t) => t.side)).toEqual(["bought", "sold"]);
+  });
+
   it("lists every house trade apart, with its side, under the house's own heading", () => {
     const sales = [sold(A, HOUSE, 1, 0.04, 1), sold(HOUSE, B, 1, 0.05, 2), sold(C, D, 9, 1, 3)];
     const r = analyzeWashTrading(sales, { houseWallets: [HOUSE.toUpperCase().replace("0X", "0x")] });
