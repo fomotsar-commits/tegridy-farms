@@ -137,7 +137,7 @@ describe('sendCallsTogether: one chain’s claims as one wallet_sendCalls', () =
     expect(sleep).toHaveBeenCalledTimes(1);
     expect(got.get('evm:1')).toEqual({ kind: 'claimed', tx: H1 });
     // The wallet said success; the chain's receipt says reverted, and the receipt is what is told.
-    expect(got.get('evm:2')).toEqual({ kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: H2 });
+    expect(got.get('evm:2')).toEqual({ kind: 'reverted', reason: 'Nothing was claimed, so it stays owed. Only the network fee was spent.', tx: H2 });
   });
 
   it('a wallet that ran them as one transaction: its receipt is read once, and they share its fate', async () => {
