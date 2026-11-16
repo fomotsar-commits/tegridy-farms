@@ -813,6 +813,11 @@ export async function cancelOrder(order) {
 
     if (!params) return { error: "failed", message: "Missing order parameters" };
 
+    // The Seaport the order was SIGNED against (why it matters: the F630 note at
+    // the on-chain cancel below).
+    const orderProtocolAddress =
+      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
+
     // ── A Seaport 1.6 SignedZone order (every bid made here): OpenSea's gasless
     // cancel first (lib/seaportCancel.js cancelSeaportOrderGasless). It costs
     // nothing, and OpenSea stops approving fills at once, except a fill it
@@ -820,8 +825,7 @@ export async function cancelOrder(order) {
     // it (a very new order may need an on-chain cancel), cannot be reached, or
     // the order hash is not this order's, the on-chain cancel below runs as
     // before. A Seaport 1.5 or zone-less order always takes the on-chain cancel.
-    const signedProtocol = order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
-    if (isSeaport16SignedZoneOrder(params, signedProtocol)
+    if (isSeaport16SignedZoneOrder(params, orderProtocolAddress)
       && String(params.offerer || "").toLowerCase() === String(signerAddress).toLowerCase()) {
       const orderHash = order.orderHash || order.order_hash || order.rawOrder?.order_hash || null;
       let off = null;
@@ -859,8 +863,6 @@ export async function cancelOrder(order) {
     //
     // Passing null keeps the documented default for an order that genuinely carries no
     // protocol address; an address outside the allowlist still fails closed at the sink.
-    const orderProtocolAddress =
-      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
     const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
     const done = await waitForTxOutcome(tx);
     if (done.kind !== "success") {
