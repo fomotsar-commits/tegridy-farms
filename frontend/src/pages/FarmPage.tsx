@@ -488,7 +488,7 @@ function ToweliFarm() {
             <BackToEarn />
             {/* Sheet S-01 (styles/dwg-staking.css): the ruler, one band for the farm's blocks as they
                 stand, the title block. No heading is added here (a11y-routes pins this page's list). */}
-            <div className="dwg-sheet s01-sheet" data-room="toweli" style={TOWELI_SHEET}>
+            <div className="dwg-sheet s01-sheet" style={TOWELI_SHEET}>
             <SheetRuler />
             <div className="dwg-band s01-classic">
             {/* The thing a logged-out visitor came to press is Connect, so the
@@ -585,7 +585,7 @@ function ToweliFarm() {
           className="mb-4"
           message="Wrong network. Switch chains to stake, claim or withdraw."
         />
-        <div className="dwg-sheet s01-sheet" data-room="toweli" style={TOWELI_SHEET}>
+        <div className="dwg-sheet s01-sheet" style={TOWELI_SHEET}>
         <SheetRuler />
         <m.div className="mb-8 s01-hero dwg-grain" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="dwg-word s01-word"><span data-echo="Farm">Farm</span></h1>

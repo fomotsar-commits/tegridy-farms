@@ -106,7 +106,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       </div>
       <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
       <BackToEarn />
-      <div className="dwg-sheet s01-sheet" data-room={bungalow.id} style={{ '--s01-accent': bungalow.accent ?? EDITORIAL_GREEN } as CSSProperties}>
+      <div className="dwg-sheet s01-sheet" style={{ '--s01-accent': bungalow.accent ?? EDITORIAL_GREEN } as CSSProperties}>
       <SheetRuler />
       {/* Header */}
       {/* FEWER WORDS (owner, 2026-10-14): one heading and one line. The island eyebrow
