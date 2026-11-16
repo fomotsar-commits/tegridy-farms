@@ -7,11 +7,10 @@ page. The owner sends the form. Nothing in this folder sends anything.
 
 ## Before sending
 
-1. The pool program on mainnet on 2026-11-15 is the build with the swap guard,
-   `01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938` (the vault's proposal
-   #32; `../MAINNET_RUNBOOK.md`, section 4b). **While the guard is on for a fee setting, its
-   pools refuse every swap that another program calls (6015), Jupiter's included, and this SDK
-   gives no quote for that fee setting.** Both live fee settings have it on (proposal #33,
+1. The pool program on mainnet is the build with the swap guard, `01fe923b…` (the vault's
+   proposal #32; `../MAINNET_RUNBOOK.md`, section 4b). **While the guard is on for a fee setting,
+   its pools refuse every swap that another program calls (6015), Jupiter's included.** This SDK
+   gives no quote for that fee setting. Both live fee settings have it on (proposal #33,
    2026-11-14), so today the SDK quotes no live pool and there is nothing to list. Before
    sending, the owner chooses one: the guard off for the fee setting to be listed (a vault
    proposal, 48 hours), or a program change that lets Jupiter's program through
