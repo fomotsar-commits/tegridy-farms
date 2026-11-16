@@ -5,7 +5,6 @@ export type {
   ChainContracts,
   ContractAvailability,
   ContractKey,
-  FeeSinkKind,
 } from './types';
 
 export {
@@ -13,7 +12,6 @@ export {
   CONFIGURED_CHAIN_IDS,
   DEFAULT_CHAIN_ID,
   contractOn,
-  feesBecomeStakerYieldOn,
   getChainConfig,
   isChainConfigured,
   launchWrongChainMessage,

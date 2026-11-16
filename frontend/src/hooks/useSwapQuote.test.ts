@@ -460,7 +460,7 @@ describe("useSwapQuote on Base: an island coin's own V3 pool, net of the venue f
   const BASE_SFR = '0xa24C7287eC56A7DEFDc70033803451240e267a52';
   const QUOTER = '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a';
   const POOL = '0xAEC085E5A5CE8d96A7bDd3eB3A62445d4f6CE703';
-  const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1';
+  const SAFE = '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0';
   // Read on Base at block 53,364,275: the V2 pair's dust quote, the V3 pool's quote and its price.
   const IN = 1_750_000n * 10n ** 18n;
   const V2_OUT = 1_072_065_705_933n;

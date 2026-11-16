@@ -25,52 +25,25 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { revenueSharingSubhead, goldCardSubhead } from '../lib/premiumBenefits';
+import { REVENUE_SHARING_SUBHEAD } from '../lib/premiumBenefits';
 
 const page = (f: string) => readFileSync(join(process.cwd(), 'src', 'pages', f), 'utf8');
 
-describe('revenueSharingSubhead — conditioned on the live read', () => {
-  it('does not claim a distribution when nothing has been distributed', () => {
-    const s = revenueSharingSubhead({ ethDistributed: 0, isLoading: false });
-    expect(s).toMatch(/none have been distributed yet/i);
-    // The policy is still stated — the fix is tense, not deletion.
-    //
-    // ⚠ This used to require /100% of protocol fees/, i.e. the guard against dishonest
-    // revenue claims was ENFORCING one. #258 corrected the tense of that sentence and
-    // left its arithmetic alone. It is false in the present tense too:
-    // ReferralSplitter.referralFeeBps is 2000, carved off the top before anything is
-    // credited, so the staker ceiling is ~80%. stakerShareBps IS 10000, but that is
-    // 100% of what REACHES the distributor — the elision the old string traded on.
-    expect(s).toMatch(/20% referral carve/i);
-    expect(s, 'the guard must not re-admit the totality claim it exists to catch')
-      .not.toMatch(/100% of protocol fees/i);
-  });
-
-  it('states the distribution plainly once it is real', () => {
-    const s = revenueSharingSubhead({ ethDistributed: 1.5, isLoading: false });
-    expect(s).toMatch(/is distributed to stakers/i);
-    expect(s).not.toMatch(/none have been distributed/i);
-  });
-
-  it('says it is still reading rather than guessing, while loading', () => {
-    expect(revenueSharingSubhead({ ethDistributed: 0, isLoading: true })).toMatch(/reading/i);
-  });
-
-  it('treats a non-finite read as unpaid — never as paid', () => {
-    // A NaN from a failed multicall must not read as "yield is flowing".
-    expect(revenueSharingSubhead({ ethDistributed: NaN, isLoading: false }))
-      .toMatch(/none have been distributed yet/i);
-    expect(goldCardSubhead({ ethDistributed: NaN, isLoading: false }))
-      .toMatch(/distributed nothing yet/i);
+// Owner ruling 2026-11-15: every venue fee goes to the treasury Safe, so the Revenue Sharing
+// line names the treasury, and never a staker share, a 100% claim or a payout.
+describe('the Revenue Sharing line on /premium', () => {
+  it('sends swap fees to the treasury and makes no staker claim', () => {
+    expect(REVENUE_SHARING_SUBHEAD).toMatch(/treasury, not to stakers/i);
+    expect(REVENUE_SHARING_SUBHEAD).not.toMatch(/100% of protocol fees|distributed to stakers|earmarked/i);
   });
 });
 
 describe('no surface hardcodes a paid-yield claim', () => {
   it('/premium does not carry the flat "distributed to stakers" literal', () => {
-    // It must come from the helper, so it follows the chain read.
+    // Its Revenue Sharing line comes from the shared helper module.
     const src = page('PremiumPage.tsx');
     expect(src).not.toMatch(/100% of protocol fees distributed to stakers/);
-    expect(src).toContain('revenueSharingSubhead(');
+    expect(src).toContain('{REVENUE_SHARING_SUBHEAD}');
   });
 
   it('the prewritten share tweet does not make the VISITOR claim paid yield', () => {
@@ -153,8 +126,6 @@ describe('no surface anywhere in src/ claims fees ARE paid', () => {
   // has actually happened. Both were checked by hand; neither is a literal.
   // ⚠ MAY ONLY SHRINK — a new entry needs the same justification.
   const CONDITIONAL_AND_CHECKED = [
-    // the `paid` branch of revenueSharingSubhead(), gated on ethDistributed > 0
-    'lib/premiumBenefits.ts',
     // an event title rendered only when nEpochs distributions exist on-chain
     'lib/protocolEvents/onchainDeltas.ts',
   ];

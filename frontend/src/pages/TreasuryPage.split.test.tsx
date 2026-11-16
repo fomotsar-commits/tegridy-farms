@@ -107,6 +107,8 @@ function setChainState(overrides: Record<string, unknown> = {}) {
     accumulatedETHFees: 0n,
     paused: false,
     treasury: TREASURY_ADDRESS,
+    // The payee since the owner's 2026-11-15 ruling: the treasury Safe.
+    revenueDistributor: TREASURY_ADDRESS,
     // ReferralSplitter
     referralFeeBps: 2_000n,
     callerCredit: ROUTER_CREDIT,
@@ -166,7 +168,8 @@ describe('TreasuryPage — the revenue split names every contract the money pass
     expect(ledgerWei('distributed')).toBe(0n);
   });
 
-  it('says out loud that stakers have never been paid, while fees exist', () => {
+  it("while the stakers' contract is the payee, says out loud that stakers were never paid", () => {
+    setChainState({ revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS });
     render(<TreasuryPage />);
     expect(screen.getByText(/stakers have not been paid/i)).toBeTruthy();
     // …and it is announced, not buried as decorative prose.
@@ -179,18 +182,36 @@ describe('TreasuryPage — the revenue split names every contract the money pass
   it('withdraws that accusation the moment a distribution actually happens', () => {
     // BREADTH, the other way. The warning must be driven by the chain, not
     // hardcoded — otherwise it becomes the next stale claim on this page.
-    setChainState({ totalDistributed: 1_000_000_000_000n });
+    setChainState({ revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS, totalDistributed: 1_000_000_000_000n });
     render(<TreasuryPage />);
     expect(screen.queryByText(/stakers have not been paid/i)).toBeNull();
     expect(ledgerWei('distributed')).toBe(1_000_000_000_000n);
   });
 
-  it('keeps the original stakers / POL / treasury split — it is corrected, not deleted', () => {
-    // HARD RULE: additive only. The Stage 2 bar and its legend stay exactly as
-    // they were; what changed is that they are now labelled as stage two and
-    // sit under the stage that precedes them.
+  it("names the router's payee slice by the live read: the treasury Safe, and no stakers banner", () => {
+    // Owner ruling 2026-11-15: the router pays the treasury Safe, so its 100% slice is the
+    // Safe's, and nothing on the page says stakers are owed or unpaid.
     render(<TreasuryPage />);
+    expect(screen.getByText('Treasury Safe')).toBeTruthy();
+    expect(screen.queryByText('Stakers')).toBeNull();
+    expect(screen.queryByText(/stakers have not been paid/i)).toBeNull();
+  });
+
+  it("labels the slice Stakers only while the read says the stakers' contract, and says so when unread", () => {
+    setChainState({ revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS });
+    const { unmount } = render(<TreasuryPage />);
     expect(screen.getByText('Stakers')).toBeTruthy();
+    unmount();
+    setChainState({ revenueDistributor: undefined });
+    render(<TreasuryPage />);
+    expect(screen.getByText('Payout address (not read)')).toBeTruthy();
+  });
+
+  it('keeps the original payee / POL / treasury split, corrected and not deleted', () => {
+    // HARD RULE: additive only. The Stage 2 bar and its legend stay; what changed is
+    // that they are labelled as stage two and the payee slice is named by the chain.
+    render(<TreasuryPage />);
+    expect(screen.getByText('Treasury Safe')).toBeTruthy();
     expect(screen.getByText('Protocol-Owned Liquidity')).toBeTruthy();
     // 'Treasury' also labels a row in the address list, hence getAllByText.
     expect(screen.getAllByText('Treasury').length).toBeGreaterThan(0);

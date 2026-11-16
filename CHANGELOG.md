@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Swap fees: on Ethereum, Base and Robinhood Chain every venue fee now goes to that chain's treasury Safe (after a referral share on Ethereum), and the site says so wherever it said the fee went to TOWELI stakers: home, Earn, Gold Card, FAQ, the assistant, Treasury and Swap, which on Ethereum now shows where the fee goes as it already did on the other two chains. The Gold Card says it carries no share of swap fees, and Earn's Fee Share tile now reads Swap Fees: Treasury.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.

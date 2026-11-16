@@ -19,7 +19,6 @@ describe('swapVenueOn', () => {
       swapFeeRouter: constants.SWAP_FEE_ROUTER_ADDRESS,
       uniswapV2Router: constants.UNISWAP_V2_ROUTER,
       uniswapV2Factory: constants.UNISWAP_V2_FACTORY,
-      feeSink: 'distributor',
     });
   });
 
@@ -33,7 +32,6 @@ describe('swapVenueOn', () => {
       swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
       uniswapV2Router: '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24',
       uniswapV2Factory: '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6',
-      feeSink: 'remittance',
     });
   });
 
@@ -47,7 +45,6 @@ describe('swapVenueOn', () => {
       swapFeeRouter: '0xE9F83A07b071748E795d2489651d5310fA098Db8',
       uniswapV2Router: '0x89e5DB8B5aA49aA85AC63f691524311AEB649eba',
       uniswapV2Factory: '0x8bcEaA40B9AcdfAedF85AdF4FF01F5Ad6517937f',
-      feeSink: 'remittance',
     });
   });
 

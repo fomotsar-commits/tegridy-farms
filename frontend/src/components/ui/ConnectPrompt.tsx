@@ -30,17 +30,14 @@ const DEFAULTS: Record<Surface, { title: string; description: string }> = {
   farm: {
     title: 'Connect to farm with held time',
     description:
-      // F109: softened from a hardcoded "100% of protocol swap fees" to a claim
-      // that can't drift if governance retunes the on-chain staker fee-share. The
-      // live percentage is surfaced on the Farm page's Fee Share chip.
-      'Lock TOWELI up to 4 years for a share of swap fees. Your staking position is an ERC-721 NFT.',
+      // Staking pays TOWELI rewards; swap fees go to the treasury Safe (owner ruling 2026-11-15).
+      'Lock TOWELI up to 4 years for TOWELI rewards. Your staking position is an ERC-721 NFT.',
   },
   trade: {
     title: 'Connect to swap on the native DEX',
     description:
-      // Was "Every basis point of fees routes to stakers" — false. ReferralSplitter
-      // carves 20% off the top before anything is credited to the staker rail.
-      'After the 20% referral carve, the swap fee is earmarked for stakers.',
+      // The 20% referral share comes off first; the rest goes to the treasury Safe.
+      "After the 20% referral share, the swap fee goes to the venue's treasury.",
   },
   lending: {
     title: 'Connect to borrow or lend',

@@ -27,17 +27,23 @@ const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 // the fullbleed page art; the inner ArtImg gives each tile its own accent.
 const glass = { background: 'rgba(13, 21, 48, 0.78)', border: '1px solid var(--color-purple-12)' };
 
-// AUDIT TREASURY-FIX: the page used to hardcode a 70/20/10 split that
-// disagreed with the actual on-chain defaults (currently 100/0/0 per
-// SwapFeeRouter.sol; the 50/25/25 ceilings are policy bounds, not the
-// active numbers). Now we read stakerShareBps / polShareBps live and
-// compute treasury as the remainder. If the read fails, the page falls
-// back to the live contract default (100% stakers) which is honest if
-// uninformative — strictly better than the old lie.
+// The router's split, read live: stakerShareBps goes to its payee, revenueDistributor() (the
+// treasury Safe since the owner's 2026-11-15 ruling), polShareBps to POL, the rest to treasury().
+// The payee slice is named by that read, never assumed; before a read lands the bar shows the
+// contract's defaults (100/0/0).
 const SHARE_ABI = [
   { type: 'function', name: 'stakerShareBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'polShareBps',    inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'revenueDistributor', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;
+
+/** The name for the router's payee slice: who the live read says it pays. */
+function payeeLabel(payee: unknown): string {
+  if (typeof payee !== 'string') return 'Payout address (not read)';
+  if (payee.toLowerCase() === TREASURY_ADDRESS.toLowerCase()) return 'Treasury Safe';
+  if (payee.toLowerCase() === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) return 'Stakers';
+  return `Payout address ${payee}`;
+}
 
 /**
  * 🔄 2026-08-12 — THE OMISSION THIS PAGE WAS BUILT ON.
@@ -208,6 +214,13 @@ export default function TreasuryPage() {
     chainId: CHAIN_ID,
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
+  const { data: routerPayee } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SHARE_ABI,
+    functionName: 'revenueDistributor',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 300_000, staleTime: 60_000 },
+  });
   const { data: polShareData } = useReadContract({
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SHARE_ABI,
@@ -295,7 +308,7 @@ export default function TreasuryPage() {
   const polBps = polShareData !== undefined ? Number(polShareData as bigint) : 0;
   const treasuryBps = Math.max(0, 10_000 - stakerBps - polBps);
   const split = [
-    { label: 'Stakers', bps: stakerBps, color: SPLIT_COLORS.stakers },
+    { label: payeeLabel(routerPayee), bps: stakerBps, color: SPLIT_COLORS.stakers },
     { label: 'Protocol-Owned Liquidity', bps: polBps, color: SPLIT_COLORS.pol },
     { label: 'Treasury', bps: treasuryBps, color: SPLIT_COLORS.treasury },
   ];
@@ -396,9 +409,10 @@ export default function TreasuryPage() {
     },
   ];
 
-  // Fees were collected but nothing ever completed the pipeline. Stated only
-  // when both reads have resolved, so a pending read never accuses the protocol.
-  const stakersNeverPaid =
+  // Fees were collected but stakers were never paid. Said only while the live payee IS the
+  // stakers' contract, and only once both reads resolved, so a pending read never accuses.
+  const stakersArePayee = typeof routerPayee === 'string' && routerPayee.toLowerCase() === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase();
+  const stakersNeverPaid = stakersArePayee &&
     lifetimeWei !== undefined && lifetimeWei > 0n && distributedWei !== undefined && distributedWei === 0n;
 
   // F451: keep the underlying read's loaded/undefined state distinct so a
@@ -490,7 +504,7 @@ export default function TreasuryPage() {
             style={{ background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.4)', color: '#fde68a' }}>
             <CardArt pageId="treasury" idx={9} />
             <strong className="font-semibold">Fee routing paused.</strong> SwapFeeRouter is currently
-            paused; new swap fees are not being distributed to stakers, POL, or treasury until it resumes.
+            paused; new swap fees are not being paid out until it resumes.
           </div>
         )}
         {price.oracleStale && (
@@ -540,9 +554,8 @@ export default function TreasuryPage() {
           <span className="text-white/40 text-[11px]">Per swap fee</span>
         </div>
         <p className="text-white/60 text-[12px] leading-relaxed mb-6 max-w-[640px]">
-          A swap fee passes through two contracts, in this order. Both stages are shown
-          because only showing the second one made it look as though fees reach stakers —
-          they have not.
+          A swap fee passes through two contracts, in this order, then goes to the address
+          the router pays.
         </p>
 
         {/* ── STAGE ONE — the contract this card used to leave out entirely. ── */}

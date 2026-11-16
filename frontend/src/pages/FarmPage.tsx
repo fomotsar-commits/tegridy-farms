@@ -477,7 +477,7 @@ function ToweliFarm() {
               surface="farm"
               description={`Connect to claim or withdraw. ${NEW_STAKES_CLOSED_LINE}`}
             />
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
               stats={stats}
@@ -488,12 +488,8 @@ function ToweliFarm() {
               season={season}
             />
 
-            {/* Real-yield thesis surfaced in the staking loop: swap fees → stakers as
-                ETH, live-cumulative once the flywheel turns (graceful pre-volume state).
-                NOT "100%" — that was this comment's old wording and it is wrong the same
-                way the strip above was: the referral carve precedes the distributor, so
-                the end-to-end ceiling is ~80%. IncentivesStrip now reads both values live
-                and states the real figure; RealYieldProof itself was always correct. */}
+            {/* Where swap fees go (the treasury Safe, owner ruling 2026-11-15), and what
+                the stakers' payout contract has paid, read live. */}
             <RealYieldProof showWhenEmpty />
 
             {/* Native LP Pools — read-only pool cards (TVL, reserves, fees). */}
@@ -611,8 +607,8 @@ function ToweliFarm() {
           <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
         </div>
 
-        {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
+        {/* Incentives strip: real APR, reward pool, emissions, boost, and where swap fees go */}
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} reserveEmpty={pool.isDry} />
 
         {/* Stats */}
         <FarmStatsRow
@@ -624,8 +620,7 @@ function ToweliFarm() {
           season={season}
         />
 
-        {/* Real-yield thesis in the staking loop — swap fees → stakers as ETH. Not
-            "100%": see the twin comment on the other RealYieldProof mount above. */}
+        {/* Where swap fees go, and what stakers were paid: see the twin mount above. */}
         <RealYieldProof showWhenEmpty />
 
         {/* Season banner */}

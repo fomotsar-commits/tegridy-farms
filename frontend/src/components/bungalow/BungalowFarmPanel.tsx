@@ -66,8 +66,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
   // Each chain's own swap fee. Solana: the fee account. An EVM chain the swap runs on
   // (chains/registry.ts `ammSwap`; Ethereum, and Base since 2026-10-17): SwapFeeRouter charges
-  // only on a fill in the venue's own pools, and its fee never reaches a room's pool (on
-  // Ethereum it goes to stakers and treasury, on Base to the venue's fee Safe there).
+  // only on a fill in the venue's own pools, and its fee never reaches a room's pool (it goes
+  // to that chain's treasury Safe, owner ruling 2026-11-15).
   const evmSwapRuns = bungalow.chain !== 'solana'
     && getChainConfig(bungalow.chain === 'base' ? 8453 : 1)?.capabilities.ammSwap === true;
   const swapFeeLine =

@@ -98,6 +98,8 @@ jobs:
           set +e
           set -uo pipefail
           ETH_RPC="${ETH_RPC:-https://ethereum-rpc.publicnode.com}"
+          BASE_RPC="${BASE_RPC:-https://mainnet.base.org}"
+          ROBINHOOD_RPC="${ROBINHOOD_RPC:-https://rpc.mainnet.chain.robinhood.com}"
           SOL_RPC="${SOL_RPC:-https://api.mainnet-beta.solana.com}"
 
           EARNED=""   # rails that are non-zero
@@ -130,9 +132,9 @@ jobs:
             return 0
           }
 
-          eth_balance() { # name address
-            local name="$1" addr="$2" out hex stripped
-            out="$(curl -sS --max-time 20 -X POST "$ETH_RPC" \
+          eth_balance() { # name address [rpc, default Ethereum]
+            local name="$1" addr="$2" rpc="${3:-$ETH_RPC}" out hex stripped
+            out="$(curl -sS --max-time 20 -X POST "$rpc" \
               -H 'Content-Type: application/json' \
               -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBalance\",\"params\":[\"$addr\",\"latest\"]}" 2>/dev/null)" \
               || { UNKNOWN="$UNKNOWN\n- $name: RPC request failed"; return; }
@@ -143,12 +145,13 @@ jobs:
             return 0
           }
 
-          # Selectors derived with `cast sig`, not recalled:
-          #   totalETHFees()      0x6b3128c2
-          #   totalDistributed()  0xefca2eed
+          # Selector derived with `cast sig`, not recalled: totalETHFees() 0x6b3128c2
           eth_call "SwapFeeRouter.totalETHFees()"          0x6d5791A660e79175F74C6D639584C98422d5956E 0x6b3128c2
-          eth_call "RevenueDistributor.totalDistributed()" 0xF993316E2fC079de4358c489A935E01e03E23E17 0xefca2eed
-          eth_balance "RevenueDistributor ETH balance"     0xF993316E2fC079de4358c489A935E01e03E23E17
+          # Every EVM venue fee lands in its chain's treasury Safe (owner ruling 2026-11-15;
+          # Base and Robinhood share one address), not in the stakers' payout contract.
+          eth_balance "Ethereum treasury Safe ETH balance"  0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d
+          eth_balance "Base treasury Safe ETH balance"      0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 "$BASE_RPC"
+          eth_balance "Robinhood treasury Safe ETH balance" 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 "$ROBINHOOD_RPC"
           eth_balance "Launcher integrator EOA"            0xD355A072d6bBbA275DBD83A3149f6347b06d1051
 
           # --- Solana ------------------------------------------------------------

@@ -54,7 +54,7 @@ vi.mock('../contexts/PriceContext', () => ({ useTOWELIPrice: () => ({ priceInUsd
 vi.mock('../hooks/usePriceHistory', () => ({ usePriceHistory: () => ({ history: [], error: null, isLoading: false }) }));
 vi.mock('../hooks/useTransactionReceipt', () => ({ useTransactionReceipt: () => ({ showReceipt: hooks.showReceipt }) }));
 vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: vi.fn() }) }));
-vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({ stakerSharePct: 0, isLoaded: false, tvl: 0, lpSupply: 0n }) }));
+vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({ isLoaded: false, tvl: 0, lpSupply: 0n }) }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => undefined }));
 vi.mock('../hooks/useAutoReset', () => ({ useAutoReset: () => undefined }));
 

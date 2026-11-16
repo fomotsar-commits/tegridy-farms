@@ -30,7 +30,6 @@ import {
   TEGRIDY_TWAP_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS,
   SWAP_FEE_ROUTER_ADMIN_ADDRESS,
-  REVENUE_DISTRIBUTOR_ADDRESS,
   REFERRAL_SPLITTER_ADDRESS,
   POL_ACCUMULATOR_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
@@ -62,12 +61,8 @@ const MAINNET: ChainConfig = {
   // Mainnet has no sequencer. Null here is the fact, not a gap — SequencerCheck.sol
   // no-ops on chainid 1 alone and refuses the no-op everywhere else.
   sequencerUptimeFeed: null,
-  // TOWELI, veTOWELI and the RevenueDistributor are all here, so a fee captured on
-  // this chain reaches a staker on this chain.
-  feeSink: 'distributor',
   capabilities: {
     staking: isDeployed(TEGRIDY_STAKING_ADDRESS),
-    stakerYield: isDeployed(REVENUE_DISTRIBUTOR_ADDRESS),
     referrals: isDeployed(REFERRAL_SPLITTER_ADDRESS),
     protocolOwnedLiquidity: isDeployed(POL_ACCUMULATOR_ADDRESS),
     indexed: true,
@@ -84,7 +79,8 @@ const MAINNET: ChainConfig = {
     twap: TEGRIDY_TWAP_ADDRESS,
     swapFeeRouter: SWAP_FEE_ROUTER_ADDRESS,
     swapFeeRouterAdmin: SWAP_FEE_ROUTER_ADMIN_ADDRESS,
-    feeSink: REVENUE_DISTRIBUTOR_ADDRESS,
+    // Both routers pay the treasury Safe (owner ruling 2026-11-15), not the stakers' contract.
+    feeSink: TREASURY_ADDRESS,
     treasury: TREASURY_ADDRESS,
     curveLauncher: orNull(CURVE_LAUNCHER_ADDRESS),
     toweli: orNull(TOWELI_ADDRESS),
@@ -110,12 +106,8 @@ const BASE: ChainConfig = {
   name: 'Base',
   nativeCurrencySymbol: 'ETH',
   sequencerUptimeFeed: '0xBCF85224fc0756B9Fa45aA7892530B47e10b6433',
-  // No veTOWELI here, ever — the sink is a remittance Safe and a fee captured on
-  // Base is "queued for the bridge", not staker yield. Surfaces must say so.
-  feeSink: 'remittance',
   capabilities: {
     staking: false,
-    stakerYield: false,
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
@@ -143,7 +135,7 @@ const BASE: ChainConfig = {
     twap: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
     swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouterAdmin: '0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2',
-    feeSink: '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1', // FEE_REMITTANCE Safe — remittance sink, not a distributor
+    feeSink: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe: both routers pay it (owner ruling 2026-11-15)
     treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe
     curveLauncher: '0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060',
     toweli: null, // never — fixed supply, one chain
@@ -172,10 +164,8 @@ const ROBINHOOD: ChainConfig = {
   name: 'Robinhood Chain',
   nativeCurrencySymbol: 'ETH',
   sequencerUptimeFeed: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC', // AttestedSequencerUptimeFeed, LIVE 2026-08-25 (owner=MULTISIG, attestor=PAUSE_GUARDIAN)
-  feeSink: 'remittance',
   capabilities: {
     staking: false,
-    stakerYield: false,
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
@@ -200,7 +190,7 @@ const ROBINHOOD: ChainConfig = {
     twap: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouter: '0xE9F83A07b071748E795d2489651d5310fA098Db8',
     swapFeeRouterAdmin: '0xdFdd6D72539A425dC917F49FB834901105cA98c9',
-    feeSink: '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1', // FEE_REMITTANCE Safe
+    feeSink: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe: both routers pay it (owner ruling 2026-11-15)
     treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe
     curveLauncher: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
     toweli: null,
@@ -276,19 +266,6 @@ export function contractOn(
  */
 export function unconfiguredChainLabel(chainId: number | undefined | null): string {
   return getChainLabel(chainId ?? undefined);
-}
-
-/**
- * Whether fees captured on this chain can honestly be described as staker yield.
- *
- * False on any chain whose sink is a remittance Safe. Nothing about the capture is
- * in doubt on such a chain; what is in doubt is whether it has reached anyone, and
- * the answer is not yet.
- */
-export function feesBecomeStakerYieldOn(chainId: number | undefined | null): boolean {
-  const config = getChainConfig(chainId);
-  if (!config) return false;
-  return config.feeSink === 'distributor' && config.capabilities.stakerYield;
 }
 
 /**

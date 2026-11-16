@@ -18,10 +18,8 @@
 // flat claim: the /premium hero, the FAQ Gold Card answer, and Towelie's premium answer.
 // This file is the missing half — it scans SOURCE, the way launchFeeCopy.test.ts does.
 //
-// NOT SCANNED, DELIBERATELY: src/lib/premiumBenefits.ts. It is the one place the plain
-// claim is legitimate, because it lives behind the paid branch (`hasPaid()`), and that
-// branching is already pinned by premiumBenefits.test.ts. Scanning it here would force
-// the honest paid-day copy to be deleted to make a guard green — exactly backwards.
+// Since 2026-11-15 every venue fee goes to the treasury Safe (owner ruling), so the Gold Card
+// promises no ETH in any state; src/lib/premiumBenefits.ts is pinned by its own test.
 //
 // Comments are stripped before every assertion: these files legitimately QUOTE the old
 // wrong strings in comments explaining why they were removed, and scanning raw source
@@ -67,14 +65,11 @@ describe('no ETH-earnings promise ships as a flat literal', () => {
 describe('the mechanism is still explained after the promise is removed', () => {
   // Removing the claim must not remove the disclosure — an empty answer would pass the
   // negative assertions above while telling the reader nothing.
-  it('the /premium hero is wired to the distributor read, not to a literal', () => {
-    // Pin the WIRING, not the helper's NAME. This assertion originally required
-    // `goldCardHeroSubtitle(`; trunk later renamed it to `goldCardSubhead` and the
-    // guard failed on a rename while the honesty property it exists to protect was
-    // never broken. What must stay true is that the hero copy is DERIVED from the
-    // on-chain distributor read rather than written as a flat literal.
+  it('the /premium hero comes from the shared Gold Card copy, which names the treasury', () => {
+    // Owner ruling 2026-11-15: swap fees go to the treasury Safe, so the hero states that
+    // the card carries no fee share; the line lives in premiumBenefits.ts, pinned there.
     expect(PREMIUM_PAGE).toMatch(/from '\.\.\/lib\/premiumBenefits'/);
-    expect(PREMIUM_PAGE).toMatch(/ethDistributed:\s*revenue\.totalDistributed/);
+    expect(PREMIUM_PAGE).toContain('{GOLD_CARD_SUBHEAD}');
   });
 
   it('the FAQ Gold Card answer still describes the swap-fee share', () => {

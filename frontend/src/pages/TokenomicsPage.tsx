@@ -198,8 +198,7 @@ export default function TokenomicsPage() {
               <div className="pt-3 accent-divider" />
               <p className="text-white text-[11px] leading-relaxed pt-2">
                 Emissions come from a one-time fixed seed, with no ongoing minting. After a referral
-                share, the venue&apos;s swap fee is routed on chain toward stakers through the
-                RevenueDistributor, which can open a payout round only after 1 ETH has arrived.
+                share, the venue&apos;s swap fee goes on chain to the venue&apos;s treasury, not to stakers.
               </p>
             </div>
             </div>
