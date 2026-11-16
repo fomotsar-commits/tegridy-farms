@@ -8,6 +8,7 @@ import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
+import { FeeManifold } from '../../dwg/FeeManifold';
 import { AddressRow } from './AddressRow';
 import { explorerOf } from './panelKit';
 import { useLpWrites } from './useLpWrites';
@@ -46,6 +47,8 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
           </div>
         ) : (
           <>
+            {/* The public tier's split as a drawing, from the same read as the table; no tier read, none. */}
+            <FeeManifold tier={publicTier} />
             <table className="w-full text-left border-collapse" data-testid="lp-rate-table">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wider text-white/55 align-bottom">

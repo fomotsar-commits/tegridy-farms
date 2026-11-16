@@ -10,7 +10,7 @@ const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-p
  */
 export function VenueProgramCard() {
   return (
-    <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
+    <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program" data-dwg="band">
       <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
       {/* True of the program running since its upgrades and of the source: both carry our authority

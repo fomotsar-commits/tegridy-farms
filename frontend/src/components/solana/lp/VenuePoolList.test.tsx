@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { resetField, useFieldPools } from '../../../lib/solana/lp/fieldStore';
 import { MemoryRouter } from 'react-router-dom';
 import { QUOTE_COINS_IN_TURN, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { PublicKey } from '@solana/web3.js';
@@ -803,5 +804,26 @@ describe('All pools: every coin in a row copies its whole address', () => {
     });
     expect(writeText).toHaveBeenCalledWith(C);
     expect(within(crying!).getByText('Copied')).toBeInTheDocument();
+  });
+});
+
+describe("All pools feeds the sheet's drawing (P-01) from its own read, and says only what it read", () => {
+  it('draws a row a level gauge only when its dollars were read, and hands the drawing its pools in the rows’ order', async () => {
+    resetField();
+    // SOL and BAYLA priced, CORN not: BAYLA's pool has dollars, CORN's has none.
+    mount(readers({ ...jupiter({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3 }), listPools: vi.fn(async () => ok([view(CORN), view(BAYLA, 30n * 10n ** 9n)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(1));
+    const rows = screen.getAllByTestId('lp-all-pools-row');
+    const bayla = rows.find((r) => r.textContent?.includes('BAYLA / SOL'))!;
+    const corn = rows.find((r) => r.textContent?.includes('CORN / SOL'))!;
+    expect(bayla.querySelector('.p01-gauge')).not.toBeNull();
+    expect(bayla.querySelector('.p01-gauge')!.getAttribute('aria-hidden')).toBe('true');
+    expect(bayla.querySelector('.p01-gauge')!.textContent).toBe('');
+    expect(corn.querySelector('.p01-gauge')).toBeNull();
+    // The buttons stay the row's last element.
+    expect([...bayla.lastElementChild!.querySelectorAll('button, a')].map((el) => el.textContent)).toEqual(['Add', 'Swap', 'View']);
+    const { result } = renderHook(() => useFieldPools());
+    await waitFor(() => expect(result.current?.map((p) => p.address)).toEqual(rows.map((r) => r.getAttribute('data-pool'))));
+    expect(result.current?.map((p) => p.usd === null)).toEqual([false, true]);
   });
 });
