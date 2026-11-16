@@ -223,17 +223,24 @@ nobody can freeze.
 The Solana audit of 2026-11-15 found no critical or high bug in this program. The owner ruled the
 same day that limit orders stay, with their arithmetic patched, and that the LPs' part of the fee on
 a limit-order fill is the venue's. Each change below has a unit test seen failing on the code before
-it; for the two reward handlers that test pins the rule's text, and the local chain's checks R15 and
-R16, not yet run, run them. **None of it is on chain.** It needs its own upgrade, either in place of the pending upgrade's
+it; for the two reward handlers that test pins the rule's text, and the local chain's checks R15,
+R16 and X2, not yet run, run them. **None of it is on chain.** It needs its own upgrade, either in place of the pending upgrade's
 build or as a second upgrade after it, and that upgrade must execute before the vault turns limit
 orders on for any pool.
+
+**No roll-back below this build once a limit order exists.** An older build reads a ratio held at
+2^126 as if it were at 2^64, and pays a maker as if the whole order had filled, out of the pool's
+vault. So stage no such roll-back, and never execute one once any limit order has been opened on any
+pool. A swap that fills part of an order can now need one more 256-bit multiply and divide (at most
+once in each pool it passes through). Its compute units are not measured yet: measure one before
+the vault turns limit orders on.
 
 | Finding | What it was | What changed | Proved by |
 |---|---|---|---|
 | RNG-02 | A cohort's unfilled ratio was carried at 2^64 and rounded down at every fill, so a large cohort's makers could be credited more of the paid coin than takers paid in | Carried at 2^126. An older build left `padding[0]` at 0 in a tick or an order; such a ratio is scaled up exactly when read, so an order opened before this build settles, cancels and closes correctly | unit tests |
 | RNG-03 | On a limit-order fill the LPs' 84% went to whatever LP liquidity was in range, however small | It goes to the venue's share (the owner's ruling) | unit test |
 | RNG-04 | An order one unit of which no u64 input could buy at the taker's rounding was accepted | The size check every order passes refuses it | unit test |
-| RNG-05 | An operation owner the vault named could start rewards, change any reward at once, and keep what the vault added to a reward it started | Only the vault starts or changes a reward | unit tests, R15, R16 |
+| RNG-05 | An operation owner the vault named could start rewards, change any reward at once, and keep what the vault added to a reward it started | Only the vault starts or changes a reward | unit tests, R15, R16, X2 |
 | RNG-09, XCH-08 | `update_amm_config` param 3 named a second fee collector; the island's hand-over took the all-zero key; a reward's unpaid rest could be paid into the pool's own vault | Param 3 is deleted, the all-zero key and that receiver are refused. The fee collections already refuse a pool vault as receiver: Anchor refuses the same mutable account twice | unit tests |
 | RNG-12 | A deposit of liquidity 0 with a base side was sized from one coin at the price it landed at, with a ceiling on one side only | Refused: a deposit states its liquidity, as the site's always did | unit test |
 | RNG-07 | `update_pool_status` took any byte, bits 64 and 128 included | Those bits are refused; the byte is still written whole | unit test |
