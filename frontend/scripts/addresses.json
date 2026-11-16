@@ -625,6 +625,36 @@
       }
     },
     {
+      "id": "bayla-ladder-placeholder-id",
+      "address": "GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4",
+      "role": "bayla-ladder's committed declare_id!, a placeholder made 2026-09-06; solana-deploy-artifact.yml writes the real id (bayla-ladder-program) in at build time. Registered so verify-program-constants can carry it as a FORBIDDEN key: in a ladder binary it would mean a build that refuses every instruction at the live address.",
+      "custody": "a placeholder id; nothing of the venue's is deployed at it",
+      "status": "placeholder: must be absent from any mainnet binary",
+      "onchain": false
+    },
+    {
+      "id": "devnet-bayla-ladder-program",
+      "address": "HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK",
+      "role": "bayla-ladder's superseded devnet deployment (the flat-25% build; solana/tegridy-amm/idl/bayla_ladder.json names it). Registered so verify-program-constants can carry it as a FORBIDDEN key: in a mainnet binary it would mean a devnet build.",
+      "custody": "devnet only",
+      "status": "devnet only: must be absent from any mainnet binary"
+    },
+    {
+      "id": "devnet-bayla-ladder-deployer",
+      "address": "ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP",
+      "role": "bayla-ladder deployer::ID on the `--features devnet` arm, a placeholder. Registered so verify-program-constants can carry it as a FORBIDDEN key: in a mainnet binary it would mean a devnet build.",
+      "custody": "devnet only",
+      "status": "devnet only: must be absent from any mainnet binary"
+    },
+    {
+      "id": "bayla-ladder-retired-pool-authority",
+      "address": "GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9",
+      "role": "The pool authority compiled into the superseded fada8148 bayla-ladder build only (docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md); the first lighthouse ceremony key (docs/BAYLA_BUNGALOW.md section 6f). Registered so verify-program-constants can carry it as a FORBIDDEN key: in a ladder binary it would mean that build or its source.",
+      "custody": "single key, the faucet bot's wallet (docs/BAYLA_BUNGALOW.md section 6f); it holds no ladder authority",
+      "status": "retired from the ladder: must be absent from any mainnet ladder binary",
+      "onchain": false
+    },
+    {
       "$comment": "range pools: tegridy-clmm, the venue's copy of Raydium's concentrated-liquidity program (solana/tegridy-clmm, docs/RANGE_POOLS_PLAN.md). Three separate facts, said plainly. REGISTERED: this block. DEPLOYED: yes, on mainnet-beta 2026-10-21, read below. WIRED: NO at this writing (2026-10-21): no page of the site on mvp-launch sends a transaction to it, and it has no fee tier yet, so nobody can open a pool on it. Every address here was DERIVED and matched, not transcribed: the ProgramData is the upgradeable loader's PDA of the program id, each tier is the program's PDA [\"amm_config\", index as u16 big-endian], and the fee-tier proposal's two accounts are Squads v4 PDAs of squads-multisig and transaction index 19. Read on mainnet-beta at finalized slots 459,709,863 to 459,711,538 (2026-10-21)."
     },
     {
