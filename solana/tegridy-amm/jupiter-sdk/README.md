@@ -100,5 +100,7 @@ names its sources. This crate is Apache-2.0 (`../LICENSE`).
 - The submission itself, through Jupiter's AMM integrators form: this folder, the audit, usage
   numbers and who is behind the venue. Jupiter also lists markets only above its liquidity bar.
 - The label Jupiter shows for these pools is `Memetics` (`src/lib.rs`), which is the owner's call.
+- Hand Jupiter, or any aggregator, an explicit list of pools, each with LP shares in existence
+  and its opening time passed. Never hand it addresses derived from a pair of coins.
 
 `SUBMISSION.md` has the form's answers and what to do before sending it.
