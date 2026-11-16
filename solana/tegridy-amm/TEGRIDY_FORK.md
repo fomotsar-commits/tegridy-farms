@@ -126,7 +126,8 @@ settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" be
 **plus the keeper's fee** of 2026-11-11 (the rates `swap_base_input.rs` and
 `swap_base_output.rs` hand to the fee arithmetic, chosen by `swap_fee_rates` in
 `states/config.rs`; see "The keeper's fee" below), **plus the keeper's resignation** of
-2026-11-14 (a second added instruction, `resign_keeper`, in `lib.rs`; the wallet check on
+2026-11-14 (a second added instruction, `resign_keeper`, in `lib.rs`, sent directly since
+2026-11-15, see "The Solana audit's checks" below; the wallet check on
 naming a keeper and two logged events in `states/config.rs` and `update_config.rs`; two errors
 in `error.rs`; one dependency, `solana-curve25519`, already compiled into the program through
 anchor-spl; see "The keeper resigns" below).
@@ -603,6 +604,15 @@ cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) d
 | the resignation file against the build with `resign_keeper`'s keeper check removed (anyone may resign) | 3 fail: a stranger resigns the keeper, so the keeper's own resignation then logs the wrong keeper, and a tier with no keeper can be "resigned"; the 7 others pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin, and `key-guard.mjs` over every copy | upstream plus the reviewed patch: 37 files compared, 11 patched; no outside key |
 | the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte |
+
+### The Solana audit's checks (2026-11-15)
+
+Findings of the Solana audit of 2026-11-15, in the same build as the resignation. Each is a
+refusal: the account layouts, every error number and every event stay as they were.
+
+| Rule | Where | Before |
+|---|---|---|
+| Only a resignation sent directly counts (CPS-13). The keeper signs routes other programs build, so a program handed its signature could otherwise end the role. `resign_keeper` refuses one that another program calls, even with the keeper's signature, by the swap guard's own test: the instruction's stack height. Refused with 6016 `NotKeeper`, whose message now says so. A wallet resigning directly is unaffected, and a keeper is always a wallet. | `resign_keeper` in `lib.rs` | any program the keeper's signature was handed to could resign it |
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)

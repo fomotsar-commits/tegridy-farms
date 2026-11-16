@@ -425,13 +425,21 @@ pub mod raydium_cp_swap {
 
     /// The tier's keeper gives the role up, signing alone: the tier is left with no keeper
     /// (the all-zero key), as the admin's `update_amm_config` param 9 would leave it, but at
-    /// once, with no proposal and no lock. Anyone else is refused (6016 `NotKeeper`).
+    /// once, with no proposal and no lock. Anyone else is refused (6016 `NotKeeper`), and so is
+    /// a resignation another program calls, even with the keeper's signature.
     ///
     /// # Arguments
     ///
     /// * `ctx`- The context of accounts
     ///
     pub fn resign_keeper(ctx: Context<ResignKeeper>) -> Result<()> {
+        // memetics.finance, 2026-11-15: sent directly, the swap guard's own test, so no program
+        // the keeper hands its signature to can end the role.
+        require!(
+            anchor_lang::solana_program::instruction::get_stack_height()
+                <= anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT,
+            ErrorCode::NotKeeper
+        );
         let amm_config = &mut ctx.accounts.amm_config;
         let old_keeper = amm_config.keeper;
         amm_config.keeper = Pubkey::default();
@@ -446,18 +454,11 @@ pub mod raydium_cp_swap {
 }
 
 // ─── TEGRIDY FORK ADDITION (2026-11-14): resign_keeper ────────────────────────
-// The second instruction this fork adds. A tier's keeper (update_config.rs param 9) swaps on
-// that tier free of the trade and creator fees and passes the swap guard, and it signs from a
-// computer that runs unattended. Only the admin names or clears it, and on mainnet every admin
-// action is a Squads proposal behind a 48-hour lock: a stolen keeper key would trade free, and
-// sandwich every visitor's swap at no cost, for at least those 48 hours.
-//
-// This lets the keeper's own key end it at once. WHO MAY CALL IT: the tier's keeper only, as
-// the signer; the constraint below reads the keeper from the tier itself. With no keeper named
-// (the all-zero key) nobody can, since `is_keeper` names nobody then. What it changes: that one
-// field of that one tier, to the all-zero key. Nothing else: the guard stays as it was, no
-// account is created or closed, no lamport or token moves. A thief holding the key can call it
-// too, which only ends the thief's own advantage; nobody can name a keeper but the admin.
+// The second instruction this fork adds: a tier's keeper (update_config.rs param 9) ends its
+// own role at once, where the admin's change waits on a 48-hour proposal. WHO MAY CALL IT: the
+// keeper the tier names, as the signer, in an instruction of the transaction itself (the
+// handler reads the stack height as the swap guard does). It sets that one tier's keeper to the
+// all-zero key; no account is created or closed, no lamport or token moves.
 #[derive(Accounts)]
 pub struct ResignKeeper<'info> {
     /// The tier's keeper, the only signer
@@ -597,4 +598,85 @@ fn initialize_metadata_account<'info>(
         None,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod resign_keeper_test {
+    use super::*;
+    // Off chain, anchor-lang's get_stack_height asks solana-sysvar's stubs; anchor-spl's path is
+    // the one this crate already has to them.
+    use anchor_spl::associated_token::spl_associated_token_account::solana_program::program_stubs::{
+        set_syscall_stubs, SyscallStubs,
+    };
+    use std::cell::Cell;
+
+    std::thread_local!(static STACK_HEIGHT: Cell<u64> = Cell::new(1));
+
+    /// The runtime's stack height as this test's thread sets it: 1 for an instruction of the
+    /// transaction itself, 2 or more for one another program calls.
+    struct StackHeight;
+    impl SyscallStubs for StackHeight {
+        fn sol_get_stack_height(&self) -> u64 {
+            STACK_HEIGHT.with(Cell::get)
+        }
+    }
+
+    fn account(key: Pubkey, is_signer: bool, data: Vec<u8>) -> &'static AccountInfo<'static> {
+        Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(key)),
+            is_signer,
+            true,
+            Box::leak(Box::new(1_000_000u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(crate::id())),
+            false,
+            0,
+        )))
+    }
+
+    /// The tier's own keeper sends `resign_keeper` at `stack_height`: what the program answers,
+    /// the keeper, and the tier's keeper afterwards.
+    fn resign_at(stack_height: u64) -> (Result<()>, Pubkey, Pubkey) {
+        set_syscall_stubs(Box::new(StackHeight));
+        STACK_HEIGHT.with(|h| h.set(stack_height));
+        let keeper = Pubkey::new_unique();
+        let mut data = Vec::new();
+        AmmConfig {
+            swap_guard: 1,
+            keeper,
+            ..Default::default()
+        }
+        .try_serialize(&mut data)
+        .unwrap();
+        let mut accounts = ResignKeeper {
+            keeper: Signer::try_from(account(keeper, true, Vec::new())).unwrap(),
+            amm_config: Account::try_from(account(Pubkey::new_unique(), false, data)).unwrap(),
+        };
+        let answer = raydium_cp_swap::resign_keeper(Context::new(
+            &crate::id(),
+            &mut accounts,
+            &[],
+            ResignKeeperBumps {},
+        ));
+        (answer, keeper, accounts.amm_config.keeper)
+    }
+
+    #[test]
+    fn the_keeper_resigns_in_an_instruction_of_the_transaction_itself() {
+        let (answer, _, after) = resign_at(1);
+        answer.unwrap();
+        assert_eq!(after, Pubkey::default());
+    }
+
+    #[test]
+    fn a_resignation_another_program_calls_is_refused_even_with_the_keepers_signature() {
+        for height in [2, 3, 5] {
+            let (answer, keeper, after) = resign_at(height);
+            assert!(
+                matches!(answer, Err(e) if format!("{e:?}").contains("NotKeeper")),
+                "at stack height {height}"
+            );
+            assert_eq!(after, keeper, "the tier keeps its keeper");
+        }
+    }
 }

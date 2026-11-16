@@ -8,7 +8,8 @@
  *    with no keeper (the all-zero key), as the admin's param 9 would leave it. Its swaps pay the
  *    fee again, and the guard refuses them from inside another program again.
  *  - Nobody else can: not a stranger, not the admin (6016 NotKeeper). Not twice, and not on a
- *    tier with no keeper. Other tiers it keeps are untouched.
+ *    tier with no keeper. Not another program, even with the keeper's signature (6016 too):
+ *    only an instruction of the transaction itself. Other tiers it keeps are untouched.
  *  - The admin names only a wallet's key: a program's address is refused (6017 KeeperNotAWallet).
  *  - Every change of keeper or guard is logged: KeeperChanged (with who resigned) and
  *    SwapGuardChanged.
@@ -266,6 +267,15 @@ if (CALLER_ID) describe("cp-swap keeper resignation", () => {
       assert.include(why, "NotKeeper", `${who === wallet ? "the admin" : "a stranger"}: ${why}`);
       assert.include(why, "Error Number: 6016");
     }
+    assert.equal(await keeperOf(tier), keeper.publicKey.toBase58());
+  });
+
+  // The keeper signs routes other programs build: one of them, handed its signature, must not
+  // be able to end the role (the Solana audit of 2026-11-15, CPS-13).
+  it("another program cannot resign it, even with the keeper's signature", async () => {
+    const { why } = await sendAs([called(await resignIx(keeper.publicKey, tier))], keeper);
+    assert.include(why, "NotKeeper", why);
+    assert.include(why, "Error Number: 6016");
     assert.equal(await keeperOf(tier), keeper.publicKey.toBase58());
   });
 
