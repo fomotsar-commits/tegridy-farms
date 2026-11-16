@@ -56,6 +56,9 @@ import "../orderbook.js";
 const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
 const OFFERER = "0x" + "a".repeat(40);
 const ATTACKER = "0x" + "b".repeat(40);
+// Who bought: the OrderFulfilled recipient, which for the site's fulfillOrder is the wallet
+// that sent it, and the wallet that then signs the fill report.
+const BUYER = "0x2222222222222222222222222222222222222222";
 const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
 const SEAPORT_15 = "0x00000000000000adc04c56bf30ac9d3c0aaf14dc";
 const MALICIOUS_CONTRACT = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
@@ -90,10 +93,9 @@ function buildSampleParams({ offerer = OFFERER } = {}) {
   };
 }
 
-function encodeOrderFulfilledData(orderHash) {
+function encodeOrderFulfilledData(orderHash, recipient = BUYER) {
   // OrderFulfilled non-indexed args: bytes32 orderHash, address recipient,
   // SpentItem[] offer, ReceivedItem[] consideration.
-  const recipient = "0x2222222222222222222222222222222222222222";
   const offer = [[2, NAKAMIGOS, 42n, 1n]];
   const consideration = [
     [0, "0x0000000000000000000000000000000000000000", 0n, 1000000000000000000n, OFFERER],
@@ -314,7 +316,9 @@ describe("orderbook fill — F10 strict-hash path", () => {
     mocks.supabaseState.updateResult = { data: [{ status: "filled" }], error: null };
     mocks.supabaseState.mockUpdates = [];
     mocks.recoverMock.mockReset();
-    mocks.recoverMock.mockResolvedValue(OFFERER);
+    // The buyer reports its own fill, as the site does (lib/orderbook.js fulfillNativeOrder
+    // signs the report with the wallet that sent fulfillOrder).
+    mocks.recoverMock.mockResolvedValue(BUYER);
     mocks.fetchMock.mockReset();
     vi.resetModules();
     handler = (await import("../orderbook.js")).default;
@@ -478,6 +482,7 @@ describe("orderbook fill — F10 strict-hash path", () => {
     await handler(req, res);
     expect(jsonSpy).toHaveBeenCalledWith({ success: true });
     expect(mocks.supabaseState.mockUpdates).toHaveLength(1);
+    expect(mocks.supabaseState.mockUpdates[0].filled_by).toBe(BUYER);
   });
 
   it("answers 409 when the guarded update matched no listing row (the row is not a listing)", async () => {
@@ -500,6 +505,63 @@ describe("orderbook fill — F10 strict-hash path", () => {
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(409);
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Only listings can be marked filled" });
+  });
+
+  // THE BUYER REPORTS THE FILL (review HR-4, 2026-11-16). scripts/venue-volume.mjs leaves a
+  // listing its own maker bought out of the public volume, and tags a sale the house bought,
+  // both by filled_by. That field was whoever signed the report, so the reporter chose it.
+  it.each([
+    ["a maker that bought its own listing and signs the report with a second wallet", OFFERER],
+    ["a third party reporting someone else's purchase", BUYER],
+  ])("refuses 403 %s, and writes nothing", async (_, onChainBuyer) => {
+    const seaportHash = computeSeaportOrderHash(buildSampleParams(), 0n);
+    mocks.supabaseState.storedRow = { seaport_order_hash: seaportHash, maker: OFFERER, status: "active", order_type: "listing" };
+    mocks.recoverMock.mockResolvedValue(ATTACKER);
+    mocks.fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeReceipt({
+        logs: [{
+          address: SEAPORT_15,
+          topics: [ORDER_FULFILLED_TOPIC, offererTopic(OFFERER), offererTopic("0x" + "0".repeat(40))],
+          data: encodeOrderFulfilledData(seaportHash, onChainBuyer),
+        }],
+      }),
+    });
+    const { req, res, statusSpy, jsonSpy } = makeReqRes(buildFillBody());
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(403);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Only the buyer can report this fill" });
+    expect(mocks.supabaseState.mockUpdates).toHaveLength(0);
+  });
+
+  it("a real fill still goes through: the buyer's own key signs the site's report, and the buyer is stored", async () => {
+    // Real signature recovery, a key that is nobody's (BUILD-SPEC test-key rule), and the
+    // report message exactly as fulfillNativeOrder builds it.
+    const actual = await vi.importActual("viem");
+    const { privateKeyToAccount } = await vi.importActual("viem/accounts");
+    const buyer = privateKeyToAccount(actual.keccak256(actual.toBytes("house-bidder test key 1")));
+    mocks.recoverMock.mockImplementation(actual.recoverMessageAddress);
+    const seaportHash = computeSeaportOrderHash(buildSampleParams(), 0n);
+    mocks.supabaseState.storedRow = { seaport_order_hash: seaportHash, maker: OFFERER, status: "active", order_type: "listing" };
+    mocks.fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeReceipt({
+        logs: [{
+          address: SEAPORT_15,
+          topics: [ORDER_FULFILLED_TOPIC, offererTopic(OFFERER), offererTopic("0x" + "0".repeat(40))],
+          // Seaport's event carries the address as viem decodes it: checksummed.
+          data: encodeOrderFulfilledData(seaportHash, buyer.address),
+        }],
+      }),
+    });
+    const body = buildFillBody();
+    body.signature = await buyer.signMessage({ message: `Fill order ${body.orderHash} tx ${body.txHash} | Chain: ${body.chainId} | Time: ${body.timestamp}` });
+    const { req, res, jsonSpy } = makeReqRes(body);
+    await handler(req, res);
+    expect(jsonSpy).toHaveBeenCalledWith({ success: true });
+    expect(buyer.address).not.toBe(buyer.address.toLowerCase()); // the case-folding is exercised
+    expect(mocks.supabaseState.mockUpdates).toHaveLength(1);
+    expect(mocks.supabaseState.mockUpdates[0].filled_by).toBe(buyer.address.toLowerCase());
   });
 });
 

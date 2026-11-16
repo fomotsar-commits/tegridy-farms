@@ -1705,6 +1705,8 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: "Only listings can be marked filled" });
       }
       const alchemyNetwork = rowChainId === 8453 ? "base-mainnet" : "eth-mainnet";
+      // The wallet Seaport delivered the NFT to: the matching OrderFulfilled's recipient.
+      let buyer = null;
 
       if (hasAlchemy) {
         try {
@@ -1780,6 +1782,7 @@ export default async function handler(req, res) {
             if (storedSeaportHash) {
               // Strict path: ABI-decode `data`, compare bytes32 orderHash.
               let decodedHash;
+              let decodedRecipient;
               try {
                 const decoded = decodeAbiParameters(
                   parseAbiParameters(
@@ -1788,11 +1791,12 @@ export default async function handler(req, res) {
                   log.data,
                 );
                 decodedHash = (decoded[0] || "").toLowerCase();
+                decodedRecipient = String(decoded[1] || "").toLowerCase();
               } catch {
                 // Malformed log data — skip this log, try the next.
                 continue;
               }
-              if (decodedHash === storedSeaportHash) { hasMatchingLog = true; break; }
+              if (decodedHash === storedSeaportHash) { hasMatchingLog = true; buyer = decodedRecipient; break; }
             }
             // No legacy fallback: rows without `seaport_order_hash` cannot be
             // marked filled via this endpoint. The prior fallback compared the
@@ -1807,6 +1811,16 @@ export default async function handler(req, res) {
                 ? "Transaction does not contain a matching Seaport OrderFulfilled event"
                 : "Legacy listing without canonical order hash cannot be marked filled; please re-list",
             });
+          }
+          // THE BUYER REPORTS THE FILL — 2026-11-16 (review HR-4). filled_by is the buyer Seaport
+          // names above, and only that wallet may report: scripts/venue-volume.mjs leaves a
+          // listing its own maker bought out of the public volume, and tags a sale the house
+          // bought, both by filled_by, which was whoever signed this report. The site's buy flow
+          // (lib/orderbook.js fulfillNativeOrder) signs it with the wallet that sent
+          // fulfillOrder, and Seaport names that wallet as the recipient, so a real fill
+          // matches. Same rule as a directed trade's fill below.
+          if (buyer !== filledBy) {
+            return res.status(403).json({ error: "Only the buyer can report this fill" });
           }
         } catch (rpcErr) {
           console.error("On-chain verification failed, rejecting fill:", rpcErr.message);
@@ -1841,7 +1855,9 @@ export default async function handler(req, res) {
         .from("native_orders")
         .update({
           status: "filled",
-          filled_by: filledBy,
+          // The chain's buyer. Only a setup with no Alchemy key outside production reads no
+          // receipt, and there the signer stands in.
+          filled_by: buyer ?? filledBy,
           filled_at: new Date().toISOString(),
           tx_hash: txHash,
         })
