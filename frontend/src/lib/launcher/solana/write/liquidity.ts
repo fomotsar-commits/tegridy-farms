@@ -64,7 +64,7 @@ import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../.
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type MintFacts, type TokenSafety } from '../../../solana/lp/tokenSafety';
-import { epochFee, feeRateText, preFeeAmountOf, type TransferFee } from '../../../solana/lp/transferFee';
+import { epochFee, feeRateText, type TransferFee } from '../../../solana/lp/transferFee';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -99,8 +99,8 @@ export const LP_COPY = {
   noTokenAccount: (address: string) => `You hold none of this token in your main account for it (${address}).`,
   overBalance: (need: string, have: string) => `This needs up to ${need} and your wallet has ${have}.`,
   rentBand: (most: string) => `That would leave your wallet with too little SOL to stay open on the network. The most you can add from this wallet is ${most}.`,
-  tooSmallDeposit: (atLeast: string | null) =>
-    atLeast ? `Too small: at this pool's size one side would round to zero. Add at least ${atLeast}.` : "Too small: at this pool's size one side would round to zero. Add a larger amount.",
+  // Never names the least the pool takes: at it, the scarcer coin can round up by nearly a whole unit (CPS-11).
+  tooSmallDeposit: "Too small: at this pool's size one side would round to zero. Add a larger amount.",
   moved: (now: string, shown: string) =>
     `The pool's price moved since these amounts were worked out: this now needs up to ${now} on the other side, not ${shown}. Check the new amounts and press Review again.`,
   foreignOwner: (address: string, owner: string) => `Your account at ${address} now belongs to another wallet (${owner}). Using it would hand the tokens over.`,
@@ -639,24 +639,14 @@ export function depositStepsProblem(
   return null;
 }
 
-function depositProblemCopy(p: PlanProblem, ctx: { driving: 'quote' | 'token'; decimals: number; s: PoolView; bps: bigint; tokenFee: TransferFee | null }): string {
+function depositProblemCopy(p: PlanProblem, ctx: { decimals: number; s: PoolView }): string {
   const q = ctx.s.quote;
   const unit = (side: 'quote' | 'token', v: bigint) => (side === 'quote' ? coin(v, q) : tokens(v, ctx.decimals));
   switch (p.problem) {
     case 'no-price':
       return LP_COPY.gateSaysNo(['The pool is empty on one side, so it has no price.']);
-    case 'too-small': {
-      if (p.minLp === null) return LP_COPY.tooSmallDeposit(null);
-      const S = ctx.s.snapshot.pool.lpSupply;
-      const R = ctx.driving === 'quote' ? ctx.s.quoteReserve : ctx.s.tokenReserve;
-      // The least typed amount whose shares reach the minimum: lpForMaxIn(x) ≥ minLp. On
-      // the token's side, what must be sent for that much to reach the pool past its fee.
-      const num = p.minLp * R * (10_000n + ctx.bps);
-      const den = S * 10_000n;
-      const reach = (num + den - 1n) / den;
-      const send = ctx.driving === 'token' && ctx.tokenFee ? preFeeAmountOf(ctx.tokenFee, reach) : reach;
-      return LP_COPY.tooSmallDeposit(send === null ? null : unit(ctx.driving, send));
-    }
+    case 'too-small':
+      return LP_COPY.tooSmallDeposit;
     case 'transfer-fee':
       return LP_COPY.transferFeeRefused;
     case 'over-balance':
@@ -778,7 +768,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
 
   // 11. The plan.
   const planned = planDeposit(view.snapshot, { quoteIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableQuote, availableToken, fees });
-  if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps, tokenFee }));
+  if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { decimals, s: view }));
   const maxSol = quoteIsToken0 ? planned.max0 : planned.max1;
   const maxTok = quoteIsToken0 ? planned.max1 : planned.max0;
   const quoted = { quote: quoteIsToken0 ? planned.cost0 : planned.cost1, token: quoteIsToken0 ? planned.cost1 : planned.cost0 };
