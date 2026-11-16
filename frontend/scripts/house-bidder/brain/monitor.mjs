@@ -1,6 +1,7 @@
 // The fill monitor. A collection bid cannot choose who sells into it, so every fill is checked
 // after the fact, and the result feeds the breakers (risk.mjs):
-//   - the seller and the fulfiller (the address that sent the transaction) against the insiders
+//   - the seller, the fulfiller (the address that sent the transaction) and the wallet the NFT came
+//     from (nftFrom) against the insiders
 //     (insiders.json plus the built-in list), the house wallets and the venue's own contracts;
 //   - the token's last 90 days of transfers, for an insider who held or passed it on;
 //   - the seller's code: an EIP-7702 delegation (0xef0100...) or a contract is noted for a person;
@@ -29,7 +30,7 @@ export function counterpartySets({ insiders, houseWallets = [], house = null, fu
 }
 
 /**
- * @param {object} fill        { txHash, block, time, orderHash, slug, tokenId, unitPriceWei, seller, fulfiller }
+ * @param {object} fill        { txHash, block, time, orderHash, slug, tokenId, unitPriceWei, seller, fulfiller, nftFrom? }
  * @param {object} deps
  * @param {ReturnType<typeof counterpartySets>} deps.sets
  * @param {object} deps.chain   { tokenProvenance(slug, tokenId, { sinceDays }), code(address) }
@@ -46,10 +47,14 @@ export async function checkFill(fill, { sets, chain, opensea, nowSec, provenance
   let stolen = false;
   const seller = addr(fill.seller);
   const fulfiller = addr(fill.fulfiller);
+  // The wallet the NFT itself left (the data layer reads it from the NFT's own Transfer log). In a
+  // smart-account sale tx.from is a bundler and the WETH may go to another address, so this is the
+  // only field that is always the holder who gave the token up. Older fills may not carry it.
+  const nftFrom = addr(fill.nftFrom);
 
-  for (const [role, who] of [['seller', seller], ['fulfiller', fulfiller]]) {
+  for (const [role, who] of [['seller', seller], ['fulfiller', fulfiller], ['nftFrom', nftFrom]]) {
     if (!who) {
-      findings.push({ code: `${role}-unknown`, detail: `the fill names no ${role}` });
+      if (role !== 'nftFrom') findings.push({ code: `${role}-unknown`, detail: `the fill names no ${role}` });
       continue;
     }
     if (sets.people.has(who)) integrity.push({ reason: 'insider-fill', detail: `the ${role} ${who} is an insider` });

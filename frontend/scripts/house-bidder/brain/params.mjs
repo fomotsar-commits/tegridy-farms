@@ -56,8 +56,12 @@ export const DEFAULT_PARAMS = Object.freeze({
   minWakeMs: 2_000,
   /** ...and when a market event (a listing, a sale) wakes it: the OpenSea read budget is shared with the site. */
   marketWakeMs: 15_000,
-  /** How many cheapest listings are read each tick. */
-  listingsLimit: 50,
+  /**
+   * How many cheapest listings are read each tick: 200, OpenSea's one-read maximum. On 2026-11-15
+   * the cheapest 165 GNSS listings were 11-to-15-minute bot relists, too young for the listing
+   * check, so a shorter read left GNSS with no listing check at all.
+   */
+  listingsLimit: 200,
   /** Sales are re-read this far back each tick, so a late-indexed sale is not missed. */
   salesOverlapSec: 30 * 60,
   /** How far back the tape is read at start: the 14-day window, the 24-hour trend and the 30-day round-trip rule. */

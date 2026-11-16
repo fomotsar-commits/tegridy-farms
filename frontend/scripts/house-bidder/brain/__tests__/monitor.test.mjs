@@ -34,6 +34,15 @@ describe('who sold into the house bid', () => {
     expect(viaFulfiller.integrity.map((i) => i.reason)).toEqual(['insider-fill']);
   });
 
+  it('halts on an insider whose wallet the NFT came from, even when a stranger received the WETH and a bundler sent the transaction', async () => {
+    // A smart-account sale: tx.from is a bundler, the WETH can go to another address, and only the
+    // NFT's own Transfer names the wallet that gave it up (the data layer's Fill.nftFrom).
+    const r = await run(fill({ seller: STRANGER, fulfiller: STRANGER, nftFrom: INSIDER }));
+    expect(r.verdict).toBe('halt');
+    expect(r.integrity.map((i) => i.reason)).toEqual(['insider-fill']);
+    expect(r.integrity[0].detail).toContain('nftFrom');
+  });
+
   it('halts on a built-in insider even when insiders.json does not list them', async () => {
     const r = await checkFill(fill({ seller: BUILT_IN_INSIDERS[1] }), { sets: counterpartySets({ insiders: { wallets: [], contracts: [] }, house: HOUSE }), chain: fakeChain(), opensea: fakeOpenSea(), nowSec: NOW });
     expect(r.integrity.map((i) => i.reason)).toEqual(['insider-fill']);

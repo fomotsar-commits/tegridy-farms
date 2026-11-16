@@ -13,7 +13,10 @@ export const DEFAULT_PIPE = process.platform === 'win32' ? '\\\\.\\pipe\\house-s
 const MAX_LINE = 1_000_000;
 
 /** Signing is quick; a transaction waits for its block, and the kill waits for three. */
-export const DEFAULT_TIMEOUTS = Object.freeze({ hello: 15_000, status: 15_000, signBid: 30_000, signCancel: 15_000, sendTx: 5 * 60_000, kill: 20 * 60_000 });
+// sendTx: the signer simulates, signs, broadcasts and re-broadcasts each block for up to 3 minutes,
+// and its README asks callers to wait at least 10 minutes for sendTx and kill answers. A shorter
+// client timeout would report a transaction as failed while it may still land.
+export const DEFAULT_TIMEOUTS = Object.freeze({ hello: 15_000, status: 15_000, signBid: 30_000, signCancel: 15_000, sendTx: 10 * 60_000, kill: 20 * 60_000 });
 
 export class SignerError extends Error {
   constructor(message, code) {

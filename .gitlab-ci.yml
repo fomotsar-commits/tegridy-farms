@@ -112,6 +112,14 @@ npm-advisories:
   script:
     - bash scripts/ci/act-job.sh npm-advisories.yml
 
+# The house bidder's signing process (tools/house-signer): plain `node --test`, its own
+# two pinned crypto packages, about a minute.
+house-signer:
+  extends: .act-workflow
+  timeout: 15m
+  script:
+    - bash scripts/ci/act-job.sh house-signer.yml
+
 # Reads mainnet over public RPCs. On GitHub it was never a required check, and its own
 # header says a change must not be blocked by an RPC hiccup. It still shows red when red.
 registry-onchain:
