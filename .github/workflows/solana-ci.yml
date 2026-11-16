@@ -152,6 +152,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # No clone: solana/guards/upstream/ holds upstream's file hashes at the pin and the
@@ -286,13 +287,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: clmm-cargo-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
+          key: clmm-cargo-${{ env.CLMM_SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.CLMM_SOLANA_VERSION }}
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${CLMM_SOLANA_VERSION}/install)"
@@ -437,19 +439,21 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/cp-swap
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: solana-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: solana-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
@@ -535,19 +539,21 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/tegridy-launch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: launch-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: launch-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
 
       # The curve math is deliberately dependency-free so it can be proven
       # without cargo, a validator, or the SBF toolchain. Run it that way here
@@ -767,19 +773,21 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/bayla-ladder
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ladder-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: ladder-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
 
       # The ladder, the accumulator, the penalty and the funding bound — proven the
       # same way a developer proves them locally, with no cargo and no validator.
@@ -845,6 +853,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm
@@ -970,6 +979,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm
@@ -1119,6 +1129,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm

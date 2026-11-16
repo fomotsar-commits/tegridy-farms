@@ -82,6 +82,15 @@ for (const [job, so] of [['build', 'raydium_cp_swap.so'], ['launch-curve', 'tegr
 }
 rule(pinned.length === 3, `${PINNED} holds ${pinned.length} lines, expected 3`);
 
+// XCHL-29: every job has a time limit. XCHL-23: a cargo cache key names the Solana and Rust
+// versions it was made with, not only the lock.
+for (const f of ['solana-ci.yml', 'solana-deploy-artifact.yml']) {
+  for (const job of jobsOf(f)) rule(/^ {4}timeout-minutes: \d+$/m.test(job), `${f}: ${job.split(':')[0].trim()} has no time limit`);
+}
+const keys = Object.values(CI_JOBS).flatMap((j) => j.match(/^ {10}key: .*$/gm) ?? []);
+rule(keys.length === 4, `found ${keys.length} cargo cache keys, expected 4`);
+for (const k of keys) rule(/env\.(CLMM_)?SOLANA_VERSION/.test(k) && k.includes('steps.rust.outputs.cachekey'), `"${k.trim()}" names no tool version`);
+
 if (checked === 0) problems.push('checked nothing');
 for (const p of problems) console.log(`::error::${p}`);
 console.log(`${checked} pins checked, ${problems.length} broken`);

@@ -46,6 +46,7 @@ jobs:
     # and that has to run from the workspace root where Anchor.toml lives.
     if: inputs.program != 'bayla-ladder'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         # The PROGRAM directory, matching solana-ci's `build` and `launch-curve`.
@@ -241,6 +242,7 @@ jobs:
   build-ladder-deployable:
     if: inputs.program == 'bayla-ladder'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         # Workspace root: `anchor build` reads Anchor.toml from here.
