@@ -46,6 +46,12 @@ describe('monthly report', () => {
     expect(r.inventory).toEqual({ junglebay: { held: 1, costWei: milli(33) } });
   });
 
+  it('leaves out of the inventory an NFT sent back to the funding wallet', () => {
+    const fill = (n, tokenId, price) => ({ kind: 'fill', at: T0 + n * H, orderHash: hash(n), slug: 'junglebay', tokenId, unitPriceWei: price.toString(), time: (T0 + n * H) / 1000 });
+    const back = [fill(1, '7', milli(30)), fill(2, '8', milli(34)), { kind: 'nft-returned', at: T0 + 3 * H, slug: 'junglebay', tokenId: '7', to: '0x1111111111111111111111111111111111111111', txHash: hash(77) }];
+    expect(monthlyReport(back, { month: '2026-11', nowMs: Date.parse('2026-11-30T00:00:00Z') }).inventory).toEqual({ junglebay: { held: 1, costWei: milli(34) } });
+  });
+
   it('keeps shadow lines out of a live report and live lines out of a shadow one', () => {
     expect(monthlyReport(entries, { month: '2026-11', shadow: true, nowMs: Date.parse('2026-11-30T00:00:00Z') }).posted).toBe(1);
   });

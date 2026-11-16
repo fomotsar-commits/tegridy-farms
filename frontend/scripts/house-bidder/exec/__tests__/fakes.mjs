@@ -5,6 +5,7 @@
 //
 // Test keys follow the spec: keccak256("house-bidder test key <n>"), never a well-known key.
 
+import path from 'node:path';
 import { hashStruct, keccak256, toBytes } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { COLLECTIONS, ITEM, OPENSEA_CONDUIT_KEY, OPENSEA_FEE, ORDER, SEAPORT_DOMAIN, SEAPORT_TYPES, SIGNED_ZONE, WETH, ZERO32 } from '../../brain/constants.mjs';
@@ -178,8 +179,8 @@ export function fakeSigner({ keyN = 1, calls = [], counter = 7n, policy, refuse 
   };
 }
 
-/** chain per BUILD-SPEC 2.4 chain.mjs. */
-export function fakeChain({ calls = [], snapshot = null, provenance = {}, code = {}, fills = [], fillable = null } = {}) {
+/** chain per BUILD-SPEC 2.4 chain.mjs. `receipts`: txHash -> { blockNumber, success }, absent while not mined. */
+export function fakeChain({ calls = [], snapshot = null, provenance = {}, code = {}, fills = [], fillable = null, receipts = {} } = {}) {
   const self = {
     calls,
     handlers: null,
@@ -211,6 +212,12 @@ export function fakeChain({ calls = [], snapshot = null, provenance = {}, code =
     async houseFills({ sinceSec }) {
       calls.push(['chain.houseFills', sinceSec]);
       return (typeof fills === 'function' ? fills() : fills).filter((f) => f.time >= sinceSec);
+    },
+    async receipt(txHash) {
+      calls.push(['chain.receipt', txHash]);
+      const v = receipts[String(txHash).toLowerCase()];
+      if (v instanceof Error) throw v;
+      return v ?? null;
     },
   };
   return self;
@@ -267,6 +274,10 @@ export function memFs(files = {}) {
       return enc ? String(v) : Buffer.from(String(v));
     },
     existsSync: (p) => store.has(p),
+    /** The names of the files directly inside `dir` (the keys folder, for STOP). */
+    readdirSync(dir) {
+      return [...store.keys()].filter((p) => path.dirname(p) === dir).map((p) => path.basename(p));
+    },
     appendFileSync(p, text) {
       store.set(p, (store.has(p) ? String(store.get(p)) : '') + text);
     },

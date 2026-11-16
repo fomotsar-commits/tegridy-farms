@@ -8,16 +8,25 @@
 //             STOP and the breakers are checked again right before the signature and the post.
 //   cancel    signCancel -> OpenSea gasless cancel -> record when OpenSea's last fill signature
 //             expires; refused or failing -> cancel on chain. Every cancel has a closed-list reason.
-//   kill      the signer's kill: approval to zero, counter bump, NFT approvals off. Waits for it.
+//   kill      the signer's kill: approval to zero, counter bump, NFT approvals off. Waits for it;
+//             it counts as done only when the signer says every step was mined and took effect.
 //   STOP      gasless-cancel everything, read every answer, and kill if any cancel was refused or
 //             a 5-minute tail is still open.
 //
 // Any refusal from the signer halts the bot: the signer refuses only what breaks a pin, so a
-// refusal means something tried to make the house sign what it must not.
+// refusal means something tried to make the house sign what it must not. So the bot never asks
+// for what the signer would refuse on its own counts: room under the inventory cap, the WETH
+// approval's ceiling, and the daily transaction budget.
+//
+// What protects the house acts first and records second (halt, kill, STOP, every cancel): a
+// ledger line that cannot be written (a full disk) is said on the console instead, and never
+// keeps a cancel or the kill from going out.
 
 import { allowanceTarget, fundingNeeded } from '../brain/exposure.mjs';
+import { SIGNER_DAILY_DEFAULT } from '../brain/constants.mjs';
 import { DEFAULT_PARAMS } from '../brain/params.mjs';
-import { toSec } from '../brain/util.mjs';
+import { jsonLine, toSec } from '../brain/util.mjs';
+import { diskRoom, maxTxCostWei, txsInLastDay } from './ledger.mjs';
 import { checkBuild, verifySignedBid } from './verify.mjs';
 
 /** Why a bid was cancelled early. Closed list (BUILD-SPEC 3.5 step 6); the report counts them. */
@@ -32,6 +41,9 @@ export const HOLD_REASONS = Object.freeze([
   'unfunded',
   'over-allowance-cap',
   'approval-pending',
+  'approval-reverted',
+  'tx-budget',
+  'disk-low',
   'signer-unavailable',
   'verify-unavailable',
   'post-failed',
@@ -59,43 +71,114 @@ const definitelyRefused = (e) => e?.kind === 'rate' || (e?.kind === 'http' && [4
  * @param {object} d.ledger          exec/ledger.mjs
  * @param {() => boolean} d.stopRequested
  * @param {() => number} d.now       milliseconds
+ * @param {() => number} [d.diskFree] bytes free on the keys folder's drive (fs.statfs); none: not checked
  */
-export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea, signer, getOrderHash, exposure, risk, ledger, stopRequested, now, log = () => {} }) {
-  const books = { lastApproval: null, ownTxs: [], counterBumpPending: false, lastReprice: {}, killed: null };
+export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea, signer, getOrderHash, exposure, risk, ledger, stopRequested, now, log = () => {}, diskFree }) {
+  const books = { lastApproval: null, pendingApprovals: [], ownTxs: [], counterBumpPending: false, lastReprice: {}, killed: null };
   let halting = false;
   const nowSec = () => Math.floor(now() / 1000);
+  const daily = policy.daily ?? SIGNER_DAILY_DEFAULT;
+  const txCostWei = maxTxCostWei(policy);
 
-  async function onRefusal(op, resp) {
-    ledger.append('refusal', { op, field: resp?.field ?? null, reason: resp?.reason ?? null });
-    log(`the signer refused ${op} (${resp?.field ?? '?'}): ${resp?.reason ?? 'no reason given'}`);
-    await halt('signer-refusal', `${op}: ${resp?.field ?? '?'}: ${resp?.reason ?? 'no reason given'}`);
+  /** A ledger line that must never stop the act it records: if the file cannot be written, the console gets it. */
+  function record(kind, fields) {
+    try {
+      return ledger.append(kind, fields);
+    } catch (e) {
+      log(`ledger line "${kind}" not written (${errText(e)}): ${jsonLine(fields)}`);
+      return null;
+    }
   }
 
+  async function onRefusal(op, resp) {
+    log(`the signer refused ${op} (${resp?.field ?? '?'}): ${resp?.reason ?? 'no reason given'}`);
+    await halt('signer-refusal', `${op}: ${resp?.field ?? '?'}: ${resp?.reason ?? 'no reason given'}`);
+    record('refusal', { op, field: resp?.field ?? null, reason: resp?.reason ?? null });
+  }
+
+  /**
+   * Why the signer's daily budget has no room for one more transaction, or null when it has. Each
+   * is counted at the most it can cost under the policy (its gas limit at the fee cap), which is
+   * never less than what the signer counts, so the signer never has to refuse one on budget.
+   */
+  function overBudget() {
+    const n = txsInLastDay({ entries: ledger.read(), nowMs: now() });
+    if (n + 1 > daily.maxTxs) return `${n} transactions in the last 24 hours: the signer allows ${daily.maxTxs}`;
+    if (BigInt(n + 1) * txCostWei > daily.maxGasWei) return `${n} transactions in the last 24 hours at up to ${txCostWei} wei of gas each: one more could pass the signer's ${daily.maxGasWei} wei`;
+    return null;
+  }
+
+  let budgetHeld = null;
   async function sendTx(kind, txParams, why) {
+    const full = overBudget();
+    if (full) {
+      // One line while the budget stays full, not one a minute.
+      if (budgetHeld !== kind) record('decision', { action: 'hold-tx', txKind: kind, why: 'tx-budget', detail: full });
+      budgetHeld = kind;
+      return { ok: false, why: 'tx-budget' };
+    }
+    budgetHeld = null;
     let r;
     try {
       r = await signer.sendTx(kind, txParams);
     } catch (e) {
-      ledger.append('tx-failed', { txKind: kind, why, error: errText(e) });
+      record('tx-failed', { txKind: kind, why, error: errText(e) });
       return { ok: false, why: 'signer-unavailable' };
     }
     if (r.ok !== true) {
       await onRefusal(`sendTx ${kind}`, r);
       return { ok: false, why: 'refused' };
     }
-    ledger.append('tx', { txKind: kind, why, txHash: r.txHash, status: r.status, blockNumber: r.blockNumber ?? null, gasCostWei: r.gasCostWei ?? null });
+    record('tx', { txKind: kind, why, txHash: r.txHash, status: r.status, blockNumber: r.blockNumber ?? null, success: r.success ?? null, gasCostWei: r.gasCostWei ?? null });
     return { ok: true, ...r };
   }
 
-  /** Set the WETH approval to the conduit. Zero is a revoke. */
+  /**
+   * Set the WETH approval to the conduit. Zero is a revoke. An approval mined but reverted did not
+   * change the allowance. One the signer stopped waiting for ('pending') can still land later: it
+   * is kept, so the books can check its receipt before they call the chain's allowance a mismatch.
+   */
   async function setAllowance(amountWei, why) {
     const r = amountWei === 0n ? await sendTx('revokeWeth', {}, why) : await sendTx('approveWeth', { amountWei: amountWei.toString() }, why);
     if (!r.ok) return r;
+    if (r.status === 'mined' && r.success === false) return { ok: false, why: 'approval-reverted', txHash: r.txHash };
     if (r.status === 'mined') {
       books.lastApproval = { amountWei, block: r.blockNumber ?? null };
-      ledger.append('approve', { amountWei, txHash: r.txHash, block: r.blockNumber ?? null, why });
+      books.pendingApprovals = [];
+      record('approve', { amountWei, txHash: r.txHash, block: r.blockNumber ?? null, why });
+    } else {
+      books.pendingApprovals.push({ amountWei, txHash: r.txHash, at: now() });
+      record('approve-pending', { amountWei, txHash: r.txHash, why });
     }
     return r;
+  }
+
+  /**
+   * Each approval the signer stopped waiting for: one now mined becomes the last approval, at its
+   * own block; one that reverted is dropped; one not mined yet stays. A later one wins (nonces
+   * mine in order). True when the last approval changed.
+   */
+  async function settleApprovals(readReceipt) {
+    let changed = false;
+    for (const p of [...books.pendingApprovals]) {
+      let rc;
+      try {
+        rc = await readReceipt(p.txHash);
+      } catch (e) {
+        log(`the receipt of approval ${p.txHash} could not be read (${errText(e)})`);
+        continue;
+      }
+      if (!rc) continue;
+      books.pendingApprovals = books.pendingApprovals.filter((x) => x !== p);
+      if (rc.success === false) {
+        record('approve-reverted', { amountWei: p.amountWei, txHash: p.txHash, block: rc.blockNumber });
+        continue;
+      }
+      books.lastApproval = { amountWei: p.amountWei, block: rc.blockNumber };
+      record('approve', { amountWei: p.amountWei, txHash: p.txHash, block: rc.blockNumber, why: 'mined after the signer stopped waiting for it' });
+      changed = true;
+    }
+    return changed;
   }
 
   /**
@@ -140,6 +223,8 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
     if (stopRequested()) return hold('stop');
     let gate = risk.gate();
     if (!gate.canPost) return hold('gate', gate.reason);
+    const disk = diskRoom(diskFree, params.minFreeDiskBytes);
+    if (disk) return hold('disk-low', disk);
     const qty = Math.min(plan.qty, gate.maxQty ?? plan.qty);
     const unitPriceWei = plan.unitPriceWei;
     if (exposure.active(slug, nowSec()).length) return hold('already-bidding');
@@ -245,18 +330,20 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
     const t = nowSec();
     if (!o || !exposure.isLive(o, t)) return { ok: true, method: 'none' };
     if (o.cancel?.method === 'gasless') return { ok: true, method: 'gasless', tailUntil: o.cancel.validUntil ?? null };
-    // An on-chain cancel already sent is not sent twice; until it is mined the order is live.
-    if (o.cancel?.method === 'on-chain') return { ok: true, method: 'on-chain', mined: o.cancel.mined === true };
+    // An on-chain cancel already sent is not sent twice; until it is mined the order is live. One
+    // that was mined but reverted did not cancel anything: it is not sent again either (it would
+    // only revert again), and the order stays live exposure until it ends.
+    if (o.cancel?.method === 'on-chain') return { ok: !o.cancel.reverted, method: 'on-chain', mined: o.cancel.mined === true, ...(o.cancel.reverted ? { why: 'reverted' } : {}) };
     exposure.recordCancelAsked(orderHash, { at: now(), reason });
     if (o.posted === 'refused') {
-      ledger.append('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'unposted', confirmed: true });
+      record('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'unposted', confirmed: true });
       return { ok: true, method: 'unposted' };
     }
     let sig;
     try {
       sig = await signer.signCancel(o.orderHash);
     } catch (e) {
-      ledger.append('cancel-failed', { orderHash: o.orderHash, slug: o.slug, reason, why: errText(e) });
+      record('cancel-failed', { orderHash: o.orderHash, slug: o.slug, reason, why: errText(e) });
       return { ok: false, why: 'signer-unavailable' };
     }
     if (sig.ok !== true) {
@@ -272,16 +359,19 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
     if (res?.ok === true) {
       exposure.recordGaslessCancel(o.orderHash, { at: now(), lastSignatureValidUntil: res.lastSignatureValidUntil ?? null });
       const tailUntil = exposure.get(o.orderHash).cancel.validUntil;
-      ledger.append('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'gasless', confirmed: true, lastSignatureValidUntil: tailUntil });
+      record('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'gasless', confirmed: true, lastSignatureValidUntil: tailUntil });
       return { ok: true, method: 'gasless', tailUntil };
     }
     // OpenSea said no (a very new order can need an on-chain cancel) or did not answer.
-    ledger.append('cancel-gasless-refused', { orderHash: o.orderHash, slug: o.slug, reason, why: res?.reason ?? null });
+    record('cancel-gasless-refused', { orderHash: o.orderHash, slug: o.slug, reason, why: res?.reason ?? null });
     const tx = await sendTx('cancelOnChain', { orderHashes: [o.orderHash] }, `cancel ${reason}`);
     if (!tx.ok) return { ok: false, why: tx.why };
-    exposure.recordOnChainCancel(o.orderHash, { at: now(), txHash: tx.txHash, mined: tx.status === 'mined' });
-    ledger.append('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'on-chain', txHash: tx.txHash, mined: tx.status === 'mined' });
-    return { ok: true, method: 'on-chain', mined: tx.status === 'mined' };
+    const reverted = tx.status === 'mined' && tx.success === false;
+    const mined = tx.status === 'mined' && !reverted;
+    exposure.recordOnChainCancel(o.orderHash, { at: now(), txHash: tx.txHash, mined });
+    if (reverted) exposure.get(o.orderHash).cancel.reverted = true;
+    record('cancel', { orderHash: o.orderHash, slug: o.slug, reason, method: 'on-chain', txHash: tx.txHash, mined, reverted });
+    return reverted ? { ok: false, method: 'on-chain', mined: false, why: 'reverted' } : { ok: true, method: 'on-chain', mined };
   }
 
   async function cancelAll(reason) {
@@ -293,51 +383,85 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
     return results;
   }
 
-  /** The signer's kill, waited for. Works with STOP present. */
-  async function kill(why) {
-    ledger.append('kill-asked', { why });
+  /**
+   * The signer's kill, waited for. Works with STOP present. It is done only when the signer
+   * answers ok with every step mined and in effect (allMined): a kill sent but not all mined, or
+   * one where a step never took effect (ok:false, field 'kill'), leaves orders that can still be
+   * filled, and is reported as not done ({ ok: false, sent: true }). One at a time: a kill asked
+   * for while another is under way gets that one's answer, never a second set of transactions.
+   */
+  let killing = null;
+  function kill(why) {
+    if (!killing) killing = killOnce(why).finally(() => (killing = null));
+    return killing;
+  }
+
+  async function killOnce(why) {
     let r;
     try {
       r = await signer.kill();
     } catch (e) {
-      ledger.append('kill-failed', { why, error: errText(e) });
+      record('kill-failed', { why, error: errText(e) });
       log(`THE KILL WAS NOT SENT (${errText(e)}). Run it yourself: node tools/house-signer/src/cli.mjs kill`);
-      return { ok: false, why: 'signer-unavailable' };
+      return { ok: false, sent: false, why: 'signer-unavailable' };
     }
-    if (r.ok !== true) {
-      ledger.append('refusal', { op: 'kill', field: r.field ?? null, reason: r.reason ?? null });
+    const txs = (Array.isArray(r.txs) ? r.txs : null) ?? (Array.isArray(r.hashes) ? r.hashes : null) ?? (Array.isArray(r.results) ? r.results : []);
+    if (r.ok !== true && r.field !== 'kill') {
+      record('refusal', { op: 'kill', field: r.field ?? null, reason: r.reason ?? null });
       log(`THE SIGNER REFUSED THE KILL: ${r.reason ?? 'no reason given'}. Run it yourself: node tools/house-signer/src/cli.mjs kill`);
-      return { ok: false, why: 'refused' };
+      return { ok: false, sent: false, why: 'refused' };
     }
-    const txs = r.txs ?? r.hashes ?? r.results ?? [];
-    for (const x of Array.isArray(txs) ? txs : []) {
-      ledger.append('tx', { txKind: x?.kind ?? 'kill', why: `kill: ${why}`, txHash: typeof x === 'string' ? x : x?.txHash ?? null, status: x?.status ?? 'mined', blockNumber: x?.blockNumber ?? null, gasCostWei: x?.gasCostWei ?? null });
+    for (const x of txs) {
+      record('tx', { txKind: x?.kind ?? 'kill', why: `kill: ${why}`, txHash: typeof x === 'string' ? x : x?.txHash ?? null, status: x?.status ?? 'mined', blockNumber: x?.blockNumber ?? null, success: x?.success ?? null, gasCostWei: x?.gasCostWei ?? null });
     }
-    books.counterBumpPending = true;
-    const revoke = (Array.isArray(txs) ? txs : []).find((x) => x?.kind === 'revokeWeth');
-    books.lastApproval = { amountWei: 0n, block: revoke?.blockNumber ?? null };
-    books.killed = { at: now(), why };
-    ledger.append('kill', { why, txs });
-    return { ok: true, txs };
+    const tookEffect = (x) => typeof x === 'string' || (x?.status === 'mined' && x?.success !== false);
+    // The books follow what was sent: a counter bump the bot asked for is expected, and the
+    // approval is zero once a revoke is mined (at an unknown block until then: not checked).
+    if (r.ok === true || txs.some((x) => x?.kind === 'incrementCounter')) books.counterBumpPending = true;
+    const revoke = txs.find((x) => x?.kind === 'revokeWeth' && tookEffect(x));
+    if (r.ok === true || txs.some((x) => x?.kind === 'revokeWeth')) {
+      books.lastApproval = { amountWei: 0n, block: revoke?.blockNumber ?? null };
+      books.pendingApprovals = [];
+    }
+    const allMined = r.ok === true && (typeof r.allMined === 'boolean' ? r.allMined : txs.every(tookEffect));
+    record('kill', { why, txs, allMined, ...(r.ok === true ? {} : { reason: r.reason ?? null }) });
+    if (allMined) {
+      books.killed = { at: now(), why, allMined: true };
+      return { ok: true, sent: true, allMined: true, txs };
+    }
+    const reason = r.ok === true ? 'sent, but not all mined within the signer’s wait' : r.reason ?? 'a step never took effect';
+    log(`THE KILL DID NOT FINISH (${reason}). Bids can still be filled until it does: check the house on a block explorer and run the kill again: node tools/house-signer/src/cli.mjs kill`);
+    return { ok: false, sent: true, allMined: false, why: r.ok === true ? 'not-mined' : 'incomplete', reason, txs };
   }
 
-  /** An integrity halt: record it, cancel everything gaslessly, then kill on chain. */
+  /**
+   * An integrity halt: the gate shuts at once (in memory), every bid is cancelled gaslessly, the
+   * kill goes on chain, and only then is the halt written down, so a ledger that cannot be
+   * written (a full disk) cannot keep the cancels or the kill from going out. The kill writes
+   * STOP into the keys folder itself, so nothing bids again until a person has looked.
+   */
   async function halt(reason, detail) {
     const e = risk.integrity(reason, detail);
     if (!e || halting) {
       // Already halted: the first reason stands, and this one is still on the record.
-      ledger.append('breaker-extra', { breaker: 'integrity', reason, detail: detail ?? null });
+      record('breaker-extra', { breaker: 'integrity', reason, detail: detail ?? null });
       return { already: true };
     }
     halting = true;
     try {
-      ledger.append('breaker', { breaker: 'integrity', reason, detail: detail ?? null });
       log(`HALT (${reason}): ${detail ?? ''}`);
       // After a signer refusal its cancels may be refused too: go straight to the kill.
-      if (reason !== 'signer-refusal') await cancelAll('risk-halt');
+      if (reason !== 'signer-refusal') {
+        try {
+          await cancelAll('risk-halt');
+        } catch (err) {
+          log(`HALT (${reason}): the cancels stopped part-way (${errText(err)}); killing anyway`);
+        }
+      }
       await kill(`halt: ${reason}`);
     } finally {
       halting = false;
+      record('breaker', { breaker: 'integrity', reason, detail: detail ?? null });
     }
     return { already: false };
   }
@@ -345,21 +469,29 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
   /**
    * STOP: cancel every live order gaslessly, read each answer, and kill (waiting for it) if any
    * cancel was refused or failed, any 5-minute tail is still open, or any order's fate is unknown.
+   * Not when this run's own kill already went through (a halt's, or one raised by a refused cancel
+   * just now): every order is dead on chain, and the STOP seen is most likely the one that kill
+   * wrote. One kill is enough; a second costs three more transactions at kill fees.
    */
   async function stopPath() {
-    ledger.append('stop', { live: exposure.live(nowSec()).length });
+    const liveAtStop = exposure.live(nowSec()).length;
     const results = await cancelAll('stop');
+    record('stop', { live: liveAtStop });
     const t = nowSec();
     const failed = results.filter((r) => !r.ok);
     const tails = exposure.openTails(t);
     const unmined = exposure.live(t).filter((o) => o.cancel?.method === 'on-chain' && !o.cancel.mined);
     const needKill = failed.length > 0 || tails.length > 0 || unmined.length > 0;
     if (!needKill) {
-      ledger.append('stop-clean', { cancelled: results.length });
-      return { killed: false, results };
+      record('stop-clean', { cancelled: results.length });
+      return { killed: false, needKill: false, results };
+    }
+    if (books.killed?.allMined) {
+      record('stop-after-kill', { killedAt: books.killed.at, why: books.killed.why });
+      return { killed: true, needKill: false, afterKill: true, results };
     }
     const k = await kill(`stop: ${failed.length} cancel(s) failed, ${tails.length} tail(s) open, ${unmined.length} on-chain cancel(s) not mined`);
-    return { killed: k.ok, kill: k, results };
+    return { killed: k.ok, needKill: true, kill: k, results };
   }
 
   /** May a discretionary re-price happen now (one per collection per hour)? */
@@ -373,18 +505,36 @@ export function createExecutor({ house, policy, params = DEFAULT_PARAMS, opensea
     halt,
     stopPath,
     syncAllowance,
+    settleApprovals,
     mayReprice,
+    /**
+     * The hourly re-price clock starts when the re-price's cancel is sent, whether or not the
+     * replacement can post in the same tick (an old bid's tail can leave it no room for minutes).
+     */
+    noteReprice(slug) {
+      books.lastReprice[slug] = now();
+    },
     books,
     noteCounterSeen() {
       books.counterBumpPending = false;
     },
-    /** Rebuild the approval books from the ledger on start. */
+    /** Rebuild the approval books (and approvals still waiting to be mined) from the ledger on start. */
     restoreBooks(entries) {
       for (const e of entries) {
         if (e.shadow) continue;
-        if (e.kind === 'approve') books.lastApproval = { amountWei: BigInt(e.amountWei), block: e.block ?? null };
-        if (e.kind === 'kill') books.lastApproval = { amountWei: 0n, block: (e.txs ?? []).find?.((x) => x?.kind === 'revokeWeth')?.blockNumber ?? null };
+        if (e.kind === 'approve') {
+          books.lastApproval = { amountWei: BigInt(e.amountWei), block: e.block ?? null };
+          books.pendingApprovals = [];
+        }
+        if (e.kind === 'approve-pending') books.pendingApprovals.push({ amountWei: BigInt(e.amountWei), txHash: e.txHash, at: e.at });
+        if (e.kind === 'approve-reverted') books.pendingApprovals = books.pendingApprovals.filter((p) => p.txHash !== e.txHash);
+        if (e.kind === 'kill' && (e.allMined !== false || (e.txs ?? []).some?.((x) => x?.kind === 'revokeWeth'))) {
+          const revoke = (e.txs ?? []).find?.((x) => x?.kind === 'revokeWeth' && x?.status === 'mined' && x?.success !== false);
+          books.lastApproval = { amountWei: 0n, block: revoke?.blockNumber ?? null };
+          books.pendingApprovals = [];
+        }
         if (e.kind === 'post' && e.reprice) books.lastReprice[e.slug] = e.at;
+        if (e.kind === 'decision' && e.action === 'reprice') books.lastReprice[e.slug] = e.at;
       }
     },
     /** Seconds until the order's 5-minute tail closes, or null when none is open. */
@@ -472,9 +622,15 @@ export function createShadowExecutor({ house, policy, params = DEFAULT_PARAMS, o
       return { changed: false };
     },
     mayReprice: (slug) => now() - (books.lastReprice[slug] ?? -Infinity) >= params.repriceEveryMs,
+    noteReprice(slug) {
+      books.lastReprice[slug] = now();
+    },
     noteCounterSeen() {},
     restoreBooks(entries) {
-      for (const e of entries) if (e.shadow && e.kind === 'post' && e.reprice) books.lastReprice[e.slug] = e.at;
+      for (const e of entries) {
+        if (!e.shadow) continue;
+        if ((e.kind === 'post' && e.reprice) || (e.kind === 'decision' && e.action === 'reprice')) books.lastReprice[e.slug] = e.at;
+      }
     },
     tailLeft: () => null,
   };

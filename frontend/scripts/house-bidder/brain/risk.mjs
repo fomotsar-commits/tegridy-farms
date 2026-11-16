@@ -6,10 +6,13 @@
 //              kill on chain, and stay halted until a person restarts with --ack-halt.
 //   MARKET     the market moved too fast or the data went dark. Cancel (gaslessly), let what is
 //              left expire, and resume on its own after 2 hours, bidding one unit at a time.
+//              'chain-stale' (the chain snapshot unread for 3 minutes) resumes only on the next
+//              good snapshot, however long that takes: until then the bot cannot see its fills.
 //   CAPS       the day's WETH, units or gas are used up: no new bid until the next UTC day.
 //              The stolen-item cap (1 a month) halts like an integrity breaker.
 //   GATES      not breakers: after a gap in the live feed nothing is posted until the listings
-//              have been read again over REST.
+//              have been read again over REST; while a fill's checks are unfinished nothing is
+//              posted until they pass or a person acknowledges them ('checks-pending').
 
 import { DEFAULT_PARAMS } from './params.mjs';
 import { toSec, utcDay, utcMonth } from './util.mjs';
@@ -32,7 +35,7 @@ export const INTEGRITY = Object.freeze([
   'build-mismatch',
   'signature-mismatch',
 ]);
-export const MARKET = Object.freeze(['floor-drop-1h', 'floor-drop-24h', 'stream-silent', 'fill-burst']);
+export const MARKET = Object.freeze(['floor-drop-1h', 'floor-drop-24h', 'stream-silent', 'fill-burst', 'chain-stale']);
 export const CAPS = Object.freeze(['daily-weth', 'daily-units', 'daily-gas', 'stolen-loss']);
 
 const HOUR = 60 * 60 * 1000;
@@ -110,6 +113,9 @@ function emptyState() {
     capped: null,
     dataGapSince: null,
     restFailingSince: null,
+    chainFailingSince: null,
+    chainStale: null,
+    checksPending: null,
     floor: {},
     resetAt: {},
     burstResetAt: 0,
@@ -127,8 +133,10 @@ export function createRisk({ params = DEFAULT_PARAMS, now, state = null }) {
   const s = state ? structuredClone(state) : emptyState();
   const events = [];
 
-  function trip(kind, reason, detail, at) {
-    const e = { kind, reason, detail: detail ?? null, at, actions: actionsFor(kind) };
+  function trip(kind, reason, detail, at, slug = null) {
+    // The collection a floor drop is about rides on the trip, so its ledger line can bring back,
+    // after a restart, the point the next drop is measured from.
+    const e = { kind, reason, detail: detail ?? null, at, slug, actions: actionsFor(kind) };
     s.trips.push({ kind, reason, at });
     if (s.trips.length > 200) s.trips.splice(0, s.trips.length - 200);
     events.push(e);
@@ -158,7 +166,7 @@ export function createRisk({ params = DEFAULT_PARAMS, now, state = null }) {
       // the moment the pause lifts.
       if (slug) s.resetAt[slug] = at;
       if (reason === 'fill-burst') s.burstResetAt = at;
-      return same ? null : trip('market', reason, detail, at);
+      return same ? null : trip('market', reason, detail, at, slug ?? null);
     },
     /** A cap: no new bid until the next UTC day; the stolen-item cap halts. */
     cap(reason, detail) {
@@ -185,6 +193,25 @@ export function createRisk({ params = DEFAULT_PARAMS, now, state = null }) {
       } else if (s.restFailingSince === null) {
         s.restFailingSince = startedAt;
       }
+    },
+    /**
+     * One chain snapshot read: a failure starts the clock 'chain-stale' trips on (evaluate); a
+     * good read stops it, and lifts a chain-stale pause at once.
+     */
+    noteChainRead({ ok, at = now() }) {
+      if (!ok) {
+        if (s.chainFailingSince === null) s.chainFailingSince = at;
+        return;
+      }
+      s.chainFailingSince = null;
+      if (s.chainStale) {
+        events.push({ kind: 'resume', reason: 'chain-stale', at, detail: 'the chain snapshot reads again', actions: [] });
+        s.chainStale = null;
+      }
+    },
+    /** The loop's fills whose checks are unfinished ({ count, detail }), or null when there are none. */
+    setChecksPending(info) {
+      s.checksPending = info ? { count: info.count, detail: info.detail ?? null } : null;
     },
     noteFloor(slug, at, value) {
       if (typeof value !== 'bigint' || value <= 0n) return;
@@ -223,6 +250,13 @@ export function createRisk({ params = DEFAULT_PARAMS, now, state = null }) {
         push(api.market('stream-silent', `no stream message for ${Math.round((at - streamLastMessageAt) / 1000)} s and REST reads failing since ${new Date(s.restFailingSince).toISOString()}`));
       }
 
+      // Not through market(): this pause has no 2-hour clock. It lifts on a good snapshot only.
+      if (s.chainFailingSince !== null && at - s.chainFailingSince >= params.chainStaleMs && !s.chainStale) {
+        const detail = `no chain snapshot read since ${new Date(s.chainFailingSince).toISOString()}: fills, mints and the house's own approval cannot be seen`;
+        s.chainStale = { at, since: s.chainFailingSince, detail };
+        push(trip('market', 'chain-stale', detail, at));
+      }
+
       const since = Math.max(at - params.burstWindowMs, s.burstResetAt);
       const units = fills.filter((f) => (toSec(f.time) ?? 0) * 1000 >= since).length;
       if (units >= params.burstUnits) push(api.market('fill-burst', `${units} units bought in 24 hours`));
@@ -250,6 +284,8 @@ export function createRisk({ params = DEFAULT_PARAMS, now, state = null }) {
         events.push({ kind: 'resume', reason: s.capped.reason, at, detail: 'a new UTC day', actions: [] });
         s.capped = null;
       }
+      if (s.chainStale) return { canPost: false, maxQty: 0, reason: `paused: chain-stale (${s.chainStale.detail})` };
+      if (s.checksPending) return { canPost: false, maxQty: 0, reason: `checks-pending: ${s.checksPending.detail ?? `${s.checksPending.count} fill(s)`} (they pass, or a person restarts with --ack-halt)` };
       if (s.dataGapSince !== null) return { canPost: false, maxQty: 0, reason: 'data-gap: listings not yet re-read over REST' };
       if (s.qtyOneUntil !== null && at < s.qtyOneUntil) return { canPost: true, maxQty: 1, reason: 'after a market pause: one unit at a time' };
       return { canPost: true, maxQty: null, reason: null };
@@ -286,7 +322,9 @@ export function restoreRisk(entries, { nowMs, params = DEFAULT_PARAMS, shadow = 
     if (Boolean(e.shadow) !== shadow) continue;
     if (e.kind === 'breaker') {
       if (e.breaker === 'integrity' || e.breaker === 'halt') s.halted = { reason: e.reason, detail: e.detail ?? null, at: e.at };
-      if (e.breaker === 'market') {
+      // A chain-stale pause has no clock: it holds until the next good snapshot.
+      if (e.breaker === 'market' && e.reason === 'chain-stale') s.chainStale = { at: e.at, since: e.at, detail: e.detail ?? null };
+      else if (e.breaker === 'market') {
         const until = e.at + params.marketPauseMs;
         s.paused = { reason: e.reason, detail: e.detail ?? null, at: e.at, until: Math.max(until, s.paused?.until ?? 0) };
         s.qtyOneUntil = s.paused.until + params.resumeQtyOneMs;
@@ -297,6 +335,7 @@ export function restoreRisk(entries, { nowMs, params = DEFAULT_PARAMS, shadow = 
       s.trips.push({ kind: e.breaker, reason: e.reason, at: e.at });
     }
     if (e.kind === 'ack-halt') s.halted = null;
+    if (e.kind === 'resume' && e.reason === 'chain-stale') s.chainStale = null;
     if (e.kind === 'mark' && e.floorProxy && e.at >= nowMs - 25 * HOUR) {
       (s.floor[e.slug] ??= []).push({ at: e.at, value: String(e.floorProxy) });
     }

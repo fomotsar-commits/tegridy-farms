@@ -4,21 +4,23 @@
 //
 // A tick: STOP? -> house fills and chain events -> one chain snapshot (and books against it) ->
 // listings and sales over REST -> fair value -> breakers -> expiries -> (shadow: replay sales
-// against the standing bid) -> for each collection, keep, re-price, cancel or post one bid ->
-// the WETH approval -> status.json.
+// against the standing bid) -> cancels that did not go through, asked again -> for each
+// collection, keep, re-price, cancel or post one bid -> the WETH approval -> status.json.
+// A tick whose chain snapshot could not be read decides nothing new and sets no approval: it
+// cannot see the fills or approvals its decisions rest on. Its cancels and STOP still run.
 //
 // Shadow mode (the default) runs the same plan with the real data and never contacts the signer:
 // a sale at or below the house's standing price is taken as a fill the house would have had.
 
 import { DEFAULT_PARAMS } from '../brain/params.mjs';
 import { planBid } from '../brain/planner.mjs';
-import { reseedExposure } from '../brain/exposure.mjs';
+import { CLOCK_SLACK_SEC, reseedExposure } from '../brain/exposure.mjs';
 import { classifyAdmin, diffSnapshots, restoreRisk } from '../brain/risk.mjs';
-import { checkFill } from '../brain/monitor.mjs';
+import { checkFill, tapeInsiders } from '../brain/monitor.mjs';
 import { reconcile } from '../brain/reconcile.mjs';
 import { COLLECTIONS } from '../brain/constants.mjs';
-import { addr, toSec, toWei } from '../brain/util.mjs';
-import { dailyTotals, knownFills, maxTxCostWei, stolenInMonth } from './ledger.mjs';
+import { addr, eth, jsonLine, toSec, toWei } from '../brain/util.mjs';
+import { dailyTotals, diskRoom, holdingsFrom, knownFills, maxTxCostWei, stolenInMonth } from './ledger.mjs';
 
 const DAY_SEC = 86_400;
 const MARK_EVERY_MS = 10 * 60 * 1000;
@@ -29,6 +31,25 @@ const ADMIN_FIELDS = (snap) => ({ jbac: snap?.jbac ?? null, gnss: snap?.gnss ?? 
 
 const errText = (e) => (e?.kind ? `${e.kind}${e.status ? ` ${e.status}` : ''}: ${e.message ?? ''}` : e?.message ?? String(e));
 const big = (v) => (v === null || v === undefined ? null : toWei(v, 'amount'));
+const fillKeyOf = (f) => `${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`;
+
+/**
+ * What a STOP ended with, in one line, and whether it ended clean. A kill that was needed and did
+ * not go through (not sent, or sent and not all mined) is said in capitals, with every bid that
+ * can still be filled, and the command exits as failed.
+ * @param {{ killed?: boolean, needKill?: boolean, afterKill?: boolean, kill?: object }} r  executor.stopPath()
+ * @param {object[]} live  the orders still live after it
+ */
+export function stopSummary(r, live) {
+  if (r.afterKill) return { clean: true, line: 'STOP: this run had already killed on chain, which ended every house bid: nothing more to send' };
+  if (!r.needKill) return { clean: true, line: 'STOP: every bid cancelled, no tail open' };
+  if (r.killed) return { clean: true, line: 'STOP: a tail was open or a cancel failed, so the kill was sent and mined' };
+  const list = live.length ? live.map((o) => `${o.orderHash} (${o.slug}, ${Math.max(0, o.qty - o.filled)} x ${eth(o.unitPriceWei)} WETH, ends ${new Date(o.endTime * 1000).toISOString()})`).join('; ') : 'none the bot knows of';
+  const head = r.kill?.sent
+    ? `STOP: the kill was sent but did NOT finish (${r.kill.reason ?? 'not all mined'}). Until it does, these bids can still be filled: ${list}. Check the house on a block explorer, then run the kill again`
+    : `STOP: THE KILL WAS NOT SENT (${r.kill?.why ?? 'unknown'}). These bids can still be filled: ${list}. Run it yourself`;
+  return { clean: false, line: `${head}: node tools/house-signer/src/cli.mjs kill` };
+}
 
 /**
  * The data layer's fairValue/buildTape take a `now` whose unit the spec does not fix (the data
@@ -52,9 +73,10 @@ export const callFairValue = (fairValue, args) => fairValue({ tape: args.tape, l
  * @param {object} d.sets        brain/monitor.mjs counterpartySets
  * @param {() => boolean} d.stopRequested
  * @param {() => object[]} [d.readSignerOrders]  the signer's order file, for the live re-seed
- * @param {() => void} [d.onExit]
+ * @param {(r: object) => void} [d.onExit]   after STOP, with stopPath's answer plus `clean` and the bids still `live`
+ * @param {() => number} [d.diskFree]        bytes free on the keys folder's drive; none: not checked
  */
-export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, executor, exposure, risk, ledger, sets, stopRequested, readSignerOrders = () => [], now, log = () => {}, onExit = () => {}, timers = globalThis }) {
+export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, executor, exposure, risk, ledger, sets, stopRequested, readSignerOrders = () => [], now, log = () => {}, onExit = () => {}, timers = globalThis, diskFree }) {
   const shadow = mode === 'shadow';
   const { policy } = config;
   const house = config.house;
@@ -70,8 +92,11 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     timer: null,
     queue: [],
     pendingHalts: [],
-    pendingChecks: [],
+    // Fills whose checks are not all done yet, by fill key: { fill, skip, tries, nextAt, reviewed }.
+    unfinished: new Map(),
     snapshot: null,
+    // True only when this tick's own snapshot read worked: nothing is decided or approved on an older one.
+    snapshotFresh: false,
     prevSnapshot: null,
     prevWeth: null,
     sales: Object.fromEntries(slugs.map((s) => [s, new Map()])),
@@ -101,6 +126,15 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     st.errors.push({ at: now(), line });
     if (st.errors.length > 20) st.errors.shift();
     log(line);
+  }
+  /** A ledger line that must not stop what it records (a full disk): the console gets it instead. */
+  function record(kind, fields) {
+    try {
+      return ledger.append(kind, fields);
+    } catch (e) {
+      log(`ledger line "${kind}" not written (${errText(e)}): ${jsonLine(fields)}`);
+      return null;
+    }
   }
 
   // ── events ──────────────────────────────────────────────────────────────────────────────
@@ -192,15 +226,35 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     st.fillSinceSync = true;
   }
 
+  /**
+   * Screen a fill (insiders, provenance, the seller's code, OpenSea's flags). A check whose read
+   * failed is tried again on later ticks, and until every check has passed no new bid is posted
+   * ('checks-pending'): a token whose history could not be read could be an insider's. After
+   * itemCheckRetries tries a person is told (a 'review' line), and the checks keep being tried
+   * less often, until they pass or a person restarts with --ack-halt.
+   */
   async function checkAndAct(fill, skip, tries = 0) {
+    const key = fillKeyOf(fill);
     const res = await checkFill(fill, { sets, chain: data.chain, opensea: data.opensea, nowSec: nowSec(), provenanceDays: params.provenanceDays, skip });
     ledger.append('fill-check', { orderHash: fill.orderHash, tokenId: fill.tokenId, txHash: fill.txHash, verdict: res.verdict, findings: res.findings, integrity: res.integrity, pending: res.pending });
     if (res.stolen) ledger.append('quarantine', { slug: fill.slug, tokenId: fill.tokenId, orderHash: fill.orderHash, txHash: fill.txHash, why: 'OpenSea flags the item' });
     for (const i of res.integrity) await executor.halt(i.reason, i.detail);
     if (res.pending.length) {
-      if (tries + 1 >= params.itemCheckRetries) ledger.append('review', { tokenId: fill.tokenId, txHash: fill.txHash, why: `checks not completed after ${tries + 1} tries: ${res.pending.join(', ')}` });
-      else st.pendingChecks.push({ fill, skip: [...skip, ...res.passed], tries: tries + 1 });
+      const n = tries + 1;
+      const was = st.unfinished.get(key);
+      const reviewed = was?.reviewed ?? false;
+      if (n >= params.itemCheckRetries && !reviewed) ledger.append('review', { tokenId: fill.tokenId, txHash: fill.txHash, why: `checks not completed after ${n} tries: ${res.pending.join(', ')}; no new bid is posted until they pass or a person restarts with --ack-halt` });
+      st.unfinished.set(key, { fill, skip: [...skip, ...res.passed], tries: n, nextAt: n >= params.itemCheckRetries ? now() + params.checksRetryEveryMs : 0, reviewed: reviewed || n >= params.itemCheckRetries, pending: res.pending });
+    } else {
+      st.unfinished.delete(key);
     }
+    checksGate();
+  }
+
+  /** The 'checks-pending' gate follows the fills whose checks are unfinished. */
+  function checksGate() {
+    const open = [...st.unfinished.values()];
+    risk.setChecksPending(open.length ? { count: open.length, detail: open.map((c) => `${COLLECTIONS[c.fill.slug]?.ticker ?? c.fill.slug} #${c.fill.tokenId} (${(c.pending ?? ['all']).join(', ')} unread)`).join('; ') } : null);
   }
 
   // ── reads ───────────────────────────────────────────────────────────────────────────────
@@ -219,7 +273,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     st.salesDirty[slug] = false;
   }
 
-  const insiderWallets = () => [...sets.people];
+  const insiderWallets = () => tapeInsiders(sets);
 
   async function readMarket(slug) {
     const startedAt = now();
@@ -278,7 +332,8 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
 
     if (!st.markAt[slug] || nowMs - st.markAt[slug] >= MARK_EVERY_MS) {
       st.markAt[slug] = nowMs;
-      ledger.append('mark', { slug, F: fv.F, S: fv.S, L: fv.L, cheapestFillable: fv.cheapestFillable, floorProxy: fv.floorProxy, n: fv.n, sellers: fv.sellers, reason: fv.reason, dropped: tape.dropped.length });
+      // A record only: a full disk must not end the tick before the breakers below are checked.
+      record('mark', { slug, F: fv.F, S: fv.S, L: fv.L, cheapestFillable: fv.cheapestFillable, floorProxy: fv.floorProxy, n: fv.n, sellers: fv.sellers, reason: fv.reason, dropped: tape.dropped.length });
     }
     return fv;
   }
@@ -290,12 +345,15 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       snap = await data.chain.snapshot();
     } catch (e) {
       note(e, 'chain snapshot');
+      risk.noteChainRead({ ok: false, at: now() });
       return null;
     }
+    risk.noteChainRead({ ok: true, at: now() });
+    st.snapshotFresh = true;
     for (const d of diffSnapshots(st.snapshot ?? st.restoredAdmin ?? null, snap)) await executor.halt(d.reason, d.detail);
     const before = JSON.stringify(ADMIN_FIELDS(st.snapshot ?? st.restoredAdmin), (_, v) => (typeof v === 'bigint' ? v.toString() : v));
     const after = JSON.stringify(ADMIN_FIELDS(snap), (_, v) => (typeof v === 'bigint' ? v.toString() : v));
-    if (before !== after) ledger.append('chain', { block: snap.block, ...ADMIN_FIELDS(snap) });
+    if (before !== after) record('chain', { block: snap.block, ...ADMIN_FIELDS(snap) });
     st.prevSnapshot = st.snapshot;
     st.snapshot = snap;
     if (!shadow && house) {
@@ -312,18 +370,23 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
   /**
    * The latest snapshot less the fills the bot already knows about that the snapshot's block does
    * not include yet: a fill pulls WETH and lowers the approval, and a lagging RPC must not make
-   * the house look better funded, or its approval higher, than it is.
+   * the house look better funded, or its approval higher, than it is. An approval the house had
+   * mined after the snapshot's block (by a post earlier in this tick) is what the allowance is
+   * now, less the fills after it: the end-of-tick check must not send the same approval again.
+   * Null when this tick's own snapshot read failed: nothing is approved from an older one.
    */
   function currentSnapshot() {
     const snap = st.snapshot;
-    if (!snap) return null;
-    let newer = 0n;
-    for (const f of knownFills({ entries: ledger.read(), chainFills: [], shadow })) {
-      if (f.block !== null && f.block !== undefined && Number(f.block) > snap.block) newer += toWei(f.unitPriceWei, 'fill price');
-    }
-    if (newer === 0n) return snap;
-    const less = (v) => (v > newer ? v - newer : 0n);
-    return { ...snap, house: { ...snap.house, weth: less(snap.house.weth), allowance: less(snap.house.allowance) } };
+    if (!snap || !st.snapshotFresh) return null;
+    const fills = knownFills({ entries: ledger.read(), chainFills: [], shadow });
+    const spentAfter = (block) => fills.reduce((s, f) => (f.block !== null && f.block !== undefined && Number(f.block) > block ? s + toWei(f.unitPriceWei, 'fill price') : s), 0n);
+    const less = (v, by) => (v > by ? v - by : 0n);
+    const newer = spentAfter(snap.block);
+    let allowance = less(snap.house.allowance, newer);
+    const a = executor.books?.lastApproval;
+    if (a && a.block !== null && a.block !== undefined && a.block > snap.block) allowance = less(a.amountWei, spentAfter(a.block));
+    if (newer === 0n && allowance === snap.house.allowance) return snap;
+    return { ...snap, house: { ...snap.house, weth: less(snap.house.weth, newer), allowance } };
   }
 
   /** Books against the chain; a mismatch is checked once more, after re-reading the house's fills, before it halts. */
@@ -341,6 +404,11 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       ownTxs: books.ownTxs,
     });
     let r = reconcile(args());
+    // An approval of the house's own that the signer stopped waiting for may have been mined
+    // since: its receipt says so, and at which block, before the allowance is called a mismatch.
+    if (!r.ok && books.pendingApprovals?.length && typeof data.chain.receipt === 'function') {
+      if (await executor.settleApprovals((txHash) => data.chain.receipt(txHash))) r = reconcile(args());
+    }
     if (!r.ok) {
       try {
         const fills = await data.chain.houseFills({ sinceSec: nowSec() - params.reseedFillDays * DAY_SEC });
@@ -364,7 +432,9 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
   /**
    * The planner's bid for a collection. `besides` is the standing order being judged: its own
    * unfilled units are not counted against the room it is judged for (otherwise every standing
-   * bid would look like it leaves no room for itself).
+   * bid would look like it leaves no room for itself). The room is counted as the signer counts
+   * it (capUnits): a bid cancelled gaslessly still takes room until it ends, so a replacement asks
+   * only for what is left, and the signer never has to refuse it.
    */
   function plan(slug, besides = null) {
     const fv = st.fv[slug];
@@ -374,7 +444,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       F: fv?.F ?? null,
       cheapestFillable: fv?.cheapestFillable ?? null,
       held: st.held[slug]?.size ?? 0,
-      outstanding: exposure.outstanding(slug, nowSec()) - own,
+      outstanding: Math.max(0, exposure.capUnits(slug, nowSec()) - own),
       policy,
       params,
       trend: st.trend[slug] ?? null,
@@ -397,7 +467,9 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       // Above the arbitrage line a flipper can buy the floor and sell it straight into the
       // house: cancel now, outside the hourly re-price limit.
       if (line !== null && standing.unitPriceWei > line) {
-        await executor.cancel(standing.orderHash, 'arbitrage-line');
+        const c = await executor.cancel(standing.orderHash, 'arbitrage-line');
+        // No second bid beside one that could not be cancelled: it is asked again next tick.
+        if (!c.ok) return;
         const p = plan(slug);
         if (!p.none) await executor.post(p, { ...ctx, reprice: false });
         return;
@@ -413,6 +485,8 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       // A re-price that could not post its replacement (a closed gate) would only cancel: leave it.
       if (far && executor.mayReprice(slug) && risk.gate().canPost) {
         ledger.append('decision', { slug, action: 'reprice', from: standing.unitPriceWei, to: p.unitPriceWei });
+        // The hour starts now, whether or not the replacement can post this tick.
+        executor.noteReprice(slug);
         const c = await executor.cancel(standing.orderHash, 'fair-value-moved');
         if (!c.ok) return;
         // Re-plan: the old order's tail is now outstanding, so the new one bids for what is left.
@@ -431,12 +505,30 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       // An integrity trip is recorded and acted on by executor.halt itself (cancel, kill).
       if (e.kind === 'integrity') continue;
       if (e.kind === 'resume') {
-        ledger.append('resume', { reason: e.reason, detail: e.detail });
+        record('resume', { reason: e.reason, detail: e.detail });
         continue;
       }
-      ledger.append('breaker', { breaker: e.kind, reason: e.reason, detail: e.detail });
+      // Cancel first, then write it down: a full disk must not keep the cancels from going out.
+      // The collection rides along, so a restart measures the next floor drop from this one.
       if (e.kind === 'market' || e.kind === 'halt') await executor.cancelAll('risk-halt');
       if (e.kind === 'cap') await executor.cancelAll('cap-reached');
+      record('breaker', { breaker: e.kind, reason: e.reason, detail: e.detail, slug: e.slug ?? null });
+    }
+  }
+
+  /**
+   * Cancels that did not go through are asked again every tick: an order whose cancel failed
+   * (the signer's pipe dropped, OpenSea and the chain both failed) is still live, and is no longer
+   * the standing bid, so nothing else would look at it. A live bid above the arbitrage line that
+   * is not the standing one is cancelled too.
+   */
+  async function retryCancels(slug) {
+    const t = nowSec();
+    const line = arbitrageLine(slug);
+    const [standing] = exposure.active(slug, t);
+    for (const o of exposure.live(t, slug)) {
+      if (o.cancel?.method === 'asked') await executor.cancel(o.orderHash, o.cancel.reason);
+      else if (!o.cancel && o !== standing && line !== null && o.unitPriceWei > line) await executor.cancel(o.orderHash, 'arbitrage-line');
     }
   }
 
@@ -472,24 +564,28 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     st.busy = true;
     st.lastWake = now();
     st.nextAt = null;
+    st.snapshotFresh = false;
     try {
+      // A halt already under way finishes first: its kill writes STOP into the keys folder before
+      // it sends anything, and STOP must then see that kill's result, not start a second one.
+      while (st.pendingHalts.length) await st.pendingHalts.shift();
       if (stopRequested()) {
         log('STOP found: cancelling every house bid');
         const r = await executor.stopPath();
-        log(r.killed ? 'STOP: a tail was open or a cancel failed, so the kill was sent and mined' : 'STOP: every bid cancelled, no tail open');
+        const live = exposure.live(nowSec()).filter((o) => Boolean(o.shadow) === shadow);
+        const s = stopSummary(r, live);
+        log(s.line);
         stop();
-        onExit(r);
+        onExit({ ...r, clean: s.clean, live: s.clean ? [] : live.map((o) => o.orderHash) });
         return;
       }
-      while (st.pendingHalts.length) await st.pendingHalts.shift();
       while (st.queue.length) {
         const ev = st.queue.shift();
         if (ev.type === 'fill') await handleFill(ev.fill);
       }
-      const retry = st.pendingChecks.splice(0, st.pendingChecks.length);
-      for (const c of retry) await checkAndAct(c.fill, c.skip, c.tries);
+      for (const c of [...st.unfinished.values()]) if (now() >= c.nextAt) await checkAndAct(c.fill, c.skip, c.tries);
 
-      await readChain();
+      const chainRead = (await readChain()) !== null;
       for (const slug of slugs) await readMarket(slug);
 
       const entries = ledger.read();
@@ -498,21 +594,36 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       risk.evaluate({ streamLastMessageAt: data.stream?.lastMessageAt?.() ?? null, fills, daily, stolenThisMonth: stolenInMonth(entries, now(), shadow) });
       await actOnTrips(risk.takeEvents());
 
-      for (const o of exposure.takeExpired(nowSec())) ledger.append('expiry', { orderHash: o.orderHash, slug: o.slug, filled: o.filled, qty: o.qty });
+      // Records only, like 'mark' and 'chain': a full disk must not keep the cancels below from going out.
+      for (const o of exposure.takeExpired(nowSec())) record('expiry', { orderHash: o.orderHash, slug: o.slug, filled: o.filled, qty: o.qty });
       if (shadow) for (const slug of slugs) await simulateFills(slug);
 
-      for (const slug of slugs) {
-        if (!policy.collections[slug].enabled && !shadow) continue;
+      for (const slug of Object.keys(policy.collections)) {
         try {
-          await decide(slug);
+          await retryCancels(slug);
         } catch (e) {
-          note(e, `${slug} decision`);
+          note(e, `${slug} cancels`);
+        }
+      }
+
+      if (!chainRead) {
+        // Blind to fills, mints and the house's own approval: nothing new is decided on old
+        // numbers. After chainStaleMs of this the 'chain-stale' breaker cancels every bid.
+        log('the chain snapshot was not read this tick: no new decision and no approval change');
+      } else {
+        for (const slug of slugs) {
+          if (!policy.collections[slug].enabled && !shadow) continue;
+          try {
+            await decide(slug);
+          } catch (e) {
+            note(e, `${slug} decision`);
+          }
         }
       }
       await actOnTrips(risk.takeEvents());
       // After every fill and re-price the approval comes back to its target (the chain's
-      // inventory cap), here at the end of the tick, from the fresh chain read.
-      if (!shadow && st.snapshot) {
+      // inventory cap), here at the end of the tick, from this tick's own chain read.
+      if (!shadow && chainRead) {
         await executor.syncAllowance({ snapshot: currentSnapshot(), heldBySlug: heldBySlug(), standing: standingPrices(), why: st.fillSinceSync ? 'after-fill' : 'tick' });
         st.fillSinceSync = false;
       }
@@ -534,7 +645,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       }
     } catch (e) {
       note(e, 'tick');
-      ledger.append('error', { where: 'tick', error: errText(e) });
+      record('error', { where: 'tick', error: errText(e) });
     } finally {
       st.lastTickAt = now();
       try {
@@ -555,6 +666,9 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
 
   // ── start: re-seed everything before the first post ─────────────────────────────────────
   async function start({ ackHalt = false, fresh = false } = {}) {
+    // A ledger that cannot be written cannot record the cancels, fills and kills the bot makes.
+    const disk = diskRoom(diskFree, params.minFreeDiskBytes);
+    if (disk) throw new Error(`not starting: ${disk}. Free some space on that drive, then start again`);
     let entries = ledger.read();
     if (shadow && fresh) ledger.append('shadow-reset', {});
     if (shadow) {
@@ -598,26 +712,63 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     // Shadow re-seeds from its own lines only, a live run from live lines only.
     const own = shadow ? entries.filter((e) => e.shadow).map((e) => ({ ...e, shadow: false })) : entries.filter((e) => !e.shadow);
     const seeded = reseedExposure({ signerOrders: shadow ? [] : readSignerOrders(), ledgerEntries: own, chainFills, accountOffers, counter, nowSec: nowSec() });
+    // An order already past its end, or already given its expiry line, gets no (other) expiry
+    // line from this run: the report counts each order's end once.
+    const expiryWritten = new Set(own.filter((e) => e.kind === 'expiry').map((e) => String(e.orderHash).toLowerCase()));
     for (const o of seeded.exposure.all()) {
       const added = exposure.add({ ...o, posted: o.posted, shadow });
-      added.filled = o.filled;
       added.cancel = o.cancel;
       added.advisoryLiveUntil = o.advisoryLiveUntil;
+      if (expiryWritten.has(added.orderHash) || nowSec() >= added.endTime + CLOCK_SLACK_SEC) added.expiryNoted = true;
     }
+    // Every fill goes into the loop's own book through recordFill, so the book knows each fill it
+    // has already counted (by transaction, order and token): a fill read again later (the books
+    // re-reading the chain, or the chain watcher handing it over again) is not counted twice.
+    for (const f of knownFills({ entries: own, chainFills })) exposure.recordFill(f);
     if (counter !== null) exposure.setCounter(counter);
     // A house fill the chain shows and the ledger does not (the file was restored from an older
-    // copy, or the bot was down) is written back into the ledger, so the daily caps and the
-    // report count it: the chain is the record that cannot be rolled back.
-    const inLedger = new Set(knownFills({ entries, chainFills: [], shadow }).map((f) => `${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`));
-    const unseen = chainFills.filter((f) => !inLedger.has(`${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`));
-    for (const f of unseen) ledger.append('fill', { ...f, reseeded: true });
-    // Holdings: every token the house bought, from the ledger and the chain.
-    for (const f of knownFills({ entries, chainFills, shadow })) st.held[f.slug]?.add(String(f.tokenId));
+    // copy, or the bot was down) is written back into the ledger and trades.csv (the per-NFT
+    // public record), so the daily caps and the report count it: the chain is the record that
+    // cannot be rolled back.
+    const inLedger = new Set(knownFills({ entries, chainFills: [], shadow }).map(fillKeyOf));
+    const unseen = chainFills.filter((f) => !inLedger.has(fillKeyOf(f)));
+    for (const f of unseen) {
+      ledger.append('fill', { ...f, reseeded: true });
+      ledger.trade(f);
+    }
+    // Holdings: every token the house bought, from the ledger and the chain, less every one it
+    // sent back to the funding wallet (what the owner does with it then is not the house's).
+    for (const [slug, tokens] of Object.entries(holdingsFrom({ entries, chainFills, shadow }))) for (const id of tokens) st.held[slug]?.add(id);
+    // The 5%-an-hour rise cap on fair value goes on from the last F the ledger marked (as the data
+    // layer keeps it: the last F, timed at the last reading), so a restart cannot let F jump to a
+    // raw figure the cap was holding back.
+    for (const slug of slugs) {
+      const marks = own.filter((e) => e.kind === 'mark' && e.slug === slug);
+      const lastF = marks.findLast((e) => e.F !== null && e.F !== undefined);
+      if (lastF) st.fvState[slug] = { version: 1, F: String(lastF.F), atSec: Math.floor(marks.at(-1).at / 1000) };
+    }
     ledger.append('reseed', { orders: seeded.exposure.all().length, live: exposure.live(nowSec()).length, held: heldBySlug(), findings: seeded.findings });
     for (const f of seeded.findings) {
       if (f.code === 'unknown-fill' || f.code === 'unknown-offer' || f.code === 'overfill') await executor.halt('ledger-mismatch', f.detail);
     }
     if (!shadow && house) await checkHoldings();
+    // Checks a fill never finished (the last run stopped first, or was still retrying them) keep
+    // new bids closed, until they pass or a person who looked restarts with --ack-halt.
+    const lastCheck = new Map();
+    for (const e of own) {
+      if (e.kind === 'fill-check') lastCheck.set(fillKeyOf(e), e);
+      if (e.kind === 'ack-checks') for (const k of e.fills ?? []) lastCheck.set(k, { acked: true });
+    }
+    for (const f of knownFills({ entries: own })) {
+      const c = lastCheck.get(fillKeyOf(f));
+      if (!c || (!c.acked && c.pending?.length)) st.unfinished.set(fillKeyOf(f), { fill: f, skip: [], tries: 0, nextAt: 0, reviewed: false, pending: c?.pending ?? null });
+    }
+    if (ackHalt && st.unfinished.size) {
+      ledger.append('ack-checks', { fills: [...st.unfinished.keys()] });
+      log(`unfinished fill checks acknowledged by a person: ${[...st.unfinished.values()].map((c) => `${c.fill.slug} #${c.fill.tokenId}`).join(', ')}`);
+      st.unfinished.clear();
+    }
+    checksGate();
     // A fill made while the bot was not watching is screened like any other before anything is posted.
     for (const f of unseen) await checkAndAct(f, []);
 
@@ -648,17 +799,22 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
           note(e, `holding check ${slug} #${tokenId}`);
           continue; // unread is not proof it left: it stays counted as held
         }
-        const last = [...moves].sort((a, b) => (toSec(a.time) ?? 0) - (toSec(b.time) ?? 0)).pop();
-        if (!last || addr(last.to) === house) continue;
+        const sorted = [...moves].sort((a, b) => (toSec(a.time) ?? 0) - (toSec(b.time) ?? 0));
+        // What happened to the token after the house last received it.
+        const after = sorted.slice(sorted.findLastIndex((m) => addr(m.to) === house) + 1);
+        if (!after.length) continue; // still the house's (or nothing read at all)
         // Back to the funding wallet is the one way out the signer allows (returnNftToFunding).
-        if (addr(last.to) === policy.fundingWallet) {
+        // Whatever happens to the token after that (the owner sells it) is no longer the house's.
+        const back = after.find((m) => addr(m.from) === house && addr(m.to) === policy.fundingWallet);
+        if (back) {
           set.delete(tokenId);
-          ledger.append('nft-returned', { slug, tokenId, to: addr(last.to), txHash: last.txHash });
+          ledger.append('nft-returned', { slug, tokenId, to: addr(back.to), txHash: back.txHash, time: toSec(back.time) });
           continue;
         }
         // Anywhere else, the books are wrong or the key is not ours alone. It stays counted as
         // held (less room, never more) until a person has looked.
-        await executor.halt('ledger-mismatch', `${COLLECTIONS[slug]?.ticker ?? slug} #${tokenId} left the house (to ${addr(last.to)}, tx ${last.txHash}) with no ledger line`);
+        const out = after[0];
+        await executor.halt('ledger-mismatch', `${COLLECTIONS[slug]?.ticker ?? slug} #${tokenId} left the house (to ${addr(out.to)}, tx ${out.txHash}) with no ledger line`);
       }
     }
   }
@@ -688,6 +844,8 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       paused: rs.paused,
       capped: rs.capped,
       dataGap: rs.dataGapSince !== null,
+      chainStale: rs.chainStale,
+      checksPending: rs.checksPending,
       trips: rs.trips.slice(-10),
       chain: st.snapshot ? { block: st.snapshot.block, weth: st.snapshot.house?.weth, allowance: st.snapshot.house?.allowance, counter: st.snapshot.house?.counter, eth: st.snapshot.house?.eth } : null,
       today: daily,

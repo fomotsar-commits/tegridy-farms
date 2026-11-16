@@ -34,6 +34,12 @@ export const DEFAULT_PARAMS = Object.freeze({
   /** ...and the burst breaker trips at this many units bought in any 24 hours. */
   burstUnits: 3,
   burstWindowMs: 24 * 60 * 60 * 1000,
+  /**
+   * Chain snapshots that keep failing for this long pause the bot (market breaker 'chain-stale').
+   * Without one it cannot see fills, mints or its own approval, so it bids blind; it resumes on
+   * the first good snapshot, however long that takes.
+   */
+  chainStaleMs: 3 * 60 * 1000,
   /** A market pause lifts on its own after this long... */
   marketPauseMs: 2 * 60 * 60 * 1000,
   /** ...and the bot then bids for one unit at a time until a day passes with no market trip. */
@@ -68,8 +74,19 @@ export const DEFAULT_PARAMS = Object.freeze({
   tapeDays: 31,
   /** OpenSea's view of the house's own offers is read this often (advisory only). */
   accountOffersEveryMs: 10 * 60 * 1000,
-  /** A fill's OpenSea item check is retried this many ticks before it goes to a person. */
+  /** A fill's OpenSea item check is retried this many ticks before it goes to a person... */
   itemCheckRetries: 5,
+  /**
+   * ...and after that, this often, until it passes or a person acknowledges it (--ack-halt). No
+   * new bid is posted meanwhile ('checks-pending'): a token whose history was never read could be
+   * an insider's. A 90-day history read is about 65 log reads, too many to repeat every minute.
+   */
+  checksRetryEveryMs: 10 * 60 * 1000,
+  /**
+   * Under this much free space on the keys folder's drive the bot will not start and posts no new
+   * bid: a full disk would stop it writing down the cancels, fills and kills it makes.
+   */
+  minFreeDiskBytes: 1_000_000_000,
   /** Insider provenance looks back this far (BUILD-SPEC 3.5 step 4). */
   provenanceDays: 90,
   /** House fills are re-read from the chain this far back on start. */

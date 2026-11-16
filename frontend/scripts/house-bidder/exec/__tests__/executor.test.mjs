@@ -303,6 +303,14 @@ describe('STOP', () => {
     expect((await t.ex.stopPath()).killed).toBe(true);
   });
 
+  it('kills once when the signer refuses a STOP cancel: the halt that refusal raises has killed already', async () => {
+    const t = setup({ signer: { refuse: { signCancel: 'orderHash' } } });
+    await t.ex.post(plan(), t.ctx);
+    const r = await t.ex.stopPath();
+    expect(t.names().filter((n) => n === 'signer.kill')).toHaveLength(1);
+    expect(r.killed).toBe(true);
+  });
+
   it('kills when a post failed in a way that leaves the order’s fate unknown', async () => {
     const t = setup({ opensea: { postError: openSeaError('network', 0) } });
     const r = await t.ex.post(plan(), t.ctx);
@@ -340,6 +348,80 @@ describe('re-price limit and the approval', () => {
     const r = await t.ex.syncAllowance({ snapshot: snapshotOf({ allowance: milli(35) }), heldBySlug: { junglebay: 3, gnssart: 2 }, why: 'after-fill' });
     expect(r.changed).toBe(true);
     expect(t.calls.at(-1)).toEqual(['signer.sendTx', 'revokeWeth', {}]);
+  });
+});
+
+describe('a kill that did not finish is not a kill', () => {
+  const tail = (t) => {
+    t.opensea.cancelOffer = async ({ orderHash }) => (t.calls.push(['opensea.cancel', orderHash]), { ok: true, lastSignatureValidUntil: t.clock.sec() + 240 });
+  };
+
+  it('sent but not all mined (ok, allMined false): STOP reports it as not done', async () => {
+    const pending = { kind: 'revokeWeth', txHash: `0x${'01'.repeat(32)}`, status: 'pending', nonce: 3 };
+    const t = setup({ signer: { killResult: { ok: true, id: '1', allMined: false, txs: [pending] } } });
+    await t.ex.post(plan(), t.ctx);
+    tail(t);
+    const r = await t.ex.stopPath();
+    expect(r.killed).toBe(false);
+    expect(r.kill).toMatchObject({ ok: false, sent: true });
+  });
+
+  it('answered ok:false because a step never took effect: not a kill either', async () => {
+    const t = setup({ signer: { killResult: { ok: false, id: '1', field: 'kill', reason: 'revokeWeth (nonce 3, reverted) never took effect', allMined: false, txs: [] } } });
+    await t.ex.post(plan(), t.ctx);
+    tail(t);
+    const r = await t.ex.stopPath();
+    expect(r.killed).toBe(false);
+    expect(r.kill).toMatchObject({ ok: false, sent: true });
+    expect(t.ex.books.killed).toBe(null);
+  });
+});
+
+describe('a transaction mined but reverted did not happen', () => {
+  const reverted = { ok: true, id: '1', txHash: `0x${'ee'.repeat(32)}`, status: 'mined', blockNumber: 100, success: false };
+
+  it('an approval that reverted is not booked, and the bid is held', async () => {
+    const t = setup({ signer: { sendTxResult: reverted } });
+    const r = await t.ex.post(plan(), t.ctx);
+    expect(r.posted).toBe(false);
+    expect(t.ex.books.lastApproval).toBe(null);
+    expect(t.names()).not.toContain('signer.signBid');
+  });
+
+  it('an on-chain cancel that reverted leaves the bid live', async () => {
+    const t = setup({ opensea: { cancelResult: { ok: false, reason: 'too new' } } });
+    const { orderHash } = await t.ex.post(plan(), { ...t.ctx, snapshot: snapshotOf({ allowance: milli(200) }) });
+    t.signer.sendTx = async (kind, params) => (t.calls.push(['signer.sendTx', kind, params]), reverted);
+    const r = await t.ex.cancel(orderHash, 'arbitrage-line');
+    expect(r.ok).toBe(false);
+    expect(t.exposure.isLive(t.exposure.get(orderHash), t.clock.sec())).toBe(true);
+  });
+});
+
+describe('the signer’s daily transaction budget', () => {
+  const sent = (t, n, why = 'post') => {
+    for (let i = 0; i < n; i++) t.ledger.append('tx', { txKind: 'approveWeth', why, txHash: `0x${String(i).padStart(64, 'f')}`, status: 'mined', blockNumber: 90 + i, gasCostWei: null });
+  };
+
+  it('sends nothing past the policy’s daily transaction count in any 24 hours; the kill still goes, and is not counted', async () => {
+    const t = setup({ policyOver: { daily: { maxTxs: 2, maxGasWei: 10n ** 18n } } });
+    sent(t, 2);
+    t.clock.advance(3600_000);
+    const r = await t.ex.post(plan(), t.ctx); // it needs an approval
+    expect(r).toMatchObject({ posted: false, why: 'tx-budget' });
+    expect(t.names()).not.toContain('signer.sendTx');
+    expect((await t.ex.kill('test')).ok).toBe(true);
+    // a day after those two there is room again: the kill's own two transactions do not count
+    t.clock.advance(23 * 3600_000);
+    expect((await t.ex.post(plan(), t.ctx)).posted).toBe(true);
+  });
+
+  it('counts each transaction at the most it can cost against the default 0.05 ETH of gas (about 8 a day)', async () => {
+    const t = setup(); // 300,000 gas at 20 gwei: 0.006 ETH each
+    sent(t, 8);
+    const r = await t.ex.post(plan(), t.ctx);
+    expect(r).toMatchObject({ posted: false, why: 'tx-budget' });
+    expect(t.names()).not.toContain('signer.sendTx');
   });
 });
 

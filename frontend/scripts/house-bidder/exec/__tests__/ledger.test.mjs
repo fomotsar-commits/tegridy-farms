@@ -48,6 +48,16 @@ describe('ledger file', () => {
     expect(lines[1]).toContain(',junglebay,1,0.035,35000000000000000,');
   });
 
+  it('writes each fill to the trades CSV once, however often it is handed one (a restart re-reading the chain)', () => {
+    const fs = memFs();
+    const l = createLedger({ paths, fs, now: () => DAY_START });
+    l.trade(fill(1));
+    l.trade(fill(1));
+    l.trade({ ...fill(1), txHash: fill(1).txHash.toUpperCase().replace('0X', '0x') });
+    l.trade(fill(2));
+    expect(fs.store.get(paths.trades).trim().split('\n')).toHaveLength(3);
+  });
+
   it('replaces status.json whole', () => {
     const fs = memFs();
     const l = createLedger({ paths, fs, now: () => 0 });

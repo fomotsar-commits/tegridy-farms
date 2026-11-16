@@ -38,7 +38,7 @@ Default `C:\Users\jimbo\evm-keys\house-bidder\` (choose another with `--keys <di
 | `house-bidder.env` | `HOUSE_OPENSEA_API_KEY`, `HOUSE_RPC_HTTP` (comma list), `HOUSE_RPC_WS` (optional), `HOUSE_SEND_URLS`, `HOUSE_PIN_COMMIT` (the commit a live run must be at). |
 | `policy.json` | the limits both the signer and the bot obey. Start from `exec/policy.example.json` and fill in `house` and `fundingWallet`. |
 | `insiders.json` | everyone who must never trade with the house: `{ "version": 1, "wallets": [{ "address": "0x…", "who": "greencifer.eth", "note": "…" }], "contracts": ["0x…"] }`. The treasury Safe's signers, the operator wallet and the venue's contracts are also built in. |
-| `STOP` | if present, nothing new is signed or posted. |
+| `STOP` | if present, nothing new is signed or posted. Any file whose name starts with "stop", in any letter case, counts (`STOP`, `STOP.txt`, the `STOP.txt.txt` Windows makes), and so does a keys folder that cannot be read. The signer's kill writes one itself. |
 | `ledger.jsonl`, `trades.csv`, `status.json` | the bot's own records (append-only ledger, one row per NFT bought, the latest status). |
 
 ## Start in shadow mode (the default)
@@ -72,14 +72,18 @@ A live start refuses unless: the keys folder and the code are outside OneDrive; 
 
 ## Stop, kill, restart
 
-- **Stop**: `node scripts/house-bidder.mjs stop` writes the STOP file. The running bot cancels every bid (without gas), and if OpenSea had already handed a buyer a fill signature in the last 5 minutes, it also kills on chain and waits for that to be mined before it exits.
+- **Stop**: `node scripts/house-bidder.mjs stop` writes the STOP file. The running bot cancels every bid (without gas), and if OpenSea had already handed a buyer a fill signature in the last 5 minutes, it also kills on chain and waits for that to be mined before it exits. If that kill cannot be sent, or is not all mined, it says so in capitals, lists every bid that can still be filled, and exits with code 1: run the signer's own kill then.
 - **Kill**: `node scripts/house-bidder.mjs kill` writes STOP, then has the signer set the WETH approval to zero and bump the Seaport counter, which ends every house bid at once (about $0.02). If the signer is not running, use its own kill: `node tools/house-signer/src/cli.mjs kill`.
 - **Ctrl+C** just stops the bot. Its bids end on their own within 30 minutes.
-- **After a halt**, read the reason (`status`, the board, or the last `breaker` line of the ledger), deal with it, then restart with `run --live --ack-halt`. A market pause (a fast price drop, a dead feed, 3 NFTs bought in a day) lifts on its own after 2 hours, bidding for one NFT at a time for a day.
+- **After a halt**, read the reason (`status`, the board, or the last `breaker` line of the ledger), deal with it, then restart with `run --live --ack-halt`. A market pause (a fast price drop, a dead feed, 3 NFTs bought in a day) lifts on its own after 2 hours, bidding for one NFT at a time for a day. A pause because the chain could not be read for 3 minutes (`chain-stale`) lifts as soon as it can be read again.
+- **Unfinished fill checks**: when the checks on an NFT the house bought cannot be completed (its 90-day history or OpenSea's flags cannot be read), no new bid is posted until they pass. After 5 tries a `review` line asks you to look; `run --live --ack-halt` clears them once you have.
+- **Disk space**: the bot will not start, and posts no new bid, with under 1 GB free on the keys folder's drive, so it can always write down the cancels, fills and kills it makes. If the disk does fill up, cancels and the kill still go out, and what could not be written is printed instead.
 
 ## Daily limits
 
 At most 0.15 WETH and 3 NFTs bought a UTC day, and about 8 transactions; one flagged (possibly stolen) NFT in a month halts it. These numbers are in `brain/params.mjs`, in code on purpose: changing one is a commit, so the published rules change only for a published reason.
+
+The signer has its own budget too: 20 transactions and 0.05 ETH of gas in any 24 hours, or what `policy.json`'s optional `daily` says (`{ "maxTxs": 20, "maxGasWei": "50000000000000000" }`; the kill is never counted). The bot counts each transaction at the most it could cost and never asks for one past that budget, since any refusal from the signer halts it.
 
 ## For developers
 

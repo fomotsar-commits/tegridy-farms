@@ -66,6 +66,15 @@ export const ORDER = Object.freeze({ FULL_OPEN: 0, PARTIAL_OPEN: 1, FULL_RESTRIC
 /** How long an OpenSea fill signature issued before a gasless cancel can still be used (the "tail"). */
 export const GASLESS_TAIL_SEC = 5 * 60;
 
+/**
+ * The signer's daily budget when policy.json names none: 20 transactions and 0.05 ETH of gas in
+ * any 24 hours (tools/house-signer, policy.mjs DEFAULT_DAILY; the kill is never counted). The bot
+ * plans no more than that, or the signer refuses a transaction and the refusal halts the bot.
+ */
+export const SIGNER_DAILY_DEFAULT = Object.freeze({ maxTxs: 20, maxGasWei: 50_000_000_000_000_000n });
+/** The lowest gas.maxGasLimit the signer accepts: what an on-chain cancel of 6 orders needs (its MAX_TX_GAS). */
+export const SIGNER_MIN_GAS_LIMIT = 255_000;
+
 /** Seaport's EIP-712 types (unchanged since 1.1). The bot only ever uses them to CHECK a signature. */
 export const SEAPORT_TYPES = Object.freeze({
   OrderComponents: [

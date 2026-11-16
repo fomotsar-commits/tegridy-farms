@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { redactRpcUrl } from '../../../../scripts/lib/redact-url.mjs';
-import { COLLECTIONS, OPENSEA_FEE, PRICE_TICK_WEI, VENUE_FEE_BPS, VENUE_FEE_SAFE, ZERO_ADDRESS } from './constants.mjs';
+import { COLLECTIONS, OPENSEA_FEE, PRICE_TICK_WEI, SIGNER_DAILY_DEFAULT, SIGNER_MIN_GAS_LIMIT, VENUE_FEE_BPS, VENUE_FEE_SAFE, ZERO_ADDRESS } from './constants.mjs';
 import { addr } from './util.mjs';
 
 export const DEFAULT_KEYS_DIR = 'C:\\Users\\jimbo\\evm-keys\\house-bidder';
@@ -64,7 +64,7 @@ export function validatePolicy(raw, { mode = 'shadow' } = {}) {
   const problems = [];
   const bad = (field, reason) => problems.push({ code: 'policy', field, reason: `policy.json ${field}: ${reason}` });
   if (!raw || typeof raw !== 'object') return { policy: null, problems: [{ code: 'policy', field: 'file', reason: 'policy.json is not a JSON object' }] };
-  exactKeys(raw, ['version', 'chainId', 'house', 'fundingWallet', 'collections', 'openseaFee', 'venueFee', 'maxLifetimeSec', 'maxAllowanceWei', 'maxWrapWei', 'gas', 'listing'], 'top level', bad);
+  exactKeys(raw, ['version', 'chainId', 'house', 'fundingWallet', 'collections', 'openseaFee', 'venueFee', 'maxLifetimeSec', 'maxAllowanceWei', 'maxWrapWei', 'gas', 'listing', 'daily'], 'top level', bad);
   if (raw.version !== 1) bad('version', 'must be 1');
   if (raw.chainId !== 1) bad('chainId', 'must be 1 (Ethereum)');
 
@@ -124,8 +124,19 @@ export function validatePolicy(raw, { mode = 'shadow' } = {}) {
   if (!(typeof g.maxFeeGwei === 'number' && g.maxFeeGwei > 0)) bad('gas.maxFeeGwei', 'must be a positive number');
   if (!(typeof g.priorityGwei === 'number' && g.priorityGwei >= 0)) bad('gas.priorityGwei', 'must be a number, 0 or more');
   if (!(typeof g.killPriorityGwei === 'number' && g.killPriorityGwei > 0)) bad('gas.killPriorityGwei', 'must be a positive number');
-  if (!(Number.isInteger(g.maxGasLimit) && g.maxGasLimit > 0)) bad('gas.maxGasLimit', 'must be a positive whole number');
+  if (!(Number.isInteger(g.maxGasLimit) && g.maxGasLimit >= SIGNER_MIN_GAS_LIMIT)) bad('gas.maxGasLimit', `must be a whole number of at least ${SIGNER_MIN_GAS_LIMIT}, what an on-chain cancel of 6 orders needs (the signer refuses less, as it would stop the kill's counter bump and NFT revokes)`);
   if (raw.listing?.enabled !== false) bad('listing.enabled', 'must be false: the house does not list in v1');
+  // Optional, and read by the signer too: its daily budget, checked as the signer checks it.
+  let daily = SIGNER_DAILY_DEFAULT;
+  if (raw.daily !== undefined) {
+    const d = raw.daily ?? {};
+    exactKeys(d, ['maxTxs', 'maxGasWei'], 'daily', bad);
+    const txsOk = Number.isInteger(d.maxTxs) && d.maxTxs >= 1 && d.maxTxs <= 1000;
+    const gasOk = isWeiString(d.maxGasWei) && BigInt(d.maxGasWei) >= 1n && BigInt(d.maxGasWei) <= 10n ** 18n;
+    if (!txsOk) bad('daily.maxTxs', 'must be a whole number from 1 to 1000');
+    if (!gasOk) bad('daily.maxGasWei', 'must be a decimal string of wei, more than 0 and at most 1 ETH');
+    if (txsOk && gasOk) daily = { maxTxs: d.maxTxs, maxGasWei: BigInt(d.maxGasWei) };
+  }
 
   const policy = {
     version: 1,
@@ -140,6 +151,7 @@ export function validatePolicy(raw, { mode = 'shadow' } = {}) {
     maxWrapWei: isWeiString(raw.maxWrapWei) ? BigInt(raw.maxWrapWei) : 0n,
     gas: { ...g },
     listing: { ...(raw.listing ?? {}), enabled: false },
+    daily: { ...daily },
   };
   return { policy, problems };
 }
@@ -192,14 +204,18 @@ export function realGit(cwd) {
   return { porcelain: () => run(['status', '--porcelain']), head: () => run(['rev-parse', 'HEAD']) };
 }
 
-export function stopPaths(keysDir) {
-  return [path.join(keysDir, 'STOP'), path.join(keysDir, 'STOP.txt')];
-}
+/**
+ * STOP is any file in the keys folder whose name starts with "stop", in any letter case: STOP,
+ * STOP.txt, the STOP.txt.txt Windows Explorer makes when it hides extensions, stop-now. The same
+ * rule as the signer's (tools/house-signer, stopFilePresent), so both stop on the same file. The
+ * bot never names a file of its own like that.
+ */
+export const isStopFileName = (name) => String(name ?? '').toLowerCase().startsWith('stop');
 
-/** Is the STOP file there? A folder that cannot be read is no proof the owner did not ask to stop. */
+/** Is there a STOP file? A folder that cannot be read is no proof the owner did not ask to stop. */
 export function stopPresent(fs, keysDir) {
   try {
-    return stopPaths(keysDir).some((p) => fs.existsSync(p));
+    return fs.readdirSync(keysDir).some(isStopFileName);
   } catch {
     return true;
   }
@@ -233,7 +249,6 @@ export async function loadConfig({ mode = 'shadow', keysDir = DEFAULT_KEYS_DIR, 
     trades: path.join(keysDir, 'trades.csv'),
     status: path.join(keysDir, 'status.json'),
     signerOrders: path.join(keysDir, 'signer-orders.jsonl'),
-    stop: stopPaths(keysDir),
     registry: path.join(frontendDir, 'src', 'lib', 'house', 'houseRegistry.json'),
   };
 

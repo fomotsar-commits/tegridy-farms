@@ -77,6 +77,32 @@ describe('exposure: when a signed order stops counting', () => {
     expect(x.isLive(o, T + 10)).toBe(true);
     expect(x.active('junglebay', T + 10)).toHaveLength(0);
   });
+
+  it('an order cancelled early is not also counted as expired when its end time passes', () => {
+    const x = createExposure();
+    const cancelled = x.add(order(1));
+    x.recordGaslessCancel(cancelled.orderHash, { at: 0, lastSignatureValidUntil: null });
+    const asked = x.add(order(2)); // its cancel never went through: it ran out
+    x.recordCancelAsked(asked.orderHash, { at: 0, reason: 'fair-value-moved' });
+    x.add(order(3));
+    expect(x.takeExpired(T + 1800 + CLOCK_SLACK_SEC).map((o) => o.orderHash)).toEqual([h(2), h(3)]);
+  });
+});
+
+describe('exposure: what counts against the inventory cap', () => {
+  it('a gaslessly cancelled order counts until a minute after its end, as the signer counts it; a mined on-chain cancel or a counter bump ends it at once', () => {
+    const x = createExposure();
+    const gasless = x.add(order(1));
+    x.recordGaslessCancel(gasless.orderHash, { at: 0, lastSignatureValidUntil: null });
+    expect(x.outstanding('junglebay', T + 10)).toBe(0); // it can no longer be filled...
+    expect(x.capUnits('junglebay', T + 10)).toBe(2); // ...but the signer still counts it
+    const onChain = x.add(order(2));
+    x.recordOnChainCancel(onChain.orderHash, { at: 0, txHash: h(99), mined: true });
+    expect(x.capUnits('junglebay', T + 10)).toBe(2);
+    expect(x.capUnits('junglebay', T + 1800 + CLOCK_SLACK_SEC)).toBe(0);
+    x.setCounter(8n);
+    expect(x.capUnits('junglebay', T + 10)).toBe(0);
+  });
 });
 
 describe('exposure: outstanding units and fills', () => {
@@ -123,6 +149,17 @@ describe('the WETH approval target', () => {
     expect(allowanceTarget({ policy, exposure: x, heldBySlug: {}, nowSec: T, standing: { junglebay: milli(40) } }).target).toBe(3n * milli(40));
     x.add(order(1, { qty: 1 }));
     expect(allowanceTarget({ policy, exposure: x, heldBySlug: { junglebay: 3 }, nowSec: T + 10, standing: { junglebay: milli(40) } }).target).toBe(0n);
+  });
+
+  it('counts only enabled collections, each at no more than its price ceiling, as the signer caps an approval', () => {
+    // a GNSS bid still live after GNSS was switched off in policy.json
+    const x = createExposure();
+    x.add(order(1, { slug: 'gnssart', qty: 1, unitPriceWei: milli(15) }));
+    expect(allowanceTarget({ policy, exposure: x, heldBySlug: {}, nowSec: T + 10 }).target).toBe(0n);
+    // a live JBAC bid priced over a ceiling lowered since counts at the ceiling
+    const y = createExposure();
+    y.add(order(2, { qty: 1, unitPriceWei: milli(50) }));
+    expect(allowanceTarget({ policy, exposure: y, heldBySlug: { junglebay: 0 }, nowSec: T + 10 }).target).toBe(3n * milli(45));
   });
 
   it('funding needed is every unfilled unit at its price, plus the order about to be posted', () => {

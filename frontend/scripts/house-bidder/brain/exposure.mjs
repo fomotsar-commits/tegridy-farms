@@ -137,6 +137,18 @@ export function createExposure() {
     outstanding(slug, nowSec) {
       return api.live(nowSec, slug).reduce((n, o) => n + Math.max(0, o.qty - o.filled), 0);
     },
+    /**
+     * Units the signer counts against the inventory cap (its P8.cap): every unfilled unit of an
+     * order that is live, or that only a gasless cancel ended, until a minute after its end time.
+     * The signer cannot see a gasless cancel (it is OpenSea's word), so it keeps counting such an
+     * order; a bid planned on less would be refused, and a refusal halts the bot. A mined on-chain
+     * cancel, a counter bump or a full fill ends it for the signer too (Seaport's order status).
+     */
+    capUnits(slug, nowSec) {
+      return [...book.values()]
+        .filter((o) => o.slug === slug && [null, 'cancelled-gasless'].includes(deadReason(o, nowSec)))
+        .reduce((n, o) => n + Math.max(0, o.qty - o.filled), 0);
+    },
     /** The standing bid(s): live and never asked to cancel. The loop keeps at most one per collection. */
     active(slug, nowSec) {
       return api.live(nowSec, slug).filter((o) => !o.cancel);
@@ -150,11 +162,17 @@ export function createExposure() {
       for (const o of api.live(nowSec, slug)) if (best === null || o.unitPriceWei > best) best = o.unitPriceWei;
       return best;
     },
-    /** Orders that ran out since the last call, each returned once (for the ledger's expiry lines). */
+    /**
+     * Orders that ran out since the last call, each returned once (for the ledger's expiry lines).
+     * An order already cancelled (its cancel is on the record) did not run out: counting it here
+     * too would count it twice in the published report. One whose cancel was only asked for, and
+     * never went through, did run out.
+     */
     takeExpired(nowSec) {
       const out = [];
       for (const o of book.values()) {
-        if (!o.expiryNoted && deadReason(o, nowSec) === 'expired') {
+        const cancelled = o.cancel !== null && o.cancel.method !== 'asked' && !o.cancel.reverted;
+        if (!o.expiryNoted && !cancelled && deadReason(o, nowSec) === 'expired') {
           o.expiryNoted = true;
           out.push(o);
         }
@@ -183,15 +201,21 @@ export function createExposure() {
  * price it is about to post or keeps re-posting). With the approval held to this, the chain itself
  * caps what the house can be made to buy, whatever the bot's books say: at full inventory it is 0.
  *
+ * Only enabled collections count, each at no more than its price ceiling: the signer refuses an
+ * approval above that sum (its T.approveRoom), and a refusal halts the bot. A switched-off
+ * collection's last bids simply cannot be filled past what the approval allows.
+ *
  * @returns {{ target: bigint, minPrice: bigint | null }}  minPrice: the cheapest unit any collection with room bids at
  */
 export function allowanceTarget({ policy, exposure, heldBySlug, nowSec, standing = {} }) {
   let target = 0n;
   let minPrice = null;
   for (const [slug, c] of Object.entries(policy.collections)) {
+    if (c.enabled !== true) continue;
     const room = Math.max(0, c.inventoryCap - (heldBySlug[slug] ?? 0));
     let price = exposure.highestLivePrice(slug, nowSec) ?? 0n;
     if (typeof standing[slug] === 'bigint' && standing[slug] > price) price = standing[slug];
+    if (price > c.maxUnitPriceWei) price = c.maxUnitPriceWei;
     if (room > 0 && price > 0n) {
       target += BigInt(room) * price;
       if (minPrice === null || price < minPrice) minPrice = price;

@@ -7,11 +7,14 @@
  *    Seaport 1.6 counter and ETH balance; the block time), plus one eth_getStorageAt at the SAME
  *    block for GNSS slot 0xd (its "seed", which can mint; no view function returns it).
  *  - watch(): per new block, the logs since the last block it processed (Transfer + OwnershipTransferred
- *    on both collections, Seaport 1.6 OrderFulfilled with offerer = house), then a snapshot, then the
- *    handlers. Nothing is emitted until every read for the range succeeded, and a range that failed is
- *    read again next time, so a flaky RPC delays an event but never loses one. Emitted events are also
- *    de-duplicated by (tx, log index). A WebSocket (`wsUrl`) only makes it react sooner; correctness
- *    comes from the block ranges, polled every 12 s without one.
+ *    on both collections, Seaport 1.6 OrderFulfilled with offerer = house), then the handlers, then a
+ *    snapshot (admin changes between two snapshots). Nothing is emitted until every log read for the
+ *    range succeeded, and a range that failed is read again next time, so a flaky RPC delays an event
+ *    but never loses one; a snapshot that fails is reported and holds back no log event. Emitted
+ *    events are also de-duplicated by (tx, log index). A WebSocket (`wsUrl`) only makes it react
+ *    sooner; correctness comes from the block ranges, polled every 12 s without one.
+ *  - receipt(): one transaction's block and success, or null while it is not mined (added to 2.4:
+ *    the bot checks an approval the signer stopped waiting for).
  *  - Fills are decoded from OrderFulfilled plus the transaction's receipt: the NFT the house received,
  *    the WETH paid per unit, `seller` = who received the house's WETH (the event's `recipient`, which
  *    was the WETH receiver in all 172 real bid fills checked), `fulfiller` = tx.from (for an ERC-4337
@@ -314,8 +317,9 @@ export function createChain({ httpUrls, wsUrl, house, contracts, now = Date.now,
           getLogsRange({ address: SEAPORT_16, event: ORDER_FULFILLED, args: { offerer: h } }, from, latest),
         ]);
         const fills = await fillsFromLogs(fillLogs);
-        const snap = await snapshot({ blockNumber: latest });
-        // Every read for the range succeeded: only now is anything emitted.
+        // Every log read for the range succeeded: only now is anything emitted. The snapshot is
+        // read after, on its own: a snapshot that keeps failing must not keep back a mint, a
+        // house fill or an owner change (the bot would bid on, blind to them).
         const slugOf = (a) => (a.toLowerCase() === c.junglebay ? 'junglebay' : 'gnssart');
         for (const l of nftLogs) {
           const key = `${l.transactionHash}:${l.logIndex}`;
@@ -332,9 +336,12 @@ export function createChain({ httpUrls, wsUrl, house, contracts, now = Date.now,
           }
         }
         for (const f of fills) if (once(`fill:${f.txHash}:${f.logIndex}`)) call('onFill', f);
+        lastBlock = latest;
+        // A failure here is reported below (onError); the next good snapshot is compared with
+        // the last good one, so an admin change in between is still seen.
+        const snap = await snapshot({ blockNumber: latest });
         if (prevSnap) for (const change of diffSnapshots(prevSnap, snap)) call('onAdmin', change);
         prevSnap = snap;
-        lastBlock = latest;
         call('onSnapshot', snap);
       } catch (e) {
         const err = e instanceof ChainError ? e : fail('chain watch read failed', e);
@@ -439,6 +446,22 @@ export function createChain({ httpUrls, wsUrl, house, contracts, now = Date.now,
         return rows.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
       } catch (e) {
         throw e instanceof ChainError ? e : fail('token provenance read failed', e);
+      }
+    },
+
+    /**
+     * Added to 2.4: a transaction's receipt as { blockNumber, success }, or null while it is not
+     * mined. The bot reads it for an approval the signer stopped waiting for (it can land later).
+     */
+    async receipt(txHash) {
+      const hash = String(txHash ?? '').toLowerCase();
+      if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new TypeError('a transaction hash is 0x and 64 hex characters');
+      try {
+        const r = await client.getTransactionReceipt({ hash });
+        return r ? { blockNumber: Number(r.blockNumber), success: r.status === 'success' } : null;
+      } catch (e) {
+        if (e?.name === 'TransactionReceiptNotFoundError') return null;
+        throw fail('receipt read failed', e);
       }
     },
 

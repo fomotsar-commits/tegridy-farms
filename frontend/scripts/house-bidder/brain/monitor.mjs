@@ -30,6 +30,14 @@ export function counterpartySets({ insiders, houseWallets = [], house = null, fu
 }
 
 /**
+ * Whose trades never count in the sales tape (its "insider" filter): the insiders AND the venue's
+ * contracts (the treasury Safe, the loan contract and its liquidator, the JBAC vault, and every
+ * insiders.json contract). A sale to or from one of them says nothing about what a stranger pays,
+ * and the venue buying at a high price must not raise the fair value the house bids from.
+ */
+export const tapeInsiders = (sets) => [...sets.people, ...sets.contracts];
+
+/**
  * @param {object} fill        { txHash, block, time, orderHash, slug, tokenId, unitPriceWei, seller, fulfiller, nftFrom? }
  * @param {object} deps
  * @param {ReturnType<typeof counterpartySets>} deps.sets

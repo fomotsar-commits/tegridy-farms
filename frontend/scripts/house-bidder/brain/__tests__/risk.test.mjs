@@ -136,6 +136,30 @@ describe('market breakers', () => {
     expect(risk.gate()).toMatchObject({ canPost: true, maxQty: null });
   });
 
+  it('names the collection a floor drop is about, so a restart knows where to measure from', () => {
+    const { clock, risk } = setup();
+    risk.noteFloor('junglebay', clock.now(), milli(50));
+    clock.advance(10 * MIN);
+    risk.noteFloor('junglebay', clock.now(), milli(40));
+    expect(risk.evaluate().map((e) => [e.reason, e.slug])).toEqual([['floor-drop-1h', 'junglebay']]);
+  });
+
+  it('pauses after 3 minutes of chain snapshots that cannot be read, and resumes only on a good one', () => {
+    const { clock, risk } = setup();
+    risk.noteChainRead({ ok: false, at: clock.now() });
+    clock.advance(2 * MIN);
+    risk.noteChainRead({ ok: false, at: clock.now() });
+    expect(risk.evaluate()).toEqual([]);
+    clock.advance(MIN);
+    expect(risk.evaluate().map((e) => [e.kind, e.reason])).toEqual([['market', 'chain-stale']]);
+    expect(risk.gate()).toMatchObject({ canPost: false, reason: expect.stringMatching(/chain-stale/) });
+    clock.advance(5 * HOUR); // time alone does not lift it
+    expect(risk.gate().canPost).toBe(false);
+    risk.noteChainRead({ ok: true, at: clock.now() });
+    expect(risk.gate().canPost).toBe(true);
+    expect(risk.takeEvents().map((e) => [e.kind, e.reason])).toEqual([['market', 'chain-stale'], ['resume', 'chain-stale']]);
+  });
+
   it('does not re-trip on the same drop the moment the pause lifts', () => {
     const { clock, risk } = setup();
     risk.noteFloor('junglebay', clock.now(), milli(50));
@@ -214,5 +238,14 @@ describe('restart', () => {
     expect(s.dataGapSince).toBe(now);
     const risk = createRisk({ now: () => now, state: s });
     expect(risk.gate().canPost).toBe(false);
+  });
+
+  it('keeps a chain-stale pause until a good snapshot, whatever the time', () => {
+    const now = Date.parse('2026-11-16T12:00:00Z');
+    const trip = { kind: 'breaker', breaker: 'market', reason: 'chain-stale', at: now - 5 * HOUR };
+    const s = restoreRisk([trip], { nowMs: now });
+    expect(s.chainStale).toMatchObject({ at: now - 5 * HOUR });
+    expect(s.paused).toBe(null);
+    expect(restoreRisk([trip, { kind: 'resume', reason: 'chain-stale', at: now - HOUR }], { nowMs: now }).chainStale).toBe(null);
   });
 });

@@ -44,7 +44,7 @@ export function monthlyReport(entries, { month, shadow = false, nowMs }) {
   for (const e of mine) {
     const o = orders.get(e.orderHash);
     if (!o) continue;
-    if (e.kind === 'cancel' && !o.cancel) o.cancel = e;
+    if (e.kind === 'cancel' && e.reverted !== true && !o.cancel) o.cancel = e;
     if (e.kind === 'fill') {
       o.fills += 1;
       if (o.fills >= Number(o.qty) && o.standingEnd === null) o.standingEnd = e.at;
@@ -80,12 +80,24 @@ export function monthlyReport(entries, { month, shadow = false, nowMs }) {
   const inventory = {};
   let fills = 0;
   let wethSpent = 0n;
+  // What each token cost, so an NFT sent back to the funding wallet leaves the inventory at its own price.
+  const boughtAt = new Map();
   for (const e of mine) {
+    if (e.kind === 'nft-returned' && e.at < end) {
+      const paid = boughtAt.get(`${e.slug}:${e.tokenId}`) ?? [];
+      if (paid.length) {
+        const inv = inventory[e.slug];
+        inv.held -= 1;
+        inv.costWei -= paid.pop();
+      }
+    }
     if (e.kind === 'fill') {
       const inv = (inventory[e.slug] ??= { held: 0, costWei: 0n });
       if (e.at < end) {
         inv.held += 1;
         inv.costWei += toWei(e.unitPriceWei, 'fill price');
+        const key = `${e.slug}:${e.tokenId}`;
+        boughtAt.set(key, [...(boughtAt.get(key) ?? []), toWei(e.unitPriceWei, 'fill price')]);
       }
       if (inMonth(e.at)) {
         fills += 1;
@@ -94,7 +106,8 @@ export function monthlyReport(entries, { month, shadow = false, nowMs }) {
       }
     }
     if (!inMonth(e.at)) continue;
-    if (e.kind === 'cancel') {
+    // An on-chain cancel that was mined but reverted cancelled nothing.
+    if (e.kind === 'cancel' && e.reverted !== true) {
       cancels += 1;
       cancelled[e.reason] = (cancelled[e.reason] ?? 0) + 1;
     }

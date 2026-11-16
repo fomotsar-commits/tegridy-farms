@@ -55,7 +55,7 @@ export function createLedger({ paths, fs = nodeFs, now = Date.now, shadow = fals
       if (cache) cache.push(JSON.parse(line));
       return entry;
     },
-    /** One NFT bought (or, in shadow mode, one the bot would have bought). */
+    /** One NFT bought (or, in shadow mode, one the bot would have bought), once: a fill already in the file is not written again. */
     trade(fill) {
       let exists;
       try {
@@ -63,6 +63,7 @@ export function createLedger({ paths, fs = nodeFs, now = Date.now, shadow = fals
       } catch {
         exists = false;
       }
+      if (exists && tradeKeys(fs.readFileSync(paths.trades, 'utf8')).has(fillKey(fill))) return;
       const price = toWei(fill.unitPriceWei, 'fill price');
       const row = [
         new Date((toSec(fill.time) ?? Math.floor(now() / 1000)) * 1000).toISOString(),
@@ -92,6 +93,72 @@ export function createLedger({ paths, fs = nodeFs, now = Date.now, shadow = fals
 }
 
 const fillKey = (f) => `${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`;
+
+/** The fill keys already in trades.csv (token_id, order_hash and tx_hash: columns 3, 8 and 9). */
+function tradeKeys(text) {
+  const keys = new Set();
+  for (const row of String(text).split('\n').slice(1)) {
+    const c = row.split(',');
+    if (c.length >= 9) keys.add(fillKey({ txHash: c[8], orderHash: c[7], tokenId: c[2] }));
+  }
+  return keys;
+}
+
+/**
+ * What the house holds, per collection (sets of token ids): every NFT it bought, from the ledger
+ * and the chain, once each, less every one it sent back to the funding wallet ('nft-returned',
+ * once per return transaction). What the owner does with a returned NFT is no longer the house's.
+ */
+export function holdingsFrom({ entries, chainFills = [], shadow = false }) {
+  const count = new Map();
+  const bump = (slug, tokenId, by) => {
+    const k = `${slug}:${tokenId}`;
+    const c = count.get(k) ?? { slug, tokenId: String(tokenId), n: 0 };
+    c.n += by;
+    count.set(k, c);
+  };
+  for (const f of knownFills({ entries, chainFills, shadow })) bump(f.slug, f.tokenId, 1);
+  const returns = new Set();
+  for (const e of entries) {
+    if (e.kind !== 'nft-returned' || Boolean(e.shadow) !== shadow) continue;
+    const k = `${e.slug}:${e.tokenId}:${String(e.txHash).toLowerCase()}`;
+    if (returns.has(k)) continue;
+    returns.add(k);
+    bump(e.slug, e.tokenId, -1);
+  }
+  const out = {};
+  for (const c of count.values()) if (c.n > 0) (out[c.slug] ??= new Set()).add(c.tokenId);
+  return out;
+}
+
+const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * The house transactions the signer counts against its daily budget (tools/house-signer: 20
+ * transactions and 0.05 ETH of gas in any 24 hours unless policy.daily says otherwise): every one
+ * the bot asked for in the last 24 hours, except the kill's, which the signer never counts. A
+ * send that failed on the way ('tx-failed') counts too: the signer may have signed it first.
+ */
+export function txsInLastDay({ entries, nowMs, shadow = false }) {
+  return entries.filter((e) => (e.kind === 'tx' || e.kind === 'tx-failed') && Boolean(e.shadow) === shadow && nowMs - e.at < DAY_MS && !String(e.why ?? '').startsWith('kill')).length;
+}
+
+/**
+ * Null when the keys folder's drive has room for the ledger, else why not, in plain words. A
+ * disk check that cannot be read counts as no room. No check wired (a test) is no answer.
+ */
+export function diskRoom(diskFree, minBytes) {
+  if (typeof diskFree !== 'function') return null;
+  let free;
+  try {
+    free = Number(diskFree());
+  } catch (e) {
+    return `the free space on the keys folder's drive could not be read (${e?.message ?? e})`;
+  }
+  if (!Number.isFinite(free)) return "the free space on the keys folder's drive could not be read";
+  if (free >= minBytes) return null;
+  return `only ${(free / 1e9).toFixed(2)} GB is free on the keys folder's drive; the bot needs ${minBytes / 1e9} GB free so that every cancel, fill and kill it makes can still be written down`;
+}
 
 /**
  * Every house fill known from the ledger and the chain, each once. The chain's list wins on

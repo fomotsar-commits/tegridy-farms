@@ -13,8 +13,9 @@
  *   • SHADOW BY DEFAULT. `shadow` reads the real market and plans real bids, and never
  *     contacts the signer: nothing is signed, posted or sent. Only `run --live` bids.
  *   • The bot never holds the key and never builds a transaction. It asks the signer.
- *   • STOP file in the keys folder: nothing new is signed or posted; the running bot
- *     cancels every bid and, if a 5-minute tail is open, kills on chain before it exits.
+ *   • STOP file in the keys folder (any file whose name starts with "stop"): nothing new is
+ *     signed or posted; the running bot cancels every bid and, if a 5-minute tail is open,
+ *     kills on chain before it exits. It exits with code 1 if that kill did not go through.
  *   • Bids end on their own within 30 minutes: if this computer dies, so do the bids.
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
@@ -36,7 +37,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_KEYS_DIR, isOneDrivePath } from './house-bidder/brain/config.mjs';
+import { reseedExposure } from './house-bidder/brain/exposure.mjs';
 import { parseEth, roundDownToTick, utcMonth } from './house-bidder/brain/util.mjs';
+import { holdingsFrom } from './house-bidder/exec/ledger.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -120,6 +123,15 @@ export function parseArgs(argv) {
 }
 
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
+
+/** The exit code after STOP: 1 when a kill was needed and did not go through, so a script or a person sees it. */
+export const stopExitCode = (r) => (r?.clean === false ? 1 : 0);
+
+/** Bytes free on the drive of `dir` (fs.statfs). Throws when it cannot be read: the caller treats that as no room. */
+const freeBytes = (dir) => {
+  const s = fs.statfsSync(dir);
+  return Number(s.bavail) * Number(s.bsize);
+};
 
 // ─── wiring: the real modules, loaded only when a command needs them ─────────────────────────
 const mod = (rel) => import(pathToFileURL(path.join(HERE, 'house-bidder', ...rel.split('/'))).href);
@@ -227,7 +239,7 @@ async function cmdRun(opts, mode) {
   const { createExposure } = await mod('brain/exposure.mjs');
   const { createRisk } = await mod('brain/risk.mjs');
   const { counterpartySets } = await mod('brain/monitor.mjs');
-  const { stopPresent } = await mod('brain/config.mjs');
+  const { isStopFileName, stopPresent } = await mod('brain/config.mjs');
   const { createLedger } = await mod('exec/ledger.mjs');
   const { createExecutor, createShadowExecutor } = await mod('exec/executor.mjs');
   const { createLoop } = await mod('exec/loop.mjs');
@@ -239,7 +251,8 @@ async function cmdRun(opts, mode) {
   const exposure = createExposure();
   const risk = createRisk({ params, now });
   const stopRequested = () => stopPresent(fs, opts.keys);
-  const common = { house: config.house, policy: config.policy, params, opensea: data.opensea, exposure, risk, ledger, stopRequested, now, log };
+  const diskFree = () => freeBytes(opts.keys);
+  const common = { house: config.house, policy: config.policy, params, opensea: data.opensea, exposure, risk, ledger, stopRequested, now, log, diskFree };
   const executor = live ? createExecutor({ ...common, signer, getOrderHash: await orderHashReader(config) }) : createShadowExecutor(common);
   const sets = counterpartySets({ insiders: config.insiders, houseWallets: config.houseWallets, house: config.house, fundingWallet: config.policy.fundingWallet });
   const loop = createLoop({
@@ -256,16 +269,18 @@ async function cmdRun(opts, mode) {
     readSignerOrders: () => readSignerOrders(config.paths.signerOrders),
     now,
     log,
-    onExit: () => {
+    diskFree,
+    onExit: (r) => {
       release();
       signer?.close();
-      process.exit(0);
+      process.exit(stopExitCode(r));
     },
   });
-  // The STOP file wakes the loop the moment it appears (and every tick checks it anyway).
+  // A STOP file (any name starting with "stop") wakes the loop the moment it appears, and every
+  // tick checks it anyway. A change the watcher cannot name wakes it too.
   try {
     fs.watch(opts.keys, (_e, name) => {
-      if (name === 'STOP' || name === 'STOP.txt') loop.tick();
+      if (!name || isStopFileName(name)) loop.tick();
     });
   } catch {
     log('the keys folder cannot be watched: STOP is still checked every tick and before every signature');
@@ -323,8 +338,19 @@ async function cmdKill(opts) {
   try {
     log('Asking the signer to kill: WETH approval to zero, Seaport counter bump, NFT approvals off. This waits for each to be mined.');
     const r = await signer.kill();
-    if (r.ok !== true) console.log(`The signer refused the kill (${r.field ?? '?'}): ${r.reason ?? 'no reason given'}`);
-    else console.log(`Kill done: ${JSON.stringify(r.txs ?? r.hashes ?? r)}`);
+    const txs = JSON.stringify(r.txs ?? r.hashes ?? []);
+    // Done only when every step was mined and took effect: until then bids can still be filled.
+    if (r.ok === true && r.allMined !== false) console.log(`Kill done: ${txs}`);
+    else if (r.ok === true) {
+      console.log(`The kill was sent, but not all of it was mined within the signer's wait: ${txs}. Check the house on a block explorer, and run the kill again if its Seaport counter has not moved.`);
+      process.exitCode = 1;
+    } else if (r.field === 'kill') {
+      console.log(`The kill did not finish: ${r.reason ?? 'a step never took effect'} (${txs}). Run it again.`);
+      process.exitCode = 1;
+    } else {
+      console.log(`The signer refused the kill (${r.field ?? '?'}): ${r.reason ?? 'no reason given'}`);
+      process.exitCode = 1;
+    }
   } catch (e) {
     console.log(`The signer did not answer (${e.message}). Run its own kill, which asks for the password: node tools/house-signer/src/cli.mjs kill --keys "${opts.keys}"`);
     process.exitCode = 1;
@@ -364,7 +390,7 @@ async function cmdBacktest(opts) {
   const { runBacktest } = await mod('brain/backtest.mjs');
   const { withParams } = await mod('brain/params.mjs');
   const { eth } = await mod('brain/util.mjs');
-  const { counterpartySets } = await mod('brain/monitor.mjs');
+  const { counterpartySets, tapeInsiders } = await mod('brain/monitor.mjs');
   const d = await loadDataLayer();
   let rawPolicy;
   try {
@@ -387,12 +413,34 @@ async function cmdBacktest(opts) {
   if (!Object.keys(sales).length) throw new Error(`no saved sales found in ${dir} (looked for <slug>/sales*.json and <slug>-sales*.json)`);
   const listings = loadSaved(dir, Object.keys(policy.collections), 'listings');
   const endSec = Math.max(...Object.values(sales).flat().map((s) => Number(s.time ?? s.event_timestamp ?? 0)));
-  const r = runBacktest({ sales, listings, policy, params: withParams(), buildTape: d.buildTape, fairValue: d.fairValue, days: opts.days, endSec, insiderWallets: [...sets.people], houseWallets: [...sets.house] });
+  // The same exclusions as the live loop's tape: insiders and the venue's contracts.
+  const r = runBacktest({ sales, listings, policy, params: withParams(), buildTape: d.buildTape, fairValue: d.fairValue, days: opts.days, endSec, insiderWallets: tapeInsiders(sets), houseWallets: [...sets.house] });
   console.log(`Backtest, ${opts.days} days to ${new Date(endSec * 1000).toISOString()} (${r.note})`);
   for (const [slug, c] of Object.entries(r.collections)) {
     console.log(`  ${slug}: ${c.sales} sales, ${c.posts} bids over ${c.hoursBidding.toFixed(0)} h, bought ${c.units} for ${eth(c.costWei)} ETH, holds ${c.held} worth ${eth(c.markWei)} after OpenSea's 1% (P&L ${eth(c.pnlWei)} ETH)`);
     console.log(`    breaker trips: ${Object.entries(c.trips).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}${c.integrity.length ? `; insider sales into the bid: ${c.integrity.length}` : ''}`);
   }
+}
+
+/**
+ * Why the canary may not run now; empty when it may. The canary proves the order shape with one
+ * quantity-1 bid and an approval sized for an empty house, so it runs only on a house that holds
+ * no NFT and has no bid that can still be filled or still counts against the inventory cap (the
+ * signer's order file and the bot's ledger, re-seeded the way a live start does), and none that
+ * OpenSea still lists. On top of anything else, its bid could take the house past the cap.
+ * @param {{ entries: object[], signerOrders: object[], chainFills: object[], accountOffers: object[]|null, counter: bigint|null, nowSec: number }} a
+ */
+export function canaryBlockers({ entries, signerOrders, chainFills, accountOffers, counter, nowSec }) {
+  const own = entries.filter((e) => !e.shadow);
+  const out = [];
+  const held = Object.entries(holdingsFrom({ entries: own, chainFills })).flatMap(([slug, ids]) => [...ids].map((id) => `${slug} #${id}`));
+  if (held.length) out.push(`the house holds ${held.length} NFT(s): ${held.join(', ')}`);
+  const { exposure } = reseedExposure({ signerOrders, ledgerEntries: own, chainFills, accountOffers: null, counter, nowSec });
+  // Live, or ended only by a gasless cancel the signer cannot see (it counts those until they end).
+  const open = exposure.all().filter((o) => [null, 'cancelled-gasless'].includes(exposure.deadReason(o, nowSec)));
+  if (open.length) out.push(`the house has ${open.length} bid(s) that can still be filled or still count against the cap: ${open.map((o) => o.orderHash).join(', ')}`);
+  if (accountOffers?.length) out.push(`OpenSea lists ${accountOffers.length} house offer(s): ${accountOffers.map((o) => o.orderHash).join(', ')}`);
+  return out;
 }
 
 async function cmdCanary(opts) {
@@ -420,10 +468,25 @@ async function cmdCanary(opts) {
     risk.restore(restoreRisk(entries, { nowMs: now(), params }));
     if (risk.halted()) throw new Error(`the bot is halted (${risk.halted().reason}): a person clears it with run --live --ack-halt first`);
     const exposure = createExposure();
-    const executor = createExecutor({ house: config.house, policy: config.policy, params, opensea: data.opensea, signer, getOrderHash: await orderHashReader(config), exposure, risk, ledger, stopRequested: () => stopPresent(fs, opts.keys), now, log });
+    const executor = createExecutor({ house: config.house, policy: config.policy, params, opensea: data.opensea, signer, getOrderHash: await orderHashReader(config), exposure, risk, ledger, stopRequested: () => stopPresent(fs, opts.keys), now, log, diskFree: () => freeBytes(opts.keys) });
     executor.restoreBooks(entries);
     const snapshot = await data.chain.snapshot();
     exposure.setCounter(snapshot.house.counter);
+    // Only on a house with nothing: no NFT held, no bid live or still counting against the cap.
+    let chainFills;
+    try {
+      chainFills = await data.chain.houseFills({ sinceSec: Math.floor(now() / 1000) - params.reseedFillDays * 86_400 });
+    } catch (e) {
+      throw new Error(`the house's fills could not be read from the chain (${e.message}): the canary must know the house holds nothing`, { cause: e });
+    }
+    let accountOffers = null;
+    try {
+      accountOffers = await data.opensea.accountOffers(config.house);
+    } catch (e) {
+      log(`OpenSea's list of house offers not read (${e.message}); the signer's order file and the ledger still say what is live`);
+    }
+    const blockers = canaryBlockers({ entries, signerOrders: readSignerOrders(config.paths.signerOrders), chainFills, accountOffers, counter: snapshot.house.counter, nowSec: Math.floor(now() / 1000) });
+    if (blockers.length) throw new Error(`the canary runs only on a house that holds nothing and has no live bid: ${blockers.join('; ')}`);
     // A fresh REST read is what lifts the start-up data gap.
     const started = now();
     await data.opensea.bestListings('junglebay', { limit: 5 });

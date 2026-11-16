@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadConfig, validatePolicy, validateInsiders, parseEnvFile, ConfigRefusal, isOneDrivePath } from '../config.mjs';
+import { loadConfig, validatePolicy, validateInsiders, parseEnvFile, ConfigRefusal, isOneDrivePath, isStopFileName, stopPresent } from '../config.mjs';
 import { memFs } from '../../exec/__tests__/fakes.mjs';
 
 const KEYS = 'C:\\Users\\jimbo\\evm-keys\\house-bidder';
@@ -143,6 +143,50 @@ describe('policy.json', () => {
   it('lets shadow run before the house key exists, and not live', () => {
     expect(problems({ house: null, fundingWallet: null }, 'shadow')).toEqual([]);
     expect(problems({ house: null }, 'live').join()).toMatch(/house address is required/);
+  });
+
+  it('accepts the optional daily budget the signer also enforces, checked the way the signer checks it', () => {
+    const daily = { maxTxs: 20, maxGasWei: '50000000000000000' };
+    expect(problems({ daily })).toEqual([]);
+    expect(validatePolicy(policyJson({ daily: { maxTxs: 5, maxGasWei: '1000' } })).policy.daily).toEqual({ maxTxs: 5, maxGasWei: 1000n });
+    // without one, the signer's own default applies, and the bot plans for that
+    expect(validatePolicy(policyJson()).policy.daily).toEqual({ maxTxs: 20, maxGasWei: 50_000_000_000_000_000n });
+    for (const maxTxs of [0, 1001, 2.5, '20']) expect(problems({ daily: { ...daily, maxTxs } }).join()).toMatch(/daily.maxTxs/);
+    for (const maxGasWei of ['0', '1000000000000000001', 5, '0x10']) expect(problems({ daily: { ...daily, maxGasWei } }).join()).toMatch(/daily.maxGasWei/);
+    expect(problems({ daily: { ...daily, maxUsd: 5 } }).join()).toMatch(/unknown field/);
+    expect(problems({ daly: daily }).join()).toMatch(/unknown field/); // any other new key is still a typo
+  });
+
+  it('refuses a gas limit under 255000, what an on-chain cancel of 6 orders needs (the signer refuses it too)', () => {
+    const gas = policyJson().gas;
+    expect(problems({ gas: { ...gas, maxGasLimit: 254_999 } }).join()).toMatch(/255000/);
+    expect(problems({ gas: { ...gas, maxGasLimit: 255_000 } })).toEqual([]);
+  });
+});
+
+describe('STOP', () => {
+  it('is any file in the keys folder whose name starts with "stop", in any letter case', () => {
+    for (const name of ['STOP', 'STOP.txt', 'STOP.txt.txt', 'stop-now', 'Stop']) expect(stopPresent(memFs({ [k(name)]: '' }), KEYS)).toBe(true);
+    expect(stopPresent(memFs({ [k('ledger.jsonl')]: '', [k('status.json')]: '', [k('signer-orders.jsonl')]: '' }), KEYS)).toBe(false);
+    expect(isStopFileName('STOP.txt.txt')).toBe(true);
+    expect(isStopFileName('status.json')).toBe(false);
+  });
+
+  it('is assumed when the keys folder cannot be read', () => {
+    const unreadable = {
+      readdirSync() {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      },
+      existsSync: () => false,
+    };
+    expect(stopPresent(unreadable, KEYS)).toBe(true);
+  });
+
+  it('is never what the bot names its own files', async () => {
+    const c = await loadConfig({ mode: 'shadow', keysDir: KEYS, frontendDir: FRONTEND, fs: world().fs });
+    const own = Object.values(c.paths).flat().filter((p) => path.dirname(p) === KEYS).map((p) => path.basename(p));
+    expect(own.length).toBeGreaterThan(3);
+    expect(own.filter(isStopFileName)).toEqual([]);
   });
 });
 

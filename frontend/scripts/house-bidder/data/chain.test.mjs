@@ -210,6 +210,57 @@ describe('createChain: watch', () => {
     expect(x.seen.filter(([k]) => k === 'onMint')).toHaveLength(1);
     x.w.stop();
   });
+
+  it('emits mints, owner changes and fills even while the snapshot read keeps failing, and reports that failure', async () => {
+    let head = 100n;
+    let snapshotFails = true;
+    const fake = fakeClient({
+      getBlockNumber: () => head,
+      getLogs: (args) => (args.event?.name === 'OrderFulfilled' ? (args.fromBlock <= 100n && args.toBlock >= 100n ? [fillLogFixture] : []) : args.fromBlock <= 100n && args.toBlock >= 100n ? [mint, owner] : []),
+      getTransactionReceipt: () => fill.receipt,
+      multicall: () => {
+        if (snapshotFails) throw new Error('execution reverted / header not found');
+        return SNAP_VALUES;
+      },
+    });
+    const seen = [];
+    const errors = [];
+    const w = chainOn(fake, fill.house).watch({
+      onMint: (e) => seen.push(['onMint', e.tokenId]),
+      onOwnerChange: () => seen.push(['onOwnerChange']),
+      onFill: (f) => seen.push(['onFill', f.tokenId]),
+      onAdmin: (a) => seen.push(['onAdmin', a.field]),
+      onError: (e) => errors.push(e.message),
+    });
+    await w.ready;
+    expect(seen).toEqual([['onMint', '5'], ['onOwnerChange'], ['onFill', '3450']]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/snapshot/);
+    head = 101n;
+    snapshotFails = false;
+    await w.tick();
+    expect(seen).toHaveLength(3); // each event once, and nothing more when the snapshot comes back
+    w.stop();
+  });
+});
+
+describe('createChain: receipt', () => {
+  it('reads a transaction’s block and whether it succeeded, and null while it is not mined', async () => {
+    const mined = `0x${'aa'.repeat(32)}`;
+    const reverted = `0x${'bb'.repeat(32)}`;
+    const fake = fakeClient({
+      getTransactionReceipt: ({ hash }) => {
+        if (hash === mined) return { blockNumber: 123n, status: 'success' };
+        if (hash === reverted) return { blockNumber: 124n, status: 'reverted' };
+        throw Object.assign(new Error(`Transaction receipt with hash "${hash}" could not be found.`), { name: 'TransactionReceiptNotFoundError' });
+      },
+    });
+    const chain = chainOn(fake);
+    expect(await chain.receipt(mined)).toEqual({ blockNumber: 123, success: true });
+    expect(await chain.receipt(reverted)).toEqual({ blockNumber: 124, success: false });
+    expect(await chain.receipt(`0x${'cc'.repeat(32)}`)).toBe(null);
+    await expect(chain.receipt('0x1234')).rejects.toThrow();
+  });
 });
 
 describe('createChain: history reads', () => {
