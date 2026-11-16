@@ -170,9 +170,32 @@ function fillMovesOnlyVenueNfts(data, named, allowed = ALLOWED_CONTRACTS) {
   return true;
 }
 
-// Criteria offers name their collection by slug in the body. Only a venue
-// collection may be bid on here.
-const CRITERIA_OFFER_PATHS = new Set(["offers/build", "criteria_offers"]);
+// Criteria (collection and trait) offers name their collection by slug in the
+// body, and only a venue collection may be bid on here: OpenSea's build
+// (`offers/build`) and its post (`offers`, OpenSea's post_criteria_offer_v2). Each
+// names its protocol in the body, and it must be Seaport 1.6, the only protocol
+// the venue's bids are signed for (nakamigos/lib/seaportOffer.js). The old
+// `criteria_offers` route is gone upstream (OPTIONS 404, 2026-11-15), so it is
+// no longer admitted.
+const CRITERIA_OFFER_PATHS = new Set(["offers/build", "offers"]);
+const SEAPORT_16 = "0x0000000000000068f116a894984e2db1123eb395";
+
+// OpenSea's gasless cancel of a SignedZone order: POST
+// orders/chain/{chain}/protocol/{protocol}/{orderHash}/cancel with a body of the
+// offerer's signature and nothing else. Admitted for Seaport 1.6 on the two
+// chains the venue bids on, in exactly that shape: one 32-byte order hash, one
+// 65-byte signature, no other body key and no query.
+const CANCEL_PATH_RE = /^orders\/chain\/(ethereum|base)\/protocol\/0x0000000000000068f116a894984e2db1123eb395\/0x[0-9a-fA-F]{64}\/cancel$/;
+const CANCEL_SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
+
+/** A 400 message when a gasless-cancel request is anything but its one shape, else null. */
+function cancelRequestProblem(body, params) {
+  if (Object.keys(params).length > 0) return "A cancel carries no query";
+  const keys = body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : null;
+  if (!keys || keys.length !== 1 || keys[0] !== "offererSignature") return "A cancel carries exactly one offerer signature";
+  if (typeof body.offererSignature !== "string" || !CANCEL_SIGNATURE_RE.test(body.offererSignature)) return "Invalid offerer signature";
+  return null;
+}
 
 // Whitelist of allowed path prefixes — reject anything that doesn't start with one of these.
 // F514: "collections/" (plural) is the canonical OpenSea v2 stats prefix — the
@@ -209,12 +232,15 @@ function isAllowedPath(path) {
   if (decoded.includes("?") || decoded.includes("#")) return false;
   // (removed superseded %2e/%2E guard — the decoded-equality check above
   //  catches every encoding of every character)
-  // Exact-match paths that don't follow the prefix pattern
-  if (path === "criteria_offers") return true;
+  // Exact-match paths that don't follow the prefix pattern: the criteria-offer
+  // post (method, slug and protocol checked in the handler).
+  if (path === "offers") return true;
   // Reject paths that don't start with an allowed prefix
   if (!ALLOWED_PATH_PREFIXES.some((p) => path.startsWith(p))) return false;
   // Always allow fulfillment endpoints (buy + accept)
   if (path === "listings/fulfillment_data" || path === "offers/fulfillment_data") return true;
+  // The gasless cancel (method and body checked in the handler).
+  if (CANCEL_PATH_RE.test(path)) return true;
   // The family collections' two read-only routes (method and query checked in the handler).
   if (isReadOnlyPath(path)) return true;
   // Allow order endpoints (create listings, fetch offers/bids)
@@ -324,11 +350,26 @@ export default async function handler(req, res) {
     if (problem) return res.status(400).json({ error: problem });
   }
 
+  // The criteria-offer routes and the cancel only ever take a POST; anything
+  // else is not a request the site makes.
+  if ((CRITERIA_OFFER_PATHS.has(path) || CANCEL_PATH_RE.test(path)) && req.method !== "POST") {
+    return res.status(405).json({ error: "POST only" });
+  }
+
   if (req.method === "POST" && CRITERIA_OFFER_PATHS.has(path)) {
     const slug = req.body?.criteria?.collection?.slug;
     if (typeof slug !== "string" || !ALLOWED_SLUGS.has(slug)) {
       return res.status(403).json({ error: "Collection not supported" });
     }
+    const protocol = req.body?.protocol_address;
+    if (typeof protocol !== "string" || protocol.toLowerCase() !== SEAPORT_16) {
+      return res.status(400).json({ error: "Only Seaport 1.6 offers are made here" });
+    }
+  }
+
+  if (CANCEL_PATH_RE.test(path)) {
+    const problem = cancelRequestProblem(req.body, params);
+    if (problem) return res.status(400).json({ error: problem });
   }
 
   // A fill is built for Ethereum (venue NFTs) or Base (the Base buy

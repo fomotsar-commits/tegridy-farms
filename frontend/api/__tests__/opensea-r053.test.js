@@ -157,8 +157,9 @@ describe("opensea proxy R053 — schema, URL allowlist, cache headers", () => {
   // ── Cache-Control selection ──
   it("uses private,no-store for offers/build (POST mutation)", async () => {
     mockOpenseaResponse({});
-    // A criteria offer names its collection; only a venue slug reaches OpenSea.
-    const body = { criteria: { collection: { slug: "nakamigos" } } };
+    // A criteria offer names its collection; only a venue slug reaches OpenSea,
+    // and only for Seaport 1.6.
+    const body = { criteria: { collection: { slug: "nakamigos" } }, protocol_address: "0x0000000000000068F116a894984e2DB1123eB395" };
     const { req, res, headers } = makeReqRes({ path: "offers/build" }, "POST", body);
     await handler(req, res);
     expect(headers["cache-control"]).toBe("private, no-store");

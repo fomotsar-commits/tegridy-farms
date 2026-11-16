@@ -1,12 +1,16 @@
 import { parseEther, formatEther } from "viem";
-import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, SEAPORT_ADDRESSES_BY_CHAIN, SEAPORT_DOMAINS, WETH_BY_CHAIN, PLATFORM_FEE_RECIPIENTS } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, SEAPORT_ADDRESS, SEAPORT_DOMAIN, CONDUIT_ADDRESS, PLATFORM_FEE_BPS, SEAPORT_ADDRESSES_BY_CHAIN, WETH_BY_CHAIN, PLATFORM_FEE_RECIPIENTS, BID_VENUE_FEE_ENABLED, openseaRequiredBidFees } from "./constants";
 import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS, fulfillCallRefusal } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
-import { cancelSeaportOrder } from "./lib/seaportCancel";
+import { cancelSeaportOrder, cancelSeaportOrderGasless, GASLESS_CANCEL_DONE } from "./lib/seaportCancel";
 import { buysAnyTokenOrder } from "./lib/offerScope";
-import { NFT_ITEM_TYPES, collectionOfferQuantity, normalizeCollectionOffer, safePriceFromWei } from "./lib/offerNormalize";
-import { cancelChainFor, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal, buyChainFor, bookCollectionByContract } from "./lib/venue";
+import { collectionOfferQuantity, normalizeCollectionOffer, safePriceFromWei, feeBpsOf } from "./lib/offerNormalize";
+import { cancelChainFor, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal, buyChainFor, bookCollectionByContract, VENUE_CHAIN_IDS } from "./lib/venue";
+import {
+  SEAPORT_16_ADDRESS, roundUnitPriceDown, validateBuildResponse, buildBidParameters, typedDataFor,
+  wethApprovalTarget, isSeaport16SignedZoneOrder,
+} from "./lib/seaportOffer";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { acceptTradeRefusal, decodeSeaportTrade } from "./lib/seaportTrade";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
@@ -142,6 +146,9 @@ async function fetchBestOfferOrThrow(tokenId, slug = COLLECTION_SLUG, { openseaS
     orderHash: data.order_hash,
     protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
     tokenContract: nftItem?.token || null,
+    // The bid's own fee lines as bps of its offer (null when unknown), for the
+    // seller's net-proceeds preview: offerNormalize.feeBpsOf.
+    feeBps: feeBpsOf(data.protocol_data?.parameters),
     // THE TOKEN WE ASKED ABOUT — never `nftItem.identifierOrCriteria`.
     //
     // On a criteria offer (itemType 4/5) that field is the MERKLE ROOT of every
@@ -292,6 +299,11 @@ function normalizeOffer(order) {
     price: safePriceFromWei(priceWei),
     priceWei,
     feeWei,
+    feeBps: feeBpsOf(params),
+    // The WHOLE order's payment, what it can still pull through the conduit, and
+    // its token: the WETH approval budget sums these (placeBid).
+    offerWei: rawOfferWei,
+    offerToken: offer?.token || null,
     maker: params?.offerer,
     orderHash: order.order_hash,
     tokenId: nftItem?.identifierOrCriteria ? String(nftItem.identifierOrCriteria) : null,
@@ -304,36 +316,25 @@ function normalizeOffer(order) {
 }
 
 // ═══ CREATE OFFERS ═══
+//
+// EVERY BID IS SEAPORT 1.6 WITH OPENSEA'S SIGNEDZONE, built by lib/seaportOffer.js.
+//
+// Until 2026-11-16 none of these worked. The collection and trait builds were
+// refused (400, no `protocol_address`), their post went to `criteria_offers` (404,
+// gone), and a bid on one NFT was signed for Seaport 1.5 with no zone, a format
+// OpenSea stopped taking in April 2024, so a bidder paid the wrap and approval gas
+// before being refused. The order of every step below is the fix as much as the
+// format is:
+//   1. everything that needs no wallet (price on the tick, quantity, fees, expiry);
+//   2. the wallet, its chain, and that it is the account on screen;
+//   3. the token exists (a bid on one NFT), or OpenSea's build is held to the bid;
+//   4. the whole order is built from pinned values, and the counter read;
+//   5. only then any gas: wrap what is missing, one approval for every live bid;
+//   6. sign for Seaport 1.6, post.
 
-
-// ─── Criteria-offer platform fee (2026-08-22 fee-leak audit) ────────────────
-// Item offers have always carried the Tegridy consideration line (PLATFORM_FEE_BPS); collection
-// and trait offers shipped with OpenSea's `offers/build` response verbatim — no
-// Tegridy line at all. Parity is implemented here but ships OFF: OpenSea's
-// criteria_offers endpoint has not yet been PROVEN to accept an extra
-// consideration item on this collection, and a rejected order shape would break
-// a live marketplace feature to collect a fee. Flip after one live canary offer
-// round-trips (docs/FEE_LEAK_LEDGER.md carries the runbook line).
-const CRITERIA_OFFER_PLATFORM_FEE_ENABLED = false;
-
-function withCriteriaPlatformFee(consideration, priceWei) {
-  if (!CRITERIA_OFFER_PLATFORM_FEE_ENABLED) return consideration;
-  if (!(PLATFORM_FEE_BPS > 0) || PLATFORM_FEE_RECIPIENT === "0x0000000000000000000000000000000000000000") {
-    return consideration;
-  }
-  const platformFeeAmount = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
-  return [
-    ...consideration,
-    {
-      itemType: 1, // ERC20 (WETH) — Tegridy platform fee, same line item offers carry
-      token: WETH,
-      identifierOrCriteria: "0",
-      startAmount: platformFeeAmount.toString(),
-      endAmount: platformFeeAmount.toString(),
-      recipient: PLATFORM_FEE_RECIPIENT,
-    },
-  ];
-}
+// The most WETH ever approved in one call; lib/weth.js approveWeth refuses more.
+const MAX_WETH_APPROVAL_WEI = 100n * 10n ** 18n;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // A bid names one token. ownerOf reverts for an id that does not exist, and a
 // bid on one would wrap and approve for an order nobody can ever fill, so it
@@ -352,16 +353,144 @@ async function tokenExistenceRefusal(ethers, contract, tokenId, readProvider = n
   }
 }
 
-// An item offer is made on the chain its NFT lives on (registry): an Ethereum
-// venue collection on Ethereum, a Base buy collection on Base, each with that
-// chain's WETH, Seaport and venue fee Safe, posted to OpenSea's book there.
-export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
-  const book = buyChainFor([contract]);
-  if (book.error) return book;
-  const { chain, chainId } = book;
-  const weth = WETH_BY_CHAIN[chainId];
-  const seaportAddress = SEAPORT_ADDRESSES_BY_CHAIN[chainId];
-  const feeRecipient = PLATFORM_FEE_RECIPIENTS[chainId];
+/**
+ * The unit price a bid is signed at: rounded DOWN to the 0.00001 WETH tick
+ * (lib/seaportOffer PRICE_TICK_WEI), never up, or a refusal. On the tick every
+ * fee is exact and divides by the quantity, which a partial fill needs.
+ */
+function bidUnitPrice(priceEth) {
+  let wei = null;
+  try { wei = parseEther(String(priceEth ?? "").trim()); } catch { /* not a decimal number */ }
+  if (wei == null || wei <= 0n) return { error: "bad-price", message: "Enter a price above zero." };
+  const unit = roundUnitPriceDown(wei);
+  if (unit <= 0n) return { error: "price-too-small", message: "Bids go in steps of 0.00001 WETH, so this one is too small." };
+  return { unit };
+}
+
+/**
+ * The fee lines a bid carries, each a share of the whole offer: every fee OpenSea
+ * REQUIRES for the collection (constants.js OPENSEA_REQUIRED_BID_FEES, pinned so
+ * no API answer decides where a bidder's WETH goes), then the venue's line only
+ * while BID_VENUE_FEE_ENABLED is on. That one switch covers every bid; it replaced
+ * the old criteria-only switch, and it stays off until a test bid proves OpenSea
+ * takes a third-party line AND a simulated fill pays it (FEE_LEAK_LEDGER L-2).
+ * A collection whose required fees are not pinned is refused before any wallet call.
+ */
+function bidFeeLines(collection, chainId) {
+  const required = openseaRequiredBidFees(collection);
+  if (!required) {
+    return { error: "fees-unknown", message: `${collection?.name || "This collection"}'s OpenSea fees are not known here, so nothing was funded or signed.` };
+  }
+  const lines = required.map(({ recipient, bps }) => ({ recipient, bps }));
+  const venue = PLATFORM_FEE_RECIPIENTS[chainId];
+  if (BID_VENUE_FEE_ENABLED && PLATFORM_FEE_BPS > 0 && venue && venue !== ZERO_ADDRESS) {
+    lines.push({ recipient: venue, bps: PLATFORM_FEE_BPS });
+  }
+  return { lines };
+}
+
+/**
+ * The WETH each of this wallet's live bids can still pull through the conduit,
+ * on every collection bid on here on this chain, read with fetchMyOffers' own
+ * reads. null when ANY read fails, so the caller cannot mistake an outage for
+ * "no other bids" and cut the allowance the older bids rely on.
+ */
+async function liveBidTotals(wallet, chain, chainId) {
+  const weth = String(WETH_BY_CHAIN[chainId] || "").toLowerCase();
+  const books = Object.values(COLLECTIONS).filter((c) => c.chain === chain && bookCollectionByContract(c.contract));
+  try {
+    const totals = [];
+    for (const c of books) {
+      for (const o of await fetchMyOffersOrThrow(wallet, c.contract)) {
+        // The whole order (not the per-item price): a partly filled multi-item
+        // bid is counted in full, which can only over-cover it, never under.
+        if (String(o.offerToken || "").toLowerCase() === weth && /^\d+$/.test(String(o.offerWei))) totals.push(BigInt(o.offerWei));
+      }
+    }
+    return totals;
+  } catch (err) {
+    console.warn("Open bid read failed; the WETH approval is only raised:", err?.message);
+    return null;
+  }
+}
+
+/**
+ * Wrap what the bid is missing, then make the conduit's WETH allowance cover
+ * every live bid at once. Returns null when funded, else the typed refusal.
+ *
+ * ONE BUDGET FOR ALL LIVE BIDS (lib/seaportOffer wethApprovalTarget): `approve`
+ * SETS the allowance, so approving only this bid's price (the old code) cut the
+ * allowance under every older bid and they silently stopped filling. Now the
+ * target is the sum of the live bids plus this one, approved once, capped at
+ * 100 WETH. When the open bids cannot be read the allowance is raised by this
+ * bid's total instead, never lowered below what it was.
+ */
+async function fundBid({ buyerAddress, browserProvider, chain, chainId, bidTotal }) {
+  // Step 1: Check WETH balance and wrap if needed (reserve gas buffer)
+  const wethBal = await getWethBalance(buyerAddress, chainId);
+  if (wethBal < bidTotal) {
+    const ethBal = await browserProvider.getBalance(buyerAddress);
+    const needed = bidTotal - wethBal;
+    if (ethBal < needed + GAS_BUFFER_WEI) {
+      return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
+    }
+    // Typed errors so a wrap failure doesn't surface as a generic
+    // "Failed to create offer" — the user needs to know which tx died.
+    try {
+      await wrapEth(needed, chainId);
+    } catch (err) {
+      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+        return { error: "rejected", message: "ETH wrap cancelled by user" };
+      }
+      // Unconfirmed or replaced is not "failed": pass the notice through.
+      if (err.notice) return err.notice;
+      return { error: "wrap-failed", message: `Wrapping ${formatEther(needed)} ETH to WETH failed: ${err.shortMessage || err.message || "transaction failed"}` };
+    }
+  }
+
+  // Step 2: one allowance for every live bid
+  const allowance = await getWethAllowance(buyerAddress, chainId);
+  if (allowance >= MAX_WETH_APPROVAL_WEI) return null; // nothing more can be approved here
+  const liveOfferTotals = await liveBidTotals(buyerAddress, chain, chainId);
+  const { approve } = wethApprovalTarget({ allowance, liveOfferTotals, bidTotal, cap: MAX_WETH_APPROVAL_WEI });
+  if (approve == null) return null;
+  try {
+    await approveWeth(approve, chainId);
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      return { error: "rejected", message: "WETH approval cancelled by user" };
+    }
+    if (err.notice) return err.notice;
+    return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message || "transaction failed"}` };
+  }
+  return null;
+}
+
+const POST_REFUSED = {
+  item: "OpenSea rejected the offer",
+  collection: "OpenSea rejected the collection offer",
+  trait: "OpenSea rejected the trait offer",
+};
+
+/** The one bid flow behind createItemOffer, createCollectionOffer and createTraitOffer. */
+async function placeBid({ kind, collection, chain, chainId, tokenId, quantity, priceEth, expirationHours, criteria }) {
+  // ── 1. Everything that needs no wallet ──
+  const price = bidUnitPrice(priceEth);
+  if (price.error) return price;
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || (kind === "item" && quantity !== 1)) {
+    return { error: "bad-quantity", message: "A bid is for a whole number of NFTs, and a bid on one NFT is for 1." };
+  }
+  const bidTotal = price.unit * BigInt(quantity);
+  if (bidTotal > MAX_WETH_APPROVAL_WEI) {
+    return { error: "too-large", message: "A bid above 100 WETH in total is not made here." };
+  }
+  const fees = bidFeeLines(collection, chainId);
+  if (fees.error) return fees;
+  const hours = Number(expirationHours);
+  if (!Number.isFinite(hours) || hours <= 0) return { error: "bad-expiry", message: "Pick how long the bid lasts." };
+  const lifetimeSec = Math.round(hours * 3600);
+
+  // ── 2. The wallet ──
   // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
   // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -372,7 +501,7 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     const browserProvider = new ethers.BrowserProvider(provider);
     // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
     // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
-    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
+    // wrong chain and produce a signature for an order nobody can fill).
     const _chainErr = await assertOnExpectedChain(browserProvider, chainId);
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
@@ -382,425 +511,144 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
     if (_walletErr) return _walletErr;
 
-    // A Base token is read on Base: the wallet, checked above to be there.
-    const _tokenErr = await tokenExistenceRefusal(ethers, contract, tokenId, chainId === 1 ? null : browserProvider);
-    if (_tokenErr) return _tokenErr;
-
-    const priceWei = parseEther(String(priceEth));
-
-    // Step 1: Check WETH balance and wrap if needed (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress, chainId);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      // Wrap ETH -> WETH (leave gas buffer for approve + sign)
-      // Typed errors so a wrap failure doesn't surface as a generic
-      // "Failed to create offer" — the user needs to know which tx died.
+    // ── 3. The NFT side, before anything costs gas ──
+    let build;
+    if (kind === "item") {
+      // A Base token is read on Base: the wallet, checked above to be there.
+      const _tokenErr = await tokenExistenceRefusal(ethers, collection.contract, tokenId, chainId === 1 ? null : browserProvider);
+      if (_tokenErr) return _tokenErr;
+    } else {
+      // OpenSea builds the NFT line of a collection or trait bid. Asked with the
+      // two fields its spec requires (a build without `protocol_address` is a
+      // 400), and held to the collection, this wallet and the quantity.
+      let buildData;
       try {
-        await wrapEth(needed, chainId);
+        buildData = await openseaPost("offers/build", {
+          offerer: buyerAddress,
+          quantity,
+          criteria,
+          protocol_address: SEAPORT_16_ADDRESS,
+          offer_protection_enabled: true,
+        });
       } catch (err) {
-        if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-          return { error: "rejected", message: "ETH wrap cancelled by user" };
-        }
-        // Unconfirmed or replaced is not "failed": pass the notice through.
-        if (err.notice) return err.notice;
-        return { error: "wrap-failed", message: `Wrapping ${formatEther(needed)} ETH to WETH failed: ${err.shortMessage || err.message || "transaction failed"}` };
+        console.error("Build offer failed:", err.message);
+        return { error: "build-failed", message: kind === "trait" ? "Could not build trait offer" : "Could not build collection offer" };
       }
+      build = buildData?.partialParameters;
+      if (!build || !Array.isArray(build.consideration)) {
+        return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+      }
+      const _buildErr = validateBuildResponse(build, { collectionContract: collection.contract, offerer: buyerAddress, kind, quantity });
+      if (_buildErr) return _buildErr;
     }
 
-    // Step 2: Check WETH allowance for conduit
-    const allowance = await getWethAllowance(buyerAddress, chainId);
-    if (allowance < priceWei) {
-      try {
-        await approveWeth(priceWei, chainId);
-      } catch (err) {
-        if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-          return { error: "rejected", message: "WETH approval cancelled by user" };
-        }
-        if (err.notice) return err.notice;
-        return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message || "transaction failed"}` };
-      }
-    }
-
-    // Step 3: Build the offer order
+    // ── 4. The whole order, from pinned values, and the counter it is signed at ──
     const now = Math.floor(Date.now() / 1000);
-    const endTime = now + expirationHours * 3600;
-
-    // Calculate fees
-    const osFeeAmount = (priceWei * BigInt(OPENSEA_FEE_BPS)) / 10000n;
-    const platformFeeAmount = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
-
-    const consideration = [
-      {
-        itemType: 2, // ERC721
-        token: contract,
-        identifierOrCriteria: String(tokenId),
-        startAmount: "1",
-        endAmount: "1",
-        recipient: buyerAddress,
-      },
-      {
-        itemType: 1, // ERC20 (WETH) - OpenSea fee (its required 1%, the same recipient on Base)
-        token: weth,
-        identifierOrCriteria: "0",
-        startAmount: osFeeAmount.toString(),
-        endAmount: osFeeAmount.toString(),
-        recipient: OPENSEA_FEE_RECIPIENT,
-      },
-    ];
-
-    // Add platform fee if recipient is set (non-zero address): this chain's fee Safe.
-    if (PLATFORM_FEE_BPS > 0 && feeRecipient && feeRecipient !== "0x0000000000000000000000000000000000000000") {
-      consideration.push({
-        itemType: 1, // ERC20 (WETH) - Platform fee
-        token: weth,
-        identifierOrCriteria: "0",
-        startAmount: platformFeeAmount.toString(),
-        endAmount: platformFeeAmount.toString(),
-        recipient: feeRecipient,
-      });
-    }
-
-    const orderParameters = {
+    const parameters = buildBidParameters({
+      chainId,
       offerer: buyerAddress,
-      zone: "0x0000000000000000000000000000000000000000",
-      offer: [{
-        itemType: 1, // ERC20 (WETH)
-        token: weth,
-        identifierOrCriteria: "0",
-        startAmount: priceWei.toString(),
-        endAmount: priceWei.toString(),
-      }],
-      consideration,
-      orderType: 0, // FULL_OPEN
-      startTime: String(now),
-      endTime: String(endTime),
-      zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      kind,
+      collectionContract: collection.contract,
+      tokenId,
+      quantity,
+      unitPriceWei: price.unit,
+      feeLines: fees.lines,
+      build,
+      startTime: now,
+      endTime: now + lifetimeSec,
       salt: ethers.hexlify(ethers.randomBytes(32)),
-      conduitKey: CONDUIT_KEY,
-      totalOriginalConsiderationItems: consideration.length,
-    };
-
-    // Step 4: Get the counter from Seaport contract
-    const seaportABI = ["function getCounter(address) view returns (uint256)"];
-    const seaport = new ethers.Contract(seaportAddress, seaportABI, browserProvider);
+    });
+    const seaport = new ethers.Contract(SEAPORT_16_ADDRESS, ["function getCounter(address) view returns (uint256)"], browserProvider);
     const counter = await seaport.getCounter(buyerAddress);
 
-    // Step 5: Sign EIP-712 (using shared domain + types from constants)
-    const signData = { ...orderParameters, counter: counter.toString() };
-    const signature = await signer.signTypedData(SEAPORT_DOMAINS[chainId], SEAPORT_ORDER_TYPES, signData);
+    // ── 5. Only now any gas ──
+    const _fundErr = await fundBid({ buyerAddress, browserProvider, chain, chainId, bidTotal });
+    if (_fundErr) return _fundErr;
 
-    // Step 6: POST to OpenSea (via proxy), on the NFT's chain
+    // ── 6. Sign for Seaport 1.6, post to the route OpenSea's spec names ──
+    const typed = typedDataFor(parameters, counter, chainId);
+    const signature = await signer.signTypedData(typed.domain, typed.types, typed.message);
+    // Both posts carry the counter inside `parameters` (OpenAPI SeaportParameters).
+    const posted = { ...parameters, counter: counter.toString() };
     let result;
     try {
-      result = await openseaPost(`orders/${chain}/seaport/offers`, {
-        parameters: { ...orderParameters, totalOriginalConsiderationItems: orderParameters.consideration.length },
-        signature,
-        protocol_address: seaportAddress,
-      });
+      result = kind === "item"
+        // post_offer: an item offer, on the NFT's own chain.
+        ? await openseaPost(`orders/${chain}/seaport/offers`, { parameters: posted, signature, protocol_address: SEAPORT_16_ADDRESS })
+        // post_criteria_offer_v2: a collection or trait offer.
+        : await openseaPost("offers", { criteria, protocol_address: SEAPORT_16_ADDRESS, protocol_data: { parameters: posted, signature } });
     } catch (err) {
       console.error("OpenSea offer POST failed:", err.message);
-      return { error: "post-failed", message: "OpenSea rejected the offer" };
+      return { error: "post-failed", message: POST_REFUSED[kind] };
     }
-    return { success: true, orderHash: result.order?.order_hash || result.order_hash };
-  } catch (err) {
-    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-      return { error: "rejected", message: "Offer cancelled by user" };
-    }
-    console.error("Create offer error:", err);
-    return { error: "failed", message: err.shortMessage || err.message || "Failed to create offer" };
-  }
-}
-
-// ═══ CREATE COLLECTION OFFER ═══
-
-// The NFT leg of a collection or trait bid is OpenSea's offers/build answer,
-// not ours. Every NFT item in it must be a criteria item (itemType 4) on the
-// venue collection's contract, delivered to the bidder, or nothing is funded or
-// signed. The build's conduit and order type go into the signed order too, so
-// they must be Seaport's standard conduit and an ordinary (non-contract) order.
-export function criteriaBuildRefusal(partial, collection, buyer) {
-  const want = collection.contract.toLowerCase();
-  const nfts = partial.consideration.filter((c) => NFT_ITEM_TYPES.has(Number(c?.itemType)));
-  const pinned = nfts.length > 0
-    && nfts.every((c) => Number(c.itemType) === 4 && String(c.token || "").toLowerCase() === want);
-  if (!pinned) {
-    return {
-      error: "nft-mismatch",
-      message: `OpenSea built this bid for something other than ${collection.name}, so nothing was funded or signed.`,
-    };
-  }
-  if (!nfts.every((c) => String(c.recipient || "").toLowerCase() === String(buyer).toLowerCase())) {
-    return {
-      error: "wrong-recipient",
-      message: "OpenSea built this bid to deliver the NFT to a different wallet than yours, so nothing was funded or signed.",
-    };
-  }
-  const conduitOk = partial.conduitKey == null || String(partial.conduitKey).toLowerCase() === CONDUIT_KEY.toLowerCase();
-  const orderType = partial.orderType == null ? 2 : Number(partial.orderType);
-  if (!conduitOk || ![0, 1, 2, 3].includes(orderType)) {
-    return {
-      error: "build-mismatch",
-      message: "OpenSea built this bid with settings this venue does not sign, so nothing was funded or signed.",
-    };
-  }
-  return null;
-}
-
-export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
-  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
-  if (refusal) return refusal;
-  const osSlug = openseaSlug || slug;
-  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
-  const { provider, address: connectedAddress } = await getActiveWalletProvider();
-  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
-
-  try {
-    const { ethers } = await import("ethers");
-    const browserProvider = new ethers.BrowserProvider(provider);
-    // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
-    // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
-    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
-    const _chainErr = await assertOnExpectedChain(browserProvider);
-    if (_chainErr) return _chainErr;
-    const signer = await browserProvider.getSigner();
-    const buyerAddress = await signer.getAddress();
-    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
-    if (_walletErr) return _walletErr;
-    const priceWei = parseEther(String(priceEth));
-
-    // Step 1: Build offer via OpenSea (collection-wide, no trait) — via proxy.
-    // Asked before any wrap or approve, so a failed or foreign build costs no gas.
-    let buildData;
-    try {
-      buildData = await openseaPost("offers/build", {
-        offerer: buyerAddress,
-        quantity: 1,
-        criteria: {
-          collection: { slug: osSlug },
-        },
-      });
-    } catch (err) {
-      console.error("Build collection offer failed:", err.message);
-      return { error: "build-failed", message: "Could not build collection offer" };
-    }
-    const partial = buildData.partialParameters;
-    if (!partial || !partial.consideration) {
-      return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
-    }
-    const _nftErr = criteriaBuildRefusal(partial, venueCollectionBySlug(osSlug), buyerAddress);
-    if (_nftErr) return _nftErr;
-
-    // Step 2: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 3: Build order parameters
-    const now = Math.floor(Date.now() / 1000);
-    const endTime = now + expirationHours * 3600;
-
-    const orderParameters = {
-      offerer: buyerAddress,
-      zone: partial.zone,
-      offer: [{
-        itemType: 1,
-        token: WETH,
-        identifierOrCriteria: "0",
-        startAmount: priceWei.toString(),
-        endAmount: priceWei.toString(),
-      }],
-      consideration: withCriteriaPlatformFee(partial.consideration.map(c => ({
-        ...c,
-        startAmount: c.startAmount || "0",
-        endAmount: c.endAmount || "0",
-      })), priceWei),
-      orderType: partial.orderType || 2,
-      startTime: String(now),
-      endTime: String(endTime),
-      zoneHash: partial.zoneHash,
-      salt: ethers.hexlify(ethers.randomBytes(32)),
-      conduitKey: partial.conduitKey || CONDUIT_KEY,
-      totalOriginalConsiderationItems: 0, // set from the FINAL consideration right below
-    };
-
-    orderParameters.totalOriginalConsiderationItems = orderParameters.consideration.length;
-
-    // Step 4: Get counter & sign EIP-712
-    const seaportABI = ["function getCounter(address) view returns (uint256)"];
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, browserProvider);
-    const counter = await seaport.getCounter(buyerAddress);
-
-    const signData = { ...orderParameters, counter: counter.toString() };
-    const signature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
-
-    // Step 5: POST criteria offer (collection-wide) — via proxy
-    try {
-      await openseaPost("criteria_offers", {
-        parameters: orderParameters,
-        signature,
-        protocol_address: SEAPORT_ADDRESS,
-        criteria: {
-          collection: { slug: osSlug },
-        },
-      });
-    } catch (err) {
-      console.error("OpenSea collection offer POST failed:", err.message);
-      return { error: "post-failed", message: "OpenSea rejected the collection offer" };
-    }
-
-    return { success: true };
+    return { success: true, orderHash: result?.order_hash || result?.order?.order_hash || null };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Offer cancelled by user" };
     }
     // A wrap or approval that is unconfirmed or replaced is not "failed".
     if (err.notice) return err.notice;
-    console.error("Create collection offer error:", err);
-    return { error: "failed", message: err.shortMessage || err.message || "Failed to create collection offer" };
+    console.error("Create offer error:", err);
+    return { error: "failed", message: err.shortMessage || err.message || "Failed to create offer" };
   }
+}
+
+// An item offer is made on the chain its NFT lives on (registry): an Ethereum
+// venue collection on Ethereum, a Base buy collection on Base, each with that
+// chain's WETH, on Seaport 1.6 (the same address on both), posted to OpenSea's
+// book there.
+export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
+  const book = buyChainFor([contract]);
+  if (book.error) return book;
+  return placeBid({
+    kind: "item",
+    collection: bookCollectionByContract(contract),
+    chain: book.chain,
+    chainId: book.chainId,
+    tokenId,
+    quantity: 1,
+    priceEth,
+    expirationHours,
+  });
+}
+
+// ═══ CREATE COLLECTION OFFER ═══
+
+export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug, quantity = 1 }) {
+  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
+  if (refusal) return refusal;
+  const osSlug = openseaSlug || slug;
+  const collection = venueCollectionBySlug(osSlug);
+  return placeBid({
+    kind: "collection",
+    collection,
+    chain: collection.chain,
+    chainId: VENUE_CHAIN_IDS[collection.chain],
+    quantity,
+    priceEth,
+    expirationHours,
+    criteria: { collection: { slug: osSlug } },
+  });
 }
 
 // ═══ CREATE TRAIT OFFER ═══
 
-export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
+export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug, quantity = 1 }) {
   const refusal = venueSlugRefusal(openseaSlug || slug, slug);
   if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
-  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
-  const { provider, address: connectedAddress } = await getActiveWalletProvider();
-  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
-
-  try {
-    const { ethers } = await import("ethers");
-    const browserProvider = new ethers.BrowserProvider(provider);
-    // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
-    // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
-    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
-    const _chainErr = await assertOnExpectedChain(browserProvider);
-    if (_chainErr) return _chainErr;
-    const signer = await browserProvider.getSigner();
-    const buyerAddress = await signer.getAddress();
-    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
-    if (_walletErr) return _walletErr;
-    const priceWei = parseEther(String(priceEth));
-
-    // Step 1: Call OpenSea's build_offer endpoint via proxy. Asked before any
-    // wrap or approve, so a failed or foreign build costs no gas.
-    let buildData;
-    try {
-      buildData = await openseaPost("offers/build", {
-        offerer: buyerAddress,
-        quantity: 1,
-        criteria: {
-          collection: { slug: osSlug },
-          trait: { type: traitType, value: traitValue },
-        },
-      });
-    } catch (err) {
-      console.error("Build offer failed:", err.message);
-      return { error: "build-failed", message: "Could not build trait offer" };
-    }
-    const partial = buildData.partialParameters;
-    if (!partial || !partial.consideration) {
-      return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
-    }
-    const _nftErr = criteriaBuildRefusal(partial, venueCollectionBySlug(osSlug), buyerAddress);
-    if (_nftErr) return _nftErr;
-
-    // Step 2: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 3: Merge partial params with our offer
-    const now = Math.floor(Date.now() / 1000);
-    const endTime = now + expirationHours * 3600;
-
-    const orderParameters = {
-      offerer: buyerAddress,
-      zone: partial.zone,
-      offer: [{
-        itemType: 1,
-        token: WETH,
-        identifierOrCriteria: "0",
-        startAmount: priceWei.toString(),
-        endAmount: priceWei.toString(),
-      }],
-      consideration: withCriteriaPlatformFee(partial.consideration.map(c => ({
-        ...c,
-        startAmount: c.startAmount || "0",
-        endAmount: c.endAmount || "0",
-      })), priceWei),
-      orderType: partial.orderType || 2,
-      startTime: String(now),
-      endTime: String(endTime),
-      zoneHash: partial.zoneHash,
-      salt: ethers.hexlify(ethers.randomBytes(32)),
-      conduitKey: partial.conduitKey || CONDUIT_KEY,
-      totalOriginalConsiderationItems: 0, // set from the FINAL consideration right below
-    };
-
-    orderParameters.totalOriginalConsiderationItems = orderParameters.consideration.length;
-
-    // Step 4: Get counter & sign
-    const seaportABI = ["function getCounter(address) view returns (uint256)"];
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, browserProvider);
-    const counter = await seaport.getCounter(buyerAddress);
-
-    const signData = { ...orderParameters, counter: counter.toString() };
-    const signature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
-
-    // Step 5: POST criteria offer — via proxy
-    try {
-      await openseaPost("criteria_offers", {
-        parameters: orderParameters,
-        signature,
-        protocol_address: SEAPORT_ADDRESS,
-        criteria: {
-          collection: { slug: osSlug },
-          trait: { type: traitType, value: traitValue },
-        },
-      });
-    } catch (err) {
-      console.error("OpenSea criteria offer POST failed:", err.message);
-      return { error: "post-failed", message: "OpenSea rejected the trait offer" };
-    }
-
-    return { success: true };
-  } catch (err) {
-    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-      return { error: "rejected", message: "Offer cancelled by user" };
-    }
-    if (err.notice) return err.notice;
-    console.error("Create trait offer error:", err);
-    return { error: "failed", message: err.shortMessage || err.message || "Failed to create trait offer" };
-  }
+  const collection = venueCollectionBySlug(osSlug);
+  return placeBid({
+    kind: "trait",
+    collection,
+    chain: collection.chain,
+    chainId: VENUE_CHAIN_IDS[collection.chain],
+    quantity,
+    priceEth,
+    expirationHours,
+    // `traits`, the array OpenSea's SDK sends (`trait` is deprecated in its spec).
+    criteria: { collection: { slug: osSlug }, traits: [{ type: String(traitType), value: String(traitValue) }] },
+  });
 }
 
 // ═══ THE COLLECTION-SCOPED v2 READS THAT REPLACED THE SEAPORT ORDER ROUTES ═══
@@ -867,15 +715,25 @@ const MAX_MY_PAGES = 10; // Safety cap: 10 pages * 50 = up to 500 orders
 
 // Read on the CONTRACT's own collection. A contract the venue does not trade is
 // refused (thrown), not answered with an empty list the read never produced.
+//
+// This form THROWS when the read fails. The WETH approval budget (placeBid) must
+// tell "no other live bids" from "could not ask": reading an outage as an empty
+// book would approve only the new bid and cut the allowance every older bid needs.
+async function fetchMyOffersOrThrow(wallet, contract = CONTRACT) {
+  const collection = bookCollectionByContract(contract);
+  if (!collection) throw venueRefusalError(venueRefusal(contract));
+  const allOrders = await fetchPagesByMaker(`offers/collection/${collection.openseaSlug}/all`, wallet);
+  const now = Math.floor(Date.now() / 1000);
+  return allOrders
+    .filter(o => isLiveOrder(o, now))
+    .map(normalizeOffer);
+}
+
 export async function fetchMyOffers(wallet, contract = CONTRACT) {
   const collection = bookCollectionByContract(contract);
   if (!collection) throw venueRefusalError(venueRefusal(contract));
   try {
-    const allOrders = await fetchPagesByMaker(`offers/collection/${collection.openseaSlug}/all`, wallet);
-    const now = Math.floor(Date.now() / 1000);
-    return allOrders
-      .filter(o => isLiveOrder(o, now))
-      .map(normalizeOffer);
+    return await fetchMyOffersOrThrow(wallet, contract);
   } catch (err) {
     console.warn("Fetch my offers failed:", err.message);
     return [];
@@ -949,10 +807,39 @@ export async function cancelOrder(order) {
     const signer = await browserProvider.getSigner();
     // Only the offerer can cancel. Signing from a different wallet burns gas on
     // a cancel that marks nothing and reports success.
-    const _walletErr = assertSameWallet(await signer.getAddress(), connectedAddress);
+    const signerAddress = await signer.getAddress();
+    const _walletErr = assertSameWallet(signerAddress, connectedAddress);
     if (_walletErr) return _walletErr;
 
     if (!params) return { error: "failed", message: "Missing order parameters" };
+
+    // ── A Seaport 1.6 SignedZone order (every bid made here): OpenSea's gasless
+    // cancel first (lib/seaportCancel.js cancelSeaportOrderGasless). It costs
+    // nothing, and OpenSea stops approving fills at once, except a fill it
+    // approved in the last 5 minutes, which the message says. If OpenSea refuses
+    // it (a very new order may need an on-chain cancel), cannot be reached, or
+    // the order hash is not this order's, the on-chain cancel below runs as
+    // before. A Seaport 1.5 or zone-less order always takes the on-chain cancel.
+    const signedProtocol = order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
+    if (isSeaport16SignedZoneOrder(params, signedProtocol)
+      && String(params.offerer || "").toLowerCase() === String(signerAddress).toLowerCase()) {
+      const orderHash = order.orderHash || order.order_hash || order.rawOrder?.order_hash || null;
+      let off = null;
+      try {
+        off = await cancelSeaportOrderGasless({ ethers, signer, params, orderHash, chainId: where.chainId, post: openseaPost });
+      } catch (err) {
+        // The wallet said no to the cancel signature: that is the answer, not a
+        // reason to ask for an on-chain cancel the user did not agree to either.
+        if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+          return { error: "rejected", message: "Transaction cancelled" };
+        }
+        console.warn("Gasless cancel failed; cancelling on chain:", err?.message);
+      }
+      if (off?.ok) {
+        return { success: true, gasless: true, message: GASLESS_CANCEL_DONE, lastSignatureValidUntil: off.lastSignatureValidUntil };
+      }
+      if (off) console.warn("Gasless cancel not confirmed; cancelling on chain:", off.reason);
+    }
 
     // F630: cancel via the shared helper — reads the offerer's live counter and
     // rebuilds OrderComponents so cancel() targets the REAL order hash (the old
@@ -993,6 +880,16 @@ export async function cancelOrder(order) {
 }
 
 // ═══ ACCEPT OFFER (for token owners) ═══
+
+const OFFER_GONE_MESSAGE = "This bid just changed or ended.";
+// The statuses api/opensea.js forwards from OpenSea as a permanent refusal
+// (PERMANENT_UPSTREAM_STATUSES), less 405, which is about the route, not the order.
+const ORDER_GONE_STATUSES = new Set([400, 404, 410, 422]);
+
+/** True when OpenSea itself refused to build a fill: the order is gone or invalid. */
+function isOrderGoneRefusal(err) {
+  return ORDER_GONE_STATUSES.has(Number(err?.status)) && /upstream-rejected/.test(String(err?.message || ""));
+}
 
 export async function acceptOffer(offer) {
   // The NFT a seller hands over is the offer's own contract. One that does not
@@ -1066,7 +963,13 @@ export async function acceptOffer(offer) {
           ? { consideration: { asset_contract_address: nftContract, token_id: fillTokenId } }
           : {}),
       });
-    } catch {
+    } catch (err) {
+      // NO STALE ACCEPT. OpenSea will not build a fill for an order that is not
+      // there to fill any more (cancelled, filled, expired, re-priced into a new
+      // order, or never existed): it answers 4xx, which the proxy forwards as
+      // `upstream-rejected`. The seller is told plainly and nothing is approved
+      // or sent. Anything else (a 5xx, a timeout) stays the retryable message.
+      if (isOrderGoneRefusal(err)) return { error: "offer-gone", message: OFFER_GONE_MESSAGE };
       return { error: "failed", message: "Could not get fulfillment data" };
     }
     const txData = data.fulfillment_data?.transaction;

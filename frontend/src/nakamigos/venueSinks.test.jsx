@@ -48,6 +48,9 @@ const NOT_ON_BOOK = {
 };
 const BASE_SAFE = "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0";
 const ETH_SAFE = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
+// OpenSea's SignedZone for Seaport 1.6, the same on Ethereum and Base.
+const SIGNED_ZONE = "0x000056F7000000EcE9003ca63978907a00FFD100";
+const OPENSEA_FEE = "0x0000a26b00c1F0DF003000390027140000fAa719";
 const BASE_WETH = "0x4200000000000000000000000000000000000006";
 const SEAPORT_15 = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 const VENUE = ADDR.gnssart;
@@ -68,6 +71,7 @@ const h = vi.hoisted(() => ({
   openseaGet: null,
   wrapEth: null,
   approveWeth: null,
+  bidVenueFee: false,
 }));
 
 vi.mock("./constants", async (importOriginal) => ({
@@ -75,6 +79,8 @@ vi.mock("./constants", async (importOriginal) => ({
   // The bundle path is behind a feature flag that is off in production. It is
   // switched on here so the venue check BEHIND the flag is exercised too.
   BUNDLE_LISTING_ENABLED: true,
+  // Off in production, as there; a test switches it on to see the venue's line.
+  get BID_VENUE_FEE_ENABLED() { return h.bidVenueFee; },
 }));
 
 vi.mock("../lib/wagmi", () => ({ config: { __test: true } }));
@@ -162,6 +168,7 @@ beforeEach(() => {
   h.openseaGet = vi.fn(async () => ({}));
   h.wrapEth = vi.fn(async () => ({ hash: "0xwrap" }));
   h.approveWeth = vi.fn(async () => ({ hash: "0xapprove" }));
+  h.bidVenueFee = false;
   h.contractImpl = (method) => {
     switch (method) {
       case "isApprovedForAll": return Promise.resolve(false);
@@ -563,10 +570,11 @@ describe("api-offers.js", () => {
     const criteria = (token, itemType = 4) => ({
       itemType, token, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET,
     });
+    // OpenSea's live build shape (2026-11-16): the NFT line, its SignedZone, a zero zoneHash.
     const build = (consideration) => ({
       partialParameters: {
         consideration,
-        zone: "0x" + "0".repeat(40),
+        zone: SIGNED_ZONE,
         zoneHash: "0x" + "0".repeat(64),
       },
     });
@@ -637,7 +645,8 @@ describe("api-offers.js", () => {
       const signed = h.signTypedData.mock.calls[0][2];
       const nftTokens = signed.consideration.filter((c) => [2, 3, 4, 5].includes(Number(c.itemType))).map((c) => c.token.toLowerCase());
       expect(nftTokens).toEqual([GOLD.toLowerCase()]);
-      expect(posted()).toEqual(["offers/build", "criteria_offers"]);
+      // OpenSea's criteria-offer route (`criteria_offers` is gone, 404).
+      expect(posted()).toEqual(["offers/build", "offers"]);
     });
 
     it("positive control: a gnssart trait build naming gnssart is signed", async () => {
@@ -935,7 +944,7 @@ describe("Bojungles and Seeds are listed, bought from the book and bid on, on Ba
         expect(posted().map((b) => [b.action, b.chainId])).toEqual([["cancel", 8453]]);
       });
 
-      it("an item bid on Base is funded in Base WETH, signed for Seaport 1.6 on Base, pays the Base treasury and is posted to Base", async () => {
+      it("an item bid on Base is funded in Base WETH, signed for Seaport 1.6 on Base with OpenSea's SignedZone, and is posted to Base", async () => {
         h.chainId = BASE;
         h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
         const offers = await import("./api-offers");
@@ -945,16 +954,32 @@ describe("Bojungles and Seeds are listed, bought from the book and bid on, on Ba
         expect(h.approveWeth.mock.calls[0][1]).toBe(8453);
         const [domain, , signed] = h.signTypedData.mock.calls[0];
         expect(domain).toEqual({ name: "Seaport", version: "1.6", chainId: 8453, verifyingContract: SEAPORT_16 });
+        expect(signed.zone).toBe(SIGNED_ZONE);
+        expect(signed.orderType).toBe(3);
         expect(signed.offer[0].token).toBe(BASE_WETH);
-        expect(signed.consideration.map((c) => [c.token, c.recipient, c.startAmount])).toEqual([
+        // OpenSea's required 1%, and no venue line while BID_VENUE_FEE_ENABLED is off.
+        expect(signed.consideration.map((c) => [c.token, c.recipient, String(c.startAmount)])).toEqual([
           [contract, WALLET, "1"],
-          [BASE_WETH, "0x0000a26b00c1F0DF003000390027140000fAa719", "100000000000000"],
-          [BASE_WETH, BASE_SAFE, "50000000000000"],
+          [BASE_WETH, OPENSEA_FEE, "100000000000000"],
         ]);
         expect(h.openseaPost.mock.calls[0][0]).toBe("orders/base/seaport/offers");
         expect(h.openseaPost.mock.calls[0][1].protocol_address).toBe(SEAPORT_16);
+        expect(h.openseaPost.mock.calls[0][1].parameters.counter).toBe("0");
         // The token is read on Base, through the wallet, not Ethereum's read provider.
         expect(h.contractCalls.find((c) => c.method === "ownerOf").target).toBe(contract);
+      });
+
+      it("with the venue's bid line switched on, a Base item bid pays it to the Base treasury Safe", async () => {
+        h.chainId = BASE;
+        h.bidVenueFee = true;
+        h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
+        const offers = await import("./api-offers");
+        expect((await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract })).success).toBe(true);
+        const [, , signed] = h.signTypedData.mock.calls[0];
+        expect(signed.consideration.slice(1).map((c) => [c.recipient, String(c.startAmount)])).toEqual([
+          [OPENSEA_FEE, "100000000000000"],
+          [BASE_SAFE, "50000000000000"],
+        ]);
       });
 
       it("an item bid with the wallet on Ethereum asks for Base, and nothing is wrapped or signed", async () => {
@@ -1000,16 +1025,29 @@ describe("Bojungles and Seeds are listed, bought from the book and bid on, on Ba
     expect(posted()[0].order.protocol_address).toBe(SEAPORT_15);
   });
 
-  it("an Ethereum item bid is unchanged: Ethereum WETH, the Ethereum fee Safe, posted to Ethereum", async () => {
+  it("an Ethereum item bid: Ethereum WETH, Seaport 1.6 on chain 1 with OpenSea's SignedZone, posted to Ethereum", async () => {
     h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
     const offers = await import("./api-offers");
     const res = await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract: GOLD });
     expect(res.success).toBe(true);
-    const [, , signed] = h.signTypedData.mock.calls[0];
-    expect(signed.consideration[2].recipient).toBe(ETH_SAFE);
+    const [domain, , signed] = h.signTypedData.mock.calls[0];
+    // Seaport 1.5 with no zone, the format OpenSea stopped taking in April 2024, is gone.
+    expect(domain).toEqual({ name: "Seaport", version: "1.6", chainId: 1, verifyingContract: SEAPORT_16 });
+    expect(signed.zone).toBe(SIGNED_ZONE);
+    expect(signed.consideration.map((c) => c.recipient)).toEqual([WALLET, OPENSEA_FEE]);
     expect(signed.offer[0].token).toBe("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
     expect(h.openseaPost.mock.calls[0][0]).toBe("orders/ethereum/seaport/offers");
     expect(h.wrapEth.mock.calls[0][1]).toBe(1);
+  });
+
+  it("with the venue's bid line switched on, an Ethereum item bid pays it to the Ethereum fee Safe", async () => {
+    h.bidVenueFee = true;
+    h.openseaPost = vi.fn(async () => ({ order: { order_hash: "0xbid" } }));
+    const offers = await import("./api-offers");
+    expect((await offers.createItemOffer({ tokenId: "7", priceEth: 0.01, contract: GOLD })).success).toBe(true);
+    const [, , signed] = h.signTypedData.mock.calls[0];
+    expect(signed.consideration[2].recipient).toBe(ETH_SAFE);
+    expect(String(signed.consideration[2].startAmount)).toBe("50000000000000");
   });
 
   it("a Bojungles bundle is still refused: bundles stay Ethereum only", async () => {
@@ -1125,7 +1163,7 @@ describe("a fill is held to the trade on screen", () => {
     const nftLeg = (over = {}) => ({ itemType: 4, token: GOLD, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET, ...over });
     const answer = (partial) => {
       h.openseaPost = vi.fn(async (path) => (path === "offers/build"
-        ? { partialParameters: { zone: "0x" + "0".repeat(40), zoneHash: "0x" + "0".repeat(64), ...partial } }
+        ? { partialParameters: { zone: SIGNED_ZONE, zoneHash: "0x" + "0".repeat(64), ...partial } }
         : { ok: true }));
     };
     const bid = async () => (await import("./api-offers")).createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" });
@@ -1143,14 +1181,28 @@ describe("a fill is held to the trade on screen", () => {
 
     it("a foreign conduit is refused before anything is funded or signed", async () => {
       answer({ consideration: [nftLeg()], conduitKey: "0x" + "1".repeat(64) });
-      expect((await bid()).error).toBe("build-mismatch");
+      expect(await bid()).toMatchObject({ error: "build-mismatch", field: "conduitKey" });
       expectUnfunded();
     });
 
     it("a contract-order type is refused before anything is funded or signed", async () => {
       answer({ consideration: [nftLeg()], orderType: 4 });
-      expect((await bid()).error).toBe("build-mismatch");
+      expect(await bid()).toMatchObject({ error: "build-mismatch", field: "orderType" });
       expectUnfunded();
+    });
+
+    it("a build without OpenSea's SignedZone is refused before anything is funded or signed", async () => {
+      answer({ consideration: [nftLeg()], zone: "0x" + "0".repeat(40) });
+      expect(await bid()).toMatchObject({ error: "build-mismatch", field: "zone" });
+      expectUnfunded();
+    });
+
+    it("the build is asked for Seaport 1.6 with offer protection, the two fields OpenSea requires", async () => {
+      answer({ consideration: [nftLeg()] });
+      await bid();
+      const [path, body] = h.openseaPost.mock.calls[0];
+      expect(path).toBe("offers/build");
+      expect(body).toMatchObject({ protocol_address: SEAPORT_16, offer_protection_enabled: true, quantity: 1, offerer: WALLET });
     });
 
     it("positive control: the standard build delivering to the bidder is signed", async () => {

@@ -407,6 +407,147 @@ describe("listings sub-path allowlist", () => {
   });
 });
 
+// ─── BIDS ARE SEAPORT 1.6: THE CRITERIA ROUTES AND THE GASLESS CANCEL ──────
+//
+// Measured 2026-11-15: OpenSea's `criteria_offers` route is gone (OPTIONS 404);
+// collection and trait offers are built at `offers/build` (which 400s without
+// `protocol_address`) and posted to `offers`. A SignedZone order is cancelled
+// without gas at orders/chain/{chain}/protocol/{protocol}/{hash}/cancel with a
+// body of the offerer's signature. The proxy admits exactly those, for venue
+// collections and Seaport 1.6 only, and nothing else in their place.
+describe("opensea — Seaport 1.6 bid routes", () => {
+  const SEAPORT_16 = "0x0000000000000068F116a894984e2DB1123eB395";
+  const SEAPORT_15 = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
+  const HASH = "0x" + "ab".repeat(32);
+  const SIG = "0x" + "cd".repeat(65);
+  const cancelPath = (chain = "ethereum", protocol = SEAPORT_16.toLowerCase(), hash = HASH) =>
+    `orders/chain/${chain}/protocol/${protocol}/${hash}/cancel`;
+  const criteriaBody = (over = {}) => ({
+    criteria: { collection: { slug: "junglebay" } },
+    protocol_address: SEAPORT_16,
+    ...over,
+  });
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.OPENSEA_API_KEY = "test-key";
+    process.env.NODE_ENV = "test";
+    checkGlobalLimitMock.mockResolvedValue(true);
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ order_hash: HASH, last_signature_issued_valid_until: "0" }),
+    }));
+    handler = (await import("../opensea.js")).default;
+  });
+
+  async function send({ method = "POST", path, body, query = {} }) {
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(makeReq({ method, query: { path, ...query }, body }), res);
+    return { status: statusSpy.mock.calls.at(-1)?.[0], body: jsonSpy.mock.calls.at(-1)?.[0] };
+  }
+  const upstreamUrl = () => String(globalThis.fetch.mock.calls[0]?.[0] ?? "");
+
+  it("refuses the dead `criteria_offers` route outright", async () => {
+    const out = await send({ path: "criteria_offers", body: criteriaBody() });
+    expect(out.status).toBe(400);
+    expect(out.body).toEqual({ error: "Invalid or missing path" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("posts a venue collection's criteria offer to `offers`", async () => {
+    const out = await send({ path: "offers", body: criteriaBody() });
+    expect(out.status).toBe(200);
+    expect(upstreamUrl()).toBe("https://api.opensea.io/api/v2/offers");
+    expect(globalThis.fetch.mock.calls[0][1].method).toBe("POST");
+  });
+
+  it("builds a venue collection's offer at `offers/build` for Seaport 1.6", async () => {
+    const out = await send({ path: "offers/build", body: criteriaBody({ offerer: "0x" + "a".repeat(40), quantity: 1, offer_protection_enabled: true }) });
+    expect(out.status).toBe(200);
+    expect(upstreamUrl()).toBe("https://api.opensea.io/api/v2/offers/build");
+  });
+
+  it("keeps the venue-slug check on both criteria routes", async () => {
+    for (const path of ["offers", "offers/build"]) {
+      for (const slug of ["boredapeyachtclub", "bojungless", undefined]) {
+        const out = await send({ path, body: criteriaBody({ criteria: { collection: { slug } } }) });
+        expect(out.status, `${path} ${slug}`).toBe(403);
+      }
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a criteria build or post for any protocol but Seaport 1.6", async () => {
+    for (const path of ["offers", "offers/build"]) {
+      for (const protocol_address of [SEAPORT_15, undefined, "0x" + "1".repeat(40), 7]) {
+        const out = await send({ path, body: criteriaBody({ protocol_address }) });
+        expect(out.status, `${path} ${protocol_address}`).toBe(400);
+      }
+      // Any case of the same address is the same protocol.
+      expect((await send({ path, body: criteriaBody({ protocol_address: SEAPORT_16.toLowerCase() }) })).status).toBe(200);
+    }
+  });
+
+  it("takes only a POST on the criteria routes", async () => {
+    for (const path of ["offers", "offers/build"]) {
+      expect((await send({ method: "GET", path })).status).toBe(405);
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards a gasless cancel of exactly one shape, on Ethereum and on Base", async () => {
+    for (const chain of ["ethereum", "base"]) {
+      globalThis.fetch.mockClear();
+      const out = await send({ path: cancelPath(chain), body: { offererSignature: SIG } });
+      expect(out.status, chain).toBe(200);
+      expect(upstreamUrl()).toBe(`https://api.opensea.io/api/v2/${cancelPath(chain)}`);
+      expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body)).toEqual({ offererSignature: SIG });
+    }
+  });
+
+  it("refuses a cancel body that is anything but one 65-byte signature", async () => {
+    const bad = [
+      { offererSignature: SIG, extra: 1 },
+      { offererSignature: "0x" + "cd".repeat(64) },
+      { offererSignature: "0x" + "zz".repeat(65) },
+      { offererSignature: SIG.slice(2) },
+      { signature: SIG },
+      {},
+      [SIG],
+      undefined,
+    ];
+    for (const body of bad) {
+      const out = await send({ path: cancelPath(), body });
+      expect(out.status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await send({ path: cancelPath(), body: { offererSignature: SIG }, query: { limit: "5" } })).status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cancel for another protocol, chain or hash shape, and any GET", async () => {
+    for (const path of [
+      cancelPath("ethereum", SEAPORT_15.toLowerCase()),
+      cancelPath("polygon"),
+      cancelPath("ethereum", SEAPORT_16.toLowerCase(), "0x" + "ab".repeat(31)),
+      cancelPath("ethereum", SEAPORT_16.toLowerCase(), "0x" + "zz".repeat(32)),
+      `${cancelPath()}/actions`,
+      cancelPath().replace("/cancel", "/cancel/"),
+    ]) {
+      expect((await send({ path, body: { offererSignature: SIG } })).status, path).toBe(400);
+    }
+    expect((await send({ method: "GET", path: cancelPath() })).status).toBe(405);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the body cap on the new routes", async () => {
+    expect((await send({ path: cancelPath(), body: { offererSignature: SIG, pad: "x".repeat(11_000) } })).status).toBe(413);
+    expect((await send({ path: "offers", body: criteriaBody({ pad: "x".repeat(11_000) }) })).status).toBe(413);
+  });
+});
+
 // OpenSea builds a fill from an order hash, so what the fill moves is only
 // known from its answer. Every NFT item (itemType 2 to 5) in the answer's
 // orders must be a venue contract, and an accepted offer must hand over the

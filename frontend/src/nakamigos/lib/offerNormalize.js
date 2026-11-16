@@ -59,7 +59,37 @@ export function normalizeCollectionOffer(o) {
     maker: params?.offerer,
     orderHash: o?.order_hash,
     criteria: o?.criteria,
+    feeBps: feeBpsOf(params),
   };
+}
+
+/**
+ * The fees a bid's own order takes, in basis points of what it offers: every
+ * payment line in its consideration that is NOT paid to the bidder (OpenSea's
+ * fee, a royalty, the venue's line), over the offer total. That share comes out
+ * of what the seller receives on accepting. Scale-free, so it holds per item on
+ * a multi-item bid, and to two decimals of a bps.
+ *
+ * null when the order's lines are not known (no parameters, no payment offered),
+ * so a reader shows an estimate rather than a fee of zero.
+ */
+export function feeBpsOf(parameters) {
+  if (!parameters || !Array.isArray(parameters.offer) || !Array.isArray(parameters.consideration)) return null;
+  const isPayment = (i) => Number(i?.itemType) === 0 || Number(i?.itemType) === 1;
+  const offerer = String(parameters.offerer || "").toLowerCase();
+  try {
+    let offered = 0n;
+    for (const i of parameters.offer) if (isPayment(i)) offered += BigInt(i.startAmount || "0");
+    if (offered <= 0n) return null;
+    let fees = 0n;
+    for (const c of parameters.consideration) {
+      if (!isPayment(c) || String(c?.recipient || "").toLowerCase() === offerer) continue;
+      fees += BigInt(c.startAmount || "0");
+    }
+    return Number((fees * 1_000_000n) / offered) / 100;
+  } catch {
+    return null; // a malformed amount: no exact figure, the reader estimates
+  }
 }
 
 export function safePriceFromWei(wei) {

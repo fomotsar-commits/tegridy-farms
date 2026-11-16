@@ -195,8 +195,10 @@ const trade = (considerationItem, offerer = OFFERER) => ({
 const wants = (itemType, id) => ({ itemType, token: GOLD, identifierOrCriteria: id, startAmount: "1", endAmount: "1", recipient: OFFERER });
 // The maker owns what the trade offers; the connected wallet owns the rest.
 const tradeOwners = (target) => (target.toLowerCase() === VENUE.toLowerCase() ? OFFERER : WALLET);
+// OpenSea's live build shape (2026-11-16): the NFT line, OpenSea's SignedZone, a zero zoneHash.
+const SIGNED_ZONE = "0x000056F7000000EcE9003ca63978907a00FFD100";
 const criteriaBuild = (token) => (path) => (path === "offers/build"
-  ? { partialParameters: { consideration: [{ itemType: 4, token, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET }], zone: ZERO, zoneHash: "0x" + "0".repeat(64) } }
+  ? { partialParameters: { consideration: [{ itemType: 4, token, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET }], zone: SIGNED_ZONE, zoneHash: "0x" + "0".repeat(64) } }
   : { ok: true });
 
 const signed = () => expect(h.signTypedData, "the flow went on to sign").toHaveBeenCalled();
@@ -326,9 +328,9 @@ const SITES = [
   // lib/weth.js throws, so each of its callers is a site of its own.
   ...[
     ["createItemOffer", "wrap-failed", "approve-failed", () => {}, async () => (await import("./api-offers")).createItemOffer({ tokenId: "1", priceEth: 0.01, contract: GOLD })],
-    ["createCollectionOffer", "failed", "failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(GOLD)(path)); },
+    ["createCollectionOffer", "wrap-failed", "approve-failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(GOLD)(path)); },
       async () => (await import("./api-offers")).createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" })],
-    ["createTraitOffer", "failed", "failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(VENUE)(path)); },
+    ["createTraitOffer", "wrap-failed", "approve-failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(VENUE)(path)); },
       async () => (await import("./api-offers")).createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" })],
     ["createTradeOffer", "wrap-failed", "approve-failed", () => { h.approved = true; },
       async () => (await import("./lib/trades")).createTradeOffer({

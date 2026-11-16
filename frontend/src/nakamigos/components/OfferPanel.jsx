@@ -161,7 +161,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
               </button>
             )}
           </div>
-          {isOwner && <NetProceeds price={bestOffer.price} feeWei={bestOffer.feeWei} />}
+          {isOwner && <NetProceeds price={bestOffer.price} feeBps={bestOffer.feeBps} contract={bestOffer.tokenContract} />}
         </div>
         );
       })()}
@@ -246,7 +246,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
                   </button>
                 )}
               </div>
-              {canAccept && <NetProceeds price={offer.price} feeWei={offer.feeWei} compact />}
+              {canAccept && <NetProceeds price={offer.price} feeBps={offer.feeBps} contract={offer.tokenContract} compact />}
             </div>
             );
           })}

@@ -1,12 +1,21 @@
 import { Eth } from "./Icons";
 import { formatPrice } from "../lib/formatPrice";
 import { computeNetProceeds } from "../lib/netProceeds";
-import { OPENSEA_FEE_BPS, PLATFORM_FEE_BPS } from "../constants";
+import { OPENSEA_FEE_BPS, openseaRequiredBidFees } from "../constants";
+import { bookCollectionByContract } from "../lib/venue";
 
-// Marketplace fee used for the ESTIMATE tier (when the order's exact ERC20
-// consideration total isn't available): OpenSea fee + our platform fee. These
-// are the same bps the app charges when it constructs an offer (api-offers.js).
-const MARKETPLACE_FEE_BPS = OPENSEA_FEE_BPS + PLATFORM_FEE_BPS;
+// The ESTIMATE when a bid's own lines are unknown: the fees OpenSea requires on a
+// bid for this collection (constants.js OPENSEA_REQUIRED_BID_FEES, OpenSea's 1% for
+// every collection here). It used to be a fixed 1.5% (OpenSea + the venue's 0.5%),
+// but no bid carries the venue's line while BID_VENUE_FEE_ENABLED is off, so that
+// figure understated what a seller receives.
+function estimateFeeBps(contract) {
+  const lines = openseaRequiredBidFees(bookCollectionByContract(contract));
+  return lines ? lines.reduce((sum, l) => sum + l.bps, 0) : OPENSEA_FEE_BPS;
+}
+
+// 100 -> "1", 150 -> "1.5", 99.99 -> "1": a share, to two decimals of a percent.
+const percent = (bps) => String(Number((Number(bps) / 100).toFixed(2)));
 
 /**
  * F666 — Net-proceeds preview for accepting an offer.
@@ -15,30 +24,20 @@ const MARKETPLACE_FEE_BPS = OPENSEA_FEE_BPS + PLATFORM_FEE_BPS;
  * accept. Does NOT change the accept/fulfillment transaction — purely surfaces
  * arithmetic the order already carries.
  *
- *  - When `feeWei` (the order's ERC20 consideration total) is known, the net is
- *    EXACT and already includes any royalty the collection encoded.
- *  - Otherwise it falls back to the known marketplace fee bps and discloses that
- *    royalty, if any, is set by the collection and not reflected here — never a
- *    fabricated royalty number.
+ *  - When `feeBps` (the bid's own fee lines as bps of its offer, from
+ *    offerNormalize.feeBpsOf) is known, the net is EXACT: every line not paid to
+ *    the bidder comes off, a royalty included.
+ *  - Otherwise it shows the collection's required OpenSea fee and says the
+ *    figure is estimated; a royalty, if any, is never invented.
  *
- * @param {number}  price  Gross offer in ETH/WETH.
- * @param {string=} feeWei Sum of the order's ERC20 consideration items in wei
- *                         (from normalizeOffer). Optional; enables the exact tier.
+ * @param {number}  price    Gross offer in ETH/WETH, per item.
+ * @param {number=} feeBps   The bid's fee lines in bps of its offer. Optional.
+ * @param {string=} contract The NFT contract, for the estimate's required fee.
  * @param {boolean=} compact Tighter layout for the per-row OfferPanel list.
  */
-export default function NetProceeds({ price, feeWei, compact = false }) {
-  let feeEth;
-  if (feeWei != null) {
-    try {
-      // wei -> ETH, matching api-offers' safePriceFromWei precision approach.
-      const wei = BigInt(feeWei);
-      if (wei >= 0n) feeEth = Number(wei / 1_000_000_000_000n) / 1_000_000;
-    } catch {
-      feeEth = undefined;
-    }
-  }
-
-  const result = computeNetProceeds(price, { feeEth, feeBps: MARKETPLACE_FEE_BPS });
+export default function NetProceeds({ price, feeBps, contract, compact = false }) {
+  const estimateBps = estimateFeeBps(contract);
+  const result = computeNetProceeds(price, { orderFeeBps: feeBps, feeBps: estimateBps });
   if (!result) return null;
 
   // `royaltyIncluded` is intentionally not destructured: it is exactly equal to
@@ -72,7 +71,7 @@ export default function NetProceeds({ price, feeWei, compact = false }) {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={labelStyle}>{exact ? "FEES (incl. royalty)" : `MARKETPLACE FEE (${MARKETPLACE_FEE_BPS / 100}%)`}</span>
+        <span style={labelStyle}>{exact ? `FEES (${percent(feeBps)}%)` : `OPENSEA FEE (${percent(estimateBps)}%)`}</span>
         <span style={valueStyle}>
           {"−"}<Eth size={compact ? 8 : 9} /> {formatPrice(fee)}
         </span>
@@ -92,7 +91,7 @@ export default function NetProceeds({ price, feeWei, compact = false }) {
       </div>
       {!exact && (
         <div style={{ ...labelStyle, fontSize: compact ? 7 : 8, color: "var(--text-muted)", lineHeight: 1.4 }}>
-          Est. after marketplace fee. Any royalty is set by the collection and deducted on top.
+          Estimated. Any royalty is set by the collection and deducted on top.
         </div>
       )}
     </div>

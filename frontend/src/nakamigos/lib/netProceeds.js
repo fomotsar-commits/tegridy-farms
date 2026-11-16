@@ -12,16 +12,21 @@
  * to bids, where the exact fee+royalty split is explicit in the order's
  * consideration.
  *
- * Two precision tiers, picked automatically:
+ * Three precision tiers, picked automatically:
  *
  *  1. EXACT — when the order's ERC20 consideration total is known
  *     (`feeEth` passed). net = gross − feeEth. This captures any royalty the
  *     collection baked into the order, so `royaltyIncluded` is true.
  *
- *  2. ESTIMATE — when consideration isn't available, fall back to the known
- *     marketplace fee bps (OpenSea + platform). Royalty cannot be derived from
- *     bps alone, so `royaltyIncluded` is false and the caller should label
- *     royalty as "set by the collection" rather than render a fabricated number.
+ *  2. EXACT, BY SHARE — when the order's fee lines are known as basis points of
+ *     its offer (`orderFeeBps`, offerNormalize.feeBpsOf): every line not paid to
+ *     the bidder, royalty included. A share holds per item on a multi-item bid,
+ *     which a wei total does not.
+ *
+ *  3. ESTIMATE — when the order's lines aren't available, fall back to the
+ *     collection's required OpenSea fee (`feeBps`). Royalty cannot be derived
+ *     from that, so `royaltyIncluded` is false and the caller says "estimated"
+ *     rather than render a fabricated number.
  *
  * No USD, no price oracle — purely arithmetic on values the order already carries.
  */
@@ -32,8 +37,10 @@
  * @param {number} [opts.feeEth]  Exact ERC20 consideration total in ETH (fees +
  *                                royalty), when derivable from the order. When
  *                                provided and finite, the EXACT tier is used.
- * @param {number} [opts.feeBps]  Marketplace fee in basis points for the ESTIMATE
- *                                tier (e.g. OpenSea 100 + platform 100 = 200).
+ * @param {number} [opts.orderFeeBps] The order's own fee lines as bps of its
+ *                                offer. When finite, the EXACT-by-share tier is used.
+ * @param {number} [opts.feeBps]  Fee in basis points for the ESTIMATE tier (the
+ *                                collection's required OpenSea fee, e.g. 100).
  * @returns {{
  *   gross: number,        // echoed gross (0 when input invalid)
  *   fee: number,          // amount deducted in ETH
@@ -43,7 +50,7 @@
  * } | null}
  *   null when gross is not a usable positive number.
  */
-export function computeNetProceeds(grossEth, { feeEth, feeBps = 0 } = {}) {
+export function computeNetProceeds(grossEth, { feeEth, orderFeeBps, feeBps = 0 } = {}) {
   const gross = Number(grossEth);
   if (!Number.isFinite(gross) || gross <= 0) return null;
 
@@ -52,6 +59,18 @@ export function computeNetProceeds(grossEth, { feeEth, feeBps = 0 } = {}) {
     // Clamp to [0, gross]: a malformed order shouldn't ever show a negative net
     // or a fee larger than the offer itself.
     const fee = Math.min(Math.max(Number(feeEth), 0), gross);
+    return {
+      gross,
+      fee,
+      net: gross - fee,
+      exact: true,
+      royaltyIncluded: true,
+    };
+  }
+
+  // EXACT, BY SHARE: the order's own fee lines, as bps of its offer.
+  if (orderFeeBps != null && Number.isFinite(Number(orderFeeBps))) {
+    const fee = Math.min(Math.max((gross * Number(orderFeeBps)) / 10000, 0), gross);
     return {
       gross,
       fee,
