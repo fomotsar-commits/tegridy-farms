@@ -5,6 +5,7 @@ import { fetchTopHolders, fetchActivity, fetchWalletNfts, shortenAddress } from 
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { getReadProvider } from "../lib/rpcProvider";
 import { IpfsImg } from "../../components/IpfsImg";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 // SUPPLY is now dynamic per collection — passed via stats or fetched from context
 const REFRESH_MS = 30000;
@@ -467,9 +468,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     return () => { mounted = false; };
   }, [holders, whaleTransactions]);
 
-  /* ── Helper: get display name for an address (ENS or shortened) ── */
+  /* ── Helper: get display name for an address ("House", ENS or shortened) ── */
   const getDisplayName = useCallback((fullAddress, shortAddress) => {
     if (!fullAddress) return shortAddress || "?";
+    const house = houseLabel(fullAddress);
+    if (house) return house;
     const v = ensMap[fullAddress.toLowerCase()];
     const ensName = typeof v === "string" ? v : v?.name;
     return ensName || shortAddress || shortenAddress(fullAddress);
@@ -620,6 +623,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                   const isExpanded = expandedHolder === h.address;
                   const ensRaw = ensMap[h.address?.toLowerCase()];
                   const ensName = h.ens || (typeof ensRaw === "string" ? ensRaw : ensRaw?.name) || null;
+                  // "House" for the venue's own wallet, ahead of any ENS name, with its address under it.
+                  const name = houseLabel(h.address) ?? ensName;
 
                   return (
                     <div key={h.address || i}>
@@ -683,10 +688,10 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                               textDecoration: "none",
                             }}
                           >
-                            {ensName || shortenAddress(h.address)}
+                            {name || shortenAddress(h.address)}
                           </a>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-                            {ensName && (
+                            {name && (
                               <span
                                 style={{
                                   fontFamily: "var(--mono)",

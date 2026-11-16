@@ -3,6 +3,7 @@ import NftImage from "./NftImage";
 import { Eth } from "./Icons";
 import { fetchWalletNfts, shortenAddress } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 // P2P sends route through the AUDITED trade SDK (lib/trades → /api/orderbook,
 // service-role write + canonical Seaport order). The previous hand-rolled path
@@ -98,7 +99,7 @@ function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, on
           )}
           {nft.owner && (
             <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-              Owner: {shortenAddress(nft.owner)}
+              Owner: {houseLabel(nft.owner) ?? shortenAddress(nft.owner)}
             </div>
           )}
         </div>

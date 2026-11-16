@@ -72,13 +72,10 @@ function floorThickness(listings, floorPrice) {
   return "moderate";
 }
 
-// Health color mapping
-const HEALTH_COLORS = {
-  green: "var(--green)",
-  yellow: "var(--yellow)",
-  red: "var(--red)",
-  invalid: "var(--text-muted)",
-};
+// The spread is shown, never graded. It used to read "Healthy" in green under 5%, then
+// "Moderate" and "Wide", but its best bid is the book's highest, funded or not, and would be
+// the venue's own bid whenever that is on top (review HR-2, 2026-11-16). One muted colour.
+const SPREAD_COLOR = "var(--text-muted)";
 
 export default function DepthChart({ listings = [], offers = [], floorPrice }) {
   const svgRef = useRef(null);
@@ -282,8 +279,8 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
               y={PAD.top}
               width={Math.max(xScale(floorPrice) - xScale(bestBid), 0)}
               height={INNER_H}
-              fill={`${HEALTH_COLORS[spread.health]}08`}
-              stroke={HEALTH_COLORS[spread.health]}
+              fill={`${SPREAD_COLOR}08`}
+              stroke={SPREAD_COLOR}
               strokeWidth="0.5"
               strokeDasharray="4 2"
             />
@@ -388,17 +385,17 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
         )}
       </div>
 
-      {/* Spread Indicator */}
+      {/* Spread Indicator: the number alone, or a dash when a bid above the floor shows
+          the bid data is broken (F609). */}
       {spread && (
         <div className="depth-spread-bar">
           <span className="depth-spread-label">SPREAD</span>
-          <span className="depth-spread-value" style={{ color: HEALTH_COLORS[spread.health] }}>
+          <span className="depth-spread-value" style={spread.health === "invalid" ? { color: SPREAD_COLOR } : undefined}>
             {spread.health === "invalid" ? "—" : `${spread.abs.toFixed(4)} ETH (${spread.pct.toFixed(1)}%)`}
           </span>
-          <span className="depth-spread-dot" style={{ background: HEALTH_COLORS[spread.health] }} />
-          <span className="depth-spread-health" style={{ color: HEALTH_COLORS[spread.health] }}>
-            {spread.health === "invalid" ? "Data unavailable" : spread.health === "green" ? "Healthy" : spread.health === "yellow" ? "Moderate" : "Wide"}
-          </span>
+          {spread.health === "invalid" && (
+            <span className="depth-spread-health" style={{ color: SPREAD_COLOR }}>Data unavailable</span>
+          )}
         </div>
       )}
     </div>

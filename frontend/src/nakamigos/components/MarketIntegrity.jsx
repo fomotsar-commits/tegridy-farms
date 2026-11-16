@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { fetchActivity, fetchListings } from "../api";
 import { computeMarketIntegrity, fetchCollectionOwners } from "../lib/marketIntegrity";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 // ── Descriptive band → label + color (shared by ownership + floor) ──
 const BAND_META = {
@@ -246,7 +247,8 @@ export function WashPanel({ result, capped, onViewProfile }) {
                         cursor: onViewProfile ? "pointer" : "default",
                       }}
                     >
-                      {shortAddr(w)}
+                      {/* A house wallet is named here too; its address stays on hover. */}
+                      {houseLabel(w) ?? shortAddr(w)}
                     </button>
                   ))}
                 </div>
@@ -268,8 +270,8 @@ export function WashPanel({ result, capped, onViewProfile }) {
             {result.houseTrades.trades.map((t, i) => (
               <div key={`${t.hash ?? "trade"}-${i}`}>
                 {t.side === "bought"
-                  ? `House bought #${t.tokenId ?? "?"} from ${shortAddr(t.seller)}`
-                  : `House sold #${t.tokenId ?? "?"} to ${shortAddr(t.buyer)}`}
+                  ? `House bought #${t.tokenId ?? "?"} from ${houseLabel(t.seller) ?? shortAddr(t.seller)}`
+                  : `House sold #${t.tokenId ?? "?"} to ${houseLabel(t.buyer) ?? shortAddr(t.buyer)}`}
                 {t.price != null && <> · <Eth size={9} />{num(t.price, 4)}</>}
               </div>
             ))}
