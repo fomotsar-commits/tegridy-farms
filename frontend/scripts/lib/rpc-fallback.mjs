@@ -1,26 +1,27 @@
 /**
- * The robot's reads over more than one RPC (KEEPER_RPC_FALLBACK_URLS): a call the first endpoint
- * is too busy to answer (429, a 5xx, no answer at all) goes to the next at once, and the busy one
- * is left alone for RPC_REST_MS.
- *
- * Why (the robot's log, 2026-11-14 05:56:39Z to 05:56:53Z): the public RPC answered 429 to five
- * passes in a row while BAYLA moved; the robot priced nothing for 15 s, and at 05:57:11Z another
- * wallet (Cn8LrZZn…) took 0.0013 SOL out of our pools before its first trip of the move went out.
- *
- * With one endpoint it behaves exactly as the call it replaces: one try, the same error text.
- * An error the MAIN endpoint itself gives (a JSON-RPC error that is not a rate limit) is the
- * answer to the call and is thrown as it is: another endpoint would say the same.
- *
- * A FALLBACK's refusal is never the answer (first 40 min live, 2026-11-14 07:27Z to 07:54Z:
- * publicnode answered 403 to 14 reads handed to it, "A maximum of 10 accounts is allowed", and
- * each was thrown as the read's answer while the main endpoint rested). So:
- *   - an endpoint that says how many accounts a read may ask of it ("a maximum of N accounts") is
- *     remembered, and a larger getMultipleAccounts is split there into reads of N, sent at the same
- *     moment and put back together in order, under the lowest slot any part answered at;
- *   - any other refusal from a fallback rests it too and the next endpoint is asked, the resting
- *     main one last; with every endpoint failing, the main one's own error is the one thrown.
+ * The robot's reads over more than one RPC (KEEPER_RPC_FALLBACK_URLS): a call an endpoint is too busy
+ * for (429, a 5xx, no whole answer within ANSWER_MS) goes to the next at once; the busy one rests for
+ * RPC_REST_MS. The main endpoint's own refusal is the call's answer, a fallback's never is: it rests,
+ * and the resting main one is asked last. With one endpoint: one try, its error thrown as it is.
  */
 export const RPC_REST_MS = 10_000;
+/** The most one read waits for its whole answer, body included: well above the slowest normal read (~5 s, a new connection). */
+export const ANSWER_MS = 10_000;
+
+/** A signal that aborts `ms` from now, its reason "no answer in N s". */
+function answerWithin(ms) {
+  const limit = new AbortController();
+  setTimeout(() => limit.abort(new Error(`no answer in ${ms / 1000} s`)), ms).unref?.();
+  return limit.signal;
+}
+
+/** `fetchImpl` whose every call ends: aborted once `ms` pass without the whole answer, body included. A caller's own signal still counts. */
+export function fetchWithin(ms, fetchImpl = fetch) {
+  return (input, init = {}) => {
+    const limit = answerWithin(ms);
+    return fetchImpl(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, limit]) : limit });
+  };
+}
 
 /** A comma-separated list of RPC addresses (KEEPER_RPC_FALLBACK_URLS), each held to http(s); blank: none. */
 export function fallbackUrls(raw) {
@@ -49,9 +50,9 @@ const capSaid = (text) => {
  * `call(method, params)` over `urls` (the first is the main one), and `counts`: calls made, calls
  * a later endpoint answered, reads split, and each endpoint's times found busy. `onBusy(url, why)`
  * is told each time an endpoint is set to rest; `onCap(url, n)` once when an endpoint says a read
- * may ask it at most `n` accounts.
+ * may ask it at most `n` accounts. `answerMs`: the most one endpoint is given for one call.
  */
-export function rpcWithFallback({ urls, fetchImpl = fetch, now = Date.now, onBusy = () => {}, onCap = () => {} }) {
+export function rpcWithFallback({ urls, fetchImpl = fetch, now = Date.now, onBusy = () => {}, onCap = () => {}, answerMs = ANSWER_MS }) {
   if (!urls?.length) throw new Error('no RPC endpoint');
   const restUntil = new Map();
   const caps = new Map();
@@ -62,20 +63,24 @@ export function rpcWithFallback({ urls, fetchImpl = fetch, now = Date.now, onBus
     onBusy(url, why);
   };
 
-  /** One call to one endpoint: { ok: result }, { busy: Error, why } (too busy, or no answer), or { refused: Error, cap } (it will not answer this call). */
+  /** One call to one endpoint: { ok: result }, { busy: Error, why } (too busy, or no whole answer in answerMs), or { refused: Error, cap } (it will not answer this call). */
   const one = async (url, method, params) => {
+    const signal = answerWithin(answerMs);
     let r;
+    let text;
     try {
-      r = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+      r = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal });
+      text = await r.text();
     } catch (e) {
+      if (signal.aborted) return { busy: new Error(`${method}: ${signal.reason.message}`, { cause: e }), why: signal.reason.message };
       return { busy: e, why: e instanceof Error ? e.message : String(e) };
     }
     if (!r.ok) {
       const err = new Error(`${method}: the RPC answered ${r.status}`);
       if (busyStatus(r.status)) return { busy: err, why: `answered ${r.status}` };
-      return { refused: err, cap: capSaid(await r.text().catch(() => '')) };
+      return { refused: err, cap: capSaid(text) };
     }
-    const j = await r.json();
+    const j = JSON.parse(text);
     if (j.error) {
       const err = new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
       if (busyError(j.error)) return { busy: err, why: 'rate limit' };

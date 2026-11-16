@@ -30,12 +30,10 @@
  *   KEEPER_KEYPAIR          path to the keeper's key file (needed to send)
  *   KEEPER_WALLET           the keeper's address, for a dry run without the key
  *   KEEPER_RPC_URL          Solana RPC (default: the public mainnet one)
- *   KEEPER_RPC_FALLBACK_URLS  more RPCs, joined by commas: a read KEEPER_RPC_URL is too busy to
- *                           answer (429, a 5xx, no answer) goes to the next at once, and the busy
- *                           one is left alone for 10 s (scripts/lib/rpc-fallback.mjs). With two
- *                           doors a trip the main RPC sent goes out through these as well. Measured
- *                           2026-11-14 05:56Z: 15 s of 429s while BAYLA moved, and another wallet
- *                           traded first (default: none; the public mainnet RPC alone, as before)
+ *   KEEPER_RPC_FALLBACK_URLS  more RPCs, joined by commas: a read KEEPER_RPC_URL is too busy for
+ *                           (429, a 5xx, no whole answer in 10 s) goes to the next at once, and the
+ *                           busy one rests 10 s (scripts/lib/rpc-fallback.mjs). With two doors a
+ *                           trip the main RPC sent goes out through these as well (default: none)
  *   JUPITER_API_KEY         the keeper's own Jupiter key
  *   KEEPER_SITE             where the pool list is read (default https://memetics.finance)
  *   KEEPER_MAX_TRADE_USD    largest round trip (default 25)
@@ -174,7 +172,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
-import { RPC_REST_MS, fallbackUrls, rpcWithFallback } from './lib/rpc-fallback.mjs';
+import { ANSWER_MS, RPC_REST_MS, fallbackUrls, fetchWithin, rpcWithFallback } from './lib/rpc-fallback.mjs';
 import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CLMM, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 import { JITO_WARM_EVERY_MS, jitoLine } from './lib/jito-line.mjs';
@@ -259,8 +257,8 @@ const flag = (f) => rest.includes(f);
 const args = rest.filter((a) => !a.startsWith('--'));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
 
-// Reads go to KEEPER_RPC_URL, and to KEEPER_RPC_FALLBACK_URLS when it is too busy (lib/rpc-fallback.mjs).
-// With no fallback set this is the one call it always was: one try, the same error text.
+// Reads go to KEEPER_RPC_URL, and to KEEPER_RPC_FALLBACK_URLS when it is too busy or gives no whole
+// answer within ANSWER_MS (lib/rpc-fallback.mjs). With no fallback set: one try, its error thrown.
 const RPC_FALLBACKS = fallbackUrls(env.KEEPER_RPC_FALLBACK_URLS).filter((u) => u !== RPC);
 const rpcBusySaid = new Map();
 const rpcLine = rpcWithFallback({
@@ -275,7 +273,10 @@ const rpcLine = rpcWithFallback({
   onCap: (url, n) => log(`RPC ${redactRpcUrl(url)} takes at most ${n} accounts a read: a larger read is split there into reads of ${n}, sent together`),
 });
 const rpc = rpcLine.call;
-const conn = new Connection(RPC, 'confirmed');
+// Every other request ends within ANSWER_MS too: a stuck one throws to its caller, never holds the
+// robot. Not the engine's event stream, which is meant to stay open.
+const fetchEnds = fetchWithin(ANSWER_MS);
+const conn = new Connection(RPC, { commitment: 'confirmed', fetch: fetchEnds });
 
 function loadKey() {
   const file = env.KEEPER_KEYPAIR?.trim();
@@ -602,8 +603,8 @@ async function dashboard() {
     "form-action 'none'",
     "frame-ancestors 'none'",
   ].join('; ');
-  const jupiter = jupiterApi({ key: env.JUPITER_API_KEY });
-  const indexFetch = (input, init) => fetch(new URL(String(input), SITE), init);
+  const jupiter = jupiterApi({ key: env.JUPITER_API_KEY, fetchImpl: fetchEnds });
+  const indexFetch = (input, init) => fetchEnds(new URL(String(input), SITE), init);
   const venueProgram = REGISTERED_PROGRAM_ID.toBase58();
   const fixed = new Map(QUOTE_COINS.map((q) => [q.mint, q.symbol]));
   const history = loadHistory(owner);
@@ -955,7 +956,7 @@ async function main() {
   }
 
   if (cmd === 'pools') {
-    const rows = await poolCoverage({ rpc, indexFetch: (input, init) => fetch(new URL(String(input), SITE), init) });
+    const rows = await poolCoverage({ rpc, indexFetch: (input, init) => fetchEnds(new URL(String(input), SITE), init) });
     if (typeof rows === 'string') throw new Error(`pools not read: ${rows}`);
     const can = rows.filter((r) => r.problem === null);
     log(`${rows.length} pools on the venue; the keeper can trade ${can.length}`);
@@ -1111,7 +1112,7 @@ async function main() {
       : undefined;
     const jito = jitoSender({
       urls: jitoAt,
-      fetchImpl: jitoWarm ? jitoWarm.fetch : fetch,
+      fetchImpl: jitoWarm ? jitoWarm.fetch : fetchEnds,
       status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null,
       blockhashValid: async (blockhash) => (await conn.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value,
       plain,
@@ -1154,7 +1155,7 @@ async function main() {
       jupiterCalls++;
       const kind = KIND[new URL(String(input)).pathname];
       if (kind) screen.calls[kind]++;
-      return fetch(input, init);
+      return fetchEnds(input, init);
     };
     const priceTtlSec = env.KEEPER_PRICE_TTL_SEC?.trim() === '0' ? 0 : num('KEEPER_PRICE_TTL_SEC', 30);
     const wsUrl = env.KEEPER_WS_URL?.trim() || socketUrlOf(RPC);
@@ -1214,7 +1215,7 @@ async function main() {
       rpc,
       jupiter,
       owner,
-      indexFetch: (input, init) => fetch(new URL(String(input), SITE), init),
+      indexFetch: (input, init) => fetchEnds(new URL(String(input), SITE), init),
       send: undefined,
       record,
       bans,

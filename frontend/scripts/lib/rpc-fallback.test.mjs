@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { RPC_REST_MS, fallbackUrls, rpcWithFallback } from './rpc-fallback.mjs';
+// @vitest-environment node
+import { createServer } from 'node:http';
+import { describe, it, expect, afterEach } from 'vitest';
+import { Connection } from '@solana/web3.js';
+import { ANSWER_MS, RPC_REST_MS, fallbackUrls, fetchWithin, rpcWithFallback } from './rpc-fallback.mjs';
 
 const MAIN = 'https://main.example/rpc';
 const SECOND = 'https://second.example/rpc';
@@ -239,4 +242,119 @@ describe('rpcWithFallback: a fallback that will not answer a call (publicnode, 2
     await expect(mainRefuses.call('getProgramAccounts', ['P'])).rejects.toThrow('getProgramAccounts: Indexed requests require a personal token.');
     expect(mainRefuses.asked).toHaveLength(1);
   });
+});
+
+// Real endpoints on this computer and the real fetch, as the robot runs.
+const open = [];
+afterEach(async () => {
+  await Promise.all(open.splice(0).map((e) => e.close()));
+});
+/** A JSON-RPC endpoint on this computer: `answer(call, res)` answers it, or does not. */
+async function endpoint(answer) {
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => answer(JSON.parse(body || 'null'), res));
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const e = {
+    url: `http://127.0.0.1:${server.address().port}/`,
+    close: () =>
+      new Promise((done) => {
+        server.closeAllConnections();
+        server.close(done);
+      }),
+  };
+  open.push(e);
+  return e;
+}
+const never = () => {};
+/** The headers and half the body, then nothing more. */
+const halfway = (_call, res) => {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.write('{"jsonrpc":"2.0","id":1,"result":');
+};
+const answers = (result) => (_call, res) => res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+const LIMIT = 300;
+const POST = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' };
+
+describe('rpcWithFallback: a read an endpoint takes and never answers (the robot, 2026-11-16 01:52Z)', () => {
+  for (const [what, stuckOne] of [
+    ['takes the call and never answers', never],
+    ['sends half an answer, then nothing', halfway],
+  ]) {
+    it(`a main endpoint that ${what}: the read goes to the next one within the limit`, async () => {
+      const stuck = await endpoint(stuckOne);
+      const second = await endpoint(answers({ value: 'from the second' }));
+      const busy = [];
+      const r = rpcWithFallback({ urls: [stuck.url, second.url], answerMs: LIMIT, onBusy: (url, why) => busy.push({ url, why }) });
+      const started = Date.now();
+      expect(await r.call('getMultipleAccounts', [['a']])).toEqual({ value: 'from the second' });
+      expect(Date.now() - started).toBeLessThan(LIMIT + 2_000);
+      expect(busy).toEqual([{ url: stuck.url, why: 'no answer in 0.3 s' }]);
+      expect(r.counts).toMatchObject({ calls: 1, answeredByFallback: 1 });
+    }, 10_000);
+  }
+
+  it('with one endpoint, a read it never answers throws within the limit, naming the call', async () => {
+    const stuck = await endpoint(never);
+    const r = rpcWithFallback({ urls: [stuck.url], answerMs: LIMIT });
+    const started = Date.now();
+    await expect(r.call('getLatestBlockhash', [])).rejects.toThrow('getLatestBlockhash: no answer in 0.3 s');
+    expect(Date.now() - started).toBeLessThan(LIMIT + 2_000);
+  }, 10_000);
+
+  it('every endpoint stuck: one limit each, then the main one’s own error', async () => {
+    const first = await endpoint(never);
+    const second = await endpoint(halfway);
+    const r = rpcWithFallback({ urls: [first.url, second.url], answerMs: LIMIT });
+    const started = Date.now();
+    await expect(r.call('getSlot', [])).rejects.toThrow('getSlot: no answer in 0.3 s');
+    expect(Date.now() - started).toBeLessThan(2 * LIMIT + 2_000);
+    expect(r.counts.busy).toEqual({ [first.url]: 1, [second.url]: 1 });
+  }, 10_000);
+
+  it('an answer within the limit is the answer, as before', async () => {
+    const quick = await endpoint(answers(42));
+    const r = rpcWithFallback({ urls: [quick.url], answerMs: LIMIT });
+    expect(await r.call('getSlot', [])).toBe(42);
+  });
+
+  it('the robot’s reads wait ANSWER_MS at most: well above a normal read (up to ~5 s), far below the 11.7 min stall', () => {
+    expect(ANSWER_MS).toBe(10_000);
+  });
+});
+
+describe('fetchWithin: every other request of the robot ends too (its Connection, Jupiter, the site, Jito)', () => {
+  it('a request never answered is aborted at the limit, saying so', async () => {
+    const stuck = await endpoint(never);
+    const started = Date.now();
+    await expect(fetchWithin(LIMIT)(stuck.url, POST)).rejects.toThrow('no answer in 0.3 s');
+    expect(Date.now() - started).toBeLessThan(LIMIT + 2_000);
+  }, 10_000);
+
+  it('the limit holds while the body is read too', async () => {
+    const half = await endpoint(halfway);
+    const res = await fetchWithin(LIMIT)(half.url, POST);
+    await expect(res.text()).rejects.toThrow('no answer in 0.3 s');
+  }, 10_000);
+
+  it('an answer within the limit is untouched, and a caller’s own signal still ends a request first', async () => {
+    const quick = await endpoint(answers(42));
+    expect(await (await fetchWithin(LIMIT)(quick.url, POST)).json()).toEqual({ jsonrpc: '2.0', id: 1, result: 42 });
+    const stuck = await endpoint(never);
+    const mine = new AbortController();
+    const asked = fetchWithin(60_000)(stuck.url, { ...POST, signal: mine.signal });
+    mine.abort(new Error('the caller gave up'));
+    await expect(asked).rejects.toThrow('the caller gave up');
+  }, 10_000);
+
+  it('web3.js asks through it: the robot’s Connection over an RPC that never answers throws at the limit', async () => {
+    const stuck = await endpoint(never);
+    const conn = new Connection(stuck.url, { commitment: 'confirmed', fetch: fetchWithin(LIMIT) });
+    const started = Date.now();
+    await expect(conn.getLatestBlockhash()).rejects.toThrow('no answer in 0.3 s');
+    await expect(conn.sendRawTransaction(Uint8Array.from([1, 2, 3]))).rejects.toThrow('no answer in 0.3 s');
+    expect(Date.now() - started).toBeLessThan(2 * LIMIT + 2_000);
+  }, 10_000);
 });

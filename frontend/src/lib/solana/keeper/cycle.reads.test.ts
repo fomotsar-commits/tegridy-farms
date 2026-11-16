@@ -1,6 +1,9 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
+import { rpcWithFallback } from '../../../../scripts/lib/rpc-fallback.mjs';
 import { buildPool, key, viewOf } from '../lp/testkit.fixture';
 import type { PoolView } from '../lp/poolFinder';
 import { SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
@@ -81,4 +84,48 @@ describe('runCycle: the wallet read for trips through our own pools', () => {
     expect(reads).toBe(1);
     expect(r.sent).toBe(0);
   });
+});
+
+describe('runCycle: a read the main RPC takes and never answers (the robot, 2026-11-16 01:52Z)', () => {
+  const open: { close(): Promise<void> }[] = [];
+  afterEach(async () => {
+    await Promise.all(open.splice(0).map((e) => e.close()));
+  });
+  /** A JSON-RPC endpoint on this computer: a chain where the keeper holds nothing, or one that takes each call and never answers. */
+  async function endpoint(answers: boolean) {
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        if (!answers) return;
+        const call = JSON.parse(body) as { params: [string[]] };
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { context: { slot: 1 }, value: call.params[0].map(() => null) } }));
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const e = {
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`,
+      close: () =>
+        new Promise<void>((done) => {
+          server.closeAllConnections();
+          server.close(() => done());
+        }),
+    };
+    open.push(e);
+    return e;
+  }
+
+  it('the pass reads from the next endpoint within the limit, and goes on', async () => {
+    const stuck = await endpoint(false);
+    const second = await endpoint(true);
+    const line = rpcWithFallback({ urls: [stuck.url, second.url], answerMs: 300 });
+    const mint = key();
+    pools = [pool(mint, SOL_QUOTE, 50n * SOL, 10n ** 9n), pool(mint, SOL_QUOTE, 50n * SOL, 9n * 10n ** 8n)];
+    const started = Date.now();
+    const r = await runCycle({ rpc: line.call, jupiter: {} as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() }, settings);
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(r.sent).toBe(0);
+    // The wallet read: taken by the stuck one, given up at the limit, answered by the second.
+    expect(line.counts).toMatchObject({ calls: 1, answeredByFallback: 1, busy: { [stuck.url]: 1, [second.url]: 0 } });
+  }, 10_000);
 });
