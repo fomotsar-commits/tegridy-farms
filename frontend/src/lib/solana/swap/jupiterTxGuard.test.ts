@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { base58 } from '@scure/base';
 import { Message, PublicKey, VersionedTransaction } from '@solana/web3.js';
+import { NATIVE_MINT, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, jupiterTxRefusal, type JupiterTxExpectation } from './jupiterTxGuard';
 import {
   LIVE_USER, RECURRING_CREATE, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
@@ -33,17 +34,21 @@ const recurringExpect = (over = {}): JupiterTxExpectation =>
 interface Ix { programIdIndex: number; accountKeyIndexes: number[]; data: Uint8Array }
 interface View { keys: string[]; ixs: Ix[]; header: { numRequiredSignatures: number } }
 
-/** Re-encode a transaction after `f` edits its instructions (v0 and legacy alike). */
+/** Re-encode a transaction after `f` edits its instructions, or swaps a key in place (v0 and legacy alike). */
 function edit(b64: string, f: (v: View) => void): string {
   const tx = VersionedTransaction.deserialize(Buffer.from(b64, 'base64'));
   const m = tx.message;
   if (m instanceof Message) {
     const ixs: Ix[] = m.instructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accounts], data: base58.decode(i.data) }));
-    f({ keys: m.accountKeys.map((k) => k.toBase58()), ixs, header: m.header });
+    const v = { keys: m.accountKeys.map((k) => k.toBase58()), ixs, header: m.header };
+    f(v);
+    m.accountKeys = v.keys.map((k) => new PublicKey(k));
     m.instructions = ixs.map((i) => ({ programIdIndex: i.programIdIndex, accounts: i.accountKeyIndexes, data: base58.encode(i.data) }));
   } else {
     const ixs = m.compiledInstructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accountKeyIndexes], data: Uint8Array.from(i.data) }));
-    f({ keys: m.staticAccountKeys.map((k) => k.toBase58()), ixs, header: m.header });
+    const v = { keys: m.staticAccountKeys.map((k) => k.toBase58()), ixs, header: m.header };
+    f(v);
+    m.staticAccountKeys = v.keys.map((k) => new PublicKey(k));
     m.compiledInstructions = ixs;
   }
   return Buffer.from(new VersionedTransaction(m).serialize()).toString('base64');
@@ -52,6 +57,12 @@ const find = (v: View, program: string, nth = 0): Ix => v.ixs.filter((i) => v.ke
 const keyIndex = (v: View, key: string): number => v.keys.indexOf(key);
 const putU64 = (d: Uint8Array, at: number, n: bigint) => new DataView(d.buffer, d.byteOffset).setBigUint64(at, n, true);
 const putU16 = (d: Uint8Array, at: number, n: number) => new DataView(d.buffer, d.byteOffset).setUint16(at, n, true);
+/** System `transfer` of `lamports` from key `from` to key `to`: the wrap Jupiter puts before a swap that sells SOL. */
+const transfer = (v: View, from: string, to: string, lamports: bigint): Ix => {
+  const data = new Uint8Array(12); data[0] = 2; putU64(data, 4, lamports);
+  return { programIdIndex: keyIndex(v, SYSTEM), accountKeyIndexes: [keyIndex(v, from), keyIndex(v, to)], data };
+};
+const WSOL_ATA = getAssociatedTokenAddressSync(NATIVE_MINT, new PublicKey(LIVE_USER), true).toBase58();
 
 describe('the live Jupiter transactions pass', () => {
   for (const [name, fx] of Object.entries({ SWAP_SOL_USDC, SWAP_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SHARED_SOL_BAYLA })) {
@@ -193,6 +204,48 @@ describe('a tampered swap is refused', () => {
 
   it('bytes that are not a transaction', () => {
     expect(refusal('not-base64!')).toMatch(/could not be read/);
+  });
+});
+
+describe('the swap sells only from the user’s own account of the coin sold (XCHL-01)', () => {
+  // route_v2 names the account it sells from at 1 and pays into at 2; the shared form at 2 and 5.
+  const captures = { SWAP_SOL_USDC, SWAP_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SHARED_SOL_BAYLA };
+  for (const [name, fx] of Object.entries(captures)) {
+    const shared = name.startsWith('SWAP_SHARED');
+    it(`${name}: the user’s account of another coin (here the coin bought) as the source is refused`, () => {
+      const b64 = edit(fx.tx, (v) => { const j = find(v, JUPITER_SWAP_PROGRAM); j.accountKeyIndexes[shared ? 2 : 1] = j.accountKeyIndexes[shared ? 5 : 2]!; });
+      expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/sells from an account that is not your account of the coin shown/);
+    });
+    it(`${name}: a source loaded from a lookup table is refused`, () => {
+      const b64 = edit(fx.tx, (v) => { find(v, JUPITER_SWAP_PROGRAM).accountKeyIndexes[shared ? 2 : 1] = v.keys.length; });
+      expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/sells from an account that is not your account of the coin shown/);
+    });
+  }
+});
+
+describe('SOL is wrapped only when SOL is the coin sold (XCHL-01)', () => {
+  it('a swap that sells USDC refuses a wrap, even one no larger than the amount sold', () => {
+    const fx = SWAP_USDC_SOL;
+    const b64 = edit(fx.tx, (v) => {
+      // A key the check never reads (Jupiter's event authority) becomes the System program, so a wrap can be added.
+      v.keys[keyIndex(v, 'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf')] = SYSTEM;
+      v.ixs.unshift(transfer(v, LIVE_USER, WSOL_ATA, BigInt(fx.quote.inAmount)));
+    });
+    expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/wraps more SOL than the trade sells/);
+  });
+
+  it('a limit order funded with USDC refuses a wrap of its amount', () => {
+    const b64 = edit(TRIGGER_CREATE.tx, (v) => { v.ixs.push(transfer(v, LIVE_USER, WSOL_ATA, BigInt(TRIGGER_CREATE.makingAmount))); });
+    expect(jupiterTxRefusal(b64, triggerExpect())).toMatch(/wraps more SOL than the trade sells/);
+  });
+
+  it('a recurring buy funded with USDC refuses a wrap of its deposit', () => {
+    const b64 = edit(RECURRING_CREATE.tx, (v) => {
+      // The order's own deposit account (unread by the check) becomes the user's wrapped-SOL account.
+      v.keys[find(v, JUPITER_RECURRING_PROGRAM).accountKeyIndexes[6]!] = WSOL_ATA;
+      v.ixs.push(transfer(v, LIVE_USER, WSOL_ATA, BigInt(RECURRING_CREATE.inAmount)));
+    });
+    expect(jupiterTxRefusal(b64, recurringExpect())).toMatch(/wraps more SOL than the trade sells/);
   });
 });
 

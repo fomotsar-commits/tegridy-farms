@@ -13,10 +13,11 @@
 // passes. Instruction layouts are Jupiter's own on-chain IDLs.
 //
 // Allowed, in short: ComputeBudget within the disclosed priority-fee cap; wrapping
-// SOL into the user's OWN wrapped-SOL account; creating the user's own token
-// accounts; closing token accounts back to the user; exactly one instruction of the
-// one Jupiter program the flow uses, whose amounts, mints, signer and destination are
-// the ones on screen. One signer: the user. Nothing else.
+// SOL, only when SOL is the coin sold, into the user's OWN wrapped-SOL account;
+// creating the user's own token accounts; closing token accounts back to the user;
+// exactly one instruction of the one Jupiter program the flow uses, whose amounts,
+// mints, signer, source and destination are the ones on screen. One signer: the user.
+// Nothing else.
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
@@ -140,9 +141,11 @@ function refusalOf(b64: string, expect: JupiterTxExpectation): string | null {
   };
   const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, new PublicKey(user), true, TOKEN_PROGRAM_ID).toBase58();
   const flowProgram = FLOW_PROGRAM[expect.kind];
-  const wrapCap = expect.kind === 'swap' ? big(expect.quote.inAmount)
-    : expect.kind === 'trigger-create' ? big(expect.makingAmount)
-    : expect.kind === 'recurring-create' ? big(expect.inAmount)
+  // SOL is wrapped only when SOL is the coin sold, and never more than is sold.
+  const solSold = (mint: string, amount: string) => (mint === NATIVE_MINT.toBase58() ? big(amount) : 0n);
+  const wrapCap = expect.kind === 'swap' ? solSold(expect.quote.inputMint, expect.quote.inAmount)
+    : expect.kind === 'trigger-create' ? solSold(expect.inputMint, expect.makingAmount)
+    : expect.kind === 'recurring-create' ? solSold(expect.inputMint, expect.inAmount)
     : 0n;
 
   let cuLimit: bigint | null = null;
@@ -218,18 +221,20 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
   const user = expect.user;
   switch (expect.kind) {
     case 'swap': {
-      // route_v2: 0 user_transfer_authority, 2 user_destination_token_account,
-      // 7 destination_token_account (the program id when unused), args after the
-      // discriminator. shared_accounts_route_v2: 1 authority, 5 destination, and a
-      // one-byte id first. The venue's fee account is the first account after the
-      // named ones (10, or 12), as every captured fee-bearing swap shows.
+      // route_v2: 0 user_transfer_authority, 1 user_source_token_account,
+      // 2 user_destination_token_account, 7 destination_token_account (the program id
+      // when unused), args after the discriminator. shared_accounts_route_v2: 1 authority,
+      // 2 source, 5 destination, and a one-byte id first. The venue's fee account is the
+      // first account after the named ones (10, or 12), as every captured fee-bearing swap shows.
       const shared = disc === SHARED_ACCOUNTS_ROUTE_V2;
       if (!shared && disc !== ROUTE_V2) return 'it is a kind of Jupiter swap this site does not sign';
       const o = shared ? 9 : 8;
       const authority = at(ix, shared ? 1 : 0);
+      const source = at(ix, shared ? 2 : 1);
       const destination = at(ix, shared ? 5 : 2);
       const override = shared ? null : at(ix, 7);
       if (authority !== user) return 'the swap is authorised by another wallet';
+      if (!source || !usersAta(user, expect.quote.inputMint).has(source)) return 'the swap sells from an account that is not your account of the coin shown';
       if (!destination || !usersAta(user, expect.quote.outputMint).has(destination)) return 'the swap pays into an account that is not yours';
       if (!shared && override !== JUPITER_SWAP_PROGRAM && override !== destination) return 'the swap redirects what you receive';
       const inAmount = u64(data, o);
