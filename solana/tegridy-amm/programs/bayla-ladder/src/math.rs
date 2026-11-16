@@ -127,9 +127,6 @@ const _: () = assert!(MAX_PENALTY_RATIO == PENALTY_SCALE * 3 / 4);
 /// * The truncate-to-zero floor scales with it. The smallest reload that emits anything
 ///   is `REWARDS_DURATION_SECS` raw units — 126.144 BAYLA at six decimals, up from
 ///   7.776. See AUDIT L-1 in `notify_reward`.
-/// * The M-2 burn floor scales with it too: a window whose rate is below
-///   `total_weighted / PRECISION` emits exactly nothing, and the budget that clears
-///   that bar is linear in this constant.
 /// * [`rate_change_allowed`]'s escape hatch gets slower by the same factor. A rate set
 ///   too high can only be brought down by letting the window lapse, and that wait is
 ///   now up to four years rather than up to ninety days. The guard still cannot brick
