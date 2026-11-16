@@ -336,6 +336,8 @@ jobs:
           fi
           ls -l "$SO"
           sha256sum "$SO"
+          (cd ../../target/deploy && grep ' raydium_clmm\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
           # The build writes a fresh program key beside the program when none exists. Nothing
           # may deploy with it: the deploy pack names the owner's key file. Removed here.
           rm -f ../../target/deploy/raydium_clmm-keypair.json
@@ -519,6 +521,8 @@ jobs:
           fi
           sha256sum "$SO"
           { echo "### cp-swap mainnet build"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+          (cd ../../target/deploy && grep ' raydium_cp_swap\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
       # Upstream's own unit tests and the fork's: the fee ceilings, the fund fee's one
       # hand-over and the Token-2022 coin check. Upstream's passed but no job ran them
       # until 2026-11-03.
@@ -614,6 +618,8 @@ jobs:
           # launcher upgrade buffer must match, printed here as cp-swap's build job prints its own.
           sha256sum "$SO"
           { echo "### tegridy-launch build with the committed (mainnet) ids"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+          (cd ../../target/deploy && grep ' tegridy_launch\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
 
       # -- DEPLOY COST, MEASURED --------------------------------------------
       # What deploying the .so just built would lock up in rent: the number an

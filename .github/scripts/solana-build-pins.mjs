@@ -3,7 +3,7 @@
 //   node .github/scripts/solana-build-pins.mjs
 // Each rule keeps one finding of the Solana audit of 2026-11-15 closed. A run that checked
 // nothing fails, so "found nothing wrong" and "looked at nothing" never share an exit code.
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { inScope } from './diff-scope.mjs';
@@ -70,6 +70,17 @@ const scoped = [...(/diff-scope\.mjs \\\n((?: +'[^']+'[^\n]*\n)+)/.exec(read(WF 
 for (const f of ['.cargo/config.toml', 'rust-toolchain', 'rust-toolchain.toml', `${WF}solana-deploy-artifact.yml`, '.github/scripts/diff-scope.mjs', '.github/scripts/solana-mainnet-gate.mjs']) {
   rule(scoped.length > 0 && inScope([f], scoped), `a pull request that changes only ${f} skips solana-ci`);
 }
+
+// CPS-12: each mainnet build CI prints is compared with the committed hash of that file.
+const PINNED = '.github/scripts/solana-mainnet-builds.sha256';
+const pinned = existsSync(PINNED) ? code(read(PINNED)).filter((l) => l.trim()) : [];
+const CI_JOBS = Object.fromEntries(jobsOf('solana-ci.yml').map((j) => [j.split(':')[0].trim(), j]));
+for (const [job, so] of [['build', 'raydium_cp_swap.so'], ['launch-curve', 'tegridy_launch.so'], ['clmm-build', 'raydium_clmm.so']]) {
+  rule(pinned.filter((l) => new RegExp(`^[0-9a-f]{64}  ${so.replace('.', '\\.')}$`).test(l)).length === 1, `${PINNED} holds no single hash for ${so}`);
+  const check = `grep ' ${so.replace('.', '\\.')}$' "$GITHUB_WORKSPACE/${PINNED}" | sha256sum -c -`;
+  rule((CI_JOBS[job] ?? '').includes(check), `${job} prints the hash of ${so} without comparing it with ${PINNED}`);
+}
+rule(pinned.length === 3, `${PINNED} holds ${pinned.length} lines, expected 3`);
 
 if (checked === 0) problems.push('checked nothing');
 for (const p of problems) console.log(`::error::${p}`);
