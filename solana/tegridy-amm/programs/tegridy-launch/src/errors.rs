@@ -66,6 +66,10 @@ pub enum LaunchError {
     MigrationReserveTooHigh,
     #[msg("The seller's wallet would hold less than its rent floor after this sell; add SOL to it first")]
     SellerBelowRent,
+    #[msg("The admin key cannot be changed here; only a program upgrade moves it")]
+    AdminMovesOnlyByUpgrade,
+    #[msg("A new fee recipient must be a funded wallet, passed among the remaining accounts")]
+    NotAFundedWallet,
 }
 
 /// Lift a pure-curve error into the program's error space.

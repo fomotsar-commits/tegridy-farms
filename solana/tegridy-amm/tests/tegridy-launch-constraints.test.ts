@@ -422,18 +422,18 @@ describe("tegridy-launch security constraints", () => {
      * because the rehearsal creates the AmmConfig first and passes real values at
      * initialization, so the zero path was never followed to its conclusion.
      */
-    it("sets cp_swap_program and amm_config after the fact", async () => {
+    // A tier must be a real cp-swap fee tier (LCH-04) and no cp-swap runs in this suite:
+    // the rehearsal sets one after the fact, and refuses an account that is not one.
+    it("sets cp_swap_program after the fact", async () => {
       const cpProgram = Keypair.generate().publicKey;
-      const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null, null)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
         globalPda(program.programId)
       );
       assert.equal(g.cpSwapProgram.toBase58(), cpProgram.toBase58());
-      assert.equal(g.ammConfig.toBase58(), cfg.toBase58());
     });
 
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
@@ -1053,6 +1053,7 @@ describe("tegridy-launch security constraints", () => {
       program.methods
         .updateGlobal(null, null, null, null, k, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .remainingAccounts([{ pubkey: k, isSigner: false, isWritable: false }])
         .rpc();
 
     it("pays exactly the reserve to the treasury ATA at create, and the creator pays its rent", async () => {
@@ -1251,8 +1252,9 @@ describe("tegridy-launch security constraints", () => {
 
     it("pays a ROTATED fee_recipient on later launches, and refuses the old one", async () => {
       // The recipient is read at create time: rotating it changes where FUTURE
-      // launches pay, and nothing already paid moves.
+      // launches pay, and nothing already paid moves. A new recipient must be funded.
       const rotated = Keypair.generate().publicKey;
+      await fund(provider, rotated, 1);
       await setFeeRecipient(rotated);
       try {
         const [who, m] = await freshCreator();
@@ -1273,6 +1275,49 @@ describe("tegridy-launch security constraints", () => {
       } finally {
         await setFeeRecipient(feeRecipient);
       }
+    });
+  });
+
+  // ─── LCH-04: update_global cannot lose the admin key or the fee stream ──────
+  //
+  // Last in the file: on a build without these checks each refusal below is a write
+  // that sticks, and nothing after it should depend on it.
+  describe("update_global refuses an address that would lose control or fees", () => {
+    const update = (args: Record<string, unknown>, extra: PublicKey[] = []) => {
+      const a = { authority: null, recipient: null, tier: null, ...args } as any;
+      return program.methods
+        .updateGlobal(null, null, null, a.authority, a.recipient, null, null, a.tier, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .remainingAccounts(extra.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })))
+        .rpc();
+    };
+
+    it("never moves the admin key, even to itself", async () => {
+      await expectAnchorError(update({ authority: deployer.publicKey }), "AdminMovesOnlyByUpgrade");
+    });
+
+    it("takes only a funded wallet as the fee recipient", async () => {
+      const empty = Keypair.generate().publicKey;
+      await expectAnchorError(update({ recipient: empty }, [empty]), "NotAFundedWallet");
+      // The settings account: rent-exempt, but a program's account with data.
+      const settings = globalPda(program.programId);
+      await expectAnchorError(update({ recipient: settings }, [settings]), "NotAFundedWallet");
+      const wallet = Keypair.generate().publicKey;
+      await fund(provider, wallet, 1);
+      await expectAnchorError(update({ recipient: wallet }), "NotAFundedWallet");
+      // POSITIVE CONTROL: the same funded wallet, passed.
+      await update({ recipient: wallet }, [wallet]);
+      const g: any = await (program.account as any).globalConfig.fetch(settings);
+      assert.equal(g.feeRecipient.toBase58(), wallet.toBase58());
+      await update({ recipient: feeRecipient }, [feeRecipient]);
+    });
+
+    it("takes only a fee tier of the pool program as the tier", async () => {
+      // No cp-swap runs here, so nothing can be a tier; the rehearsal holds the
+      // positive control, a real tier accepted.
+      const stranger = Keypair.generate().publicKey;
+      await expectAnchorError(update({ tier: stranger }, [stranger]), "NotAFeeTier");
+      await expectAnchorError(update({ tier: stranger }), "NotAFeeTier");
     });
   });
 });

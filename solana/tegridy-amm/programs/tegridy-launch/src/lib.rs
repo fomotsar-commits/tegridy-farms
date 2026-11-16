@@ -513,12 +513,11 @@ pub mod tegridy_launch {
         Ok(())
     }
 
-    /// Update mutable protocol parameters. Never affects a live curve — each
-    /// launch snapshots its own terms at creation.
-    /// `new_authority` / `new_fee_recipient` exist so neither is a one-shot
-    /// decision baked in at initialization. Without them a fat-fingered
-    /// `fee_recipient` would send every trade fee to the wrong address forever,
-    /// and authority could never be rotated onto a rebuilt multisig.
+    /// Update the settings. The terms a launch snapshots at creation never change for it;
+    /// the fee recipient, the pause and the pool tier are read live by every open curve.
+    /// The admin key is not updatable: only a program upgrade moves it. A new fee
+    /// recipient must be a funded wallet and a new tier a fee tier of the pool program,
+    /// each passed among the remaining accounts (LCH-04).
     pub fn update_global(
         ctx: Context<UpdateGlobal>,
         trade_fee_bps: Option<u64>,
@@ -617,21 +616,26 @@ pub mod tegridy_launch {
             g.cp_swap_program = p;
         }
         if let Some(c) = new_amm_config {
-            require!(c != Pubkey::default(), LaunchError::InvalidParameter);
+            let tier = ctx.remaining_accounts.iter().find(|a| a.key == &c);
+            tier_open_fee(tier.ok_or(LaunchError::NotAFeeTier)?, &g.cp_swap_program)?;
             g.amm_config = c;
         }
         if let Some(p) = paused {
             g.paused = p;
         }
-        // Rotating to the default pubkey would brick the protocol irrecoverably —
-        // no one can sign for the System Program id, so authority would be lost
-        // and fees would burn. Reject rather than trust the caller.
-        if let Some(a) = new_authority {
-            require!(a != Pubkey::default(), LaunchError::InvalidParameter);
-            g.authority = a;
-        }
+        // The argument keeps its slot, so every encoder's bytes still mean the same.
+        require!(new_authority.is_none(), LaunchError::AdminMovesOnlyByUpgrade);
+        // A program, a sysvar, an unfunded address or a multisig's own account here would
+        // lose or block the venue's fees: only a funded wallet.
         if let Some(r) = new_fee_recipient {
-            require!(r != Pubkey::default(), LaunchError::InvalidParameter);
+            let w = ctx.remaining_accounts.iter().find(|a| a.key == &r);
+            let w = w.ok_or(LaunchError::NotAFundedWallet)?;
+            require!(
+                w.owner == &system_program::ID
+                    && w.data_is_empty()
+                    && w.lamports() >= Rent::get()?.minimum_balance(0),
+                LaunchError::NotAFundedWallet
+            );
             g.fee_recipient = r;
         }
         Ok(())
@@ -2106,6 +2110,8 @@ mod layout_tests {
         assert_eq!(LaunchError::NotAFeeTier as u32 + 6000, 6025);
         assert_eq!(LaunchError::MigrationReserveTooHigh as u32 + 6000, 6026);
         assert_eq!(LaunchError::SellerBelowRent as u32 + 6000, 6027);
+        assert_eq!(LaunchError::AdminMovesOnlyByUpgrade as u32 + 6000, 6028);
+        assert_eq!(LaunchError::NotAFundedWallet as u32 + 6000, 6029);
     }
 
     /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,

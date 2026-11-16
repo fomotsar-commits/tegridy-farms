@@ -1221,4 +1221,28 @@ describe("tegridy-launch full migration rehearsal", () => {
       cfgFeeRecipient = original;
     }
   });
+
+  // ─── LCH-04: a new tier must be a fee tier of the pool program ──────────────
+  it("update_global takes a real fee tier, and refuses a pool program account that is not one", async () => {
+    const globalKey = pda([GLOBAL_SEED], launch.programId);
+    const setTier = (tier: PublicKey) =>
+      launch.methods
+        .updateGlobal(null, null, null, null, null, null, null, tier, null, null, null)
+        .accountsPartial({ global: globalKey, authority: wallet.publicKey })
+        .remainingAccounts([{ pubkey: tier, isSigner: false, isWritable: false }])
+        .rpc();
+    // A graduated pool: owned by the pool program, but not a tier.
+    const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+    let refused = "";
+    try {
+      await setTier(c.pool);
+    } catch (e) {
+      refused = String(e);
+    }
+    assert.include(refused, "NotAFeeTier");
+    // POSITIVE CONTROL: the public tier is a real tier, then back to the launch tier.
+    await setTier(publicConfig);
+    assert.equal(((await (launch.account as any).globalConfig.fetch(globalKey)) as any).ammConfig.toBase58(), publicConfig.toBase58());
+    await setTier(ammConfig);
+  });
 });
