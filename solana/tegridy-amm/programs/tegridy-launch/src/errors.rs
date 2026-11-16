@@ -62,6 +62,8 @@ pub enum LaunchError {
     CpSwapProgramNotPinned,
     #[msg("Account is not a fee tier of the configured pool program")]
     NotAFeeTier,
+    #[msg("Migration reserve is above its ceiling")]
+    MigrationReserveTooHigh,
 }
 
 /// Lift a pure-curve error into the program's error space.

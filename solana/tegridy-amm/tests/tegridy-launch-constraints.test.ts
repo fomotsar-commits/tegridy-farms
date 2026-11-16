@@ -482,11 +482,9 @@ describe("tegridy-launch security constraints", () => {
     });
 
     /**
-     * A reserve too small to cover cp-swap's rent does not fail at config time on
-     * its own — it fails at the FINISH LINE of every launch created afterwards,
-     * because the reserve is snapshotted per curve. By then the pool is half-built
-     * and there is no way back. Floor is the exact rent from cp-swap's own LEN
-     * constants (42,156,720); the real requirement adds create_pool_fee on top.
+     * The reserve is snapshotted per curve, so it must at least pay the rent of the
+     * accounts cp-swap opens at graduation: the program reads that from the chain's
+     * rent (cp_swap_rent), and the caller pays any opening fee the reserve cannot.
      */
     it("rejects a migration reserve below cp-swap's rent floor", async () => {
       await expectAnchorError(
@@ -498,12 +496,28 @@ describe("tegridy-launch security constraints", () => {
       );
     });
 
+    /**
+     * LCH-11: the reserve is buyers' money and what graduation does not spend goes to
+     * the venue, so it has a ceiling, 0.5 SOL: this suite's own reserve, accepted at
+     * initialize_global, sits on it. One lamport over is refused with the target still
+     * continuous, so only the ceiling can be what refuses it.
+     */
+    it("rejects a migration reserve above its ceiling", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(500_000_001), null, null, null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "MigrationReserveTooHigh"
+      );
+    });
+
     /** POSITIVE CONTROL — a pair that fits is accepted, and BOTH fields land. */
     it("accepts a pair under the ceiling and stores both", async () => {
-      // Continuity pair for V_SOL=30 with a 5 SOL reserve — a bigger reserve pulls
-      // the target DOWN, because the reserve is raised from traders too.
-      const target = new BN(10_039_591_158);
-      const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
+      // Continuity pair for V_SOL=30 with a 0.25 SOL reserve: a smaller reserve
+      // raises the target, because the reserve is raised from traders too.
+      const target = new BN(11_621_942_308);
+      const reserve = new BN(LAMPORTS_PER_SOL).div(new BN(4));
       await program.methods
         .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })

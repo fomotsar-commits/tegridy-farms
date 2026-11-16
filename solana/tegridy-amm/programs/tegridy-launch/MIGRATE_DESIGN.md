@@ -109,8 +109,7 @@ configuration past the curve's ceiling and make graduation unreachable again.
 **How big, exactly.** Computed from cp-swap's own `LEN` constants
 (`states/oracle.rs`, `states/pool.rs`). Mainnet rent is `minimum_balance = (128 + size) * 5080`,
 read with `getMinimumBalanceForRentExemption` on 2026-10-14 (slot 456,823,210). This table
-was first written at the old rate of 6,960 a byte; that column is kept because the program
-constant below still carries it.
+was first written at the old rate of 6,960 a byte; that column is kept for comparison.
 
 | what the authority pays for | bytes | lamports today (5,080/byte) | at the old 6,960/byte |
 | --- | --- | --- | --- |
@@ -124,21 +123,22 @@ constant below still carries it.
 | `create_pool_fee` (Raydium mainnet 0.15 SOL) | | 150,000,000 | 150,000,000 |
 | **REQUIRED MINIMUM** | | **180,769,560** (~0.1808 SOL) | 192,156,720 |
 
-So `migration_reserve_lamports` must be **at least ~0.1808 SOL** on mainnet today, and
-`observation_state` alone is ~69% of the rent. At today's rent 0.25 SOL leaves
-69,230,440 lamports (~0.069 SOL) of headroom; the surplus is swept back to
-the caller (decision 8), so over-provisioning costs nothing but the raise.
+On a tier that charges the 0.15 SOL fee the reserve must be **about 0.1808 SOL** for the
+buyers' reserve to pay for graduation alone; `observation_state` is ~69% of the rent. The
+surplus does NOT go to the caller: what the reserve does not spend goes to `fee_recipient`
+(decision 8), so every lamport of over-provisioning is a charge on buyers that the venue
+keeps. On the launch tier (no opening fee) the live 0.05 SOL leaves 19,230,440 lamports.
 
-**The program's own floor is a constant at the old rate.** `MIN_MIGRATION_RESERVE_LAMPORTS`
-(`src/state.rs`) is 42,156,720, the old-rate subtotal. `initialize_global` refuses any reserve
-below it, which is stricter than today's rent needs and harmless, since the practical minimum
-(180,769,560) is above it anyway. Changing the constant needs a program upgrade.
+**The program's bounds (2026-11-15, LCH-11).** `initialize_global` and `update_global` refuse
+a reserve below the table's rent subtotal at the rent of the moment (`cp_swap_rent`, read
+from the chain, not compiled in) and above `MAX_MIGRATION_RESERVE_LAMPORTS` (0.5 SOL,
+`src/state.rs`). A fee the reserve cannot cover no longer strands a curve: the caller of
+graduation pays the difference (decision 8).
 
-⚠️ **A too-small reserve fails at the finish line**, after the pool exists. The
-rehearsal now charges the real 0.15 SOL fee and asserts the fee receiver was
-credited exactly that, so an undersized reserve fails in CI. It ran at ZERO for a
-long time, which meant this entire cost was untested and the reserve could have
-been arbitrarily wrong while CI stayed green.
+The rehearsal charges the real 0.15 SOL fee and asserts the fee receiver was credited
+exactly that, and a second case raises the fee past the reserve and asserts the caller
+paid exactly the difference. The fee ran at ZERO in CI for a long time, which left this
+whole cost untested.
 
 ### 2. Mint ordering — RESOLVED
 

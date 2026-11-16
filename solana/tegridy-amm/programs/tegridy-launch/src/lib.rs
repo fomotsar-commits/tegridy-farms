@@ -226,6 +226,7 @@ fn check_launch_economics(
     platform_reserve_bps: u64,
     graduation_target: u64,
     migration_reserve: u64,
+    rent: &Rent,
 ) -> Result<()> {
     // Rejects a reserve above the cap (as InvalidParameter).
     let (curve_tokens, _) =
@@ -249,14 +250,16 @@ fn check_launch_economics(
         .map_err(LaunchError::from)?;
     require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
 
-    // The reserve must at least cover the rent cp-swap charges the creator. It is
-    // snapshotted onto every curve at creation, so setting it too low does not fail
-    // here — it fails at the finish line of every launch created afterwards, with
-    // the pool already half-built and no way back. See MIN_MIGRATION_RESERVE_LAMPORTS
-    // for why this is a floor rather than the full requirement.
+    // The reserve covers at least the rent of the accounts cp-swap opens at graduation,
+    // at the rent of the moment (a later shortfall is the caller's to pay). It is
+    // buyers' money, and what it does not spend goes to the venue: hence a ceiling.
     require!(
-        migration_reserve >= MIN_MIGRATION_RESERVE_LAMPORTS,
+        migration_reserve >= cp_swap_rent(rent),
         LaunchError::MigrationReserveTooLow
+    );
+    require!(
+        migration_reserve <= MAX_MIGRATION_RESERVE_LAMPORTS,
+        LaunchError::MigrationReserveTooHigh
     );
 
     let ratio = graduation_price_ratio_bps(
@@ -478,6 +481,7 @@ pub mod tegridy_launch {
             platform_reserve_bps,
             graduation_target_lamports,
             migration_reserve_lamports,
+            &Rent::get()?,
         )?;
         // Zero, or the compile-time pin. Nothing else, ever — see `mod cp_swap`.
         check_cp_swap_program(&cp_swap_program, true)?;
@@ -579,6 +583,7 @@ pub mod tegridy_launch {
                 new_reserve_bps,
                 new_target,
                 new_reserve,
+                &Rent::get()?,
             )?;
             g.graduation_target_lamports = new_target;
             g.migration_reserve_lamports = new_reserve;
@@ -2081,6 +2086,7 @@ mod layout_tests {
         assert_eq!(LaunchError::PlatformReserveAlreadyReleased as u32 + 6000, 6023);
         assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
         assert_eq!(LaunchError::NotAFeeTier as u32 + 6000, 6025);
+        assert_eq!(LaunchError::MigrationReserveTooHigh as u32 + 6000, 6026);
     }
 
     /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,
@@ -2288,6 +2294,30 @@ mod layout_tests {
         let (per_mint, _) =
             Pubkey::find_program_address(&[MIGRATION_AUTH_SEED, mint.as_ref()], &crate::ID);
         assert_ne!(a, per_mint);
+    }
+
+    /// LCH-11: the reserve's floor is the rent of cp-swap's pool accounts at the rent of
+    /// the moment, not a figure compiled in at an old rate, and the reserve has a ceiling.
+    /// 5,080 lamports a byte is mainnet's rent since 2026-09; 6,960 the old rate.
+    #[test]
+    fn the_migration_reserve_is_bounded_by_the_rent_of_the_moment_and_a_ceiling() {
+        let today = Rent { lamports_per_byte_year: 2_540, exemption_threshold: 2.0, burn_percent: 50 };
+        let old = Rent::default();
+        assert_eq!(cp_swap_rent(&today), 30_769_560);
+        assert_eq!(cp_swap_rent(&old), 42_156_720);
+        // The test suites' book: 30 SOL virtual, 3.69% reserve, each target continuous.
+        let check = |reserve: u64, rent: &Rent| {
+            let (vsol, vtok, supply) = (30_000_000_000, 1_033_406_300_000_000, 1_000_000_000_000_000);
+            let (curve_s, _) = curve::curve_supply(supply, 369).unwrap();
+            let target = curve::continuity_target(vsol, vtok, curve_s, reserve).unwrap();
+            error_number(check_launch_economics(vsol, vtok, supply, 369, target, reserve, rent))
+        };
+        assert_eq!(check(30_769_560, &today), None, "today's rent is enough");
+        assert_eq!(check(30_769_559, &today), Some(6017));
+        assert_eq!(check(30_769_560, &old), Some(6017), "a rent rise raises the floor");
+        assert_eq!(check(42_156_720, &old), None);
+        assert_eq!(check(MAX_MIGRATION_RESERVE_LAMPORTS, &today), None);
+        assert_eq!(check(MAX_MIGRATION_RESERVE_LAMPORTS + 1, &today), Some(6026));
     }
 
     /// The permission PDA's seed is cp-swap's, not ours. Restating it locally is what
