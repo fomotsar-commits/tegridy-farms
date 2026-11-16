@@ -3,10 +3,12 @@
 //!
 //!   cargo test --test parity
 //!
-//! The program is `tests/fixtures/memetics.so`, the ELF read from mainnet (what
-//! `solana program dump` writes), not a local build: the parity that matters is with the
-//! binary Jupiter would route to. The pool snapshots are `tests/fixtures/accounts/<pool>/`.
-//! To take them again, run with `REFRESH=1 RPC=<mainnet url>`: the kit only reads accounts.
+//! The program is `tests/fixtures/memetics.so`, the ELF read from mainnet, not a local build:
+//! the parity that matters is with the binary Jupiter would route to. The pools are
+//! `tests/fixtures/accounts/<pool>/` with the tier's swap guard cleared (`common::snapshot`).
+//! To take both again: `node scripts/take-fixtures.mjs` (read only).
+
+mod common;
 
 use jupiter_amm_interface::Swap;
 use jupiter_amm_test_kit::{PoolTest, assert_pool_parity};
@@ -21,33 +23,35 @@ const BAYLA: Pubkey = pubkey!("7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump");
 
 #[test]
 fn bayla_sol() {
-    let test = PoolTest::new(BAYLA_SOL_POOL)
+    let mut test = PoolTest::new(BAYLA_SOL_POOL)
         .add_swap(WSOL, BAYLA, 100_000_000) // 0.1 SOL
         .add_swap(WSOL, BAYLA, 10_000_000_000) // 10 SOL
         .add_swap(WSOL, BAYLA, 123_456_789) // an amount whose fee does not divide evenly
         .add_swap(BAYLA, WSOL, 10_000_000_000) // 10,000 BAYLA (6 decimals)
         .add_swap(BAYLA, WSOL, 1_000_000_000_000) // 1,000,000 BAYLA
         .add_swap(BAYLA, WSOL, 987_654_321_123);
+    test.fixtures_dir = common::snapshot_dir(&BAYLA_SOL_POOL);
 
     assert_pool_parity::<MemeticsAmm>(&test, encode_swap);
 }
 
 #[test]
 fn bayla_usdc() {
-    let test = PoolTest::new(BAYLA_USDC_POOL)
+    let mut test = PoolTest::new(BAYLA_USDC_POOL)
         .add_swap(USDC, BAYLA, 5_000_000) // 5 USDC
         .add_swap(USDC, BAYLA, 200_000_000) // 200 USDC
         .add_swap(USDC, BAYLA, 7_654_321) // an amount whose fee does not divide evenly
         .add_swap(BAYLA, USDC, 20_000_000_000) // 20,000 BAYLA
         .add_swap(BAYLA, USDC, 500_000_000_000) // 500,000 BAYLA
         .add_swap(BAYLA, USDC, 33_333_333_333);
+    test.fixtures_dir = common::snapshot_dir(&BAYLA_USDC_POOL);
 
     assert_pool_parity::<MemeticsAmm>(&test, encode_swap);
 }
 
-/// The ELF under test is the one on mainnet: 691,640 bytes, the release build
-/// `cp_swap.mainnet.so` (MAINNET_RUNBOOK.md). A program upgrade changes it: delete the file,
-/// rerun with `RPC` set to dump the new one, and pin its hash here.
+/// The ELF under test: 714,776 bytes read from mainnet at slot 469,908,387 (last deployed in
+/// slot 469,177,891 by the vault's proposal #32, the build with the swap guard). When proposal
+/// #35 executes (it can from 2026-11-16 05:13 UTC), take the fixtures again and pin its hash.
 #[test]
 fn the_program_is_the_deployed_binary() {
     use sha2::{Digest, Sha256};
@@ -58,7 +62,7 @@ fn the_program_is_the_deployed_binary() {
         .collect();
     assert_eq!(
         hex,
-        "88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882"
+        "01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938"
     );
 }
 

@@ -1,6 +1,6 @@
 //! Jupiter `Amm` for the Memetics pools: the constant-product program at
 //! `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, a fork of raydium-cp-swap (Apache-2.0)
-//! whose swap, curve and fee code is byte-identical to upstream's.
+//! whose curve and fee code is byte-identical to upstream's; its swap adds the swap guard.
 //!
 //! All it does, per Jupiter's DEX integration rules: decode the pool, its fee tier, its two
 //! vaults and its two mints in `update`; quote ExactIn swaps in `quote`, with no network call;

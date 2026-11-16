@@ -45,6 +45,8 @@ const ALLOWED: &[(&str, &str)] = &[
 
 const REFUSED_COLLECTOR: &str =
     "fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)";
+const GUARD_ON: &str =
+    "fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are";
 
 fn allowed(key: &Pubkey) -> bool {
     ALLOWED
@@ -106,7 +108,7 @@ fn the_sdk_names_no_other_key() {
 #[test]
 fn the_live_pools_pay_only_the_venue_and_the_island() {
     for pool_key in common::POOLS {
-        let snapshot = common::snapshot(&pool_key);
+        let snapshot = common::mainnet_snapshot(&pool_key);
         let pool_account = common::account(&snapshot, &pool_key);
         assert_eq!(pool_account.owner, PROGRAM_ID, "{pool_key}");
         let pool = PoolState::decode(&pool_account.data).expect("pool decodes");
@@ -254,8 +256,8 @@ fn the_islands_share_may_go_to_its_workshop_but_the_venues_may_not() {
 }
 
 /// `update` refuses a fee tier whose swap guard is on: Jupiter calls every swap from its own
-/// program, which such a tier refuses, so a quote would fail every route. Off, as the snapshot
-/// was taken, it updates.
+/// program, which such a tier refuses, so a quote would fail every route. Off, in the tests'
+/// guard-off view, it updates.
 #[test]
 fn a_fee_tier_with_its_swap_guard_on_is_refused() {
     let pool_key = common::BAYLA_SOL_POOL;
@@ -264,17 +266,29 @@ fn a_fee_tier_with_its_swap_guard_on_is_refused() {
     let f = config_fields::SWAP_GUARD;
     let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
     let config = accounts.get(&pool.amm_config).unwrap();
-    assert_eq!(&config.data[f.offset..f.offset + f.size], &[0u8; 8], "the snapshot's guard is off");
-    assert!(common::amm_from(&snapshot, &pool_key, &accounts).is_ok(), "the snapshot as taken updates");
+    assert_eq!(&config.data[f.offset..f.offset + f.size], &[0u8; 8], "the view's guard is off");
+    assert!(common::amm_from(&snapshot, &pool_key, &accounts).is_ok(), "the view updates");
     let config = accounts.get_mut(&pool.amm_config).unwrap();
     config.data[f.offset..f.offset + f.size].copy_from_slice(&1u64.to_le_bytes());
     let refused = common::amm_from(&snapshot, &pool_key, &accounts)
         .err()
         .map(|e| e.to_string());
-    assert_eq!(
-        refused.as_deref(),
-        Some("fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are"),
-    );
+    assert_eq!(refused.as_deref(), Some(GUARD_ON));
+}
+
+/// As mainnet holds them, both live tiers have the guard on (vault proposal #33, 2026-11-14),
+/// so no live pool gets a quote. A listing waits on the owner's choice: the guard off on a
+/// tier, or a program change that admits Jupiter. When that changes, so does this test.
+#[test]
+fn as_mainnet_holds_them_no_live_pool_is_quoted() {
+    for pool_key in common::POOLS {
+        let snapshot = common::mainnet_snapshot(&pool_key);
+        let accounts = common::accounts_to_update(&snapshot, &pool_key);
+        let refused = common::amm_from(&snapshot, &pool_key, &accounts)
+            .err()
+            .map(|e| e.to_string());
+        assert_eq!(refused.as_deref(), Some(GUARD_ON), "{pool_key}");
+    }
 }
 
 /// A pool account another program owns is not built, whatever its bytes say.

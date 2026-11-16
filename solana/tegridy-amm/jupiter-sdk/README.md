@@ -15,10 +15,12 @@ It only decodes state and quotes, as Jupiter requires:
 ## How money moves
 
 The trader pays the fee tier's trade fee out of what they put in (1% on tier 1, which both BAYLA
-pools use). The venue's cut is a share of that fee, not an extra charge (16% of it on tier 1). It
-stays in the pool, booked to the venue, until the venue's Squads vault
-`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` collects it. The rest of the fee stays in the pool
-for the people who supplied it. A swap pays nobody outside the pool.
+pools use). Two shares of that fee are booked in the pool, not charged on top: 10.4% of it for
+the venue, which the venue's Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`
+collects, and 5.6% for the island, which the island's Workshop collects itself (the split of
+2026-10-18). The other 84% stays in the pool for the people who supplied it. On a 100 SOL trade
+that is a 1 SOL fee: 0.104 SOL for the venue, 0.056 SOL for the island, 0.84 SOL for the pool's
+liquidity providers. A swap pays nobody outside the pool.
 
 `update` refuses a fee tier whose venue share is not collected by that vault, or whose island
 share is collected by anyone but the vault or the island's Workshop
@@ -33,24 +35,32 @@ cargo test
 
 | Test | What it holds |
 |---|---|
-| `tests/parity.rs` | Jupiter's test kit: each quote equals what the deployed program pays when it runs the swap in LiteSVM. Both BAYLA pools, both directions, 12 swaps. |
-| `tests/fee_paths.rs` | The same check on copies of the BAYLA/SOL snapshot with a creator fee (each way it can be charged), a fund fee, and fees booked to both. The live pools charge neither, so `parity.rs` never runs those paths. |
+| `tests/parity.rs` | Jupiter's test kit: each quote equals what the deployed program pays when it runs the swap in LiteSVM. Both BAYLA pools, both directions, 12 swaps, with the venue's and the island's shares booked as on mainnet. |
+| `tests/fee_paths.rs` | The same check on copies of the BAYLA/SOL snapshot with a creator fee (each way it can be charged) and fees booked to the island and the creator. The live pools charge no creator fee, so `parity.rs` never runs those paths. |
 | `tests/quote_vectors.rs` | 31 fixed swaps and 12 on the live snapshots (`tests/fixtures/quote_vectors.json`). The site's own quote must give the same numbers: `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Two of the fixed swaps are what the deployed program paid in `fee_paths.rs`. |
-| `tests/ours.rs` | Every key in the SDK's source is the venue's or a token program's; the live fee tiers pay only the venue's vault; a tier with its swap guard on gets no quote; a swap touches only the pool, the trader and ours. |
-| `tests/refusals.rs` | No quote for a transfer-fee token, ExactOut, a pair the pool does not hold, or token accounts that are not the pool's. |
+| `tests/ours.rs` | Every key in the SDK's source is the venue's, the island's Workshop or a token program's; the live tiers pay the venue's share only to the vault and the island's only to the vault or the Workshop; a tier with its swap guard on gets no quote, so as mainnet holds them no live pool does; a swap touches only the pool, the trader and ours. |
+| `tests/refusals.rs` | No quote for a transfer-fee token, ExactOut, a pair the pool does not hold, token accounts that are not the pool's or are frozen, or after an `update` that was refused. |
 | `tests/layout.rs` | Every byte offset read here is recomputed from the program's source. It reads `../programs/cp-swap`, so it runs inside this repository. |
 
 The fixtures are committed, so the tests run offline:
 
-- `tests/fixtures/memetics.so` is the program as deployed, read from mainnet: 691,640 bytes,
-  sha256 `88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882`.
-- `tests/fixtures/accounts/<pool>/` holds both BAYLA pools as mainnet held them at slot
-  457516133 (2026-10-16 05:12 UTC).
+- `tests/fixtures/memetics.so` is the program as deployed, read from mainnet at slot 469908387:
+  the build of the vault's proposal #32 (the swap guard), last deployed in slot 469177891,
+  714,776 bytes, sha256 `01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938`.
+  Proposal #35 replaces it once executed (it can be from 2026-11-16 05:13 UTC).
+- `tests/fixtures/accounts/<pool>/` holds both BAYLA pools as mainnet held them at finalized
+  slot 469908367 (2026-11-15 23:08:57 UTC): fee tier 1 at a 1% trade fee, the venue's share
+  104,000 and the island's 56,000 millionths of it, the island's share owned by the Workshop,
+  the swap guard on.
+- Every live tier has the guard on and the SDK quotes no guarded tier, so the quote tests read
+  these accounts with the guard alone cleared (`tests/common/mod.rs`, `snapshot`). The guard
+  moves no amount. `tests/ours.rs` checks that the accounts as taken get no quote.
 
-To take new snapshots: `REFRESH=1 RPC=<mainnet url> cargo test --test parity`. The kit only
-reads accounts. After a program upgrade, delete `memetics.so` first so the new one is read, and
-pin its hash in `tests/parity.rs`. New snapshots change the live numbers in
-`quote_vectors.json`, which then need writing again.
+To take both again: `node scripts/take-fixtures.mjs` in this folder. It only reads: three
+requests to the public mainnet endpoint, 2.5 s apart. It cuts the program to the ELF's own
+length, so the hash is the registry's, and prints the slot and the hash to pin in
+`tests/parity.rs`. New snapshots change the live numbers in `quote_vectors.json` and its two
+`fee_paths token-0 copy` cases, which then need writing again.
 
 ## What it does not do
 
@@ -61,7 +71,12 @@ pin its hash in `tests/parity.rs`. New snapshots change the live numbers in
 - A pool on a fee tier whose swap guard is on: refused. Jupiter calls every swap it routes from
   its own program, and such a tier refuses a swap another program calls (6015 `SwapNotDirect`,
   `refuses_swap` in the program's `states/config.rs`), so every route would fail. Both live
-  tiers have had the guard on since 2026-11-14 (Squads proposal #33).
+  tiers have had the guard on since 2026-11-14 (Squads proposal #33), so today this SDK quotes
+  no live pool. A listing waits on the owner's choice: the guard off on the tier to list (a
+  vault proposal, 48 hours), or a program change that lets Jupiter's program through.
+- A pool whose token account is frozen: refused. The token program moves no tokens into or out
+  of a frozen account, so the swap would fail.
+- After an `update` is refused, no quote until one passes.
 
 ## Dependencies
 
