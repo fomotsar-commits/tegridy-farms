@@ -1344,6 +1344,28 @@ describe("bayla-ladder", () => {
       // Weight set before the notice leaves free, through either door.
       assert.equal(await leave(dave, 0, "earlyExit"), tok(1_000).toString(), "an earlier staker leaves free");
       assert.equal(await leave(dave, 1, "emergencyWithdraw"), tok(1_000).toString(), "through the hatch too");
+
+      // Nobody can stake into it now, so it takes no fresh reward tokens. POSITIVE CONTROL,
+      // same scaffolding: budget already in its reward vault (the buyer's 7,500 penalty)
+      // can still be scheduled.
+      const notify = (amount: BN, fromBudget: BN) =>
+        program.methods.notifyReward(amount, fromBudget).accounts({
+          authority: payer.publicKey,
+          pool: ctx2.pool,
+          mint: ctx2.mint,
+          funderAta: ctx2.userAta,
+          rewardVault: vaultPda(REWARD_VAULT_SEED, ctx2.pool),
+          tokenProgram: ctx2.programId,
+        });
+      await rejectsWith(
+        notify(tok(1_000), new BN(0)).rpc(),
+        "PoolDegraded",
+        "fresh reward tokens went into a pool nobody can stake into"
+      );
+      await notify(new BN(0), tok(7_500)).rpc();
+      const scheduled = await program.account.pool.fetch(ctx2.pool);
+      assert.isTrue(scheduled.rewardRate.gt(new BN(0)), "budget already in the vault stays schedulable");
+      assert.equal(scheduled.rewardFundedCumulative.toString(), "0", "and no fresh token went in");
     });
 
     it("authority rotation is two-step and the incoming key must sign", async () => {

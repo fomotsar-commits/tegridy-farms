@@ -97,10 +97,11 @@ pub struct Pool {
     /// `total_principal` already excludes it.
     pub orphaned_penalty: u64,
 
-    /// ONE-WAY, set by `declare_degraded`. Then `stake` and `extend_lock` are refused, and
-    /// both early doors are free for a position whose weight was set at or before
-    /// `degraded_notice_start`; weight set later pays the normal penalty. It only frees
-    /// stakers, but a key-holder with an older locked position escapes its penalty by firing it.
+    /// ONE-WAY, set by `declare_degraded`. Then `stake`, `extend_lock` and fresh reward
+    /// tokens are refused, and both early doors are free for a position whose weight was
+    /// set at or before `degraded_notice_start`; weight set later pays the normal penalty.
+    /// It only frees stakers, but a key-holder with an older locked position escapes its
+    /// penalty by firing it.
     pub degraded: bool,
 
     /// Truncation remainders (audit M-2 / L-4). Carved OUT of `_reserved` rather than

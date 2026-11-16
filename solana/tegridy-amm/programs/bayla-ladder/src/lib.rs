@@ -117,8 +117,8 @@
 //!
 //! `declare_degraded` cannot touch the penalty schedule. It waives the penalty on both
 //! early doors for a position whose weight was set at or before the notice start it is
-//! given, and closes the pool to new stakes and lock extensions. It can only move in the
-//! direction that frees stakers.
+//! given, and closes the pool to new stakes, lock extensions and fresh reward tokens. It
+//! can only move in the direction that frees stakers.
 //!
 //! ## Two couplings a future change could break without noticing
 //!
@@ -833,6 +833,12 @@ pub mod bayla_ladder {
         // no fresh capital is the whole point of the split, so `amount` may be zero —
         // but a call that schedules nothing at all is still refused.
         require!(amount > 0 || from_budget > 0, LadderError::ZeroAmount);
+        // Nobody can stake into a degraded pool, so it takes no fresh tokens. Budget already
+        // in the reward vault can still be scheduled through `from_budget`.
+        require!(
+            !ctx.accounts.pool.degraded || amount == 0,
+            LadderError::PoolDegraded
+        );
         require_keys_eq!(
             ctx.accounts.token_program.key(),
             ctx.accounts.pool.token_program,
@@ -1046,9 +1052,9 @@ pub mod bayla_ladder {
     }
 
     /// ONE-WAY. `notice_start`: when the proposal to call this was made (unix seconds, in
-    /// the past). After this, `stake` and `extend_lock` are refused, and both early doors
-    /// are free for a position whose weight was set at or before `notice_start`; weight
-    /// set later pays the normal penalty.
+    /// the past). After this, `stake`, `extend_lock` and fresh reward tokens are refused,
+    /// and both early doors are free for a position whose weight was set at or before
+    /// `notice_start`; weight set later pays the normal penalty.
     pub fn declare_degraded(ctx: Context<AuthorityOnly>, notice_start: i64) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         require!(!pool.degraded, LadderError::AlreadyDegraded);
