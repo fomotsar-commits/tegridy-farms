@@ -1254,10 +1254,31 @@
 > pub const DECREASE_MEMO_MSG: &'static [u8] = b"memetics_decrease";
 === programs/amm/src/instructions/initialize_reward.rs ===
 130a131,132
->     // memetics.finance: a pool's opener starts no reward (2026-11-03 audit, CL-03/CR-4, the
->     // owner's ruling), as in Orca's pools: only the vault or an operation owner it named does.
-133d134
+>     // memetics.finance: only the vault starts a reward (2026-11-03 audit, CL-03/CR-4, and
+>     // 2026-11-15 audit, RNG-05): not a pool's opener, and not an operation owner.
+132,134c134
+<         ctx.accounts.reward_funder.key() == crate::admin::ID
 <             || ctx.accounts.reward_funder.key() == ctx.accounts.pool_state.load()?.owner
+<             || operation_state.validate_operation_owner(ctx.accounts.reward_funder.key()),
+---
+>         ctx.accounts.reward_funder.key() == crate::admin::ID,
+185a186,201
+> }
+> 
+> #[cfg(test)]
+> mod reward_starter_test {
+>     /// memetics.finance (2026-11-15 audit, RNG-05): the handler creates the reward vault before
+>     /// it asks who signed, so no unit test reaches its check; this pins the check's text instead:
+>     /// the vault alone, no operation owner. The local-chain suite runs it (check R15).
+>     #[test]
+>     fn only_the_vault_starts_a_reward_test() {
+>         let src = include_str!("initialize_reward.rs");
+>         let handler = &src[..src.find("#[cfg(test)]").unwrap()];
+>         assert!(handler.contains(
+>             "require!(\n        ctx.accounts.reward_funder.key() == crate::admin::ID,\n        ErrorCode::NotApproved\n    );"
+>         ));
+>         assert!(!handler.contains("operation_owner"));
+>     }
 === programs/amm/src/instructions/limit_order/open_limit_order.rs ===
 267a268,272
 >     // memetics.finance: at the taker's rounding one unit must cost no more than a u64, or no
@@ -1309,6 +1330,32 @@
 <             "https://dynamic-ipfs.raydium.io/clmm/position?id={}",
 ---
 >             "https://memetics.finance/position/{}.json",
+=== programs/amm/src/instructions/set_reward_params.rs ===
+54,55d53
+<     let operation_state = ctx.accounts.operation_state.load()?;
+<     let admin_keys = operation_state.operation_owners.to_vec();
+57,58c55,57
+<     let admin_operator = admin_keys.contains(&ctx.accounts.authority.key())
+<         || ctx.accounts.authority.key() == crate::admin::ID;
+---
+>     // memetics.finance: only the vault changes a reward as its admin, not an operation owner
+>     // (2026-11-15 audit, RNG-05).
+>     let admin_operator = ctx.accounts.authority.key() == crate::admin::ID;
+290a290,303
+> }
+> 
+> #[cfg(test)]
+> mod reward_admin_test {
+>     /// memetics.finance (2026-11-15 audit, RNG-05): the handler reads the clock before it asks
+>     /// who signed, which no unit test can do here, so this pins the rule's text: the vault alone
+>     /// changes a reward as its admin, no operation owner. The local-chain suite runs it (R16).
+>     #[test]
+>     fn only_the_vault_is_a_reward_admin_test() {
+>         let src = include_str!("set_reward_params.rs");
+>         let handler = &src[..src.find("#[cfg(test)]").unwrap()];
+>         assert!(handler.contains("let admin_operator = ctx.accounts.authority.key() == crate::admin::ID;"));
+>         assert!(!handler.contains("operation_owner"));
+>     }
 === programs/amm/src/instructions/swap.rs ===
 197a198
 >         is_limit_order_fill: bool,
@@ -1719,7 +1766,53 @@
 >         // memetics.finance: limit orders start off in every pool (2026-11-03 audit, CO-2); the
 >         // vault turns them on with update_pool_status, which writes the whole status byte.
 >         self.set_status_by_bit(PoolStatusBitIndex::LimitOrder, PoolStatusBitFlag::Disable);
-2248a2252,2321
+319,323c322,323
+<             require!(
+<                 *authority == crate::admin::ID
+<                     || operation_state.validate_operation_owner(*authority),
+<                 ErrorCode::NotApproved
+<             );
+---
+>             // memetics.finance: the vault alone, not an operation owner (2026-11-15 audit, RNG-05).
+>             require!(*authority == crate::admin::ID, ErrorCode::NotApproved);
+1294a1295,1330
+>         /// memetics.finance (2026-11-15 audit, RNG-05): the third reward slot takes the vault
+>         /// alone. An operation owner the vault named is refused there as anywhere else.
+>         #[test]
+>         fn third_reward_slot_takes_the_vault_alone_test() {
+>             let operator = Pubkey::new_unique();
+>             let mut operation_state = OperationState {
+>                 bump: 0,
+>                 operation_owners: [Pubkey::default(); OPERATION_SIZE_USIZE],
+>                 whitelist_mints: [Pubkey::default(); WHITE_MINT_SIZE_USIZE],
+>             };
+>             operation_state.operation_owners[0] = operator;
+>             let pool_state = &mut PoolState::default();
+>             let pool_coin = Pubkey::new_unique();
+>             pool_state.token_mint_0 = pool_coin;
+>             let mut start = |mint: Pubkey, authority: Pubkey| {
+>                 pool_state.initialize_reward(
+>                     1_700_000_000,
+>                     1_700_604_800,
+>                     10,
+>                     &mint,
+>                     COption::None,
+>                     &Pubkey::new_unique(),
+>                     &authority,
+>                     &operation_state,
+>                 )
+>             };
+>             // A pool coin, then a coin nobody can freeze, fill the first two slots.
+>             start(pool_coin, crate::admin::ID).unwrap();
+>             start(Pubkey::new_unique(), crate::admin::ID).unwrap();
+>             assert_eq!(
+>                 start(Pubkey::new_unique(), operator).unwrap_err(),
+>                 ErrorCode::NotApproved.into()
+>             );
+>             start(Pubkey::new_unique(), crate::admin::ID).unwrap();
+>         }
+> 
+2248a2285,2354
 >     }
 > }
 > 

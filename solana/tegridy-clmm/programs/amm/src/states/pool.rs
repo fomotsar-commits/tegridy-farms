@@ -319,11 +319,8 @@ impl PoolState {
             }
         } else if lowest_index == REWARD_NUM - 1 {
             // the last reward token must be controlled by the admin
-            require!(
-                *authority == crate::admin::ID
-                    || operation_state.validate_operation_owner(*authority),
-                ErrorCode::NotApproved
-            );
+            // memetics.finance: the vault alone, not an operation owner (2026-11-15 audit, RNG-05).
+            require!(*authority == crate::admin::ID, ErrorCode::NotApproved);
         }
 
         // self.reward_infos[lowest_index].reward_state = RewardState::Initialized as u8;
@@ -1293,6 +1290,42 @@ pub mod pool_test {
                 identity(updated_reward_infos[0].last_update_time),
                 1666069200
             );
+        }
+
+        /// memetics.finance (2026-11-15 audit, RNG-05): the third reward slot takes the vault
+        /// alone. An operation owner the vault named is refused there as anywhere else.
+        #[test]
+        fn third_reward_slot_takes_the_vault_alone_test() {
+            let operator = Pubkey::new_unique();
+            let mut operation_state = OperationState {
+                bump: 0,
+                operation_owners: [Pubkey::default(); OPERATION_SIZE_USIZE],
+                whitelist_mints: [Pubkey::default(); WHITE_MINT_SIZE_USIZE],
+            };
+            operation_state.operation_owners[0] = operator;
+            let pool_state = &mut PoolState::default();
+            let pool_coin = Pubkey::new_unique();
+            pool_state.token_mint_0 = pool_coin;
+            let mut start = |mint: Pubkey, authority: Pubkey| {
+                pool_state.initialize_reward(
+                    1_700_000_000,
+                    1_700_604_800,
+                    10,
+                    &mint,
+                    COption::None,
+                    &Pubkey::new_unique(),
+                    &authority,
+                    &operation_state,
+                )
+            };
+            // A pool coin, then a coin nobody can freeze, fill the first two slots.
+            start(pool_coin, crate::admin::ID).unwrap();
+            start(Pubkey::new_unique(), crate::admin::ID).unwrap();
+            assert_eq!(
+                start(Pubkey::new_unique(), operator).unwrap_err(),
+                ErrorCode::NotApproved.into()
+            );
+            start(Pubkey::new_unique(), crate::admin::ID).unwrap();
         }
 
         // Documents why reward_delta uses ceil (not floor): the pool credits reward_total_emitted
