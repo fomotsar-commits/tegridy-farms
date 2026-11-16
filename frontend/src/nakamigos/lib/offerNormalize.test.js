@@ -54,3 +54,20 @@ describe("normalizeCollectionOffer carries feeBps", () => {
     expect(normalizeCollectionOffer({ order_hash: "0x2", price: { value: "1" } }).feeBps).toBeNull();
   });
 });
+
+describe("normalizeCollectionOffer carries how many items a bid still buys", () => {
+  // A collection bid for 2 that already bought 1 buys 1 more. The panels say "buys N", so they
+  // need OpenSea's remaining_quantity, not the order's original quantity.
+  it("from OpenSea's remaining_quantity", () => {
+    const row = { order_hash: "0x1", remaining_quantity: 1, protocol_data: { parameters: bid({ offer: 60_000_000_000_000_000n, qty: 2, fees: [[OPENSEA, 600_000_000_000_000n]] }) } };
+    const n = normalizeCollectionOffer(row);
+    expect(n.quantity).toBe(2);
+    expect(n.remainingQuantity).toBe(1);
+  });
+
+  it("null when OpenSea did not say, or said something that is not a whole number", () => {
+    expect(normalizeCollectionOffer({ order_hash: "0x2" }).remainingQuantity).toBeNull();
+    expect(normalizeCollectionOffer({ order_hash: "0x3", remaining_quantity: "2" }).remainingQuantity).toBeNull();
+    expect(normalizeCollectionOffer({ order_hash: "0x4", remaining_quantity: 1.5 }).remainingQuantity).toBeNull();
+  });
+});

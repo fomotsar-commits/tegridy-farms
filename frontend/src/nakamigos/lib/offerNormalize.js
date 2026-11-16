@@ -60,6 +60,9 @@ export function normalizeCollectionOffer(o) {
     orderHash: o?.order_hash,
     criteria: o?.criteria,
     feeBps: feeBpsOf(params),
+    // How many items the bid still buys (a bid for 2 that bought 1 buys 1 more). Only a whole
+    // number OpenSea states counts; anything else is "not known", never a guess.
+    remainingQuantity: Number.isInteger(o?.remaining_quantity) ? o.remaining_quantity : null,
   };
 }
 
