@@ -7,6 +7,8 @@
 // account points the daily chain read, and whoever reads the row, at the wrong place.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { REGISTERED_PROGRAM_ID, deriveAmmConfig, publicTierConfig } from './cpswap/program';
 import { SOL_MINT, USDC_MINT, USDT_MINT } from '../solana';
 
@@ -63,17 +65,53 @@ describe('the swap fee is paid to the registered token accounts of the registere
     ['squads-vault', USDC_MINT, 'squads-vault-usdc-ata'],
     // USDT joined the fee-mint set on 2026-11-02; the owner created this account the same day.
     ['squads-vault', USDT_MINT, 'squads-vault-usdt-ata'],
-    // The wallet that used to be the fee owner: its two rows are derived the same way.
-    ['swap-fee-account', SOL_MINT, 'swap-fee-ata-wsol'],
-    ['swap-fee-account', USDC_MINT, 'swap-fee-ata-usdc'],
   ] as const)('with %s as fee owner, a swap from %s pays %s', async (owner, mint, row) => {
     expect(await feeAccountNamed(entry(owner).address!, mint)).toBe(entry(row).address);
+    expect(entry(row).expect?.type).toBe('token-account');
+  });
+
+  // The wallet that used to be the fee owner still has both accounts open, so the code refuses it
+  // as owner (XCHL-04): a swap names no fee account at all. Its two rows stay derived, offline.
+  it.each([
+    [SOL_MINT, 'swap-fee-ata-wsol'],
+    [USDC_MINT, 'swap-fee-ata-usdc'],
+  ] as const)('with the old fee wallet set as owner, a swap from %s names no fee account; %s is still its own account', async (mint, row) => {
+    const old = entry('swap-fee-account').address!;
+    expect(await feeAccountNamed(old, mint)).toBeUndefined();
+    expect(getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(old), true).toBase58()).toBe(entry(row).address);
     expect(entry(row).expect?.type).toBe('token-account');
   });
 
   it('the two owners have different accounts, so a row copied from the other owner fails', () => {
     const rows = ['cpswap-fee-receiver-wsol-ata', 'squads-vault-usdc-ata', 'squads-vault-usdt-ata', 'swap-fee-ata-wsol', 'swap-fee-ata-usdc'];
     expect(new Set(rows.map((id) => entry(id).address)).size).toBe(rows.length);
+  });
+});
+
+describe('the fee owner is the vault, pinned in code (XCHL-04)', () => {
+  it('the pin is the registered vault', async () => {
+    vi.resetModules();
+    const { SOLANA_FEE_OWNER } = await import('../solana');
+    expect(SOLANA_FEE_OWNER).toBe(entry('squads-vault').address);
+  });
+
+  it('any other configured owner takes no fee and never breaks the swap: no fee on the quote, none on the build', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_SOLANA_FEE_ACCOUNT', entry('swap-fee-account').address!);
+    vi.stubEnv('VITE_SOLANA_PLATFORM_FEE_BPS', '50');
+    const solana = await import('../solana');
+    expect(solana.SOLANA_FEE_ACCOUNT).toBe('');
+    expect(solana.isSolanaFeeConfigured()).toBe(false);
+    const { swapCarriesPlatformFee } = await import('../jupiter');
+    expect(swapCarriesPlatformFee(SOL_MINT, BAYLA)).toBe(false);
+  });
+
+  it('the vault, with spaces around it as a dashboard may keep it, is taken', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_SOLANA_FEE_ACCOUNT', ` ${entry('squads-vault').address} `);
+    const solana = await import('../solana');
+    expect(solana.SOLANA_FEE_ACCOUNT).toBe(entry('squads-vault').address);
+    expect(solana.isSolanaFeeConfigured()).toBe(true);
   });
 });
 
