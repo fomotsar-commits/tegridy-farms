@@ -111,7 +111,7 @@ pub mod state;
 
 use crate::curve::{
     curve_supply, graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol,
-    quote_buy, quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
+    quote_buy, quote_sell, split_fee, BPS_DENOMINATOR, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
@@ -206,6 +206,12 @@ fn check_cp_swap_program(program: &Pubkey, allow_unset: bool) -> Result<()> {
     require_keys_eq!(*program, cp_swap::ID, LaunchError::CpSwapProgramNotPinned);
     Ok(())
 }
+
+/// The highest trade fee a launch may be configured with: the pools' own ceiling (4%),
+/// so a coin never pays more on its curve than its pool may charge after it (XCH-14).
+/// `curve::MAX_FEE_BPS` stays the curve math's wider backstop.
+const MAX_TRADE_FEE_BPS: u64 = raydium_cp_swap::states::MAX_FEE_RATE_NUMERATOR * BPS_DENOMINATOR
+    / raydium_cp_swap::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
 
 /// Every economic sanity check a launch configuration must pass.
 ///
@@ -444,7 +450,7 @@ pub mod tegridy_launch {
         amm_config: Pubkey,
         platform_reserve_bps: u64,
     ) -> Result<()> {
-        require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+        require!(trade_fee_bps <= MAX_TRADE_FEE_BPS, LaunchError::FeeTooHigh);
         // A share of the FEE, so 100% is the natural bound — anything above it
         // would pay the creator more than the trade charged.
         require!(
@@ -529,7 +535,7 @@ pub mod tegridy_launch {
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
-            require!(f <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+            require!(f <= MAX_TRADE_FEE_BPS, LaunchError::FeeTooHigh);
             g.trade_fee_bps = f;
         }
         // Future launches only — every live curve snapshotted its own share at

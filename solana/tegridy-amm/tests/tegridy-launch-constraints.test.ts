@@ -947,6 +947,24 @@ describe("tegridy-launch security constraints", () => {
     });
   });
 
+  // ─── XCH-14: the trade fee's ceiling is the pools' 4% ──────────────────────
+
+  describe("the trade fee ceiling is the pools' 4%", () => {
+    const setFee = (bps: number) =>
+      program.methods
+        .updateGlobal(new BN(bps), null, null, null, null, null, null, null, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+    it("refuses 401 bps and stores 400", async () => {
+      await expectAnchorError(setFee(401), "FeeTooHigh");
+      await setFee(400);
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.tradeFeeBps.toString(), "400", "the pools' own ceiling is accepted");
+      await setFee(TRADE_FEE_BPS.toNumber());
+    });
+  });
+
   // ─── The creator-share setter ──────────────────────────────────────────────
 
   describe("creator_fee_share_bps is settable and bounded", () => {

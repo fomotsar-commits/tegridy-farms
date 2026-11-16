@@ -116,7 +116,7 @@ pub struct GlobalConfig {
     /// goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads
     /// vault.
     pub fee_recipient: Pubkey,
-    /// Trade fee in basis points, bounded by `curve::MAX_FEE_BPS`.
+    /// Trade fee in basis points, at most the pools' 4% (`MAX_TRADE_FEE_BPS` in lib.rs).
     pub trade_fee_bps: u64,
     /// The creator's share OF THE TRADE FEE, in bps of the fee (5_000 = half the
     /// fee), paid instantly and non-custodially to `BondingCurve.creator` on
