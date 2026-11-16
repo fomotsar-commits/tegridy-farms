@@ -156,6 +156,8 @@ export const REPIN_MAY_TOUCH = [
   'solana/clmm-localnet/',
   'docs/RANGE_POOLS_PLAN.md',
   'CHANGELOG.md',
+  // The secret scanner reads the deny list's pin line as a key; its one-line skip rides with it.
+  '.gitleaksignore',
   'frontend/src/test/solanaGuardTampers.test.ts',
   'frontend/src/test/solanaKeyGuard.test.ts',
   // It reads the deny list and the allow-list, so a change to either moves it too.

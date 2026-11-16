@@ -322,6 +322,8 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
     expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\n')).toEqual([]);
     // The site's own test reads the deny list, so it moves with it.
     expect(repinAlone('M\tsolana/guards/upstream/deny-keys.txt\nM\tfrontend/src/test/siteNoRaydiumKeys.test.ts\n')).toEqual([]);
+    // Its pin line reads to the secret scanner as a key, so the scanner's skip rides with it.
+    expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\t.gitleaksignore\n')).toEqual([]);
   });
 });
 
