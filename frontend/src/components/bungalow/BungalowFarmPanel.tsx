@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, stakePoolMembersOnly } from '../../lib/bungalows';
@@ -41,6 +41,10 @@ import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { EDITORIAL_GREEN, pad2 } from '../../lib/editorial';
+import { rowTerms, venuePoolRows } from '../../lib/venuePools';
+import { SheetRuler } from '../dwg/SheetRuler';
+import { LadderHouse } from '../dwg/LadderHouse';
 
 /**
  * The Farm while a room with its own token is active. The room's pool cards lead, picked
@@ -84,9 +88,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   // Every pool's rewards in one press, placed inside the leading pool card below. Quiet: drawn
   // only while there is something to claim. Level 3: it sits under that card's own heading.
   const harvest = <HarvestCard quiet headingLevel={3} className="mt-4" />;
+  // Sheet S-01 (styles/dwg-staking.css): this pool's place in Earn's schedule, drawn from data, never text.
+  const rows = venuePoolRows();
+  const rowAt = rows.findIndex((r) => r.id === bungalow.id);
+  const poolOf = rowAt < 0 ? null : `${pad2(rowAt + 1)} / ${pad2(rows.length)}`;
+  // One string, so the heading holds one text node and its echo repeats it exactly.
+  const word = `Stake ${bungalow.symbol}.`;
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-screen dwg" data-sheet="S">
       {/* Art-first: fullscreen bungalow art behind the panel, same pattern as
           every established page (fixed, scrimmed, content above). */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -96,14 +106,20 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       </div>
       <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
       <BackToEarn />
+      <div className="dwg-sheet s01-sheet" data-room={bungalow.id} style={{ '--s01-accent': bungalow.accent ?? EDITORIAL_GREEN } as CSSProperties}>
+      <SheetRuler />
       {/* Header */}
       {/* FEWER WORDS (owner, 2026-10-14): one heading and one line. The island eyebrow
           ("Jungle Bay Island · status") moved into About, word for word. */}
-      <div className="mb-8">
-        <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
-          Stake {bungalow.symbol}.
+      <div className="mb-8 s01-hero dwg-grain" data-door="">
+        {/* The doorway cut in the hero's film and the sheet's number: drawn, and before the h1
+            (the h1's next sibling stays the one line). */}
+        <span className="s01-door" aria-hidden="true"><i /><b data-t="Fig. 02" /></span>
+        <p className="dwg-cap s01-kicker" aria-hidden="true"><span className="dwg-t" data-t={poolOf ? `Sheet S-01 · Pool ${poolOf}` : 'Sheet S-01'} /></p>
+        <h1 className="dwg-word s01-word" data-break style={{ '--sym': bungalow.symbol.length } as CSSProperties}>
+          <span data-echo={word}>{word}</span>
         </h1>
-        <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
+        <p className="dwg-lede">
           {poolIsLive
             ? <>{liveName} is live for {bungalow.symbol} on {chainLabel}.</>
             : <>The lighthouse pool is being built for {bungalow.symbol} on {chainLabel}.</>}
@@ -119,13 +135,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               : 'Until it is deployed and verified, this page makes no promises and asks for nothing.'}
           </p>
         </FinePrint>
+        {/* The instrument: this pool's own bungalow and its lock ladder (aria-hidden, no words). */}
+        <LadderHouse room={bungalow} place="hero" />
       </div>
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
           the row. An open lighthouse pool shares row 2 with the funding card; a
           members-only one stacks under the ladder in its cell. DOM order IS visual
           order (no CSS `order`), so tab and screen-reader order match the screen. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" data-s01="pools">
         {/* Pool slot: the dark card until a pool address is configured, the live card
             after. An empty reward vault reads as a labeled real zero. */}
         {(bungalow.stakePool || bungalow.ladderPool) ? (
@@ -199,6 +217,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             in the ladder's cell. */}
         <div
           className={`relative overflow-hidden rounded-2xl min-w-0 ${fundingAlone ? 'lg:col-span-2' : ''}`}
+          data-s01="funding"
           style={{ border: '1px solid var(--color-purple-25)' }}
         >
           <div className="absolute inset-0">
@@ -227,7 +246,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       {/* While-you-wait: the live surfaces. */}
-      <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+      <div className="relative isolate mt-6 rounded-2xl p-6" data-s01="live" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
         <CardArt pageId="bungalow-farm" idx={3} />
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
@@ -278,6 +297,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
 
       {/* The island's held-time oracle — heat is the island's whole thesis. */}
       <HeatCard />
+      {/* The title block, the sheet's foot: every cell drawn from data, no words. */}
+      <div className="dwg-title s01-title" aria-hidden="true">
+        <div><div className="dwg-tcap" data-cap="Sheet" /><div className="dwg-sheetno" data-no="S-01" /></div>
+        <div><div className="dwg-tcap" data-cap="Room" /><div className="dwg-tval" data-ink="room" data-val={bungalow.symbol} /></div>
+        <div><div className="dwg-tcap" data-cap="Chain" /><div className="dwg-tval" data-val={chainLabel} /></div>
+        {poolOf && <div><div className="dwg-tcap" data-cap="Pool" /><div className="dwg-tval" data-val={poolOf} /></div>}
+        {rowAt >= 0 && <div><div className="dwg-tcap" data-cap="Terms" /><div className="dwg-tval" data-val={rowTerms(rows[rowAt]!.terms)} /></div>}
+      </div>
+      </div>
       </div>
     </div>
   );

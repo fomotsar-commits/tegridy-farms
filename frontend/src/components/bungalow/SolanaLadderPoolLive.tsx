@@ -36,6 +36,8 @@ import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { rewardsEndedLine } from '../../lib/rewardsEnded';
 import { Reveal } from '../motion/Reveal';
+import { publishLadderPick, type LadderPick } from '../../lib/ladderPick';
+import { LadderHouse } from '../dwg/LadderHouse';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
@@ -88,6 +90,12 @@ const DAY = 86_400;
 
 /** The rungs this card offers. Every one is inside the program's 7d..4y range. */
 const RUNGS = [7 * DAY, 30 * DAY, 90 * DAY, 180 * DAY, 365 * DAY, 2 * 365 * DAY, MAX_LOCK_SECS];
+
+/** The same rungs as the page's drawing reads them (lib/ladderPick.ts): each lock's weight and its two labels. */
+const RUNG_MARKS = RUNGS.map((secs) => {
+  const bps = boostBpsForLock(secs);
+  return { bps, lock: lockLabel(secs), weight: boostLabel(bps) };
+});
 
 /** A unix second as a calendar date a person can hold, in their own locale. */
 const dateOf = (secs: bigint) =>
@@ -486,9 +494,31 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
     />
   );
 
+  // What the pool page's drawing reads (components/dwg/LadderHouse.tsx): the rungs, the pick and the
+  // wallet's positions as weights. Published from here, where the pick lives, and never by the
+  // home page's compact card. A wallet not read publishes no positions at all.
+  const heldKey = walletView
+    ? positions.map((p) => (p.amountRaw > 0n ? Number((p.weight * 10_000n) / p.amountRaw) : 0)).join(',')
+    : null;
+  const meterLive = accrualChip?.live === true;
+  const pick = useMemo<LadderPick>(() => {
+    const at = RUNGS.indexOf(lockSecs);
+    return {
+      rungs: RUNG_MARKS,
+      picked: at < 0 ? null : at,
+      held: heldKey === null ? null : heldKey === '' ? [] : heldKey.split(',').map(Number),
+      meter: meterLive ? 'live' : 'idle',
+    };
+  }, [lockSecs, heldKey, meterLive]);
+  useEffect(() => {
+    if (compact) return;
+    publishLadderPick(bungalow.id, pick);
+    return () => publishLadderPick(bungalow.id, null);
+  }, [compact, bungalow.id, pick]);
+
   return (
-    <Reveal>
-    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+    <Reveal className="s01-still">
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} data-ladder-card={compact ? 'compact' : 'full'} style={{ border: '1px solid var(--color-purple-75)' }}>
       <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="solana-ladder-pool-live" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
@@ -577,9 +607,10 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                 manageTo={`/earn/${bungalow.id}`}
               />
             ) : (
-            <section aria-label="Your earnings" className="@container">
+            <section aria-label="Your earnings" className="@container" data-s01="meter">
               <div className="grid grid-cols-1 gap-4 @min-[52rem]:grid-cols-12">
                 <div
+                  data-s01="counter"
                   className={`@container relative overflow-hidden rounded-[14px] p-5 sm:p-6 min-w-0 flex flex-col gap-3 ${youLoaded ? '@min-[52rem]:col-span-7' : '@min-[52rem]:col-span-12'}`}
                   style={{
                     background: `radial-gradient(60% 80% at 0% 0%, var(--color-kyle-12), transparent), ${PANEL_BG}`,
@@ -588,7 +619,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                 >
                   {!publicKey ? (
                     <>
-                      <p className="m-0 text-white" style={{ fontFamily: HEAD, fontWeight: 700, fontSize: 'clamp(1.5rem, 6cqi, 2.75rem)', lineHeight: 1.1 }}>
+                      <p className="m-0 text-white" data-s01="dormant" style={{ fontFamily: HEAD, fontWeight: 700, fontSize: 'clamp(1.5rem, 6cqi, 2.75rem)', lineHeight: 1.1 }}>
                         Your meter starts when you lock.
                       </p>
                       <div>
@@ -615,7 +646,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                             Updating your positions…
                           </p>
                         ) : walletEmpty ? (
-                          <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap" style={DIGITS}>
+                          <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap" data-s01="digits" style={DIGITS}>
                             <span style={{ color: 'rgba(255,255,255,0.5)' }}>0</span>
                             <span style={UNIT_HERO}>{sym}</span>
                           </p>
@@ -680,6 +711,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
 
                 {youLoaded && (
                   <m.div
+                    data-s01="you"
                     variants={staggerContainer(0.06)}
                     initial="hidden"
                     whileInView="show"
@@ -764,7 +796,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
             {/* Visible WITHOUT a wallet: anyone can climb the ladder and see what each
                 rung weighs before deciding to connect. The amount, the verdict and
                 the Lock button still render only for a read wallet. */}
-            <section aria-label="Open a position" className={compact ? '@container rounded-[14px] p-3' : '@container rounded-[14px] px-3 py-5 sm:p-6'} style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
+            <section aria-label="Open a position" data-s01="ladder" className={compact ? '@container rounded-[14px] p-3' : '@container rounded-[14px] px-3 py-5 sm:p-6'} style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
               <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12'}>
                 <div className={compact ? 'min-w-0' : 'min-w-0 @min-[52rem]:col-span-7'}>
                   {/* FEWER WORDS (owner, 2026-10-14): the label is the label; the sentence it
@@ -806,7 +838,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                       })}
                     </div>
                   ) : (
-                  <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-0 -mx-2.5 @min-[30rem]:mx-0 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
+                  <div role="group" aria-labelledby="ladder-rungs-label" data-scale={[3, 2, 1].map((k) => boostLabel((maxBps * k) / 4)).join('\n')} className="grid grid-cols-7 gap-0 -mx-2.5 @min-[30rem]:mx-0 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
                     {RUNGS.map((secs, i) => {
                       const on = secs === lockSecs;
                       const bps = boostBpsForLock(secs);
@@ -817,6 +849,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                           type="button"
                           aria-pressed={on}
                           aria-label={`${lockLabel(secs)} lock, ${boostLabel(bps)} weight`}
+                          data-rung={on ? 'on' : climbed ? 'climbed' : 'off'}
                           onClick={() => setLockSecs(secs)}
                           whileTap={pressTap}
                           className="flex h-full min-w-0 flex-col items-stretch justify-end gap-1.5 rounded-lg px-[3px] pt-1.5 pb-1.5 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-kyle)]"
@@ -882,7 +915,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                   ) : !publicKey ? (
                     <div className="flex flex-col gap-4">
                       {minStakeFact}
-                      <button type="button" onClick={openConnect} className="btn-primary w-full px-6 py-2.5 text-[13px]">
+                      <button type="button" onClick={openConnect} data-quiet="" className="btn-primary w-full px-6 py-2.5 text-[13px]">
                         Connect to lock for {lockLabel(lockSecs)}
                       </button>
                     </div>
@@ -982,6 +1015,8 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                   )}
                 </div>
               </div>
+              {/* The same house, after the controls, with this card's own pick (a phone shows it whole here). */}
+              {!compact && <LadderHouse room={bungalow} place="rail" pick={pick} />}
             </section>
 
             {youLoaded && !compact && (
@@ -1013,7 +1048,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                 )}
 
                 {/* ── open positions ───────────────────────────────────── */}
-                <section aria-label="Your positions" className="flex flex-col gap-3">
+                <section aria-label="Your positions" data-s01="positions" className="flex flex-col gap-3">
                   <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
                     Your positions
                   </p>
@@ -1254,7 +1289,7 @@ function HeroDigits(
   const live = useAccrualMeter(earnedAt);
   const parts = fmtRawParts(live ?? exactRaw, decimals, decimals);
   return (
-    <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap min-w-0" style={DIGITS}>
+    <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap min-w-0" data-s01="digits" style={DIGITS}>
       <span aria-hidden="true">
         {parts === null ? '–' : (
           <>
@@ -1516,7 +1551,7 @@ function ExitButton({
     return (
       <span className="inline-flex flex-col gap-1">
         <span className="inline-flex gap-2">
-          <button type="button" disabled={disabled} onClick={onGo}
+          <button type="button" disabled={disabled} onClick={onGo} data-tone={tone} data-armed={confirmed ? '' : undefined}
             className="px-4 py-2.5 text-[12px] rounded-lg disabled:opacity-40"
             style={{ background: 'rgba(239,68,68,0.15)', border: `1px solid ${border}`, color: '#fff' }}>
             {busy ? 'Sending…' : confirmed ? 'Confirm' : label}
@@ -1532,7 +1567,7 @@ function ExitButton({
   }
   return (
     <span className="inline-flex flex-col gap-1">
-      <button type="button" disabled={disabled} onClick={onArm}
+      <button type="button" disabled={disabled} onClick={onArm} data-tone={tone}
         className="px-4 py-2.5 text-[12px] rounded-lg disabled:opacity-40"
         style={{ background: 'rgba(0,0,0,0.5)', border: `1px solid ${border}`, color: 'rgba(255,255,255,0.9)' }}>
         {label}

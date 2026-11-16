@@ -37,10 +37,11 @@ import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { IsoIsland } from '../components/farm/IsoIsland';
-import { venuePoolRows } from '../lib/venuePools';
+import { rowTerms, venuePoolRows } from '../lib/venuePools';
 import { planAspect } from '../lib/isoPlan';
 import { earnPoolPath } from '../lib/earnRoutes';
-import { EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT } from '../lib/editorial';
+import { EDITORIAL_GRAIN, EDITORIAL_GREEN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
+import { SheetRuler } from '../components/dwg/SheetRuler';
 import { HarvestCard } from '../components/farm/HarvestCard';
 import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
@@ -180,6 +181,25 @@ function VenueEarn() {
           <VenuePoolIndex activeId={active} onActive={setActive} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The TOWELI room's colour for its sheet (lib/bungalows.ts), as every room's sheet takes its own. */
+const TOWELI_SHEET = { '--s01-accent': BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID)?.accent ?? EDITORIAL_GREEN } as CSSProperties;
+
+/** The TOWELI sheet's foot: its place in Earn's schedule and its terms, drawn from data, no words. */
+function ToweliTitleBlock() {
+  const rows = venuePoolRows();
+  const at = rows.findIndex((r) => r.id === DEFAULT_BUNGALOW_ID);
+  const room = BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID);
+  return (
+    <div className="dwg-title s01-title" aria-hidden="true">
+      <div><div className="dwg-tcap" data-cap="Sheet" /><div className="dwg-sheetno" data-no="S-01" /></div>
+      <div><div className="dwg-tcap" data-cap="Room" /><div className="dwg-tval" data-ink="room" data-val={room?.symbol ?? 'TOWELI'} /></div>
+      <div><div className="dwg-tcap" data-cap="Chain" /><div className="dwg-tval" data-val="Ethereum" /></div>
+      {at >= 0 && <div><div className="dwg-tcap" data-cap="Pool" /><div className="dwg-tval" data-val={`${pad2(at + 1)} / ${pad2(rows.length)}`} /></div>}
+      {at >= 0 && <div><div className="dwg-tcap" data-cap="Terms" /><div className="dwg-tval" data-val={rowTerms(rows[at]!.terms)} /></div>}
     </div>
   );
 }
@@ -451,7 +471,7 @@ function ToweliFarm() {
   // when no wallet is connected. Keeps the scenery, swaps the content.
   if (!isConnected) {
     return (
-      <div className="-mt-14 relative min-h-screen">
+      <div className="-mt-14 relative min-h-screen dwg" data-sheet="S">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <ArtImg pageId="farm" idx={0} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
           <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
@@ -466,6 +486,11 @@ function ToweliFarm() {
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="page-column mx-auto px-4 md:px-6 pb-4">
             <BackToEarn />
+            {/* Sheet S-01 (styles/dwg-staking.css): the ruler, one band for the farm's blocks as they
+                stand, the title block. No heading is added here (a11y-routes pins this page's list). */}
+            <div className="dwg-sheet s01-sheet" data-room="toweli" style={TOWELI_SHEET}>
+            <SheetRuler />
+            <div className="dwg-band s01-classic">
             {/* The thing a logged-out visitor came to press is Connect, so the
                 action card is the FIRST card, not the last: on a 390px phone it
                 sat 6,400px down, under five sections of figures (the lead's
@@ -535,6 +560,9 @@ function ToweliFarm() {
                 See what you&rsquo;d earn before connecting &#8594;
               </Link>
             </div>
+            </div>
+            <ToweliTitleBlock />
+            </div>
           </div>
         </div>
       </div>
@@ -542,7 +570,7 @@ function ToweliFarm() {
   }
 
   return (
-    <div className="-mt-14 relative min-h-screen">
+    <div className="-mt-14 relative min-h-screen dwg" data-sheet="S">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="farm" idx={0} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
@@ -557,10 +585,13 @@ function ToweliFarm() {
           className="mb-4"
           message="Wrong network. Switch chains to stake, claim or withdraw."
         />
-        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
-          <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
+        <div className="dwg-sheet s01-sheet" data-room="toweli" style={TOWELI_SHEET}>
+        <SheetRuler />
+        <m.div className="mb-8 s01-hero dwg-grain" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className="dwg-word s01-word"><span data-echo="Farm">Farm</span></h1>
+          <p className="dwg-lede">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
+        <div className="dwg-band s01-classic">
 
         {/* THE STAKE FORM AND THE POSITION COME FIRST (owner, 2026-10-14: "not
             even see the stuff they are to interact with"). This grid sat at the
@@ -709,6 +740,9 @@ function ToweliFarm() {
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
 
+        </div>
+        <ToweliTitleBlock />
+        </div>
       </div>
       </ErrorBoundary>
     </div>
