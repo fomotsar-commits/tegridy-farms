@@ -7,10 +7,11 @@ import { spawnSync } from 'node:child_process';
 import { COPIES } from '../../solana/guards/provenance.mjs';
 
 const RPC = 'https://api.mainnet-beta.solana.com';
-// Read 2026-11-15: each program's last-deployed slot, and its repository's default-branch head.
+// Each program's last-deployed slot, read 2026-11-15, and the last commit of its repository
+// that has been read: the pin, until someone reads what came after it.
 const KNOWN = {
-  'cp-swap': { program: 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', slot: 463522946, head: '3d69122790e97cd6aff24e8ba95940793773f58c' },
-  'tegridy-clmm': { program: 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', slot: 459932378, head: '6d7a0f82d2f293c553c69aaf943377367c6c4cc6' },
+  'cp-swap': { program: 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', slot: 463522946, head: '78f254e1023751e706df7dc15c453fc3e046697c' },
+  'tegridy-clmm': { program: 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', slot: 459932378, head: 'ed1eb41519d5355755f7df52b43fa9610938b60b' },
 };
 
 let calls = 0;
