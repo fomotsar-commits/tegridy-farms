@@ -288,6 +288,36 @@ describe('live loop', () => {
     expect(w.names()).toContain('signer.kill');
   });
 
+  it('records a burn reported by the chain watcher without halting, and halts on a supply that grew', async () => {
+    const w = world({ mode: 'live' });
+    await w.loop.start();
+    w.chain.handlers.onAdmin({ field: 'jbac.totalSupply', before: 5555n, after: 5554n, block: 1 });
+    expect(w.risk.halted()).toBe(null);
+    expect(w.ledger.read().some((e) => e.kind === 'chain-note')).toBe(true);
+    w.chain.handlers.onAdmin({ field: 'jbac.totalSupply', before: 5554n, after: 5555n, block: 2 });
+    expect(w.risk.halted().reason).toBe('mint');
+  });
+
+  it('halts on a fill the chain watcher could not read as one known NFT for WETH', async () => {
+    const w = world({ mode: 'live' });
+    await w.loop.start();
+    const post = w.ledger.read().find((e) => e.kind === 'post');
+    w.chain.handlers.onFill({ ...w.fillOf(post.orderHash, 50, BigInt(post.unitPriceWei)), anomaly: 'not-one-known-nft' });
+    await w.loop.tick();
+    expect(w.risk.halted().reason).toBe('ledger-mismatch');
+    expect(w.risk.halted().detail).toMatch(/not-one-known-nft/);
+  });
+
+  it('counts a fill whose price could not be decoded at the bid price, for the caps', async () => {
+    const w = world({ mode: 'live' });
+    await w.loop.start();
+    const post = w.ledger.read().find((e) => e.kind === 'post');
+    w.chain.handlers.onFill({ ...w.fillOf(post.orderHash, 51, BigInt(post.unitPriceWei)), unitPriceWei: null });
+    await w.loop.tick();
+    expect(w.loop.status().today).toMatchObject({ units: 1, wethSpent: BigInt(post.unitPriceWei) });
+    expect(w.ledger.read().some((e) => e.kind === 'review' && /could not be decoded/.test(e.why))).toBe(true);
+  });
+
   it('halts on a fill of an order the house never signed', async () => {
     const w = world({ mode: 'live' });
     await w.loop.start();

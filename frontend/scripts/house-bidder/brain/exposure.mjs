@@ -93,7 +93,8 @@ export function createExposure() {
       fillKeys.add(key);
       o.filled += 1;
       const overfill = o.filled > o.qty;
-      const overpaid = fill.unitPriceWei !== undefined && toWei(fill.unitPriceWei, 'fill price') > o.unitPriceWei;
+      // A price the chain watcher could not decode (null) is checked by the caller, not here.
+      const overpaid = fill.unitPriceWei !== undefined && fill.unitPriceWei !== null && toWei(fill.unitPriceWei, 'fill price') > o.unitPriceWei;
       return { known: true, fresh: true, order: o, overfill, overpaid };
     },
 

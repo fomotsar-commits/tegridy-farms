@@ -78,11 +78,22 @@ export function diffSnapshots(prev, next) {
   return out;
 }
 
-/** The integrity reason for a chain watcher's admin event, by the field it names. Unknown fields still halt. */
-export function classifyAdmin({ field }) {
+/**
+ * The integrity reason for a chain watcher's admin event, by the field it names. A supply that
+ * grew is a mint; a supply that shrank is a burn, which is not a breaker (null). Any other field,
+ * even one this list does not know, halts.
+ */
+export function classifyAdmin({ field, before, after }) {
   const f = String(field ?? '').toLowerCase().replace(/[^a-z]/g, '');
   const jbac = f.includes('jbac') || f.includes('junglebay');
   const gnss = f.includes('gnss');
+  if (f.includes('totalsupply')) {
+    try {
+      return BigInt(after) > BigInt(before) ? 'mint' : null;
+    } catch {
+      return 'admin-change';
+    }
+  }
   if (f.includes('maxsupply') && !gnss) return 'jbac-max-supply';
   if (f.includes('seed') && !jbac) return 'gnss-seed';
   if (f.includes('locked') && !jbac) return 'gnss-locked';

@@ -58,6 +58,13 @@ describe('classification', () => {
     expect(classifyAdmin({ field: 'gnssart owner' })).toBe('gnss-owner');
     expect(classifyAdmin({ field: 'baseURI' })).toBe('admin-change');
   });
+
+  it('reads a supply change from the chain watcher as a mint when it grew, and as no breaker when it shrank (a burn)', () => {
+    expect(classifyAdmin({ field: 'jbac.totalSupply', before: 5555n, after: 5556n })).toBe('mint');
+    expect(classifyAdmin({ field: 'gnss.totalSupply', before: '9697', after: '9698' })).toBe('mint');
+    expect(classifyAdmin({ field: 'jbac.totalSupply', before: 5555n, after: 5554n })).toBe(null);
+    expect(classifyAdmin({ field: 'jbac.totalSupply', before: 'x', after: 'y' })).toBe('admin-change');
+  });
 });
 
 describe('integrity: halts until a person restarts', () => {

@@ -134,7 +134,12 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     },
     onMint: (m) => integrityNow('mint', `${m.slug} token ${m.tokenId} minted to ${m.to} (tx ${m.txHash})`),
     onOwnerChange: (m) => integrityNow(m.slug === 'gnssart' ? 'gnss-owner' : 'jbac-owner', `${m.slug} owner ${m.from} -> ${m.to} (tx ${m.txHash})`),
-    onAdmin: (a) => integrityNow(classifyAdmin(a), `${a.field}: ${a.before} -> ${a.after}`),
+    onAdmin: (a) => {
+      const reason = classifyAdmin(a);
+      // A burn (supply down) is recorded, not a breaker.
+      if (reason) integrityNow(reason, `${a.field}: ${a.before} -> ${a.after}`);
+      else ledger.append('chain-note', { field: a.field, before: a.before, after: a.after, block: a.block ?? null });
+    },
   };
 
   function subscribeStream() {
@@ -159,12 +164,21 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
   }
 
   // ── fills ───────────────────────────────────────────────────────────────────────────────
-  async function handleFill(fill, { simulated = false } = {}) {
+  async function handleFill(raw, { simulated = false } = {}) {
+    let fill = raw;
     const r = exposure.recordFill(fill);
     if (!r.fresh) return;
     if (!r.known) {
       await executor.halt('ledger-mismatch', `a house fill of order ${fill.orderHash} that the house never signed (tx ${fill.txHash})`);
       return;
+    }
+    // A fill the chain watcher could not read as one known NFT for WETH is not one a house
+    // order can produce.
+    if (fill.anomaly) await executor.halt('ledger-mismatch', `the fill in tx ${fill.txHash} is not one known NFT for WETH (${fill.anomaly})`);
+    if (fill.unitPriceWei === null || fill.unitPriceWei === undefined) {
+      // Counted at the order's own price (the most it can have cost) so the caps still see it.
+      fill = { ...fill, unitPriceWei: r.order.unitPriceWei };
+      ledger.append('review', { txHash: fill.txHash, tokenId: fill.tokenId, why: 'the fill price could not be decoded: counted at the bid price' });
     }
     if (r.overfill || r.overpaid) {
       await executor.halt('ledger-mismatch', `order ${fill.orderHash} ${r.overfill ? 'filled more units than it was for' : 'paid more than its price'} (tx ${fill.txHash})`);
