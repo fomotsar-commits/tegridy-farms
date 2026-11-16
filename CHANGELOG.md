@@ -9,7 +9,18 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-16
 
-- Add / Remove, a staking pool's page and NFT loans are each drawn as an architect's sheet now, as Earn is. Add / Remove shows every pool as a tank, its water at the dollars the pool holds, and a trade's fee as pipes as wide as each share. A staking pool shows its own bungalow with the lock ladder to scale. NFT loans hang the collection on a wall, with the floor, the best bid and your loan as level lines. No word, fee, rule or button changed.
+- Add / Remove, a staking pool's page and NFT loans are each drawn as an architect's sheet now, as Earn is: every pool a tank filled to its dollars, a pool's bungalow with its lock ladder, a loan as a line on a gallery wall. No word, fee, rule or button changed.
+- Earn: Harvest is drawn as a small street: each coin with something to claim is a building with one storey per claim, and every claim has a lane to a glass building marked YOUR WALLET. A lane turns green and a plate lands in your wallet only when its claim is paid, and every storey, lane and plate is the same size whatever it pays.
+- Earn: Harvest no longer rounds an amount up, and after a run its total counts only what was claimed.
+- Earn: Harvest's total for a coin says "at most" when a claim it adds up may pay less than shown.
+- Earn: Harvest says what its daily rate is a rate on: the pool, and the stake it is worked out on.
+- Earn: Harvest keeps listing the pools it leaves alone or could not read during and after a run, and says by the button when a pool could not be read.
+- Earn: pools Harvest could not read for the same reason are named in one line, with one Try again.
+- Earn: with nothing to claim and a pool not read, Harvest's button says Check again, not Nothing to claim.
+- Earn: with nothing to claim and a pool not read, Harvest shows no drawing.
+- Earn: Harvest says a refused claim, a short reward vault and an older stake's caution in plainer words, and when a run is done it counts a refused claim as refused, as the claim's row does.
+- Earn: while a claim waits on your wallet, its row in Harvest says Check your wallet.
+- Earn: Harvest's drawing draws itself in the first time it comes into view and leans a little toward your pointer; with reduced motion it stands still.
 
 ### 2026-11-15
 
