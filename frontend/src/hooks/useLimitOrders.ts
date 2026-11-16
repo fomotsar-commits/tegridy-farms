@@ -4,7 +4,8 @@ import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { readRouteCut } from '../lib/evm/venueCut';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 import { resolveLimitFill } from '../lib/limitOrderMath';
 import { readReceiptOutcome, surfaceReceiptNotice, waitForReceiptOutcome, type DirectReceiptOutcome } from '../lib/txErrors';
@@ -395,6 +396,15 @@ export function useLimitOrders() {
     // AUDIT FIX FE-HIGH-5: re-quote on-chain immediately before execute so we
     // sign against the price the AMM actually has, not the price we hoped it
     // had at last poll. Mirrors the readContract pattern used in useDCA.ts.
+    // It executes only on our pool, so only with the venue's cut on along the path (lib/evm/venueCut.ts).
+    const cut = await readRouteCut(publicClient, TEGRIDY_FACTORY_ADDRESS, path);
+    if (cut !== 'on') {
+      toast.error(cut === 'off'
+        ? 'Limit order: our pool for this pair does not pay the venue its cut yet. Not executed.'
+        : 'Limit order: could not read our pool for this pair. Will retry next tick.');
+      revertOrderStatus(order.id);
+      return;
+    }
     let onChainOut = 0n;
     try {
       // F188: this swap EXECUTES through SwapFeeRouter on the native Tegridy

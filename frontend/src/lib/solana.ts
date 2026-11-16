@@ -11,6 +11,8 @@
 // there and would fail `tsc -b`. Keeping env-dependent Solana config here keeps
 // it in the app project (types: ["vite/client"]) only.
 
+import { solanaFeeBpsFrom } from './solanaFeeEnv';
+
 // Same-origin proxy base. The browser calls our own origin; the proxy forwards
 // to https://lite-api.jup.ag server-side — so no Solana host needs a CSP
 // connect-src entry for quotes/swaps. (A Solana RPC WILL need one when the
@@ -45,12 +47,9 @@ export const SOLANA_FEE_ACCOUNT =
 
 // Platform fee in basis points (100 = 1.0%). Keep <= 100: above ~1% the quote
 // degrades vs free direct Jupiter and users bounce. Disclosed in the UI.
-// Clamped to a sane [0, 1000] bps range; falls back to 100 on bad input.
-export const SOLANA_PLATFORM_FEE_BPS = ((): number => {
-  const raw = (import.meta.env.VITE_SOLANA_PLATFORM_FEE_BPS as string | undefined)?.trim();
-  const n = raw ? Number(raw) : 100;
-  return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : 100;
-})();
+// Unset or out of [0, 1000] is 0, no fee: never a guessed rate. A production build is
+// refused unless this is 50 and the fee owner is the vault (solanaFeeGuardPlugin.ts).
+export const SOLANA_PLATFORM_FEE_BPS = solanaFeeBpsFrom(import.meta.env.VITE_SOLANA_PLATFORM_FEE_BPS);
 
 // Canonical mainnet mints (the curated allowlist lands with the swap UI).
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -66,7 +65,8 @@ export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
  * when this is false). Whichever way it answers, the swap itself works.
  */
 export function isSolanaFeeConfigured(): boolean {
-  return SOLANA_FEE_ACCOUNT.length > 0;
+  // The same two conditions as jupiter.ts feeEnabled(): a rate of 0 charges nothing.
+  return SOLANA_FEE_ACCOUNT.length > 0 && SOLANA_PLATFORM_FEE_BPS > 0;
 }
 
 /**
