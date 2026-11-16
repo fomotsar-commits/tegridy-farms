@@ -1,6 +1,6 @@
 import { base58 } from '@scure/base';
 import type { Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
-import { NoRouteError, type JupiterQuote, type PriorityLevel, type SwapSimulation } from '../../jupiter';
+import { NoRouteError, type JupiterQuote, type PriorityLevel } from '../../jupiter';
 import type { AggregatorSeen } from '../../launcher/solana/write/types';
 import { pollConfirm, type ConfirmOutcome } from '../confirm';
 import { minOut, type SolBasketCoin } from '../../islandBasket';
@@ -98,7 +98,7 @@ export interface SolLegDeps {
   /** Already pinned to the coin (pinnedGetQuote). */
   getQuote: FeeRetryDeps['getQuote'];
   buildSwapTransaction: FeeRetryDeps['buildSwapTransaction'];
-  simulateSwap(b64: string): Promise<SwapSimulation>;
+  simulateSwap: FeeRetryDeps['simulateSwap'];
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
   /** Our pools for this coin, read again now and quoted for `amountIn`. Null: the read did not answer. */
   ownPools(): Promise<VenuePoolCandidate[] | null>;

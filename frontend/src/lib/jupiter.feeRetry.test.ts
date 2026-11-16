@@ -3,6 +3,7 @@
 // Buffer and Uint8Array come from different realms.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { RUN_SOL_BAYLA } from './solana/swap/__fixtures__/jupiterLive';
 
 // These tests pin the REQUEST each call sends. The transaction that comes back is a
 // stand-in, so the check of its contents is stubbed to pass here; that check has its
@@ -182,11 +183,13 @@ describe('simulateSwap reports the 6014 as a structured flag, not as text', () =
   function rpcAnswers(value: unknown) {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value } }), { status: 200 })));
   }
+  // The trade the real run below was: 0.02 SOL sold by the capture's wallet.
+  const SHOWN = { user: USER, inputMint: SOL, inAmount: '20000000' };
 
   it('Jupiter 6014 -> not ok, flag set', async () => {
     const { simulateSwap } = await load();
     rpcAnswers({ err: ERR_6014_AT_2, logs: LOGS_JUP_6014 });
-    const sim = await simulateSwap(SWAP_TX);
+    const sim = await simulateSwap(SWAP_TX, SHOWN);
     expect(sim.ok).toBe(false);
     expect(sim.jupiterIncorrectTokenProgram).toBe(true);
     expect(sim.reason).toContain('0x177e');
@@ -195,22 +198,39 @@ describe('simulateSwap reports the 6014 as a structured flag, not as text', () =
   it('a slippage revert -> not ok, flag clear', async () => {
     const { simulateSwap } = await load();
     rpcAnswers({ err: { InstructionError: [2, { Custom: 6001 }] }, logs: [`Program ${JUP} failed: custom program error: 0x1771`] });
-    const sim = await simulateSwap(SWAP_TX);
+    const sim = await simulateSwap(SWAP_TX, SHOWN);
     expect(sim).toMatchObject({ ok: false, jupiterIncorrectTokenProgram: false });
   });
 
-  it('a clean simulation -> ok, flag clear', async () => {
+  it('a clean simulation whose balances moved as shown -> ok, flag clear', async () => {
+    const { simulateSwap } = await load();
+    rpcAnswers({ err: null, logs: [], ...RUN_SOL_BAYLA });
+    expect(await simulateSwap(SWAP_TX, SHOWN)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
+  });
+
+  it('a clean simulation that gave no balances is no verdict: it throws, never ok, never a refusal (XCHL-01)', async () => {
     const { simulateSwap } = await load();
     rpcAnswers({ err: null, logs: [] });
-    expect(await simulateSwap(SWAP_TX)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
+    const run = simulateSwap(SWAP_TX, SHOWN);
+    await expect(run).rejects.toThrow(/gave no balances/);
+    await expect(run).rejects.not.toMatchObject({ name: 'JupiterTxRefused' });
+  });
+
+  it('a clean simulation that takes more than shown is refused as Jupiter’s transaction, never sent (XCHL-01)', async () => {
+    const { simulateSwap } = await load();
+    rpcAnswers({ err: null, logs: [], ...RUN_SOL_BAYLA });
+    await expect(simulateSwap(SWAP_TX, { ...SHOWN, inAmount: '19999999' })).rejects.toMatchObject({
+      name: 'JupiterTxRefused',
+      message: 'Jupiter built a transaction this site will not sign: its test run takes more than the amount shown. Nothing was signed.',
+    });
   });
 
   it('a refused test run carries its cause, read from what the runtime said', async () => {
     const { simulateSwap } = await load();
     rpcAnswers({ err: ERR_6001_AT_2, logs: LOGS_JUP_6001 });
-    expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'price-limit' });
+    expect((await simulateSwap(SWAP_TX, SHOWN)).cause).toEqual({ kind: 'price-limit' });
     rpcAnswers({ err: { InstructionError: [2, { Custom: 1 }] }, logs: LOGS_SHORT_OF_SOL });
-    expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n });
+    expect((await simulateSwap(SWAP_TX, SHOWN)).cause).toEqual({ kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n });
   });
 });
 

@@ -6,9 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { base58 } from '@scure/base';
 import { Message, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { NATIVE_MINT, getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, jupiterTxRefusal, type JupiterTxExpectation } from './jupiterTxGuard';
 import {
-  LIVE_USER, RECURRING_CREATE, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
+  JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, ROUTE_RENT_CAP_LAMPORTS, balanceRefusal, jupiterTxRefusal, type JupiterTxExpectation,
+} from './jupiterTxGuard';
+import {
+  LIVE_USER, RECURRING_CREATE, RUN_SHARED_SOL_BAYLA, RUN_SOL_BAYLA, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
 } from './__fixtures__/jupiterLive';
 
 // SECURITY REGRESSION — what a Jupiter-built Solana transaction may contain.
@@ -221,6 +223,68 @@ describe('the swap sells only from the user’s own account of the coin sold (XC
       expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/sells from an account that is not your account of the coin shown/);
     });
   }
+});
+
+describe('the test run holds the payer’s balances to the trade shown (XCHL-01, second fence)', () => {
+  type Row = { accountIndex: number; mint: string; owner: string; uiTokenAmount: { amount: string } };
+  type Run = { fee: number; preBalances: number[]; postBalances: number[]; preTokenBalances: Row[]; postTokenBalances: Row[] };
+  const SOL = SWAP_SOL_BAYLA.quote.inputMint;
+  const USDC = SWAP_SOL_USDC.quote.outputMint;
+  const SOLD = { user: LIVE_USER, inputMint: SOL, inAmount: SWAP_SOL_BAYLA.quote.inAmount };
+  const copy = (r: Run): Run => JSON.parse(JSON.stringify(r));
+  /** The run with account `i` holding `before`, then `after`, of `mint` for `owner`. */
+  const holding = (r: Run, i: number, mint: string, before: string, after: string, owner = LIVE_USER): Run => {
+    const c = copy(r);
+    c.preTokenBalances.push({ accountIndex: i, mint, owner, uiTokenAmount: { amount: before } });
+    c.postTokenBalances.push({ accountIndex: i, mint, owner, uiTokenAmount: { amount: after } });
+    return c;
+  };
+
+  it('the real runs pass: route_v2 with the rent of the record its exchange opens, and the shared form', () => {
+    expect(balanceRefusal(RUN_SOL_BAYLA, SOLD)).toBeNull();
+    expect(balanceRefusal(RUN_SHARED_SOL_BAYLA, SOLD)).toBeNull();
+  });
+
+  it('one lamport past the amount sold, the network fee and that rent is refused', () => {
+    const r = copy(RUN_SOL_BAYLA);
+    r.postBalances[0] -= 1;
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('a coin the payer is not selling, taken from an account loaded from the lookup table, is refused', () => {
+    // Index 13 is a writable account loaded from the transaction's lookup table: the transaction check cannot read it.
+    expect(balanceRefusal(holding(RUN_SOL_BAYLA, 13, USDC, '10000000000', '0'), SOLD)).toMatch(/takes a coin you are not selling/);
+    expect(balanceRefusal(holding(RUN_SOL_BAYLA, 13, USDC, '10000000000', '10000000000'), SOLD)).toBeNull();
+  });
+
+  it('of the coin sold, exactly the amount shown passes and one unit more is refused', () => {
+    const usdcSale = { user: LIVE_USER, inputMint: USDC, inAmount: '5000000' };
+    const base: Run = { fee: 5000, preBalances: [1_000_000_000, 2_039_280], postBalances: [999_995_000, 2_039_280], preTokenBalances: [], postTokenBalances: [] };
+    expect(balanceRefusal(holding(base, 1, USDC, '9000000', '4000000'), usdcSale)).toBeNull();
+    expect(balanceRefusal(holding(base, 1, USDC, '9000000', '3999999'), usdcSale)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('the payer’s new account of the coin bought, handed to another owner, is refused: its rent is not an exchange’s record', () => {
+    const r = copy(RUN_SOL_BAYLA);
+    r.postTokenBalances.find((b) => b.accountIndex === 3)!.owner = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('rent for accounts the route opens is room up to 0.005 SOL in one run, never past it', () => {
+    const sale = { user: LIVE_USER, inputMint: SOL, inAmount: '1000' };
+    const opens = (rent: bigint): Run => ({
+      fee: 5000, preBalances: [10_000_000_000, 0], postBalances: [10_000_000_000 - 5000 - 1000 - Number(rent), Number(rent)], preTokenBalances: [], postTokenBalances: [],
+    });
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS), sale)).toBeNull();
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n), sale)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('a run that gave no balances, or balances it cannot read, is no verdict: it throws', () => {
+    const { preBalances: _p, ...noLamports } = RUN_SOL_BAYLA;
+    expect(() => balanceRefusal(noLamports, SOLD)).toThrow(/gave no balances/);
+    expect(() => balanceRefusal({ ...RUN_SOL_BAYLA, fee: null }, SOLD)).toThrow();
+    expect(() => balanceRefusal({ ...RUN_SOL_BAYLA, postTokenBalances: [{ accountIndex: 3, mint: SOL }] }, SOLD)).toThrow(/token balance could not be read/);
+  });
 });
 
 describe('SOL is wrapped only when SOL is the coin sold (XCHL-01)', () => {

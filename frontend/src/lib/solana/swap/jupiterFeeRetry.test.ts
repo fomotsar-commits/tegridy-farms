@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, OTHER_TRADE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
-import { NotTheTradeShown } from './jupiterTxGuard';
+import { JupiterTxRefused, NotTheTradeShown } from './jupiterTxGuard';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
 /**
@@ -121,6 +121,26 @@ describe('prepareJupiterSwap: Jupiter’s fresh quote must be the trade asked fo
     expect(OTHER_TRADE_COPY).toBe('Jupiter answered for a different trade than the one on screen. Nothing was sent.');
     expect(OTHER_TRADE_COPY).not.toMatch(/test run/);
     expect(OTHER_TRADE_COPY).not.toContain(String.fromCharCode(0x2014));
+  });
+});
+
+describe('prepareJupiterSwap: each test run is held to the trade asked for (XCHL-01)', () => {
+  const SHOWN = { user: USER, inputMint: SOL, inAmount: AMOUNT };
+
+  it('the payer, the coin sold and the amount go to the test run of the fee build and of the no-fee rebuild', async () => {
+    const d = deps();
+    await prepareJupiterSwap(d, ARGS);
+    expect(d.simulateSwap.mock.calls).toEqual([['TX_FEE', SHOWN], ['TX_NO_FEE', SHOWN]]);
+  });
+
+  it('a run that moves more than shown is thrown in its own words: never "not checked", never a retry', async () => {
+    const refused = new JupiterTxRefused('its test run takes a coin you are not selling');
+    const first = deps({ simulateSwap: vi.fn(async () => { throw refused; }) });
+    await expect(prepareJupiterSwap(first, ARGS)).rejects.toBe(refused);
+    expect(first.getQuote).not.toHaveBeenCalled();
+    // The no-fee rebuild's run is held the same way.
+    const second = deps({ simulateSwap: vi.fn(async (tx: string) => { if (tx === 'TX_FEE') return JUP_6014; throw refused; }) });
+    await expect(prepareJupiterSwap(second, ARGS)).rejects.toBe(refused);
   });
 });
 

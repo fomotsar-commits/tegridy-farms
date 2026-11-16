@@ -1,23 +1,9 @@
-// Jupiter builds these transactions and the wallet signs them. Until this check the
-// site handed Jupiter's bytes to the wallet unread: a hostile or tampered answer
-// (Jupiter itself, our /api/jupiter proxy, a bad deploy) could add a token Approve or
-// SetAuthority, an extra transfer, a swap paying into someone else's account, a
-// different fee account for the venue's cut, or a durable nonce that lets the signed
-// transaction be replayed later — and only the wallet's own preview stood in the way.
-//
-// This reads every instruction and refuses anything that is not the trade the user
-// asked for. The rules come from what Jupiter actually builds: seven unsigned
-// transactions captured 2026-10-25 from its public API (route_v2 and
-// shared_accounts_route_v2 swaps with SOL, USDC and a Token-2022 coin on either side,
-// a limit order, a recurring buy) — jupiterTxGuard.test.ts holds them, and each
-// passes. Instruction layouts are Jupiter's own on-chain IDLs.
-//
-// Allowed, in short: ComputeBudget within the disclosed priority-fee cap; wrapping
-// SOL, only when SOL is the coin sold, into the user's OWN wrapped-SOL account;
-// creating the user's own token accounts; closing token accounts back to the user;
-// exactly one instruction of the one Jupiter program the flow uses, whose amounts,
-// mints, signer, source and destination are the ones on screen. One signer: the user.
-// Nothing else.
+// Every transaction Jupiter builds is read here before a wallet sees it, and refused unless it is
+// the trade on screen: one signer, the visitor; compute budget within the disclosed cap; SOL wrapped
+// only when SOL is sold, into the visitor's own account; token accounts created for, or closed back
+// to, the visitor; one instruction of the flow's Jupiter program (layouts from its on-chain IDLs)
+// selling from the visitor's own account of the coin sold, with the amounts, coins and destination
+// shown. balanceRefusal then holds the swap's test run to the same trade. The real captures pass.
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
@@ -299,4 +285,75 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       return null;
     }
   }
+}
+
+/** The trade on screen as its test run is held to it: whose wallet, the coin sold, how much. */
+export interface TradeShown { user: string; inputMint: string; inAmount: string }
+
+/**
+ * Rent for accounts a route opens that hold no coin (an exchange's own record of a wallet:
+ * 1,346,200 lamports for PumpSwap's, read 2026-11-16), at most 0.005 SOL in one run.
+ */
+export const ROUTE_RENT_CAP_LAMPORTS = 5_000_000n;
+
+type TokenRow = { accountIndex?: unknown; mint?: unknown; owner?: unknown; uiTokenAmount?: { amount?: unknown } };
+
+/**
+ * Why a test run that passed must not reach the wallet, from the payer's balances before and after
+ * it (every account it loads, a lookup table's too), or null. Only the coin sold may end lower, by
+ * no more than shown; SOL (the wallet and every token account it owns) also pays the network fee and
+ * ROUTE_RENT_CAP_LAMPORTS at most. A coin's transfer fee needs no room: it is taken from what arrives.
+ * Throws when the run gave no balances: no verdict. It trusts the site's RPC to answer honestly.
+ */
+export function balanceRefusal(
+  run: { fee?: unknown; preBalances?: unknown; postBalances?: unknown; preTokenBalances?: unknown; postTokenBalances?: unknown },
+  shown: TradeShown,
+): string | null {
+  const lamports = (list: unknown): bigint[] => {
+    if (!Array.isArray(list) || list.length === 0) throw new Error('the test run gave no balances');
+    return list.map((n: unknown) => {
+      if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new Error('a balance could not be read');
+      return BigInt(n);
+    });
+  };
+  const pre = lamports(run.preBalances);
+  const post = lamports(run.postBalances);
+  const [fee] = lamports([run.fee]);
+  const sold = big(shown.inAmount);
+  if (pre.length !== post.length || fee === undefined || sold === null) throw new Error('the test run could not be read');
+  const native = NATIVE_MINT.toBase58();
+  // Every token account, the payer's (its wallet is account 0), and what they hold of each coin but SOL.
+  const held = (rows: unknown) => {
+    if (!Array.isArray(rows)) throw new Error('the test run gave no token balances');
+    const tokens = new Set<number>();
+    const accounts = new Set<number>([0]);
+    const coins = new Map<string, bigint>();
+    for (const r of rows as TokenRow[]) {
+      const amount = typeof r?.uiTokenAmount?.amount === 'string' ? big(r.uiTokenAmount.amount) : null;
+      const i = r?.accountIndex;
+      if (typeof r?.owner !== 'string' || typeof r.mint !== 'string' || typeof i !== 'number' || !Number.isInteger(i) || i < 1 || i >= pre.length || amount === null) {
+        throw new Error('a token balance could not be read');
+      }
+      tokens.add(i);
+      if (r.owner !== shown.user) continue;
+      accounts.add(i);
+      if (r.mint !== native) coins.set(r.mint, (coins.get(r.mint) ?? 0n) + amount);
+    }
+    return { tokens, accounts, coins };
+  };
+  const before = held(run.preTokenBalances);
+  const after = held(run.postTokenBalances);
+  for (const mint of new Set([...before.coins.keys(), ...after.coins.keys()])) {
+    const drop = (before.coins.get(mint) ?? 0n) - (after.coins.get(mint) ?? 0n);
+    if (drop <= 0n) continue;
+    if (mint !== shown.inputMint) return 'its test run takes a coin you are not selling';
+    if (drop > sold) return 'its test run takes more than the amount shown';
+  }
+  let opened = 0n;
+  for (let i = 1; i < pre.length; i += 1) if (pre[i] === 0n && post[i]! > 0n && !after.tokens.has(i)) opened += post[i]!;
+  const rent = opened < ROUTE_RENT_CAP_LAMPORTS ? opened : ROUTE_RENT_CAP_LAMPORTS;
+  const sum = (list: bigint[], at: Set<number>) => [...at].reduce((s, i) => s + list[i]!, 0n);
+  const spent = sum(pre, before.accounts) - sum(post, after.accounts);
+  if (spent > fee + rent + (shown.inputMint === native ? sold : 0n)) return 'its test run takes more than the amount shown';
+  return null;
 }

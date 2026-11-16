@@ -81,6 +81,58 @@ export const TRIGGER_CREATE = {
   "tx": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAJDkjAG1BZAFRV2dywxrzs3LT7Wy6rwamoK1c5K6qkDwTmDYTBcZh4nuZY/ExVoXe+VhcKeYw1s4VzwTqmZSIGHCxXrqfmgamwv7Mzsv6r3NCjGn8MO/PbEpHdZ5ZRmUou8LIFrbcPuA9jpLmiPtQ6A2zOzVAYCkkW/XxAPUKAlAP43sTeRGTwuXxew5/kivghLMd/7RlS2oFJdI1UTmJL6wADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpCsNKlsFmcVpgwSM+yiWKDfMLHshY4HRcc2oSYmZjSyIQiYnNzGGPBnZ0rGd+KZqtsSj+INnM2CjlCMnxv5sw68b6evO+2606PWXzaqvJdDGxu+TC0vbg5HymAgNFL11hkn9sh+xDEAWX2S7IDh4PwuUsi7/8dQ+DB2YEV+4zsuGtBCOI6szpy8TZ2Zn/WOTwzaceIPG0vxhz9swv8hgJdgQFAAkDsscEAAAAAAAFAAUCpggBAAYGAAEABwgJAQEKDwAAAgMECwoMBwkJCAYNCi6FbkqvcJ/1n7KOCtB+niI2gJaYAAAAAAAA4fUFAAAAAAAAAQAAAQAAAAAAAAAAAA=="
 };
 
+/**
+ * The test run of SWAP_SOL_BAYLA (route_v2). The route opens one account that is not the payer's (1,346,200 lamports of rent).
+ * Read from mainnet at slot 469963085 (2026-11-16), the capture's price floor opened to 100% so the old quote still runs.
+ */
+export const RUN_SOL_BAYLA = {
+  fee: 8142,
+  preBalances: [65746168004, 3002506840, 5923848323, 0, 0, 1, 1, 6986116527, 240130698, 3388612899, 6711053, 2074080, 850823905, 2985840, 329967882693, 1924448070030, 70228638, 1260746836, 33103977, 1993343308, 9272823, 4641093],
+  postBalances: [68725806662, 0, 5923948323, 1513840, 1346200, 1, 1, 6986116527, 240130698, 3388612899, 6711053, 2074080, 850828831, 2985840, 329987777767, 1924448070030, 70228638, 1260746836, 33103977, 1993343308, 9272823, 4641093],
+  preTokenBalances: [
+    { accountIndex: 1, mint: 'So11111111111111111111111111111111111111112', owner: '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', uiTokenAmount: { amount: '3000367559' } },
+    { accountIndex: 2, mint: 'So11111111111111111111111111111111111111112', owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', uiTokenAmount: { amount: '5922359883' } },
+    { accountIndex: 11, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '58561438619461' } },
+    { accountIndex: 12, mint: 'So11111111111111111111111111111111111111112', owner: 'A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW', uiTokenAmount: { amount: '849335465' } },
+    { accountIndex: 14, mint: 'So11111111111111111111111111111111111111112', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '329965823412' } },
+  ],
+  postTokenBalances: [
+    { accountIndex: 2, mint: 'So11111111111111111111111111111111111111112', owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', uiTokenAmount: { amount: '5922459883' } },
+    { accountIndex: 3, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', uiTokenAmount: { amount: '3319633548' } },
+    { accountIndex: 11, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '58558118985913' } },
+    { accountIndex: 12, mint: 'So11111111111111111111111111111111111111112', owner: 'A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW', uiTokenAmount: { amount: '849340391' } },
+    { accountIndex: 14, mint: 'So11111111111111111111111111111111111111112', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '329985718486' } },
+  ],
+};
+
+/**
+ * The test run of SWAP_SHARED_SOL_BAYLA (the shared form). It opens none.
+ * Read from mainnet at slot 469963112 (2026-11-16), the capture's price floor opened to 100% so the old quote still runs.
+ */
+export const RUN_SHARED_SOL_BAYLA = {
+  fee: 13642,
+  preBalances: [65746168004, 3002506840, 5923848323, 0, 6240322812, 1488475, 1844400, 2074080, 1, 1, 6986116527, 240130698, 3388612899, 6711053, 2074080, 857370775, 2985840, 329967882693, 1924448070030, 70228638, 1260746836, 33103977, 1993343308, 9272823, 4641093],
+  postBalances: [68727147362, 0, 5923948323, 1513840, 6240322812, 1488475, 1844400, 2074080, 1, 1, 6986116527, 240130698, 3388612899, 6711053, 2074080, 857375701, 2985840, 329987777767, 1924448070030, 70228638, 1260746836, 33103977, 1993343308, 9272823, 4641093],
+  preTokenBalances: [
+    { accountIndex: 1, mint: 'So11111111111111111111111111111111111111112', owner: '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', uiTokenAmount: { amount: '3000367559' } },
+    { accountIndex: 2, mint: 'So11111111111111111111111111111111111111112', owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', uiTokenAmount: { amount: '5922359883' } },
+    { accountIndex: 5, mint: 'So11111111111111111111111111111111111111112', owner: '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB', uiTokenAmount: { amount: '35' } },
+    { accountIndex: 7, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB', uiTokenAmount: { amount: '0' } },
+    { accountIndex: 14, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '58561438619461' } },
+    { accountIndex: 15, mint: 'So11111111111111111111111111111111111111112', owner: 'A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW', uiTokenAmount: { amount: '855882335' } },
+    { accountIndex: 17, mint: 'So11111111111111111111111111111111111111112', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '329965823412' } },
+  ],
+  postTokenBalances: [
+    { accountIndex: 2, mint: 'So11111111111111111111111111111111111111112', owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', uiTokenAmount: { amount: '5922459883' } },
+    { accountIndex: 3, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', uiTokenAmount: { amount: '3319633548' } },
+    { accountIndex: 5, mint: 'So11111111111111111111111111111111111111112', owner: '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB', uiTokenAmount: { amount: '35' } },
+    { accountIndex: 7, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB', uiTokenAmount: { amount: '0' } },
+    { accountIndex: 14, mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '58558118985913' } },
+    { accountIndex: 15, mint: 'So11111111111111111111111111111111111111112', owner: 'A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW', uiTokenAmount: { amount: '855887261' } },
+    { accountIndex: 17, mint: 'So11111111111111111111111111111111111111112', owner: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', uiTokenAmount: { amount: '329985718486' } },
+  ],
+};
+
 /** A recurring buy: 120 USDC into SOL over 2 daily orders (open_dca_v2, a legacy transaction). */
 export const RECURRING_CREATE = {
   "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",

@@ -28,7 +28,7 @@ import {
   type SwapRefusalCause,
   type SwapSimulation,
 } from '../../jupiter';
-import { NotTheTradeShown } from './jupiterTxGuard';
+import { NotTheTradeShown, type TradeShown } from './jupiterTxGuard';
 
 /** Said when Jupiter's quote is not the trade asked for: nothing is built, so it never reads as a test run. */
 export const OTHER_TRADE_COPY = 'Jupiter answered for a different trade than the one on screen. Nothing was sent.';
@@ -79,7 +79,8 @@ export interface FeeRetryDeps {
     priorityLevel?: PriorityLevel;
     noPlatformFee?: boolean;
   }): Promise<string>;
-  simulateSwap(b64Tx: string): Promise<SwapSimulation>;
+  /** Throws JupiterTxRefused when the run moves the payer's balances other than as `shown`. */
+  simulateSwap(b64Tx: string, shown: TradeShown): Promise<SwapSimulation>;
   /** Was the first build fee-bearing? (lib/jupiter.ts swapCarriesPlatformFee.) */
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
 }
@@ -128,12 +129,15 @@ export async function prepareJupiterSwap(
   // to what was asked first. Thrown: it is no test run, and no other route stands in for it.
   if (!sameTrade(a.fresh, a)) throw new NotTheTradeShown(OTHER_TRADE_COPY);
   const first = await deps.buildSwapTransaction({ quote: a.fresh, userPublicKey: a.user, priorityLevel: a.priority });
+  const shown: TradeShown = { user: a.user, inputMint: a.inputMint, inAmount: a.amount };
 
   let sim: SwapSimulation;
   try {
-    sim = await deps.simulateSwap(first);
-  } catch {
-    // Not checked is not "would run": nothing goes to the wallet, and a press checks again.
+    sim = await deps.simulateSwap(first, shown);
+  } catch (e) {
+    // A run that moved more than shown is refused. Not checked is not "would run": nothing goes
+    // to the wallet, and a press checks again.
+    if (e instanceof NotTheTradeShown) throw e;
     return { status: 'blocked', reason: null, retried: false, unchecked: true };
   }
   if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
@@ -189,9 +193,10 @@ export async function prepareJupiterSwap(
   }
   let sim2: SwapSimulation;
   try {
-    sim2 = await deps.simulateSwap(second);
-  } catch {
-    // The retry is never sent unsimulated.
+    sim2 = await deps.simulateSwap(second, shown);
+  } catch (e) {
+    // The retry is never sent unsimulated, nor when its run moved more than shown.
+    if (e instanceof NotTheTradeShown) throw e;
     return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
   if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, ...caused(sim2) };
