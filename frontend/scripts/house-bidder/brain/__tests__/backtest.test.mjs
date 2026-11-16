@@ -3,7 +3,7 @@
 // The backtest (BUILD-SPEC 3.5 step 9): saved sales replayed through the planner and the
 // breakers. With a stand-in fair value the expected fills and trips are worked out by hand.
 import { describe, it, expect } from 'vitest';
-import { runBacktest, normalizeSale, pseudoListings } from '../backtest.mjs';
+import { runBacktest, normalizeSale, normalizeListing, pseudoListings } from '../backtest.mjs';
 import { WETH } from '../constants.mjs';
 import { fakeBuildTape, testPolicy, milli } from '../../exec/__tests__/fakes.mjs';
 
@@ -27,12 +27,14 @@ describe('backtest', () => {
     expect(c.pnlWei).toBe(milli(10.8));
   });
 
-  it('counts a floor drop on the rebuilt listing side as a breaker trip, and stops bidding through the pause', () => {
-    // listing sales (paid in ETH) rebuild the floor: 0.050 then a dump at 0.040 (-20% within the hour)
+  it('counts a floor drop on the rebuilt listing side as a breaker trip', () => {
+    // a listing at 0.050 stands from END-29h until it sells at END-5h; one at 0.040 appears at
+    // END-10h (it sells a day later): the floor falls 20% within the hour at END-10h
     const eth = '0x0000000000000000000000000000000000000000';
-    const sales = [sale(1, END - 10 * 3600, milli(50), { paymentToken: eth }), sale(2, END - 9.9 * 3600, milli(40), { paymentToken: eth })];
+    const sales = [sale(1, END - 5 * 3600, milli(50), { paymentToken: eth }), sale(2, END + 14 * 3600, milli(40), { paymentToken: eth })];
     const r = runBacktest({ sales: { junglebay: sales }, policy, buildTape: fakeBuildTape, fairValue: flatFair(milli(40)), days: 1, endSec: END });
     expect(r.collections.junglebay.trips).toEqual({ 'floor-drop-1h': 1 });
+    expect(r.collections.junglebay.tripLog[0].at).toBe(new Date((END - 10 * 3600) * 1000).toISOString());
   });
 
   it('notes an insider sale into the bid', () => {
@@ -41,10 +43,30 @@ describe('backtest', () => {
     expect(r.collections.junglebay.integrity).toHaveLength(1);
   });
 
+  it('counts a saved listing from its start time, so the arbitrage line holds the bid under it', () => {
+    // a JBAC listing at 0.030 saved live, standing since END-12h, as OpenSea returns it
+    const raw = {
+      order_hash: `0x${'7c'.repeat(32)}`,
+      protocol_address: '0x0000000000000068f116a894984e2db1123eb395',
+      remaining_quantity: 1,
+      price: { current: { value: '30000000000000000' } },
+      protocol_data: { parameters: { offerer: '0x101bb8d14cc1632a6973eca68f97ec4c5fc8c421', offer: [{ itemType: 2, token: '0xd37264c71e9af940e49795f0d3a8336afaafdda9', identifierOrCriteria: '1797', startAmount: '1', endAmount: '1' }], consideration: [], startTime: String(END - 12 * 3600), endTime: String(END + 3600), orderType: 0, zone: '0x0000000000000000000000000000000000000000' } },
+    };
+    expect(normalizeListing(raw)).toMatchObject({ tokenId: '1797', priceWei: milli(30), maker: '0x101bb8d14cc1632a6973eca68f97ec4c5fc8c421', startTime: END - 12 * 3600 });
+    const cheapest = (a) => ({ ...flatFair(milli(40))(a), cheapestFillable: a.listings.length ? a.listings[0].priceWei : null });
+    const sales = [sale(1, END - 13 * 3600, milli(28)), sale(2, END - 6 * 3600, milli(28))];
+    const r = runBacktest({ sales: { junglebay: sales }, listings: { junglebay: [raw] }, policy, buildTape: fakeBuildTape, fairValue: cheapest, days: 1, endSec: END });
+    // before the listing: 0.0352 fills the 0.028 sale; after it the bid is at most 0.030 x 0.99 - 0.001 = 0.0287
+    expect(r.collections.junglebay.fills.map((f) => f.unitPriceWei)).toEqual([milli(35.2), milli(28.7)]);
+  });
+
   it('reads OpenSea’s raw sale events (the saved research files) and rebuilds listings from ETH sales only', () => {
     const raw = { event_timestamp: END, transaction: '0xABC', order_hash: '0x01', payment: { quantity: '70000000000000000', token_address: '0x0000000000000000000000000000000000000000' }, seller: '0x3333333333333333333333333333333333333333', buyer: '0x7777777777777777777777777777777777777777', quantity: 2, nft: { identifier: '9' } };
     const s = normalizeSale(raw);
     expect(s).toMatchObject({ txHash: '0xabc', time: END, tokenId: '9', priceWei: milli(35) });
-    expect(pseudoListings([s, { ...s, paymentToken: WETH }], { atSec: END + 10 })).toHaveLength(1);
+    // a listing stood the day before it sold, and only an ETH sale was a listing
+    expect(pseudoListings([s, { ...s, paymentToken: WETH }], { atSec: END - 10 })).toHaveLength(1);
+    expect(pseudoListings([s], { atSec: END - 2 * DAY })).toHaveLength(0);
+    expect(pseudoListings([s], { atSec: END })).toHaveLength(0); // sold: gone
   });
 });

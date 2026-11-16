@@ -81,6 +81,15 @@ describe('checkSignedBid and verifySignedBid', () => {
     expect(check({ ...resp, signature: '0x1234' }).ok).toBe(false);
   });
 
+  it('refuses a validly signed order that offers more WETH than price x quantity', async () => {
+    // the signer signs an order offering twice the WETH, with every fee line still as asked
+    const double = (p) => ({ ...p, offer: [{ ...p.offer[0], startAmount: String(BigInt(p.offer[0].startAmount) * 2n), endAmount: String(BigInt(p.offer[0].endAmount) * 2n) }] });
+    const { req, resp } = await signed({}, { beforeSign: double });
+    const v = await verifySignedBid({ request: req, response: resp, build: req.build, house, policy, getOrderHash: async (c) => localOrderHash(c) });
+    expect(v).toMatchObject({ ok: false, field: 'order' });
+    expect(v.reason).toMatch(/the offer is 140000000000000000 wei, not 70000000000000000/);
+  });
+
   it('requires exactly the optional lines the policy turns on, creator and venue', async () => {
     const withFees = testPolicy(house, { venueFee: { recipient: VENUE_FEE_SAFE, bps: 50 } });
     withFees.collections.junglebay.creatorFee = { recipient: '0xa3cc58eaa3800dc163726e031a2da49a9bb64eb3', bps: 700 };

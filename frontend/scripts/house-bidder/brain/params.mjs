@@ -52,8 +52,10 @@ export const DEFAULT_PARAMS = Object.freeze({
 
   // ── the loop (step 8) ──
   tickMs: 60_000,
-  /** The least time between two ticks however often events wake the loop. */
+  /** The least time between two ticks however often a fill or an admin change wakes the loop. */
   minWakeMs: 2_000,
+  /** ...and when a market event (a listing, a sale) wakes it: the OpenSea read budget is shared with the site. */
+  marketWakeMs: 15_000,
   /** How many cheapest listings are read each tick. */
   listingsLimit: 50,
   /** Sales are re-read this far back each tick, so a late-indexed sale is not missed. */

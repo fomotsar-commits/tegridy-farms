@@ -194,11 +194,41 @@ describe('any refusal halts', () => {
     expect(t.risk.halted().reason).toBe('signer-refusal');
   });
 
-  it('STOP checked right before the signature: nothing is signed', async () => {
+  it('STOP before anything: nothing is built or signed', async () => {
     const t = setup({ stop: true });
     const r = await t.ex.post(plan(), t.ctx);
     expect(r.why).toBe('stop');
     expect(t.names()).toEqual([]);
+  });
+
+  it('STOP appearing while OpenSea builds: checked again right before the signature', async () => {
+    let t;
+    t = setup({
+      opensea: {
+        build: ({ offerer, slug, qty }) => {
+          t.state.stop = true;
+          return standardBuild(offerer, slug, qty);
+        },
+      },
+    });
+    const r = await t.ex.post(plan(), { ...t.ctx, snapshot: snapshotOf({ allowance: milli(200) }) });
+    expect(r.why).toBe('stop');
+    expect(t.names()).toEqual(['opensea.build']);
+  });
+
+  it('STOP appearing while the signer signs: checked again right before the post', async () => {
+    let t;
+    t = setup({
+      signer: {
+        tamper: (a) => {
+          t.state.stop = true;
+          return a;
+        },
+      },
+    });
+    const r = await t.ex.post(plan(), t.ctx);
+    expect(r.why).toBe('stop');
+    expect(t.names()).not.toContain('opensea.post');
   });
 });
 

@@ -5,9 +5,10 @@
 //
 // Listing history is not saved anywhere (OpenSea's API gives the book as it is now), so the
 // listing side is rebuilt from the sales themselves: every listing that sold (paid in ETH) is
-// taken as a listing that stood at that price, from its seller, for the week after. That stands in
-// for both the arbitrage line's "cheapest fillable listing" and the floor proxy the breakers watch.
-// It is a stand-in, and the report says so.
+// taken as a listing that stood at that price, from its seller, for the day BEFORE it sold, and
+// was gone once sold. Listings that never sold are missing, so the rebuilt floor sits a little
+// high. It stands in for both the arbitrage line's "cheapest fillable listing" and the floor proxy
+// the breakers watch; it is a stand-in, and the report says so.
 
 import { DEFAULT_PARAMS } from './params.mjs';
 import { planBid } from './planner.mjs';
@@ -45,17 +46,47 @@ export function normalizeSale(raw) {
   };
 }
 
-/** Listings rebuilt from listing sales (paid in ETH, not WETH) in the week before `atSec`. */
-export function pseudoListings(sales, { atSec, lookbackSec = 7 * DAY }) {
+/**
+ * One listing, from the data layer's shape or OpenSea's raw order (a saved listings file). A
+ * listing still live when the file was saved was live from its start time on: a Seaport order
+ * cannot be paused, so the saved book also tells which listings stood at every earlier moment.
+ */
+export function normalizeListing(raw) {
+  if (raw && raw.priceWei !== undefined) {
+    return { ...raw, priceWei: toWei(raw.priceWei, 'listing price'), maker: addr(raw.maker), startTime: toSec(raw.startTime), endTime: toSec(raw.endTime) };
+  }
+  const P = raw?.protocol_data?.parameters;
+  if (!P) return null;
+  const total = raw?.price?.current?.value !== undefined ? toWei(raw.price.current.value, 'listing price') : P.consideration.reduce((s, c) => s + toWei(c.startAmount, 'listing price'), 0n);
+  const qty = BigInt(raw.remaining_quantity || 1);
+  return {
+    orderHash: String(raw.order_hash).toLowerCase(),
+    tokenId: String(P.offer?.[0]?.identifierOrCriteria ?? raw?.asset?.identifier ?? ''),
+    priceWei: total / qty,
+    maker: addr(P.offerer),
+    startTime: toSec(P.startTime),
+    endTime: toSec(P.endTime),
+    protocol: addr(raw.protocol_address) ?? SEAPORT_16,
+    orderType: Number(P.orderType),
+    zone: addr(P.zone) ?? ZERO_ADDRESS,
+    taker: null,
+  };
+}
+
+/**
+ * The listings standing at `atSec`, rebuilt from listing sales (paid in ETH, not WETH): each one
+ * stood for `standSec` before it sold and was gone once sold.
+ */
+export function pseudoListings(sales, { atSec, standSec = DAY }) {
   return sales
-    .filter((s) => s.time <= atSec && s.time > atSec - lookbackSec && s.paymentToken !== WETH && s.priceWei > 0n)
+    .filter((s) => s.time > atSec && s.time - standSec <= atSec && s.paymentToken !== WETH && s.priceWei > 0n)
     .map((s) => ({
       orderHash: `bt-${s.txHash}-${s.tokenId}`,
       tokenId: s.tokenId,
       priceWei: s.priceWei,
       maker: s.seller,
-      startTime: s.time - 3600,
-      endTime: atSec + DAY,
+      startTime: s.time - standSec,
+      endTime: s.time,
       protocol: SEAPORT_16,
       orderType: 0,
       zone: ZERO_ADDRESS,
@@ -66,6 +97,8 @@ export function pseudoListings(sales, { atSec, lookbackSec = 7 * DAY }) {
 /**
  * @param {object} a
  * @param {Record<string, object[]>} a.sales   per slug, any shape normalizeSale reads
+ * @param {Record<string, object[]>} [a.listings]  per slug, a saved book (normalizeListing): each
+ *   listing counts from its start time; listings that sold are rebuilt from the sales
  * @param {object} a.policy                    validated policy; every slug in `sales` is bid as if enabled
  * @param {Function} a.buildTape               the data layer's (2.4)
  * @param {Function} a.fairValue               the data layer's (2.4)
@@ -73,14 +106,15 @@ export function pseudoListings(sales, { atSec, lookbackSec = 7 * DAY }) {
  * @param {number} a.endSec
  * @param {number} [a.stepSec]                 600: ten-minute steps, fine enough for the 1-hour breaker
  */
-export function runBacktest({ sales, policy, params = DEFAULT_PARAMS, buildTape, fairValue, days = 30, endSec, stepSec = 600, houseWallets = [], insiderWallets = [] }) {
-  const out = { days, endSec, stepSec, collections: {}, note: 'listing side rebuilt from listing sales (no listing history is saved)' };
+export function runBacktest({ sales, listings = {}, policy, params = DEFAULT_PARAMS, buildTape, fairValue, days = 30, endSec, stepSec = 600, houseWallets = [], insiderWallets = [] }) {
+  const out = { days, endSec, stepSec, collections: {}, note: 'no listing history exists: the book is the saved listings from their start times, plus listings that sold (each standing the day before it sold); listings cancelled before the save are missing' };
   const insiders = new Set(insiderWallets.map(addr).filter(Boolean));
   const houses = new Set(houseWallets.map(addr).filter(Boolean));
   for (const [slug, rawSales] of Object.entries(sales)) {
     if (!policy.collections[slug]) continue;
     const pol = { ...policy, collections: { ...policy.collections, [slug]: { ...policy.collections[slug], enabled: true } } };
     const all = rawSales.map(normalizeSale).filter((s) => s.time !== null).sort((a, b) => a.time - b.time);
+    const saved = (listings[slug] ?? []).map(normalizeListing).filter((l) => l && l.maker && l.startTime !== null && !houses.has(l.maker));
     let tMs = 0;
     const risk = createRisk({ params, now: () => tMs });
     const r = { fills: [], held: 0, costWei: 0n, trips: {}, tripLog: [], posts: 0, stepsBidding: 0, lastF: null, lastS: null, integrity: [] };
@@ -94,9 +128,11 @@ export function runBacktest({ sales, policy, params = DEFAULT_PARAMS, buildTape,
       tMs = t * 1000;
       const upTo = all.filter((s) => s.time <= t);
       const tape = buildTape(upTo, { houseWallets: [...houses], insiderWallets: [...insiders], now: tMs });
-      const listings = pseudoListings(upTo, { atSec: t });
-      const fillable = new Map(listings.map((l) => [l.orderHash, { fillable: true }]));
-      const fv = fairValue({ tape: tape.kept, listings, fillable, now: tMs, prev, params: undefined });
+      // The book at t: saved listings already standing, and listings that sold later (they
+      // stood at t, so this is not look-ahead).
+      const book = [...saved.filter((l) => l.startTime <= t && t < l.endTime), ...pseudoListings(all, { atSec: t })];
+      const fillable = new Map(book.map((l) => [l.orderHash, { fillable: true }]));
+      const fv = fairValue({ tape: tape.kept, listings: book, fillable, now: tMs, prev, params: undefined });
       prev = fv.state;
       if (typeof fv.F === 'bigint') r.lastF = fv.F;
       if (typeof fv.S === 'bigint') r.lastS = fv.S;

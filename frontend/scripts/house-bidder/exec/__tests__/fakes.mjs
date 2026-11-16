@@ -113,7 +113,7 @@ export function openSeaError(kind, status, message = 'fake') {
  * way the real signer must (offer, fee lines, order type, conduit key, salt, counter) so a
  * correct bot verifies it; `tamper` changes the answer after signing to test the bot's checks.
  */
-export function fakeSigner({ keyN = 1, calls = [], counter = 7n, policy, refuse = {}, tamper = null, sendTxResult = null, killResult = null, signBidError = null } = {}) {
+export function fakeSigner({ keyN = 1, calls = [], counter = 7n, policy, refuse = {}, tamper = null, beforeSign = null, sendTxResult = null, killResult = null, signBidError = null } = {}) {
   const account = testAccount(keyN);
   const house = account.address.toLowerCase();
   let salt = 1000n;
@@ -135,7 +135,7 @@ export function fakeSigner({ keyN = 1, calls = [], counter = 7n, policy, refuse 
       const cf = policy?.collections?.[req.slug]?.creatorFee;
       if (cf) consideration.push(fee(bpsOf(total, cf.bps), cf.recipient));
       if (policy?.venueFee) consideration.push(fee(bpsOf(total, policy.venueFee.bps), policy.venueFee.recipient));
-      const parameters = {
+      let parameters = {
         offerer: house,
         zone: SIGNED_ZONE,
         offer: [{ itemType: ITEM.ERC20, token: WETH, identifierOrCriteria: '0', startAmount: total.toString(), endAmount: total.toString() }],
@@ -148,6 +148,8 @@ export function fakeSigner({ keyN = 1, calls = [], counter = 7n, policy, refuse 
         conduitKey: OPENSEA_CONDUIT_KEY,
         totalOriginalConsiderationItems: consideration.length,
       };
+      // A signer that validly signs the WRONG order (a bug, or a compromised signer).
+      if (beforeSign) parameters = beforeSign(parameters);
       const components = orderComponentsFrom(parameters, counter);
       const signature = await account.signTypedData({ domain: SEAPORT_DOMAIN, types: SEAPORT_TYPES, primaryType: 'OrderComponents', message: components });
       const orderHash = hashStruct({ data: components, primaryType: 'OrderComponents', types: SEAPORT_TYPES });

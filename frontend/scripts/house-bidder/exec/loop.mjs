@@ -30,12 +30,14 @@ const errText = (e) => (e?.kind ? `${e.kind}${e.status ? ` ${e.status}` : ''}: $
 const big = (v) => (v === null || v === undefined ? null : toWei(v, 'amount'));
 
 /**
- * The data layer's fairValue/buildTape take a `now`; the spec does not say in what unit. The
- * whole bot calls them through these two lines, in milliseconds like every other clock in the
- * data layer (`now = Date.now`), so the lead changes one place if the data layer chose seconds.
+ * The data layer's fairValue/buildTape take a `now` whose unit the spec does not fix (the data
+ * layer as built reads milliseconds or seconds). The whole bot calls them through these two lines,
+ * in milliseconds like every other clock in the data layer (`now = Date.now`), so a change of mind
+ * there is a change here only. fairValue also hears the house wallets: a house listing is never
+ * L, the cheapest fillable listing or the floor proxy.
  */
-export const callBuildTape = (buildTape, sales, opts) => buildTape(sales, { ...opts, now: opts.nowMs });
-export const callFairValue = (fairValue, args) => fairValue({ ...args, now: args.nowMs });
+export const callBuildTape = (buildTape, sales, opts) => buildTape(sales, { houseWallets: opts.houseWallets, insiderWallets: opts.insiderWallets, now: opts.nowMs });
+export const callFairValue = (fairValue, args) => fairValue({ tape: args.tape, listings: args.listings, fillable: args.fillable, now: args.nowMs, prev: args.prev, params: args.params, houseWallets: args.houseWallets });
 
 /**
  * @param {object} d
@@ -88,6 +90,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     accountOffersAt: 0,
     streamGaps: 0,
     lastWake: 0,
+    nextAt: null,
   };
   const nowSec = () => Math.floor(now() / 1000);
   const heldBySlug = () => Object.fromEntries(Object.entries(st.held).map(([s, set]) => [s, set.size]));
@@ -100,15 +103,27 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
   }
 
   // ── events ──────────────────────────────────────────────────────────────────────────────
-  function wake() {
+  /**
+   * Run a tick soon: within `minGapMs` of the last one. A fill or an admin change uses the short
+   * gap; a market event the longer one, so a book that relists every minute does not spend the
+   * OpenSea read budget the site shares. An earlier tick already due is never pushed back.
+   */
+  function wake(minGapMs = params.minWakeMs) {
     if (st.stopped) return;
-    const wait = Math.max(0, st.lastWake + params.minWakeMs - now());
+    // Mid-tick: the tick ends by scheduling the next one, soon, instead of in a minute.
+    if (st.busy) {
+      st.again = true;
+      return;
+    }
+    const at = Math.max(now(), st.lastWake + minGapMs);
+    if (st.nextAt !== null && st.nextAt <= at) return;
     timers.clearTimeout(st.timer);
-    st.timer = timers.setTimeout(() => void tick(), wait);
+    st.nextAt = at;
+    st.timer = timers.setTimeout(() => void tick(), at - now());
   }
   /** An integrity event closes the gate now (executor.halt's first step is synchronous), and acts next tick. */
   function integrityNow(reason, detail) {
-    st.pendingHalts.push(executor.halt(reason, detail));
+    st.pendingHalts.push(executor.halt(reason, detail).catch((e) => note(e, `halt (${reason})`)));
     wake();
   }
   const handlers = {
@@ -124,15 +139,16 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
   function subscribeStream() {
     const s = data.stream;
     if (!s) return;
+    // A gap closes the gate until the next tick's REST read (within a minute); it does not
+    // wake the loop, since a quiet collection gaps every 30 seconds.
     s.on('gap', () => {
       st.streamGaps += 1;
       risk.noteGap(now());
-      wake();
     });
-    for (const type of ['listed', 'cancelled', 'transferred', 'invalidated', 'revalidated']) s.on(type, () => wake());
+    for (const type of ['listed', 'cancelled', 'transferred', 'invalidated', 'revalidated']) s.on(type, () => wake(params.marketWakeMs));
     s.on('sold', (ev) => {
       if (ev?.slug) st.salesDirty[ev.slug] = true;
-      wake();
+      wake(params.marketWakeMs);
     });
     s.on('invalidated', (ev) => {
       const o = ev?.orderHash ? exposure.get(ev.orderHash) : null;
@@ -192,10 +208,12 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
 
   async function readMarket(slug) {
     const startedAt = now();
+    // Until this read succeeds the collection has no fair value: nothing new is posted on last
+    // minute's numbers (a standing bid was priced on good data and ends within 30 minutes).
+    st.fv[slug] = null;
     let listings;
     try {
       listings = await data.opensea.bestListings(slug, { limit: params.listingsLimit });
-      risk.noteRestRead({ ok: true, startedAt });
     } catch (e) {
       risk.noteRestRead({ ok: false, startedAt });
       note(e, `${slug} listings`);
@@ -207,9 +225,12 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     try {
       fillable = await data.chain.listingFillable(listings);
     } catch (e) {
+      risk.noteRestRead({ ok: false, startedAt });
       note(e, `${slug} listing check`);
       return null;
     }
+    // Only a whole read (listings and whether each can be filled) lifts a data gap.
+    risk.noteRestRead({ ok: true, startedAt });
     try {
       await readSales(slug);
     } catch (e) {
@@ -218,7 +239,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     const sales = [...st.sales[slug].values()];
     const nowMs = now();
     const tape = callBuildTape(data.buildTape, sales, { houseWallets: [...houseSet], insiderWallets: insiderWallets(), nowMs });
-    const fv = callFairValue(data.fairValue, { tape: tape.kept, listings, fillable, nowMs, prev: st.fvState[slug] ?? null, params: undefined });
+    const fv = callFairValue(data.fairValue, { tape: tape.kept, listings, fillable, nowMs, prev: st.fvState[slug] ?? null, params: undefined, houseWallets: [...houseSet] });
     st.fvState[slug] = fv.state;
     st.listings[slug] = { listings, fillable, at: nowMs };
     st.fv[slug] = { ...fv, dropped: tape.dropped.length };
@@ -229,7 +250,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       const thenMs = nowMs - DAY_SEC * 1000;
       const before = tape.kept.filter((s) => (toSec(s.time) ?? 0) * 1000 <= thenMs);
       try {
-        const old = callFairValue(data.fairValue, { tape: before, listings: [], fillable: new Map(), nowMs: thenMs, prev: null, params: undefined });
+        const old = callFairValue(data.fairValue, { tape: before, listings: [], fillable: new Map(), nowMs: thenMs, prev: null, params: undefined, houseWallets: [...houseSet] });
         st.trend[slug] = { then: typeof old.S === 'bigint' ? old.S : null, now: typeof fv.S === 'bigint' ? fv.S : null };
       } catch (e) {
         note(e, `${slug} trend`);
@@ -292,20 +313,18 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
 
   /** Books against the chain; a mismatch is checked once more, after re-reading the house's fills, before it halts. */
   async function checkBooks(snap, expectedCounter) {
+    const books = executor.books;
     const args = () => ({
       snapshot: snap,
-      lastApproval: executor.books.lastApproval && executor.books.lastApproval.block !== null ? executor.books.lastApproval : null,
+      // null: never approved (the chain must show 0); undefined: approved at a block the bot
+      // does not know, so the approval is not checked until the next one.
+      lastApproval: !books.lastApproval ? null : books.lastApproval.block === null ? undefined : books.lastApproval,
       fills: knownFills({ entries: ledger.read(), chainFills: [] }).map((f) => ({ block: Number(f.block ?? 0), unitPriceWei: toWei(f.unitPriceWei, 'fill price') })),
       expectedCounter,
-      counterBumpPending: executor.books.counterBumpPending,
+      counterBumpPending: books.counterBumpPending,
       prevWeth: st.prevWeth,
-      ownTxs: executor.books.ownTxs,
+      ownTxs: books.ownTxs,
     });
-    // Until the books hold a mined approval with its block, the approval cannot be checked.
-    if (!executor.books.lastApproval || executor.books.lastApproval.block === null) {
-      st.prevWeth = { weth: snap.house.weth, block: snap.block };
-      return;
-    }
     let r = reconcile(args());
     if (!r.ok) {
       try {
@@ -437,6 +456,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
     }
     st.busy = true;
     st.lastWake = now();
+    st.nextAt = null;
     try {
       if (stopRequested()) {
         log('STOP found: cancelling every house bid');
@@ -507,7 +527,9 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       st.busy = false;
       if (!st.stopped) {
         timers.clearTimeout(st.timer);
-        st.timer = timers.setTimeout(() => void tick(), st.again ? params.minWakeMs : params.tickMs);
+        const wait = st.again ? params.minWakeMs : params.tickMs;
+        st.nextAt = now() + wait;
+        st.timer = timers.setTimeout(() => void tick(), wait);
         st.again = false;
       }
     }
@@ -565,6 +587,12 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       added.advisoryLiveUntil = o.advisoryLiveUntil;
     }
     if (counter !== null) exposure.setCounter(counter);
+    // A house fill the chain shows and the ledger does not (the file was restored from an older
+    // copy, or the bot was down) is written back into the ledger, so the daily caps and the
+    // report count it: the chain is the record that cannot be rolled back.
+    const inLedger = new Set(knownFills({ entries, chainFills: [], shadow }).map((f) => `${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`));
+    const unseen = chainFills.filter((f) => !inLedger.has(`${String(f.txHash).toLowerCase()}:${String(f.orderHash).toLowerCase()}:${f.tokenId}`));
+    for (const f of unseen) ledger.append('fill', { ...f, reseeded: true });
     // Holdings: every token the house bought, from the ledger and the chain.
     for (const f of knownFills({ entries, chainFills, shadow })) st.held[f.slug]?.add(String(f.tokenId));
     ledger.append('reseed', { orders: seeded.exposure.all().length, live: exposure.live(nowSec()).length, held: heldBySlug(), findings: seeded.findings });
@@ -572,6 +600,8 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
       if (f.code === 'unknown-fill' || f.code === 'unknown-offer' || f.code === 'overfill') await executor.halt('ledger-mismatch', f.detail);
     }
     if (!shadow && house) await checkHoldings();
+    // A fill made while the bot was not watching is screened like any other before anything is posted.
+    for (const f of unseen) await checkAndAct(f, []);
 
     for (const slug of slugs) {
       try {

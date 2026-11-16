@@ -337,17 +337,20 @@ async function cmdReport(opts) {
   console.log(reportText(monthlyReport(entries, { month, shadow: opts.shadow === true, nowMs: Date.now() })));
 }
 
-/** Saved sales for each slug from a folder: <slug>/sales*.json or <slug>-sales*.json, as a list or under items/sales/asset_events. */
-export function loadSavedSales(dir, slugs) {
+/**
+ * Saved files for each slug from a folder: <slug>/<what>*.json or <slug>-<what>*.json (what =
+ * sales or listings), as a list or under items / sales / listings / asset_events.
+ */
+export function loadSaved(dir, slugs, what) {
   const out = {};
   for (const slug of slugs) {
     const candidates = [];
     const sub = path.join(dir, slug);
-    if (fs.existsSync(sub)) for (const f of fs.readdirSync(sub)) if (/^sales.*\.json$/.test(f)) candidates.push(path.join(sub, f));
-    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) if (f.startsWith(`${slug}-sales`) && f.endsWith('.json')) candidates.push(path.join(dir, f));
+    if (fs.existsSync(sub)) for (const f of fs.readdirSync(sub).sort()) if (f.startsWith(what) && f.endsWith('.json')) candidates.push(path.join(sub, f));
+    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).sort()) if (f.startsWith(`${slug}-${what}`) && f.endsWith('.json')) candidates.push(path.join(dir, f));
     if (!candidates.length) continue;
     const j = JSON.parse(fs.readFileSync(candidates[0], 'utf8'));
-    out[slug] = Array.isArray(j) ? j : j.items ?? j.sales ?? j.asset_events ?? [];
+    out[slug] = Array.isArray(j) ? j : j.items ?? j.sales ?? j.listings ?? j.asset_events ?? [];
   }
   return out;
 }
@@ -376,10 +379,11 @@ async function cmdBacktest(opts) {
   }
   const sets = counterpartySets({ insiders, house: policy.house, fundingWallet: policy.fundingWallet });
   const dir = opts.data ?? path.join(HERE, 'house-bidder', '__fixtures__');
-  const sales = loadSavedSales(dir, Object.keys(policy.collections));
+  const sales = loadSaved(dir, Object.keys(policy.collections), 'sales');
   if (!Object.keys(sales).length) throw new Error(`no saved sales found in ${dir} (looked for <slug>/sales*.json and <slug>-sales*.json)`);
+  const listings = loadSaved(dir, Object.keys(policy.collections), 'listings');
   const endSec = Math.max(...Object.values(sales).flat().map((s) => Number(s.time ?? s.event_timestamp ?? 0)));
-  const r = runBacktest({ sales, policy, params: withParams(), buildTape: d.buildTape, fairValue: d.fairValue, days: opts.days, endSec, insiderWallets: [...sets.people], houseWallets: [...sets.house] });
+  const r = runBacktest({ sales, listings, policy, params: withParams(), buildTape: d.buildTape, fairValue: d.fairValue, days: opts.days, endSec, insiderWallets: [...sets.people], houseWallets: [...sets.house] });
   console.log(`Backtest, ${opts.days} days to ${new Date(endSec * 1000).toISOString()} (${r.note})`);
   for (const [slug, c] of Object.entries(r.collections)) {
     console.log(`  ${slug}: ${c.sales} sales, ${c.posts} bids over ${c.hoursBidding.toFixed(0)} h, bought ${c.units} for ${eth(c.costWei)} ETH, holds ${c.held} worth ${eth(c.markWei)} after OpenSea's 1% (P&L ${eth(c.pnlWei)} ETH)`);

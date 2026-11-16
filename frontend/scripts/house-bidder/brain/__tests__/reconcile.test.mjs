@@ -34,8 +34,9 @@ describe('reconcile', () => {
     expect(reconcile({ ...args, snapshot: snap(101, { allowance: milli(60) }) }).ok).toBe(false);
   });
 
-  it('flags any approval when the house never approved', () => {
+  it('flags any approval when the house never approved, and skips the check for an approval mined at an unknown block', () => {
     expect(fields(reconcile({ snapshot: snap(1, { allowance: 1n }), lastApproval: null, fills: [], expectedCounter: null, prevWeth: null }))).toEqual(['allowance']);
+    expect(reconcile({ snapshot: snap(1, { allowance: milli(105) }), lastApproval: undefined, fills: [], expectedCounter: null, prevWeth: null }).ok).toBe(true);
   });
 
   it('flags a counter bump the bot did not ask for, and accepts its own', () => {

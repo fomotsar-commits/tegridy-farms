@@ -10,7 +10,9 @@
 /**
  * @param {object} a
  * @param {{ block: number, house: { weth: bigint, allowance: bigint, counter: bigint } }} a.snapshot
- * @param {{ amountWei: bigint, block: number } | null} a.lastApproval   the latest approval the signer mined
+ * @param {{ amountWei: bigint, block: number } | null | undefined} a.lastApproval   the latest approval the
+ *   signer mined; null when the house never approved; undefined when one was mined at a block the
+ *   bot does not know (the approval cannot be checked until the next one)
  * @param {{ block: number, unitPriceWei: bigint }[]} a.fills            every house fill the bot knows
  * @param {bigint | null} a.expectedCounter                             the counter the books expect
  * @param {boolean} [a.counterBumpPending]                              the bot itself sent a counter bump not yet seen
@@ -32,7 +34,7 @@ export function reconcile({ snapshot, lastApproval, fills, expectedCounter, coun
     if (h.allowance > high || h.allowance < low) {
       mismatches.push({ field: 'allowance', expected: low === high ? `${high}` : `${low}..${high}`, actual: `${h.allowance}` });
     }
-  } else if (!lastApproval && h.allowance !== 0n) {
+  } else if (lastApproval === null && h.allowance !== 0n) {
     mismatches.push({ field: 'allowance', expected: '0 (the house never approved)', actual: `${h.allowance}` });
   }
 

@@ -21,7 +21,7 @@ const noTimers = { setTimeout: () => 0, clearTimeout: () => {} };
 const STRANGER = '0x3333333333333333333333333333333333333333';
 const INSIDER = '0x5555555555555555555555555555555555555555';
 
-function world({ mode = 'shadow', withHouse = true } = {}) {
+function world({ mode = 'shadow', withHouse = true, signerOrders = [], houseFills = [], timers = noTimers } = {}) {
   const clock = fakeClock();
   const calls = [];
   const house = testAccount(1).address.toLowerCase();
@@ -30,7 +30,7 @@ function world({ mode = 'shadow', withHouse = true } = {}) {
   const opensea = fakeOpenSea({ calls, sales, listings: { junglebay: [{ orderHash: `0x${'0f'.repeat(32)}`, tokenId: '1', priceWei: milli(50), maker: STRANGER, startTime: 0, endTime: 2e9, protocol: '', orderType: 0, zone: '', taker: null }], gnssart: [] } });
   // The chain as the house's own actions leave it: approvals set the allowance, fills spend it.
   const chainState = { block: 26_500_000, weth: milli(200), allowance: 0n, counter: 7n };
-  const chain = fakeChain({ calls, snapshot: () => snapshotOf(chainState) });
+  const chain = fakeChain({ calls, snapshot: () => snapshotOf(chainState), fills: houseFills });
   const stream = fakeStream({ lastMessageAt: clock.now });
   const fairValue = fakeFairValue(() => ({ S: milli(40), L: milli(50), F: milli(40), cheapestFillable: milli(50), floorProxy: milli(50), n: 20, sellers: 9 }));
   const fs = memFs();
@@ -72,7 +72,7 @@ function world({ mode = 'shadow', withHouse = true } = {}) {
     : createShadowExecutor(common);
   const config = { policy, house: withHouse ? house : null, houseWallets: [house], policySha256: 'x' };
   const exits = [];
-  const loop = createLoop({ mode, config, data: { opensea, stream, chain, buildTape: fakeBuildTape, fairValue }, executor, exposure, risk, ledger, sets, stopRequested: () => state.stop, now: clock.now, timers: noTimers, onExit: (r) => exits.push(r) });
+  const loop = createLoop({ mode, config, data: { opensea, stream, chain, buildTape: fakeBuildTape, fairValue }, executor, exposure, risk, ledger, sets, stopRequested: () => state.stop, readSignerOrders: () => signerOrders, now: clock.now, timers, onExit: (r) => exits.push(r) });
   return { clock, calls, house, policy, sales, opensea, chain, chainState, fillOf, stream, ledger, exposure, risk, state, loop, exits, names: () => calls.map((c) => c[0]) };
 }
 const sale = (clock, tokenId, price, seller = STRANGER, dt = 30) => ({ txHash: `0x${String(tokenId).padStart(64, '0')}`, time: clock.sec() + dt, tokenId: String(tokenId), priceWei: price, paymentToken: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', seller, buyer: '0x7777777777777777777777777777777777777777', orderHash: null });
@@ -127,6 +127,43 @@ describe('shadow mode', () => {
   });
 });
 
+describe('waking the loop', () => {
+  /** Timers that record what was asked of them and never fire. */
+  function recordingTimers() {
+    let id = 0;
+    const live = new Map();
+    return {
+      live,
+      setTimeout: (_fn, ms) => (live.set(++id, ms), id),
+      clearTimeout: (t) => live.delete(t),
+      pending: () => [...live.values()],
+    };
+  }
+
+  it('wakes within 2 s for a fill, and a market event never pushes that back', async () => {
+    const timers = recordingTimers();
+    const w = world({ mode: 'live', timers });
+    await w.loop.start();
+    expect(timers.pending()).toEqual([60_000]); // the regular tick
+    w.clock.advance(20_000);
+    w.chain.handlers.onFill(w.fillOf(`0x${'cc'.repeat(32)}`, 9, milli(1)));
+    expect(timers.pending()).toEqual([0]); // 20 s since the last tick: at once
+    w.stream.emit('listed', { slug: 'junglebay' });
+    expect(timers.pending()).toEqual([0]);
+  });
+
+  it('waits at least 15 s between ticks for market events, and never wakes for a stream gap', async () => {
+    const timers = recordingTimers();
+    const w = world({ mode: 'live', timers });
+    await w.loop.start();
+    w.stream.emit('gap', {});
+    expect(timers.pending()).toEqual([60_000]);
+    w.clock.advance(1_000);
+    w.stream.emit('listed', { slug: 'junglebay' });
+    expect(timers.pending()).toEqual([14_000]);
+  });
+});
+
 describe('live loop', () => {
   it('posts through the signer once the listings have been read', async () => {
     const w = world({ mode: 'live' });
@@ -151,6 +188,33 @@ describe('live loop', () => {
     expect(w.loop.status().collections.junglebay.standing).toMatchObject({ unitPriceWei: milli(33.2), qty: 2 });
   });
 
+  it('counts a chain fill the ledger lost toward the day’s caps and holdings', async () => {
+    const clock = fakeClock();
+    const orderHash = `0x${'0a'.repeat(32)}`;
+    const t = clock.sec() - 3600;
+    const signerOrders = [{ orderHash, slug: 'junglebay', qty: 2, unitPriceWei: milli(35).toString(), startTime: t - 60, endTime: t + 1740, counter: '7' }];
+    const houseFills = [{ txHash: `0x${'1b'.repeat(32)}`, block: 26_499_000, time: t, orderHash, slug: 'junglebay', tokenId: '77', unitPriceWei: milli(35), seller: STRANGER, fulfiller: STRANGER }];
+    const w = world({ mode: 'live', signerOrders, houseFills });
+    await w.loop.start();
+    expect(w.risk.halted()).toBe(null);
+    expect(w.ledger.read().filter((e) => e.kind === 'fill').map((e) => [e.tokenId, e.reseeded])).toEqual([['77', true]]);
+    expect(w.loop.status().today.units).toBe(1);
+    expect(w.loop.status().collections.junglebay.held).toBe(1);
+    expect(w.ledger.read().find((e) => e.kind === 'fill-check')).toMatchObject({ tokenId: '77', verdict: 'ok' });
+  });
+
+  it('screens a fill made while the bot was down: an insider seller halts it before anything is posted', async () => {
+    const clock = fakeClock();
+    const orderHash = `0x${'0a'.repeat(32)}`;
+    const t = clock.sec() - 3600;
+    const signerOrders = [{ orderHash, slug: 'junglebay', qty: 1, unitPriceWei: milli(35).toString(), startTime: t - 60, endTime: t + 1740, counter: '7' }];
+    const houseFills = [{ txHash: `0x${'1b'.repeat(32)}`, block: 26_499_000, time: t, orderHash, slug: 'junglebay', tokenId: '78', unitPriceWei: milli(35), seller: INSIDER, fulfiller: INSIDER }];
+    const w = world({ mode: 'live', signerOrders, houseFills });
+    await w.loop.start();
+    expect(w.risk.halted().reason).toBe('insider-fill');
+    expect(w.names()).not.toContain('signer.signBid');
+  });
+
   it('closes the gate at once on a mint and kills on chain', async () => {
     const w = world({ mode: 'live' });
     await w.loop.start();
@@ -160,6 +224,30 @@ describe('live loop', () => {
     expect(w.risk.halted().reason).toBe('mint');
     expect(w.names()).toContain('signer.kill');
     expect(w.ledger.read().some((e) => e.kind === 'breaker' && e.reason === 'mint')).toBe(true);
+  });
+
+  it('halts on an admin change seen between two chain snapshots (JBAC maxSupply raised)', async () => {
+    const w = world({ mode: 'live' });
+    await w.loop.start();
+    expect(w.risk.halted()).toBe(null);
+    w.chainState.jbac = { maxSupply: 6000n };
+    w.chainState.block += 1;
+    w.clock.advance(60_000);
+    await w.loop.tick();
+    expect(w.risk.halted().reason).toBe('jbac-max-supply');
+    expect(w.names()).toContain('signer.kill');
+  });
+
+  it('halts on an admin change that happened while the bot was stopped', async () => {
+    const first = world({ mode: 'live' });
+    await first.loop.start();
+    // the record the first run left, read by a second run after GNSS's owner changed
+    const lines = first.ledger.read();
+    const w = world({ mode: 'live' });
+    for (const e of lines.filter((x) => x.kind === 'chain')) w.ledger.append('chain', { block: e.block, jbac: e.jbac, gnss: e.gnss });
+    w.chainState.gnss = { owner: '0x4444444444444444444444444444444444444444' };
+    await w.loop.start();
+    expect(w.risk.halted().reason).toBe('gnss-owner');
   });
 
   it('halts and kills on a fill from an insider', async () => {
@@ -222,6 +310,29 @@ describe('live loop', () => {
     await w.loop.start(); // the start-up gap is never lifted: no REST read succeeds
     expect(w.names()).not.toContain('signer.signBid');
     expect(w.loop.status().dataGap).toBe(true);
+  });
+
+  it('posts nothing when the listings were read but whether they can be filled was not', async () => {
+    const w = world({ mode: 'live' });
+    w.chain.listingFillable = async () => {
+      throw new Error('multicall failed');
+    };
+    await w.loop.start();
+    expect(w.names()).not.toContain('signer.signBid');
+    expect(w.loop.status().dataGap).toBe(true);
+  });
+
+  it('does not re-post on the last good numbers when this tick’s market read failed', async () => {
+    const w = world({ mode: 'live' });
+    await w.loop.start(); // a good read: one bid posted
+    expect(w.names().filter((n) => n === 'signer.signBid')).toHaveLength(1);
+    w.clock.advance(31 * 60_000); // that bid has ended
+    w.opensea.bestListings = async () => {
+      throw new Error('429');
+    };
+    await w.loop.tick();
+    expect(w.names().filter((n) => n === 'signer.signBid')).toHaveLength(1);
+    expect(w.loop.status().collections.junglebay.F).toBe(null);
   });
 
   it('on STOP cancels, exits, and does not post again', async () => {
