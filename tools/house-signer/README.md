@@ -108,8 +108,11 @@ Before it asks, it refuses to start if:
 - the git checkout has any change or untracked file, or HEAD is not `HOUSE_PIN_COMMIT`;
 - the house address is not in the house registry at that commit, with every enabled
   collection listed;
-- an RPC endpoint is not on Ethereum mainnet, the keystore does not hold `policy.house`, or
-  the house address has code on chain.
+- an RPC endpoint is not on Ethereum mainnet.
+
+Once the key is decrypted it also stops if the keystore does not hold `policy.house`, or if
+the house address has code on chain (an EIP-7702 delegation would change how Seaport checks
+its signatures).
 
 `serve --dev` skips the git and registry checks, reports no pinned commit (so the bot's live
 mode will not accept it), and sends transactions only to a local test chain
@@ -148,6 +151,9 @@ refused (the pins below) or a plain word (`rpc`, `id`, `op`, `internal`, `counte
 `parameters`); `sendTx` and kill entries carry `nonce`, `success` once mined, and
 `replaced: true` when another transaction took the nonce; `kill` answers
 `{ ok, id, txs: [{ kind, slug?, nonce, txHash, status, ... }], allMined }`.
+
+`sendTx` answers once its transaction is mined or after three minutes; a `kill` can take up to
+three rounds of that. A client should wait at least ten minutes for those two.
 
 Every collection bid is `PARTIAL_RESTRICTED` (order type 3) for any quantity, because that is
 what OpenSea's own SDK signs (`restrictedByZone: true, allowPartialFills: true`).
