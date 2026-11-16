@@ -17,6 +17,8 @@ import COMMITTED from "../lib/house/houseRegistry.json";
 
 const HOUSE = "0x8ba1f109551bd432803012645ac136ddd64dba72"; // lowercase, as OpenSea returns makers
 const HOUSE_SHORT = "0x8ba1...ba72";
+// Every regex-special character escaped (backslash included), not just the dots.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const OUTSIDE = "0x" + "b".repeat(40);
 const JBAC = "0xd37264c71e9af940e49795f0d3a8336afaafdda9";
 const ONE_HOUSE = {
@@ -314,7 +316,7 @@ describe("with a house wallet registered", () => {
     h.tokenBook = { offers: [o], bestOffer: o, unavailable: false };
     await renderOfferPanel();
     expect(await screen.findByText(/^House · /)).toBeTruthy();
-    expect(screen.queryByText(new RegExp(HOUSE_SHORT.replace(/\./g, "\\.")))).toBeNull();
+    expect(screen.queryByText(new RegExp(escapeRe(HOUSE_SHORT)))).toBeNull();
   });
 
   it('an offer the house made on your NFT reads "From: House"', async () => {
@@ -357,7 +359,7 @@ describe("with a house wallet registered", () => {
   it("the house's owner profile is headed \"House\", and still shows and copies its address", async () => {
     const copy = await renderProfile();
     expect(screen.getByText("House")).toBeTruthy();
-    expect(copy.textContent).toMatch(new RegExp(`^${HOUSE_SHORT.replace(/\./g, "\\.")}`));
+    expect(copy.textContent).toMatch(new RegExp(`^${escapeRe(HOUSE_SHORT)}`));
   });
 
   it("the integrity panel names house wallets in a wallet group and in its house trades", async () => {
@@ -403,7 +405,7 @@ describe("with the committed registry (empty): nothing changes", () => {
     const o = tokenOffer(HOUSE);
     h.tokenBook = { offers: [o], bestOffer: o, unavailable: false };
     await renderOfferPanel();
-    await waitFor(() => expect(screen.getByText(new RegExp(`^${HOUSE_SHORT.replace(/\./g, "\\.")} · `))).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(new RegExp(`^${escapeRe(HOUSE_SHORT)} · `))).toBeTruthy());
     expect(screen.queryByText(/House/)).toBeNull();
   });
 
@@ -430,7 +432,7 @@ describe("with the committed registry (empty): nothing changes", () => {
 
   it("the owner line shows the address as before", async () => {
     await renderModal(HOUSE);
-    expect(screen.getByTitle("Copy owner address").textContent).toMatch(new RegExp(`Owner: ${HOUSE_SHORT.replace(/\./g, "\\.")}`));
+    expect(screen.getByTitle("Copy owner address").textContent).toMatch(new RegExp(`Owner: ${escapeRe(HOUSE_SHORT)}`));
   });
 
   it("the Activity tab shows every party's address as before", async () => {
@@ -444,7 +446,7 @@ describe("with the committed registry (empty): nothing changes", () => {
 
   it("the owner profile is headed by the address alone, as before", async () => {
     const copy = await renderProfile();
-    expect(copy.textContent).toMatch(new RegExp(`^${HOUSE_SHORT.replace(/\./g, "\\.")}`));
+    expect(copy.textContent).toMatch(new RegExp(`^${escapeRe(HOUSE_SHORT)}`));
     expect(document.body.textContent).not.toMatch(/House/);
   });
 
