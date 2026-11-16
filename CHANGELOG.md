@@ -7,9 +7,23 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-15
+### 2026-11-16
 
 - Earn, the drawing of the island's houses: a press on a house, or on the ground just around it, now enters that house's bungalow, as its door on the front page does; it used to open the pool. On a phone the drawing has a row of its own under the title, whole and the width of the screen, where it used to sit behind the word Earn, cut off at the edge, with seven of its eleven houses out of reach. On a touch screen a tap no longer lifts a roof first, which on an iPhone or iPad could swallow the tap.
+- Earn: Harvest is drawn as a small street: each coin with something to claim is a building with one storey per claim, and every claim has a lane to a glass building marked YOUR WALLET. A lane turns green and a plate lands in your wallet only when its claim is paid, and every storey, lane and plate is the same size whatever it pays.
+- Earn: Harvest no longer rounds an amount up, and after a run its total counts only what was claimed.
+- Earn: Harvest's total for a coin says "at most" when a claim it adds up may pay less than shown.
+- Earn: Harvest says what its daily rate is a rate on: the pool, and the stake it is worked out on.
+- Earn: Harvest keeps listing the pools it leaves alone or could not read during and after a run, and says by the button when a pool could not be read.
+- Earn: pools Harvest could not read for the same reason are named in one line, with one Try again.
+- Earn: with nothing to claim and a pool not read, Harvest's button says Check again, not Nothing to claim.
+- Earn: with nothing to claim and a pool not read, Harvest shows no drawing.
+- Earn: Harvest says a refused claim, a short reward vault and an older stake's caution in plainer words, and when a run is done it counts a refused claim as refused, as the claim's row does.
+- Earn: while a claim waits on your wallet, its row in Harvest says Check your wallet.
+- Earn: Harvest's drawing draws itself in the first time it comes into view and leans a little toward your pointer; with reduced motion it stands still.
+
+### 2026-11-15
+
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.
 - Solana swaps through Jupiter (Swap, step 1 of Add with one coin, a coin of the island order bought on its own): your wallet now only signs, and this site sends the swap, sending it again every 2 seconds until the network answers, on a blockhash taken just before your wallet opens. A swap the network refuses before sending says "Not sent" with the reason (your wallet's own safety check is named when it is the one that stopped it), nothing is spent, and Buy is not held. Before, the wallet sent it: a send that never reached the network was not sent again and read "We couldn't confirm" with Buy held up to 10 minutes, and any error from the wallet read "A swap may have been sent" with Buy held 2 minutes. A wallet that cannot sign without sending still sends it itself, as before.
 - Marketplace, first-visit tour on a phone: it points at the Gallery and Floor buttons in the bottom bar, with its card above them, where it used to point at the top of the screen at a tab row a phone does not show. Its last step, keyboard shortcuts, sits in the middle of the screen on a phone, and on a computer its card no longer covers the Keys button.

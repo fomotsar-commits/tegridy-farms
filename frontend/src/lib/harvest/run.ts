@@ -127,7 +127,7 @@ export function runSummary(states: readonly ClaimState[]): string {
   const n = (k: ClaimState['kind']) => states.filter((s) => s.kind === k).length;
   const parts = [
     [n('claimed'), 'claimed'],
-    [n('reverted'), 'reverted'],
+    [n('reverted'), 'refused'],
     [n('unconfirmed'), 'not confirmed'],
     [n('declined'), 'cancelled'],
     [n('not-sent'), 'not sent'],
