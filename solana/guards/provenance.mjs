@@ -126,6 +126,8 @@ export const COPIES = {
     workspace: {
       dir: 'solana/tegridy-amm',
       manifest: { file: 'Cargo.toml', sha256: '507aabe0bca91903c94d71f7dc259919b3f02f1eed82eaa664c2f0c0ad10e1a2' },
+      // anchor build (the ladder's release build) reads its tool versions and members here.
+      anchor: { file: 'Anchor.toml', sha256: 'c451c34b248e5ef21d93fdb6a03617d8702927a7917c3c4bb3363396023c67f2' },
       lock: { file: 'Cargo.lock', root: 'raydium-cp-swap', sha256: '2fafdb6b101e39ab4f42dbe52c6f62c648da217b91e453e3473c71f945f189c0' },
       programs: ['bayla-ladder', 'cp-swap', 'tegridy-launch'],
       // Our own programs beside it, with no upstream: each one's programs/<name>/Cargo.toml
@@ -146,6 +148,7 @@ export const REPIN_MAY_TOUCH = [
   ...Object.keys(COPIES['cp-swap'].workspace.own).map((p) => `solana/tegridy-amm/programs/${p}/`),
   'solana/tegridy-amm/Cargo.toml',
   'solana/tegridy-amm/Cargo.lock',
+  'solana/tegridy-amm/Anchor.toml',
   'solana/tegridy-amm/TEGRIDY_FORK.md',
   // A patch that changes behaviour carries its validator test (solana-ci.yml runs them).
   'solana/tegridy-amm/tests/',
@@ -313,6 +316,9 @@ export function checkWorkspace(w, root) {
   const manifest = read(w.manifest.file);
   const got = manifest === null ? 'nothing' : sha256(manifest);
   if (got !== w.manifest.sha256) problems.push(`${w.dir}/${w.manifest.file} hashes to ${got}, not the pinned ${w.manifest.sha256}: it sets how the program builds (patch tables, release profile, members), so a change needs a re-pin here`);
+  const anchor = read(w.anchor.file);
+  const a = anchor === null ? 'nothing' : sha256(anchor);
+  if (a !== w.anchor.sha256) problems.push(`${w.dir}/${w.anchor.file} hashes to ${a}, not the pinned ${w.anchor.sha256}: anchor build reads its tool versions and members from it, so a change needs a re-pin here`);
   let crates = [];
   const lock = read(w.lock.file);
   try {
@@ -548,7 +554,7 @@ function main() {
     if (r.problems.length) fail = true;
     else {
       const own = Object.keys(c.workspace?.own ?? {}).join(' and ');
-      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact; ${own}: Cargo.toml and crates pinned` : '';
+      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml and Anchor.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact; ${own}: Cargo.toml and crates pinned` : '';
       const how = c.delta ? 'plus the reviewed patch' : 'exactly';
       console.log(`${name} = ${c.repo} @ ${c.commit.slice(0, 8)} ${how} (${r.compared} upstream files compared, ${r.patched ?? 0} patched, ${r.changed} changed lines${lock})`);
     }

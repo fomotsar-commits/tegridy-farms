@@ -58,7 +58,7 @@ afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })))
 function fresh(): string {
   const root = mkdtempSync(join(tmpdir(), 'guard-tamper-'));
   made.push(root);
-  for (const d of [CLMM, CP, LAUNCH, LADDER, `${WS}/Cargo.toml`, `${WS}/Cargo.lock`, ...WORKFLOWS]) {
+  for (const d of [CLMM, CP, LAUNCH, LADDER, `${WS}/Cargo.toml`, `${WS}/Cargo.lock`, `${WS}/Anchor.toml`, ...WORKFLOWS]) {
     cpSync(join(REPO_ROOT, d), join(root, d), { recursive: true, filter: (s) => !/[\\/]target$/.test(s) });
   }
   return root;
@@ -273,6 +273,8 @@ const TAMPERS: Record<string, [(root: string) => void, boolean, boolean]> = {
   ],
   'C9 the range copy\'s own README edited': [(r) => append(r, `${CLMM}/README.md`, '\nOne more line.\n'), false, true],
   'C10 the range copy\'s own fee-rule test edited': [(r) => append(r, `${CLMM}/programs/amm/tests/swap_math_fee_rule.rs`, '\n// one more line\n'), false, true],
+  'C11 the ladder\'s anchor build picks another Solana': [(r) => replace(r, `${WS}/Anchor.toml`, 'solana_version = "2.3.0"', 'solana_version = "1.18.26"'), false, true],
+  'C12 the ladder\'s anchor build takes a member from outside programs/': [(r) => replace(r, `${WS}/Anchor.toml`, '"programs/bayla-ladder"]', '"programs/bayla-ladder", "tools/evil"]'), false, true],
 };
 
 const OURS = [CP, CLMM, LAUNCH, LADDER];
@@ -313,6 +315,7 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
     expect(repinAlone(`${pin}M\tsolana/tegridy-amm/tests/tegridy-launch-migration.test.ts\n`)).toEqual([]);
     // Our own programs' manifests are pinned too, so a re-pin may carry the program it pins.
     expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\tsolana/tegridy-amm/programs/bayla-ladder/Cargo.toml\nM\tsolana/tegridy-amm/programs/tegridy-launch/src/lib.rs\n')).toEqual([]);
+    expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\tsolana/tegridy-amm/Anchor.toml\n')).toEqual([]);
     expect(repinAlone(`${pin}M\tfrontend/src/App.tsx\n`).join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/cp-swap.diff');
     expect(repinAlone('M\tsolana/guards/allowed-keys.json\nM\t.github/workflows/ci.yml\n')).toHaveLength(1);
     expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\nM\tfrontend/src/App.tsx\n').join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/new-pin.sha256');
