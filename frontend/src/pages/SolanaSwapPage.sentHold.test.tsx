@@ -297,11 +297,15 @@ describe('a press that ends before a signature says what happened', () => {
 
   it('Jupiter answers the press for another trade: "Not sent" in its own words, nothing built or test-run, no other route offered (XCHL-02)', async () => {
     const buy = await readyToBuy();
-    // The quote on screen is over 10 s old, so the press asks again, and the answer sells 200 times more.
+    // The quote on screen is over 10 s old, so the press asks again, and the answer sells 200 times
+    // more and pays under the floor: read before it was held, it said "Price moved" and went on screen.
     await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
-    jup.getQuote.mockResolvedValue({ ...quote, inAmount: '99900000000' });
+    const shownReceive = screen.getByTestId('solana-receive').textContent;
+    jup.getQuote.mockResolvedValue({ ...quote, inAmount: '99900000000', outAmount: '1' });
     fireEvent.click(buy);
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: OTHER_TRADE_COPY }));
+    expect(toast.error).not.toHaveBeenCalledWith('Price moved', expect.anything());
+    expect(screen.getByTestId('solana-receive').textContent).toBe(shownReceive);
     expect(jup.buildSwapTransaction).not.toHaveBeenCalled();
     expect(jup.simulateSwap).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalledWith('Swap would fail', expect.anything());

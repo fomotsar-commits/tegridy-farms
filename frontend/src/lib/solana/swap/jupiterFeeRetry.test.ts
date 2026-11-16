@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, OTHER_TRADE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, quoteHeld, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, OTHER_TRADE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import { JupiterTxRefused, NotTheTradeShown } from './jupiterTxGuard';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
@@ -115,7 +115,14 @@ describe('prepareJupiterSwap: Jupiter’s fresh quote must be the trade asked fo
     expect(d.simulateSwap).not.toHaveBeenCalled();
   });
 
+  // Each caller takes its fresh quote through quoteHeld, so no figure of another trade is read.
+  const ASK = { inputMint: SOL, outputMint: BAYLA, amount: AMOUNT, slippageBps: 50 };
+  it.each(cases)('%s: quoteHeld refuses it in the same words as it arrives', async (_name, over) => {
+    await expect(quoteHeld(async () => ({ ...FEE_QUOTE, ...over }), ASK)).rejects.toThrow(OTHER_TRADE_COPY);
+  });
+
   it('the trade asked for goes on, and the words neither say a test run failed nor carry an em dash', async () => {
+    await expect(quoteHeld(async () => FEE_QUOTE, ASK)).resolves.toBe(FEE_QUOTE);
     const r = await prepareJupiterSwap(deps({ simulateSwap: vi.fn(async () => OK) }), ARGS);
     expect(r.status).toBe('ready');
     expect(OTHER_TRADE_COPY).toBe('Jupiter answered for a different trade than the one on screen. Nothing was sent.');

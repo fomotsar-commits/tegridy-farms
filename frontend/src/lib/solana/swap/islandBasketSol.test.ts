@@ -118,9 +118,15 @@ describe('prepareSolLeg', () => {
   });
 
   it('Jupiter’s answer for another trade, or a transaction the check refuses, is said in its own words, never as a build that failed (XCHL-02)', async () => {
-    const other = deps({ fresh: { ...quote('10000'), inAmount: '999999' } });
+    // It pays under the floor shown: read before it was held, it said "moved".
+    const other = deps({ fresh: { ...quote('1'), inAmount: '999999' } });
     await expect(prepareSolLeg(other, base)).resolves.toEqual({ kind: 'not-sent', why: OTHER_TRADE_COPY });
     expect(other.built).not.toHaveBeenCalled();
+    // On a pair with no site fee our pool would take the coin on its figure: never asked.
+    const ownPools = vi.fn(async () => [own(10_000n)]);
+    const mine = deps({ fresh: { ...quote('10000'), inAmount: '999999' }, feePair: false, ownPools });
+    await expect(prepareSolLeg(mine, base)).resolves.toEqual({ kind: 'not-sent', why: OTHER_TRADE_COPY });
+    expect(ownPools).not.toHaveBeenCalled();
     const refused = new JupiterTxRefused('the swap sells a different amount than shown');
     const d = { ...deps(), buildSwapTransaction: async () => { throw refused; } };
     await expect(prepareSolLeg(d, base)).resolves.toEqual({ kind: 'not-sent', why: refused.message });

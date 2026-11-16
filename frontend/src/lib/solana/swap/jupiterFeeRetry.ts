@@ -109,6 +109,13 @@ const caused = (sim: SwapSimulation): { cause?: SwapRefusalCause } => (sim.cause
 const sameTrade = (q: JupiterQuote, a: { inputMint: string; outputMint: string; amount: string; slippageBps: number }): boolean =>
   q.inputMint === a.inputMint && q.outputMint === a.outputMint && q.inAmount === a.amount && q.swapMode === 'ExactIn' && q.slippageBps === a.slippageBps;
 
+/** Jupiter's quote for `p`, held to it before any of its figures is read: an answer for another trade throws. */
+export async function quoteHeld(getQuote: FeeRetryDeps['getQuote'], p: Parameters<FeeRetryDeps['getQuote']>[0]): Promise<JupiterQuote> {
+  const q = await getQuote(p);
+  if (!sameTrade(q, p)) throw new NotTheTradeShown(OTHER_TRADE_COPY);
+  return q;
+}
+
 export async function prepareJupiterSwap(
   deps: FeeRetryDeps,
   a: {

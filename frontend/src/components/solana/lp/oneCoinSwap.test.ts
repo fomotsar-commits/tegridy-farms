@@ -214,12 +214,18 @@ describe('sendJupiterLeg', () => {
   });
 
   it('a fresh quote for another trade ends "Not sent" in its own words: nothing built, no test run, the wallet not asked (XCHL-02)', async () => {
-    const { d } = deps({ getQuote: vi.fn(async () => quote({ inAmount: '99900000000' })) });
+    // It pays under the review's floor: read before it was held, it said "Price moved".
+    const { d } = deps({ getQuote: vi.fn(async () => quote({ inAmount: '99900000000', outAmount: '1' })) });
     const end = await sendJupiterLeg(d, ARGS);
     expect(end).toEqual({ kind: 'not-sent', title: 'Not sent', message: OTHER_TRADE_COPY });
     expect(d.buildSwapTransaction).not.toHaveBeenCalled();
     expect(d.simulateSwap).not.toHaveBeenCalled();
     expect(d.send).not.toHaveBeenCalled();
+    // On a pair with no site fee our pool would take it on its figure: never asked, never "Route changed".
+    const other = deps({ getQuote: vi.fn(async () => quote({ inAmount: '99900000000' })), swapCarriesPlatformFee: vi.fn(() => false), ownPoolWins: vi.fn(async () => true) });
+    expect(await sendJupiterLeg(other.d, ARGS)).toEqual({ kind: 'not-sent', title: 'Not sent', message: OTHER_TRADE_COPY });
+    expect(other.d.ownPoolWins).not.toHaveBeenCalled();
+    expect(other.d.send).not.toHaveBeenCalled();
   });
 
   it('a transaction the check refuses is said in the check’s own words, never as one that could not be fetched', async () => {

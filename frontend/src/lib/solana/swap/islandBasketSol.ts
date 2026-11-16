@@ -4,7 +4,7 @@ import { NoRouteError, type JupiterQuote, type PriorityLevel } from '../../jupit
 import type { AggregatorSeen } from '../../launcher/solana/write/types';
 import { pollConfirm, type ConfirmOutcome } from '../confirm';
 import { minOut, type SolBasketCoin } from '../../islandBasket';
-import { prepareJupiterSwap, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, quoteHeld, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import { NotTheTradeShown } from './jupiterTxGuard';
 import { freshDecision } from './ownPoolRoute';
 import type { VenuePoolCandidate } from './venuePools';
@@ -142,11 +142,11 @@ export async function prepareSolLeg(
 
   let fresh: JupiterQuote;
   try {
-    fresh = await deps.getQuote({ inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps });
+    fresh = await quoteHeld(deps.getQuote, { inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps });
   } catch (e) {
     if (e instanceof PoolNotNamedError) return { kind: 'not-sent', why: BASKET_COPY.poolNotNamed };
     if (e instanceof NoRouteError) return { kind: 'not-sent', why: BASKET_COPY.noRoute };
-    return { kind: 'not-sent', why: 'Jupiter’s price could not be read just now, so nothing was sent for it.' };
+    return { kind: 'not-sent', why: e instanceof NotTheTradeShown ? e.message : 'Jupiter’s price could not be read just now, so nothing was sent for it.' };
   }
   let freshOut: bigint;
   let shownOut: bigint;
