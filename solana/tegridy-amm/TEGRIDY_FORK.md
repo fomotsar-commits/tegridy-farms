@@ -100,6 +100,14 @@ names one, is the one exception: see "The keeper's fee".
 > of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it. `diff-guard`
 > was re-pinned for it.
 
+> **2026-11-15: the fee sweep, in source.** Anyone may move a pool's whole protocol share to the
+> protocol owner's own token accounts and its whole fund share to the fund owner's
+> (`sweep_fees`, a third added instruction). The program derives every destination itself, so
+> the caller chooses nothing, and the hand collects are unchanged. With it, the venue's cut lands
+> in the vault and the island's in the Workshop without a vault proposal each time (owner ruling
+> 2026-11-15). See "The fee sweep" below. It ships in the same upgrade as the keeper's
+> resignation. `diff-guard` was re-pinned for it.
+
 > **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
 > vault's proposal #32 upgraded the program to the build made from this source at the merge of
 > pull request #1177 (sha256 `01fe923b…`, 714,776 bytes). The build before it, `1e55bcdc…`, is
@@ -129,7 +137,10 @@ settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" be
 2026-11-14 (a second added instruction, `resign_keeper`, in `lib.rs`; the wallet check on
 naming a keeper and two logged events in `states/config.rs` and `update_config.rs`; two errors
 in `error.rs`; one dependency, `solana-curve25519`, already compiled into the program through
-anchor-spl; see "The keeper resigns" below).
+anchor-spl; see "The keeper resigns" below), **plus the fee sweep** of 2026-11-15 (a third
+added instruction, `sweep_fees`, in `lib.rs`; one logged event in `states/config.rs`; one error
+in `error.rs`; no new dependency: the associated-token-account derivation comes from anchor-spl,
+which the program already builds with; see "The fee sweep" below).
 **No other code**: all swap, curve, and fee math is byte-identical to upstream (the guard
 refuses a swap before any of it runs, or leaves it alone; for the keeper, the same arithmetic
 is handed a rate of 0), and no other upstream instruction is changed. After the fork,
@@ -603,6 +614,28 @@ cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) d
 | the resignation file against the build with `resign_keeper`'s keeper check removed (anyone may resign) | 3 fail: a stranger resigns the keeper, so the keeper's own resignation then logs the wrong keeper, and a tier with no keeper can be "resigned"; the 7 others pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin, and `key-guard.mjs` over every copy | upstream plus the reviewed patch: 37 files compared, 11 patched; no outside key |
 | the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte |
+### The fee sweep (2026-11-15)
+
+Every swap sets aside the protocol's and the fund's shares of its fee inside the pool's own
+vaults, and upstream lets only their owners collect them, by hand. On mainnet the protocol owner
+is the Squads vault (2 of 2, 48-hour lock), so the venue's share had never been collected: $11.60
+waited in 28 pools on 2026-11-15, and the island's $5.87. The owner's ruling that day: every fee
+of the venue lands in the treasury by itself.
+
+| Rule | Where | Before |
+|---|---|---|
+| Anyone may call `sweep_fees` on a pool, paying only the network fee. It moves the pool's whole protocol share (both tokens) to the protocol owner and its whole fund share to the fund owner, and the four counts to zero. An amount of 0 moves nothing; a sweep with nothing set aside still succeeds. | `sweep_fees`, `SweepFees` and `sweep_pool_fees` in `lib.rs`, the third instruction this fork adds | only the owners, by hand (`collect_protocol_fee`, `collect_fund_fee`), to accounts they choose |
+| The caller chooses nothing. The pool's own fee tier names both owners; each destination must be that owner's associated token account for the coin, under the token program that owns the coin, derived in the program; and it must still belong to that owner (a classic token account's owner can be handed over, and a handed-over one is refused). Anything else: 6018 `NotFeeOwnersAccount`. | the `address` and `constraint` lines on the four destination accounts of `SweepFees` | |
+| Nothing else moves: not the creator fee, the curve's tokens, the lp supply or the tier, and the price does not move, since the curve reads the vaults less every share set aside (`pool.rs` `vault_amount_without_fee`). Destinations that do not exist yet are created first by the caller (the associated token account program's CreateIdempotent); this program creates no account. | `sweep_pool_fees` in `lib.rs`; `utils/token.rs` skips an amount of 0 | |
+| Every sweep is logged: `FeesSwept` (the pool, both owners and the four amounts). | `states/config.rs`, emitted in `sweep_pool_fees` | |
+
+**What it changes on chain, once upgraded.** Nothing for any swap, deposit or withdrawal. The
+hand collects keep working exactly as before. The accounts are the same sizes; every error and
+event number before is kept.
+
+**Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`, its own pull request) with a
+wallet that holds only gas money, so neither the vault nor the island has to sign anything.
+
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)
@@ -610,7 +643,9 @@ cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) d
 The per-swap **protocol fee is config-driven**, not hardcoded:
 - Fee **math**: `curve/fees.rs` — `protocol_fee = floor_div(amount, protocol_fee_rate, 1_000_000)` (audited upstream, untouched).
 - Fee **rate**: `amm_config.protocol_fee_rate`, set at `create_config` and changeable by the admin (`update_config` param 1); since 2026-11-03, in source, held within the 20% ceiling.
-- Fee **recipient**: `collect_protocol_fee` requires `owner == amm_config.protocol_owner`.
+- Fee **recipient**: `collect_protocol_fee` requires `owner == amm_config.protocol_owner`;
+  since 2026-11-15, in source, anyone may also sweep it to that owner's own token accounts
+  (`sweep_fees`, above).
 
 So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`** (via
 `create_config`, admin-only). Note: `create_config` sets **`protocol_owner = fund_owner = the

@@ -52,4 +52,9 @@ pub enum ErrorCode {
     /// wallet's (states/config.rs `may_name_keeper`).
     #[msg("A keeper must be a wallet, not a program's address")]
     KeeperNotAWallet,
+    /// memetics.finance, 2026-11-15: lib.rs `sweep_fees` was handed a destination that is not
+    /// the fee owner's own associated token account for that coin, or one its owner gave away.
+    /// After KeeperNotAWallet, so every code above keeps its number.
+    #[msg("A swept fee goes only to its owner's own token account")]
+    NotFeeOwnersAccount,
 }
