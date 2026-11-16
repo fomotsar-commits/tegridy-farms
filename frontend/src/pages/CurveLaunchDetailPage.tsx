@@ -394,7 +394,8 @@ export function SolanaLaunchView({
   );
 }
 
-async function loadLaunchData(
+// eslint-disable-next-line react-refresh/only-export-components
+export async function loadLaunchData(
   gateState: Extract<WriteGateState, { status: 'ready' }>,
   rpc: SolanaRpc,
   curveRpc: CurveRpc,
