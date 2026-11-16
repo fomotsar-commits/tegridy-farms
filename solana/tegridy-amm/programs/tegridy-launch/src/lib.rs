@@ -121,12 +121,21 @@ use crate::state::*;
 // replaces (8YVjjc…) corresponded to no key anybody holds; the 2026-08 id CpFnacr…
 // is SPENT and can never hold a program again.
 //
-// ONE program-id macro, deliberately with NO cfg arms (unlike cp-swap's). Three CI
-// patchers — solana-ci.yml's launch-constraints and migration-rehearsal jobs, and
-// solana-deploy-artifact.yml — each rewrite it with a single regex and assert it
-// matched EXACTLY ONCE. A devnet build therefore also carries this id unless one of
-// those patchers pins another; every CI test build does.
+// ONE program-id macro, with no cfg arms: CI's validator jobs and solana-deploy-artifact.yml
+// each rewrite it with a single regex that must match once. A `devnet` build turns the
+// pool-program pin off and names a test deployer, so it must never carry this id: it does
+// not compile until another id is patched in (XCH-07). Unit tests run no program.
 declare_id!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+#[cfg(all(feature = "devnet", not(test)))]
+const _: () = {
+    let id = ID.to_bytes();
+    let mainnet = pubkey!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2").to_bytes();
+    let mut i = 0;
+    while i < id.len() && id[i] == mainnet[i] {
+        i += 1;
+    }
+    assert!(i < id.len(), "tegridy-launch: a devnet build must not carry the mainnet program id; patch in a test id");
+};
 
 /// The cp-swap program every graduation must go to, pinned at COMPILE TIME.
 ///

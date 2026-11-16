@@ -695,6 +695,14 @@ jobs:
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
           rm -f "$SO"
+          # XCH-07: with the committed (mainnet) program id a devnet build must not compile.
+          # This one carries the launcher's spent 2026-08 id, which can never hold a program
+          # again; the committed id is put back for the steps after this one.
+          if cargo build-sbf --features devnet > /tmp/sbf-devnet-mainnet-id.log 2>&1; then
+            echo "::error::a devnet build carrying the mainnet program id compiled"; exit 1
+          fi
+          grep -q "must not carry the mainnet program id" /tmp/sbf-devnet-mainnet-id.log || { tail -40 /tmp/sbf-devnet-mainnet-id.log; exit 1; }
+          sed -i 's/declare_id!("[^"]*")/declare_id!("CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED")/' src/lib.rs
           cargo build-sbf --features devnet 2>&1 | tee /tmp/sbf-build-devnet.log
           if [ ! -f "$SO" ]; then
             echo "::warning::devnet cargo build-sbf produced no artifact — retrying"
@@ -713,6 +721,7 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+          git checkout -- src/lib.rs
       # The host-side layout and error-code pins (lib.rs `mod layout_tests`), the
       # same two steps as bayla-ladder. They need the Anchor dependency graph, so
       # they cannot run under the bare rustc above. They are the only check on the
