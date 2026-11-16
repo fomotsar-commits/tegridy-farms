@@ -47,7 +47,7 @@ export const MUTANTS = {
   O6: { target: 'O6', what: "the keeper settles into the order owner's account instead of its own" },
   A1: { target: 'A1', what: 'the pool is not paused before the swap' },
   X1: { target: 'X1', what: 'the operator is added by the vault through Squads instead of by a stranger' },
-  X2: { target: 'X2', what: 'carol is never made an operator' },
+  X2: { target: 'X2', what: 'the vault sets up the third reward instead of carol, an operator' },
   X5: { target: 'X4', what: 'the coin is made without the permanent delegate' },
   X6: { target: 'X6', what: 'the pass is issued by the vault through Squads instead of by a stranger' },
   X7: { target: 'X7', what: 'ODD is made without the permanent delegate' },

@@ -246,7 +246,7 @@ export async function phases(c, h) {
   }
   {
     // Pool C exists only for this try, so a build that lets its opener in fills no slot another
-    // check uses. Its broken input sends erin, an operator, instead of the opener.
+    // check uses. Its broken input sends the vault instead of the opener.
     const [C0, C1] = order(WSOL, REWARD);
     const poolC = reg(PDA.pool(c.cfg1, C0, C1), 'pool C (SOL/REWARD, 0.25%)');
     for (const [w, m] of [['vault 0', C0], ['vault 1', C1]]) reg(PDA.vault(poolC, m), 'pool C ' + w);
