@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Solana swaps and limit orders through Jupiter: a transaction that is not the trade on screen is no longer sent. That means one for another amount, coin or slippage, one that sells from an account other than yours of the coin you sell, one whose test run takes more than the amount shown or a coin you are not selling, and a limit order with a fee, a slippage or an expiry you did not choose. The page says "Not sent" and why.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.
