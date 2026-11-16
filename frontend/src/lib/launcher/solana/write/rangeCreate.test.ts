@@ -270,7 +270,7 @@ describe('opening a range pool with its first position', () => {
     expect(unread.ok ? null : [unread.outcome.message, unread.outcome.retry]).toEqual([RANGE_COPY.createPriceUnread('timed out'), true]);
   });
 
-  // RNG-01: the build from before the fix round opens every pool with limit orders on.
+  // RNG-01: no new range pool through this site until the range program's fix build is on chain.
   it('opens no pool while the program is the build from before the fix round: one 109-byte read of its ProgramData decides', async () => {
     const pdOf = (c: FakeChain) => new PublicKey(c.accounts.get(PROG.toBase58())!.data.subarray(4, 36));
     const reads: Array<{ address: string; config: unknown }> = [];

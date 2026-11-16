@@ -523,7 +523,7 @@ export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, p
   const fresh = await readFresh(rpc, programId, poolKey, ammConfig, [token0, token1], poolOwn);
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
-  // The build from before the fix round opens every pool with limit orders on (RNG-01).
+  // A new range pool waits for the range program's fix build (RNG-01).
   const old = await preFixBuild(rpc, fresh.program);
   if (old === 'unread') return notRead('build', RANGE_COPY.buildUnread);
   if (old) return notSent('build', RANGE_COPY.preFixBuild);
