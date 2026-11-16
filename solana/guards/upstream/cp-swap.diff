@@ -461,6 +461,29 @@
 ---
 >     /// Only fund_owner can collect fee now
 >     #[account(constraint = (owner.key() == amm_config.fund_owner) @ ErrorCode::InvalidOwner)]
+57a58,59
+>     // memetics.finance, 2026-11-15: neither receiver may be held by `authority`, which holds
+>     // every pool's vaults: a fee paid into a vault would become that pool's LPs' (InvalidVault).
+59c61
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+63c65
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+=== src/instructions/admin/collect_protocol_fee.rs ===
+58a59,60
+>     // memetics.finance, 2026-11-15: neither receiver may be held by `authority`, which holds
+>     // every pool's vaults: a fee paid into a vault would become that pool's LPs' (InvalidVault).
+60c62
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+64c66
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault)]
 === src/instructions/admin/create_support_mint_associated.rs ===
 6a7,10
 > // TEGRIDY FORK CHANGE (2026-07-10): upstream this alternate authority for the
