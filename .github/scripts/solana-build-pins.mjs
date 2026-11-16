@@ -3,9 +3,12 @@
 //   node .github/scripts/solana-build-pins.mjs
 // Each rule keeps one finding of the Solana audit of 2026-11-15 closed. A run that checked
 // nothing fails, so "found nothing wrong" and "looked at nothing" never share an exit code.
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { inScope } from './diff-scope.mjs';
 import { buildFlags } from '../../solana/guards/key-guard.mjs';
 
@@ -21,6 +24,8 @@ const rule = (ok, msg) => {
   checked += 1;
   if (!ok) problems.push(msg);
 };
+const TMP = mkdtempSync(join(tmpdir(), 'solana-build-pins-'));
+process.on('exit', () => rmSync(TMP, { recursive: true, force: true }));
 
 // XCHL-03: avm comes from one named commit, never a branch that moves.
 const AVM = /cargo install --git https:\/\/github\.com\/otter-sec\/anchor --rev ([0-9a-f]{40}) avm --locked --force$/;
@@ -39,6 +44,13 @@ const shas = [...tools.matchAll(/(?:release|tools_sha)=(\S+)|\b([0-9a-f]{64})\b/
 rule(shas.length === 6 && shas.every((s) => /^[0-9a-f]{64}$/.test(s)), `${TOOLS} pins ${shas.length} files, not each of the 6 by sha256`);
 rule(tools !== '' && buildFlags(tools).length === 0, `${TOOLS} is missing or sets a build flag`);
 rule(spawnSync('bash', [TOOLS, 'solana', 'v0.0.0'], { encoding: 'utf-8' }).stdout?.includes('no pinned sha256'), `${TOOLS} does not refuse a version it pins nothing for`);
+// Its fetch() itself, on a local file: the right sha256 passes and any other is refused.
+const fetchFn = /^fetch\(\) \{[\s\S]*?^\}$/m.exec(tools)?.[0] ?? '';
+const SAMPLE = join(TMP, 'sample').replaceAll('\\', '/');
+writeFileSync(SAMPLE, 'pinned bytes\n');
+const fetched = (sha) => spawnSync('bash', ['-c', `set -euo pipefail\n${fetchFn}\nfetch "$@"`, 'fetch', pathToFileURL(SAMPLE).href, sha, `${SAMPLE}.got`]).status;
+const right = createHash('sha256').update('pinned bytes\n').digest('hex');
+rule(fetchFn !== '' && fetched(right) === 0 && fetched(right.replace(/^./, (c) => (c === '0' ? '1' : '0'))) === 1, `${TOOLS} fetch() runs a file whose sha256 is not the pinned one`);
 for (const f of ['solana-ci.yml', 'solana-deploy-artifact.yml']) {
   const text = code(read(WF + f)).join('\n');
   rule(!/release\.anza\.xyz|sh -c "\$\(curl|curl[^\n]*\|\s*(?:ba)?sh\b/.test(text), `${f} runs a downloaded installer unchecked`);
@@ -72,6 +84,16 @@ rule(gate(LADDER, WF) === 1, 'the mainnet gate passes when it cannot read the re
 // and every deployable build (and each one whose hash CI prints) is --locked (SC-5).
 rule(gate({ ...TRUNK, PROGRAM: 'cp-swap' }) === 0, 'the mainnet gate refuses a cp-swap build from mvp-launch');
 rule(gate({ ...TRUNK, PROGRAM: 'cp-swap', REF: 'refs/heads/feature' }) === 1, 'the mainnet gate passes a build from a branch that is not mvp-launch');
+// The tag path, in a one-commit clone as actions/checkout makes: a tag on mvp-launch passes,
+// a tag off it is refused. The repository here is made for the test: on, then off on a side branch.
+const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=pins', '-c', 'user.email=pins@localhost', ...a], { cwd }).status === 0;
+const ORIGIN = join(TMP, 'origin');
+mkdirSync(ORIGIN);
+const made = [['init', '-q', '-b', 'mvp-launch'], ['commit', '-q', '--allow-empty', '-m', 'on'], ['tag', 'on'], ['switch', '-q', '-c', 'side'], ['commit', '-q', '--allow-empty', '-m', 'off'], ['tag', 'off'], ['switch', '-q', 'mvp-launch'], ['commit', '-q', '--allow-empty', '-m', 'tip']].every((a) => git(ORIGIN, ...a));
+for (const [tag, want] of [['on', 0], ['off', 1]]) {
+  const cloned = made && git(TMP, 'clone', '-q', '--depth', '1', '--branch', tag, pathToFileURL(ORIGIN).href, tag);
+  rule(cloned && gate({ ...TRUNK, PROGRAM: 'cp-swap', REF: `refs/tags/${tag}` }, join(TMP, tag)) === want, `the mainnet gate ${want ? 'passes a tag that is not on' : 'refuses a tag on'} mvp-launch`);
+}
 for (const job of DEPLOY_JOBS) {
   for (const g of ['node solana/guards/provenance.mjs', 'node solana/guards/key-guard.mjs']) rule(runsBefore(job, g, 'Build'), `${job.split(':')[0].trim()} does not run ${g} before it builds`);
 }
