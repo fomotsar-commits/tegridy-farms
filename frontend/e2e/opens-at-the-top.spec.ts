@@ -189,7 +189,8 @@ test.describe('a page reached from another page', () => {
     await card.click();
     // A collection card opens Floor (owner, 2026-11-15: "always land on floor").
     await expect(page).toHaveTitle('Jungle Bay Gold Cards - Listings | Tradermigos', { timeout: 20_000 });
-    await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Floor' }))
+    // The tab row on a computer, the bottom bar on a phone: whichever is shown.
+    await expect(page.locator('nav[aria-label="Main navigation"], nav[aria-label="Bottom navigation"]').filter({ visible: true }).getByRole('button', { name: 'Floor', exact: true }))
       .toHaveAttribute('aria-current', 'page');
     await expectOpenedAtTheTop(page, { mustScroll: true });
   });

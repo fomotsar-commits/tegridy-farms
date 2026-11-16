@@ -185,9 +185,10 @@ test.describe('the Jungle Bay family on the marketplace', () => {
   test('a bare address opens Floor, and Gallery is one press away', async ({ page }) => {
     await openCollection(page, '/nakamigos/junglebaygoldcards');
     await expect(page).toHaveTitle('Jungle Bay Gold Cards - Listings | Tradermigos', { timeout: 20_000 });
-    const nav = page.getByRole('navigation', { name: 'Main navigation' });
-    await expect(nav.getByRole('button', { name: 'Floor' })).toHaveAttribute('aria-current', 'page');
-    await nav.getByRole('button', { name: 'Gallery' }).click();
+    // The tab row on a computer, the bottom bar on a phone: whichever is shown.
+    const nav = page.locator('nav[aria-label="Main navigation"], nav[aria-label="Bottom navigation"]').filter({ visible: true });
+    await expect(nav.getByRole('button', { name: 'Floor', exact: true })).toHaveAttribute('aria-current', 'page');
+    await nav.getByRole('button', { name: 'Gallery', exact: true }).click();
     await expect(page).toHaveURL(/\/nakamigos\/junglebaygoldcards\/gallery$/);
     await expect(page.locator('.nft-card').first()).toBeVisible({ timeout: 20_000 });
   });
