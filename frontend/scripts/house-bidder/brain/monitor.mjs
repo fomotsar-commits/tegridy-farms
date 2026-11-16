@@ -60,10 +60,14 @@ export async function checkFill(fill, { sets, chain, opensea, nowSec, provenance
   if (!skip.includes('provenance')) {
     try {
       const since = nowSec - provenanceDays * DAY;
+      // Only the token's past up to this fill: where the house sends it afterwards (back to the
+      // funding wallet) is the house's own doing, not who sold it.
+      const until = toSec(fill.time);
       const moves = await chain.tokenProvenance(fill.slug, fill.tokenId, { sinceDays: provenanceDays });
       for (const m of moves) {
         const t = toSec(m.time);
         if (t !== null && t < since) continue;
+        if (t !== null && until !== null && t > until) continue;
         for (const side of ['from', 'to']) {
           const a = addr(m[side]);
           if (!a) continue;

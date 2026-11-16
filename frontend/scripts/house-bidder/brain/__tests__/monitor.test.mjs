@@ -54,6 +54,11 @@ describe('the token’s last 90 days', () => {
     expect(r.integrity.map((i) => i.reason)).toEqual(['insider-provenance']);
   });
 
+  it('looks only at the token’s past up to the fill: the house later returning it to the funding wallet is not an insider', async () => {
+    const chain = fakeChain({ provenance: { 1797: [{ from: STRANGER, to: HOUSE, txHash: TX, time: NOW }, { from: HOUSE, to: FUNDING, txHash: `0x${'cc'.repeat(32)}`, time: NOW + 3600 }] } });
+    expect((await run(fill(), { chain })).verdict).toBe('ok');
+  });
+
   it('ignores an insider older than 90 days', async () => {
     const chain = fakeChain({ provenance: { 1797: [{ from: INSIDER, to: STRANGER, txHash: `0x${'bb'.repeat(32)}`, time: NOW - 91 * DAY }] } });
     expect((await run(fill(), { chain })).verdict).toBe('ok');

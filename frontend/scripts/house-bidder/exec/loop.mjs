@@ -24,6 +24,7 @@ const DAY_SEC = 86_400;
 const MARK_EVERY_MS = 10 * 60 * 1000;
 const SALES_EVERY_MS = 5 * 60 * 1000;
 const TREND_EVERY_MS = 60 * 60 * 1000;
+const HOLDINGS_EVERY_MS = 60 * 60 * 1000;
 const ADMIN_FIELDS = (snap) => ({ jbac: snap?.jbac ?? null, gnss: snap?.gnss ?? null });
 
 const errText = (e) => (e?.kind ? `${e.kind}${e.status ? ` ${e.status}` : ''}: ${e.message ?? ''}` : e?.message ?? String(e));
@@ -502,6 +503,9 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
         st.fillSinceSync = false;
       }
 
+      // What the house holds, against the chain, once an hour (and at every start).
+      if (!shadow && house && now() - (st.holdingsCheckedAt ?? 0) >= HOLDINGS_EVERY_MS) await checkHoldings();
+
       // OpenSea's view of the house's offers: advisory, never trusted alone.
       if (!shadow && house && now() - st.accountOffersAt >= params.accountOffersEveryMs) {
         st.accountOffersAt = now();
@@ -620,6 +624,7 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
 
   /** Every token the books say the house holds is checked on chain: one that left without a ledger line halts. */
   async function checkHoldings() {
+    st.holdingsCheckedAt = now();
     for (const [slug, set] of Object.entries(st.held)) {
       for (const tokenId of [...set]) {
         let moves;
@@ -630,10 +635,16 @@ export function createLoop({ mode, config, params = DEFAULT_PARAMS, data, execut
           continue; // unread is not proof it left: it stays counted as held
         }
         const last = [...moves].sort((a, b) => (toSec(a.time) ?? 0) - (toSec(b.time) ?? 0)).pop();
-        if (last && addr(last.to) !== house) {
+        if (!last || addr(last.to) === house) continue;
+        // Back to the funding wallet is the one way out the signer allows (returnNftToFunding).
+        if (addr(last.to) === policy.fundingWallet) {
           set.delete(tokenId);
-          await executor.halt('ledger-mismatch', `${COLLECTIONS[slug]?.ticker ?? slug} #${tokenId} left the house (to ${addr(last.to)}, tx ${last.txHash}) with no ledger line`);
+          ledger.append('nft-returned', { slug, tokenId, to: addr(last.to), txHash: last.txHash });
+          continue;
         }
+        // Anywhere else, the books are wrong or the key is not ours alone. It stays counted as
+        // held (less room, never more) until a person has looked.
+        await executor.halt('ledger-mismatch', `${COLLECTIONS[slug]?.ticker ?? slug} #${tokenId} left the house (to ${addr(last.to)}, tx ${last.txHash}) with no ledger line`);
       }
     }
   }

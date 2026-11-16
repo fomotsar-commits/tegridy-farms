@@ -145,10 +145,10 @@ describe('waking the loop', () => {
     const w = world({ mode: 'live', timers });
     await w.loop.start();
     expect(timers.pending()).toEqual([60_000]); // the regular tick
-    w.clock.advance(20_000);
+    w.clock.advance(5_000);
     w.chain.handlers.onFill(w.fillOf(`0x${'cc'.repeat(32)}`, 9, milli(1)));
-    expect(timers.pending()).toEqual([0]); // 20 s since the last tick: at once
-    w.stream.emit('listed', { slug: 'junglebay' });
+    expect(timers.pending()).toEqual([0]); // 5 s since the last tick: at once
+    w.stream.emit('listed', { slug: 'junglebay' }); // would wait until 15 s: the earlier wake stands
     expect(timers.pending()).toEqual([0]);
   });
 
@@ -201,6 +201,34 @@ describe('live loop', () => {
     expect(w.loop.status().today.units).toBe(1);
     expect(w.loop.status().collections.junglebay.held).toBe(1);
     expect(w.ledger.read().find((e) => e.kind === 'fill-check')).toMatchObject({ tokenId: '77', verdict: 'ok' });
+  });
+
+  it('checks holdings on the chain: an NFT that left the house halts it, one returned to the funding wallet does not', async () => {
+    const clock = fakeClock();
+    const orderHash = `0x${'0a'.repeat(32)}`;
+    const t = clock.sec() - 3600;
+    const signerOrders = [{ orderHash, slug: 'junglebay', qty: 2, unitPriceWei: milli(35).toString(), startTime: t - 60, endTime: t + 1740, counter: '7' }];
+    const houseFills = [
+      { txHash: `0x${'1b'.repeat(32)}`, block: 26_499_000, time: t, orderHash, slug: 'junglebay', tokenId: '77', unitPriceWei: milli(35), seller: STRANGER, fulfiller: STRANGER },
+      { txHash: `0x${'1c'.repeat(32)}`, block: 26_499_001, time: t, orderHash, slug: 'junglebay', tokenId: '78', unitPriceWei: milli(35), seller: STRANGER, fulfiller: STRANGER },
+    ];
+    const w = world({ mode: 'live', signerOrders, houseFills });
+    const house = w.house;
+    const away = (tokenId, to) => [
+      { from: STRANGER, to: house, txHash: `0x${'1b'.repeat(32)}`, time: t },
+      { from: house, to, txHash: `0x${String(tokenId).padStart(64, '9')}`, time: t + 60 },
+    ];
+    w.chain.tokenProvenance = async (_slug, tokenId) => (tokenId === '77' ? away(77, w.policy.fundingWallet) : [{ from: STRANGER, to: house, txHash: '0x', time: t }]);
+    await w.loop.start();
+    expect(w.risk.halted()).toBe(null);
+    expect(w.loop.status().collections.junglebay.held).toBe(1); // 77 went home to the funding wallet
+    expect(w.ledger.read().some((e) => e.kind === 'nft-returned' && e.tokenId === '77')).toBe(true);
+    // an hour later, 78 has gone somewhere else
+    w.chain.tokenProvenance = async (_slug, tokenId) => (tokenId === '78' ? away(78, STRANGER) : []);
+    w.clock.advance(61 * 60_000);
+    await w.loop.tick();
+    expect(w.risk.halted().reason).toBe('ledger-mismatch');
+    expect(w.loop.status().collections.junglebay.held).toBe(1); // still counted: less room, never more
   });
 
   it('screens a fill made while the bot was down: an insider seller halts it before anything is posted', async () => {
