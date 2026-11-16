@@ -891,6 +891,62 @@ describe("tegridy-launch security constraints", () => {
     });
   });
 
+  // ─── LCH-13: a sell that would leave the seller under its rent floor ───────
+
+  describe("a seller whose wallet would end under its rent floor", () => {
+    /**
+     * Crediting a wallet at 0 lamports with less than its rent floor fails the whole
+     * sell at the runtime's rent check, with an error that names nothing. The program
+     * refuses it first, by name. The wallet's fees are paid by the deployer.
+     */
+    it("is refused with SellerBelowRent, and sells once the wallet is funded", async () => {
+      const creator = Keypair.generate();
+      await fund(provider, creator.publicKey, 5);
+      const mint = await makeMint(provider, creator, null);
+      await program.methods
+        .createLaunch()
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
+        .signers([creator])
+        .rpc();
+      const seller = Keypair.generate();
+      await fund(provider, seller.publicKey, 1);
+      const sellerAta = await createAssociatedTokenAccount(provider.connection, deployer, mint, seller.publicKey);
+      const trade = {
+        trader: seller.publicKey,
+        global: globalPda(program.programId),
+        feeRecipient,
+        creator: creator.publicKey,
+        mint,
+        curve: curvePda(program.programId, mint),
+        curveVault: vaultPda(program.programId, mint),
+        traderTokenAccount: sellerAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+      await program.methods.buy(new BN(10_000_000), new BN(0)).accountsPartial(trade).signers([seller]).rpc();
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: seller.publicKey,
+          toPubkey: deployer.publicKey,
+          lamports: await provider.connection.getBalance(seller.publicKey),
+        })
+      );
+      drain.feePayer = deployer.publicKey;
+      await provider.sendAndConfirm!(drain, [seller]);
+      assert.equal(await provider.connection.getBalance(seller.publicKey), 0, "precondition: an empty wallet");
+
+      // A hundredth of the coins sells for about 99,000 lamports, under the 0-byte floor.
+      const held = BigInt((await provider.connection.getTokenAccountBalance(sellerAta)).value.amount);
+      const sell = () =>
+        program.methods.sell(new BN((held / 100n).toString()), new BN(0)).accountsPartial(trade).signers([seller]).rpc();
+      await expectAnchorError(sell(), "SellerBelowRent");
+
+      // POSITIVE CONTROL: the same sell, once the wallet holds its rent floor.
+      await fund(provider, seller.publicKey, 1);
+      await sell();
+    });
+  });
+
   // ─── The creator-share setter ──────────────────────────────────────────────
 
   describe("creator_fee_share_bps is settable and bounded", () => {

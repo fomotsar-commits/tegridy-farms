@@ -982,6 +982,18 @@ pub mod tegridy_launch {
                 >= rent_floor,
             LaunchError::InsufficientRentExemptBalance
         );
+        // A seller whose wallet would end under its rent floor fails the whole sell at the
+        // runtime's rent check, with an error that names nothing: name it here (LCH-13).
+        let trader_ai = ctx.accounts.trader.to_account_info();
+        require!(
+            !curve::lands_in_rent_band(
+                trader_ai.lamports(),
+                q.lamports_out,
+                Rent::get()?.minimum_balance(trader_ai.data_len())
+            )
+            .map_err(LaunchError::from)?,
+            LaunchError::SellerBelowRent
+        );
 
         **curve_ai.try_borrow_mut_lamports()? = balance
             .checked_sub(debit)
@@ -2087,6 +2099,7 @@ mod layout_tests {
         assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
         assert_eq!(LaunchError::NotAFeeTier as u32 + 6000, 6025);
         assert_eq!(LaunchError::MigrationReserveTooHigh as u32 + 6000, 6026);
+        assert_eq!(LaunchError::SellerBelowRent as u32 + 6000, 6027);
     }
 
     /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,

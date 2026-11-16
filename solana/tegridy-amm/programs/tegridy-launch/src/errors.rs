@@ -64,6 +64,8 @@ pub enum LaunchError {
     NotAFeeTier,
     #[msg("Migration reserve is above its ceiling")]
     MigrationReserveTooHigh,
+    #[msg("The seller's wallet would hold less than its rent floor after this sell; add SOL to it first")]
+    SellerBelowRent,
 }
 
 /// Lift a pure-curve error into the program's error space.

@@ -1169,4 +1169,56 @@ describe("tegridy-launch full migration rehearsal", () => {
     assert.isTrue(c.complete);
     assert.equal(c.realSolReserves.toString(), "0");
   });
+
+  // ─── LCH-13: graduation's last transfer into an empty treasury ──────────────
+  //
+  // With the treasury at 0 lamports and a reserve just short of cp-swap's charge, the
+  // venue's last credit used to land between 1 lamport and the treasury's rent floor,
+  // which the runtime refuses after the pool was built. The caller now pays the
+  // shortfall and the share account's rent reaches the treasury first.
+  it("graduates into an empty treasury when the reserve is just short", async () => {
+    const original = cfgFeeRecipient;
+    const treasury = await fundedKeypair(1);
+    const setRecipient = (k: PublicKey) =>
+      launch.methods
+        .updateGlobal(null, null, null, null, k, null, null, null, null, null, null)
+        .accountsPartial({ global: pda([GLOBAL_SEED], launch.programId), authority: wallet.publicKey })
+        .remainingAccounts([{ pubkey: k, isSigner: false, isWritable: false }])
+        .rpc();
+    await setRecipient(treasury.publicKey);
+    cfgFeeRecipient = treasury.publicKey;
+    const short = 100_000;
+    assert.isBelow(short, await provider.connection.getMinimumBalanceForRentExemption(0));
+    try {
+      const mint = await fullLaunch();
+      // cp-swap's own account sizes: price record, pool, two vaults, share mint and account.
+      let rent6 = 0;
+      for (const n of [4075, 637, 165, 165, 82, 165]) {
+        rent6 += await provider.connection.getMinimumBalanceForRentExemption(n);
+      }
+      await setTierFee(MIGRATION_RESERVE.toNumber() + short - rent6);
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: treasury.publicKey,
+          toPubkey: wallet.publicKey,
+          lamports: await lamportsOf(treasury.publicKey),
+        })
+      );
+      drain.feePayer = wallet.publicKey;
+      await provider.sendAndConfirm(drain, [treasury]);
+      assert.equal(await lamportsOf(treasury.publicKey), 0, "precondition: an empty treasury");
+
+      const caller = await fundedKeypair(1);
+      const before = await lamportsOf(caller.publicKey);
+      await migrate(mint, caller);
+      const shareRent = await provider.connection.getMinimumBalanceForRentExemption(165);
+      assert.equal((await poolRent(mint)) + shareRent, rent6, "the sizes above are cp-swap's");
+      assert.equal(before - (await lamportsOf(caller.publicKey)), short, "the caller pays the shortfall");
+      assert.equal(await lamportsOf(treasury.publicKey), shareRent, "the treasury ends rent-exempt");
+    } finally {
+      await setTierFee(CREATE_POOL_FEE.toNumber());
+      await setRecipient(original);
+      cfgFeeRecipient = original;
+    }
+  });
 });
