@@ -150,7 +150,9 @@ export function buildTradeClusters(sales, { isHouse = isHouseWallet } = {}) {
 
   for (const s of sales) {
     if (!s || s.seller === s.buyer) continue; // self-sales handled separately
-    if (houseCrossing(s, isHouse)) continue; // a house trade, listed apart
+    // A house trade (listed apart) never enters pairSeen, and edges are drawn only for
+    // pairs in pairSeen, so it can make neither a both-ways nor a repeated one-way edge.
+    if (houseCrossing(s, isHouse)) continue;
     const a = s.seller;
     const b = s.buyer;
     const key = a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -166,7 +168,6 @@ export function buildTradeClusters(sales, { isHouse = isHouseWallet } = {}) {
   const directedCount = new Map();
   for (const s of sales) {
     if (!s || s.seller === s.buyer) continue;
-    if (houseCrossing(s, isHouse)) continue;
     const dk = `${s.seller}>${s.buyer}`;
     directedCount.set(dk, (directedCount.get(dk) || 0) + 1);
   }
