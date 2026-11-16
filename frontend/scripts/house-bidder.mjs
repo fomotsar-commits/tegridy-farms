@@ -50,12 +50,12 @@ export class UsageError extends Error {
 /** Each command and the options it takes. Anything else is refused, never ignored. */
 const COMMAND_FLAGS = Object.freeze({
   status: ['--keys', '--pipe'],
-  shadow: ['--keys', '--fresh', '--ack-halt'],
-  run: ['--keys', '--live', '--ack-halt', '--pipe'],
+  shadow: ['--keys', '--fresh', '--ack-halt', '--verbose'],
+  run: ['--keys', '--live', '--ack-halt', '--pipe', '--verbose'],
   stop: ['--keys'],
   report: ['--keys', '--month', '--shadow'],
   backtest: ['--keys', '--days', '--data'],
-  canary: ['--keys', '--confirm', '--price', '--pipe', '--hold-min'],
+  canary: ['--keys', '--confirm', '--price', '--pipe', '--hold-min', '--verbose'],
   kill: ['--keys', '--pipe'],
   board: ['--keys', '--port'],
   help: [],
@@ -134,13 +134,17 @@ async function loadDataLayer() {
   return { createOpenSeaClient: opensea.createOpenSeaClient, createStream: stream.createStream, createChain: chain.createChain, buildTape: tape.buildTape, fairValue: fair.fairValue };
 }
 
-async function wireData(config, { slugs }) {
+async function wireData(config, { slugs, verbose = false }) {
   const { ZERO_ADDRESS, COLLECTIONS } = await mod('brain/constants.mjs');
+  const { levelLogger } = await mod('exec/logAdapter.mjs');
   const d = await loadDataLayer();
   const apiKey = config.openseaApiKey();
-  const opensea = d.createOpenSeaClient({ apiKey, log });
-  const stream = d.createStream({ apiKey, slugs, log });
-  const chain = d.createChain({ httpUrls: config.rpcHttp, wsUrl: config.rpcWs, house: config.house ?? ZERO_ADDRESS, contracts: { junglebay: COLLECTIONS.junglebay.address, gnssart: COLLECTIONS.gnssart.address }, log });
+  // The data layer logs by level; levelLogger keeps each message (passing `log` itself printed
+  // only the level). Debug lines, one per OpenSea call, show only with --verbose.
+  const dataLog = levelLogger(log, { verbose });
+  const opensea = d.createOpenSeaClient({ apiKey, log: dataLog });
+  const stream = d.createStream({ apiKey, slugs, log: dataLog });
+  const chain = d.createChain({ httpUrls: config.rpcHttp, wsUrl: config.rpcWs, house: config.house ?? ZERO_ADDRESS, contracts: { junglebay: COLLECTIONS.junglebay.address, gnssart: COLLECTIONS.gnssart.address }, log: dataLog });
   return { opensea, stream, chain, buildTape: d.buildTape, fairValue: d.fairValue };
 }
 
@@ -229,7 +233,7 @@ async function cmdRun(opts, mode) {
   const { createLoop } = await mod('exec/loop.mjs');
   const params = withParams();
   const slugs = Object.keys(config.policy.collections).filter((s) => !live || config.policy.collections[s].enabled);
-  const data = await wireData(config, { slugs });
+  const data = await wireData(config, { slugs, verbose: opts.verbose === true });
   const now = Date.now;
   const ledger = createLedger({ paths: config.paths, now, shadow: !live });
   const exposure = createExposure();
@@ -408,7 +412,7 @@ async function cmdCanary(opts) {
     if (!c?.enabled) throw new Error('the canary bids on JBAC: junglebay must be enabled in policy.json');
     if (opts.priceWei > c.maxUnitPriceWei) throw new Error(`--price is over junglebay's maxUnitPriceWei (${eth(c.maxUnitPriceWei)} ETH)`);
     const params = withParams({ bidLifetimeSec: 30 * 60 });
-    const data = await wireData(config, { slugs: ['junglebay'] });
+    const data = await wireData(config, { slugs: ['junglebay'], verbose: opts.verbose === true });
     const now = Date.now;
     const ledger = createLedger({ paths: config.paths, now });
     const entries = ledger.read();
