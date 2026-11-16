@@ -132,7 +132,7 @@
 //! `init_if_needed` takes the create branch on a System-owned account and would reset
 //! `next_nonce` to 0. Not exploitable today. But a `close_user_stats` rent-reclaim
 //! instruction is the obvious thing a UX pass asks for, and adding one is a one-line
-//! diff away from a double-withdraw. The ~0.00155 SOL of stranded rent per wallet is
+//! diff away from a double-withdraw. The rent locked in each wallet's 126-byte record is
 //! the price of that, and it is worth paying. `close =` must appear exactly twice in
 //! this file and only on `position`; CI greps for it.
 //!
@@ -1439,9 +1439,9 @@ mod layout_tests {
         // Pool STAYS 508: the two truncation residues were carved OUT of `_reserved`,
         // not appended, so no decoder and no rent floor moves for it.
         //
-        // Position and UserStats grew ONCE, deliberately, to gain the upgrade padding
-        // Pool already had (audit L-8): 141 -> 205 and 94 -> 126. Free now, IMPOSSIBLE
-        // after deploy. Cost is +0.000445 and +0.000223 SOL of rent per account.
+        // Position and UserStats grew once, before the first deploy, to gain the upgrade
+        // padding Pool already had (audit L-8): 141 -> 205 and 94 -> 126. A live account
+        // cannot grow, so a new field is carved out of `_reserved`.
         assert_eq!(8 + Position::INIT_SPACE, 205, "Position size moved");
         assert_eq!(8 + UserStats::INIT_SPACE, 126, "UserStats size moved");
     }
