@@ -27,6 +27,8 @@ test('every selector equals viem toFunctionSelector, and the well-known ones by 
     [SELECTORS.approve, SELECTORS.deposit, SELECTORS.withdraw, SELECTORS.transfer, SELECTORS.incrementCounter, SELECTORS.cancel, SELECTORS.setApprovalForAll, SELECTORS.safeTransferFrom, SELECTORS.getCounter, SELECTORS.getOrderHash, SELECTORS.validate],
     ['0x095ea7b3', '0xd0e30db0', '0x2e1a7d4d', '0xa9059cbb', '0x5b34b966', '0xfd9f1e10', '0xa22cb465', '0x42842e0e', '0xf07ec373', '0x79df72bd', '0x88147732'],
   );
+  // Seaport 1.6 getOrderStatus(bytes32), which the inventory cap reads.
+  assert.equal(SELECTORS.getOrderStatus, '0x46423aa7');
 });
 
 // The signer's builder (tx.mjs buildCall), fed through the policy's request parser, must

@@ -21,7 +21,10 @@ const bad = (reason) => `${JSON.stringify({ ok: false, id: null, field: 'request
 
 /** Serve `handle(request) -> answer` on `pipePath`. Resolves once listening. */
 export async function startServer({ pipePath = defaultPipePath(), handle, maxLineBytes = MAX_LINE_BYTES, log = () => {} }) {
+  const sockets = new Set();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
     let buffer = '';
     socket.setEncoding('utf8');
     socket.on('error', () => {});
@@ -72,7 +75,12 @@ export async function startServer({ pipePath = defaultPipePath(), handle, maxLin
   log(`listening on ${pipePath}`);
   return {
     server,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    // server.close() alone only stops new connections, and the bot keeps one open for its
+    // whole life: so every open one is ended here too, or Ctrl+C would leave it answered.
+    close: () => new Promise((resolve) => {
+      server.close(() => resolve());
+      for (const socket of sockets) socket.destroy(); // PIN:S.close
+    }),
   };
 }
 

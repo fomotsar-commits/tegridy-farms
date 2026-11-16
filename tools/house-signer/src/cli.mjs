@@ -14,7 +14,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkLiveGit, checkNoble, checkNoMutant, checkNotOneDrive, SIGNER_ROOT } from './preflight.mjs';
+import {
+  checkDevKeys, checkLiveGit, checkNoble, checkNoMutant, checkNotOneDrive, checkReadEndpoints, REGISTRY_PATH, SIGNER_ROOT,
+} from './preflight.mjs';
 import { defaultKeysDir, readEnv, readPolicyFile } from './config.mjs';
 import { promptHidden } from './tty.mjs';
 
@@ -23,7 +25,8 @@ const USAGE = `usage: node src/cli.mjs <${COMMANDS.join('|')}> [--keys <dir>] [-
   create   make a new house key (password typed twice), print its address only
   address  print the address keystore.json holds
   serve    decrypt the key and answer the bot on \\\\.\\pipe\\house-signer (--dev: skip the
-           live checks; sends only to a local test chain)
+           live checks; sends only to a local test chain; needs a throwaway key in its
+           own --keys folder)
   kill     decrypt the key and send the kill now: revoke WETH, bump the Seaport counter,
            revoke NFT approvals; waits until mined
   status   the house's nonce, Seaport counter, WETH balance and allowance (no password)`;
@@ -67,6 +70,18 @@ function must(result) {
 }
 
 const git = (args) => execFileSync('git', args, { cwd: SIGNER_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+
+/** The house registry as this checkout has it (working tree and HEAD), for the --dev check. */
+function registryTexts() {
+  const texts = [];
+  try {
+    texts.push(fs.readFileSync(path.join(SIGNER_ROOT, '..', '..', REGISTRY_PATH), 'utf8'));
+  } catch { /* no registry file in the working tree */ }
+  try {
+    texts.push(git(['show', `HEAD:${REGISTRY_PATH}`]));
+  } catch { /* not a git checkout, or no registry at HEAD */ }
+  return texts;
+}
 
 async function loadPolicy(keysDir) {
   const { validatePolicy } = await import('./policy.mjs');
@@ -115,7 +130,8 @@ async function main() {
   const env = readEnv(keysDir, { dev: args.dev });
   const { policy, policySha256 } = await loadPolicy(keysDir);
   const { createChain } = await import('./chain.mjs');
-  const chain = createChain({ readUrls: env.readUrls, sendUrls: env.sendUrls });
+  let chain = createChain({ readUrls: env.readUrls, sendUrls: env.sendUrls });
+  const log = (line) => process.stderr.write(`${new Date().toISOString()} ${line}\n`);
 
   if (args.command === 'status') {
     const [latest, counter, weth, allowance] = await Promise.all([
@@ -129,12 +145,19 @@ async function main() {
   }
 
   const live = !args.dev;
+  // --dev runs unpinned code, so it never gets the real house key (see checkDevKeys).
+  if (args.dev) must(checkDevKeys({ keysDir, defaultKeysDir: defaultKeysDir(), house: policy.house, registryTexts: registryTexts() }));
   if (args.command === 'serve' && live) {
     must(checkLiveGit({ git, pinCommit: env.pinCommit, house: policy.house, enabledSlugs: Object.values(policy.collections).filter((c) => c.enabled).map((c) => c.slug) }));
   }
   const ids = await chain.chainIds();
-  const wrong = ids.filter((x) => x.chainId !== 1n);
-  if (wrong.length > 0) fail(`these read endpoints are not on Ethereum mainnet: ${wrong.map((x) => x.host).join(', ')}`);
+  const endpoints = checkReadEndpoints(ids);
+  must(endpoints);
+  if (endpoints.skipped.length > 0) {
+    for (const s of endpoints.skipped) log(`read endpoint ${s.host} did not answer (${s.error}); going on without it`);
+    // Only endpoints that answered chain id 1 are used from here on.
+    chain = createChain({ readUrls: env.readUrls.filter((_, i) => ids[i].chainId === 1n), sendUrls: env.sendUrls });
+  }
 
   const privateKey = await decryptHouseKey(keysDir);
   const { addressOf } = await import('./sign.mjs');
@@ -148,7 +171,21 @@ async function main() {
     privateKey.fill(0);
     fail('the house address has code on chain (an EIP-7702 delegation?); refusing to serve');
   }
-  const log = (line) => process.stderr.write(`${new Date().toISOString()} ${line}\n`);
+  if (live && args.command === 'serve') {
+    // policy.json and house-bidder.env sit in a folder the bot (same Windows user) writes to,
+    // so the owner reads every limit in full and types yes before the key serves anything.
+    const { checkConfirmation, limitsSummary } = await import('./policy.mjs');
+    process.stderr.write(`\n${limitsSummary(policy, { pinCommit: env.pinCommit })}\n\n`);
+    let answer;
+    try {
+      answer = checkConfirmation(await promptHidden('type yes to serve with these limits: ', { echo: true }));
+    } catch (e) {
+      privateKey.fill(0);
+      throw e;
+    }
+    if (!answer.ok) privateKey.fill(0);
+    must(answer);
+  }
   const signer = createSigner({
     privateKey, policy, policySha256, keysDir, chain, sendUrls: env.sendUrls, mode: live ? 'live' : 'dev', pinCommit: live ? env.pinCommit : null, version: JSON.parse(fs.readFileSync(path.join(SIGNER_ROOT, 'package.json'), 'utf8')).version, log,
   });
@@ -166,11 +203,16 @@ async function main() {
   const pipePath = args.pipe ?? defaultPipePath();
   const srv = await startServer({ pipePath, handle: signer.handle, log });
   log(`house-signer ${live ? 'LIVE' : 'dev'} for ${house}, policy sha256 ${policySha256.slice(0, 16)}..., ${live ? `pin ${env.pinCommit.slice(0, 12)}` : 'no pin'}`);
-  const shutdown = async () => {
-    await srv.close();
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    // All at once, in this order: refuse everything but a kill, drop every open connection
+    // (the bot keeps one open for its whole life), then wipe the key.
     signer.close();
+    const closed = srv.close();
     privateKey.fill(0);
-    log('stopped');
+    closed.then(() => log('stopped'));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

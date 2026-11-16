@@ -21,7 +21,8 @@ import {
   VENUE_FEE_BPS, VENUE_SAFE, WETH, ZERO_ADDRESS, ZERO_BYTES32,
 } from './constants.mjs';
 import { addressAt, argsOf, SELECTORS, wordAt } from './abi.mjs';
-import { checksumOk } from './keccak.mjs';
+import { checksumOk, toChecksumAddress } from './keccak.mjs';
+import { MAX_TX_GAS } from './tx.mjs';
 import {
   eqAddr, gweiToWei, hasExactKeys, isAddress, isBytes32, isHexData, isPlainObject, parseSafeInt,
   parseUint, parseWeiString, UINT256_MAX,
@@ -42,14 +43,20 @@ const COLLECTION_KEYS = ['address', 'enabled', 'maxUnitPriceWei', 'maxQty', 'inv
 const FEE_KEYS = ['recipient', 'bps'];
 const GAS_KEYS = ['maxFeeGwei', 'priorityGwei', 'killPriorityGwei', 'maxGasLimit'];
 const LISTING_KEYS = ['enabled', 'maxLifetimeSec', 'minUnitPriceWei'];
+const DAILY_KEYS = ['maxTxs', 'maxGasWei'];
 const MAX_BID_LIFETIME_SEC = 7 * 24 * 3600;
 const MAX_FEE_CAP_WEI = 1000n * 1_000_000_000n;
+const ONE_ETH = 10n ** 18n;
+
+// The transactions and gas the signer sends in any 24 hours (the kill not counted), when
+// policy.json has no "daily". Optional so the bot, which reads the same file, keeps working.
+export const DEFAULT_DAILY = Object.freeze({ maxTxs: 20, maxGasWei: 50_000_000_000_000_000n });
 
 const PINNED_CONTRACTS = [WETH, SEAPORT, SIGNED_ZONE, OPENSEA_CONDUIT, ...Object.values(KNOWN_COLLECTIONS).map((c) => c.address)];
 
 /** Validate policy.json (parsed) into the normalized policy every other check reads. */
 export function validatePolicy(raw) {
-  if (!hasExactKeys(raw, POLICY_KEYS)) return no('F.shape', `policy.json must have exactly these keys: ${POLICY_KEYS.join(', ')}`); // PIN:F.shape
+  if (!hasExactKeys(raw, isPlainObject(raw) && Object.hasOwn(raw, 'daily') ? [...POLICY_KEYS, 'daily'] : POLICY_KEYS)) return no('F.shape', `policy.json must have exactly these keys: ${POLICY_KEYS.join(', ')} (and optionally daily)`); // PIN:F.shape
   if (raw.version !== 1) return no('F.version', 'policy.json version must be 1'); // PIN:F.version
   if (raw.chainId !== 1) return no('F.chainId', 'the house only trades on Ethereum mainnet (chainId 1)'); // PIN:F.chainId
   if (!isAddress(raw.house) || !checksumOk(raw.house) || eqAddr(raw.house, ZERO_ADDRESS)) return no('F.house', 'policy.house is not a valid address'); // PIN:F.house
@@ -108,10 +115,20 @@ export function validatePolicy(raw) {
   if (priorityWei === null || priorityWei * NORMAL_FEE_SHARE_DEN > maxFeeWei * NORMAL_FEE_SHARE_NUM) return no('F.priority', 'gas.priorityGwei must fit inside the share of the fee cap normal transactions use'); // PIN:F.priority
   if (killPriorityWei === null || killPriorityWei > maxFeeWei || killPriorityWei * 10n < priorityWei * 11n || killPriorityWei === 0n) return no('F.killPriority', 'gas.killPriorityGwei must be at least 10% above priorityGwei (so a kill can replace a pending transaction) and at most maxFeeGwei'); // PIN:F.killPriority
   const maxGasLimit = parseSafeInt(raw.gas.maxGasLimit);
-  if (typeof raw.gas.maxGasLimit !== 'number' || maxGasLimit === null || maxGasLimit < 21_000 || maxGasLimit > 1_000_000) return no('F.gasLimit', 'gas.maxGasLimit must be from 21000 to 1000000'); // PIN:F.gasLimit
+  if (typeof raw.gas.maxGasLimit !== 'number' || maxGasLimit === null || maxGasLimit < Number(MAX_TX_GAS) || maxGasLimit > 1_000_000) return no('F.gasLimit', `gas.maxGasLimit must be from ${MAX_TX_GAS} (what an on-chain cancel of ${MAX_CANCEL_ORDERS} orders needs; lower would stop the kill's counter bump and NFT revokes) to 1000000`); // PIN:F.gasLimit
 
   if (!hasExactKeys(raw.listing, LISTING_KEYS)) return no('F.listingShape', `policy.listing must have exactly: ${LISTING_KEYS.join(', ')}`); // PIN:F.listingShape
   if (raw.listing.enabled !== false) return no('F.listingOff', 'listings are not supported in this version; listing.enabled must be false'); // PIN:F.listingOff
+
+  let daily = DEFAULT_DAILY;
+  if (Object.hasOwn(raw, 'daily')) {
+    if (!hasExactKeys(raw.daily, DAILY_KEYS)) return no('F.dailyShape', `policy.daily, when present, must have exactly: ${DAILY_KEYS.join(', ')}`); // PIN:F.dailyShape
+    const maxTxs = parseSafeInt(raw.daily.maxTxs);
+    if (typeof raw.daily.maxTxs !== 'number' || maxTxs === null || maxTxs < 1 || maxTxs > 1000) return no('F.dailyTxs', 'daily.maxTxs must be a whole number from 1 to 1000'); // PIN:F.dailyTxs
+    const maxGasWei = parseWeiString(raw.daily.maxGasWei);
+    if (maxGasWei === null || maxGasWei === 0n || maxGasWei > ONE_ETH) return no('F.dailyGas', 'daily.maxGasWei must be a decimal string of wei, more than 0 and at most 1 ETH'); // PIN:F.dailyGas
+    daily = Object.freeze({ maxTxs, maxGasWei });
+  }
 
   return {
     ok: true,
@@ -128,8 +145,48 @@ export function validatePolicy(raw) {
       maxWrapWei,
       gas: Object.freeze({ maxFeeWei, priorityWei, killPriorityWei, maxGasLimit: BigInt(maxGasLimit) }),
       listing: Object.freeze({ enabled: false }),
+      daily,
     }),
   };
+}
+
+const eth = (wei) => {
+  const frac = (wei % ONE_ETH).toString().padStart(18, '0').replace(/0+$/, '');
+  return `${wei / ONE_ETH}${frac ? `.${frac}` : ''} ETH (${wei} wei)`;
+};
+const pct = (bps) => `${Number(bps) / 100}%`;
+
+/**
+ * What the live signer will enforce, in full, for the owner to read at start-up. policy.json
+ * and house-bidder.env sit in a folder other programs on this PC can write to (the bot writes
+ * there every loop), so the owner confirms these numbers with their own eyes before serving.
+ */
+export function limitsSummary(policy, { pinCommit }) {
+  const lines = [
+    'The live signer will enforce exactly these limits (from policy.json and house-bidder.env). Read them before you type yes:',
+    `  house wallet     ${toChecksumAddress(policy.house)}`,
+    `  funding wallet   ${toChecksumAddress(policy.fundingWallet)}  (the only address WETH and NFTs are ever sent to)`,
+    `  pinned commit    ${pinCommit}  (the reviewed code this signer must be running)`,
+  ];
+  for (const c of Object.values(policy.collections)) {
+    const known = KNOWN_COLLECTIONS[c.slug];
+    lines.push(c.enabled
+      ? `  ${c.slug} (${known.ticker} ${toChecksumAddress(c.address)}): at most ${eth(c.maxUnitPriceWei)} per NFT, at most ${c.maxQty} per bid, holds at most ${c.inventoryCap}${c.creatorFee ? `, creator ${pct(c.creatorFee.bps)} to ${toChecksumAddress(c.creatorFee.recipient)}` : ''}`
+      : `  ${c.slug} (${known.ticker}): switched off`);
+  }
+  lines.push(
+    `  WETH approval    at most ${eth(policy.maxAllowanceWei)}, and never more than the room left under the inventory caps`,
+    `  wrap             at most ${eth(policy.maxWrapWei)}`,
+    `  fees on a bid    OpenSea ${pct(OPENSEA_FEE_BPS)} to ${toChecksumAddress(OPENSEA_FEE_RECIPIENT)}${policy.venueFee ? `; venue ${pct(VENUE_FEE_BPS)} to ${toChecksumAddress(VENUE_SAFE)}` : ''}; the seller pays them`,
+    `  daily budget     at most ${policy.daily.maxTxs} transactions and ${eth(policy.daily.maxGasWei)} of gas in any 24 hours (the kill is not held back)`,
+  );
+  return lines.join('\n');
+}
+
+/** The owner's answer to the summary above: the live signer serves only on "yes". */
+export function checkConfirmation(typed) {
+  if (typeof typed !== 'string' || typed.trim().toLowerCase() !== 'yes') return no('B.confirm', 'you did not type yes, so the signer does not serve; nothing was signed'); // PIN:B.confirm
+  return { ok: true };
 }
 
 /** The most a normal (not kill) transaction may offer per gas: a share of the cap. */

@@ -94,6 +94,15 @@ const policyCases = [
   ['F.killPriority', 'a kill tip no higher than the normal tip', (p) => { p.gas.killPriorityGwei = 0.05; }],
   ['F.killPriority', 'a kill tip above the fee cap', (p) => { p.gas.killPriorityGwei = 21; }],
   ['F.gasLimit', 'a gas limit under 21000', (p) => { p.gas.maxGasLimit = 20000; }],
+  ['F.gasLimit', 'a gas limit too low for the kill\'s counter bump and NFT revokes (60000)', (p) => { p.gas.maxGasLimit = 60000; }],
+  ['F.gasLimit', 'a gas limit one under what an on-chain cancel of 6 orders needs', (p) => { p.gas.maxGasLimit = 254999; }],
+  ['F.dailyShape', 'a daily budget with an unknown key', (p) => { p.daily = { maxTxs: 20, maxGasWei: '50000000000000000', perHour: 3 }; }],
+  ['F.dailyShape', 'a daily budget of null', (p) => { p.daily = null; }],
+  ['F.dailyTxs', 'a daily budget of 0 transactions', (p) => { p.daily = { maxTxs: 0, maxGasWei: '50000000000000000' }; }],
+  ['F.dailyTxs', 'a daily transaction count as a string', (p) => { p.daily = { maxTxs: '20', maxGasWei: '50000000000000000' }; }],
+  ['F.dailyGas', 'a daily gas budget of 0', (p) => { p.daily = { maxTxs: 20, maxGasWei: '0' }; }],
+  ['F.dailyGas', 'a daily gas budget as a JSON number', (p) => { p.daily = { maxTxs: 20, maxGasWei: 50000000000000000 }; }],
+  ['F.dailyGas', 'a daily gas budget over 1 ETH', (p) => { p.daily = { maxTxs: 20, maxGasWei: '1000000000000000001' }; }],
   ['F.listingShape', 'listing without its fields', (p) => { p.listing = { enabled: false }; }],
   ['F.listingOff', 'listings switched on (not supported in this version)', (p) => { p.listing.enabled = true; }],
 ];
@@ -103,6 +112,24 @@ for (const [pin, what, edit] of policyCases) {
     refusedBy(validatePolicy(rawPolicy(edit)), pin);
   });
 }
+
+test('the lowest gas.maxGasLimit a policy may set still fits every transaction the signer builds, the kill and a 6-order cancel included', () => {
+  const v = validatePolicy(rawPolicy((p) => { p.gas.maxGasLimit = 255000; }));
+  assert.equal(v.ok, true, v.reason);
+  for (const kind of ['approveWeth', 'revokeWeth', 'wrap', 'unwrap', 'returnWethToFunding', 'incrementCounter', 'setNftApproval', 'returnNftToFunding']) {
+    assert.ok(gasLimitFor({ kind }) <= v.policy.gas.maxGasLimit, kind);
+  }
+  assert.ok(gasLimitFor({ kind: 'cancelOnChain', orders: [1, 2, 3, 4, 5, 6] }) <= v.policy.gas.maxGasLimit);
+});
+
+test('the daily budget is optional: without it a policy gets 20 transactions and 0.05 ETH of gas a day; with it, its own numbers', () => {
+  const v = validatePolicy(rawPolicy());
+  assert.equal(v.ok, true, v.reason);
+  assert.deepEqual(v.policy.daily, { maxTxs: 20, maxGasWei: 50_000_000_000_000_000n });
+  const own = validatePolicy(rawPolicy((p) => { p.daily = { maxTxs: 5, maxGasWei: '10000000000000000' }; }));
+  assert.equal(own.ok, true, own.reason);
+  assert.deepEqual(own.policy.daily, { maxTxs: 5, maxGasWei: 10_000_000_000_000_000n });
+});
 
 // ---------------------------------------------------------------------------------------
 // signBid: the request

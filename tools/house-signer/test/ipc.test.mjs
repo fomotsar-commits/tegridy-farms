@@ -122,3 +122,27 @@ test('PIN:S.line a request line over 64 KiB is refused, not handled', async () =
 test('a second server cannot take the same pipe', async () => {
   await assert.rejects(startServer({ pipePath, handle: async () => ({}) }), /already in use/);
 });
+
+test('PIN:S.close closing the server ends every open connection at once: a client that stays connected (as the bot does) gets nothing more', async () => {
+  const pipe = process.platform === 'win32'
+    ? `\\\\.\\pipe\\house-signer-close-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
+    : path.join(os.tmpdir(), `hs-close-${crypto.randomBytes(4).toString('hex')}.sock`);
+  let handled = 0;
+  const srv = await startServer({ pipePath: pipe, handle: async (req) => { handled += 1; return { ok: true, id: req.id }; } });
+  const socket = net.createConnection(pipe);
+  try {
+    await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+    const gone = new Promise((resolve) => socket.once('close', resolve));
+    socket.on('error', () => {});
+    socket.write(`${JSON.stringify({ id: 'before', op: 'hello' })}\n`);
+    await new Promise((resolve) => socket.once('data', resolve));
+    assert.equal(handled, 1);
+    const result = await Promise.race([srv.close().then(() => 'closed'), new Promise((resolve) => setTimeout(() => resolve('still serving'), 3000))]);
+    assert.equal(result, 'closed', 'close() did not wait for the client to hang up');
+    await gone;
+    assert.equal(socket.destroyed, true);
+    assert.equal(handled, 1);
+  } finally {
+    socket.destroy();
+  }
+});

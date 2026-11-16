@@ -7,7 +7,7 @@
 // it against viem's serializeTransaction and signTransaction byte for byte.
 
 import { encodeCall, SIGNATURES, ORDER_COMPONENTS, componentsTuple } from './abi.mjs';
-import { CHAIN_ID, OPENSEA_CONDUIT, SEAPORT, WETH } from './constants.mjs';
+import { CHAIN_ID, MAX_CANCEL_ORDERS, OPENSEA_CONDUIT, SEAPORT, WETH } from './constants.mjs';
 import { keccak256 } from './keccak.mjs';
 import { rlpEncode } from './rlp.mjs';
 import { signDigest } from './sign.mjs';
@@ -33,6 +33,13 @@ export function gasLimitFor(plan) {
   if (plan.kind === 'cancelOnChain') return CANCEL_GAS_FIRST + CANCEL_GAS_EACH * BigInt(plan.orders.length - 1);
   return GAS[plan.kind];
 }
+
+/**
+ * The largest gas limit any transaction here uses (an on-chain cancel of the most orders).
+ * policy.json's gas.maxGasLimit may not be lower: a lower one would quietly stop the kill's
+ * counter bump, its NFT revokes and every on-chain cancel.
+ */
+export const MAX_TX_GAS = [...Object.values(GAS), CANCEL_GAS_FIRST + CANCEL_GAS_EACH * BigInt(MAX_CANCEL_ORDERS - 1)].reduce((a, b) => (a > b ? a : b));
 
 /** { to, data, value } for a checked plan from policy.checkTxRequest. */
 export function buildCall(plan, { policy, house }) {

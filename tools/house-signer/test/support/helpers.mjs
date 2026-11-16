@@ -171,6 +171,9 @@ export function fakeChain(opts = {}) {
     block: 1000n,
     weth: opts.weth ?? 0n,
     allowance: opts.allowance ?? 0n,
+    // NFTs the house holds, by lowercase collection address; Seaport order status by hash.
+    nftBalances: opts.nftBalances ?? {},
+    orderStatuses: new Map(),
     sent: [],
     receipts: new Map(),
     broadcastCount: new Map(),
@@ -193,6 +196,16 @@ export function fakeChain(opts = {}) {
     },
     async nonce(_address, tag) {
       return tag === 'pending' ? (state.pending > state.latest ? state.pending : state.latest) : state.latest;
+    },
+    /** Every endpoint's answer; one endpoint here, and a test that replaces nonce() changes it too. */
+    async nonces(address, tag) {
+      return [await this.nonce(address, tag)];
+    },
+    async nftBalance(collection) {
+      return state.nftBalances[collection.toLowerCase()] ?? 0n;
+    },
+    async orderStatus(orderHash) {
+      return state.orderStatuses.get(orderHash.toLowerCase()) ?? { isValidated: false, isCancelled: false, totalFilled: 0n, totalSize: 0n };
     },
     async nextBaseFee() {
       return state.baseFee;

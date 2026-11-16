@@ -117,6 +117,7 @@ export const SIGNATURES = Object.freeze({
   setApprovalForAll: 'setApprovalForAll(address,bool)',
   safeTransferFrom: 'safeTransferFrom(address,address,uint256)',
   getCounter: 'getCounter(address)',
+  getOrderStatus: 'getOrderStatus(bytes32)',
   getOrderHash: `getOrderHash(${COMPONENTS_SIG})`,
   validate: `validate((${COMPONENTS_SIG},bytes)[])`,
   information: 'information()',

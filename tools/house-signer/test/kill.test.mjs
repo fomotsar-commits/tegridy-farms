@@ -1,15 +1,16 @@
 // The kill, against a fake chain: its order, that its first transaction replaces whatever
 // is pending at the lowest nonce (same nonce, higher fees), that it covers every pending
-// nonce, that it re-sends each block until mined, and that a revoke which loses the race to
-// a pending transaction is sent again.
+// nonce, that it re-sends each block until mined, that a revoke which loses the race to
+// a pending transaction is sent again, that it only reports success for steps that landed,
+// and that it latches (STOP) before it sends anything.
 
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createSigner } from '../src/signer.mjs';
+import { createSigner, stopFilePresent } from '../src/signer.mjs';
 import { SELECTORS } from '../src/abi.mjs';
-import { fakeChain, fakeClock, HOUSE_KEY, makePolicy, tempDir } from './support/helpers.mjs';
+import { bidRequest, fakeChain, fakeClock, HOUSE_KEY, makePolicy, tempDir } from './support/helpers.mjs';
 
 const NOW_MS = 1_763_251_200_000;
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
@@ -157,4 +158,115 @@ test('a nonce read failure is reported, not guessed', async () => {
   const res = await signer.handle({ id: 'k', op: 'kill' });
   assert.equal(res.ok, false);
   assert.equal(res.field, 'rpc');
+});
+
+test('a kill whose WETH revoke never lands, in any round, answers ok:false, so neither the bot nor the CLI calls it done', async () => {
+  const chain = fakeChain({ latest: 8n });
+  const { signer } = setup({ chain });
+  // Every revoke loses its nonce to a transaction already in flight (for example an approval
+  // from a serve process that is still running while the owner runs the CLI kill).
+  chain.state.onBroadcast = ({ hash, decoded }) => {
+    if (kindOf(decoded) === 'revokeWeth') {
+      chain.state.neverMine.add(hash);
+      if (chain.state.latest <= decoded.nonce) chain.state.latest = decoded.nonce + 1n;
+    }
+  };
+  const res = await signer.handle({ id: 'k', op: 'kill' });
+  const revokes = res.txs.filter((t) => t.kind === 'revokeWeth');
+  assert.equal(revokes.length, 3, 'the revoke is sent in each of the three rounds');
+  assert.ok(revokes.every((t) => t.replaced), 'and its nonce is taken every time');
+  assert.equal(res.ok, false, 'a kill whose revoke never landed is not a success');
+  assert.equal(res.field, 'kill');
+  assert.match(res.reason, /revokeWeth/);
+  assert.notEqual(res.allMined, true);
+});
+
+test('a kill transaction that is mined but reverts did not happen either', async () => {
+  const chain = fakeChain({ latest: 3n });
+  const { signer } = setup({ chain });
+  chain.state.onBroadcast = ({ hash, decoded }) => {
+    if (kindOf(decoded) === 'incrementCounter') {
+      chain.state.receipts.set(hash, { status: 'reverted', blockNumber: chain.state.block });
+      chain.state.latest = decoded.nonce + 1n;
+    }
+  };
+  const res = await signer.handle({ id: 'k', op: 'kill' });
+  assert.equal(res.txs.find((t) => t.kind === 'incrementCounter').success, false);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /incrementCounter/);
+});
+
+test('an endpoint that reports a huge pending count cannot stall the kill: the fixed steps go first, the padding stops at 16 and the gap is reported', async () => {
+  const chain = fakeChain({ latest: 5n });
+  // One endpoint answers pending = latest + 1000 (a bug, or a lie).
+  chain.nonce = async (_a, tag) => (tag === 'pending' ? 1005n : chain.state.latest);
+  const { signer } = setup({ chain });
+  const res = await signer.handle({ id: 'k', op: 'kill' });
+  const sent = chain.state.sent.map((s) => s.decoded);
+  assert.equal(sent.length, 16, `sent ${sent.length} kill transactions`);
+  assert.deepEqual(sent.slice(0, 3).map(kindOf), ['revokeWeth', 'incrementCounter', 'setNftApproval:junglebay:0']);
+  assert.deepEqual(sent.map((d) => d.nonce), Array.from({ length: 16 }, (_, i) => 5n + BigInt(i)));
+  assert.equal(res.ok, false, 'pending transactions the kill did not replace are reported');
+  assert.match(res.reason, /1000 pending/);
+});
+
+test('the kill takes the lowest latest nonce any endpoint reports, and pads up to the highest pending one', async () => {
+  const chain = fakeChain({ latest: 5n });
+  // The first endpoint (the one a single read would use) says latest 9: a kill sent there
+  // would wait behind a nonce gap for ever. The second has the truth.
+  chain.nonce = async () => 9n;
+  chain.nonces = async (_a, tag) => (tag === 'pending' ? [9n, 7n] : [9n, chain.state.latest]);
+  const { signer } = setup({ chain });
+  const res = await signer.handle({ id: 'k', op: 'kill' });
+  assert.equal(res.ok, true, res.reason);
+  const sent = chain.state.sent.map((s) => s.decoded);
+  assert.deepEqual(sent.map((d) => d.nonce), [5n, 6n, 7n, 8n]);
+  assert.deepEqual(sent.map(kindOf), ['revokeWeth', 'incrementCounter', 'setNftApproval:junglebay:0', 'revokeWeth']);
+});
+
+test('PIN:T.killStop the kill latches: STOP is in the keys folder before anything is sent, and after it no signer on that folder signs a bid, approves WETH or wraps', async () => {
+  const chain = fakeChain({ latest: 0n });
+  const { signer, keysDir, clock } = setup({ chain });
+  // The serve process the bot talks to, on the same keys folder (the CLI kill is another process).
+  const serve = createSigner({
+    privateKey: HOUSE_KEY, policy: makePolicy(), policySha256: 'ab'.repeat(32), keysDir, chain, sendUrls: ['https://send.example'], nowMs: clock.nowMs, sleep: clock.sleep, watch: false,
+  });
+  let stopAtFirstSend = null;
+  chain.state.onBroadcast = () => {
+    if (stopAtFirstSend === null) stopAtFirstSend = stopFilePresent(keysDir);
+  };
+  const kill = await signer.handle({ id: 'k', op: 'kill' });
+  assert.equal(kill.ok, true, kill.reason);
+  assert.equal(stopAtFirstSend, true, 'STOP was written before the first kill transaction went out');
+  const nowSec = Math.floor(clock.nowMs() / 1000);
+  for (const [name, s] of [['the kill\'s signer', signer], ['the serve signer', serve]]) {
+    assert.equal((await s.handle(bidRequest({ id: 'b' }, nowSec))).field, 'P15', name);
+    assert.equal((await s.handle({ id: 'a', op: 'sendTx', kind: 'approveWeth', params: { amountWei: '1000' } })).field, 'T.stop', name);
+    assert.equal((await s.handle({ id: 'w', op: 'sendTx', kind: 'wrap', params: { amountWei: '1000' } })).field, 'T.stop', name);
+    assert.equal((await s.handle({ id: 'r', op: 'sendTx', kind: 'revokeWeth', params: {} })).ok, true, `${name}: a revoke still goes out`);
+  }
+  // Only the owner deleting STOP lets bids through again.
+  for (const f of fs.readdirSync(keysDir).filter((n) => /^stop/i.test(n))) fs.rmSync(path.join(keysDir, f));
+  assert.equal((await serve.handle(bidRequest({ id: 'b2' }, nowSec))).ok, true);
+});
+
+test('a kill that cannot write STOP (a full disk) still latches this signer until it is restarted', async () => {
+  const chain = fakeChain({ latest: 0n });
+  const { signer, keysDir, clock } = setup({ chain });
+  const realWrite = fs.writeFileSync;
+  const full = mock.method(fs, 'writeFileSync', (file, ...rest) => {
+    if (/stop/i.test(path.basename(String(file)))) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    return realWrite(file, ...rest);
+  });
+  try {
+    const kill = await signer.handle({ id: 'k', op: 'kill' });
+    assert.equal(kill.ok, true, kill.reason);
+  } finally {
+    full.mock.restore();
+  }
+  assert.equal(stopFilePresent(keysDir), false, 'no STOP file could be written');
+  const nowSec = Math.floor(clock.nowMs() / 1000);
+  assert.equal((await signer.handle(bidRequest({ id: 'b' }, nowSec))).field, 'P15');
+  assert.equal((await signer.handle({ id: 'a', op: 'sendTx', kind: 'approveWeth', params: { amountWei: '1000' } })).field, 'T.stop');
+  assert.equal((await signer.handle({ id: 'h', op: 'hello' })).stopped, true);
 });

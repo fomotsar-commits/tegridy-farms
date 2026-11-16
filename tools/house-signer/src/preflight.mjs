@@ -73,6 +73,30 @@ export function checkNoMutant(signerRoot = SIGNER_ROOT) {
   return { ok: true };
 }
 
+/**
+ * The read endpoints' chain ids (chain.chainIds()). One that answers with another chain is
+ * refused; one that does not answer is skipped, so an outage at one provider cannot stop the
+ * kill; at least one must answer. Only the endpoints that answered 1 are used afterwards.
+ */
+export function checkReadEndpoints(ids) {
+  const wrong = ids.filter((x) => x.chainId !== null && x.chainId !== 1n);
+  if (wrong.length > 0) return no('B.chainId', `these read endpoints are not on Ethereum mainnet: ${wrong.map((x) => x.host).join(', ')}`); // PIN:B.chainId
+  if (!ids.some((x) => x.chainId === 1n)) return no('B.chainNone', `no read endpoint answered (${ids.map((x) => x.error).join('; ')})`); // PIN:B.chainNone
+  return { ok: true, skipped: ids.filter((x) => x.chainId === null) };
+}
+
+/**
+ * --dev skips the pinned-commit and registry checks, so it must never hold the real house key:
+ * it refuses the default keys folder (where the real key lives) and any house the site's
+ * registry lists. A dev run uses a throwaway key in a folder of its own (--keys <dir>).
+ */
+export function checkDevKeys({ keysDir, defaultKeysDir, house, registryTexts = [] }) {
+  const where = (p) => realpathOr(path.resolve(p)).toLowerCase();
+  if (where(keysDir) === where(defaultKeysDir)) return no('B.devDefault', `--dev never uses the default keys folder (${defaultKeysDir}), which holds the real house key; give a folder with a throwaway key: --keys <dir>`); // PIN:B.devDefault
+  if (registryTexts.some((text) => registryEntry(text, house))) return no('B.devRegistry', `${house} is the house wallet in the site's registry; --dev only runs with a throwaway key`); // PIN:B.devRegistry
+  return { ok: true };
+}
+
 /** Parse the house registry and find this house in it. */
 export function registryEntry(text, house) {
   let doc;

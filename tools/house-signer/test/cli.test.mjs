@@ -53,6 +53,16 @@ test('the prompt reads a typed line with nothing echoed, handling backspace', as
   assert.deepEqual(input.rawModes, [true, false]);
 });
 
+test('the yes at live start-up is shown as it is typed; a password never is', async () => {
+  const shown = [];
+  const out = { write: (s) => { shown.push(s); return true; } };
+  assert.equal(await promptHidden('q: ', { input: fakeInput({ isTTY: true, typed: 'yez\u007fs\r' }), output: out, echo: true }), 'yes');
+  assert.ok(shown.join('').includes('yez\b \bs'));
+  const hidden = [];
+  await promptHidden('pw: ', { input: fakeInput({ isTTY: true, typed: 'secret-pass\r' }), output: { write: (s) => { hidden.push(s); return true; } } });
+  assert.equal(hidden.join('').includes('secret'), false);
+});
+
 test('Ctrl+C at the prompt cancels', async () => {
   await assert.rejects(promptHidden('pw: ', { input: fakeInput({ isTTY: true, typed: 'ab\u0003' }), output: sink }), /cancelled/);
 });

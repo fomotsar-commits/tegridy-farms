@@ -2,7 +2,8 @@
 // nothing. Never an environment variable, a command-line argument, a file or a pipe:
 // those end up in shell history, process listings, crash dumps and other programs' reach.
 
-export function promptHidden(question, { input = process.stdin, output = process.stderr } = {}) {
+// `echo: true` shows what is typed: for the "yes" at live start-up, never for a password.
+export function promptHidden(question, { input = process.stdin, output = process.stderr, echo = false } = {}) {
   if (!input.isTTY || typeof input.setRawMode !== 'function') return Promise.reject(new Error('the password is only read from a terminal, typed by hand (never from a pipe, a file, the environment or the command line). On Windows run this from PowerShell or Windows Terminal; in Git Bash, put winpty in front of the command.')); // PIN:K.tty
   output.write(question);
   input.setRawMode(true);
@@ -22,10 +23,12 @@ export function promptHidden(question, { input = process.stdin, output = process
         if (ch === '\r' || ch === '\n') return done(resolve, typed);
         if (ch === '\u0003') return done(reject, new Error('cancelled'));
         if (ch === '\u007f' || ch === '\b') {
+          if (echo && typed.length > 0) output.write('\b \b');
           typed = typed.slice(0, -1);
           continue;
         }
         if (ch < ' ') continue;
+        if (echo) output.write(ch);
         typed += ch;
       }
       return undefined;
