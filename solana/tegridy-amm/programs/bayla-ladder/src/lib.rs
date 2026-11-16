@@ -899,18 +899,6 @@ pub mod bayla_ladder {
         // per-second stream is not expressible there. math.rs
         // `a_reload_below_the_window_length_truncates_to_a_zero_rate` pins the boundary.
         require!(rate > 0, LadderError::RewardRateTooSmall);
-        // AUDIT M-2, the total-burn half. Even a non-zero rate emits EXACTLY NOTHING
-        // when `rate * PRECISION < total_weighted`, because the accumulator step floors
-        // to zero every interval. At full participation (the whole 9.92e14-raw supply
-        // staked at 4.00x) that is any four-year budget under ~500,539 BAYLA — it was
-        // ~30,855 at 90 days; the bar is linear in the window — and it failed silently,
-        // with a healthy-looking `RewardAdded` and no error. The residue carry softens it
-        // but cannot fix it: a permanent sub-unit rate never accumulates past the
-        // divisor. Refuse the window instead.
-        require!(
-            pool.total_weighted == 0 || rate.saturating_mul(PRECISION) >= pool.total_weighted,
-            LadderError::RewardRateTooSmall
-        );
         // THE RATE GUARD (owner decision 2026-09-17; design review I07). A reload inside a
         // live window may not LOWER the per-second rate — see `math::rate_change_allowed`
         // for the proof and the boundary. It must stay the LAST check and must run BEFORE
