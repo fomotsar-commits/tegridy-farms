@@ -1,0 +1,70 @@
+{
+ "_source": "OpenSea GET /api/v2/account/<a public JBAC bidder>/offers, read 2026-11-16T01:13:11.813Z: the entry for one JBAC collection offer plus one other, as returned (no protocol_data: this route leaves it out). The matching GET /api/v2/orders/chain/ethereum/protocol/<Seaport 1.6>/<order_hash> answer is in opensea-get-order.json.",
+ "offers": [
+  {
+   "order_hash": "0xf0d2f2efb6718cb9cd2e4a51a3671673fd6d79a163f37f9e0df009183d909c0e",
+   "chain": "ethereum",
+   "asset": {
+    "identifier": null,
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+   },
+   "remaining_quantity": 3,
+   "order_created_at": 1794791541,
+   "criteria": {
+    "collection": {
+     "slug": "junglebay"
+    },
+    "contract": {
+     "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+    },
+    "traits": null,
+    "numeric_traits": null,
+    "encoded_token_ids": "*"
+   },
+   "price": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "80700000000000000"
+   },
+   "price_per_item": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "26900000000000000"
+   },
+   "status": "ACTIVE"
+  },
+  {
+   "order_hash": "0x392e37a51c492bc62a717572609aedba1a4ed511605a7cd06d90a461f5b316c5",
+   "chain": "ethereum",
+   "asset": {
+    "identifier": null,
+    "contract": "0xc1caf0c19a8ac28c41fe59ba6c754e4b9bd54de9"
+   },
+   "remaining_quantity": 1,
+   "order_created_at": 1794791596,
+   "criteria": {
+    "collection": {
+     "slug": "cryptoskulls"
+    },
+    "contract": {
+     "address": "0xc1caf0c19a8ac28c41fe59ba6c754e4b9bd54de9"
+    },
+    "traits": null,
+    "numeric_traits": null,
+    "encoded_token_ids": "*"
+   },
+   "price": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "37000000000000000"
+   },
+   "price_per_item": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "37000000000000000"
+   },
+   "status": "ACTIVE"
+  }
+ ],
+ "next": null
+}

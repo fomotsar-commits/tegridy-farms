@@ -1,0 +1,19 @@
+{
+ "_source": "An EXAMPLE insiders.json for tests and the fixture report, built from the public venue wallets and contracts named in BUILD-SPEC 2.2 and dev/bidbot-2026-11-15/integrity-law/raw/holdings-summary.json (2026-11-15), plus the JBAC contract owner and JBAC creator-fee wallet as the JBAC team. It is not the list the bot obeys: that is the owner's own insiders.json in the keys folder, outside the repo.",
+ "version": 1,
+ "wallets": [
+  { "address": "0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e", "who": "treasury Safe signer" },
+  { "address": "0x28d7CB2F4D73C2750Ba0055c771871fec79260f8", "who": "treasury Safe signer" },
+  { "address": "0x14898258122C0740106391E6e8E4F17F3b6d456E", "who": "venue deployer" },
+  { "address": "0xDc4AEe24d421B2697f3E09da761b88d06F13e12e", "who": "JBAC contract owner" },
+  { "address": "0xa3cc58eaa3800dc163726e031a2da49a9bb64eb3", "who": "JBAC creator-fee wallet" }
+ ],
+ "contracts": [
+  "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d",
+  "0xA36053477568Fb5382492F3A5970D35Fe896b7F8",
+  "0xCDCA0F0621ce34012AD61bBD140f327EB778F354",
+  "0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630",
+  "0xe61613035B85308F31E068bBC31257524ffE7Fa6",
+  "0x28317bf362d43b40fceCEbf2390c43Db558c3f14"
+ ]
+}

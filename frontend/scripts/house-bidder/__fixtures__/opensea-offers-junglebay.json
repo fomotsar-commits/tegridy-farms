@@ -1,0 +1,156 @@
+{
+ "_source": "Two real entries of dev/bidbot-2026-11-15/collections-facts/raw/junglebay/offers-collection.json (OpenSea's Offer schema, read 2026-11-15T21:30:30.570Z): one for 2 NFTs, one for 1. The account-offers endpoint returns the same schema.",
+ "offers": [
+  {
+   "order_hash": "0x70dbc46a4cc1c047480c75b8aca1cda85a384b4d6efc22e31f45ba0c4172dc60",
+   "chain": "ethereum",
+   "protocol_data": {
+    "parameters": {
+     "offerer": "0x3068e30a4ae02825ed5a51b0c070f04332642702",
+     "offer": [
+      {
+       "itemType": 1,
+       "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+       "identifierOrCriteria": "0",
+       "startAmount": "68800000000000000",
+       "endAmount": "68800000000000000"
+      }
+     ],
+     "consideration": [
+      {
+       "itemType": 4,
+       "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+       "identifierOrCriteria": "0",
+       "startAmount": "2",
+       "endAmount": "2",
+       "recipient": "0x3068e30a4ae02825ed5a51b0c070f04332642702"
+      },
+      {
+       "itemType": 1,
+       "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+       "identifierOrCriteria": "0",
+       "startAmount": "688000000000000",
+       "endAmount": "688000000000000",
+       "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+      }
+     ],
+     "startTime": "1794778036",
+     "endTime": "1794778852",
+     "orderType": 3,
+     "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+     "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+     "salt": "0xc37760134b76b3dc2c238415eb1fa8b7fa2754254e71bef9ef31bce7b673bc04",
+     "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+     "totalOriginalConsiderationItems": 2,
+     "counter": "271735846042798692953175855339143316823"
+    },
+    "signature": null
+   },
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "asset": {
+    "identifier": null,
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+   },
+   "remaining_quantity": 2,
+   "order_created_at": 1794778036,
+   "criteria": {
+    "collection": {
+     "slug": "junglebay"
+    },
+    "contract": {
+     "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+    },
+    "traits": null,
+    "numeric_traits": null,
+    "encoded_token_ids": "*"
+   },
+   "price": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "68800000000000000"
+   },
+   "price_per_item": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "34400000000000000"
+   },
+   "status": "ACTIVE"
+  },
+  {
+   "order_hash": "0xd56fb01003fff659a2eaa98e3a488703b9bbd49eaa2f10896998eb198ba1d3b9",
+   "chain": "ethereum",
+   "protocol_data": {
+    "parameters": {
+     "offerer": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+     "offer": [
+      {
+       "itemType": 1,
+       "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+       "identifierOrCriteria": "0",
+       "startAmount": "34500000000000000",
+       "endAmount": "34500000000000000"
+      }
+     ],
+     "consideration": [
+      {
+       "itemType": 4,
+       "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+       "identifierOrCriteria": "0",
+       "startAmount": "1",
+       "endAmount": "1",
+       "recipient": "0xb523f4ed6793fb4191e90b6984969220a4a925fd"
+      },
+      {
+       "itemType": 1,
+       "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+       "identifierOrCriteria": "0",
+       "startAmount": "345000000000000",
+       "endAmount": "345000000000000",
+       "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+      }
+     ],
+     "startTime": "1794778068",
+     "endTime": "1794778670",
+     "orderType": 2,
+     "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+     "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+     "salt": "0x6e5bab4a2c07145b8f9aec2be30ccf20346402adc8dbd022fdb453467ae7b6e9",
+     "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+     "totalOriginalConsiderationItems": 2,
+     "counter": "0"
+    },
+    "signature": null
+   },
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "asset": {
+    "identifier": null,
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+   },
+   "remaining_quantity": 1,
+   "order_created_at": 1794778068,
+   "criteria": {
+    "collection": {
+     "slug": "junglebay"
+    },
+    "contract": {
+     "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+    },
+    "traits": null,
+    "numeric_traits": null,
+    "encoded_token_ids": "*"
+   },
+   "price": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "34500000000000000"
+   },
+   "price_per_item": {
+    "currency": "WETH",
+    "decimals": 18,
+    "value": "34500000000000000"
+   },
+   "status": "ACTIVE"
+  }
+ ],
+ "next": null
+}
