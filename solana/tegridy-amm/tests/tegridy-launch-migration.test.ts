@@ -824,8 +824,8 @@ describe("tegridy-launch full migration rehearsal", () => {
     // ── nothing recoverable is left stranded ─────────────────────────────────
     // Migration is permissionless, so `payer` fronts rent on the two staging accounts,
     // and the authority also absorbs whatever the migration reserve over-provisioned.
-    // After migration NONE of it is reachable — only the program signs for the
-    // authority, and a `complete` curve never releases lamports — so the handler
+    // After migration NONE of it is reachable (only the program signs for the
+    // authority, and a `complete` curve never releases lamports), so the handler
     // closes the three token accounts and sweeps the authority to zero.
     const authInfo = await provider.connection.getAccountInfo(migAuth);
     assert.isTrue(
