@@ -1,16 +1,17 @@
 === src/lib.rs ===
-6a7,10
+6a7,11
 > use crate::error::ErrorCode;
 > use crate::states::{
->     AmmConfig, KeeperChanged, PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE,
+>     AmmConfig, KeeperChanged, PoolState, MAX_CREATE_POOL_FEE, MAX_FEE_RATE_NUMERATOR,
+>     MAX_PROTOCOL_AND_FUND_FEE_RATE,
 > };
-7a12,16
+7a13,17
 > use anchor_spl::metadata::{
 >     create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
 >     Metadata,
 > };
 > use anchor_spl::token_interface::Mint;
-13,19c22,31
+13,19c23,32
 <     name: "raydium-cp-swap",
 <     project_url: "https://raydium.io",
 <     contacts: "link:https://immunefi.com/bounty/raydium",
@@ -29,7 +30,7 @@
 >     // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
 >     // claiming it on-chain would be false. Every link above is on our own domain:
 >     // never put a git-host URL in this macro (docs/TODO_OPERATOR.md O-0929-10).
-21a34,77
+21a35,78
 > // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
 > // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
 > // identity constants (3 here + create_support_mint_associated_owner in
@@ -74,15 +75,15 @@
 > // mistake that shipped 2026-08-08 and bricked graduation. The authoritative
 > // guidance is the admin module's own comment below: the constant must be a
 > // SIGNABLE, SYSTEM-OWNED, rent-paying account, never the Squads multisig account.)
-23c79
+23c80
 < declare_id!("DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
 ---
 > declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
-25c81
+25c82
 < declare_id!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
 ---
 > declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
-28a85,114
+28a86,115
 >     // Admin authority: create_config / update_config / update_pool_status AND a
 >     // fallback collector on collect_protocol_fee (can sweep accrued protocol fees to any
 >     // recipient) — a fund-touching, top-tier key. Since 2026-11-03 it is not one on
@@ -113,47 +114,48 @@
 >     // it is resolved at compile time. Before moving it, hand over every tier whose fund
 >     // owner is still this key: update_config.rs lets only the running build's admin hand
 >     // a fund fee over, so a tier left on the old key could not be handed over again.
-30c116
+30c117
 <     pub const ID: Pubkey = pubkey!("DRayqG9RXYi8WHgWEmRQGrUWRWbhjYWYkCRJDd6JBBak");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-32c118
+32c119
 <     pub const ID: Pubkey = pubkey!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-36a123,127
+36a124,128
 >     // Flat pool-creation fee recipient. This account is consumed as a native-SOL
 >     // (WSOL) SPL TOKEN ACCOUNT — the create path deserializes it as
 >     // InterfaceAccount<TokenAccount> and calls sync_native — so it MUST be a WSOL
 >     // token account (e.g. the treasury's WSOL ATA), NOT a wallet. Devnet = the
 >     // treasury/admin's WSOL ATA (created before deploy; see deploy-devnet.sh).
-38c129
+38c130
 <     pub const ID: Pubkey = pubkey!("3oE58BKVt8KuYkGxx8zBojugnymWmBiyafWgMrnb6eYy");
 ---
 >     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
-40c131
+40c132
 <     pub const ID: Pubkey = pubkey!("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
 ---
 >     pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
-67c158,161
+67c159,162
 <         assert!(trade_fee_rate + creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >         // memetics.finance: a trade fee of 0 makes every swap into a public pool revert
 >         // (split_creator_fee divides by the two rates' sum), so it is refused.
 >         assert!(trade_fee_rate > 0);
 >         assert!(trade_fee_rate + creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-70c164
+70c165,166
 <         assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >         assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-93a188,193
+>         assert!(create_pool_fee <= MAX_CREATE_POOL_FEE);
+93a190,195
 >     /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
 >     ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
 >     ///   remaining account (the System Program's address clears it). Since 2026-11-11 the
 >     ///   keeper also swaps on the tier free of the trade and creator fees. Since 2026-11-14 a
 >     ///   keeper must be a wallet's key (a program's address is refused, 6017
 >     ///   `KeeperNotAWallet`), and params 8 and 9 log `SwapGuardChanged` and `KeeperChanged`
-297a398,680
+297a400,682
 >     }
 > 
 >     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
@@ -485,7 +487,15 @@
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 === src/instructions/admin/update_config.rs ===
-34a35,41
+32c32,36
+<         Some(5) => amm_config.create_pool_fee = value,
+---
+>         Some(5) => {
+>             // memetics.finance: at most 1 SOL, as in create_amm_config (lib.rs).
+>             assert!(value <= MAX_CREATE_POOL_FEE);
+>             amm_config.create_pool_fee = value
+>         }
+34a39,45
 >         // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
 >         // lets through (states/config.rs). The System Program's address, all zeros, is nobody.
 >         Some(8) => set_swap_guard(amm_config, value)?,
@@ -493,7 +503,7 @@
 >             let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
 >             set_keeper(amm_config, *keeper.key)?;
 >         }
-40a48,75
+40a52,79
 > fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
 >     require!(swap_guard <= 1, ErrorCode::InvalidInput);
 >     amm_config.swap_guard = swap_guard;
@@ -522,29 +532,29 @@
 >     Ok(())
 > }
 > 
-43c78
+43c82
 <     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-48c83,85
+48c87,89
 <     assert!(trade_fee_rate + amm_config.creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     // memetics.finance: never 0, as in create_amm_config (lib.rs).
 >     assert!(trade_fee_rate > 0);
 >     assert!(trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-54c91
+54c95
 <     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-59c96
+59c100
 <     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-75a113,115
+75a117,119
 >     // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
 >     // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
 >     require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
-84a125,331
+84a129,426
 > }
 > 
 > /// A fee tier as the update helpers take it.
@@ -643,6 +653,97 @@
 >         update_fund_fee_rate(&mut c, 96_000);
 >         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
 >         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+>     }
+> }
+> 
+> /// An account the admin's instructions take beside the tier: a signer, or a program.
+> #[cfg(test)]
+> fn test_account(key: Pubkey, is_signer: bool, executable: bool) -> &'static AccountInfo<'static> {
+>     Box::leak(Box::new(AccountInfo::new(
+>         Box::leak(Box::new(key)),
+>         is_signer,
+>         true,
+>         Box::leak(Box::new(1_000_000_000u64)),
+>         Box::leak(Vec::new().into_boxed_slice()),
+>         Box::leak(Box::new(anchor_lang::system_program::ID)),
+>         executable,
+>         0,
+>     )))
+> }
+> 
+> // The opening-fee ceiling through both instructions that write the fee, as the admin sends them.
+> #[cfg(test)]
+> mod opening_fee_ceiling_test {
+>     use super::*;
+>     use crate::instructions::{CreateAmmConfig, CreateAmmConfigBumps};
+> 
+>     const ONE_SOL: u64 = 1_000_000_000;
+> 
+>     /// `create_amm_config` for a tier of the 1% shape that charges `fee` to open a pool.
+>     fn create_with(fee: u64) -> u64 {
+>         let mut accounts = CreateAmmConfig {
+>             owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+>             amm_config: test_tier(AmmConfig::default()),
+>             system_program: Program::try_from(test_account(
+>                 anchor_lang::system_program::ID,
+>                 false,
+>                 true,
+>             ))
+>             .unwrap(),
+>         };
+>         let bumps = CreateAmmConfigBumps { amm_config: 255 };
+>         crate::raydium_cp_swap::create_amm_config(
+>             Context::new(&crate::id(), &mut accounts, &[], bumps),
+>             1,
+>             10_000,
+>             104_000,
+>             56_000,
+>             fee,
+>             0,
+>         )
+>         .unwrap();
+>         accounts.amm_config.create_pool_fee
+>     }
+> 
+>     /// `update_amm_config` param 5 setting `fee` on a tier that charges 0.15 SOL, as the 1% one does.
+>     fn update_to(fee: u64) -> u64 {
+>         let mut accounts = UpdateAmmConfig {
+>             owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+>             amm_config: test_tier(AmmConfig {
+>                 create_pool_fee: 150_000_000,
+>                 ..Default::default()
+>             }),
+>         };
+>         update_amm_config(
+>             Context::new(&crate::id(), &mut accounts, &[], UpdateAmmConfigBumps {}),
+>             5,
+>             fee,
+>         )
+>         .unwrap();
+>         accounts.amm_config.create_pool_fee
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "create_pool_fee <= MAX_CREATE_POOL_FEE")]
+>     fn a_new_tier_charging_more_than_1_sol_to_open_a_pool_is_refused() {
+>         create_with(ONE_SOL + 1);
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "value <= MAX_CREATE_POOL_FEE")]
+>     fn raising_a_tiers_opening_fee_above_1_sol_is_refused() {
+>         update_to(ONE_SOL + 1);
+>     }
+> 
+>     // Controls: 1 SOL itself, and both live tiers' fees (read on mainnet 2026-11-15: 0 on the
+>     // launch tier, 0.15 SOL on the 1% tier), through both instructions.
+>     #[test]
+>     fn one_sol_itself_and_both_live_tiers_fees_are_accepted() {
+>         assert_eq!(MAX_CREATE_POOL_FEE, ONE_SOL);
+>         for fee in [ONE_SOL, 150_000_000, 0] {
+>             assert_eq!(create_with(fee), fee);
+>             assert_eq!(update_to(fee), fee);
+>         }
 >     }
 > }
 > 
@@ -823,7 +924,7 @@
 === src/states/config.rs ===
 1a2
 > use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
-4a6,12
+4a6,15
 > /// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
 > pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 > 
@@ -831,7 +932,10 @@
 > /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 > pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 > 
-28a37,48
+> /// memetics.finance, 2026-11-15: a tier charges at most 1 SOL (in lamports) to open a pool.
+> pub const MAX_CREATE_POOL_FEE: u64 = 1_000_000_000;
+> 
+28a40,51
 >     /// memetics.finance: the swap guard. 0, a swap on this tier runs wherever it is called
 >     /// from, as upstream. 1, a swap must be an instruction of the transaction itself: one that
 >     /// another program calls is refused (`refuses_swap`). On 2026-11-10 every arbitrage bot in
@@ -844,11 +948,11 @@
 >     /// 2026-11-14 only a wallet's key may be named, and the keeper may give the role up at once
 >     /// (`resign_keeper`).
 >     pub keeper: Pubkey,
-30c50
+30c53
 <     pub padding: [u64; 15],
 ---
 >     pub padding: [u64; 10],
-34c54,359
+34c57,362
 <     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 * 15;
 ---
 >     // The same 236 bytes as upstream: the guard and the keeper take 40 of its 120 of padding.

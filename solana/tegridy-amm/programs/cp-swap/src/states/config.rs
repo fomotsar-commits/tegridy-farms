@@ -10,6 +10,9 @@ pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 
+/// memetics.finance, 2026-11-15: a tier charges at most 1 SOL (in lamports) to open a pool.
+pub const MAX_CREATE_POOL_FEE: u64 = 1_000_000_000;
+
 /// Holds the current owner of the factory
 #[account]
 #[derive(Default, Debug)]

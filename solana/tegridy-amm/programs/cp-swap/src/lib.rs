@@ -6,7 +6,8 @@ pub mod utils;
 use crate::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
 use crate::error::ErrorCode;
 use crate::states::{
-    AmmConfig, KeeperChanged, PoolState, MAX_FEE_RATE_NUMERATOR, MAX_PROTOCOL_AND_FUND_FEE_RATE,
+    AmmConfig, KeeperChanged, PoolState, MAX_CREATE_POOL_FEE, MAX_FEE_RATE_NUMERATOR,
+    MAX_PROTOCOL_AND_FUND_FEE_RATE,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::metadata::{
@@ -162,6 +163,7 @@ pub mod raydium_cp_swap {
         assert!(protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
         assert!(fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
         assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
+        assert!(create_pool_fee <= MAX_CREATE_POOL_FEE);
         instructions::create_amm_config(
             ctx,
             index,

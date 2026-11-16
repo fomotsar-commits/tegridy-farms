@@ -29,7 +29,11 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -
             let new_fund_owner = *ctx.remaining_accounts.iter().next().unwrap().key;
             set_new_fund_owner(amm_config, new_fund_owner)?;
         }
-        Some(5) => amm_config.create_pool_fee = value,
+        Some(5) => {
+            // memetics.finance: at most 1 SOL, as in create_amm_config (lib.rs).
+            assert!(value <= MAX_CREATE_POOL_FEE);
+            amm_config.create_pool_fee = value
+        }
         Some(6) => amm_config.disable_create_pool = if value == 0 { false } else { true },
         Some(7) => update_creator_fee_rate(amm_config, value),
         // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
@@ -220,6 +224,97 @@ mod fee_ceiling_test {
         update_fund_fee_rate(&mut c, 96_000);
         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+    }
+}
+
+/// An account the admin's instructions take beside the tier: a signer, or a program.
+#[cfg(test)]
+fn test_account(key: Pubkey, is_signer: bool, executable: bool) -> &'static AccountInfo<'static> {
+    Box::leak(Box::new(AccountInfo::new(
+        Box::leak(Box::new(key)),
+        is_signer,
+        true,
+        Box::leak(Box::new(1_000_000_000u64)),
+        Box::leak(Vec::new().into_boxed_slice()),
+        Box::leak(Box::new(anchor_lang::system_program::ID)),
+        executable,
+        0,
+    )))
+}
+
+// The opening-fee ceiling through both instructions that write the fee, as the admin sends them.
+#[cfg(test)]
+mod opening_fee_ceiling_test {
+    use super::*;
+    use crate::instructions::{CreateAmmConfig, CreateAmmConfigBumps};
+
+    const ONE_SOL: u64 = 1_000_000_000;
+
+    /// `create_amm_config` for a tier of the 1% shape that charges `fee` to open a pool.
+    fn create_with(fee: u64) -> u64 {
+        let mut accounts = CreateAmmConfig {
+            owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+            amm_config: test_tier(AmmConfig::default()),
+            system_program: Program::try_from(test_account(
+                anchor_lang::system_program::ID,
+                false,
+                true,
+            ))
+            .unwrap(),
+        };
+        let bumps = CreateAmmConfigBumps { amm_config: 255 };
+        crate::raydium_cp_swap::create_amm_config(
+            Context::new(&crate::id(), &mut accounts, &[], bumps),
+            1,
+            10_000,
+            104_000,
+            56_000,
+            fee,
+            0,
+        )
+        .unwrap();
+        accounts.amm_config.create_pool_fee
+    }
+
+    /// `update_amm_config` param 5 setting `fee` on a tier that charges 0.15 SOL, as the 1% one does.
+    fn update_to(fee: u64) -> u64 {
+        let mut accounts = UpdateAmmConfig {
+            owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+            amm_config: test_tier(AmmConfig {
+                create_pool_fee: 150_000_000,
+                ..Default::default()
+            }),
+        };
+        update_amm_config(
+            Context::new(&crate::id(), &mut accounts, &[], UpdateAmmConfigBumps {}),
+            5,
+            fee,
+        )
+        .unwrap();
+        accounts.amm_config.create_pool_fee
+    }
+
+    #[test]
+    #[should_panic(expected = "create_pool_fee <= MAX_CREATE_POOL_FEE")]
+    fn a_new_tier_charging_more_than_1_sol_to_open_a_pool_is_refused() {
+        create_with(ONE_SOL + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "value <= MAX_CREATE_POOL_FEE")]
+    fn raising_a_tiers_opening_fee_above_1_sol_is_refused() {
+        update_to(ONE_SOL + 1);
+    }
+
+    // Controls: 1 SOL itself, and both live tiers' fees (read on mainnet 2026-11-15: 0 on the
+    // launch tier, 0.15 SOL on the 1% tier), through both instructions.
+    #[test]
+    fn one_sol_itself_and_both_live_tiers_fees_are_accepted() {
+        assert_eq!(MAX_CREATE_POOL_FEE, ONE_SOL);
+        for fee in [ONE_SOL, 150_000_000, 0] {
+            assert_eq!(create_with(fee), fee);
+            assert_eq!(update_to(fee), fee);
+        }
     }
 }
 
