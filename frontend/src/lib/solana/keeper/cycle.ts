@@ -79,6 +79,12 @@ export interface KeeperIo {
   bans?: TripBans;
   /** Trips between two outside pools the scanner test-ran lately (keeper/takes.ts); absent: none are tried. */
   takes?: () => Promise<OutsideTake[]>;
+  /**
+   * Every token account the keeper's wallet holds, by address: read before the first pass, then
+   * each trip's own accounts and every account the leftover sale reads join it. A Jupiter leg may
+   * name none of them but its own two (plan.ts `jupiterLegProblem`). Absent: unread, no leg passes.
+   */
+  held?: Set<string>;
   log: (line: string) => void;
 }
 
@@ -793,7 +799,7 @@ async function jupiterTrip(
   const loan = loanAt(coinIn);
   const minProfit = floorAt(coinIn);
   const need = coinIn + minProfit;
-  const legExpect = { owner, refused: refused.programs, untouchable: acc.hasOther ? [acc.otherAta] : [] };
+  const legExpect = { owner, refused: refused.programs, untouchable: acc.hasOther ? [acc.otherAta] : [], held: io.held };
   let legs: TransactionInstruction[];
   let lookupTables: string[];
   if (plan.side === 'buy') {
@@ -907,13 +913,13 @@ async function viaTrip(
   const minOut = jupiterFloor(BigInt(q3.outAmount), bps);
   const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
     jupiterLegProblem(x.swap, {
-      owner, refused: refused.programs, untouchable: [usdcAta, bAta],
+      owner, refused: refused.programs, untouchable: [usdcAta, bAta], held: io.held,
       inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: new PublicKey(a), outputProgram: programOf(a), inAmount: coinIn, minOut: aIn,
     }),
   );
   const si3 = await jupiterLeg(io.jupiter, owner, { ...q3, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
     jupiterLegProblem(x.swap, {
-      owner, refused: refused.programs, untouchable: [usdcAta, aAta],
+      owner, refused: refused.programs, untouchable: [usdcAta, aAta], held: io.held,
       inputMint: new PublicKey(b), inputProgram: programOf(b), outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut,
     }),
   );
@@ -1016,7 +1022,7 @@ async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd:
     return 'quote-short';
   }
   const minOut = jupiterFloor(BigInt(q2.outAmount), bps);
-  const legExpect = { owner, refused: refused.programs, untouchable: [otherAta] };
+  const legExpect = { owner, refused: refused.programs, untouchable: [otherAta], held: io.held };
   const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
     routeHeldTo(x.swap, buy.program, amm1) ??
     jupiterLegProblem(x.swap, { ...legExpect, inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: tokenMint, outputProgram: tokenProgram, inAmount: coinIn, minOut: tokensIn }),
@@ -1055,7 +1061,7 @@ async function quoteDirectFirst(io: KeeperIo, s: KeeperSettings, p: Omit<Paramet
 
 /**
  * Jupiter's swap for `quote`, once `check` finds no problem with it. Asked first through the
- * keeper's own accounts. When that route names the keeper's other coin's account, it is asked
+ * keeper's own accounts. When that route names another account of the keeper's, it is asked
  * again through Jupiter's shared accounts, and checked the same way: a USDC trip whose only
  * route runs through SOL has its middle step in the keeper's wrapped SOL, which a route must
  * never touch (BAYLA against USDC, 2026-11-01). Anything Jupiter adds refuses it either way.
@@ -1201,6 +1207,8 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
   const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
   if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
+  // The trip may open its accounts: they join the keeper's list (`KeeperIo.held`) before it goes.
+  for (const a of [coinAta, tokenAta, otherAta]) io.held?.add(a.toBase58());
   // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it:
   // the Lighthouse check counts from this amount.
   const atSend = await balances(io.rpc, keys);
@@ -1252,10 +1260,13 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
 export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number> {
   const owner = io.owner;
   const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
-  const held = [
+  const accounts = [
     ...(await getTokenAccountsByOwner(io.rpc, owner.toBase58(), TOKEN_PROGRAM_ID.toBase58(), toBase58)).map((t) => ({ ...t, program: TOKEN_PROGRAM_ID })),
     ...(await getTokenAccountsByOwner(io.rpc, owner.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), toBase58)).map((t) => ({ ...t, program: TOKEN_2022_PROGRAM_ID })),
-  ].filter((t) => t.amount > 0n && !KEEPER_COINS.some((c) => c.mint === t.mint));
+  ];
+  // Every account read joins the keeper's list (`KeeperIo.held`), leftover or not.
+  for (const t of accounts) io.held?.add(t.address);
+  const held = accounts.filter((t) => t.amount > 0n && !KEEPER_COINS.some((c) => c.mint === t.mint));
   if (!held.length) return 0;
   const prices = await pricesOf(io, [SOL_QUOTE.mint, ...held.map((t) => t.mint)]);
   const solUsd = prices[SOL_QUOTE.mint];
@@ -1285,7 +1296,7 @@ export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number>
       const q = await quoteWithRoom(io, s, { inputMint: t.mint, outputMint: SOL_QUOTE.mint, amount: before.token, slippageBps: s.slippageBps, excludeDexes: refused.names });
       const si = await jupiterLeg(io.jupiter, owner, q, (x) =>
         jupiterLegProblem(x.swap, {
-          owner, refused: refused.programs, untouchable: [otherAta],
+          owner, refused: refused.programs, untouchable: [otherAta], held: io.held,
           inputMint: tokenMint, inputProgram: t.program, outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: before.token, minOut: routeFloor(x),
         }),
       );

@@ -14,6 +14,7 @@ import {
   DEFAULT_LIMITS,
   JUPITER_PROGRAM,
   MAX_LAMPORTS_SPENT,
+  NAMES_OTHER_ACCOUNT,
   ROUTE_V2,
   SHARED_ACCOUNTS_ROUTE_V2,
   decodeJupiterRoute,
@@ -136,6 +137,7 @@ const expectLeg = (over: Partial<JupiterLegExpect> = {}): JupiterLegExpect => ({
   minOut: 9_000n,
   refused: new Set(),
   untouchable: [],
+  held: new Set(),
   ...over,
 });
 const src = getAssociatedTokenAddressSync(token, owner, true, TOKEN_2022_PROGRAM_ID);
@@ -184,6 +186,22 @@ describe('jupiterLegProblem: what the keeper’s key signs', () => {
     const otherFloat = getAssociatedTokenAddressSync(new PublicKey(USDC_QUOTE.mint), owner, true, TOKEN_PROGRAM_ID);
     expect(jupiterLegProblem(routeIx(), expectLeg({ untouchable: [otherFloat] }))).toBeNull();
     expect(jupiterLegProblem(routeIx({ extra: [otherFloat] }), expectLeg({ untouchable: [otherFloat] }))).toMatch(/another of the keeper/);
+  });
+
+  it('refuses a route that names any token account the keeper holds but the leg’s own two, in either layout', () => {
+    const leftover = Keypair.generate().publicKey;
+    const held = new Set([src, dst, leftover].map((k) => k.toBase58()));
+    expect(jupiterLegProblem(routeIx(), expectLeg({ held }))).toBeNull();
+    expect(jupiterLegProblem(routeIx({ extra: [leftover] }), expectLeg({ held }))).toBe(NAMES_OTHER_ACCOUNT);
+    const data = routeData(SHARED_ACCOUNTS_ROUTE_V2, 1_000n, 10_000n, 1_000, 0, true);
+    const keys = [Keypair.generate().publicKey, owner, src, Keypair.generate().publicKey, Keypair.generate().publicKey, dst, token, coin];
+    const shared = (...more: PublicKey[]) => new TransactionInstruction({ programId: JUPITER_PROGRAM, keys: [...keys, ...more].map((k) => acct(k, k.equals(owner))), data });
+    expect(jupiterLegProblem(shared(), expectLeg({ held }))).toBeNull();
+    expect(jupiterLegProblem(shared(leftover), expectLeg({ held }))).toBe(NAMES_OTHER_ACCOUNT);
+  });
+
+  it('refuses every route while the keeper’s own token accounts are unread', () => {
+    expect(jupiterLegProblem(routeIx(), expectLeg({ held: undefined }))).toMatch(/token accounts were not read/);
   });
 
   it('refuses a minimum under the floor, by one unit', () => {

@@ -201,17 +201,19 @@ export interface JupiterLegExpect {
   refused: ReadonlySet<string>;
   /** The keeper's other accounts (its other coin's): the route must not name them at all. */
   untouchable: readonly PublicKey[];
+  /** Every token account the keeper holds (cycle.ts `KeeperIo.held`); undefined: unread, and no route passes. */
+  held: ReadonlySet<string> | undefined;
 }
 
-/** `jupiterLegProblem`'s answer for a route that names one of `untouchable`. */
+/** `jupiterLegProblem`'s answer for a route that names one of `untouchable`, or of `held` but its own two. */
 export const NAMES_OTHER_ACCOUNT = 'the swap names another of the keeper’s accounts';
 
 /**
  * Why Jupiter's swap instruction must not be signed, or null. It must be a `route_v2` (or the
  * shared-accounts one) into Jupiter, spending exactly `inAmount` from the keeper's own account
  * of the input coin, paying the keeper's own account of the output coin, with no platform fee,
- * a floor of at least `minOut`, no signer but the keeper, and no refused program anywhere.
- * Account order is the IDL's.
+ * a floor of at least `minOut`, no signer but the keeper, no refused program anywhere, and no
+ * other token account of the keeper's. Account order is the IDL's.
  */
 export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpect): string | null {
   if (!ix.programId.equals(JUPITER_PROGRAM)) return 'the swap is not a call into Jupiter';
@@ -226,8 +228,11 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   if (ix.keys.some((m) => m.isSigner && !m.pubkey.equals(e.owner))) return 'the swap asks another signer';
   if (k.some((p) => e.refused.has(p.toBase58()))) return 'the route passes through a refused venue';
   if (k.some((p) => e.untouchable.some((u) => u.equals(p)))) return NAMES_OTHER_ACCOUNT;
+  const held = e.held;
+  if (!held) return 'the keeper’s own token accounts were not read';
   const sourceAta = getAssociatedTokenAddressSync(e.inputMint, e.owner, true, e.inputProgram);
   const destAta = getAssociatedTokenAddressSync(e.outputMint, e.owner, true, e.outputProgram);
+  if (k.some((p) => held.has(p.toBase58()) && !p.equals(sourceAta) && !p.equals(destAta))) return NAMES_OTHER_ACCOUNT;
   const at = (i: number) => k[i] ?? PublicKey.default;
   if (r.shared) {
     // program_authority, user_transfer_authority, source_token_account, program_source, program_destination, destination_token_account, source_mint, destination_mint
