@@ -223,13 +223,14 @@ nobody can freeze.
 The Solana audit of 2026-11-15 found no critical or high bug in this program. The owner ruled the
 same day that limit orders stay, with their arithmetic patched, and that the LPs' part of the fee on
 a limit-order fill is the venue's. Each change below has a unit test seen failing on the code before
-it. **None of it is on chain.** It needs its own upgrade, either in place of the pending upgrade's
+it; for the two reward handlers that test pins the rule's text, and the local chain's checks R15 and
+R16, not yet run, run them. **None of it is on chain.** It needs its own upgrade, either in place of the pending upgrade's
 build or as a second upgrade after it, and that upgrade must execute before the vault turns limit
 orders on for any pool.
 
 | Finding | What it was | What changed | Proved by |
 |---|---|---|---|
-| RNG-02 | A cohort's unfilled ratio was carried at 2^64 and rounded down at every fill, so a large cohort's makers could be credited more of the paid coin than takers paid in | Carried at 2^126. A tick or an order written by an older build marks it with padding[0] at 0; its ratio is scaled up exactly when read, so an order opened before this build settles, cancels and closes correctly | unit tests |
+| RNG-02 | A cohort's unfilled ratio was carried at 2^64 and rounded down at every fill, so a large cohort's makers could be credited more of the paid coin than takers paid in | Carried at 2^126. An older build left `padding[0]` at 0 in a tick or an order; such a ratio is scaled up exactly when read, so an order opened before this build settles, cancels and closes correctly | unit tests |
 | RNG-03 | On a limit-order fill the LPs' 84% went to whatever LP liquidity was in range, however small | It goes to the venue's share (the owner's ruling) | unit test |
 | RNG-04 | An order one unit of which no u64 input could buy at the taker's rounding was accepted | The size check every order passes refuses it | unit test |
 | RNG-05 | An operation owner the vault named could start rewards, change any reward at once, and keep what the vault added to a reward it started | Only the vault starts or changes a reward | unit tests, R15, R16 |
