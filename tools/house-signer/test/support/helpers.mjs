@@ -59,8 +59,21 @@ export function makePolicy(edit) {
   return v.policy;
 }
 
+// Every temp folder a test makes is removed when its test process exits (node --test runs
+// each file in its own process), so a mutation run's few hundred suite runs leave nothing.
+const madeDirs = [];
+process.once('exit', () => {
+  for (const dir of madeDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { /* a folder still open on Windows is left for the OS to clear */ }
+  }
+});
+
 export function tempDir(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `house-signer-${label}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `house-signer-${label}-`));
+  madeDirs.push(dir);
+  return dir;
 }
 
 /** The NFT line OpenSea's build returns for a collection bid by `house`. */
