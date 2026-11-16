@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Marketplace and NFT lending: the depth chart no longer gives a verdict built on bids nobody may be able to pay, the lending card's near-floor count includes only bidders who hold and have approved the WETH, and our own order book takes and fills only listings, reported by their buyer, so nobody can pad the volume figure.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.
