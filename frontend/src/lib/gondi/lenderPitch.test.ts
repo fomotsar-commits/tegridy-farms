@@ -4,18 +4,25 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   GONDI_OWN_LOAN_ADDRESSES,
   LENDING_OPENSEA_SLUGS,
+  MAX_FUNDING_READS,
+  OPENSEA_CONDUIT,
+  OPENSEA_CONDUIT_KEY,
   bidBook,
   buysAnyTokenOrder,
   exitCheck,
   fetchLendingMarket,
+  fundedNearFloor,
+  fundingMakers,
   lowestOwnFeeBps,
   readStats,
   sameTakeHomeAprBps,
   underFloorPct,
+  type BidBook,
   type CollectionBidLike,
+  type FundingRead,
 } from './lenderPitch';
 import { LENDING_COLLECTIONS } from './loanOffer.js';
-import { COLLECTIONS as MARKET_COLLECTIONS } from '../../nakamigos/constants';
+import { COLLECTIONS as MARKET_COLLECTIONS, CONDUIT_ADDRESS, CONDUIT_KEY } from '../../nakamigos/constants';
 import { VENUE_SLUGS } from '../../../api/_lib/venue-registry.js';
 
 describe('sameTakeHomeAprBps', () => {
@@ -57,20 +64,64 @@ describe('lowestOwnFeeBps', () => {
   });
 });
 
+const MAKER_A = '0x' + 'a1'.repeat(20);
+const MAKER_B = '0x' + 'b2'.repeat(20);
+const HOUSE = '0x8ba1f109551bD432803012645Ac136ddd64DBA72';
+const wei = (eth: number) => BigInt(Math.round(eth * 1e6)) * 10n ** 12n;
 const bid = (price: number | null, over: Partial<CollectionBidLike> = {}): CollectionBidLike => ({
   price,
   quantity: 1,
   quantityKnown: true,
   currency: 'WETH',
   criteria: { trait: null },
+  maker: MAKER_A,
+  unitWei: price === null || !Number.isFinite(price) ? null : wei(price),
+  viaOpenSeaConduit: true,
   ...over,
 });
+const units = (book: BidBook) => book.nearFloorBids?.reduce((n, b) => n + b.units, 0) ?? null;
+const ok = (result: bigint): FundingRead => ({ status: 'success', result });
+const failed: FundingRead = { status: 'failure' };
 
 describe('bidBook', () => {
-  it('best bid = the highest bid that buys ANY token; near floor = NFTs bought at 90% of the floor or more', () => {
+  it('best bid = the highest bid that buys ANY token; near floor = the bids at 90% of the floor or more', () => {
     const book = bidBook([bid(0.28, { quantity: 3 }), bid(0.27, { quantity: 2 }), bid(0.26, { quantity: 9 })], 0.3);
     expect(book.bestBid).toBe(0.28);
-    expect(book.nearFloor).toBe(5); // 0.27 is exactly 90% of 0.3: counted; 0.26 is not
+    expect(units(book)).toBe(5); // 0.27 is exactly 90% of 0.3: counted; 0.26 is not
+    expect(book.nearFloorBids?.map((b) => [b.maker, b.unitWei, b.units])).toEqual([
+      [MAKER_A, wei(0.28), 3],
+      [MAKER_A, wei(0.27), 2],
+    ]);
+  });
+
+  it("the venue's own bids count in neither the best bid nor near the floor", () => {
+    const isHouse = (a: string | null | undefined) => typeof a === 'string' && a.toLowerCase() === HOUSE.toLowerCase();
+    const book = bidBook([bid(0.29, { maker: HOUSE, quantity: 2 }), bid(0.27, { quantity: 1 })], 0.3, { isHouse });
+    expect(book.bestBid).toBe(0.27);
+    expect(book.nearFloorBids?.map((b) => b.maker)).toEqual([MAKER_A]);
+    // Any letter case: the registry matches addresses, not strings.
+    const lower = bidBook([bid(0.29, { maker: HOUSE.toLowerCase() })], 0.3, { isHouse });
+    expect(lower).toEqual({ bestBid: null, nearFloorBids: [] });
+  });
+
+  it('with the committed registry (empty), every bidder counts exactly as before', () => {
+    expect(bidBook([bid(0.29, { maker: HOUSE })], 0.3).bestBid).toBe(0.29);
+  });
+
+  it('a near-floor bid whose WETH cannot be checked is never counted near the floor', () => {
+    const book = bidBook(
+      [
+        bid(0.29, { maker: null }),
+        bid(0.29, { maker: '0x1234' }),
+        bid(0.29, { unitWei: null }),
+        bid(0.29, { unitWei: 0n }),
+        bid(0.29, { viaOpenSeaConduit: false }),
+        bid(0.29, { viaOpenSeaConduit: undefined }),
+      ],
+      0.3,
+    );
+    expect(book.bestBid).toBe(0.29); // still a bid: the best-bid tile is unchanged
+    expect(book.nearFloorBids).toEqual([]);
   });
   it('ignores bids that do not buy the borrower\'s cheapest NFT, or whose unit price is unknown', () => {
     const book = bidBook(
@@ -89,19 +140,93 @@ describe('bidBook', () => {
       0.3,
     );
     expect(book.bestBid).toBe(0.2);
-    expect(book.nearFloor).toBe(0);
+    expect(book.nearFloorBids).toEqual([]);
   });
   it('no usable bid = no best bid (that is "none", which the screen says)', () => {
-    expect(bidBook([], 0.3)).toEqual({ bestBid: null, nearFloor: 0 });
+    expect(bidBook([], 0.3)).toEqual({ bestBid: null, nearFloorBids: [] });
   });
   it('an unknown floor leaves "near floor" unknown, not zero', () => {
-    expect(bidBook([bid(0.28)], null)).toEqual({ bestBid: 0.28, nearFloor: null });
-    expect(bidBook([bid(0.28)], 0)).toEqual({ bestBid: 0.28, nearFloor: null });
+    expect(bidBook([bid(0.28)], null)).toEqual({ bestBid: 0.28, nearFloorBids: null });
+    expect(bidBook([bid(0.28)], 0)).toEqual({ bestBid: 0.28, nearFloorBids: null });
+  });
+});
+
+describe('fundingMakers: whose WETH is read', () => {
+  it('each bidder once, the highest bid first', () => {
+    const book = bidBook([bid(0.27, { maker: MAKER_A }), bid(0.29, { maker: MAKER_B }), bid(0.28, { maker: MAKER_A })], 0.3);
+    expect(fundingMakers(book)).toEqual([MAKER_B, MAKER_A]);
+  });
+  it(`at most ${MAX_FUNDING_READS} bidders, the highest bids kept`, () => {
+    const many = Array.from({ length: 60 }, (_, i) => bid(0.27 + i * 0.0001, { maker: '0x' + (i + 1).toString(16).padStart(40, '0') }));
+    const makers = fundingMakers(bidBook(many, 0.3));
+    expect(MAX_FUNDING_READS).toBe(50);
+    expect(makers).toHaveLength(50);
+    expect(makers[0]).toBe('0x' + (60).toString(16).padStart(40, '0'));
+    expect(makers).not.toContain('0x' + (1).toString(16).padStart(40, '0'));
+  });
+  it('nothing to read without near-floor bids or a book', () => {
+    expect(fundingMakers(bidBook([bid(0.1)], 0.3))).toEqual([]);
+    expect(fundingMakers(bidBook([bid(0.29)], null))).toEqual([]);
+    expect(fundingMakers(null)).toEqual([]);
+  });
+});
+
+describe('fundedNearFloor: only what a bidder\'s WETH pays for', () => {
+  const book = bidBook([bid(0.28, { maker: MAKER_A, quantity: 3 }), bid(0.27, { maker: MAKER_B, quantity: 2 })], 0.3);
+  const makers = fundingMakers(book); // [A (0.28), B (0.27)]
+
+  it('counts every unit when each bidder holds and has approved enough', () => {
+    expect(fundedNearFloor(book, makers, [ok(wei(5)), ok(wei(5)), ok(wei(5)), ok(wei(5))])).toBe(5);
+  });
+
+  it('a bidder can spend the LOWER of its balance and its allowance to the conduit', () => {
+    // A: 10 WETH held but 0.56 approved = 2 of 3 units; B: 0.27 held, plenty approved = 1 of 2.
+    expect(fundedNearFloor(book, makers, [ok(wei(10)), ok(wei(0.56)), ok(wei(0.27)), ok(wei(9))])).toBe(3);
+    // Nothing approved: nothing bought, however much is held.
+    expect(fundedNearFloor(book, makers, [ok(wei(10)), ok(0n), ok(0n), ok(wei(9))])).toBe(0);
+  });
+
+  it('a bidder whose read failed counts 0: never invent a buyer', () => {
+    expect(fundedNearFloor(book, makers, [failed, ok(wei(5)), ok(wei(5)), ok(wei(5))])).toBe(2);
+    expect(fundedNearFloor(book, makers, [ok(wei(5)), { status: 'success', result: 'lots' }, ok(wei(5)), ok(wei(5))])).toBe(2);
+  });
+
+  it('no read answering at all is unknown, not "no buyers"', () => {
+    expect(fundedNearFloor(book, makers, [failed, failed, failed, failed])).toBeNull();
+    expect(fundedNearFloor(book, makers, undefined)).toBeNull();
+    expect(fundedNearFloor(book, makers, [ok(wei(5))])).toBeNull(); // reads for other bidders
+  });
+
+  it('one bidder\'s WETH is spent on its highest bid first, never twice', () => {
+    const one = bidBook([bid(0.29, { maker: MAKER_A, quantity: 1 }), bid(0.28, { maker: MAKER_A, quantity: 2 })], 0.3);
+    const m = fundingMakers(one);
+    // 0.58 WETH: one at 0.29, then 0.29 left buys one at 0.28 (not two).
+    expect(fundedNearFloor(one, m, [ok(wei(0.58)), ok(wei(0.58))])).toBe(2);
+    expect(fundedNearFloor(one, m, [ok(wei(0.85)), ok(wei(1))])).toBe(3);
+    // 0.28 WETH cannot fill the 0.29 bid at all, but it does fill one unit of the 0.28 bid.
+    expect(fundedNearFloor(one, m, [ok(wei(0.28)), ok(wei(1))])).toBe(1);
+  });
+
+  it('a bidder past the read cut counts 0', () => {
+    expect(fundedNearFloor(book, [MAKER_A], [ok(wei(5)), ok(wei(5))])).toBe(3);
+  });
+
+  it('an unknown floor is unknown; no near-floor bid is 0 with no read', () => {
+    expect(fundedNearFloor(bidBook([bid(0.28)], null), [], undefined)).toBeNull();
+    expect(fundedNearFloor(bidBook([bid(0.1)], 0.3), [], undefined)).toBe(0);
+    expect(fundedNearFloor(null, [], undefined)).toBeNull();
+  });
+});
+
+describe('OpenSea conduit pins', () => {
+  it('match the marketplace\'s own conduit and key', () => {
+    expect(OPENSEA_CONDUIT).toBe(CONDUIT_ADDRESS);
+    expect(OPENSEA_CONDUIT_KEY).toBe(CONDUIT_KEY);
   });
 });
 
 describe('exitCheck', () => {
-  const book = { bestBid: 0.28, nearFloor: 5 };
+  const book: BidBook = { bestBid: 0.28, nearFloorBids: [] };
   it('covered when a buyer bids at or above what was lent', () => {
     expect(exitCheck(0.25, book)).toEqual({ kind: 'covered', bestBid: 0.28 });
     expect(exitCheck(0.28, book)).toEqual({ kind: 'covered', bestBid: 0.28 });
@@ -112,7 +237,7 @@ describe('exitCheck', () => {
     expect(c && c.kind === 'short' ? c.gap : NaN).toBeCloseTo(0.07, 10);
   });
   it('no bids is said; an unread bid book is NOT "no bids"', () => {
-    expect(exitCheck(0.25, { bestBid: null, nearFloor: 0 })).toEqual({ kind: 'no-bids' });
+    expect(exitCheck(0.25, { bestBid: null, nearFloorBids: [] })).toEqual({ kind: 'no-bids' });
     expect(exitCheck(0.25, null)).toBeNull();
     expect(exitCheck(0, book)).toBeNull();
   });
@@ -178,14 +303,22 @@ describe('fetchLendingMarket', () => {
   const JBAC = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9';
   // The shapes OpenSea returned 2026-11-09: a collection bid asks for item type 4 with
   // criteria 0; an offer on one JBAC asks for item type 2 with that token's id.
-  const seaportBid = (wei: string, qty = 1, nft: { itemType: number; identifierOrCriteria: string } = { itemType: 4, identifierOrCriteria: '0' }, remaining?: number) => ({
+  const BIDDER = '0x4444444444444444444444444444444444444444';
+  const seaportBid = (
+    wei: string,
+    qty = 1,
+    nft: { itemType: number; identifierOrCriteria: string } = { itemType: 4, identifierOrCriteria: '0' },
+    remaining?: number,
+    { offerer = BIDDER, conduitKey = CONDUIT_KEY }: { offerer?: string; conduitKey?: string } = {},
+  ) => ({
     order_hash: '0x01',
     price: { currency: 'WETH', value: wei },
     criteria: null,
     ...(remaining !== undefined ? { remaining_quantity: remaining } : {}),
     protocol_data: {
       parameters: {
-        offerer: '0x4444444444444444444444444444444444444444',
+        offerer,
+        conduitKey,
         offer: [{ startAmount: wei }],
         consideration: [{ ...nft, startAmount: String(qty) }, { itemType: 1, identifierOrCriteria: '0', startAmount: '1550000000000000' }],
       },
@@ -213,8 +346,23 @@ describe('fetchLendingMarket', () => {
       offers: { offers: [seaportBid('560000000000000000', 2), seaportBid('250000000000000000')] },
     });
     const m = await fetchLendingMarket(JBAC);
-    expect(m).toEqual({ floor: 0.3, sales30d: 41, bids: { bestBid: 0.28, nearFloor: 2 } });
+    expect(m).toEqual({
+      floor: 0.3,
+      sales30d: 41,
+      bids: { bestBid: 0.28, nearFloorBids: [{ maker: BIDDER, unitWei: 280000000000000000n, units: 2 }] },
+    });
     expect(f).toHaveBeenCalledTimes(2);
+  });
+  it('reads each bid\'s bidder, WETH per NFT and conduit, so near-floor can be checked against funds', async () => {
+    const OTHER_KEY = '0x' + '0'.repeat(64);
+    stub({
+      stats: { total: { floor_price: 0.3 } },
+      offers: { offers: [seaportBid('810000000000000000', 3), seaportBid('290000000000000000', 1, undefined, undefined, { conduitKey: OTHER_KEY })] },
+    });
+    const m = await fetchLendingMarket(JBAC);
+    expect(m.bids?.bestBid).toBe(0.29);
+    // The 0.29 bid moves its WETH some other way, so its allowance cannot be read: not counted.
+    expect(m.bids?.nearFloorBids).toEqual([{ maker: BIDDER, unitWei: 270000000000000000n, units: 3 }]);
   });
   it('a failed bid read is unknown (null), never "no bids"', async () => {
     stub({ stats: { total: { floor_price: 0.3 } }, offersStatus: 500 });
@@ -225,7 +373,7 @@ describe('fetchLendingMarket', () => {
   it('a failed stats read leaves the floor unknown but still reads the bids', async () => {
     stub({ statsStatus: 500, offers: { offers: [seaportBid('280000000000000000')] } });
     const m = await fetchLendingMarket(JBAC);
-    expect(m).toEqual({ floor: null, sales30d: null, bids: { bestBid: 0.28, nearFloor: null } });
+    expect(m).toEqual({ floor: null, sales30d: null, bids: { bestBid: 0.28, nearFloorBids: null } });
   });
   it('an offer on ONE token is no buyer for the lender\'s NFT, however high (the 0.155 JBAC offers)', async () => {
     stub({
@@ -239,13 +387,13 @@ describe('fetchLendingMarket', () => {
       },
     });
     const m = await fetchLendingMarket(JBAC);
-    expect(m.bids).toEqual({ bestBid: 0.0199, nearFloor: 0 });
+    expect(m.bids).toEqual({ bestBid: 0.0199, nearFloorBids: [] });
   });
-  it('a part-filled bid counts only what is left of it', async () => {
+  it('a part-filled bid counts only what is left of it, at its own price per NFT', async () => {
     stub({ stats: { total: { floor_price: 0.3 } }, offers: { offers: [seaportBid('1400000000000000000', 5, undefined, 2)] } });
     const m = await fetchLendingMarket(JBAC);
     expect(m.bids?.bestBid).toBeCloseTo(0.28, 10); // 1.4 / 5 in floats
-    expect(m.bids?.nearFloor).toBe(2);
+    expect(m.bids?.nearFloorBids).toEqual([{ maker: BIDDER, unitWei: 280000000000000000n, units: 2 }]);
   });
   it('a collection this venue does not lend on is not read at all', async () => {
     const f = stub({});

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Wallets the venue itself trades from. Empty until the owner names the house bidder's wallet. Every surface that shows a maker, every volume count and the lending desk read this file.",
+  "wallets": []
+}

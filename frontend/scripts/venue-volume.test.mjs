@@ -1,3 +1,8 @@
+// @vitest-environment node
+//
+// NODE, not the project's jsdom default: the counter reads the house wallet list as a file
+// (readHouseWallets), and under jsdom a script's import.meta.url is not a file: URL.
+//
 // venue-volume.mjs and its chain readers: what .github/workflows/venue-volume.yml runs hourly.
 // The classifiers are checked against real mainnet transactions (fixtures/venue-volume,
 // recorded 2026-10-19) and the figures of that day's hand read; the cursor and write
@@ -31,7 +36,7 @@ import {
   base58,
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
-import { DB_TIMEOUT_MS, READERS, RUN_BUDGET_MS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
+import { DB_TIMEOUT_MS, READERS, RUN_BUDGET_MS, addUp, islandPrices, legUsd, main, readHouseWallets, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
 import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -936,7 +941,16 @@ describe("island coins: a swap with no SOL, USDC or USDT leg is valued on its is
 
 describe("the NFT order book: each sale it marked filled, at its price", () => {
   const ETH0 = "0x0000000000000000000000000000000000000000";
-  const fill = (hash, at, wei, currency = ETH0) => ({ order_hash: hash, price_wei: String(wei), currency, filled_at: at, filled_by: "0xbuyer" });
+  const fill = (hash, at, wei, currency = ETH0, over = {}) => ({
+    order_hash: hash,
+    price_wei: String(wei),
+    currency,
+    filled_at: at,
+    filled_by: "0xbuyer",
+    maker: "0xseller",
+    order_type: "listing",
+    ...over,
+  });
   const book = (rows) => {
     const asked = [];
     const db = async (path) => {
@@ -980,6 +994,53 @@ describe("the NFT order book: each sale it marked filled, at its price", () => {
   it("refuses to count when the order book cannot be read, so nothing is skipped", async () => {
     await expect(readOrderBookFills(async () => ({ status: 503, body: null }), null)).rejects.toThrow(/could not be read/);
     await expect(readOrderBookFills(undefined, null)).rejects.toThrow(/needs the database/);
+  });
+
+  // 2026-11-16: the book stored bids as order_type "offer" and could mark one filled, and a
+  // listing bought by its own maker moves nothing. Either would pad the public figure.
+  it("counts only a listing sold to someone else; an offer row or a self-fill is read past, never counted", async () => {
+    const b = book([
+      fill("0xa", T1, 10n ** 17n, ETH0, { order_type: "offer" }),
+      fill("0xb", T1, 10n ** 17n, ETH0, { maker: "0xSAME", filled_by: "0xsame" }),
+      fill("0xc", T1, 3n * 10n ** 17n),
+      fill("0xd", T2, 10n ** 17n, ETH0, { order_type: null }),
+      fill("0xe", T2, 10n ** 17n, ETH0, { maker: null }),
+      fill("0xf", T2, 10n ** 17n, ETH0, { filled_by: "" }),
+    ]);
+    const r = await readOrderBookFills(b.db, null, { houseWallets: new Set() });
+    expect(b.asked[0]).toContain("select=order_hash,price_wei,currency,filled_at,filled_by,maker,order_type&");
+    expect(r.swaps.map((s) => s.id)).toEqual(["0xc"]);
+    // The cursor still moves past every row read, so none is read again.
+    expect(r.cursor).toEqual({ at: T2, orders: ["0xd", "0xe", "0xf"] });
+    expect(await addUp(null, r.swaps, async () => 2000, new Set())).toMatchObject({ swaps: 1, usd: 600 });
+  });
+
+  it("a sale the house made counts in the one public figure AND in the bot totals", async () => {
+    const HOUSE = "0x8ba1f109551bd432803012645ac136ddd64dba72";
+    const b = book([
+      fill("0xa", T1, 10n ** 17n, ETH0, { maker: "0x8BA1F109551BD432803012645AC136DDD64DBA72" }), // the house sold
+      fill("0xb", T1, 2n * 10n ** 17n, ETH0, { filled_by: HOUSE }), // the house bought
+      fill("0xc", T2, 3n * 10n ** 17n), // two outside wallets
+    ]);
+    const r = await readOrderBookFills(b.db, null, { houseWallets: new Set([HOUSE]) });
+    expect(r.swaps.map((s) => [s.id, s.bot === true])).toEqual([["0xa", true], ["0xb", true], ["0xc", false]]);
+    const totals = await addUp(null, r.swaps, async () => 2000, new Set());
+    expect(totals).toMatchObject({ swaps: 3, usd: 1200, bot_swaps: 2, bot_usd: 600 });
+  });
+
+  it("reads the house wallets from the registry the site labels, and waits when it cannot", async () => {
+    const { houseWallets } = await import("../src/lib/house/houseRegistry.js");
+    expect([...readHouseWallets()]).toEqual(houseWallets());
+    const one = JSON.stringify({ version: 1, note: "x", wallets: [{ address: "0x8ba1f109551bD432803012645Ac136ddd64DBA72" }] });
+    expect([...readHouseWallets(() => one)]).toEqual(["0x8ba1f109551bd432803012645ac136ddd64dba72"]);
+    expect(() => readHouseWallets(() => { throw new Error("ENOENT"); })).toThrow(/ENOENT/);
+    expect(() => readHouseWallets(() => "{")).toThrow();
+    // The source fails (and its cursor stays) rather than counting a house sale untagged:
+    // the list is taken before a single row is read.
+    const b = book([fill("0xa", T1, 1n)]);
+    const unreadable = { get houseWallets() { throw new Error("registry unreadable"); } };
+    await expect(readOrderBookFills(b.db, null, unreadable)).rejects.toThrow(/registry unreadable/);
+    expect(b.asked).toEqual([]);
   });
 
   it("is handed the counter's own database by main", async () => {

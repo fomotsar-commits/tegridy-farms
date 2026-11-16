@@ -4,7 +4,13 @@ import { Eth } from "./Icons";
 // ═══ DEPTH CHART / ORDERBOOK VISUALIZATION ═══
 // Pure SVG stepped area chart — no external chart library.
 // Shows cumulative listing depth (ask) and bid depth side by side
-// with spread indicator, floor thickness, and auto-generated summary.
+// with spread indicator and floor thickness.
+//
+// The generated summary sentences ("Strong buying interest near floor", "Price gap is
+// narrow ..., suggesting healthy trading") are gone (2026-11-16). They counted every bid
+// row, funded or not, and a venue that runs its own bidder would have been the one writing
+// "strong buying interest" about its own market. The chart shows the book; it no longer
+// tells the reader what to make of it.
 
 const CHART_W = 600;
 const CHART_H = 220;
@@ -66,32 +72,6 @@ function floorThickness(listings, floorPrice) {
   return "moderate";
 }
 
-function generateSummary(askBuckets, bidBuckets, spread, thickness) {
-  const parts = [];
-
-  // Bid interest
-  const totalBids = bidBuckets.length > 0 ? bidBuckets[bidBuckets.length - 1]?.cumulative || 0 : 0;
-  if (totalBids > 10) parts.push("Strong buying interest near floor");
-  else if (totalBids > 3) parts.push("Moderate bid support");
-  else if (totalBids > 0) parts.push("Light bid activity");
-  else parts.push("No active bids");
-
-  // Spread
-  if (spread) {
-    const pctStr = spread.pct.toFixed(1);
-    if (spread.health === "invalid") parts.push("Bid data looks unreliable (a bid above floor) — spread unavailable");
-    else if (spread.health === "green") parts.push(`Price gap is narrow (${pctStr}%), suggesting healthy trading`);
-    else if (spread.health === "yellow") parts.push(`Price gap is moderate (${pctStr}%), watch for volatility`);
-    else parts.push(`Price gap is wide (${pctStr}%), low liquidity zone`);
-  }
-
-  // Floor thickness
-  if (thickness === "thick") parts.push("Thick floor with 50+ items within 5%");
-  else if (thickness === "thin") parts.push("Thin floor with a gap to the next tier");
-
-  return parts.join(". ") + ".";
-}
-
 // Health color mapping
 const HEALTH_COLORS = {
   green: "var(--green)",
@@ -109,7 +89,6 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
     bidBuckets,
     spread,
     thickness,
-    summary,
     bestBid,
     maxCum,
     priceMin,
@@ -144,9 +123,7 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
     const priceMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     const priceMax = allPrices.length > 0 ? Math.max(...allPrices) : 1;
 
-    const summary = generateSummary(askB, bidB, spread, thickness);
-
-    return { askBuckets: askB, bidBuckets: bidB, spread, thickness, summary, bestBid, maxCum, priceMin, priceMax };
+    return { askBuckets: askB, bidBuckets: bidB, spread, thickness, bestBid, maxCum, priceMin, priceMax };
   }, [listings, offers, floorPrice]);
 
   // Scale helpers
@@ -276,11 +253,11 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           className="depth-chart-svg"
           preserveAspectRatio="xMidYMid meet"
-          // F660: expose the chart to AT — role=img + the visible auto-summary
-          // as its accessible description (it's mouse-only otherwise).
+          // F660: expose the chart to AT as an image with a name. It used to
+          // borrow the auto-summary as its description; that summary is gone (see
+          // the note at the top). The spread line below is plain text AT reads anyway.
           role="img"
           aria-label="Order book depth chart"
-          aria-describedby="depth-chart-summary"
         >
           {/* Grid lines */}
           {yTicks.map((t, i) => (
@@ -424,9 +401,6 @@ export default function DepthChart({ listings = [], offers = [], floorPrice }) {
           </span>
         </div>
       )}
-
-      {/* Auto-generated summary */}
-      <div className="depth-summary" id="depth-chart-summary">{summary}</div>
     </div>
   );
 }

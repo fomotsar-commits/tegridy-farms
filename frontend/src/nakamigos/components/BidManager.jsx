@@ -11,6 +11,7 @@ import { waitForTxOutcome, txOutcomeResult, toastTxNotice } from "../lib/txOutco
 import EmptyState from "./EmptyState";
 import CollectionOffersPanel from "./CollectionOffersPanel";
 import NetProceeds from "./NetProceeds";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 const TABS = ["My Bids", "Received Offers", "Bid History"];
 
@@ -696,7 +697,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                     <div style={styles.cardInfo}>
                       <div style={styles.cardName}>{name}</div>
                       <div style={styles.cardMeta}>
-                        <span>From: {shortenAddress(offer.maker)}</span>
+                        <span>From: {houseLabel(offer.maker) ?? shortenAddress(offer.maker)}</span>
                         {offer.expiry && <span>{timeLeft(offer.expiry)}</span>}
                         {/* #8/#10: relative-to-floor badge so accept/decline is a
                             one-glance call instead of leaving to check the floor. */}

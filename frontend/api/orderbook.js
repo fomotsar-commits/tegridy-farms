@@ -536,13 +536,14 @@ export default async function handler(req, res) {
       .eq("status", safeStatus)
       // SECURITY 2026-07-19: this feed powers the NATIVE LISTINGS table, which
       // renders a Buy button on every row. Without this predicate it also returned
-      // order_type="offer" rows — and the create path deliberately SKIPS on-chain
-      // ownership verification (`if (isListing)`) and the ETH-only currency guard
-      // for non-listings, so anyone could POST a validly-signed "offer" whose
-      // consideration demands SOMEONE ELSE's NFT, priced from a 1-wei ERC-20 offer
-      // item so it sorts to the top of the price-ascending book. A holder clicking
-      // Buy would have been asked to hand over their own NFT. Nothing in the app
-      // ever creates a native offer row, so every such row is attacker-authored.
+      // order_type="offer" rows — and the create path deliberately SKIPPED on-chain
+      // ownership verification and the ETH-only currency guard for non-listings, so
+      // anyone could POST a validly-signed "offer" whose consideration demands
+      // SOMEONE ELSE's NFT, priced from a 1-wei ERC-20 offer item so it sorts to the
+      // top of the price-ascending book. A holder clicking Buy would have been asked
+      // to hand over their own NFT. Nothing in the app ever creates a native offer
+      // row, so every such row is attacker-authored. Since 2026-11-16 create refuses
+      // them outright; this predicate stays for the rows stored before that.
       .eq("order_type", "listing");
 
     // Only filter by end_time for active orders — filled/cancelled orders are historical
@@ -682,6 +683,16 @@ export default async function handler(req, res) {
       if (params.offer.length !== 1) {
         return res.status(400).json({ error: "A single listing must offer exactly one item — use create-bundle for multiple NFTs" });
       }
+      // LISTINGS ONLY — 2026-11-16. This path also stored any order whose offer item was NOT
+      // an NFT, as order_type "offer": a bid, priced from its own offer item, with no
+      // ownership check and no currency guard. Nothing in the app ever creates one (bids go
+      // to OpenSea), the query feed already hid them, and `fill` would still have marked one
+      // filled, so a bid paid to oneself was a free way to pad the venue's public volume
+      // figure (scripts/venue-volume.mjs counts this book's fills). Refused at the door now,
+      // before any signature or chain read: no new offer row can be stored.
+      if (!(Number(params.offer[0]?.itemType) >= 2)) {
+        return res.status(400).json({ error: "Only listings are accepted" });
+      }
       if (!params.consideration || !Array.isArray(params.consideration) || params.consideration.length === 0) {
         return res.status(400).json({ error: "Missing or empty consideration array" });
       }
@@ -737,25 +748,23 @@ export default async function handler(req, res) {
       const shapeError = validateOrderShape(params, "Orders");
       if (shapeError) return res.status(400).json({ error: shapeError });
 
+      // Every order past the listings-only check above offers an NFT: this path stores
+      // listings and nothing else (the row's order_type is always "listing").
       const offerItem = params.offer[0];
       const considerationItem = params.consideration[0];
 
-      // Determine order type: listing (offering NFT) vs offer (offering ERC20)
-      const isListing = offerItem?.itemType >= 2; // ERC721 or ERC1155
-
-      // SECURITY 2026-07-20: pin listings to ERC721. `>= 2` above also admits itemType 3
-      // (ERC1155), and verifyNftOwnership deliberately SKIPS the ownership check for
-      // anything that isn't ERC721 ("needs balanceOf+id; punt") — returning ok:true. So
-      // flipping one integer from 2 to 3 stored a listing for an NFT the poster does not
-      // own, which then rendered in the public book and the collection floor stat with a
-      // live Buy button. Every supported collection is ERC721 and the client only ever
-      // signs itemType 2, so an ERC1155 offer here has never been a real listing.
-      // create-bundle already pinned this; the single path — the one serving production —
-      // did not. Ownership is also now enforced at the sink (seaport-verify.js).
-      if (isListing && Number(offerItem.itemType) !== 2) {
+      // SECURITY 2026-07-20: pin listings to ERC721. The `>= 2` listings-only check above
+      // also admits itemType 3 (ERC1155), and verifyNftOwnership deliberately SKIPS the
+      // ownership check for anything that isn't ERC721 ("needs balanceOf+id; punt") —
+      // returning ok:true. So flipping one integer from 2 to 3 stored a listing for an NFT
+      // the poster does not own, which then rendered in the public book and the collection
+      // floor stat with a live Buy button. Every supported collection is ERC721 and the
+      // client only ever signs itemType 2, so an ERC1155 offer here has never been a real
+      // listing. create-bundle already pinned this; the single path — the one serving
+      // production — did not. Ownership is also now enforced at the sink (seaport-verify.js).
+      if (Number(offerItem.itemType) !== 2) {
         return res.status(400).json({ error: "Listings must offer an ERC721 (itemType 2)" });
       }
-      const orderType = isListing ? "listing" : "offer";
 
       // Extract total price: for listings, sum ALL consideration items (seller receives + fees = total price)
       // consideration[0] is seller receives, consideration[1..N] are fee items
@@ -778,32 +787,27 @@ export default async function handler(req, res) {
       };
 
       try {
-        if (isListing) {
-          // AUDIT FIX H-4: all consideration items must share the same currency.
-          // Summing startAmount across mixed currencies produces a meaningless
-          // priceWei (e.g. WETH wei + USDC base units) and lets an attacker
-          // post listings with arbitrary `price_eth` to poison the floor sort.
-          const baseToken = (considerationItem?.token || "").toLowerCase();
-          for (let i = 1; i < params.consideration.length; i++) {
-            const itemToken = (params.consideration[i]?.token || "").toLowerCase();
-            if (itemToken !== baseToken) {
-              return res.status(400).json({ error: "Mixed-currency consideration not supported" });
-            }
+        // AUDIT FIX H-4: all consideration items must share the same currency.
+        // Summing startAmount across mixed currencies produces a meaningless
+        // priceWei (e.g. WETH wei + USDC base units) and lets an attacker
+        // post listings with arbitrary `price_eth` to poison the floor sort.
+        const baseToken = (considerationItem?.token || "").toLowerCase();
+        for (let i = 1; i < params.consideration.length; i++) {
+          const itemToken = (params.consideration[i]?.token || "").toLowerCase();
+          if (itemToken !== baseToken) {
+            return res.status(400).json({ error: "Mixed-currency consideration not supported" });
           }
-          // Sum all consideration items to get the total listing price.
-          // Each item is range-validated; cap on sum is enforced below.
-          let totalWei = 0n;
-          for (const item of params.consideration) {
-            const amt = parseAmount(item.startAmount);
-            if (amt > MAX_PRICE_WEI) throw new Error("amount out of range");
-            totalWei += amt;
-          }
-          priceWeiBig = totalWei;
-          currencyAddr = baseToken || "0x0000000000000000000000000000000000000000";
-        } else {
-          priceWeiBig = parseAmount(offerItem?.startAmount);
-          currencyAddr = (offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
         }
+        // Sum all consideration items to get the total listing price.
+        // Each item is range-validated; cap on sum is enforced below.
+        let totalWei = 0n;
+        for (const item of params.consideration) {
+          const amt = parseAmount(item.startAmount);
+          if (amt > MAX_PRICE_WEI) throw new Error("amount out of range");
+          totalWei += amt;
+        }
+        priceWeiBig = totalWei;
+        currencyAddr = baseToken || "0x0000000000000000000000000000000000000000";
       } catch {
         return res.status(400).json({ error: "startAmount out of range or non-numeric" });
       }
@@ -826,12 +830,12 @@ export default async function handler(req, res) {
       // surface, so refuse them at the door rather than carrying the ambiguity.
       // (Re-open deliberately, with matching display + fulfillment, if ERC-20
       // denominated listings are ever a real feature.)
-      if (isListing && currencyAddr !== "0x0000000000000000000000000000000000000000") {
+      if (currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
       }
       // The venue's 0.5% is a consideration item only the client adds, paid to the
       // treasury of the chain the NFT lives on. See platform-fee.js.
-      if (isListing) {
+      {
         const feeChainId = bookChainId(offerItem?.token) ?? 1;
         const feeError = platformFeeError(params.consideration, priceWeiBig, feeChainId);
         if (feeError) return res.status(400).json({ error: feeError });
@@ -844,13 +848,14 @@ export default async function handler(req, res) {
       // Uses the shared helper so precision rules stay in one place.
       const priceEth = priceWeiToEthNumber(priceWeiBig, decimals);
 
-      // Extract contract + tokenId
-      const nftItem = isListing ? offerItem : considerationItem;
+      // Extract contract + tokenId: the listing's own NFT, its offer item.
+      const nftItem = offerItem;
       const contract = nftItem?.token?.toLowerCase() || "";
       // Canonicalized at the point of read so the value that gets STORED, compared, and
       // echoed back is one representation. "123" and "0123" are the same token to the
       // ownerOf call and the Seaport digest; leaving them distinct here is what let a
-      // hand-crafted POST slip past the overlap guard. null tokenId stays null (offers).
+      // hand-crafted POST slip past the overlap guard. A missing id stays null and the
+      // ownership check below refuses it (no-token-id).
       const rawTokenId = nftItem?.identifierOrCriteria ?? null;
       const tokenId = rawTokenId == null ? null : canonicalTokenId(rawTokenId);
       if (rawTokenId != null && tokenId === null) {
@@ -894,10 +899,11 @@ export default async function handler(req, res) {
       }
 
       // AUDIT FIX H-1: enforce on-chain ownership for ERC721 listings so an attacker
-      // cannot list NFTs they don't actually own. Skipped for offers (itemType < 2).
+      // cannot list NFTs they don't actually own. Every order here is a listing (offers
+      // are refused at the door), so the check always runs.
       // ERC1155 is no longer a hole here: listings are pinned to itemType 2 above, and
       // verifyNftOwnership now refuses non-ERC721 instead of reporting ok:true.
-      if (isListing) {
+      {
         const ownerCheck = await verifyNftOwnership({ parameters: params, chainId });
         if (!ownerCheck.ok) {
           // Map error → status:
@@ -936,7 +942,7 @@ export default async function handler(req, res) {
       // already inside a live bundle left BOTH orders active and stranded the bundle's
       // eventual buyer with a guaranteed revert. findOverlappingListings covers both.
       // (Bundle go-live re-audit, must-fix 2.)
-      if (isListing && tokenId) {
+      if (tokenId) {
         const key = overlapKey(contract, tokenId);
         if (!key) {
           return res.status(400).json({ error: "Invalid tokenId" });
@@ -1117,7 +1123,7 @@ export default async function handler(req, res) {
 
       const { error } = await supabase.from("native_orders").insert({
         order_hash: orderHash,
-        order_type: orderType,
+        order_type: "listing",
         contract_address: contract,
         token_id: tokenId ? String(tokenId) : null,
         maker: params.offerer?.toLowerCase() || "",
@@ -1135,7 +1141,7 @@ export default async function handler(req, res) {
       });
 
       if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
-      return res.status(201).json({ success: true, orderHash, orderType });
+      return res.status(201).json({ success: true, orderHash, orderType: "listing" });
     }
 
     // ═══ CREATE BUNDLE ═══
@@ -1670,15 +1676,18 @@ export default async function handler(req, res) {
       let storedSeaportHash = null;
       // The chain the receipt is read on: the row's, by its contract (registry).
       let rowChainId = 1;
+      // What kind of row this is. Only a listing is ever marked filled (see below).
+      let rowOrderType = null;
       {
         const { data: rowForVerify } = await supabase
           .from("native_orders")
-          .select("seaport_order_hash, contract_address")
+          .select("seaport_order_hash, contract_address, order_type")
           .eq("order_hash", orderHash)
           .maybeSingle();
         if (rowForVerify) {
           storedSeaportHash = rowForVerify.seaport_order_hash || null;
           rowChainId = bookChainId(rowForVerify.contract_address) ?? 1;
+          rowOrderType = rowForVerify.order_type ?? null;
         }
         // Don't 404 here — the atomic update below handles missing rows
         // with a single race-free path. If the row doesn't exist it'll
@@ -1686,6 +1695,14 @@ export default async function handler(req, res) {
       }
       if (rowChainId !== chainId) {
         return res.status(400).json({ error: "This order is on another chain" });
+      }
+      // LISTINGS ONLY — 2026-11-16. An "offer" row (create stored those until today, with no
+      // ownership check) marked filled would count in the venue's public volume
+      // (scripts/venue-volume.mjs reads this book's fills), so a bid paid to oneself was a
+      // way to pad it. Refused before any receipt is read, and the update below is held to
+      // listings too. A row that does not exist still answers 404 from the update.
+      if (rowOrderType !== null && rowOrderType !== "listing") {
+        return res.status(409).json({ error: "Only listings can be marked filled" });
       }
       const alchemyNetwork = rowChainId === 8453 ? "base-mainnet" : "eth-mainnet";
 
@@ -1830,6 +1847,7 @@ export default async function handler(req, res) {
         })
         .eq("order_hash", orderHash)
         .eq("status", "active")
+        .eq("order_type", "listing")
         .select();
 
       if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
@@ -1837,10 +1855,11 @@ export default async function handler(req, res) {
       if (!updated || updated.length === 0) {
         const { data: existing } = await supabase
           .from("native_orders")
-          .select("status")
+          .select("status, order_type")
           .eq("order_hash", orderHash)
           .single();
         if (!existing) return res.status(404).json({ error: "Order not found" });
+        if (existing.order_type !== "listing") return res.status(409).json({ error: "Only listings can be marked filled" });
         return res.status(409).json({ error: `Order is already ${existing.status}` });
       }
 

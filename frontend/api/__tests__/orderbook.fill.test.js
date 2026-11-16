@@ -434,6 +434,73 @@ describe("orderbook fill — F10 strict-hash path", () => {
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(400);
   });
+
+  // 2026-11-16: only a listing is ever marked filled. An "offer" row (create stored those
+  // until that day, with no ownership check) marked filled would count in the venue's
+  // public volume, so a bid paid to oneself padded it.
+  it("refuses 409 to mark an offer row filled, before any receipt is read or any row written", async () => {
+    const seaportHash = computeSeaportOrderHash(buildSampleParams(), 0n);
+    mocks.supabaseState.storedRow = { seaport_order_hash: seaportHash, maker: OFFERER, status: "active", order_type: "offer" };
+    // The very receipt that fills a listing: a matching OrderFulfilled from Seaport.
+    mocks.fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => makeReceipt({
+        logs: [{
+          address: SEAPORT_15,
+          topics: [ORDER_FULFILLED_TOPIC, offererTopic(OFFERER), offererTopic("0x" + "0".repeat(40))],
+          data: encodeOrderFulfilledData(seaportHash),
+        }],
+      }),
+    });
+
+    const { req, res, statusSpy, jsonSpy } = makeReqRes(buildFillBody());
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(409);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Only listings can be marked filled" });
+    expect(mocks.fetchMock).not.toHaveBeenCalled();
+    expect(mocks.supabaseState.mockUpdates).toHaveLength(0);
+  });
+
+  it("a listing row still fills (control for the order_type check)", async () => {
+    const seaportHash = computeSeaportOrderHash(buildSampleParams(), 0n);
+    mocks.supabaseState.storedRow = { seaport_order_hash: seaportHash, maker: OFFERER, status: "active", order_type: "listing" };
+    mocks.fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeReceipt({
+        logs: [{
+          address: SEAPORT_15,
+          topics: [ORDER_FULFILLED_TOPIC, offererTopic(OFFERER), offererTopic("0x" + "0".repeat(40))],
+          data: encodeOrderFulfilledData(seaportHash),
+        }],
+      }),
+    });
+    const { req, res, jsonSpy } = makeReqRes(buildFillBody());
+    await handler(req, res);
+    expect(jsonSpy).toHaveBeenCalledWith({ success: true });
+    expect(mocks.supabaseState.mockUpdates).toHaveLength(1);
+  });
+
+  it("answers 409 when the guarded update matched no listing row (the row is not a listing)", async () => {
+    const seaportHash = computeSeaportOrderHash(buildSampleParams(), 0n);
+    // The pre-read could not tell (no order_type came back); the write, held to listings,
+    // matched nothing, and the row it then reads is not a listing.
+    mocks.supabaseState.storedRow = { seaport_order_hash: seaportHash, maker: OFFERER, status: "active" };
+    mocks.supabaseState.updateResult = { data: [], error: null };
+    mocks.fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeReceipt({
+        logs: [{
+          address: SEAPORT_15,
+          topics: [ORDER_FULFILLED_TOPIC, offererTopic(OFFERER), offererTopic("0x" + "0".repeat(40))],
+          data: encodeOrderFulfilledData(seaportHash),
+        }],
+      }),
+    });
+    const { req, res, statusSpy, jsonSpy } = makeReqRes(buildFillBody());
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(409);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Only listings can be marked filled" });
+  });
 });
 
 describe("orderbook fill — F10 NULL seaport_order_hash is rejected (legacy fallback REMOVED)", () => {

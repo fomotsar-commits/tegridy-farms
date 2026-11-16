@@ -11,13 +11,30 @@
 //    are OpenSea's, read through our own proxy (/api/opensea). Blur's bids are not in it, so
 //    the numbers can only UNDER-count buyers, never invent one.
 //
+// The venue's own bidder (lib/house/houseRegistry.json) is never one of those buyers here:
+// a house bid would make a loan look safer only because the venue itself bids, so it counts
+// in no number on the card. And "near the floor" counts only what each bidder's WETH can
+// actually pay for (2026-11-16): a bid is a signature, and an unfunded one buys nothing.
+//
 // How money moves: nothing here moves money. It only reads.
 import { useQuery } from '@tanstack/react-query';
 import { openseaGet } from '../../nakamigos/lib/proxy';
 import { buysAnyTokenOrder } from '../../nakamigos/lib/offerScope.js';
 import { normalizeCollectionOffer } from '../../nakamigos/lib/offerNormalize.js';
+import { isHouseWallet } from '../house/houseRegistry.js';
 
 export { buysAnyTokenOrder };
+
+/**
+ * OpenSea's conduit and the key an order names to use it (the marketplace's CONDUIT_ADDRESS
+ * and CONDUIT_KEY, nakamigos/constants.js; a test holds them equal). An OpenSea bid's WETH
+ * is pulled through this conduit, so the bidder's allowance to it is what pays.
+ */
+export const OPENSEA_CONDUIT = '0x1E0049783F008A0085193E00003D00cd54003c71' as const;
+export const OPENSEA_CONDUIT_KEY = '0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000' as const;
+
+/** At most this many bidders' WETH is read for the near-floor count, in one multicall. */
+export const MAX_FUNDING_READS = 50;
 
 /** Gondi's own MultiSourceLoan contracts (not ours): v3.1, where its lenders are, and v3.2. */
 export const GONDI_OWN_LOAN_ADDRESSES = [
@@ -70,13 +87,32 @@ export interface CollectionBidLike {
     numericTraits?: unknown[] | null;
     encoded_token_ids?: string | null;
   } | null;
+  /** Who bids (the order's offerer). */
+  maker?: string | null;
+  /** The WETH one NFT costs the bidder, in wei; null = not read from the order. */
+  unitWei?: bigint | null;
+  /** The order pulls its WETH through OpenSea's conduit, so that allowance is what pays. */
+  viaOpenSeaConduit?: boolean;
+}
+
+/** A bid at 90% of the floor or more, still to be checked against its bidder's WETH. */
+export interface NearFloorBid {
+  /** The bidder, lowercase. */
+  maker: string;
+  /** WETH per NFT, in wei. */
+  unitWei: bigint;
+  /** NFTs the bid still buys. */
+  units: number;
 }
 
 export interface BidBook {
   /** The highest open bid that would buy ANY NFT of the collection; null = none open. */
   bestBid: number | null;
-  /** How many NFTs open bids would buy at 90% of the floor or more; null = floor unknown. */
-  nearFloor: number | null;
+  /**
+   * The bids that would buy at 90% of the floor or more, before anyone's WETH is read;
+   * null = floor unknown. Only bids whose WETH can be checked are here (see bidBook).
+   */
+  nearFloorBids: NearFloorBid[] | null;
 }
 
 /** "Near the floor" = within 10% of it. */
@@ -93,9 +129,22 @@ function buysAnyToken(c: CollectionBidLike['criteria']): boolean {
   return true;
 }
 
-export function bidBook(bids: readonly CollectionBidLike[], floor: number | null): BidBook {
+const MAKER = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * The best bid and the near-floor bids, from outside bidders only: a bid by the venue's own
+ * wallet counts in neither (and so in no exit check and no "covered" stretch of the floor
+ * bar). A near-floor bid whose bidder or per-NFT WETH cannot be read, or whose WETH does not
+ * move through OpenSea's conduit, cannot be checked for funds and is not counted.
+ */
+export function bidBook(
+  bids: readonly CollectionBidLike[],
+  floor: number | null,
+  { isHouse = isHouseWallet }: { isHouse?: (address: string | null | undefined) => boolean } = {},
+): BidBook {
   const usable = bids.filter(
     (b) =>
+      !isHouse(b.maker) &&
       typeof b.price === 'number' &&
       Number.isFinite(b.price) &&
       b.price > 0 &&
@@ -108,10 +157,74 @@ export function bidBook(bids: readonly CollectionBidLike[], floor: number | null
   );
   const bestBid = usable.length ? Math.max(...usable.map((b) => b.price as number)) : null;
   const floorOk = typeof floor === 'number' && Number.isFinite(floor) && floor > 0;
-  const nearFloor = floorOk
-    ? usable.filter((b) => (b.price as number) >= floor * NEAR_FLOOR).reduce((n, b) => n + Math.floor(b.quantity), 0)
+  const nearFloorBids = floorOk
+    ? usable
+        .filter((b) => (b.price as number) >= floor * NEAR_FLOOR)
+        .flatMap((b): NearFloorBid[] =>
+          typeof b.maker === 'string' && MAKER.test(b.maker) && typeof b.unitWei === 'bigint' && b.unitWei > 0n && b.viaOpenSeaConduit === true
+            ? [{ maker: b.maker.toLowerCase(), unitWei: b.unitWei, units: Math.floor(b.quantity) }]
+            : [],
+        )
     : null;
-  return { bestBid, nearFloor };
+  return { bestBid, nearFloorBids };
+}
+
+/**
+ * The bidders whose WETH the near-floor count reads: each once, the highest bid first, at
+ * most MAX_FUNDING_READS. A bidder past that cut is not read and counts nothing.
+ */
+export function fundingMakers(book: BidBook | null): string[] {
+  const best = new Map<string, bigint>();
+  for (const b of book?.nearFloorBids ?? []) {
+    const seen = best.get(b.maker);
+    if (seen === undefined || b.unitWei > seen) best.set(b.maker, b.unitWei);
+  }
+  return [...best.entries()]
+    .sort(([ma, a], [mb, b]) => (a === b ? (ma < mb ? -1 : 1) : a > b ? -1 : 1))
+    .slice(0, MAX_FUNDING_READS)
+    .map(([maker]) => maker);
+}
+
+/** One answer of a multicall read, as wagmi's useReadContracts hands it back. */
+export type FundingRead = { status: string; result?: unknown } | undefined;
+
+const amount = (r: FundingRead): bigint | null =>
+  r?.status === 'success' && typeof r.result === 'bigint' && r.result >= 0n ? r.result : null;
+
+/**
+ * How many NFTs the near-floor bids would really buy. `reads` are two per bidder, in
+ * `makers` order: WETH balanceOf, then allowance to OpenSea's conduit. A bidder can spend the
+ * lower of the two, and spends it on its highest bid first; no bid counts for more NFTs than
+ * it still asks for, and none for more than the WETH left after the bidder's higher bids.
+ *
+ * A bidder whose read failed, or who was past the read cut, counts 0: never invent a buyer.
+ * Null when the floor is unknown, the reads are not in yet, or not one read answered (that is
+ * no answer, not "no buyers").
+ */
+export function fundedNearFloor(book: BidBook | null, makers: readonly string[], reads: readonly FundingRead[] | undefined): number | null {
+  if (!book || book.nearFloorBids === null) return null;
+  if (book.nearFloorBids.length === 0) return 0;
+  if (!reads || reads.length !== makers.length * 2 || reads.length === 0) return null;
+  if (reads.every((r) => r?.status !== 'success')) return null;
+  const spendable = new Map<string, bigint>();
+  makers.forEach((maker, i) => {
+    const balance = amount(reads[2 * i]);
+    const allowance = amount(reads[2 * i + 1]);
+    spendable.set(maker, balance === null || allowance === null ? 0n : balance < allowance ? balance : allowance);
+  });
+  const byMaker = new Map<string, NearFloorBid[]>();
+  for (const b of book.nearFloorBids) byMaker.set(b.maker, [...(byMaker.get(b.maker) ?? []), b]);
+  let units = 0;
+  for (const [maker, bids] of byMaker) {
+    let left = spendable.get(maker) ?? 0n;
+    for (const b of [...bids].sort((x, y) => (x.unitWei === y.unitWei ? 0 : x.unitWei > y.unitWei ? -1 : 1))) {
+      const fundable = left / b.unitWei;
+      const take = fundable < BigInt(b.units) ? Number(fundable) : b.units;
+      units += take;
+      left -= BigInt(take) * b.unitWei;
+    }
+  }
+  return units;
 }
 
 export type ExitCheck =
@@ -172,7 +285,25 @@ export function readStats(json: unknown): Pick<LendingMarket, 'floor' | 'sales30
 
 interface RawSeaportOffer {
   remaining_quantity?: unknown;
-  protocol_data?: { parameters?: { consideration?: { itemType?: unknown; identifierOrCriteria?: unknown; startAmount?: unknown }[] } };
+  protocol_data?: {
+    parameters?: {
+      conduitKey?: unknown;
+      offer?: { startAmount?: unknown }[];
+      consideration?: { itemType?: unknown; identifierOrCriteria?: unknown; startAmount?: unknown }[];
+    };
+  };
+}
+
+/**
+ * The WETH one NFT costs the bidder, in wei: the order's WETH over the NFTs it was made for
+ * (a part-filled order keeps both totals, so the price per NFT is unchanged). Null when the
+ * order does not say.
+ */
+function unitWeiOf(o: RawSeaportOffer, quantity: number): bigint | null {
+  const total = o.protocol_data?.parameters?.offer?.[0]?.startAmount;
+  if (!/^[0-9]+$/.test(String(total ?? '')) || !Number.isInteger(quantity) || quantity < 1) return null;
+  const unit = BigInt(String(total)) / BigInt(quantity);
+  return unit > 0n ? unit : null;
 }
 
 export async function fetchLendingMarket(collection: string): Promise<LendingMarket> {
@@ -191,11 +322,17 @@ export async function fetchLendingMarket(collection: string): Promise<LendingMar
     const raw = (offersRes.value as { offers?: unknown }).offers;
     if (Array.isArray(raw)) {
       const normalize = normalizeCollectionOffer as (o: unknown) => CollectionBidLike;
-      const usable = raw.filter(buysAnyTokenOrder).map((o) => {
+      const usable = raw.filter(buysAnyTokenOrder).map((o): CollectionBidLike => {
+        const r = o as RawSeaportOffer;
         const b = normalize(o);
+        const priced = {
+          ...b,
+          unitWei: b.quantityKnown ? unitWeiOf(r, b.quantity) : null,
+          viaOpenSeaConduit: String(r.protocol_data?.parameters?.conduitKey ?? '').toLowerCase() === OPENSEA_CONDUIT_KEY,
+        };
         // A part-filled bid buys only what is left of it.
-        const left = Number((o as RawSeaportOffer).remaining_quantity);
-        return Number.isInteger(left) && left >= 0 && left < b.quantity ? { ...b, quantity: left } : b;
+        const left = Number(r.remaining_quantity);
+        return Number.isInteger(left) && left >= 0 && left < b.quantity ? { ...priced, quantity: left } : priced;
       });
       bids = bidBook(usable, stats.floor);
     }

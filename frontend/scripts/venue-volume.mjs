@@ -12,8 +12,10 @@
 // reads the same swaps again. Each new swap is valued in dollars here, once, at the price
 // of the run that first sees it, and never revalued. Exit 1 when any source did not finish.
 
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { VOLUME_SOURCES } from "../api/_lib/venueVolumePolicy.js";
+import { createHouseRegistry } from "../src/lib/house/houseRegistryCore.js";
 import {
   EVM_CHAINS,
   ISLAND_COINS,
@@ -51,6 +53,16 @@ const ETH_CURRENCIES = new Set([
 ]);
 const FILL_PAGE = 1000;
 
+// The venue's own wallets (src/lib/house/houseRegistry.json, the list the site labels "House").
+// Plain Node will not import a JSON file without an import attribute the repo's lint cannot
+// parse yet, so the file is read and handed to the site's own registry logic.
+const HOUSE_REGISTRY = new URL("../src/lib/house/houseRegistry.json", import.meta.url);
+
+/** The house wallets, lowercase. Throws when the list cannot be read: the order book then waits. */
+export function readHouseWallets(read = () => readFileSync(HOUSE_REGISTRY, "utf8")) {
+  return new Set(createHouseRegistry(JSON.parse(read())).houseWallets());
+}
+
 /**
  * Sales on our own NFT order book (native_orders, migration 002) since the cursor: each row
  * the order book marked filled, which it does only after reading the sale's OrderFulfilled
@@ -59,9 +71,17 @@ const FILL_PAGE = 1000;
  * millisecond as the last one read is neither skipped nor counted twice. Buying an OpenSea
  * listing here is not on this book and leaves no mark on chain that says it was bought
  * here, so it is not counted.
+ *
+ * Only a LISTING sold to SOMEONE ELSE is a sale (2026-11-16). The book stored bids as
+ * order_type "offer" until that day and could mark one filled, and a listing bought by its
+ * own maker moves nothing: either one would let anyone pad the public figure. Such rows are
+ * read past (the cursor moves on) and never counted. A sale the venue's own wallet made, as
+ * maker or buyer, counts in the one public figure like any other (owner, 2026-11-10: one
+ * figure, bots included) and is marked `bot`, so it is also in the internal bot totals.
  */
-export async function readOrderBookFills(db, cursor) {
+export async function readOrderBookFills(db, cursor, { houseWallets } = {}) {
   if (!db) throw new Error("the order book needs the database");
+  const house = houseWallets ?? readHouseWallets();
   const countedTo = new Date().toISOString();
   let at = cursor?.at ?? null;
   let seen = new Set(cursor?.orders ?? []);
@@ -69,7 +89,7 @@ export async function readOrderBookFills(db, cursor) {
   for (;;) {
     const where = at ? `filled_at=gte.${encodeURIComponent(at)}` : "filled_at=not.is.null";
     const r = await db(
-      `native_orders?select=order_hash,price_wei,currency,filled_at,filled_by&status=eq.filled&${where}&order=filled_at.asc,order_hash.asc&limit=${FILL_PAGE}`,
+      `native_orders?select=order_hash,price_wei,currency,filled_at,filled_by,maker,order_type&status=eq.filled&${where}&order=filled_at.asc,order_hash.asc&limit=${FILL_PAGE}`,
     );
     if (r.status !== 200 || !Array.isArray(r.body)) throw new Error(`the order book could not be read (HTTP ${r.status})`);
     let fresh = 0;
@@ -81,9 +101,13 @@ export async function readOrderBookFills(db, cursor) {
         seen = new Set();
       }
       seen.add(row.order_hash);
+      const maker = String(row.maker ?? "").toLowerCase();
+      const buyer = String(row.filled_by ?? "").toLowerCase();
+      if (row.order_type !== "listing" || !maker || !buyer || maker === buyer) continue;
       const raw = /^[0-9]+$/.test(String(row.price_wei ?? "")) ? BigInt(row.price_wei) : null;
       const eth = ETH_CURRENCIES.has(String(row.currency ?? "").toLowerCase());
-      swaps.push({ leg: raw !== null && eth ? { mint: "WETH", raw } : null, payer: String(row.filled_by ?? ""), id: row.order_hash });
+      const swap = { leg: raw !== null && eth ? { mint: "WETH", raw } : null, payer: String(row.filled_by ?? ""), id: row.order_hash };
+      swaps.push(house.has(maker) || house.has(buyer) ? { ...swap, bot: true } : swap);
     }
     // A full page that was all seen before means more than a page filled in one millisecond.
     if (r.body.length === FILL_PAGE && fresh === 0) throw new Error(`more than ${FILL_PAGE} sales filled at ${at}`);
@@ -171,6 +195,8 @@ const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH"
  * New totals for one source: its old row plus the new swaps, each valued once. `repriced`
  * are swaps already in the row with no dollars (readEvmChain): each one that now has a
  * price adds its dollars and leaves the unpriced count, and none is counted again.
+ * A swap is a bot's when its payer is one of `bots`, or when its reader marked it `bot`
+ * (the order book marks the venue's own sales, whichever side the house was on).
  */
 export async function addUp(row, swaps, priceOf, bots, repriced = []) {
   const prices = {};
@@ -188,7 +214,7 @@ export async function addUp(row, swaps, priceOf, bots, repriced = []) {
     n++;
     if (v === null) unpriced++;
     else usd += v;
-    if (bots.has(s.payer)) {
+    if (s.bot === true || bots.has(s.payer)) {
       botSwaps++;
       if (v !== null) botUsd += v;
     }
@@ -199,7 +225,7 @@ export async function addUp(row, swaps, priceOf, bots, repriced = []) {
     if (v === null) continue;
     found++;
     usd += v;
-    if (bots.has(s.payer)) botUsd += v;
+    if (s.bot === true || bots.has(s.payer)) botUsd += v;
   }
   // More than were counted with no dollars would be counting some twice.
   if (found > Number(row?.unpriced ?? 0)) throw new Error(`${found} swaps to reprice, but only ${Number(row?.unpriced ?? 0)} were counted with no dollars`);

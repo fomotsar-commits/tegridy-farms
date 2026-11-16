@@ -197,6 +197,79 @@ describe("analyzeOwnershipConcentration", () => {
   });
 });
 
+// The venue's own bidder (lib/house/houseRegistry.json). It buys up to its quantity from
+// whoever sells, so an honest seller who fills two units of one house bid traded with it
+// "twice one way", the very fingerprint a coordinated pair leaves. Here the list is passed
+// in; the committed registry is empty.
+describe("house trades: the venue's own bidder never makes a seller look coordinated", () => {
+  const HOUSE = "0x8ba1f109551bd432803012645ac136ddd64dba72";
+  const HOUSE2 = "0x" + "e".repeat(40);
+  const sold = (from, to, id, price, time) => ({ fromFull: from, toFull: to, token: { id }, price, time });
+
+  it("a seller who sells 2 NFTs into a house bid is NOT clustered with the house", () => {
+    const sales = [sold(A, HOUSE, 1, 0.04, 1), sold(A, HOUSE, 2, 0.04, 2)];
+    const r = analyzeWashTrading(sales, { houseWallets: [HOUSE] });
+    expect(r.coordinatedClusters.count).toBe(0);
+    expect(r.coordinatedClusters.internalSales).toBe(0);
+    expect(r.suspect.sales).toBe(0);
+    expect(r.suspect.volumeEth).toBe(0);
+  });
+
+  it("lists every house trade apart, with its side, under the house's own heading", () => {
+    const sales = [sold(A, HOUSE, 1, 0.04, 1), sold(HOUSE, B, 1, 0.05, 2), sold(C, D, 9, 1, 3)];
+    const r = analyzeWashTrading(sales, { houseWallets: [HOUSE.toUpperCase().replace("0X", "0x")] });
+    expect(r.houseTrades.count).toBe(2);
+    expect(r.houseTrades.volumeEth).toBeCloseTo(0.09, 9);
+    expect(r.houseTrades.trades.map((t) => [t.side, t.seller, t.buyer])).toEqual([
+      ["bought", A, HOUSE],
+      ["sold", HOUSE, B],
+    ]);
+    // The sales still count as sales: nothing is hidden from the window's totals.
+    expect(r.comparableSales).toBe(3);
+  });
+
+  it("the same two sales between two outside wallets are still a coordinated pair (control)", () => {
+    const r = analyzeWashTrading([sold(A, B, 1, 0.04, 1), sold(A, B, 2, 0.04, 2)], { houseWallets: [HOUSE] });
+    expect(r.coordinatedClusters.count).toBe(1);
+    expect(r.houseTrades.count).toBe(0);
+  });
+
+  it("two house wallets trading with each other ARE clustered: the venue trading with itself stays visible", () => {
+    const r = analyzeWashTrading([sold(HOUSE, HOUSE2, 1, 0.04, 1), sold(HOUSE2, HOUSE, 1, 0.04, 2)], { houseWallets: [HOUSE, HOUSE2] });
+    expect(r.coordinatedClusters.count).toBe(1);
+    expect(r.coordinatedClusters.clusters[0].wallets).toEqual([HOUSE, HOUSE2].sort());
+    expect(r.houseTrades.count).toBe(2);
+  });
+
+  it("a house wallet selling to itself is still a same-wallet sale", () => {
+    const r = analyzeWashTrading([sold(HOUSE, HOUSE, 1, 0.04, 1)], { houseWallets: [HOUSE] });
+    expect(r.selfSales.count).toBe(1);
+    expect(r.suspect.sales).toBe(1);
+  });
+
+  it("a house trade does not join an outside seller to the house in a larger group either", () => {
+    // A and B are a real reciprocal pair; A also sold twice into the house bid.
+    const sales = [sold(A, B, 1, 1, 1), sold(B, A, 1, 1, 2), sold(A, HOUSE, 2, 0.04, 3), sold(A, HOUSE, 3, 0.04, 4)];
+    const { clusters, clusterOf } = buildTradeClusters(sales.map(normalizeSale), { isHouse: (a) => a === HOUSE });
+    expect(clusters.map((c) => c.wallets)).toEqual([[A, B].sort()]);
+    expect(clusterOf.has(HOUSE)).toBe(false);
+  });
+
+  it("the ownership overlay never counts the house's holdings as coordinated with its sellers", () => {
+    const sales = [sold(A, HOUSE, 1, 0.04, 1), sold(A, HOUSE, 2, 0.04, 2)];
+    const owners = [{ address: A, count: 10 }, { address: HOUSE, count: 2 }, { address: C, count: 13 }];
+    const r = computeMarketIntegrity({ sales, listings: [], owners, totalSupply: 25, houseWallets: [HOUSE] });
+    expect(r.wash.coordinatedClusters.count).toBe(0);
+    expect(r.ownership.analysis.metrics.clusteredSupplyShareOfTotal ?? 0).toBe(0);
+  });
+
+  it("with the committed registry (empty) every wallet is measured exactly as before", () => {
+    const r = analyzeWashTrading([sold(A, HOUSE, 1, 0.04, 1), sold(A, HOUSE, 2, 0.04, 2)]);
+    expect(r.coordinatedClusters.count).toBe(1);
+    expect(r.houseTrades).toEqual({ count: 0, volumeEth: 0, trades: [] });
+  });
+});
+
 describe("computeMarketIntegrity", () => {
   it("self-gates every section and reports low data-confidence when all feeds are empty", () => {
     const r = computeMarketIntegrity({ sales: [], listings: [], owners: [] });

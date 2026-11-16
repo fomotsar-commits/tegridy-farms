@@ -2,9 +2,23 @@ import { useState, useCallback } from "react";
 import { Eth } from "./Icons";
 import MakeOfferModal from "./MakeOfferModal";
 import { useCollectionOffers, useTraitOffers } from "../hooks/useOffers";
+import { useActiveCollection } from "../contexts/CollectionContext";
 import EmptyState from "./EmptyState";
+import { houseBidLabel } from "../../lib/house/houseRegistry.js";
+
+// The venue's own bidder is named, never shown as one more anonymous address: "House ·
+// buys 2 (any JBAC)". The count is OpenSea's remaining_quantity when the offer carries it,
+// else the order's own quantity (which only a part-filled bid overstates); with neither it
+// says "House" alone. Null for every other maker, so they read exactly as before.
+function houseMaker(offer, chip) {
+  return houseBidLabel(offer?.maker, {
+    remaining: offer?.remainingQuantity ?? (offer?.quantityKnown ? offer.quantity : null),
+    chip,
+  });
+}
 
 export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
+  const chip = useActiveCollection()?.chip;
   const { data: collectionOffers = [], isLoading: coLoading, refetch: refetchCO } = useCollectionOffers();
   const { data: traitOffers = {}, isLoading: toLoading, refetch: refetchTO } = useTraitOffers();
   const loading = coLoading || toLoading;
@@ -96,7 +110,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
                   <Eth size={13} /> {bestCollectionOffer.price != null && Number.isFinite(bestCollectionOffer.price) ? bestCollectionOffer.price.toFixed(4) : "—"}
                 </div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  {bestCollectionOffer.maker ? `by ${bestCollectionOffer.maker.slice(0, 6)}...${bestCollectionOffer.maker.slice(-4)}` : ""}
+                  {houseMaker(bestCollectionOffer, chip) ?? (bestCollectionOffer.maker ? `by ${bestCollectionOffer.maker.slice(0, 6)}...${bestCollectionOffer.maker.slice(-4)}` : "")}
                 </div>
               </div>
             )}
@@ -114,7 +128,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
                       <Eth size={10} /> {offer.price?.toFixed(4) || "—"}
                     </div>
                     <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
-                      {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
+                      {houseMaker(offer, chip) ?? (offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : "")}
                     </div>
                   </div>
                 ))
