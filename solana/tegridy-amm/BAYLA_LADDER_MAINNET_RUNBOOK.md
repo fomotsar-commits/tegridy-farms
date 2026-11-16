@@ -298,6 +298,12 @@ Write the sha256 down — §5 checks the deployed bytes against it. The job refu
 if `deployer` equals the program id (audit L-5). **GitHub deletes the artifact after 30
 days,** so keep the `.so` and its hash.
 
+**Every build, the first deploy or an upgrade:** before the `.so` goes into a vault proposal, run
+`node scripts/verify-program-constants.mjs --so <that .so> --roster bayla-ladder`, and after the
+upgrade runs, `node scripts/verify-program-constants.mjs --deployed EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`
+with `SOLANA_RPC_URL` set to a keyed endpoint. Each must pass (the id and the deployer present, no
+forbidden key); a failure before the proposal means it is not proposed.
+
 ---
 
 ## 5. Deploy the program
