@@ -102,3 +102,24 @@ describe('the farm: one tank per pool, all one size, rows of four, the first poo
     }
   });
 });
+
+describe('a tank that holds coins whose dollars were not read', () => {
+  const stocked = (i: number, usd: number | null = null): FieldPool => ({ ...pool(i, usd), stocked: true });
+
+  it('stands still water at one height in every such tank, off the gauge: no level, no ripples', () => {
+    const farm = tankFarm([stocked(0), stocked(1), pool(2, null), pool(3, 500)])!;
+    const by = (n: number) => farm.tanks.find((t) => t.i === n)!;
+    expect([by(0).state, by(1).state, by(2).state, by(3).state]).toEqual(['still', 'still', 'dry', 'wet']);
+    expect(by(0).level).toBeNull();
+    expect(by(0).ripples).toHaveLength(0);
+    const drop = (n: number) => box(by(n).water).minY - box(by(n).hole).minY;
+    expect(drop(0)).toBeCloseTo(drop(1), 1);
+    expect(drop(0)).toBeLessThan(drop(2) - 5);
+  });
+
+  it('a read level wins: a stocked tank whose dollars were read stands at its level', () => {
+    const farm = tankFarm([stocked(0, 1_000)])!;
+    expect(farm.tanks[0]!.state).toBe('wet');
+    expect(farm.tanks[0]!.level).toBeCloseTo(2 / 3, 10);
+  });
+});

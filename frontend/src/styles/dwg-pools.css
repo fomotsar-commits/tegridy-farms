@@ -105,6 +105,9 @@ section[data-dwg='door'] {
 .dwg-sheet[data-sheet='P'] .p01-rim { fill: none; }
 .dwg-sheet[data-sheet='P'] .p01-tank[data-dry] .p01-face { stroke-dasharray: 3 3; }
 .dwg-sheet[data-sheet='P'] .p01-dryline { fill: none; stroke: rgba(245, 228, 184, 0.35); stroke-width: 0.7; stroke-dasharray: 2 3; }
+/* Still water: the pool holds coins, its dollars not read. Hatched, one height, a dashed surface. */
+.dwg-sheet[data-sheet='P'] .p01-still { stroke: color-mix(in srgb, var(--dwg-spot) 60%, transparent); stroke-width: 0.7; stroke-dasharray: 2 3; animation: p01-water 1.4s var(--dwg-ease) both; }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-hot] .p01-still { stroke: var(--dwg-ink); stroke-dasharray: none; }
 .dwg-sheet[data-sheet='P'] .p01-ripple { stroke-width: 0.9; stroke-dasharray: 9 19; opacity: 0.75; }
 .dwg-sheet[data-sheet='P'] .p01-water { animation: p01-water 1.4s var(--dwg-ease) both; transition: fill 0.2s ease; }
 @keyframes p01-water { from { opacity: 0; } to { opacity: 1; } }
@@ -124,10 +127,13 @@ section[data-dwg='door'] {
   color: rgba(245, 228, 184, 0.8); text-shadow: none;
 }
 .dwg-sheet[data-sheet='P'] .p01-tag[data-hot]::before { color: var(--dwg-ink); }
-/* The staff gauge's key: the scale the water is read against. From 48rem. */
+/* The staff gauge's key: the scale the water is read against. From 48rem, in the field's lower
+   right corner, which no farm reaches (the far tanks fill the upper right once many pools are
+   listed). Faint until a tank stands on the scale. */
 .dwg-sheet[data-sheet='P'] .p01-key { display: none; }
 @media (min-width: 48rem) {
-  .dwg-sheet[data-sheet='P'] .p01-key { display: block; position: absolute; top: 10px; right: var(--dwg-pad); width: 96px; height: 110px; pointer-events: none; }
+  .dwg-sheet[data-sheet='P'] .p01-key { display: block; position: absolute; bottom: 6px; right: var(--dwg-pad); width: 96px; height: 110px; pointer-events: none; transition: opacity 0.6s ease; }
+  .dwg-sheet[data-sheet='P'] .p01-field:not([data-priced]) .p01-key { opacity: 0.38; }
   .dwg-sheet[data-sheet='P'] .p01-key-cap::before {
     content: attr(data-t); content: attr(data-t) / ""; position: absolute; top: 0; right: 0; white-space: nowrap;
     font: 500 9.5px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim);

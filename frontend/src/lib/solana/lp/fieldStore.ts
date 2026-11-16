@@ -10,8 +10,10 @@ export interface FieldPool {
   readonly tokenMint: string;
   /** The pair as a tank's wall names it: "BAYLA/SOL". */
   readonly name: string;
-  /** What it holds at Jupiter's listed prices, or null when that was not read: the tank stays dry. */
+  /** What it holds at Jupiter's listed prices, or null when that was not read: no level on the gauge. */
   readonly usd: number | null;
+  /** The list read both of its reserves above nothing. Unset for a tank the registry names before any read. */
+  readonly stocked?: boolean;
 }
 
 type View = (tokenMint: string) => void;
@@ -32,7 +34,14 @@ const samePools = (a: readonly FieldPool[] | null, b: readonly FieldPool[] | nul
   (a !== null &&
     b !== null &&
     a.length === b.length &&
-    a.every((p, i) => p.address === b[i]!.address && p.name === b[i]!.name && p.usd === b[i]!.usd && p.tokenMint === b[i]!.tokenMint));
+    a.every(
+      (p, i) =>
+        p.address === b[i]!.address &&
+        p.name === b[i]!.name &&
+        p.usd === b[i]!.usd &&
+        p.tokenMint === b[i]!.tokenMint &&
+        Boolean(p.stocked) === Boolean(b[i]!.stocked),
+    ));
 
 /** The list All pools drew, in its order, or null when it has none to give (not read, or gone). */
 export function publishFieldPools(next: readonly FieldPool[] | null): void {

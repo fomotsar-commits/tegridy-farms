@@ -34,6 +34,20 @@ describe('the tank farm on /pools (P-01)', () => {
     expect(names(container)).toContain('C1/SOL');
   });
 
+  it('draws a pool that holds coins, its dollars not read, as still water: not dry, and not on the gauge', () => {
+    const { container } = render(<PoolField />);
+    act(() => publishFieldPools([{ ...pool(0, null), stocked: true }, pool(1, null), { ...pool(2, 300), stocked: true }]));
+    const still = tanks(container).filter((t) => t.hasAttribute('data-still'));
+    expect(still).toHaveLength(1);
+    expect(still[0]!.querySelector('.p01-still')).not.toBeNull();
+    expect(still[0]!.hasAttribute('data-dry')).toBe(false);
+    expect(still[0]!.querySelector('.p01-water')).toBeNull();
+    expect(tanks(container).filter((t) => t.hasAttribute('data-dry'))).toHaveLength(1);
+    expect(container.querySelector('.p01-field')!.hasAttribute('data-priced')).toBe(true);
+    act(() => publishFieldPools([{ ...pool(0, null), stocked: true }]));
+    expect(container.querySelector('.p01-field')!.hasAttribute('data-priced')).toBe(false);
+  });
+
   it('goes back to the registry, dry, when the list is gone', () => {
     const { container } = render(<PoolField />);
     act(() => publishFieldPools([pool(0, 14_524)]));

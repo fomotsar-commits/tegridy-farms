@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Add / Remove, a staking pool's page and NFT loans are each drawn as an architect's sheet now, as Earn is. Add / Remove shows every pool as a tank, its water at the dollars the pool holds, and a trade's fee as pipes as wide as each share. A staking pool shows its own bungalow with the lock ladder to scale. NFT loans hang the collection on a wall, with the floor, the best bid and your loan as level lines. No word, fee, rule or button changed.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.

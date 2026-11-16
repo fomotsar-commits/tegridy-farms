@@ -3,7 +3,8 @@ import type { FieldPool } from '../../lib/solana/lp/fieldStore';
 
 // P-01's figure: the venue's pools as an isometric tank farm (lib/iso.ts). Pure: pools in,
 // points out. One tank per pool, every tank the same size, rows of four, the first pool
-// nearest the eye. Water stands only in a tank whose dollars were read.
+// nearest the eye. Water stands on the gauge only in a tank whose dollars were read; a tank
+// that holds coins whose dollars were not read shows still water at one height, off the gauge.
 
 export type { FieldPool };
 
@@ -27,9 +28,16 @@ export function waterLevel(usd: number | null | undefined): number | null {
 
 export type Seg = readonly [number, number, number, number];
 
+/** `wet`: dollars read, water at its level. `still`: holds coins, dollars not read. `dry`: nothing read. */
+export type TankState = 'wet' | 'still' | 'dry';
+
+/** Where still water is drawn, 0 to 1 of the tank: the same in every such tank, so it compares nothing. */
+export const STILL_LEVEL = 0.42;
+
 export interface TankDrawing {
   readonly i: number;
   readonly pool: FieldPool;
+  readonly state: TankState;
   readonly level: number | null;
   readonly left: string;
   readonly right: string;
@@ -77,7 +85,9 @@ export function tankFarm(pools: readonly FieldPool[], aspect = FIELD_ASPECT): Fa
     .sort((a, b) => a.x + a.y - (b.x + b.y))
     .map(({ pool, i, x, y }): TankDrawing => {
       const level = waterLevel(pool.usd);
-      const wz = level === null ? FLOOR_Z : FLOOR_Z + (H - BRIM - FLOOR_Z) * level;
+      const state: TankState = level !== null ? 'wet' : pool.stocked ? 'still' : 'dry';
+      const stands = level ?? (state === 'still' ? STILL_LEVEL : null);
+      const wz = stands === null ? FLOOR_Z : FLOOR_Z + (H - BRIM - FLOOR_Z) * stands;
       const top = [q([x, y, H]), q([x + W, y, H]), q([x + W, y + D, H]), q([x, y + D, H])];
       const left = [q([x, y + D, H]), q([x + W, y + D, H]), q([x + W, y + D, 0]), q([x, y + D, 0])];
       const right = [q([x + W, y, H]), q([x + W, y + D, H]), q([x + W, y + D, 0]), q([x + W, y, 0])];
@@ -99,6 +109,7 @@ export function tankFarm(pools: readonly FieldPool[], aspect = FIELD_ASPECT): Fa
       return {
         i,
         pool,
+        state,
         level,
         top: pts(top),
         left: pts(left),

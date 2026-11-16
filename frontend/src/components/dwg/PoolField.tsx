@@ -13,6 +13,8 @@ const INSIDE = mixHex(EDITORIAL_BG, SPOT, 0.06);
 const WALL_A = { wet: mixHex(EDITORIAL_BG, SPOT, 0.2), dry: mixHex(EDITORIAL_BG, SPOT, 0.06) };
 const WALL_B = { wet: mixHex(EDITORIAL_BG, SPOT, 0.12), dry: mixHex(EDITORIAL_BG, SPOT, 0.04) };
 const WATER = mixHex(EDITORIAL_BG, SPOT, 0.6);
+const STILL = mixHex(EDITORIAL_BG, SPOT, 0.22);
+const STILL_LINE = mixHex(EDITORIAL_BG, SPOT, 0.5);
 const RIPPLE = mixHex(SPOT, '#ffffff', 0.55);
 /** The staff gauge's marks, top to bottom (tankFarm.ts GAUGE_LOW_USD to GAUGE_HIGH_USD). */
 const MARKS = ['$10K', '$1K', '$100', '$10'];
@@ -26,8 +28,9 @@ function registryTanks(): FieldPool[] {
 
 /**
  * P-01's drawing (owner, 2026-11-15): the pools as a tank farm. From the registry at once, every
- * tank dry and dashed; once All pools lands, its pools (lib/solana/lp/fieldStore.ts), water only
- * where dollars were read. A pointer on a tank lights its row, and a press does what its View does.
+ * tank dry and dashed; once All pools lands, its pools (lib/solana/lp/fieldStore.ts): water on the
+ * gauge where dollars were read, still hatched water where a pool holds coins not yet priced.
+ * A pointer on a tank lights its row, and a press does what its View does.
  * Decoration to a reader: aria-hidden, every word drawn from data-t.
  */
 export function PoolField() {
@@ -43,16 +46,26 @@ export function PoolField() {
   if (!farm) return null;
   const [vx, vy, vw, vh] = farm.viewBox;
   const at = (x: number, y: number) => ({ left: `${((x - vx) / vw) * 100}%`, top: `${((y - vy) / vh) * 100}%` });
+  // The key's dollar scale stands for something only once a tank is on it.
+  const priced = farm.tanks.some((t) => t.state === 'wet');
+  const hatch = `${id}h`;
   return (
     <div
       ref={ref}
       className="p01-field"
       aria-hidden="true"
       data-read={listed ? '' : undefined}
+      data-priced={priced ? '' : undefined}
       data-dwg-paused={paused ? '' : undefined}
       style={{ '--vbw': vw } as CSSProperties}
     >
       <svg className="dwg-fig p01-farm" viewBox={`${vx} ${vy} ${vw} ${vh}`} focusable="false">
+        <defs>
+          <pattern id={hatch} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+            <rect width="5" height="5" fill={STILL} />
+            <line x1="0" y1="0.5" x2="5" y2="0.5" stroke={STILL_LINE} strokeWidth="0.8" />
+          </pattern>
+        </defs>
         <g className="p01-ground">
           {farm.grid.map(([x1, y1, x2, y2], k) => (
             <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} />
@@ -65,14 +78,16 @@ export function PoolField() {
           </g>
         ))}
         {farm.tanks.map((t) => {
-          const wet = t.level !== null;
+          const wet = t.state === 'wet';
+          const still = t.state === 'still';
           const clip = `${id}t${t.i}`;
           return (
             <g
               key={t.pool.address}
               className="p01-tank dwg-fill-in"
               data-hot={hot === t.pool.address ? '' : undefined}
-              data-dry={wet ? undefined : ''}
+              data-dry={t.state === 'dry' ? '' : undefined}
+              data-still={still ? '' : undefined}
               data-press={view ? '' : undefined}
               style={{ animationDelay: `${t.i * 55}ms` }}
               onPointerEnter={() => setFieldHot(t.pool.address)}
@@ -87,8 +102,8 @@ export function PoolField() {
               <polygon className="p01-face" points={t.top} fill={FACE_TOP} />
               <g clipPath={`url(#${clip})`}>
                 <polygon points={t.hole} fill={INSIDE} />
-                <polygon points={t.wallA} fill={wet ? WALL_A.wet : WALL_A.dry} />
-                <polygon points={t.wallB} fill={wet ? WALL_B.wet : WALL_B.dry} />
+                <polygon points={t.wallA} fill={wet || still ? WALL_A.wet : WALL_A.dry} />
+                <polygon points={t.wallB} fill={wet || still ? WALL_B.wet : WALL_B.dry} />
                 {wet ? (
                   <>
                     <polygon className="p01-water" points={t.water} fill={WATER} />
@@ -96,6 +111,8 @@ export function PoolField() {
                       <line key={k} className="p01-ripple dwg-ripple" x1={x1} y1={y1} x2={x2} y2={y2} stroke={RIPPLE} strokeDashoffset={k * 7} />
                     ))}
                   </>
+                ) : still ? (
+                  <polygon className="p01-still" points={t.water} fill={`url(#${hatch})`} />
                 ) : (
                   <polygon className="p01-dryline" points={t.water} />
                 )}
