@@ -1,0 +1,4319 @@
+{
+ "_source": "Trimmed from dev/bidbot-2026-11-15/collections-facts/raw/junglebay/sales-90d.json: OpenSea GET /api/v2/events/collection/junglebay?event_type=sale, read 2026-11-15T21:33:54.317Z, 90 days. Images, names, traits and descriptions removed; every other field as OpenSea sent it.",
+ "read_utc": "2026-11-15T21:33:54.317Z",
+ "after_utc": "2026-08-17T21:33:46.000Z",
+ "before_utc": "2026-11-15T21:33:46.000Z",
+ "asset_events": [
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794728927,
+   "transaction": "0xbf915f29b6bc837f7baba6517e4ac3cb0201c6a32484334224a4fb6ce5b7ee19",
+   "order_hash": "0x4540895502c3ada3f84cd9b34089719c8dbb482200e29ed36a5db5b4e406d0ee",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794728927,
+   "seller": "0xe45f094ea6c763158f581a8d2f7fe190710c9f40",
+   "buyer": "0x101bb8d14cc1632a6973eca68f97ec4c5fc8c421",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1797",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794713291,
+   "transaction": "0x1ed8fcaeb2aebb30517339dfba5d838c92a0c751efd3ac1cee24df989965fd23",
+   "order_hash": "0x216de7679c7b9dd478b991a87e97c96dcac816edfbf59a82dbbfd11e1f2621b6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34990000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794713291,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0x55691235e6d83aab9c1cb61983686a6070ae2b44",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4914",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794713207,
+   "transaction": "0xacdb761996a61efe4d5ececfcf0fc691b6c1329e1b8ae84572892138b3b6b106",
+   "order_hash": "0x359d0af5291e87fdfde71a47746bb641509a356be9d351e7201da231cfecb4a0",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34980000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794713207,
+   "seller": "0x7e005b7d3b1c1b5fe1dd790749c56ebf5fa819fc",
+   "buyer": "0x55691235e6d83aab9c1cb61983686a6070ae2b44",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4300",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794678839,
+   "transaction": "0xfc3d3319bab1ae0b119a37c6e7d0c4cc0ef22bdfd0c2d73c404bb47855e04365",
+   "order_hash": "0x0ce7ff1b31717cd15986bb44ab7e81d32d19f6a80cce2331d79d1160412128d2",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794678839,
+   "seller": "0xd1aa497151795d4bdaa9c7584b9702ff2b16450b",
+   "buyer": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "quantity": 1,
+   "nft": {
+    "identifier": "150",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794642923,
+   "transaction": "0x8475032afb53c56c9fa454a46fd345554095c430bd10bd3d01419577d80852ed",
+   "order_hash": "0x0f0d9f2e5ea392705d0790a586b8c8e5bd2dfbe1ea341148d471ae39bb39adf9",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794642923,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0xe1571a136b2ebb13a276b7160e15220425bad936",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3601",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794621983,
+   "transaction": "0x94ffef1211c9178285d47a69fbef358dd28959440b45a86369db061dc4194cd2",
+   "order_hash": "0xc3b8a688c0cd288025243cd78311fb8ab4c70d39c68eeecbe8172c91c78ba49a",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794621983,
+   "seller": "0x8d4daba34c92e581f928fca40e018382f7a0282a",
+   "buyer": "0x7e005b7d3b1c1b5fe1dd790749c56ebf5fa819fc",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4300",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794621875,
+   "transaction": "0x70b47e91d882b699f8e508d66c8054dd6e454e8bda8feaa34a546af3f1dc0108",
+   "order_hash": "0xcfcaa8c7b4c295b318e913939d4a8ea7f50212b363dbedafb248d924a807dfb7",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37998000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794621875,
+   "seller": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "buyer": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4914",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794621551,
+   "transaction": "0xa79f94837eeeabf312ed119795ce10b92a9b1dbfbb7de7491e6c071cb1317259",
+   "order_hash": "0xaf362b8e42ec18ac7947a4a68c2f84b0fcf100f05da383c5bbb7c7d34e182e37",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794621551,
+   "seller": "0x8d4daba34c92e581f928fca40e018382f7a0282a",
+   "buyer": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4914",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794621095,
+   "transaction": "0x7df4dfd992004f73a4e86f1655d8d6012b256a48bfc62439db714b51555d96c6",
+   "order_hash": "0xbf248de1dd978b5fc023f2f5ff7ed95466812a90de6775531e6e8d9591836bc1",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794621095,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0xca9e2810fe321bc684d38fdb4f17ee28b7577f47",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4163",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794610007,
+   "transaction": "0x541d541dcac57620b7e2f4059b22ca9133d334953068bc71665fc3ab1f370218",
+   "order_hash": "0xd936da8022b77ac221650889024129b2ce2912c50d35336da03df884f6df85de",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40992000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794610007,
+   "seller": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "buyer": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4163",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794601307,
+   "transaction": "0x8beccea99eaca22454b5b17de2c47be061ecdc49897535f1534416293da0a303",
+   "order_hash": "0xd70cb5607e8e728554a365392a20586339d45fd7ff5dc9d0e03af025d7785503",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794601307,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0x944603142bf7606292082dde8e76cee0eb90d540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4750",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794599351,
+   "transaction": "0x56578b6026f204cada8805a144c29adade2d87ac63c278ceb8fdbaa06967032d",
+   "order_hash": "0x1854cd28aa65d9e27ed87fb5122509346e2b6503ff1c5b218465ded629a7987f",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794599351,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3853",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794598391,
+   "transaction": "0x40ebb81aa631d3a4e7aac7c63560e8aadafe1a16c2cd56d0e371eb94fe343347",
+   "order_hash": "0x89cd3078c30e4583ef992618acb470639fca2f8f6732824b86a981110d61a31e",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794598391,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xe62ec84c90e6a46a4243cf08bc2f62054a8ba784",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2922",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794598259,
+   "transaction": "0x6434a22c515623e7cfe79b5fb17e5c3e4a0c0969f306f075d5c9a470987a551a",
+   "order_hash": "0xd968ad34d38f79b7855ffdbc287daf87a32bd19e2b6961d4d74ec4ea23b9157d",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794598259,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1851",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794597611,
+   "transaction": "0xcc61b43c0bf311ca5a5c3f69766ca1456f6115fe8278beb27eb4dc96dbb139d5",
+   "order_hash": "0xc930ebc903478e948ebc017930ec20defa248181f71ea158166954d957bc6274",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794597611,
+   "seller": "0xdd11158b5d8c0af08834f2c58cdb7593311a1590",
+   "buyer": "0x944603142bf7606292082dde8e76cee0eb90d540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3348",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794587339,
+   "transaction": "0xc66f2a39c4a580c6c8345421c48309eeda0a043261fab30c857f9edbf21d035e",
+   "order_hash": "0xe41ed7fa8f6cc23f0b1b90a2f2297aa5707537e320da4a15ca1cb5fc7587a1ce",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794587339,
+   "seller": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "buyer": "0x1ff5d7d5fabcc6c7acfafc0372423651efb5a689",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3308",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794587339,
+   "transaction": "0xc66f2a39c4a580c6c8345421c48309eeda0a043261fab30c857f9edbf21d035e",
+   "order_hash": "0xc9e2c9b1fd98a6f3c31a10207720b307f33da01e6270f3e84eb31f9b2570aabb",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794587339,
+   "seller": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "buyer": "0x1ff5d7d5fabcc6c7acfafc0372423651efb5a689",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3033",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794549995,
+   "transaction": "0xca71b149b330efdbfc2f9041936d204a4a3dc7740fdd7347e0fd0310b04384fb",
+   "order_hash": "0xd2da1374c41e52acdebc3958c5fb81157b646ec1b9e72260c5d7442c7100ec3f",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "41868000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794549995,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0x944603142bf7606292082dde8e76cee0eb90d540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2391",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794517235,
+   "transaction": "0x25c8491d0ff054756345941615a6db13c50226ab887272573fdc6d9972036c3d",
+   "order_hash": "0xcc7a6c49ec558ff19091280641fca15e6e136460c969659b37e6f30cd2d99d0f",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "44520000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794517235,
+   "seller": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "buyer": "0xa767117a20ab3b6945954fbf710e2ec5324f7fd6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2530",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794496823,
+   "transaction": "0xb1be1ff62bc872530fd60ce166186f7093b0a32fc4af996bfe6bd8aecc33e0a1",
+   "order_hash": "0xd151857f0e603f86e96f7edfec7c886d2faaddd45ab4c98273d962d623b86a07",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "32200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794496823,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x3068e30a4ae02825ed5a51b0c070f04332642702",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1017",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794496823,
+   "transaction": "0xb1be1ff62bc872530fd60ce166186f7093b0a32fc4af996bfe6bd8aecc33e0a1",
+   "order_hash": "0xd151857f0e603f86e96f7edfec7c886d2faaddd45ab4c98273d962d623b86a07",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "32200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794496823,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x3068e30a4ae02825ed5a51b0c070f04332642702",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4522",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794496439,
+   "transaction": "0x5d9907864b79ad8954a787bcb1c5706683239c2c0d529234a465f21ea6048bfd",
+   "order_hash": "0xb836e8016f1915ae98b5cd0e29f7dd292d9b13e9df005b95a36499d747a6d74f",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794496439,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4163",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794495839,
+   "transaction": "0x18c261dff0592a1accec13b1ca380d7831f4e4e77d487963bf374eaaeb2d4b0f",
+   "order_hash": "0x16eec70413cd091e613eeb8dea327a75ddb2af8a4675c63e259da3dd243eb1f3",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30550000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794495839,
+   "seller": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4163",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794495839,
+   "transaction": "0x18c261dff0592a1accec13b1ca380d7831f4e4e77d487963bf374eaaeb2d4b0f",
+   "order_hash": "0x74e5b1ca115d94e77461ea909fd77d25056c6bfe2aa93452f13bca0d338159ad",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794495839,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1017",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794495839,
+   "transaction": "0x18c261dff0592a1accec13b1ca380d7831f4e4e77d487963bf374eaaeb2d4b0f",
+   "order_hash": "0xf7c2f3a9647006a892357171013b738412a8e960a5eb5926093aeb568249b1d7",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27999990000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794495839,
+   "seller": "0x3428a13f0e892e209f43442669dc4c803bb7fe14",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4522",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794494927,
+   "transaction": "0x5f319b26dda5b8351de5336782f0a0baa5e06fad94de810ef0c944cfd0c75dd7",
+   "order_hash": "0x5193a11b1425a35602918e1e34fe9a0806c657b20552fec0da49a6ede8121b14",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30550000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794494927,
+   "seller": "0xb0cf6360b50c48280e2c18fe9d96bc7d6f5ed697",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4940",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794494843,
+   "transaction": "0xf8daa6f24e178310df2c1ac17a22e3c52cddb7c318ce0351407344b9477bdc34",
+   "order_hash": "0xdda804d2b8a599821839324c899e6ed2e50a26916419b8eed7168d9d404cd5c6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29899900000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794494843,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4116",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794494807,
+   "transaction": "0xda096c68b8049e2556471ea1f987ffc4a78e4e7e391057e252bbb4b324b2de23",
+   "order_hash": "0x7a8d91651e5d1431071080404448749e32655d70b604789be979349d17b1517d",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794494807,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4177",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794494771,
+   "transaction": "0xe52c71e3be96f8107045bac05d55cc3f437e7f960397805c8f3c371afe9e377b",
+   "order_hash": "0xd37eb6dbd276a70e1bf1439fc702b10a815b4fe0f8e5854133978fdf4af248b2",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794494771,
+   "seller": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1704",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794494747,
+   "transaction": "0x6160c7b8b21933df076c9ae10c21271bbcf29967185dc84b12ecb97ffc39fe24",
+   "order_hash": "0x225c36eb03e443d03af4c5798f599ca50fdcd0490ac997db19fa406d1fda679d",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794494747,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2962",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794488939,
+   "transaction": "0xf8be3ee8a4b84da015be6484a87d31ebe2a82ca12cb16e04ae62b641df164723",
+   "order_hash": "0x93e8781e5daca092cfa817a188f8bb12bf0126f579f06ad2d502953cfb015037",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27991000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794488939,
+   "seller": "0x1ff5d7d5fabcc6c7acfafc0372423651efb5a689",
+   "buyer": "0xcefd71cc2a14f570289d47803e4e9b4e64dcc343",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794488879,
+   "transaction": "0xc72b04010b25b9c12dee95a478ae5b2dc5d33c53ff9b773fab6761b1a9e09fce",
+   "order_hash": "0x10e06b3ba6ad908cc551cb03dc42c2beeb65a19a150a7c6dae729edc4c3e9ee1",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27991000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794488879,
+   "seller": "0x1ff5d7d5fabcc6c7acfafc0372423651efb5a689",
+   "buyer": "0xcefd71cc2a14f570289d47803e4e9b4e64dcc343",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4602",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794488699,
+   "transaction": "0x07ba903fad578eafc7eb0510b95b63599995f23e5426ec0f928dd01b8b6d0008",
+   "order_hash": "0x9d33691fd6c186a6eb0635fe5d1cc6f116c85c76530d6b2168aba044f00d380f",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27995000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794488699,
+   "seller": "0x009872c99b79e337dcc607fb089f4c136205d400",
+   "buyer": "0x5dcdf3769c6526b25373e648ef68f43ea8939eb7",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5044",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794443351,
+   "transaction": "0x50dc2f917ebe6037f8a1bf7b1610b1687d80750bdf0f99cffcd3c31e16320b56",
+   "order_hash": "0xcfb599e7f94ad693574935de98528ad66c60e71f0fe21bd120738a0130a1e799",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27880000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794443351,
+   "seller": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "buyer": "0x71c457a41b9dc7952cc5227b79838818ce3ed0b9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "184",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794268175,
+   "transaction": "0xb93330f510532225e1e11b36b501cbc116e201b56c9943701571f243c5f3d556",
+   "order_hash": "0xf1a8748c8706d8c6beb101ab7c6f07a277c8ce292dc3e812e989aef045b52098",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27998000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794268175,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xb2c24d774a42b1fc78e628526796e6e795c65fa4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1282",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794268175,
+   "transaction": "0xb93330f510532225e1e11b36b501cbc116e201b56c9943701571f243c5f3d556",
+   "order_hash": "0x7c1f33abda98bcf0c873ea600792818e511dbb0469b76f29dc2b5f1110f290f6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27912000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794268175,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0xb2c24d774a42b1fc78e628526796e6e795c65fa4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3103",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794096047,
+   "transaction": "0xcc8ce526e2f0d49041d51ec23735e56835201b58336a132d7a1500bf7064f831",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "19700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794096047,
+   "seller": "0x10c285c01bee3c888f49f31cc3178b76bccd2e4f",
+   "buyer": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794008867,
+   "transaction": "0x9b7c052ceb88f470a97a4482073b078bbdd3a0af7995ef4862843ae136cf0657",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794008867,
+   "seller": "0xaf3570dc9e88c8822bb71389840ba267aa060e13",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "184",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793985659,
+   "transaction": "0x286fe71853fc704be49d452eeda5d1bba5a49a808dceb69bc381762d15e4d8a3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793985659,
+   "seller": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "buyer": "0x7bca317ab19b68a233335a33e043788b7d943d2b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2958",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793980451,
+   "transaction": "0x5a8dc52d4bc24d24ce0b9cee28fcc664d1061ba3df5abe4ba7e1483912f0a3b0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793980451,
+   "seller": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "buyer": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4602",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793931263,
+   "transaction": "0x0ea3f99cb726f172aec75536d6324b2f5dd6fb1609aecc9c41f2a87fc331e910",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "36530000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793931263,
+   "seller": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "buyer": "0x10c285c01bee3c888f49f31cc3178b76bccd2e4f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793863019,
+   "transaction": "0x393dbd4a9142af34b30d6a889dc78ed6a83da37c05fffe0c8f311346e3cc60bb",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793863019,
+   "seller": "0xcdf734d1ac2464399eb9ebec7f4b4f2f81d36fe4",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3103",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793862995,
+   "transaction": "0x22150597f6ac63e15f4be0840564c75117aa60ab9ef2a9273576571273ada572",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "26700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793862995,
+   "seller": "0xcdf734d1ac2464399eb9ebec7f4b4f2f81d36fe4",
+   "buyer": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3033",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793810243,
+   "transaction": "0xb1bb49cdcbf1785263fb8fec985e8bcaf3a824c3dc3b84c026e87ede16d3f7e8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793810243,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x20b3dc7a08ae3b7b2103f7a30bf5332b4f8f84e1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "92",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793807915,
+   "transaction": "0x36841fbc84f8c0ded4890c87a4a3e22a697b7293a5edb1a81cb37c0365ea835c",
+   "order_hash": "0xf33d041a6c3418463a20fea50f16397fa79eb269fd54bb30a5f9d5be4d0bd94c",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30450505050000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793807915,
+   "seller": "0xeaad1e8dcfde1d6e0a54ff5879d02de082d51508",
+   "buyer": "0xa767117a20ab3b6945954fbf710e2ec5324f7fd6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4446",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793646719,
+   "transaction": "0xec3c793c37f65ec653da166659c1c2e5ab323db44340cd965e27ccf4bfa30517",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "23000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793646719,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x3428a13f0e892e209f43442669dc4c803bb7fe14",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4522",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793587919,
+   "transaction": "0x789e91b9569eb3b52373c6fef832ece35c6a12b55691450af727ff3261dfb62a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28760000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793587919,
+   "seller": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "buyer": "0x7bca317ab19b68a233335a33e043788b7d943d2b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4336",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793563451,
+   "transaction": "0x7c3463fed980c435ef418b499cf8234f9db6c0c7cf7f1ef971509aed8e4240f6",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "23400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793563451,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0xeaad1e8dcfde1d6e0a54ff5879d02de082d51508",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4446",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793551511,
+   "transaction": "0xd4ee0bc27a3ace90cee46e77cfb2291e808966e32ccfd59610483ba2580b4fa0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "23500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793551511,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0xb0cf6360b50c48280e2c18fe9d96bc7d6f5ed697",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4940",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793523923,
+   "transaction": "0x6c52110465418d650808d8225925fcc930fa049a8cc353e446ce4180b5e2c50e",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793523923,
+   "seller": "0xc00ae7da09d00670b50b4608046c2af5decf302d",
+   "buyer": "0x1e5e5455d3f66acb5cfa43698d41ba30ab12c2d5",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2964",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793523911,
+   "transaction": "0xa6a3096c77ebaccb8ba7dc4bf7f52654183d743da7f71e949b074d53c235244a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29213800000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793523911,
+   "seller": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "buyer": "0xc00ae7da09d00670b50b4608046c2af5decf302d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2964",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793514923,
+   "transaction": "0x69d61a2f2b499364466d0b2508667d90afdeff23543a01e45dc6e206e24af1a8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "23500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793514923,
+   "seller": "0x468d48468ca9057be30d7a8da151e971ae7688d1",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4163",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793505971,
+   "transaction": "0xfdda13547a62eebb7cb23591f7f409852f87b3b58aaafdb7fc32a77a8474e613",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "32999900000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793505971,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x7bca317ab19b68a233335a33e043788b7d943d2b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5197",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793468387,
+   "transaction": "0xf2a76acb79ca35c167d95f993ad4da86b4309e4e42e4ea16417cbbdd2e88b560",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "24800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793468387,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5197",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793468351,
+   "transaction": "0x1c1f812a28d3789a4e6c6456092ee89fb5d2639be0bf42d853c4d1c4899d7c93",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "24800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793468351,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4116",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793458127,
+   "transaction": "0x30196aa1380619438a829208c4170995a047e52614dfb35bea277e553d30ae11",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37980000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793458127,
+   "seller": "0x3a5055af0724a4b33fbdf09268b84877726b2560",
+   "buyer": "0x8dafcf0796bc8a4399a07bec4f4c0e31232230c4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1683",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793387459,
+   "transaction": "0x59da28c9620724a8e443b87f28b9ef4e19e048c10d9efc11758a62d08828480a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793387459,
+   "seller": "0xeacb3676b611f2ce32b70975364162d4ff31a0cd",
+   "buyer": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4602",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793387435,
+   "transaction": "0x1df38d56f3c00737492a40ce047a535fda1c72e148e988f6c5460f58a0e9f6f6",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793387435,
+   "seller": "0xeacb3676b611f2ce32b70975364162d4ff31a0cd",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793249819,
+   "transaction": "0x9604ad41571d768500bf41fa2f333c8b794cac5b182edf76a23a780d50e79136",
+   "order_hash": "0x9873b6180e65f04ebc35c333645db9c20ed805358eb18228b7f9bff5c48d44d6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "44380000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793249819,
+   "seller": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "buyer": "0x7b0847dee5900584d557b8d47ddffbc2aed7b5d0",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4203",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793248871,
+   "transaction": "0x9036322c3a88030dd52e2c0c1481890b301b99e011ba3c03b03d19d84e4d5ff7",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "44379000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793248871,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x944603142bf7606292082dde8e76cee0eb90d540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2321",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793248511,
+   "transaction": "0xb14695da39063a77a7b8dde9037324c8f49974a7ea9d3795a6d4cdffa848c1a7",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793248511,
+   "seller": "0xaa9da0a60158becf85fb097b05931d911b9cab8e",
+   "buyer": "0xb523f4ed6793fb4191e90b6984969220a4a925fd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1704",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793092067,
+   "transaction": "0xc41ae3e0a7a02fb488ddc824fbafbf87879e9f174f47d01381ac390fd572892f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "56000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1793092067,
+   "seller": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "buyer": "0x72dcb40c2f565d0fa2af415de746cd322dbfb70d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4678",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1793081939,
+   "transaction": "0xf2606c74ed8736ce1e0ac95f125b81e127dc77e2fa8fd06d77927c34b178fb8d",
+   "order_hash": "0x5a928ac7c290b52301968acbda72aba86f5ef2a48f0c64f42d774a1fddaee97b",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "119560000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1793081939,
+   "seller": "0xaf0642f7139ad5b6ba863385f9d97fb6bb9dfdfd",
+   "buyer": "0xaa9da0a60158becf85fb097b05931d911b9cab8e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1704",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792916099,
+   "transaction": "0x4d1f036e1faba085a9b3078a2a3eaaa07160e9e21acfb52a6801fb593c7f1f47",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "33300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792916099,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2964",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792916075,
+   "transaction": "0x64cdb2fbdc62e5755ac4366c31af7fedd55e316d16100e22b663b8652bd65a37",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "33500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792916075,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4336",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792916051,
+   "transaction": "0xc1fca8f49ea745d67516d03b2a2b6e035b94295b94ab47b89800e31c88ee1248",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "33500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792916051,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2958",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792879679,
+   "transaction": "0x4943b29b6aca2a1c2f256ad21f2c5f3f4769493a5047d8ccf81b98c660d15ee4",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792879679,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2958",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792879559,
+   "transaction": "0x914736b59a294f63fa7fbc028b3e359567dc03ab2505c33c7eb657015d72f85a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792879559,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4719",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792879451,
+   "transaction": "0x8a350ba11cafd4f8e7052d0f0e4f36e225f6a33b9b1cac945de3515ebfd51876",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792879451,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4678",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792879391,
+   "transaction": "0xdcdad3217af1290389adaa2555954285883ae4bfd2aba5f5d6b860d46981a3fd",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792879391,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4336",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792877099,
+   "transaction": "0x6a955dd7fbeb6b700a1cefb8f8d6561edc119c8dacc86bf2fe533a10c939b287",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "29700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792877099,
+   "seller": "0x1beea1669d259c957d9e723abd1b8a188253e165",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2964",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792711463,
+   "transaction": "0x218dfec4a22de32d1c3ef5846e922318f16a63450da8bf2ba5e9a324d0fec162",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792711463,
+   "seller": "0x64291eebc576c331ed6e8890af176c079b9f5c7e",
+   "buyer": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4203",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792693919,
+   "transaction": "0xcf5ac81404c0f844e0f96985bfb0f0f2490b49b8273bd21a8ab8a4335014fdf0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792693919,
+   "seller": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "buyer": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3308",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792633751,
+   "transaction": "0xa8cdb8cf89f16adf23f9ba5be07b6c2ab705586911482a6c2d76fc3ea8156274",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "35000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792633751,
+   "seller": "0x843819e77947e2ca4f198dfa9c32cf49b598ef4b",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3392",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792534499,
+   "transaction": "0x83c61a91afeb39b5be3a7f6db2fa6dd039f063c1e106d946619b5028c132c9bb",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38268000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792534499,
+   "seller": "0x3d444a297ecac4bee9a9616c7e6cc5699a63b3a1",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4424",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792529387,
+   "transaction": "0x81e7d4eee64aa998e269bcd88679096851b4eefb11ea38e0a67113095cc344fd",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38170000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792529387,
+   "seller": "0x931b5b6bd9f48fd2b89271da4aa82f4c0a6626da",
+   "buyer": "0xba71922537b547b50ed589f44661cf794d0ea17b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4555",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792478219,
+   "transaction": "0xde8f2dfc6c5a831828f8b5ceb8bba1b6467d36e0778afb5cb06eb6b5e637f617",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40650000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792478219,
+   "seller": "0xb738fffb968e58a76c4d5162c42cec3f2228eb3f",
+   "buyer": "0x944603142bf7606292082dde8e76cee0eb90d540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "255",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792273727,
+   "transaction": "0xa38d16cc2012bb7e4610fe80bab408dfc6ab09425d75a23e4fec8e26f9a0f5b5",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "45710000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792273727,
+   "seller": "0x3a5055af0724a4b33fbdf09268b84877726b2560",
+   "buyer": "0x0c26f35ea4f6c3cd91e941b64e15736d0c157429",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1352",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792187051,
+   "transaction": "0x71f3a32dfaf987e6246876413411985aa89332f7ee087539ce9ff0099d436816",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "36500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792187051,
+   "seller": "0x3521a0239bd51a8680760b6a630fb75384fe0019",
+   "buyer": "0x3d444a297ecac4bee9a9616c7e6cc5699a63b3a1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4424",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792104671,
+   "transaction": "0x351d67f84905f283c6caab8238f2c7868714d76a5dfe88d2ba8cfdfba07cf6b1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "60000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792104671,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2073",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792033463,
+   "transaction": "0x899f04fced020bc96c3d976aaf661113e83a623b10f51678f7447f2525d03b53",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "96900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1792033463,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0xde31b36631c7bd5883722cc8b7f11dc8fb061dc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "457",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791987239,
+   "transaction": "0x8c8b088c7a87169562fb0847aa7cdcdb624f73115b452af86357da1501327b2c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791987239,
+   "seller": "0x06c9f6ec7054ba093e26f2ff4b947ce25524e20a",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2073",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791968135,
+   "transaction": "0x5f10f5b168c2dda7d6d0e2a5873681e94964d3488b3f4e5d382fa1bace140493",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791968135,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2391",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791940631,
+   "transaction": "0xd3c1fd11545234aabc4dc45888221995a7854ec40e9a874ad9cb7ebc01547c4a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791940631,
+   "seller": "0x0de632daedd022ce3c39b4f1912df5372485e9fc",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4555",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791722339,
+   "transaction": "0x9b6618e85968cd5e3418667b403cf3b76c7db3ff17d64c7f32e32094e3f80dfc",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38033020000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791722339,
+   "seller": "0x9bb4dccbe67a05bc7616fcdb67141c895a1c7dd6",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3796",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791487823,
+   "transaction": "0x9f67a96235fb70d72cb53213a332634a776f3537812b881c25c1758f8634fab3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "99999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791487823,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3311",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791485363,
+   "transaction": "0x80b64b6e1117f36350af1750dbf8df2f8cc6dccb2c759affe750788639ab2817",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "46999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791485363,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3574",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791483971,
+   "transaction": "0x4487802a8186edbec3e1b79a297df55ed30ef933803e3fc011746797c92a5841",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "47000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791483971,
+   "seller": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "buyer": "0xb519c41e7ffa3a13cf7d1401ece187ed7596f206",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4387",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791478667,
+   "transaction": "0xd1496d7000be2d4aa81535794d3cf4da0419ed84803db33b060c709dbc511e50",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "140000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791478667,
+   "seller": "0xb519c41e7ffa3a13cf7d1401ece187ed7596f206",
+   "buyer": "0x2e234b236da4d260c51e03f0152a7568323a93df",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1852",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791423659,
+   "transaction": "0x68f9470fa902a651166bd7144a75857e251a50ffa93d7059681e0420512b84f9",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34480000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791423659,
+   "seller": "0x78b5936f553681e7626f2f39567126445ae3ae31",
+   "buyer": "0xeacb3676b611f2ce32b70975364162d4ff31a0cd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2197",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791423659,
+   "transaction": "0x68f9470fa902a651166bd7144a75857e251a50ffa93d7059681e0420512b84f9",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34590000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791423659,
+   "seller": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "buyer": "0xeacb3676b611f2ce32b70975364162d4ff31a0cd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791423659,
+   "transaction": "0x68f9470fa902a651166bd7144a75857e251a50ffa93d7059681e0420512b84f9",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37080000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791423659,
+   "seller": "0xb0cf6360b50c48280e2c18fe9d96bc7d6f5ed697",
+   "buyer": "0xeacb3676b611f2ce32b70975364162d4ff31a0cd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4602",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791403031,
+   "transaction": "0xdda03081cca3a1754cfd29220caa4d57b24abf583e14812bdae4206a1d67ed64",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34380000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791403031,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0x55691235e6d83aab9c1cb61983686a6070ae2b44",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4654",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791332375,
+   "transaction": "0x4fe12f2f1f9a394f33902f077a64f1b390aa25ed22ec59dc0a6b94a0210df3f8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791332375,
+   "seller": "0xaa88a407c003839e26f889b8f9eb00e8eb8b510f",
+   "buyer": "0x1e5e5455d3f66acb5cfa43698d41ba30ab12c2d5",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4578",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791319823,
+   "transaction": "0xda812cc5a8a4f493b0db85400c9fbe5a77af5ff1298cfb1ef5e149a3a50e25ba",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "37000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791319823,
+   "seller": "0x2ceb5c59a6fcf574c4b2ab8cbdae88f44e5c2bc3",
+   "buyer": "0x027b4dd192e72475fc7a500b5fe988289591fc6f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2063",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791266339,
+   "transaction": "0x01ea39c55b4a3d61c6e7c3f75882e562892de7a72e15c16f4192d8c357637592",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34850000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791266339,
+   "seller": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "buyer": "0xc37016f3023d0218718ca22a423d9dd00eb58275",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1115",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791241295,
+   "transaction": "0x8713a56f001296d7defb2de8d1ec8003023a980c0ec7c2806c5ae1b67f159e8f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "45000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791241295,
+   "seller": "0xd1dc6e32109f10687f78c6f86a882699756ab317",
+   "buyer": "0xd21333f8559401874eb407e7310dd1de280e8dd1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5070",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791049931,
+   "transaction": "0x2b692f6d00fa1687727e8e21b18c4eb692bf30c474d09f5ec32b7d832b1575a2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "28872600000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791049931,
+   "seller": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "buyer": "0x7bca317ab19b68a233335a33e043788b7d943d2b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5148",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790784815,
+   "transaction": "0xd6809313795d4e8926730696d9b31bcedadb9325380edd0e931bb9ae0e36f3a0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "24801800000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790784815,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0x79ce4528bb3f4b36c21b599b8004f0a1a146195b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1670",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790784815,
+   "transaction": "0xd6809313795d4e8926730696d9b31bcedadb9325380edd0e931bb9ae0e36f3a0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25610000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790784815,
+   "seller": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "buyer": "0x79ce4528bb3f4b36c21b599b8004f0a1a146195b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4970",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790784551,
+   "transaction": "0x2d69d6258942a378512fc67134b08f0888a5be930da31c2227c09655489bfe16",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "24829400000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790784551,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0x79ce4528bb3f4b36c21b599b8004f0a1a146195b",
+   "quantity": 1,
+   "nft": {
+    "identifier": "702",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790739251,
+   "transaction": "0xfbb64ad1273619ea3290ca3f3c0b62add31186dff65de67509d09dc5b3a666d8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "35000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790739251,
+   "seller": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "buyer": "0xd21333f8559401874eb407e7310dd1de280e8dd1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3512",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790732771,
+   "transaction": "0x0e585de5a4f6633a31cf2d45e7ca4dda1b7b843572c3d7f249f9a20359b05198",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "24621700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790732771,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x99c2bebaa9ae421786233f6e474dc53cc84a1780",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2367",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790702531,
+   "transaction": "0xbba6f5b54a1e678b569dccc62f5f7f8f312485affbe3604cf0f83b10683b9ec4",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25641800000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790702531,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0xdd5168c4e037d245e58ca6f087a5b629cef46c14",
+   "quantity": 1,
+   "nft": {
+    "identifier": "278",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790697731,
+   "transaction": "0x5437dfd26ffe6a0e24f08855f02ab4edd4df37e6f5b05daa9983f189a8d62d0d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27035900000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790697731,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4116",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790697731,
+   "transaction": "0x5437dfd26ffe6a0e24f08855f02ab4edd4df37e6f5b05daa9983f189a8d62d0d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27031700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790697731,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4719",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790613419,
+   "transaction": "0x5741e08a57751d0e240e559030387dc866758b32c686809f7369be1ed7f258bb",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790613419,
+   "seller": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4719",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790613323,
+   "transaction": "0xa64e153a0a3dcf32df17a89c49c83bbfa1888e1226187f4506b59211b76e1208",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790613323,
+   "seller": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2367",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790579879,
+   "transaction": "0x1d40d8a7cef35335645a80f35d9be9244426f3dfc689a8c9aaf95a5de5a7f9d8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790579879,
+   "seller": "0x94cb839456d08fa4c548561158286c86569e5325",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "702",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790547287,
+   "transaction": "0xbed8214c944948875bff020f0fb479ae0e5762fc9075f231a3f3c6b510b28b98",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "23200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790547287,
+   "seller": "0x4936b305102f442080d4711f14c5f0318e3caf74",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4116",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790543531,
+   "transaction": "0x8c916ab1ff40782fe109dbb23e58a60b7e9007d3c2e39f23822e6ee3dc08947a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34960000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790543531,
+   "seller": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "buyer": "0x1e5e5455d3f66acb5cfa43698d41ba30ab12c2d5",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3917",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790470331,
+   "transaction": "0x5da20678f31889021dc29485758e2531cd7af5ae4c759cba9d5198b914a49b48",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34960000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790470331,
+   "seller": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "buyer": "0x0981155fd80156fd231eaeea2e22c2f048de83f4",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4871",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790387123,
+   "transaction": "0x9bd8a7134c872ac536f889fa2c682279cef7c189d1e5d633952d458a00ea1df2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38020000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790387123,
+   "seller": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "buyer": "0xa50159279a7fdd7d26edc51bf2cbba0f0f6fed6e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5089",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790387123,
+   "transaction": "0x9bd8a7134c872ac536f889fa2c682279cef7c189d1e5d633952d458a00ea1df2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38020000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790387123,
+   "seller": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "buyer": "0xa50159279a7fdd7d26edc51bf2cbba0f0f6fed6e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4916",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790360111,
+   "transaction": "0x93b42680c9806271345c49653be3681d2069ca88bae6bf5484eb65e720948f4c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0x0000000000a39bb272e79075ade125fd351887ac",
+    "decimals": 18,
+    "symbol": "BETH"
+   },
+   "closing_date": 1790360111,
+   "seller": "0x94cf72b077fdf3a7927b1cd023a179c7103da708",
+   "buyer": "0xaf14020d77e37634dc32d42006fb88c891ec63cc",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1189",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790360111,
+   "transaction": "0x93b42680c9806271345c49653be3681d2069ca88bae6bf5484eb65e720948f4c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0x0000000000a39bb272e79075ade125fd351887ac",
+    "decimals": 18,
+    "symbol": "BETH"
+   },
+   "closing_date": 1790360111,
+   "seller": "0x94cf72b077fdf3a7927b1cd023a179c7103da708",
+   "buyer": "0xaf14020d77e37634dc32d42006fb88c891ec63cc",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1148",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790321795,
+   "transaction": "0x0f003917d7bb5542d60b58fb606e1e761ada541f238be15213d196849479e280",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790321795,
+   "seller": "0x11ce7e9558f2006d1c7564882500abfa9dc1288c",
+   "buyer": "0xd1dc6e32109f10687f78c6f86a882699756ab317",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5070",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3512",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4916",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2505",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1115",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4970",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "26100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2367",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "25900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3917",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x78b5936f553681e7626f2f39567126445ae3ae31",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2197",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0x6fad91115dc942e27a2325bad5e03c3bf2bce5fb",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4871",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790284523,
+   "transaction": "0xd8a5ac8d43e507db2efdd0f02d35bbc8655f28ac55b2b84c82bec36bcc767daf",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790284523,
+   "seller": "0xfd57218dee02f9d97027faebe5a8f9196387eb93",
+   "buyer": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5089",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790149823,
+   "transaction": "0xa10b05d910a9163f64f1224f63ec286bd3c1d8feddb02ebe35dd0c315e85197b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790149823,
+   "seller": "0xfd0725b9fd15b983514b8b99fb70e2ae018c9a8d",
+   "buyer": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5148",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790093915,
+   "transaction": "0x3e712bb33cfdbee47a9b2038b0fc65bd8d23a741004017bcf033fc8dba65c7c9",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "35000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790093915,
+   "seller": "0x074dbd6d7f78faf68a4ee1059b0a30cdb5b06cfa",
+   "buyer": "0xa2082d93763071607069b316d0c6955063232de3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3827",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789773539,
+   "transaction": "0x0b84a4b1c5bddedfe75fd1ca7476fdbc40e45ed40d79a4e6b801ac6d3a8e46be",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "64720000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789773539,
+   "seller": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "buyer": "0xde31b36631c7bd5883722cc8b7f11dc8fb061dc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3567",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789769543,
+   "transaction": "0x6774f038acad67b8f0d60ffb98197c655e1967ddb02a36a77985d302c4c73b96",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "67406000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789769543,
+   "seller": "0x9493452ec4b4806ae98fd90b1c6e73066518ec4d",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4446",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789760927,
+   "transaction": "0xc8641d608687e005be5e540b0a15353139afa52a3f891818f79885b7ff3fd2ec",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "42000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789760927,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2530",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789754387,
+   "transaction": "0xda688bf92be5f5c7cb31be1aff931d0db64bc641f188b4f205cc0d654a7cd087",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789754387,
+   "seller": "0x11ce7e9558f2006d1c7564882500abfa9dc1288c",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2530",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789454819,
+   "transaction": "0xe517d5e3b91acc658180e991e6902cc737489fa8d2b97053e49fbbcb287371cb",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "41100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789454819,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "278",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789454219,
+   "transaction": "0xd75756f1046bfe99b82777153d77d4759a5645a296f0020b37e64a69ddcb6d94",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "42100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789454219,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1670",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1670",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x3a5055af0724a4b33fbdf09268b84877726b2560",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1683",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "27700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "278",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x3a5055af0724a4b33fbdf09268b84877726b2560",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1352",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0xb0cf6360b50c48280e2c18fe9d96bc7d6f5ed697",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4602",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x9bb4dccbe67a05bc7616fcdb67141c895a1c7dd6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3796",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0xb738fffb968e58a76c4d5162c42cec3f2228eb3f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "255",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x2ceb5c59a6fcf574c4b2ab8cbdae88f44e5c2bc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2063",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789424051,
+   "transaction": "0x69c5ef79285ec32e48b5a674e00b944479128362514418f4f9ce13269765f47b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "32000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789424051,
+   "seller": "0xa61d6b3eeca7a5bdecb5237837952fd148eacaaf",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2321",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789172591,
+   "transaction": "0x3a3f2900c17b155a3b32a2d6e2bcd2c31b2952e9fec61e268176438a97b23958",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "40900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789172591,
+   "seller": "0x33330548c411d42ff75c92c5136db80ca205a149",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1282",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789115087,
+   "transaction": "0x54f36183f8cad4554dfe1579ed7ed3804ea210999981340fdce449397189a82a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "70439000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789115087,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xb0e7b92c5b6946aefc6216eee244b9725995ebe7",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2301",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788919667,
+   "transaction": "0x2bf69101574ef4d2343f25e70f9d6adb3c590f7d3e3ddf48e349904b65ec628d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "42200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788919667,
+   "seller": "0x2db516e9ff933450da57ea8a3df3c5e70643cd67",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3308",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788797867,
+   "transaction": "0x99c39c043f94b640270dd4aed35e297062a8f90868279e3cbdd9c4986495a25e",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "42300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788797867,
+   "seller": "0x7b716f33f6b4fbdd07d42844de95922a117ae353",
+   "buyer": "0x04fc0276e1d398d9597fa9755b16dce6b496acb1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4719",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788718835,
+   "transaction": "0x932a5dddb74004d7b326033156085268fdfdee9d2c94fb61fd5e265938cf639a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "44100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788718835,
+   "seller": "0x4fc21517878b88dbee76f93cff2a3eab0d6304a3",
+   "buyer": "0xa914b6c3d34f2311a37b88129e9e3f7b172dc97e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3567",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788626387,
+   "transaction": "0x8e6376de5ae7d5743be8f7814f40d7d2704b473ad5ff6e8e69aaa719ad11d271",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "76467000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788626387,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2998",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788572087,
+   "transaction": "0x25ea552b79909d6ffd37690af6e134e160917cea5067ae20b267ddb8621ad884",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "39800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788572087,
+   "seller": "0xdeb333a3240eb2e1ca45d38654c26a8c1aad0507",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2998",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788403931,
+   "transaction": "0x3a118f37ae3e1292fb37b4416ec1b825621699be8307ee002c05f6f4ae38840b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "51000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788403931,
+   "seller": "0x2db516e9ff933450da57ea8a3df3c5e70643cd67",
+   "buyer": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4387",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788300695,
+   "transaction": "0x63229522f2c88cbf8e41609eb04aba592e8f705b4f478370212e6224e7b62bd1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "43400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788300695,
+   "seller": "0x60e13ea8f3221759381cf2b11f10a19523914b04",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3311",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788288143,
+   "transaction": "0x02aa3c8c35de4e8f6f944c8f40dbe988938d38bb632600b830b94435728290b6",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "47400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788288143,
+   "seller": "0x40f9a53ae2afb683fef478e3fa0a03a47bcfbc8c",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2922",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788271367,
+   "transaction": "0x59df7047b67bf8686c480d8631c0f3854817900939475ed8cb4738e57cb0f281",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "54700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788271367,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4654",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788245591,
+   "transaction": "0xc5f6cef26e199b87e5cdfe3bc06845806a3b1efd05c323d865ba79a4ea4d12d8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788245591,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1017",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788245531,
+   "transaction": "0xfcc8d5c9a1d153bf95b07fac7b803f99b00c9b2d0473c257a4792b935265b491",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788245531,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4177",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788120251,
+   "transaction": "0x6751910c6cda8e00aa26cb6c851c6918e73e6a7218f2c859810205cb41dcb50f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "92000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788120251,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0xa40aa3f4f080f4e75eda783741352342e433c414",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2993",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788115607,
+   "transaction": "0x03053a4c2d4b52860306596821957bf22dd73b3ad93bd30e4b015b0257002742",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "68999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788115607,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xde31b36631c7bd5883722cc8b7f11dc8fb061dc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "123",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788113507,
+   "transaction": "0x0d5c9ab637b9e1625813897d1f3f1f7edd9c877a6bb217d7bf405c851f824d03",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "68999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788113507,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x3fbd0090735475590f59b25a1555641806ae1aaa",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5523",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787984807,
+   "transaction": "0xe7a017b3e442e3904c9fa5b6c0b2fdd9b42e9d2074f310c5893a0aa4d7c3a327",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787984807,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2301",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787984807,
+   "transaction": "0xe7a017b3e442e3904c9fa5b6c0b2fdd9b42e9d2074f310c5893a0aa4d7c3a327",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787984807,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2962",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787984807,
+   "transaction": "0xe7a017b3e442e3904c9fa5b6c0b2fdd9b42e9d2074f310c5893a0aa4d7c3a327",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787984807,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "123",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787983019,
+   "transaction": "0x7b7f8e4385d7a4256f5ed314a0658ec9a878489e2e9ceeb2c7a39d059293de8f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787983019,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5523",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787978123,
+   "transaction": "0x2e9681b61f8e2ecf9d1d8325fe8ff6c9c05945547d9256663e992ab403a9f392",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "89000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787978123,
+   "seller": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "buyer": "0xd540018c8ed14c5388fbd18ccb5708a79112ce81",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1769",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787935115,
+   "transaction": "0xf0d6e573be013f1d51a35dc8067fab83c6b023e7dcda778e3f5512826c8adcf0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "76998000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787935115,
+   "seller": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4678",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787834315,
+   "transaction": "0xaf795a61a44cdf21d9cb7d8d7f78e0efdbfee51e38c3c1563b54ef584dd7540a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "76999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787834315,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x248f208f7ec4a29c09106a7a2d2d29bf5fc07b43",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1257",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787797823,
+   "transaction": "0x17b463366e54a2559e39d0928441f97e0c6cf52b2f88c1494370e92a93a6cc64",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "76999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787797823,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0x027b4dd192e72475fc7a500b5fe988289591fc6f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5403",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787796635,
+   "transaction": "0x35fb4b6020c41cd4c5336b4b87d9949878830b4ee7d6c6c9c2a06f77284c174a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "76999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787796635,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xde31b36631c7bd5883722cc8b7f11dc8fb061dc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "128",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787796059,
+   "transaction": "0xd76fc56634c58820d5be264b6b92e11d172f50b39dcaa70e9f39ed23c0c6b193",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "89999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787796059,
+   "seller": "0xfe431480b8c928b2b9aefb56b6df0ffc79ec26dd",
+   "buyer": "0x0b9849c6b22ec53bdbedf93610373914d567a749",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2642",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787796023,
+   "transaction": "0xf48e80bb07ab4e29448234a73a833db2996e9e92573e671ebb037c2a796edf8e",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "89000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787796023,
+   "seller": "0xa720fbbf2ff22e7d11dc4f192ef40a98c7801c04",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4336",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787794319,
+   "transaction": "0x5161ed9623bd80946f7bf9c39ac80e5f841315534b48d692844ac98e79515fae",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "260000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787794319,
+   "seller": "0xacbc76e0b810a8562868f7a43981f39c4dedaadc",
+   "buyer": "0x06c9f6ec7054ba093e26f2ff4b947ce25524e20a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2536",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787701079,
+   "transaction": "0x2844af5b9dd9d813b2313ebda53cf27a790a0c2a41759cb82ff2d88ce3a38c72",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "77998000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787701079,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xde31b36631c7bd5883722cc8b7f11dc8fb061dc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1620",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787674943,
+   "transaction": "0xd87ef32b8840a36fc9c7201cc0d300ae288feb915542ee15802ed4eb605a8230",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "53000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787674943,
+   "seller": "0x9231c43ee980de6c9f92cd0e54b966aa3fa7eabe",
+   "buyer": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4678",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787674919,
+   "transaction": "0x26c27996894cdb142a400bc944e14fe9f1fd542f9c2375c99fc608fe70c0ba7c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "53000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787674919,
+   "seller": "0x9231c43ee980de6c9f92cd0e54b966aa3fa7eabe",
+   "buyer": "0x5fea1b6918bd3487bdeb200ac4ce75f87dcdb56d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1769",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787658923,
+   "transaction": "0x0c2b02016f5766f8d90a69dcfd5fe38541bef131d3845886c2423c1c5f6571a6",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "48800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787658923,
+   "seller": "0x9fbe0fff26979c7668ffb36822efc80b558b2ca4",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1620",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787643023,
+   "transaction": "0x81547387594d148318f6578b4482b8e02ce3f8f0fdc7496a0f1cfcbbcc93dd8c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "49500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787643023,
+   "seller": "0x40f9a53ae2afb683fef478e3fa0a03a47bcfbc8c",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5403",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787627783,
+   "transaction": "0x90cb02accd6812d4bb3972682b133deba4e7c86fd5fba79926ea2fc8daaa6a75",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "169000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787627783,
+   "seller": "0x33bfabb6554f31ce08d398ddbb3b4a364f3fe07e",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3450",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787520251,
+   "transaction": "0xfc1bb4c76671525a5d652798e80cbc02787b7aa17d0fc07e1e87b2adac549813",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "145000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787520251,
+   "seller": "0x7adb33e73a27ab96c95a3bffb77a0426726577df",
+   "buyer": "0x0b9849c6b22ec53bdbedf93610373914d567a749",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1857",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787518031,
+   "transaction": "0xe332d95a38075c2db842bb1b81c2597074f3aab9fa8ddd8459a0d64e08c5de7e",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "72174000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787518031,
+   "seller": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2958",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787512523,
+   "transaction": "0x7ff8d46237536a5471a22e6cc2dd932da15d97358c684cf0fa9834e4ca519529",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787512523,
+   "seller": "0x06ad2665a5fa25df57becf7338b8423bd54ea045",
+   "buyer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2958",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787505551,
+   "transaction": "0x0b8793c5cc69112abce96097033f564bfc08f7ab759b7b9371fda42284213a79",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "110000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787505551,
+   "seller": "0x2299aeb4baa0b102382ae0df95660fd004bd5ffa",
+   "buyer": "0x33bfabb6554f31ce08d398ddbb3b4a364f3fe07e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3450",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787497883,
+   "transaction": "0x462d7d3624bb445373e9f995654484246567e68915d94352a93c8b432e71419a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "78000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787497883,
+   "seller": "0xa06646c320750669fb373346700afca0bb024840",
+   "buyer": "0xf9f50b6c4c4d9da41187720c30c65b8cb13b7d91",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2621",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787159531,
+   "transaction": "0x4fdba9bec8b1a9cdecc2eaf84e280885b5efe9655ec7f082ba0ecfb5cfda5cea",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "118900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787159531,
+   "seller": "0x7adb33e73a27ab96c95a3bffb77a0426726577df",
+   "buyer": "0xa71004612ca13144ff1f6154d3368f67d1c87ec9",
+   "quantity": 1,
+   "nft": {
+    "identifier": "92",
+    "collection": "junglebay",
+    "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  }
+ ],
+ "next": null
+}

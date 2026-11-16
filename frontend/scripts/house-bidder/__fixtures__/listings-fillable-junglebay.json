@@ -1,0 +1,289 @@
+{
+ "_source": "chain.mjs listingFillable() on the fixture listings (opensea-listings-junglebay.json, read 2026-11-15T21:30:27.961Z), eth_call pinned to block 26423109 (2026-11-15T21:30:23.000Z), run 2026-11-16T01:30:24.174Z: ownerOf(tokenId) == maker and isApprovedForAll(maker, OpenSea conduit).",
+ "block": 26423109,
+ "blockTime": 1794778223,
+ "tally": {
+  "fillable": 93
+ },
+ "fillable": {
+  "0x376c285ea918fa858232cdf87b538a91541b8ffbc9f12ff117c82894458f371c": {
+   "fillable": true
+  },
+  "0x8811e4396edbfa7487ee677d03ce80e5c98fd201b43eebf8105b05662f36fe4e": {
+   "fillable": true
+  },
+  "0xea064ecbca13866d9f312551dfbfaba3657e6c35fbb3c3cc62018c12a3195920": {
+   "fillable": true
+  },
+  "0x9cc610f39090f65f06c130264c812443b7c67c51ce8734a336888701f1be66a1": {
+   "fillable": true
+  },
+  "0x5158a42f5eb62e4a4a2495cd7ea250f34fccfb6b8d38a8a82ade8542816ff71a": {
+   "fillable": true
+  },
+  "0xeccaf4ac23ffa536e1ca35fbf5a72c067e89b51852e1aa0fe3c27db6938d8a37": {
+   "fillable": true
+  },
+  "0xb936c5780b5a78dd189d4732821b99796fa06cf5e4ab8fcd0e15eb504f558800": {
+   "fillable": true
+  },
+  "0x7ccaadf645deed2c5cd30b6ed1b5db29d8f22b73d4af2c686bbcbe8cea0d7766": {
+   "fillable": true
+  },
+  "0x863f537164a6b44ec182e2cd44043e62f9c43e278cca88ed75001871387d2b3b": {
+   "fillable": true
+  },
+  "0xcc9796777171a66df0373594d396a50938cc1032899ab709fe29e64c7b00e972": {
+   "fillable": true
+  },
+  "0x8750c0e4a7cbe40fb8b413e8f7d33342574675cfae827829781d96232a81c6f2": {
+   "fillable": true
+  },
+  "0x41c27443b4048d5664ff23cdb1058cdc6e581699cc97de1a5d9d06b3af92b446": {
+   "fillable": true
+  },
+  "0x7a21de79d5c29a40f059076e4b558402fdc3b80aa12387b189c7e2ac6bd71e15": {
+   "fillable": true
+  },
+  "0x84350c321327cf9ae84b76f7f8a0263b125ca984959e8aaf51276d3b2db254e1": {
+   "fillable": true
+  },
+  "0x10dc809ca4822e623ce463af54337d2ec430de8f53b5d25637de82e694bb55f9": {
+   "fillable": true
+  },
+  "0x38799fe3435542cf5cd857665fa4c1d2ef6014b3250fcd7dec7331f10d74eb66": {
+   "fillable": true
+  },
+  "0xfe6d46801bc630b538bf9716a674747cf6c2ddcf732f2a50cb22ac4f68c43dd3": {
+   "fillable": true
+  },
+  "0x0cd148af4dbb2795f6e708f845caa8241954bc5d090f01c6dfa69d3e32a36522": {
+   "fillable": true
+  },
+  "0xae6458367b77d7f9706f8ffb3086131f85d6854ba3bec52db1b645723b2557e8": {
+   "fillable": true
+  },
+  "0xa46da5413d39e911bf0942a3eba6a28d2ffbea3a3a4671d65e4067236c54c210": {
+   "fillable": true
+  },
+  "0xe1afc6a12c30c1d9408193e4a68ddbdd6d138c2932c5247ddc6f486ec8c7d689": {
+   "fillable": true
+  },
+  "0xda858ba291d8dbb25b5bdd0142478a8a99acd5799a2ecebb6c1928940d2dd909": {
+   "fillable": true
+  },
+  "0xfa28d39c681614ebcf91e096b2145cfdf712dc174f5301e275567469a5a0b888": {
+   "fillable": true
+  },
+  "0xaa58f9668624aa8f8a662205a032fc3d220c5b46dfa09ffc91044a46c5a32255": {
+   "fillable": true
+  },
+  "0xb908ab048dd1b16f24df8af695f5e86a25480db7e0cc70e7970551f7b76e2458": {
+   "fillable": true
+  },
+  "0xe264de45ce99de7abaccfb1e6accde9cefe9f33ada5c66bda69be98a89598063": {
+   "fillable": true
+  },
+  "0x900cfd413444541776368e942f31efcca617ea7375bdee46ac5676c673b40baf": {
+   "fillable": true
+  },
+  "0x96f7fa26cdb022a3322893555524722157aa1f28669c78692b938b7fdfe2ae09": {
+   "fillable": true
+  },
+  "0x77bb89c103824ef11d03b07a91e0efd16bb1a8b9ba861bd4d1b4e6287bc09cab": {
+   "fillable": true
+  },
+  "0x52352c3682eef8cdd66bb9c50f035512d7af7855e5d109310a4cd787de07d632": {
+   "fillable": true
+  },
+  "0x3baccbb1ec48c99a69cf0df34a44e1433bd8695632e15bfd50575734f590ef63": {
+   "fillable": true
+  },
+  "0x4b9e7d6c4ded71cfbb7b075d93803761757b8f4426b5d410bd8bb6134f1bb05c": {
+   "fillable": true
+  },
+  "0x5972ca636844b0f60dd824a05464e08f5067895b7adf68d0dc6192352e1b83a9": {
+   "fillable": true
+  },
+  "0x685bf82bb58ddd4570c5142403572dc6e7a2416b35c1b173377463fddbdf4f34": {
+   "fillable": true
+  },
+  "0xf14d95853b6d1c1651c3dd464a79c361a58bd6a30ec6d784ca7aa8cf349ba4f2": {
+   "fillable": true
+  },
+  "0x049e18f56eab845317e53c7397f1033015e0fa372168aef66cef0d4678ca97e9": {
+   "fillable": true
+  },
+  "0x90e772c3424bab035078f5eaceed32d11a9b4bf0a214fff0d21ff2c0029fd7b0": {
+   "fillable": true
+  },
+  "0x48d57de3066dfdd2340cdaa0bd091dc49f3ec9cc60f65b6cdc42dc59ce75f477": {
+   "fillable": true
+  },
+  "0xd2a2da6cdab2e4b4cd95feb77ff1dda6785ba10ebc46a6a0a5f657c9671a36fe": {
+   "fillable": true
+  },
+  "0xb85f3f2b5824fe1f29aacf5e0c786ec41f4926ce9e27a92dc902c52027a9d3ac": {
+   "fillable": true
+  },
+  "0xa688475283c3e0b6e8365a7cdc50dc54000b931a0c4cc8ff0d087f98cee13d77": {
+   "fillable": true
+  },
+  "0x915cafd3c1eb84cfde1bed53fd18196504604f7fabc55a334b2eea823611eca7": {
+   "fillable": true
+  },
+  "0xae57ac181f993a71d633c95d65947fbaf0ca170611f002239756a897a224053d": {
+   "fillable": true
+  },
+  "0xf4237dc234866305ad04719c0855da7187a407c56c7bb5161c081af5114df67a": {
+   "fillable": true
+  },
+  "0x9e0376672b922b2daf336412b56fd3f17d7d35c0221a1f10bb6a3ddb31ba7330": {
+   "fillable": true
+  },
+  "0x8154362fe36152249dc45eb9ac0c5a5d3a26ac2bb6f63a88613586af4d564837": {
+   "fillable": true
+  },
+  "0x5cb40f9bc885768e115b6d6d825a0a7d038c7bb49fdbb1b55cd4f9855eb51a24": {
+   "fillable": true
+  },
+  "0x13b6be1cf0c60f909c2fc6ac885ba9d24838c53c0f32b0b544ec2c2bcd110945": {
+   "fillable": true
+  },
+  "0xa98a4e5cec8736f7de2a0822b1474d843c67987dc8b205153c90cf09fe316318": {
+   "fillable": true
+  },
+  "0x0912877488ad4afdacc00b6235addcc75a0b17cf5a4fc054836e2099b3f6f85d": {
+   "fillable": true
+  },
+  "0x9dc3008a6d9983ac5ba3e2d54039a00896add3ee667184359feab894dea151d5": {
+   "fillable": true
+  },
+  "0x9832513c786f1a0505507df5307f1ce97ce2cc624f4a0b52f2042339d18a6f9c": {
+   "fillable": true
+  },
+  "0xcbb14ca360efae6c371e1b21af68c497c823bd4c5abbe70023d72edc74e14a1d": {
+   "fillable": true
+  },
+  "0x8612b818ec9b1a41ab5731358eafc48ca3fc06b8bcd02b1646c18c03ca41d4a6": {
+   "fillable": true
+  },
+  "0x6e651008eb1757436c8c1d1d1e2549630ec905624a6c3b8f4b5eb80b4bbfbfc0": {
+   "fillable": true
+  },
+  "0xd1a2ff0227c5c7cf0e68eda7c874b09118d358787e3af40c929022991b79a2d3": {
+   "fillable": true
+  },
+  "0x388d16314af07c714cc07bc1fb77844807981d3088affb2aa3de26b52973b94f": {
+   "fillable": true
+  },
+  "0x255eae404d4089105f075be169025a215b8b38f55272e17376a84a8287da867d": {
+   "fillable": true
+  },
+  "0x2ebd81d34b1dcb2b4428b5fc85b94a780ed7f79223fcc6d969d739dcfaeb5db9": {
+   "fillable": true
+  },
+  "0x2e702964c51131b96ef3e1e025bf22cd4026cb5ec29205ce7489bfa8508f815c": {
+   "fillable": true
+  },
+  "0x5f9c26f0278701afdb74dd5ed5b5c65d9828b1552c018e054ec86ac4b6d27ea7": {
+   "fillable": true
+  },
+  "0x5def3ed397d083c6c3ed46da31cac883d5f21b243e99abdf918299c9f7b8ca0b": {
+   "fillable": true
+  },
+  "0x4590fcdbff0ccc75b0723f952699eec7022158c8b5a3f082cfac8a1bc926aa5e": {
+   "fillable": true
+  },
+  "0x2efe54011cc972be543379f4e648080100fab0fd3fd300f77d66af8743018ede": {
+   "fillable": true
+  },
+  "0x15aa6d145896916307257030ea7ac31c2730f68036bb922b564eb26269ad88e3": {
+   "fillable": true
+  },
+  "0x71846325d84b39e30b4024348dca87448dda9032f7dd24170092adf3de871b47": {
+   "fillable": true
+  },
+  "0x71505ee7c1afc679f4d6f5937dac3fb8171890677e0a37ddcb6cc9c5e48d3ecf": {
+   "fillable": true
+  },
+  "0x715f49df7f9cdc927c8b8aa7dc5637b91bccc6d48a5db02cb313eee85b1bb283": {
+   "fillable": true
+  },
+  "0x3e3dac5519f6f7786fb8020c59bcf034320cc26e82b741b1d84789043158fa88": {
+   "fillable": true
+  },
+  "0xac6c17b4e13a5c94856938f446e8f65bf5137fdd64eaeac517c3b78aea1eab5d": {
+   "fillable": true
+  },
+  "0x66c5e774c98c45420fcf9223ba9f0d0276653aa5cb64586c1f9553a0623a4452": {
+   "fillable": true
+  },
+  "0xd2db4fdb291a498898f9dcad8dcb92b406c1275c92849f5752ae36ca92c6c6b4": {
+   "fillable": true
+  },
+  "0x4b942130d764066e22375758ac2d984abc572c2b37713f553ccfe9430fea0efb": {
+   "fillable": true
+  },
+  "0xd06038ac573c34b181bb99706a3cebfd1757bd122ce6ebc230ca7b698a3207bf": {
+   "fillable": true
+  },
+  "0xf063cab95efd2352fc986d75df1a68e63fc14b6da3c35de120510b40b2081add": {
+   "fillable": true
+  },
+  "0x23e6f18b198e53fb88f519f64cff6425327ffbe4a00df60d609c9cb997e5e2ba": {
+   "fillable": true
+  },
+  "0x6da1df98f84aaa59157d0ec7003300b1b7e31a19ba47b76a2a4c4a53c873adb0": {
+   "fillable": true
+  },
+  "0xed3bdde5b38e0a5b0c22bd549afbe825402312813a6dfa3709b75d0e15af60e6": {
+   "fillable": true
+  },
+  "0x190613171b67e468fbe3c2080775f13fdbdc13e53950facdc7424494e9e08ddb": {
+   "fillable": true
+  },
+  "0x47c733fd88b3273b592d69ebbba09f2a5e04238f2a611ea86e1ee855f1d74650": {
+   "fillable": true
+  },
+  "0xb5e6b019801f3b0a1a748ead4bb17bc4fb706cfaeaa04eb5f4ae76a7da57ec74": {
+   "fillable": true
+  },
+  "0x5d32a87c3fd264a4a777714a8380a76b34f27c0514fabcd8782ec5e24b88172c": {
+   "fillable": true
+  },
+  "0xa54860bf6f4033d17dff55323c1d58c42340b773d2b4b2dded3bf444a31e6451": {
+   "fillable": true
+  },
+  "0x9f8a41572739bab66766a22b6b746b99bc90bd943742b8d26a4ebeeca4901468": {
+   "fillable": true
+  },
+  "0xb1b671d9ea519b5f7e9c885029a379e5e64d6048e382d368664d12f5fa061bd9": {
+   "fillable": true
+  },
+  "0xc3670106fb6c3ac036939cb4cba83a5315ed045930a905b6f4909bfb9915c4d1": {
+   "fillable": true
+  },
+  "0xa51e17a5e85cfa7b32e748b14278a23ce2d1407df00217253c24516c6d57272c": {
+   "fillable": true
+  },
+  "0x927604bbcf278bc021a8dd25dd608f07c9c9f22cbbede662fcf33613e3ec5cea": {
+   "fillable": true
+  },
+  "0xebb375cf0fc600ba3970de0ae62009e5d723a4e59a71513ce5491844aa07d60b": {
+   "fillable": true
+  },
+  "0x00248752fa8d8ed0285c708c05097b5b066aef04fb82e05537fd1d513edb2ccb": {
+   "fillable": true
+  },
+  "0xae8da086c6f07d131701e3baaa48e4b8a6659ed043954ac522482f950b3974e4": {
+   "fillable": true
+  },
+  "0x3186339a77a8e60d11105b932c7be5c2f398b0ee4cf20d57be303a98cd0b02b0": {
+   "fillable": true
+  },
+  "0xf74da6a3544974d60f6972c2f1afe024021ef6627299e986d408f221227ccdf3": {
+   "fillable": true
+  }
+ }
+}

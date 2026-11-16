@@ -1,0 +1,72 @@
+{
+ "_source": "dev/bidbot-2026-11-15/collections-facts/raw/junglebay/collection.json (OpenSea GET /api/v2/collections/junglebay, 2026-11-15); images and description removed.",
+ "collection": "junglebay",
+ "name": "Jungle Bay",
+ "owner": "0xdc4aee24d421b2697f3e09da761b88d06f13e12e",
+ "safelist_status": "verified",
+ "category": "pfps",
+ "is_disabled": false,
+ "is_nsfw": false,
+ "trait_offers_enabled": true,
+ "collection_offers_enabled": true,
+ "opensea_url": "https://opensea.io/collection/junglebay",
+ "project_url": "https://junglebayisland.com/",
+ "wiki_url": "",
+ "discord_url": "https://discord.gg/URdEXexzWe",
+ "telegram_url": "",
+ "twitter_username": "JungleBayAC",
+ "instagram_username": "Junglebayac",
+ "contracts": [
+  {
+   "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+   "chain": "ethereum"
+  }
+ ],
+ "editors": [
+  "0xdc4aee24d421b2697f3e09da761b88d06f13e12e"
+ ],
+ "fees": [
+  {
+   "fee": 1,
+   "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+   "required": true
+  },
+  {
+   "fee": 7,
+   "recipient": "0xa3cc58eaa3800dc163726e031a2da49a9bb64eb3",
+   "required": false
+  }
+ ],
+ "rarity": {
+  "calculated_at": "2026-11-15T21:26:39.396949",
+  "max_rank": 5518,
+  "total_supply": 5518,
+  "strategy_id": "openrarity",
+  "strategy_version": "1.0"
+ },
+ "total_supply": 5518,
+ "unique_item_count": 5518,
+ "created_date": "2022-01-06",
+ "pricing_currencies": {
+  "listing_currency": {
+   "symbol": "ETH",
+   "address": "0x0000000000000000000000000000000000000000",
+   "chain": "ethereum",
+   "image": "https://raw2.seadn.io/currency_logos/ETH.svg",
+   "name": "Ethereum",
+   "decimals": 18,
+   "eth_price": "1",
+   "usd_price": "1814.54"
+  },
+  "offer_currency": {
+   "symbol": "WETH",
+   "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+   "chain": "ethereum",
+   "image": "https://raw2.seadn.io/currency_logos/WETH.svg",
+   "name": "Wrapped Ethereum",
+   "decimals": 18,
+   "eth_price": "1",
+   "usd_price": "1814.54"
+  }
+ }
+}

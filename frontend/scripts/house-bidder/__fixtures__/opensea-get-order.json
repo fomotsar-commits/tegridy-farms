@@ -1,0 +1,78 @@
+{
+ "_source": "OpenSea GET /api/v2/orders/chain/ethereum/protocol/0x0000000000000068f116a894984e2db1123eb395/<order_hash> for the JBAC offer in opensea-account-offers.json, read 2026-11-16 by live-get-order.mjs. Unchanged.",
+ "order": {
+  "order_hash": "0xf0d2f2efb6718cb9cd2e4a51a3671673fd6d79a163f37f9e0df009183d909c0e",
+  "chain": "ethereum",
+  "protocol_data": {
+   "parameters": {
+    "offerer": "0x3068e30a4ae02825ed5a51b0c070f04332642702",
+    "offer": [
+     {
+      "itemType": 1,
+      "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "identifierOrCriteria": "0",
+      "startAmount": "80700000000000000",
+      "endAmount": "80700000000000000"
+     }
+    ],
+    "consideration": [
+     {
+      "itemType": 4,
+      "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+      "identifierOrCriteria": "0",
+      "startAmount": "3",
+      "endAmount": "3",
+      "recipient": "0x3068e30a4ae02825ed5a51b0c070f04332642702"
+     },
+     {
+      "itemType": 1,
+      "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "identifierOrCriteria": "0",
+      "startAmount": "807000000000000",
+      "endAmount": "807000000000000",
+      "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+     }
+    ],
+    "startTime": "1794791541",
+    "endTime": "1794792364",
+    "orderType": 3,
+    "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "salt": "0x66458152cc31b91468b76cbe046c7c790158e85340d3346e3525b1cacfff659b",
+    "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+    "totalOriginalConsiderationItems": 2,
+    "counter": "271735846042798692953175855339143316823"
+   },
+   "signature": null
+  },
+  "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+  "asset": {
+   "identifier": null,
+   "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+  },
+  "remaining_quantity": 3,
+  "order_created_at": 1794791541,
+  "criteria": {
+   "collection": {
+    "slug": "junglebay"
+   },
+   "contract": {
+    "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+   },
+   "traits": null,
+   "numeric_traits": null,
+   "encoded_token_ids": "*"
+  },
+  "price": {
+   "currency": "WETH",
+   "decimals": 18,
+   "value": "80700000000000000"
+  },
+  "price_per_item": {
+   "currency": "WETH",
+   "decimals": 18,
+   "value": "26900000000000000"
+  },
+  "status": "ACTIVE"
+ }
+}
