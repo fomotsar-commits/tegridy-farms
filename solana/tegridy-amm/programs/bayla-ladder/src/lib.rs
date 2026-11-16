@@ -1919,11 +1919,20 @@ mod layout_tests {
     /// sizes stay 508 and 205, and padding that reads all zero is "no stamp".
     #[test]
     fn the_stamps_move_no_existing_field() {
-        let pk = |n: u8| Pubkey::new_from_array([n; 32]);
+        // Distinct keys derived, never written as bytes (solana/guards/key-guard.mjs).
+        let pk = |n: u8| Pubkey::find_program_address(&[b"layout".as_ref(), &[n]], &crate::ID).0;
         let u8x8 = |n: u8| u64::from_le_bytes([n; 8]);
         let i8x8 = |n: u8| i64::from_le_bytes([n; 8]);
         let u8x16 = |n: u8| u128::from_le_bytes([n; 16]);
         let filled = |buf: &[u8], at: usize, len: usize, n: u8| buf[at..at + len].iter().all(|b| *b == n);
+        // A 32-byte field holds key `n`; every other field is `n` in each byte.
+        let holds = |buf: &[u8], at: usize, len: usize, n: u8| {
+            if len == 32 {
+                &buf[at..at + 32] == pk(n).as_ref()
+            } else {
+                filled(buf, at, len, n)
+            }
+        };
 
         let mut pool = Pool {
             bump: 2,
@@ -1968,7 +1977,7 @@ mod layout_tests {
             (331, 16, 23), (347, 16, 24), (363, 16, 25), (379, 8, 26), (387, 1, 1),
             (388, 16, 27), (404, 16, 28),
         ] {
-            assert!(filled(&buf, at, len, n), "the Pool field at byte {at} moved");
+            assert!(holds(&buf, at, len, n), "the Pool field at byte {at} moved");
         }
         assert!(filled(&buf, 420, 8, 29), "degraded_notice_start sits where padding began");
         assert!(filled(&buf, 428, 80, 0), "the rest is still padding");
@@ -1997,7 +2006,7 @@ mod layout_tests {
             (8, 1, 2), (9, 32, 3), (41, 32, 4), (73, 4, 5), (77, 8, 6), (85, 16, 7),
             (101, 8, 8), (109, 16, 9), (125, 16, 10),
         ] {
-            assert!(filled(&buf, at, len, n), "the Position field at byte {at} moved");
+            assert!(holds(&buf, at, len, n), "the Position field at byte {at} moved");
         }
         assert!(filled(&buf, 141, 8, 11), "weight_set_at sits where padding began");
         assert!(filled(&buf, 149, 56, 0), "the rest is still padding");
