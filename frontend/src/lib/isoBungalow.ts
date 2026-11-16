@@ -228,7 +228,7 @@ export const DOOR_CARD_ASPECT = 271 / 128;
 export const MURAL_ACROSS = (FRONT_BAND.bottom - FRONT_BAND.top) * DOOR_CARD_ASPECT;
 
 /** A CSS object-position read as fractions across and down; a part not given or not read is CSS's own 50%. */
-function positionOf(objectPosition?: string): [number, number] {
+export function positionOf(objectPosition?: string): [number, number] {
   const [px, py] = (objectPosition ?? '').trim().split(/\s+/).map((v) => Number.parseFloat(v));
   const frac = (n: number | undefined) => (n === undefined || !Number.isFinite(n) ? 0.5 : Math.max(0, Math.min(100, n)) / 100);
   return [frac(px), frac(py)];

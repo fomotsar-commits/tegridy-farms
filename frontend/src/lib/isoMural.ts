@@ -4,6 +4,8 @@
 // one small store shared by every model on the page.
 import { useEffect, useSyncExternalStore } from 'react';
 import { derivedUrl, widthsFor } from './artSrcSet';
+import { BUNGALOWS } from './bungalows';
+import { doorArt } from './doorArt';
 
 /**
  * Which copy of a picture the walls take, from the device pixels it spans across a wall as the
@@ -21,6 +23,15 @@ export function muralWidth(devicePxAcross: number): 128 | 480 {
 export function muralSrc(src: string, want: 128 | 480, prod: boolean): string {
   if (!prod) return src;
   return widthsFor(src).includes(want) ? derivedUrl(src, want) : src;
+}
+
+/** The room's door picture and its own crop, at a given copy's width. */
+export function muralOf(roomId: string, want: 128 | 480): { src: string; position?: string } | null {
+  const room = BUNGALOWS.find((b) => b.id === roomId);
+  if (!room) return null;
+  const door = doorArt(room);
+  if (!door?.src) return null;
+  return { src: muralSrc(door.src, want, import.meta.env.PROD), position: door.objectPosition };
 }
 
 /** The mean of Rec. 709 luma over RGBA pixels, on their sRGB values, 0 to 1. */
@@ -102,6 +113,12 @@ function readPicture(src: string) {
 /** A picture's size and lightness, once read: undefined until then, 'failed' where it would not load. */
 export function pictureFacts(src: string): PictureFacts | 'failed' | undefined {
   return src ? PICTURES.get(src) : undefined;
+}
+
+/** A picture's size and lightness where read; null while it loads, where it failed, or where none was asked for. */
+export function readFacts(src: string | undefined): PictureFacts | null {
+  const facts = src ? pictureFacts(src) : undefined;
+  return facts && facts !== 'failed' ? facts : null;
 }
 
 const subscribe = (listener: () => void) => {
