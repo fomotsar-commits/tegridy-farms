@@ -76,8 +76,16 @@ const FLOW_PROGRAM: Record<JupiterTxExpectation['kind'], string> = {
   'recurring-cancel': JUPITER_RECURRING_PROGRAM,
 };
 
+/** Jupiter's answer is not the trade on screen. Nothing is signed, and every caller says it in these words. */
+export class NotTheTradeShown extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotTheTradeShown';
+  }
+}
+
 /** Thrown by the Jupiter client when a transaction fails this check. Nothing is signed. */
-export class JupiterTxRefused extends Error {
+export class JupiterTxRefused extends NotTheTradeShown {
   readonly reason: string;
   constructor(reason: string) {
     super(`Jupiter built a transaction this site will not sign: ${reason}. Nothing was signed.`);

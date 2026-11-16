@@ -28,6 +28,10 @@ import {
   type SwapRefusalCause,
   type SwapSimulation,
 } from '../../jupiter';
+import { NotTheTradeShown } from './jupiterTxGuard';
+
+/** Said when Jupiter's quote is not the trade asked for: nothing is built, so it never reads as a test run. */
+export const OTHER_TRADE_COPY = 'Jupiter answered for a different trade than the one on screen. Nothing was sent.';
 
 /** Said before signing and in the result whenever the retry is the trade that goes out. */
 export const NO_SITE_FEE_ROUTE_COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
@@ -100,6 +104,10 @@ function parseAmount(raw: unknown): bigint | null {
 /** The cause a refused test run gave, as a field only when it gave one. */
 const caused = (sim: SwapSimulation): { cause?: SwapRefusalCause } => (sim.cause ? { cause: sim.cause } : {});
 
+/** Is Jupiter's quote, by its own fields, the trade asked for? */
+const sameTrade = (q: JupiterQuote, a: { inputMint: string; outputMint: string; amount: string; slippageBps: number }): boolean =>
+  q.inputMint === a.inputMint && q.outputMint === a.outputMint && q.inAmount === a.amount && q.swapMode === 'ExactIn' && q.slippageBps === a.slippageBps;
+
 export async function prepareJupiterSwap(
   deps: FeeRetryDeps,
   a: {
@@ -116,6 +124,9 @@ export async function prepareJupiterSwap(
     priority?: PriorityLevel;
   },
 ): Promise<PreparedJupiterSwap> {
+  // The check of Jupiter's transaction reads its terms from this quote, so the quote is held
+  // to what was asked first. Thrown: it is no test run, and no other route stands in for it.
+  if (!sameTrade(a.fresh, a)) throw new NotTheTradeShown(OTHER_TRADE_COPY);
   const first = await deps.buildSwapTransaction({ quote: a.fresh, userPublicKey: a.user, priorityLevel: a.priority });
 
   let sim: SwapSimulation;
@@ -150,16 +161,7 @@ export async function prepareJupiterSwap(
     return { ...blocked, unchecked: true };
   }
   // The SAME trade, and really fee-free, by Jupiter's own fields.
-  if (
-    retried.inputMint !== a.inputMint ||
-    retried.outputMint !== a.outputMint ||
-    retried.inAmount !== a.amount ||
-    retried.swapMode !== 'ExactIn' ||
-    retried.slippageBps !== a.slippageBps ||
-    quoteHasPlatformFee(retried)
-  ) {
-    return blocked;
-  }
+  if (!sameTrade(retried, a) || quoteHasPlatformFee(retried)) return blocked;
   // Dropping a 0.5% fee pays the trader slightly MORE. If the re-quote instead
   // pays less than the better of (what they clicked, the fee-bearing fresh
   // quote) by more than their own slippage, the market moved: show it, do not

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, OTHER_TRADE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { NotTheTradeShown } from './jupiterTxGuard';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
 /**
@@ -91,6 +92,35 @@ describe('prepareJupiterSwap: the fee-bearing build is tried first, and usually 
     expect(await prepareJupiterSwap(d, ARGS)).toMatchObject({ status: 'blocked', unchecked: true });
     expect(await prepareJupiterSwap(d, ARGS)).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false });
     expect(simulateSwap).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('prepareJupiterSwap: Jupiter’s fresh quote must be the trade asked for (XCHL-02)', () => {
+  // The check of the built transaction reads the coins, the amount and the slippage from this
+  // quote, so a quote Jupiter (or our relay) answered for another trade would make the check
+  // pass a transaction for that other trade while the page shows the one typed.
+  const cases: [string, Partial<JupiterQuote>][] = [
+    ['another coin sold', { inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }],
+    ['another coin bought', { outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }],
+    ['a larger amount sold', { inAmount: '99900000000' }],
+    ['another mode', { swapMode: 'ExactOut' }],
+    ['a looser slippage', { slippageBps: 10_000 }],
+  ];
+  it.each(cases)('%s: refused in its own words before anything is built or test-run', async (_name, over) => {
+    const d = deps({ simulateSwap: vi.fn(async () => OK) });
+    const run = prepareJupiterSwap(d, { ...ARGS, fresh: { ...FEE_QUOTE, ...over } });
+    await expect(run).rejects.toBeInstanceOf(NotTheTradeShown);
+    await expect(run).rejects.toThrow(OTHER_TRADE_COPY);
+    expect(d.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(d.simulateSwap).not.toHaveBeenCalled();
+  });
+
+  it('the trade asked for goes on, and the words neither say a test run failed nor carry an em dash', async () => {
+    const r = await prepareJupiterSwap(deps({ simulateSwap: vi.fn(async () => OK) }), ARGS);
+    expect(r.status).toBe('ready');
+    expect(OTHER_TRADE_COPY).toBe('Jupiter answered for a different trade than the one on screen. Nothing was sent.');
+    expect(OTHER_TRADE_COPY).not.toMatch(/test run/);
+    expect(OTHER_TRADE_COPY).not.toContain(String.fromCharCode(0x2014));
   });
 });
 
@@ -260,7 +290,7 @@ describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and
   // sent), and 0.5 throws out of BigInt().
   it.each([-1, 10_001, 0.5])('a slippage of %s is not a tolerance: blocked, nothing rebuilt', async (slippageBps) => {
     const d = deps({ getQuote: vi.fn(async () => ({ ...NO_FEE_QUOTE, slippageBps })) });
-    const r = await prepareJupiterSwap(d, { ...ARGS, slippageBps });
+    const r = await prepareJupiterSwap(d, { ...ARGS, fresh: { ...FEE_QUOTE, slippageBps }, slippageBps });
     expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });

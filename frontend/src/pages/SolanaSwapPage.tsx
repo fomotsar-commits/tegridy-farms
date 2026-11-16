@@ -106,6 +106,7 @@ import {
   type TriggerOrder,
 } from '../lib/jupiter';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
+import { NotTheTradeShown } from '../lib/solana/swap/jupiterTxGuard';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { tokenFromChain } from '../lib/solana/swap/chainToken';
@@ -2488,9 +2489,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         // After the signature: its note stands until the chain answers.
         surfaceUnconfirmedTx(toast, { hash: signed, explorerUrl: `https://solscan.io/tx/${signed}`, repeatCost: 'swapping again buys a second time.' });
       } else {
-        // Stopped on a read before the wallet: nothing was sent, nothing failed, the form stands.
+        // Stopped before the wallet: nothing was sent, the form stands. Jupiter's answer that is
+        // not the trade on screen is said in its own words, never as a read that failed.
         toast.error('Not sent', {
-          description: nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),
+          description: err instanceof NotTheTradeShown ? err.message : nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),
         });
       }
     } finally {

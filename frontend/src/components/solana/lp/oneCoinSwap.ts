@@ -2,6 +2,7 @@ import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.j
 import { fromBaseUnits, NoRouteError, quoteHasPlatformFee, type JupiterQuote, type PriorityLevel } from '../../../lib/jupiter';
 import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
 import { NOT_TEST_RUN_COPY, prepareJupiterSwap, refusalWhy, refusedSaid, type FeeRetryDeps } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { NotTheTradeShown } from '../../../lib/solana/swap/jupiterTxGuard';
 import { OWN_ROUTE_COPY } from '../../../lib/solana/swap/ownPoolRoute';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, nothingSentCopy } from '../../../lib/solana/swap/walletCopy';
 import { sendWalletSwap, type WalletSwapDeps } from '../../../lib/solana/swap/walletSwapSend';
@@ -109,7 +110,7 @@ export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Prom
       priority: a.priority,
     });
   } catch (e) {
-    return { kind: 'not-sent', title: 'Not sent', message: nothingSentCopy('Jupiter’s transaction for this swap', thrownWords(e)) };
+    return { kind: 'not-sent', title: 'Not sent', message: e instanceof NotTheTradeShown ? e.message : nothingSentCopy('Jupiter’s transaction for this swap', thrownWords(e)) };
   }
   if (prepared.status === 'blocked') {
     // A test run that could not run is no verdict (law 8); the second in a row is ours to say (D2).

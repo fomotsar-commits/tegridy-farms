@@ -77,6 +77,7 @@ const quote = {
   inAmount: '500000000',
   outAmount: '75000000',
   otherAmountThreshold: '74625000',
+  swapMode: 'ExactIn',
   slippageBps: 50,
   priceImpactPct: '0',
   routePlan: [],

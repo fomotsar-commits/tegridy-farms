@@ -2,7 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NoRouteError, type JupiterQuote } from '../../jupiter';
 import { SOL_BASKET } from '../../islandBasket';
-import { NOT_TEST_RUN_COPY } from './jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, OTHER_TRADE_COPY } from './jupiterFeeRetry';
+import { JupiterTxRefused } from './jupiterTxGuard';
 import { Keypair, PublicKey, Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { BASKET_COPY, PoolNotNamedError, pinnedGetQuote, prepareSolLeg, quotedPool, retryingGetQuote, sendSigned, signatureOf, solLegRoute, stampBlockhash, type SolLegDeps } from './islandBasketSol';
 import type { VenuePoolCandidate } from './venuePools';
@@ -114,6 +115,15 @@ describe('prepareSolLeg', () => {
     expect(refused.kind).toBe('not-sent');
     expect((refused as { why: string }).why).toMatch(/failed its test run/);
     await expect(prepareSolLeg(deps({ simulateSwap: async () => { throw new Error('rpc down'); } }), base)).resolves.toEqual({ kind: 'not-sent', why: NOT_TEST_RUN_COPY });
+  });
+
+  it('Jupiter’s answer for another trade, or a transaction the check refuses, is said in its own words, never as a build that failed (XCHL-02)', async () => {
+    const other = deps({ fresh: { ...quote('10000'), inAmount: '999999' } });
+    await expect(prepareSolLeg(other, base)).resolves.toEqual({ kind: 'not-sent', why: OTHER_TRADE_COPY });
+    expect(other.built).not.toHaveBeenCalled();
+    const refused = new JupiterTxRefused('the swap sells a different amount than shown');
+    const d = { ...deps(), buildSwapTransaction: async () => { throw refused; } };
+    await expect(prepareSolLeg(d, base)).resolves.toEqual({ kind: 'not-sent', why: refused.message });
   });
 });
 

@@ -5,6 +5,7 @@ import type { AggregatorSeen } from '../../launcher/solana/write/types';
 import { pollConfirm, type ConfirmOutcome } from '../confirm';
 import { minOut, type SolBasketCoin } from '../../islandBasket';
 import { prepareJupiterSwap, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { NotTheTradeShown } from './jupiterTxGuard';
 import { freshDecision } from './ownPoolRoute';
 import type { VenuePoolCandidate } from './venuePools';
 
@@ -168,8 +169,8 @@ export async function prepareSolLeg(
       { getQuote: deps.getQuote, buildSwapTransaction: deps.buildSwapTransaction, simulateSwap: deps.simulateSwap, swapCarriesPlatformFee: deps.swapCarriesPlatformFee },
       { fresh, shown: a.shown, inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps, user: a.user, priority: a.priority },
     );
-  } catch {
-    return { kind: 'not-sent', why: 'Jupiter’s transaction for it could not be built just now, so nothing was sent for it.' };
+  } catch (e) {
+    return { kind: 'not-sent', why: e instanceof NotTheTradeShown ? e.message : 'Jupiter’s transaction for it could not be built just now, so nothing was sent for it.' };
   }
   if (prepared.status === 'blocked') return { kind: 'not-sent', why: prepared.unchecked ? NOT_TEST_RUN_COPY : refusedSaid(prepared, a.slippageBps) };
   if (prepared.status === 'moved') return { kind: 'not-sent', why: BASKET_COPY.moved };
