@@ -1,0 +1,52 @@
+name: House signer
+
+# The house bidder's signer (tools/house-signer): the separate process that holds the house
+# key and signs only what its pinned checks allow. Its tests use Node's own runner on a bare
+# runner: two pinned @noble packages, nothing from the frontend.
+#
+# Runs on every pull request rather than only those touching tools/house-signer/**: a path
+# filter on pull_request is not allowed here (frontend/src/test/requiredCheckSynthesis.test.ts:
+# a filtered check is never reported on an out-of-scope PR, so it can never be required), and
+# the whole job takes well under a minute.
+#
+# The test files are named one by one, so a renamed or added file cannot drop out of the run
+# unnoticed. The mutation proof (node test/mutate.mjs, every pin removed in turn) takes 15 to
+# 25 minutes and is run by hand before a change to src/ is merged; it is not repeated here.
+
+on:
+  pull_request:
+    branches: [main, mvp-launch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: house-signer tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Exactly what package-lock.json pins, and no install scripts run.
+      - name: Install the two pinned packages
+        working-directory: tools/house-signer
+        run: npm ci --ignore-scripts
+
+      # The installed tarballs carry the npm registry's signature (and provenance), so a
+      # tampered mirror or cache cannot hand the signer a different @noble.
+      - name: Check the registry signatures of what was installed
+        working-directory: tools/house-signer
+        run: npm audit signatures
+
+      - name: Signer unit tests
+        run: node --test tools/house-signer/test/abi.test.mjs tools/house-signer/test/cli.test.mjs tools/house-signer/test/eip712.test.mjs tools/house-signer/test/ipc.test.mjs tools/house-signer/test/keystore.test.mjs tools/house-signer/test/kill.test.mjs tools/house-signer/test/live.test.mjs tools/house-signer/test/order.test.mjs tools/house-signer/test/policy.test.mjs tools/house-signer/test/preflight.test.mjs tools/house-signer/test/sign.test.mjs tools/house-signer/test/signer.test.mjs tools/house-signer/test/tx.test.mjs
