@@ -344,18 +344,20 @@ export function balanceRefusal(
   run: { fee?: unknown; preBalances?: unknown; postBalances?: unknown; preTokenBalances?: unknown; postTokenBalances?: unknown },
   shown: TradeShown,
 ): string | null {
-  const lamports = (list: unknown): bigint[] => {
-    if (!Array.isArray(list) || list.length === 0) throw new Error('the test run gave no balances');
-    return list.map((n: unknown) => {
-      if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new Error('a balance could not be read');
-      return BigInt(n);
-    });
+  const list = (v: unknown): unknown[] => {
+    if (!Array.isArray(v) || v.length === 0) throw new Error('the test run gave no balances');
+    return v;
   };
-  const pre = lamports(run.preBalances);
-  const post = lamports(run.postBalances);
-  const [fee] = lamports([run.fee]);
+  // Read only where summed: a pool account past 2^53 lamports is no reason to refuse a swap.
+  const lamport = (n: unknown): bigint => {
+    if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new Error('a balance could not be read');
+    return BigInt(n);
+  };
+  const pre = list(run.preBalances);
+  const post = list(run.postBalances);
+  const fee = lamport(run.fee);
   const sold = big(shown.inAmount);
-  if (pre.length !== post.length || fee === undefined || sold === null) throw new Error('the test run could not be read');
+  if (pre.length !== post.length || sold === null) throw new Error('the test run could not be read');
   const native = NATIVE_MINT.toBase58();
   // Every token account, the payer's (its wallet is account 0), and what they hold of each coin but SOL.
   const held = (rows: unknown) => {
@@ -385,9 +387,9 @@ export function balanceRefusal(
     if (drop > sold) return 'its test run takes more than the amount shown';
   }
   let opened = 0n;
-  for (let i = 1; i < pre.length; i += 1) if (pre[i] === 0n && post[i]! > 0n && !after.tokens.has(i)) opened += post[i]!;
+  for (let i = 1; i < pre.length; i += 1) if (pre[i] === 0 && post[i] !== 0 && !after.tokens.has(i)) opened += lamport(post[i]);
   const rent = opened < ROUTE_RENT_CAP_LAMPORTS ? opened : ROUTE_RENT_CAP_LAMPORTS;
-  const sum = (list: bigint[], at: Set<number>) => [...at].reduce((s, i) => s + list[i]!, 0n);
+  const sum = (balances: unknown[], at: Set<number>) => [...at].reduce((s, i) => s + lamport(balances[i]), 0n);
   const spent = sum(pre, before.accounts) - sum(post, after.accounts);
   if (spent > fee + rent + (shown.inputMint === native ? sold : 0n)) return 'its test run takes more than the amount shown';
   return null;

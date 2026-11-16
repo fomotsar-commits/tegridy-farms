@@ -280,6 +280,17 @@ describe('the test run holds the payer’s balances to the trade shown (XCHL-01,
     expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n), sale)).toMatch(/takes more than the amount shown/);
   });
 
+  it('another account past 2^53 lamports (a large pool vault) is no reason to refuse; the payer’s own past it is no verdict', () => {
+    const huge = 2 ** 53 + 2;
+    const pool = copy(RUN_SOL_BAYLA);
+    pool.preBalances[15] = huge;
+    pool.postBalances[15] = huge;
+    expect(balanceRefusal(pool, SOLD)).toBeNull();
+    const payer = copy(RUN_SOL_BAYLA);
+    payer.postBalances[0] = huge;
+    expect(() => balanceRefusal(payer, SOLD)).toThrow(/balance could not be read/);
+  });
+
   it('a run that gave no balances, or balances it cannot read, is no verdict: it throws', () => {
     const { preBalances: _p, ...noLamports } = RUN_SOL_BAYLA;
     expect(() => balanceRefusal(noLamports, SOLD)).toThrow(/gave no balances/);
