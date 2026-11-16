@@ -82,6 +82,19 @@ export const TRIGGER_CREATE = {
 };
 
 /**
+ * The same limit order with a 7-day expiry, as the site places one by default: captured 2026-11-16
+ * from lite-api.jup.ag for the same wallet (built, never signed). The expiry comes back as asked.
+ */
+export const TRIGGER_CREATE_EXPIRING = {
+  "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "outputMint": "So11111111111111111111111111111111111111112",
+  "makingAmount": "10000000",
+  "takingAmount": "100000000",
+  "expiredAt": 1795404575,
+  "tx": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAJDkjAG1BZAFRV2dywxrzs3LT7Wy6rwamoK1c5K6qkDwTmDYTBcZh4nuZY/ExVoXe+VhcKeYw1s4VzwTqmZSIGHCxDtcUjcx3+W4cE3181bPqRQ5QO1kQ9I7HZFkhiuFJYUAtIvYLYTD66vf4A9cEoXGZNwQuZ++zLSqqIojt5pgpX3sTeRGTwuXxew5/kivghLMd/7RlS2oFJdI1UTmJL6wADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpCsNKlsFmcVpgwSM+yiWKDfMLHshY4HRcc2oSYmZjSyIQiYnNzGGPBnZ0rGd+KZqtsSj+INnM2CjlCMnxv5sw68b6evO+2606PWXzaqvJdDGxu+TC0vbg5HymAgNFL11hkn9sh+xDEAWX2S7IDh4PwuUsi7/8dQ+DB2YEV+4zsuHB9GnD+ipi0LTyk0/lpIxH9yeDlSf4uP7NC3z6OnwxTQQFAAkDoIYBAAAAAAAFAAUCxusAAAYGAAEABwgJAQEKDwAAAgMECwoMBwkJCAYNCjaFbkqvcJ/1n6Vwj2g2nE1SgJaYAAAAAAAA4fUFAAAAAAEfswNrAAAAAAABAAABAAAAAAAAAAAA"
+};
+
+/**
  * The test run of SWAP_SOL_BAYLA (route_v2). The route opens one account that is not the payer's (1,346,200 lamports of rent).
  * Read from mainnet at slot 469963085 (2026-11-16), the capture's price floor opened to 100% so the old quote still runs.
  */

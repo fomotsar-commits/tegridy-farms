@@ -9,7 +9,7 @@
 // a tampered copy of it is refused before any caller can sign it.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VersionedTransaction } from '@solana/web3.js';
-import { LIVE_USER, RECURRING_CREATE, SWAP_SOL_USDC, TRIGGER_CREATE } from './solana/swap/__fixtures__/jupiterLive';
+import { LIVE_USER, RECURRING_CREATE, SWAP_SOL_USDC, TRIGGER_CREATE, TRIGGER_CREATE_EXPIRING } from './solana/swap/__fixtures__/jupiterLive';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 
@@ -69,6 +69,17 @@ describe('limit orders and recurring buys', () => {
     await expect(jupiter.createTriggerOrder(params)).resolves.toBe(TRIGGER_CREATE.tx);
     answer({ transaction: TRIGGER_CREATE.tx });
     await expect(jupiter.createTriggerOrder({ ...params, takingAmount: '1' })).rejects.toThrow(/different amounts/);
+  });
+
+  it('createTriggerOrder holds the order to the expiry it asked for (XCHL-05)', async () => {
+    const fx = TRIGGER_CREATE_EXPIRING;
+    const params = { inputMint: fx.inputMint, outputMint: fx.outputMint, maker: LIVE_USER, makingAmount: fx.makingAmount, takingAmount: fx.takingAmount };
+    answer({ transaction: fx.tx });
+    await expect(jupiter.createTriggerOrder({ ...params, expiredAt: fx.expiredAt })).resolves.toBe(fx.tx);
+    answer({ transaction: fx.tx });
+    await expect(jupiter.createTriggerOrder({ ...params, expiredAt: fx.expiredAt + 86_400 })).rejects.toThrow(/expires at a different time/);
+    answer({ transaction: fx.tx });
+    await expect(jupiter.createTriggerOrder(params)).rejects.toThrow(/expires at a different time/);
   });
 
   it('createRecurringOrder returns the real order, and refuses one on another schedule', async () => {

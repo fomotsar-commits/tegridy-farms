@@ -11,6 +11,7 @@ import {
 } from './jupiterTxGuard';
 import {
   LIVE_USER, RECURRING_CREATE, RUN_SHARED_SOL_BAYLA, RUN_SOL_BAYLA, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
+  TRIGGER_CREATE_EXPIRING,
 } from './__fixtures__/jupiterLive';
 
 // SECURITY REGRESSION — what a Jupiter-built Solana transaction may contain.
@@ -325,6 +326,52 @@ describe('a tampered limit order is refused', () => {
   });
   it('different coins than shown', () => {
     expect(jupiterTxRefusal(TRIGGER_CREATE.tx, triggerExpect({ outputMint: SWAP_SOL_BAYLA.quote.outputMint }))).toMatch(/different coins/);
+  });
+});
+
+describe('a limit order’s fields after its two amounts are read (XCHL-05)', () => {
+  const ix = (v: View) => find(v, JUPITER_TRIGGER_PROGRAM);
+  /** The real order, with every field after the amounts replaced by `tail`. */
+  const withTail = (tail: number[]) => edit(TRIGGER_CREATE.tx, (v) => { const j = ix(v); j.data = Uint8Array.from([...j.data.subarray(0, 32), ...tail]); });
+  const some16 = (n: number) => [1, n & 0xff, n >> 8];
+  const NO_EXPIRY = [0];
+  const NO_FEE = [0];
+  const SLIPPAGE_0 = some16(0);
+  const SEVENTH = [1, 0, 0, 0, 0, 0, 0, 0, 0];
+
+  it('the real orders pass: no expiry, and a 7-day expiry held to the one asked for', () => {
+    expect(withTail([...NO_EXPIRY, ...NO_FEE, ...SLIPPAGE_0, ...SEVENTH])).toBe(TRIGGER_CREATE.tx);
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect({ ...TRIGGER_CREATE_EXPIRING }))).toBeNull();
+  });
+
+  it('an expiry other than the one asked for is refused, and so is one where none was asked, or none where one was', () => {
+    const at = TRIGGER_CREATE_EXPIRING.expiredAt;
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect({ ...TRIGGER_CREATE_EXPIRING, expiredAt: at + 1 }))).toMatch(/expires at a different time/);
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect())).toMatch(/expires at a different time/);
+    expect(jupiterTxRefusal(TRIGGER_CREATE.tx, triggerExpect({ expiredAt: at }))).toMatch(/expires at a different time/);
+  });
+
+  it.each([1, 10, 81, 9_999])('a fee of %s basis points is refused', (bps) => {
+    expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...some16(bps), ...SLIPPAGE_0, ...SEVENTH]), triggerExpect())).toMatch(/carries a fee/);
+  });
+
+  it('a slippage of none passes; any other than 0 is refused', () => {
+    expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...NO_FEE, 0, ...SEVENTH]), triggerExpect())).toBeNull();
+    for (const bps of [1, 100, 10_000, 65_535]) {
+      expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...NO_FEE, ...some16(bps), ...SEVENTH]), triggerExpect())).toMatch(/worse price than shown/);
+    }
+  });
+
+  it('a referral account in its slot is refused (unset is the program’s own id)', () => {
+    const b64 = edit(TRIGGER_CREATE.tx, (v) => { ix(v).accountKeyIndexes[6] = ix(v).accountKeyIndexes[4]!; });
+    expect(jupiterTxRefusal(b64, triggerExpect())).toMatch(/names a referral account/);
+  });
+
+  it('a seventh value other than real orders carry, or none, or anything after it, is refused', () => {
+    const head = [...NO_EXPIRY, ...NO_FEE, ...SLIPPAGE_0];
+    for (const tail of [[0], [1, 1, 0, 0, 0, 0, 0, 0, 0], [], [...SEVENTH, 0]]) {
+      expect(jupiterTxRefusal(withTail([...head, ...tail]), triggerExpect())).toMatch(/carries a value this site does not read/);
+    }
   });
 });
 

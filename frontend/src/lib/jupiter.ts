@@ -574,6 +574,8 @@ export async function createTriggerOrder(params: {
     outputMint: params.outputMint,
     makingAmount: params.makingAmount,
     takingAmount: params.takingAmount,
+    // Held to the expiry asked for above, and to none when none was asked.
+    ...(params.expiredAt ? { expiredAt: params.expiredAt } : {}),
     maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
   });
 }

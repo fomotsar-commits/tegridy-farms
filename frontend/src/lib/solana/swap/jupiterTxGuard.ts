@@ -41,7 +41,17 @@ export type JupiterTxExpectation =
     feeAccount: string | null;
     maxPriorityLamports: number;
   }
-  | { kind: 'trigger-create'; user: string; inputMint: string; outputMint: string; makingAmount: string; takingAmount: string; maxPriorityLamports: number }
+  | {
+    kind: 'trigger-create';
+    user: string;
+    inputMint: string;
+    outputMint: string;
+    makingAmount: string;
+    takingAmount: string;
+    /** The expiry the visitor chose, in Unix seconds; absent when the order never expires. */
+    expiredAt?: number;
+    maxPriorityLamports: number;
+  }
   | { kind: 'trigger-cancel'; user: string; order: string; maxPriorityLamports: number }
   | {
     kind: 'recurring-create';
@@ -202,6 +212,30 @@ function refusalOf(b64: string, expect: JupiterTxExpectation): string | null {
 
 type At = (ix: { accountKeyIndexes: number[] }, n: number) => string | null;
 
+/** The value after slippage that every real order carries (Some(0)); the published IDL does not list it. */
+const ORDER_SEVENTH = [1, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/**
+ * A limit order's fields after its two amounts, as the live program reads them: the expiry the
+ * visitor chose (or none), no fee, a slippage of none or 0, the seventh value as real orders
+ * carry it, and nothing after. Built any looser, a hostile answer could fill the order below
+ * its price or pay a fee out of it; any tighter, it would refuse every real order.
+ */
+function orderTailRefusal(data: Uint8Array, expiredAt: number | undefined): string | null {
+  let p = 32;
+  if (expiredAt === undefined ? data[p] !== 0 : data[p] !== 1 || data.length < p + 9 || new DataView(data.buffer, data.byteOffset + p + 1, 8).getBigInt64(0, true) !== BigInt(expiredAt)) {
+    return 'the order expires at a different time than shown';
+  }
+  p += expiredAt === undefined ? 1 : 9;
+  if (data[p] !== 0) return 'the order carries a fee';
+  p += 1;
+  if (data[p] === 1 && u16(data, p + 1) === 0) p += 3;
+  else if (data[p] === 0) p += 1;
+  else return 'the order accepts a worse price than shown';
+  if (data.length !== p + ORDER_SEVENTH.length || ORDER_SEVENTH.some((b, k) => data[p + k] !== b)) return 'the order carries a value this site does not read';
+  return null;
+}
+
 function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: number[] }, at: At, data: Uint8Array): string | null {
   const disc = hex8(data);
   const user = expect.user;
@@ -246,7 +280,8 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       const from = at(ix, 4);
       if (!from || !usersAta(user, expect.inputMint).has(from)) return 'the order is funded from an account that is not yours';
       if (u64(data, 16) !== big(expect.makingAmount) || u64(data, 24) !== big(expect.takingAmount)) return 'the order has different amounts than shown';
-      return null;
+      if (at(ix, 6) !== JUPITER_TRIGGER_PROGRAM) return 'the order names a referral account';
+      return orderTailRefusal(data, expect.expiredAt);
     }
     case 'trigger-cancel': {
       if (disc !== CANCEL_ORDER && disc !== CANCEL_DUST_ORDER) return 'it is not a limit-order cancel';
