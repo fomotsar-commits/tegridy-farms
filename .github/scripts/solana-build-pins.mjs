@@ -84,12 +84,17 @@ rule(pinned.length === 3, `${PINNED} holds ${pinned.length} lines, expected 3`);
 
 // XCHL-29: every job has a time limit. XCHL-23: a cargo cache key names the Solana and Rust
 // versions it was made with, not only the lock.
-for (const f of ['solana-ci.yml', 'solana-deploy-artifact.yml']) {
-  for (const job of jobsOf(f)) rule(/^ {4}timeout-minutes: \d+$/m.test(job), `${f}: ${job.split(':')[0].trim()} has no time limit`);
+for (const f of ['solana-ci.yml', 'solana-deploy-artifact.yml', 'raydium-watch.yml']) {
+  for (const job of existsSync(WF + f) ? jobsOf(f) : []) rule(/^ {4}timeout-minutes: \d+$/m.test(job), `${f}: ${job.split(':')[0].trim()} has no time limit`);
 }
 const keys = Object.values(CI_JOBS).flatMap((j) => j.match(/^ {10}key: .*$/gm) ?? []);
 rule(keys.length === 4, `found ${keys.length} cargo cache keys, expected 4`);
 for (const k of keys) rule(/env\.(CLMM_)?SOLANA_VERSION/.test(k) && k.includes('steps.rust.outputs.cachekey'), `"${k.trim()}" names no tool version`);
+
+// RU-05: a weekly run reads whether Raydium re-deployed or moved either program the pools copy.
+const WATCH = existsSync(`${WF}raydium-watch.yml`) ? code(read(`${WF}raydium-watch.yml`)).join('\n') : '';
+rule(/^ {4}- cron: "\d+ \d+ \* \* \d"$/m.test(WATCH), 'raydium-watch.yml does not run weekly');
+rule(/^ {8}run: node \.github\/scripts\/solana-raydium-watch\.mjs$/m.test(WATCH), 'raydium-watch.yml does not run solana-raydium-watch.mjs');
 
 // XCHL-16, NE-03: no compose file hands the host's Solana key folder to a container, and the
 // devnet deploy script names devnet and its key on each command instead of changing settings.

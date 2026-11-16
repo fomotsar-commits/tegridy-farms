@@ -1,0 +1,21 @@
+name: raydium-watch
+
+# Weekly: red when Raydium has re-deployed either program the venue's pools copy, or pushed past
+# the head recorded in .github/scripts/solana-raydium-watch.mjs. A red run means read what
+# changed upstream (a fix may be one to copy), then record the new state there.
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Raydium's two programs and repositories are where they were last read
+        run: node .github/scripts/solana-raydium-watch.mjs
