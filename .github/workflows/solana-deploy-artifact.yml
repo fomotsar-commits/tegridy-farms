@@ -111,7 +111,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
       # cp-swap deliberately has NO patch step. Its four identity constants are
@@ -310,7 +310,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
       # avm at the commit that made the live ladder's file (run 41619695555): a branch
@@ -318,6 +318,7 @@ jobs:
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
           cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 

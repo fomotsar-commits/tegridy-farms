@@ -297,7 +297,7 @@ jobs:
           key: clmm-cargo-${{ env.CLMM_SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.CLMM_SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${CLMM_SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${CLMM_SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       # While lib.rs declares the placeholder, a build needs `placeholder-id`. Once the owner's
       # real id is in (program-id-change.mjs), the release is the build with no features at all,
@@ -456,7 +456,7 @@ jobs:
           key: solana-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: solana --version
         run: solana --version
@@ -594,7 +594,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # The real compile gate for this program — it cannot be run on the Windows
@@ -798,7 +798,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # The real compile gate. Same artifact assertion as launch-curve: `cargo
@@ -866,7 +866,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # avm at the commit that made the live ladder's file (deploy run 41619695555): a
@@ -874,6 +874,7 @@ jobs:
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
           cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -992,7 +993,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # avm at the commit that made the live ladder's file (deploy run 41619695555): a
@@ -1000,6 +1001,7 @@ jobs:
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
           cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -1142,7 +1144,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # avm at the commit that made the live ladder's file (deploy run 41619695555): a
@@ -1150,6 +1152,7 @@ jobs:
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
           cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 

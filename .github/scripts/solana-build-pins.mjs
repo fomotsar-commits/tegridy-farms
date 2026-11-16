@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { inScope } from './diff-scope.mjs';
+import { buildFlags } from '../../solana/guards/key-guard.mjs';
 
 const WF = '.github/workflows/';
 const read = (p) => readFileSync(p, 'utf-8');
@@ -29,6 +30,26 @@ const installs = readdirSync(WF)
 rule(installs.length === 4, `found ${installs.length} avm installs, expected 4`);
 for (const [f, l] of installs) rule(AVM.test(l), `${f}: "${l}" does not install avm from one pinned commit`);
 rule(new Set(installs.map(([, l]) => AVM.exec(l)?.[1])).size === 1, 'the avm installs name different commits');
+
+// XCHL-11: no downloaded installer runs unchecked. Every Solana and Anchor install goes through
+// solana-tools.sh, which pins each file it fetches by sha256 and refuses a version it has none for.
+const TOOLS = '.github/scripts/solana-tools.sh';
+const tools = existsSync(TOOLS) ? read(TOOLS) : '';
+const shas = [...tools.matchAll(/(?:release|tools_sha)=(\S+)|\b([0-9a-f]{64})\b/g)].map((m) => m[1] ?? m[2]);
+rule(shas.length === 6 && shas.every((s) => /^[0-9a-f]{64}$/.test(s)), `${TOOLS} pins ${shas.length} files, not each of the 6 by sha256`);
+rule(tools !== '' && buildFlags(tools).length === 0, `${TOOLS} is missing or sets a build flag`);
+rule(spawnSync('bash', [TOOLS, 'solana', 'v0.0.0'], { encoding: 'utf-8' }).stdout?.includes('no pinned sha256'), `${TOOLS} does not refuse a version it pins nothing for`);
+for (const f of ['solana-ci.yml', 'solana-deploy-artifact.yml']) {
+  const text = code(read(WF + f)).join('\n');
+  rule(!/release\.anza\.xyz|sh -c "\$\(curl|curl[^\n]*\|\s*(?:ba)?sh\b/.test(text), `${f} runs a downloaded installer unchecked`);
+  for (const [, kind, v] of text.matchAll(/^ +(?:CLMM_)?(SOLANA|ANCHOR)_VERSION: (\S+)$/gm)) rule(tools.includes(`"${kind.toLowerCase()} ${v}")`), `${TOOLS} pins nothing for ${kind.toLowerCase()} ${v}, which ${f} installs`);
+  for (const job of jobsOf(f)) {
+    const name = job.split(':')[0].trim();
+    if (job.includes('- name: Install Solana CLI')) rule(/solana-tools\.sh" solana "\$\{(?:CLMM_)?SOLANA_VERSION\}"/.test(job), `${f}: ${name} installs Solana without solana-tools.sh`);
+    const anchor = job.indexOf('solana-tools.sh" anchor "$ANCHOR_VERSION"');
+    if (job.includes('avm install')) rule(anchor > -1 && anchor < job.indexOf('avm install'), `${f}: ${name} lets avm fetch Anchor and its compiler unchecked`);
+  }
+}
 
 // LDR-03, XCHL-19: before building, the deploy job holds a mainnet ladder or launcher build to
 // the registry's identities. Seen working here, not only present.
