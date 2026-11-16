@@ -89,6 +89,18 @@ export const sqrtPriceX64 = (num, den) => isqrt((BigInt(num) << 128n) / BigInt(d
 export const priceOf = (sqrtX64) => Number(sqrtX64) ** 2 / Number(Q64) ** 2;
 export const tickAt = (price) => Math.floor(Math.log(price) / Math.log(1.0001));
 export const alignDown = (tick, spacing) => Math.floor(tick / spacing) * spacing;
+/**
+ * A stated liquidity both caps cover at the pool's price now: 99% of what the scarcer coin buys.
+ * The program sizes no deposit from one coin (2026-11-15 audit, RNG-12), as the site does not.
+ */
+export function liquidityFor(sqrtX64, lower, upper, amount0, amount1) {
+  const p = Number(sqrtX64) / Number(Q64);
+  const a = Math.sqrt(1.0001 ** lower); const b = Math.sqrt(1.0001 ** upper);
+  const by0 = (from) => (Number(amount0) * from * b) / (b - from);
+  const by1 = (to) => Number(amount1) / (to - a);
+  const l = p <= a ? by0(a) : p >= b ? by1(b) : Math.min(by0(p), by1(p));
+  return BigInt(Math.floor(l * 0.99));
+}
 export const arrayStart = (tick, spacing) => Math.floor(tick / (spacing * consts.TICK_ARRAY_SIZE)) * spacing * consts.TICK_ARRAY_SIZE;
 
 /** The pool's two mints in the program's order (token_mint_0 < token_mint_1 by bytes). */

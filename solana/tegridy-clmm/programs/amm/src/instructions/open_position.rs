@@ -409,54 +409,12 @@ pub fn add_liquidity<'b, 'info>(
     tick_upper_index: i32,
     base_flag: Option<bool>,
 ) -> Result<LiquidityChangeResult> {
-    if *liquidity == 0 {
-        let base_flag = match base_flag {
-            // when establishing a new position , liquidity allows for further additions
-            None => return Ok(LiquidityChangeResult::default()),
-            Some(b) => b,
-        };
-        if base_flag {
-            // must deduct transfer fee before calculate liquidity
-            // because only v2 instruction support token_2022, vault_0_mint must be exist
-            let vault_0_mint = vault_0_mint.clone().ok_or(ErrorCode::MissingMintAccount)?;
-            let amount_0_transfer_fee = get_transfer_fee(vault_0_mint, amount_0_max)?;
-            *liquidity = liquidity_math::get_liquidity_from_single_amount_0(
-                pool_state.sqrt_price_x64,
-                tick_math::get_sqrt_price_at_tick(tick_lower_index)?,
-                tick_math::get_sqrt_price_at_tick(tick_upper_index)?,
-                amount_0_max
-                    .checked_sub(amount_0_transfer_fee)
-                    .ok_or(ErrorCode::CalculateOverflow)?,
-            )?;
-            #[cfg(feature = "enable-log")]
-            msg!(
-                "liquidity: {}, amount_0_max:{}, amount_0_transfer_fee:{}",
-                *liquidity,
-                amount_0_max,
-                amount_0_transfer_fee
-            );
-        } else {
-            // must deduct transfer fee before calculate liquidity
-            // because only v2 instruction support token_2022, vault_1_mint must be exist
-            let vault_1_mint = vault_1_mint.clone().ok_or(ErrorCode::MissingMintAccount)?;
-            let amount_1_transfer_fee = get_transfer_fee(vault_1_mint, amount_1_max)?;
-            *liquidity = liquidity_math::get_liquidity_from_single_amount_1(
-                pool_state.sqrt_price_x64,
-                tick_math::get_sqrt_price_at_tick(tick_lower_index)?,
-                tick_math::get_sqrt_price_at_tick(tick_upper_index)?,
-                amount_1_max
-                    .checked_sub(amount_1_transfer_fee)
-                    .ok_or(ErrorCode::CalculateOverflow)?,
-            )?;
-            #[cfg(feature = "enable-log")]
-            msg!(
-                "liquidity: {}, amount_1_max:{}, amount_1_transfer_fee:{}",
-                *liquidity,
-                amount_1_max,
-                amount_1_transfer_fee
-            );
-        }
+    if *liquidity == 0 && base_flag.is_none() {
+        // when establishing a new position , liquidity allows for further additions
+        return Ok(LiquidityChangeResult::default());
     }
+    // memetics.finance: a deposit states its liquidity. Sizing it from one coin at the price it
+    // lands at bounded the other coin on one side only (2026-11-15 audit, RNG-12).
     require_gt!(*liquidity, 0, ErrorCode::ZeroLiquidity);
     let liquidity_before = pool_state.liquidity;
     require_keys_eq!(tick_array_lower_loader.load()?.pool_id, pool_state.key());
@@ -1028,5 +986,58 @@ mod modify_position_test {
         assert!(tick_lower_state.fee_growth_outside_1_x64 == 0);
         assert!(tick_upper_state.fee_growth_outside_0_x64 == 0);
         assert!(tick_upper_state.fee_growth_outside_1_x64 == 0);
+    }
+}
+
+#[cfg(test)]
+mod deposit_states_its_liquidity_test {
+    use super::*;
+    use anchor_lang::solana_program::program_pack::Pack;
+    use anchor_lang::{system_program, Discriminator};
+    use anchor_spl::token_2022::spl_token_2022;
+
+    fn info(key: Pubkey, owner: Pubkey, data: Vec<u8>, signer: bool, exec: bool) -> &'static AccountInfo<'static> {
+        Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(key)),
+            signer,
+            true,
+            Box::leak(Box::new(1_000_000_000u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(owner)),
+            exec,
+        )))
+    }
+
+    fn mint() -> Option<Box<InterfaceAccount<'static, token_interface::Mint>>> {
+        let mut data = vec![0u8; spl_token_2022::state::Mint::LEN];
+        spl_token_2022::state::Mint { decimals: 6, is_initialized: true, ..Default::default() }
+            .pack_into_slice(&mut data);
+        Some(Box::new(InterfaceAccount::try_from(info(Pubkey::new_unique(), Token::id(), data, false, false)).unwrap()))
+    }
+
+    /// memetics.finance (2026-11-15 audit, RNG-12): a deposit of liquidity 0 with a base side,
+    /// to be sized from one coin at the price it lands at, is refused before anything is sized,
+    /// in open_position_v2, open_position_with_token22_nft and increase_liquidity_v2 alike.
+    #[test]
+    fn a_deposit_sized_from_one_coin_is_refused_test() {
+        let pool = crate::states::pool_test::build_pool(0, 120, tick_math::get_sqrt_price_at_tick(0).unwrap(), 0);
+        let payer = Signer::try_from(info(Pubkey::new_unique(), system_program::ID, vec![], true, false)).unwrap();
+        let any = info(Pubkey::new_unique(), system_program::ID, vec![], false, false);
+        let mut band = TickArrayState::DISCRIMINATOR.to_vec();
+        band.resize(TickArrayState::LEN, 0);
+        let band = AccountLoad::<TickArrayState>::try_from(info(Pubkey::new_unique(), crate::ID, band, false, false)).unwrap();
+        let token = Program::<Token>::try_from(info(Token::id(), Pubkey::default(), vec![], false, true)).unwrap();
+        let deposit = |base_flag: Option<bool>, liquidity: &mut u128| {
+            add_liquidity(&payer, any, any, any, any, &band, &band, None, &token, mint(), mint(), None,
+                &mut pool.borrow_mut(), liquidity, 1_000_000, 1_000_000, -120, 120, base_flag)
+        };
+        for base_flag in [Some(true), Some(false)] {
+            let mut liquidity = 0u128;
+            let refused = deposit(base_flag, &mut liquidity).err().unwrap();
+            assert_eq!(refused, ErrorCode::ZeroLiquidity.into());
+            assert_eq!(liquidity, 0);
+        }
+        // With no base side, liquidity 0 still opens an empty position, as upstream.
+        assert!(deposit(None, &mut 0).is_ok());
     }
 }
