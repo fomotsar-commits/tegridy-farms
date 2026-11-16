@@ -155,11 +155,8 @@ pub mod raydium_clmm {
     /// * `trade_fee_rate` - The new trade fee rate of amm config, be set when `param` is 0
     /// * `protocol_fee_rate` - The new protocol fee rate of amm config, be set when `param` is 1
     /// * `fund_fee_rate` - The new fund fee rate of amm config, be set when `param` is 2
-    /// * `new_owner` - The config's new owner, be set when `param` is 3
     /// * `new_fund_owner` - The config's new fund owner, be set when `param` is 4
-    /// * `limit_protocol_fee_rate` - The new limit protocol fee rate of amm config, be set when `param` is 5
-    /// * `limit_fund_fee_rate` - The new limit fund fee rate of amm config, be set when `param` is 6
-    /// * `param` - The value can be 0 | 1 | 2 | 3 | 4 | 5 | 6, otherwise will report an error
+    /// * `param` - The value can be 0 | 1 | 2 | 4, otherwise will report an error
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u32) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)

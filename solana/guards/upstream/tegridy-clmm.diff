@@ -137,7 +137,15 @@
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
 >     #[cfg(not(feature = "devnet"))]
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-134,207c168,174
+124d157
+<     /// * `new_owner` - The config's new owner, be set when `param` is 3
+126,128c159
+<     /// * `limit_protocol_fee_rate` - The new limit protocol fee rate of amm config, be set when `param` is 5
+<     /// * `limit_fund_fee_rate` - The new limit fund fee rate of amm config, be set when `param` is 6
+<     /// * `param` - The value can be 0 | 1 | 2 | 3 | 4 | 5 | 6, otherwise will report an error
+---
+>     /// * `param` - The value can be 0 | 1 | 2 | 4, otherwise will report an error
+134,207c165,171
 <     /// Create dynamic fee config
 <     ///
 <     /// # Arguments
@@ -220,7 +228,7 @@
 >     // memetics.finance: create_permission_pda and close_permission_pda are deleted with
 >     // create_permissioned_pool, the one instruction that read a permission (the owner's ruling,
 >     // 2026-11-03).
-229,258c196,199
+229,258c193,196
 <     /// Creates a pool for the given token pair with customizable parameters
 <     ///
 <     /// # Arguments
@@ -256,7 +264,7 @@
 >     // whoever opened a pair first fix that pool's fee coin and dynamic fee for good; create_pool
 >     // opens the same pool with the defaults. create_permissioned_pool, which opened more pools per
 >     // pair for a holder of the vault's permission, is deleted too (the owner's ruling, 2026-11-03).
-782,786c723,801
+782,786c720,798
 <     /// Collect excess lamports, including accounts for SPL tokens owned by authority and Program PDA accounts.
 <     pub fn collect_excess_lamports<'info>(
 <         ctx: Context<'info, CollectExcessLamports<'info>>,
@@ -650,23 +658,106 @@
 <         reward_info.authority = new_owner;
 <     }
 === programs/amm/src/instructions/admin/update_amm_config.rs ===
-38a39,42
+23,31c23,24
+<         Some(3) => {
+<             let new_owner = *ctx
+<                 .remaining_accounts
+<                 .iter()
+<                 .next()
+<                 .ok_or(ErrorCode::AccountLack)?
+<                 .key;
+<             set_new_owner(amm_config, new_owner);
+<         }
+---
+>         // memetics.finance: param 3, a second fee collector beside the vault, is deleted
+>         // (2026-11-15 audit, RNG-09): only the vault collects the venue's share.
+38a32,37
 >             // memetics.finance: a tier's island share is handed over once, while the vault still
 >             // holds it, and never moved again; only a program upgrade can (the owner's ruling,
->             // 2026-11-03). Swap pools hold the same rule.
+>             // 2026-11-03). Never to the all-zero key (2026-11-15 audit, XCH-08). Swap pools hold
+>             // the same rules.
 >             require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::NotApproved);
-63c67
+>             require_keys_neq!(new_fund_owner, Pubkey::default());
+63c62
 <         FEE_RATE_DENOMINATOR_VALUE,
 ---
 >         MAX_PROTOCOL_AND_FUND_FEE_RATE,
-71c75
+71c70
 <     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
 ---
 >     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
-79c83
+79c78
 <         FEE_RATE_DENOMINATOR_VALUE,
 ---
 >         MAX_PROTOCOL_AND_FUND_FEE_RATE,
+86,95d84
+< fn set_new_owner(amm_config: &mut Account<AmmConfig>, new_owner: Pubkey) {
+<     #[cfg(feature = "enable-log")]
+<     msg!(
+<         "amm_config, old_owner:{}, new_owner:{}",
+<         amm_config.owner.to_string(),
+<         new_owner.key().to_string()
+<     );
+<     amm_config.owner = new_owner;
+< }
+< 
+103a93,148
+> }
+> 
+> #[cfg(test)]
+> mod tier_settings_test {
+>     use super::*;
+>     use anchor_lang::{system_program, Discriminator};
+> 
+>     fn info(key: Pubkey, owner: Pubkey, data: Vec<u8>, signer: bool) -> &'static AccountInfo<'static> {
+>         Box::leak(Box::new(AccountInfo::new(
+>             Box::leak(Box::new(key)),
+>             signer,
+>             true,
+>             Box::leak(Box::new(1_000_000_000u64)),
+>             Box::leak(data.into_boxed_slice()),
+>             Box::leak(Box::new(owner)),
+>             false,
+>         )))
+>     }
+> 
+>     /// The vault calls update_amm_config with `param` on a tier whose island share it still
+>     /// holds, naming `named` as the one extra account.
+>     fn update(param: u8, named: Pubkey) -> Result<()> {
+>         let mut data = AmmConfig::DISCRIMINATOR.to_vec();
+>         AmmConfig {
+>             owner: crate::admin::ID,
+>             fund_owner: crate::admin::ID,
+>             ..Default::default()
+>         }
+>         .serialize(&mut data)
+>         .unwrap();
+>         let accounts = Box::leak(Box::new(UpdateAmmConfig {
+>             owner: Signer::try_from(info(crate::admin::ID, system_program::ID, vec![], true)).unwrap(),
+>             amm_config: Account::try_from(info(Pubkey::new_unique(), crate::ID, data, false)).unwrap(),
+>         }));
+>         let remaining = Box::leak(vec![info(named, system_program::ID, vec![], false).clone()].into_boxed_slice());
+>         update_amm_config(
+>             Context::new(&crate::ID, accounts, remaining, UpdateAmmConfigBumps::default()),
+>             param,
+>             0,
+>         )
+>     }
+> 
+>     /// memetics.finance (2026-11-15 audit, RNG-09 and XCH-08): param 3 no longer names a second
+>     /// fee collector, and the island's one hand-over refuses the all-zero key.
+>     #[test]
+>     fn no_second_collector_and_no_zero_island_test() {
+>         assert_eq!(
+>             update(3, Pubkey::new_unique()).unwrap_err(),
+>             ErrorCode::InvalidUpdateConfigFlag.into()
+>         );
+>         assert_eq!(
+>             update(4, Pubkey::default()).unwrap_err(),
+>             anchor_lang::error::ErrorCode::RequireKeysNeqViolated.into()
+>         );
+>         assert!(update(4, Pubkey::new_unique()).is_ok());
+>     }
 === programs/amm/src/instructions/admin/update_dynamic_fee_config.rs ===
 1,35c1,3
 < use crate::error::ErrorCode;
@@ -714,6 +805,166 @@
 ---
 > // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
 > pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"memetics_collect_remaining";
+19c20,26
+<     #[account(mut)]
+---
+>     // memetics.finance: never one of the pool's own vaults, where the rest would become the LPs'
+>     // (2026-11-15 audit, RNG-09).
+>     #[account(
+>         mut,
+>         constraint = funder_token_account.key() != pool_state.load()?.token_vault_0
+>             && funder_token_account.key() != pool_state.load()?.token_vault_1 @ ErrorCode::NotApproved
+>     )]
+101a109,257
+> }
+> 
+> /// memetics.finance (2026-11-15 audit, RNG-09): nothing the vault or the island collects is
+> /// paid into the pool's own vaults, where it would become the LPs'. The fee collections list
+> /// both vaults as mutable token accounts, so Anchor refuses either as a receiver too.
+> #[cfg(test)]
+> mod no_payout_into_the_pools_vaults_test {
+>     use super::*;
+>     use crate::instructions::admin::{
+>         CollectFundFee, CollectFundFeeBumps, CollectProtocolFee, CollectProtocolFeeBumps,
+>     };
+>     use anchor_lang::solana_program::program_pack::Pack;
+>     use anchor_lang::{system_program, Discriminator};
+>     use anchor_spl::token_2022::spl_token_2022::state::{
+>         Account as SplAccount, AccountState, Mint as SplMint,
+>     };
+>     use std::collections::BTreeSet;
+> 
+>     fn info(key: Pubkey, owner: Pubkey, data: Vec<u8>, signer: bool, exec: bool) -> AccountInfo<'static> {
+>         AccountInfo::new(
+>             Box::leak(Box::new(key)),
+>             signer,
+>             true,
+>             Box::leak(Box::new(1_000_000_000u64)),
+>             Box::leak(data.into_boxed_slice()),
+>             Box::leak(Box::new(owner)),
+>             exec,
+>         )
+>     }
+> 
+>     fn mint(key: Pubkey) -> AccountInfo<'static> {
+>         let mut data = vec![0u8; SplMint::LEN];
+>         SplMint { decimals: 6, is_initialized: true, ..Default::default() }.pack_into_slice(&mut data);
+>         info(key, Token::id(), data, false, false)
+>     }
+> 
+>     fn token_account(key: Pubkey, mint: Pubkey) -> AccountInfo<'static> {
+>         let mut data = vec![0u8; SplAccount::LEN];
+>         SplAccount { mint, owner: Pubkey::new_unique(), state: AccountState::Initialized, ..Default::default() }
+>             .pack_into_slice(&mut data);
+>         info(key, Token::id(), data, false, false)
+>     }
+> 
+>     fn program(key: Pubkey) -> AccountInfo<'static> {
+>         info(key, Pubkey::default(), vec![], false, true)
+>     }
+> 
+>     struct Pool {
+>         key: Pubkey,
+>         config: Pubkey,
+>         mints: [Pubkey; 2],
+>         vaults: [Pubkey; 2],
+>         fund_owner: Pubkey,
+>     }
+> 
+>     impl Pool {
+>         fn new() -> Self {
+>             let k = Pubkey::new_unique;
+>             Pool { key: k(), config: k(), mints: [k(), k()], vaults: [k(), k()], fund_owner: k() }
+>         }
+> 
+>         fn state(&self) -> AccountInfo<'static> {
+>             let mut pool = PoolState::default();
+>             pool.amm_config = self.config;
+>             pool.token_mint_0 = self.mints[0];
+>             pool.token_mint_1 = self.mints[1];
+>             pool.token_vault_0 = self.vaults[0];
+>             pool.token_vault_1 = self.vaults[1];
+>             let mut data = PoolState::DISCRIMINATOR.to_vec();
+>             data.extend_from_slice(bytemuck::bytes_of(&pool));
+>             info(self.key, crate::ID, data, false, false)
+>         }
+> 
+>         /// The eleven accounts of either fee collection, in order, paying to `to`.
+>         fn fee_collection(&self, signer: Pubkey, to: [Pubkey; 2]) -> &'static [AccountInfo<'static>] {
+>             let mut config = AmmConfig::DISCRIMINATOR.to_vec();
+>             AmmConfig { owner: crate::admin::ID, fund_owner: self.fund_owner, ..Default::default() }
+>                 .serialize(&mut config)
+>                 .unwrap();
+>             Box::leak(
+>                 vec![
+>                     info(signer, system_program::ID, vec![], true, false),
+>                     self.state(),
+>                     info(self.config, crate::ID, config, false, false),
+>                     token_account(self.vaults[0], self.mints[0]),
+>                     token_account(self.vaults[1], self.mints[1]),
+>                     mint(self.mints[0]),
+>                     mint(self.mints[1]),
+>                     token_account(to[0], self.mints[0]),
+>                     token_account(to[1], self.mints[1]),
+>                     program(Token::id()),
+>                     program(Token2022::id()),
+>                 ]
+>                 .into_boxed_slice(),
+>             )
+>         }
+> 
+>         /// The vault takes back the unpaid rest of a reward paid in the pool's coin 0, to `to`.
+>         fn remaining_rewards(&self, to: Pubkey) -> &'static [AccountInfo<'static>] {
+>             Box::leak(
+>                 vec![
+>                     info(crate::admin::ID, system_program::ID, vec![], true, false),
+>                     token_account(to, self.mints[0]),
+>                     self.state(),
+>                     token_account(Pubkey::new_unique(), self.mints[0]),
+>                     mint(self.mints[0]),
+>                     program(Token::id()),
+>                     program(Token2022::id()),
+>                     program(Memo::id()),
+>                 ]
+>                 .into_boxed_slice(),
+>             )
+>         }
+>     }
+> 
+>     fn protocol(mut a: &'static [AccountInfo<'static>]) -> Result<()> {
+>         CollectProtocolFee::try_accounts(&crate::ID, &mut a, &[], &mut CollectProtocolFeeBumps::default(), &mut BTreeSet::new()).map(|_| ())
+>     }
+> 
+>     fn fund(mut a: &'static [AccountInfo<'static>]) -> Result<()> {
+>         CollectFundFee::try_accounts(&crate::ID, &mut a, &[], &mut CollectFundFeeBumps::default(), &mut BTreeSet::new()).map(|_| ())
+>     }
+> 
+>     fn rest(mut a: &'static [AccountInfo<'static>]) -> Result<()> {
+>         CollectRemainingRewards::try_accounts(&crate::ID, &mut a, &[], &mut CollectRemainingRewardsBumps::default(), &mut BTreeSet::new()).map(|_| ())
+>     }
+> 
+>     #[test]
+>     fn a_reward_rest_is_not_paid_into_the_pools_vaults_test() {
+>         let p = Pool::new();
+>         assert!(rest(p.remaining_rewards(Pubkey::new_unique())).is_ok());
+>         for vault in p.vaults {
+>             assert_eq!(rest(p.remaining_rewards(vault)).unwrap_err(), ErrorCode::NotApproved.into());
+>         }
+>     }
+> 
+>     #[test]
+>     fn a_fee_collection_is_not_paid_into_the_pools_vaults_test() {
+>         let p = Pool::new();
+>         let elsewhere = [Pubkey::new_unique(), Pubkey::new_unique()];
+>         assert!(protocol(p.fee_collection(crate::admin::ID, elsewhere)).is_ok());
+>         assert!(fund(p.fee_collection(p.fund_owner, elsewhere)).is_ok());
+>         let [v0, v1] = p.vaults;
+>         for to in [[v0, elsewhere[1]], [v1, elsewhere[1]], [elsewhere[0], v0], [elsewhere[0], v1]] {
+>             let refused = anchor_lang::error::ErrorCode::ConstraintDuplicateMutableAccount.into();
+>             assert_eq!(protocol(p.fee_collection(crate::admin::ID, to)).unwrap_err(), refused);
+>             assert_eq!(fund(p.fee_collection(p.fund_owner, to)).unwrap_err(), refused);
+>         }
+>     }
 === programs/amm/src/instructions/create_customizable_pool.rs ===
 1,246c1,4
 < use crate::error::ErrorCode;
