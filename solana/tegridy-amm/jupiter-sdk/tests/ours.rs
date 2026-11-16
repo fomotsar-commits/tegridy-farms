@@ -43,8 +43,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
 ];
 
-const REFUSED_COLLECTOR: &str =
-    "fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)";
+const REFUSED_COLLECTOR: &str = "fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)";
 const GUARD_ON: &str =
     "fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are";
 
@@ -249,7 +248,9 @@ fn the_islands_share_may_go_to_its_workshop_but_the_venues_may_not() {
         assert!(quote.is_ok(), "the island's share to {key}: {quote:?}");
     }
     assert_eq!(
-        with(config_fields::PROTOCOL_OWNER, &workshop).err().as_deref(),
+        with(config_fields::PROTOCOL_OWNER, &workshop)
+            .err()
+            .as_deref(),
         Some(REFUSED_COLLECTOR),
         "the venue's share to the Workshop",
     );
@@ -266,8 +267,15 @@ fn a_fee_tier_with_its_swap_guard_on_is_refused() {
     let f = config_fields::SWAP_GUARD;
     let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
     let config = accounts.get(&pool.amm_config).unwrap();
-    assert_eq!(&config.data[f.offset..f.offset + f.size], &[0u8; 8], "the view's guard is off");
-    assert!(common::amm_from(&snapshot, &pool_key, &accounts).is_ok(), "the view updates");
+    assert_eq!(
+        &config.data[f.offset..f.offset + f.size],
+        &[0u8; 8],
+        "the view's guard is off"
+    );
+    assert!(
+        common::amm_from(&snapshot, &pool_key, &accounts).is_ok(),
+        "the view updates"
+    );
     let config = accounts.get_mut(&pool.amm_config).unwrap();
     config.data[f.offset..f.offset + f.size].copy_from_slice(&1u64.to_le_bytes());
     let refused = common::amm_from(&snapshot, &pool_key, &accounts)

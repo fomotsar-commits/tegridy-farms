@@ -227,12 +227,9 @@ impl Amm for MemeticsAmm {
         if quote_params.swap_mode != SwapMode::ExactIn {
             return Err("only ExactIn swaps are quoted".into());
         }
-        let market = self
-            .market
-            .as_ref()
-            .ok_or_else(|| {
-                AmmError::from("no quote: the pool's last update was refused, or none has run")
-            })?;
+        let market = self.market.as_ref().ok_or_else(|| {
+            AmmError::from("no quote: the pool's last update was refused, or none has run")
+        })?;
         if market.transfer_fee {
             return Err("a mint in this pool charges a transfer fee; no quote is given".into());
         }

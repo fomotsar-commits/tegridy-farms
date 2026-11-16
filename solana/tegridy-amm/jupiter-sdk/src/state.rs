@@ -2,11 +2,10 @@
 //!
 //! Mirrors of `programs/cp-swap/src/states/pool.rs` (`PoolState`, zero-copy and
 //! `#[repr(C, packed)]`) and `programs/cp-swap/src/states/config.rs` (`AmmConfig`, Borsh).
-//! Neither layout has padding between fields, so each field sits at the sum of the sizes
-//! before it. `tests/layout.rs` recomputes every offset below from the program's own source
-//! and fails if one moves. The program crate itself is not a dependency: it builds on the
-//! Solana 2 crates and this one on Jupiter's Solana 3/4 generation, and two `Pubkey` types
-//! do not mix.
+//! Neither layout has padding, so each field sits at the sum of the sizes before it.
+//! `tests/layout.rs` recomputes every offset below from the program's source and fails if one
+//! moves. The program crate is not a dependency: it builds on the Solana 2 crates, this one on
+//! Jupiter's Solana 3/4 generation, and two `Pubkey` types do not mix.
 
 use solana_pubkey::Pubkey;
 

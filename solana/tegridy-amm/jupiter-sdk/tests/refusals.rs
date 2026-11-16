@@ -119,12 +119,20 @@ fn a_refused_update_leaves_no_quote() {
     for f in [config_fields::SWAP_GUARD, config_fields::PROTOCOL_OWNER] {
         let mut accounts = common::accounts_to_update(&snapshot, &pool_key);
         let mut amm = common::amm_from(&snapshot, &pool_key, &accounts).expect("first update");
-        assert!(quote(&amm, WSOL, BAYLA, SwapMode::ExactIn).is_ok(), "{}", f.name);
+        assert!(
+            quote(&amm, WSOL, BAYLA, SwapMode::ExactIn).is_ok(),
+            "{}",
+            f.name
+        );
 
         let config = accounts.get_mut(&pool.amm_config).unwrap();
         config.data[f.offset..f.offset + f.size].fill(0xff);
         let provider: HashMap<Pubkey, &Account> = accounts.iter().map(|(k, a)| (*k, a)).collect();
-        assert!(amm.update(provider).is_err(), "{}: the second update", f.name);
+        assert!(
+            amm.update(provider).is_err(),
+            "{}: the second update",
+            f.name
+        );
         for (input, output) in [(WSOL, BAYLA), (BAYLA, WSOL)] {
             assert_eq!(
                 quote(&amm, input, output, SwapMode::ExactIn),
@@ -147,7 +155,10 @@ fn a_frozen_pool_token_account_is_refused() {
         for state in [2u8, 0] {
             let mut accounts = common::accounts_to_update(&snapshot, &pool_key);
             let data = &mut accounts.get_mut(&vault).unwrap().data;
-            assert_eq!(data[108], 1, "{vault} as snapshotted is initialized and not frozen");
+            assert_eq!(
+                data[108], 1,
+                "{vault} as snapshotted is initialized and not frozen"
+            );
             data[108] = state;
             let refused = common::amm_from(&snapshot, &pool_key, &accounts)
                 .err()

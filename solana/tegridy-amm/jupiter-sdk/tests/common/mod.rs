@@ -37,7 +37,9 @@ pub fn snapshot(pool: &Pubkey) -> PoolSnapshot {
                 (key, account(&mainnet, &key))
             })
             .collect();
-    let tier = PoolState::decode(&accounts[pool].data).expect("pool decodes").amm_config;
+    let tier = PoolState::decode(&accounts[pool].data)
+        .expect("pool decodes")
+        .amm_config;
     let f = config_fields::SWAP_GUARD;
     accounts.get_mut(&tier).unwrap().data[f.offset..f.offset + f.size].fill(0);
     PoolSnapshot::from_accounts(accounts)
@@ -46,7 +48,9 @@ pub fn snapshot(pool: &Pubkey) -> PoolSnapshot {
 /// `snapshot(pool)` written under cargo's `CARGO_TARGET_TMPDIR`, for the kit's `PoolTest`.
 pub fn snapshot_dir(pool: &Pubkey) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("guard-off/{pool}"));
-    snapshot(pool).save_dir(&dir).expect("write the guard-off copy");
+    snapshot(pool)
+        .save_dir(&dir)
+        .expect("write the guard-off copy");
     dir
 }
 

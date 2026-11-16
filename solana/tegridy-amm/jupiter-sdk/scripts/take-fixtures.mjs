@@ -4,7 +4,6 @@
 // test kit writes them) and the deployed program (tests/fixtures/memetics.so, the ELF cut to
 // its own length, so its sha256 is the registry's). Three requests, 2.5 s apart. Prints the
 // slot, the time and the hash to pin in tests/parity.rs. Run from this folder:
-//
 //   node scripts/take-fixtures.mjs [rpc url, default the public mainnet endpoint]
 
 import { createHash } from 'node:crypto';
