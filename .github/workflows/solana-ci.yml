@@ -596,10 +596,10 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
-          cargo build-sbf 2>&1 | tee /tmp/sbf-build.log
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/sbf-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf 2>&1 | tee -a /tmp/sbf-build.log
+            cargo build-sbf -- --locked 2>&1 | tee -a /tmp/sbf-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
@@ -789,10 +789,10 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/bayla_ladder.so
-          cargo build-sbf 2>&1 | tee /tmp/ladder-build.log
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/ladder-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf 2>&1 | tee -a /tmp/ladder-build.log
+            cargo build-sbf -- --locked 2>&1 | tee -a /tmp/ladder-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
@@ -891,7 +891,9 @@ jobs:
 
           sed -i "s|^bayla_ladder = \".*\"|bayla_ladder = \"$PROGRAM_ID\"|" Anchor.toml
           grep -E '^bayla_ladder' Anchor.toml
-          anchor build -p bayla_ladder -- --features devnet
+          # The deploy job's own two commands, so every run proves them (the IDL check below too).
+          anchor build -p bayla_ladder --no-idl -- --features devnet -- --locked
+          anchor idl build -p bayla_ladder -o target/idl/bayla_ladder.json -- --features devnet --locked
 
       - name: Assert artifacts exist AND their program ids agree
         run: |

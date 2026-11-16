@@ -37,13 +37,31 @@ const GATE = 'node .github/scripts/solana-mainnet-gate.mjs';
 for (const job of DEPLOY_JOBS) rule(runsBefore(job, GATE, 'Build'), `${job.split(':')[0].trim()} does not run the mainnet gate before it builds`);
 const gate = (env, cwd = '.') => spawnSync(process.execPath, [resolve(GATE.split(' ')[1])], { cwd, env: { PATH: process.env.PATH, ...env } }).status;
 const registry = (id) => JSON.parse(read('frontend/scripts/addresses.json')).solana.find((r) => r.id === id)?.address;
-const LADDER = { PROGRAM: 'bayla-ladder', CLUSTER: 'mainnet', PROGRAM_ID: registry('bayla-ladder-program'), DEPLOYER: registry('bayla-ladder-deployer') };
-const LAUNCH = { PROGRAM: 'tegridy-launch', CLUSTER: 'mainnet', PROGRAM_ID: registry('tegridy-launch-program-restart'), DEPLOYER: registry('tegridy-launch-deployer') };
+const TRUNK = { CLUSTER: 'mainnet', REF: 'refs/heads/mvp-launch' };
+const LADDER = { ...TRUNK, PROGRAM: 'bayla-ladder', PROGRAM_ID: registry('bayla-ladder-program'), DEPLOYER: registry('bayla-ladder-deployer') };
+const LAUNCH = { ...TRUNK, PROGRAM: 'tegridy-launch', PROGRAM_ID: registry('tegridy-launch-program-restart'), DEPLOYER: registry('tegridy-launch-deployer') };
 rule(gate(LADDER) === 0, "the mainnet gate refuses the ladder at the registry's identities");
 rule(gate(LAUNCH) === 0, "the mainnet gate refuses the launcher at the registry's identities");
 rule(gate({ ...LADDER, PROGRAM_ID: LADDER.DEPLOYER }) === 1, 'the mainnet gate passes a ladder program id the registry does not hold');
 rule(gate({ ...LAUNCH, DEPLOYER: LADDER.DEPLOYER }) === 1, 'the mainnet gate passes a launcher deployer the registry does not hold');
 rule(gate(LADDER, WF) === 1, 'the mainnet gate passes when it cannot read the registry');
+
+// XCHL-08: a mainnet build only from mvp-launch or a tag on it, both guards before building,
+// and every deployable build (and each one whose hash CI prints) is --locked (SC-5).
+rule(gate({ ...TRUNK, PROGRAM: 'cp-swap' }) === 0, 'the mainnet gate refuses a cp-swap build from mvp-launch');
+rule(gate({ ...TRUNK, PROGRAM: 'cp-swap', REF: 'refs/heads/feature' }) === 1, 'the mainnet gate passes a build from a branch that is not mvp-launch');
+for (const job of DEPLOY_JOBS) {
+  for (const g of ['node solana/guards/provenance.mjs', 'node solana/guards/key-guard.mjs']) rule(runsBefore(job, g, 'Build'), `${job.split(':')[0].trim()} does not run ${g} before it builds`);
+}
+const lines = (f, re) => code(read(WF + f)).map((l) => l.trim()).filter((l) => re.test(l));
+const SBF = /(?:^|[;&|({]\s*|\b(?:if|then|else|do)\s+)cargo build-sbf\b/;
+const sbf = [...lines('solana-deploy-artifact.yml', SBF), ...lines('solana-ci.yml', SBF).filter((l) => !l.includes('--features devnet'))];
+const ladder = ['solana-deploy-artifact.yml', 'solana-ci.yml'].flatMap((f) => lines(f, /\banchor build -p bayla_ladder\b/));
+const idl = ['solana-deploy-artifact.yml', 'solana-ci.yml'].flatMap((f) => lines(f, /\banchor idl build\b/));
+rule(sbf.length >= 10 && ladder.length === 3 && idl.length === 3, `found ${sbf.length} build-sbf, ${ladder.length} ladder and ${idl.length} IDL builds`);
+for (const l of [...sbf, ...ladder]) rule(/ -- --locked\b/.test(l), `"${l}" builds without --locked`);
+for (const l of ladder) rule(l.includes('--no-idl'), `"${l}" makes the IDL with arguments its cargo test cannot take`);
+for (const l of idl) rule(/ --locked\b/.test(l), `"${l}" makes the IDL without --locked`);
 
 if (checked === 0) problems.push('checked nothing');
 for (const p of problems) console.log(`::error::${p}`);

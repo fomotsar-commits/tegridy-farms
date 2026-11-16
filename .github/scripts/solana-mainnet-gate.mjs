@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Runs first in each job of solana-deploy-artifact.yml, from the repo root, before anything is
-// installed or built. A mainnet ladder or launcher build must carry the program id and deployer
-// the address registry (frontend/scripts/addresses.json) names; a registry it cannot read is a
-// refusal. Inputs come from env only: PROGRAM, CLUSTER, PROGRAM_ID, DEPLOYER.
+// installed or built. A mainnet build comes from mvp-launch or a tag on it, and a ladder or
+// launcher build carries the program id and deployer the address registry
+// (frontend/scripts/addresses.json) names; a registry it cannot read is a refusal.
+// Inputs come from env only: PROGRAM, CLUSTER, PROGRAM_ID, DEPLOYER, REF (github.ref).
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
-const { PROGRAM = '', CLUSTER = '', PROGRAM_ID = '', DEPLOYER = '' } = process.env;
+const { PROGRAM = '', CLUSTER = '', PROGRAM_ID = '', DEPLOYER = '', REF = '' } = process.env;
+const git = (...args) => spawnSync('git', args, { stdio: 'inherit' }).status === 0;
 // The registry rows that hold each program's live identities.
 const ROWS = {
   'bayla-ladder': ['bayla-ladder-program', 'bayla-ladder-deployer'],
@@ -18,7 +21,12 @@ if (CLUSTER === 'devnet') {
   process.exit(0);
 }
 if (CLUSTER !== 'mainnet') problems.push(`cluster "${CLUSTER}" is neither devnet nor mainnet`);
-else if (ROWS[PROGRAM]) {
+else if (REF === 'refs/heads/mvp-launch') console.log('built from mvp-launch');
+else if (!REF.startsWith('refs/tags/')) problems.push(`${REF || 'no ref'} is neither mvp-launch nor a tag on it`);
+else if (git('fetch', '--quiet', '--no-tags', 'origin', 'refs/heads/mvp-launch') && git('merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD')) {
+  console.log(`${REF} is on mvp-launch`);
+} else problems.push(`${REF} is not on mvp-launch`);
+if (CLUSTER === 'mainnet' && ROWS[PROGRAM]) {
   let rows = null;
   try {
     rows = JSON.parse(readFileSync('frontend/scripts/addresses.json', 'utf-8')).solana;
