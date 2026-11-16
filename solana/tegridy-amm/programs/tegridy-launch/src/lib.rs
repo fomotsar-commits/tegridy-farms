@@ -401,6 +401,7 @@ fn payable_protocol_leg(fee_recipient_ai: &AccountInfo, protocol_lamports: u64) 
 /// Rent of the six accounts cp-swap's `initialize_with_permission` opens with its payer's
 /// lamports at graduation: the pool, its price record, two vaults, the share mint and the
 /// share account (classic SPL Token only, so 165-byte token accounts).
+#[inline(never)]
 fn cp_swap_rent(rent: &Rent) -> u64 {
     [
         raydium_cp_swap::states::ObservationState::LEN,
@@ -1578,11 +1579,16 @@ pub mod tegridy_launch {
         // The caller gets back the rent it fronted for the two staging accounts. The share
         // account's rent came from the reserve, so it goes to `fee_recipient`, before the
         // sweep: an empty treasury is then rent-exempt when the sweep lands.
-        for (account, destination) in [
-            (ctx.accounts.auth_wsol.to_account_info(), ctx.accounts.payer.to_account_info()),
-            (ctx.accounts.auth_token.to_account_info(), ctx.accounts.payer.to_account_info()),
-            (lp_ai.clone(), ctx.accounts.fee_recipient.to_account_info()),
+        for account in [
+            ctx.accounts.auth_wsol.to_account_info(),
+            ctx.accounts.auth_token.to_account_info(),
+            lp_ai.clone(),
         ] {
+            let destination = if account.key == lp_ai.key {
+                ctx.accounts.fee_recipient.to_account_info()
+            } else {
+                ctx.accounts.payer.to_account_info()
+            };
             token::close_account(CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::CloseAccount {
