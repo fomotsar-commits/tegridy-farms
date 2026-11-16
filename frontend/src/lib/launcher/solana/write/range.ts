@@ -196,24 +196,26 @@ export async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: Publi
 
 export const deployed = (a: RawAccount | null) => a !== null && BPF_LOADERS.has(a.owner);
 
-/** The slot the range program's build from before the fix round was deployed at (RNG-01). */
-const PRE_FIX_DEPLOY_SLOT = 465_140_737n;
+/** The first 64 bytes of the range program's code (its ELF header) in the build from before the fix round (RNG-01). */
+const PRE_FIX_CODE_HEAD = '7f454c46020101000000000000000000030007010100000068a81200000000004000000000000000e04a17000000000000000000400038000400400009000800';
 
 /**
- * When the program was last deployed: the stub's pointer followed to its ProgramData, and
- * 12 bytes of that read (tag 3, then the slot). Null when something else is there.
+ * Whether the range program may still be the build from before the fix round: the stub's
+ * pointer followed to its ProgramData, and 109 bytes of that read (tag 3, then the code's
+ * first 64 after the 45-byte head). Only an upgrade rewrites the code; an extend writes a new
+ * deploy slot and keeps it. True as well when something else is there.
  */
-async function lastDeployed(rpc: WriteRpc, program: RawAccount | null): Promise<bigint | null | 'unread'> {
+async function preFixBuild(rpc: WriteRpc, program: RawAccount | null): Promise<boolean | 'unread'> {
   const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
-  if (!program || program.owner !== BPF_LOADER_UPGRADEABLE_ID.toBase58() || program.data.length < 36 || view(program.data).getUint32(0, true) !== 2) return null;
+  if (!program || program.owner !== BPF_LOADER_UPGRADEABLE_ID.toBase58() || program.data.length < 36 || view(program.data).getUint32(0, true) !== 2) return true;
   let pd: Awaited<ReturnType<WriteRpc['getAccountInfo']>>;
   try {
-    pd = await rpc.getAccountInfo(new PublicKey(program.data.subarray(4, 36)), { commitment: 'confirmed', dataSlice: { offset: 0, length: 12 } });
+    pd = await rpc.getAccountInfo(new PublicKey(program.data.subarray(4, 36)), { commitment: 'confirmed', dataSlice: { offset: 0, length: 109 } });
   } catch {
     return 'unread';
   }
-  if (!pd || !pd.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || pd.data.length < 12 || view(pd.data).getUint32(0, true) !== 3) return null;
-  return view(pd.data).getBigUint64(4, true);
+  if (!pd || !pd.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || pd.data.length < 109 || view(pd.data).getUint32(0, true) !== 3) return true;
+  return Array.from(pd.data.subarray(45, 109), (b) => b.toString(16).padStart(2, '0')).join('') === PRE_FIX_CODE_HEAD;
 }
 
 /** The pool as decoded, after the checks every range builder makes of it. A string says why not. */
@@ -522,9 +524,9 @@ export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, p
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
   // The build from before the fix round opens every pool with limit orders on (RNG-01).
-  const built = await lastDeployed(rpc, fresh.program);
-  if (built === 'unread') return notRead('build', RANGE_COPY.buildUnread);
-  if (built === null || built <= PRE_FIX_DEPLOY_SLOT) return notSent('build', RANGE_COPY.preFixBuild);
+  const old = await preFixBuild(rpc, fresh.program);
+  if (old === 'unread') return notRead('build', RANGE_COPY.buildUnread);
+  if (old) return notSent('build', RANGE_COPY.preFixBuild);
   if (!absent(fresh.pool)) {
     const there = decodePool(programId, poolKey, fresh.pool);
     const pr = typeof there === 'string' ? null : pairOf(there);
