@@ -6,6 +6,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { inScope } from './diff-scope.mjs';
 
 const WF = '.github/workflows/';
 const read = (p) => readFileSync(p, 'utf-8');
@@ -62,6 +63,13 @@ rule(sbf.length >= 10 && ladder.length === 3 && idl.length === 3, `found ${sbf.l
 for (const l of [...sbf, ...ladder]) rule(/ -- --locked\b/.test(l), `"${l}" builds without --locked`);
 for (const l of ladder) rule(l.includes('--no-idl'), `"${l}" makes the IDL with arguments its cargo test cannot take`);
 for (const l of idl) rule(/ --locked\b/.test(l), `"${l}" makes the IDL without --locked`);
+
+// XCHL-09: solana-ci runs when anything that changes how the programs build changes, not
+// only a file under solana/. The scope job's own patterns are read and matched.
+const scoped = [...(/diff-scope\.mjs \\\n((?: +'[^']+'[^\n]*\n)+)/.exec(read(WF + 'solana-ci.yml'))?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+for (const f of ['.cargo/config.toml', 'rust-toolchain', 'rust-toolchain.toml', `${WF}solana-deploy-artifact.yml`, '.github/scripts/diff-scope.mjs', '.github/scripts/solana-mainnet-gate.mjs']) {
+  rule(scoped.length > 0 && inScope([f], scoped), `a pull request that changes only ${f} skips solana-ci`);
+}
 
 if (checked === 0) problems.push('checked nothing');
 for (const p of problems) console.log(`::error::${p}`);

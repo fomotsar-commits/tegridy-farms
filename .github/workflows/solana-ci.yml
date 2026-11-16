@@ -54,7 +54,7 @@ name: solana-ci
 #      mainnet program id, and prices the deploy at the rent rate read from mainnet.
 on:
   push:
-    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts", ".github/scripts/solana-build-pins.mjs"]
+    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts", ".github/scripts/solana-*", ".cargo/**", "rust-toolchain*", ".github/workflows/solana-deploy-artifact.yml", ".github/scripts/diff-scope.mjs"]
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
   # path filter on a pull_request is what forced the `-not-applicable.yml`
   # shim, and the shim is what let a failing gate be reported as a pass.
@@ -136,7 +136,11 @@ jobs:
             'solana/**' \
             '.github/workflows/solana-ci.yml' \
             'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts' \
-            '.github/scripts/solana-build-pins.mjs')
+            '.github/scripts/solana-*' \
+            '.cargo/**' \
+            'rust-toolchain*' \
+            '.github/workflows/solana-deploy-artifact.yml' \
+            '.github/scripts/diff-scope.mjs')
           case "$verdict" in
             true|false) say "$verdict" ;;
             *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
