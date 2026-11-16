@@ -717,6 +717,47 @@ describe("bayla-ladder", () => {
         "a reward payout must never touch the stake vault"
       );
     });
+
+    it("accepts a rate below one raw unit per unit of weight: only a rate of 0 is refused", async () => {
+      // The accumulator carries its remainder, so such a rate still pays out (math.rs
+      // `per_second_checkpoints_do_not_shred_the_emission`). The L-1 test above keeps 0 refused.
+      const c = await makePool({ nonce: 31 });
+      const whale = await newWallet();
+      const whaleAta = await distribute(c.mint, c.userAta, whale, tok(300_000));
+      await program.methods
+        .stake(tok(300_000), new BN(MAX_LOCK))
+        .accounts({
+          owner: whale.publicKey,
+          pool: c.pool,
+          mint: c.mint,
+          userStats: userPda(c.pool, whale.publicKey),
+          position: positionPda(c.pool, whale.publicKey, 0),
+          ownerAta: whaleAta,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, c.pool),
+          tokenProgram: c.programId,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([whale])
+        .rpc();
+      // 300,000 tokens at 4.00x is 1.2e12 of weight: above 1 x PRECISION, the old bar for a
+      // rate of 1.
+      const staked = await program.account.pool.fetch(c.pool);
+      assert.equal(staked.totalWeighted.toString(), "1200000000000");
+      // A four-year window's length in raw units is one raw unit a second.
+      await program.methods
+        .notifyReward(new BN(MAX_LOCK), new BN(0))
+        .accounts({
+          authority: payer.publicKey,
+          pool: c.pool,
+          mint: c.mint,
+          funderAta: c.userAta,
+          rewardVault: vaultPda(REWARD_VAULT_SEED, c.pool),
+          tokenProgram: c.programId,
+        })
+        .rpc();
+      const funded = await program.account.pool.fetch(c.pool);
+      assert.equal(funded.rewardRate.toString(), "1");
+    });
   });
 
   // ───────────────────────────────── the exits ─────────────────────────────────
