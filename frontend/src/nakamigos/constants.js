@@ -508,6 +508,27 @@ export function openseaRequiredBidFees(collection) {
     : null;
 }
 
+// WHETHER OPENSEA TAKES A TRAIT BID, per collection (by app slug): its
+// `trait_offers_enabled`, read live 2026-11-16 from GET /api/v2/collections/{slug}.
+// Where it is off, OpenSea refuses the post, so a trait bid there is refused before
+// any wallet call (api-offers.js createTraitOffer) and its buttons are not shown;
+// it used to cost the wrap and approval gas first. Pinned for every collection
+// above; anything not pinned counts as off.
+export const OPENSEA_TRAIT_OFFERS = Object.freeze({
+  nakamigos: true,
+  gnssart: false,
+  junglebay: true,
+  junglebaygoldcards: false,
+  bojungles: false,
+  memeticseeds: false,
+});
+
+/** True when OpenSea takes trait bids on this collection (pinned above). */
+export function openseaTraitOffersOn(collection) {
+  return !!collection && Object.prototype.hasOwnProperty.call(OPENSEA_TRAIT_OFFERS, collection.slug)
+    && OPENSEA_TRAIT_OFFERS[collection.slug] === true;
+}
+
 // THE VENUE'S LINE ON A BID: one switch for every bid (collection, trait and one
 // NFT), OFF. When on, a bid carries one more WETH line, PLATFORM_FEE_BPS (0.5%) of
 // the offer to this chain's fee Safe, paid out of what the seller receives when the

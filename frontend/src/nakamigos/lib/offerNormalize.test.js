@@ -30,8 +30,13 @@ describe("feeBpsOf: a bid's own fee lines, as bps of its offer", () => {
     expect(feeBpsOf(bid({ offer: 40_000_000_000_000_000n, qty: 2, fees: [[OPENSEA, 400_000_000_000_000n]] }))).toBe(100);
   });
 
-  it("a payment line back to the bidder (any case) is not a fee, nor is the NFT line", () => {
-    expect(feeBpsOf(bid({ offer: 10n ** 18n, fees: [[OPENSEA, 10n ** 16n]], toBidder: [5n * 10n ** 16n] }))).toBe(100);
+  // The seller who fills a bid pays EVERY payment line in it, one back to the
+  // bidder (any case) included: a bid of 1 WETH that pays 0.05 back to its bidder
+  // nets the seller 0.94, not 0.99. (Pinned the other way until review 2026-11-16
+  // F3, which let a bid paying most of itself back show as a 1% fee, "exact".)
+  it("every payment line counts, one back to the bidder (any case) included; the NFT line does not", () => {
+    expect(feeBpsOf(bid({ offer: 10n ** 18n, fees: [[OPENSEA, 10n ** 16n]], toBidder: [5n * 10n ** 16n] }))).toBe(600);
+    expect(feeBpsOf(bid({ offer: 10n ** 19n, fees: [[OPENSEA, 10n ** 17n]], toBidder: [99n * 10n ** 17n] }))).toBe(10000);
   });
 
   it("keeps two decimals of a bps", () => {

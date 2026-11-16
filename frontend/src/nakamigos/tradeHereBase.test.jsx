@@ -8,6 +8,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { COLLECTIONS } from "./constants";
 
 const m = vi.hoisted(() => ({
+  bidVenueFee: false,
   orders: [],
   best: null,
   createNativeListing: vi.fn(),
@@ -30,6 +31,11 @@ vi.mock("./api-offers", () => ({
   acceptOffer: (...a) => m.acceptOffer(...a),
 }));
 vi.mock("./lib/walletSwitch", () => ({ askWalletToSwitch: (id) => { m.switched.push(id); } }));
+// Off in production, as there; one test switches it on to see the copy follow it.
+vi.mock("./constants", async (importOriginal) => ({
+  ...(await importOriginal()),
+  get BID_VENUE_FEE_ENABLED() { return m.bidVenueFee; },
+}));
 
 const WALLET = "0x" + "a".repeat(40);
 const OTHER = "0x" + "c".repeat(40);
@@ -43,6 +49,7 @@ async function renderPanel(collection, { wallet = WALLET } = {}) {
 }
 
 beforeEach(() => {
+  m.bidVenueFee = false;
   m.orders = [];
   m.best = null;
   m.switched = [];
@@ -110,11 +117,33 @@ describe("the Base trade panel", () => {
     expect(addToast).toHaveBeenCalledWith("Switch your wallet to Base, then press List again.", "info");
   });
 
-  it("says how the money moves: the venue's 0.5% to its Base treasury, OpenSea's 1% on an accepted offer", async () => {
+  // A bid carries no venue line while BID_VENUE_FEE_ENABLED is off, so the offer
+  // copy must not promise the owner a 0.5% deduction the venue does not take
+  // (review 2026-11-16 F6). The listing copy keeps it: a listing here pays it.
+  it("says how the money moves: the venue's 0.5% on a listing, only OpenSea's 1% on an accepted offer", async () => {
     await renderPanel(COLLECTIONS.bojungles);
     expect(screen.getByText(/You get the price minus the venue's 0\.5%, which goes to the venue's Base treasury/)).toBeInTheDocument();
-    expect(screen.getByText(/they get your offer minus OpenSea's 1% and the venue's 0\.5%/)).toBeInTheDocument();
+    expect(screen.getByText(/they get your offer minus OpenSea's 1%; the venue takes no fee on offers\./)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/offer minus OpenSea's 1% and the venue's/);
     expect(document.body.textContent).not.toMatch(/—/);
+  });
+
+  it("names the venue's 0.5% on an accepted offer once the bid line is switched on", async () => {
+    m.bidVenueFee = true;
+    await renderPanel(COLLECTIONS.bojungles);
+    expect(screen.getByText(/they get your offer minus OpenSea's 1% and the venue's 0\.5%\./)).toBeInTheDocument();
+  });
+
+  // Offers are signed in steps of 0.00001 WETH, rounded down. The field took 18
+  // decimals, so 0.0123456 was signed as 0.01234 while the toast said 0.0123456.
+  it("takes an offer to 5 decimals at most: what is typed is what is signed and said", async () => {
+    const { addToast } = await renderPanel(COLLECTIONS.bojungles);
+    const field = screen.getByPlaceholderText("Offer in WETH");
+    fireEvent.change(field, { target: { value: "0.0123456" } });
+    expect(field).toHaveValue("0.01234");
+    fireEvent.click(screen.getByRole("button", { name: "Make offer" }));
+    await waitFor(() => expect(m.createItemOffer).toHaveBeenCalledWith({ tokenId: "7", priceEth: "0.01234", contract: COLLECTIONS.bojungles.contract }));
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("Offer of 0.01234 WETH made on #7", "success"));
   });
 });
 

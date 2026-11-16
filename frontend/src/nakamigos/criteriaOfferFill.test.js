@@ -236,6 +236,32 @@ describe("a multi-item bid is priced per token", () => {
     };
   }
 
+  // The token page's best offer (fetchBestOffer: OfferPanel, BidManager, the Base
+  // panel) read OpenSea's `price.value`, which is the WHOLE order: a collection bid
+  // for 2 at 0.0348 WETH each showed "Best offer 0.0696", and NetProceeds netted
+  // about 0.0689 from it, while accepting pays 0.0348 less 1%. The live shape (JBAC,
+  // 2026-11-16): price 0.0696, price_per_item 0.0348, the NFT line for 2.
+  function bestBidFor2({ perItem = true } = {}) {
+    const row = bulkBid({ unitWei: "34800000000000000", quantity: 2 });
+    return {
+      ...row,
+      price: { currency: "WETH", decimals: 18, value: "69600000000000000" },
+      ...(perItem ? { price_per_item: { currency: "WETH", decimals: 18, value: "34800000000000000" } } : {}),
+    };
+  }
+
+  it("prices the token page's best offer per item, from OpenSea's price_per_item", async () => {
+    h.openseaGet = vi.fn(async () => bestBidFor2());
+    const best = await apiOffers.fetchBestOffer("100", "junglebay");
+    expect(best.price).toBeCloseTo(0.0348, 9);
+  });
+
+  it("divides the token page's best offer by its quantity when OpenSea gives no price_per_item", async () => {
+    h.openseaGet = vi.fn(async () => bestBidFor2({ perItem: false }));
+    const best = await apiOffers.fetchBestOffer("100", "junglebay");
+    expect(best.price).toBeCloseTo(0.0348, 9);
+  });
+
   // Quantity 9 is the largest multi-item bid actually seen on the live route on
   // 2026-09-09. Nothing here uses quantity 1: that is the divide's identity, and
   // a quantity-1 fixture passes against the unfixed code.

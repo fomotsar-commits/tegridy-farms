@@ -15,6 +15,9 @@
 //     new bid cut the allowance under the older ones);
 //   - the venue's line rides on BID_VENUE_FEE_ENABLED (off), at 0.5%;
 //   - a SignedZone bid is cancelled without gas, falling back to the on-chain cancel;
+//     a listing keeps the on-chain cancel (review 2026-11-16 F1);
+//   - a trait bid where OpenSea has trait offers off is refused before any wallet
+//     call (review 2026-11-16 F5);
 //   - an accept stops with "This bid just changed or ended." when OpenSea will not
 //     build the fill, before any approval.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -210,6 +213,28 @@ describe("a collection bid", () => {
     const criteria = { collection: { slug: "junglebay" }, traits: [{ type: "Background", value: "Green" }] };
     expect(postBody("offers/build").criteria).toEqual(criteria);
     expect(postBody("offers").criteria).toEqual(criteria);
+  });
+
+  // OpenSea has trait offers switched off on GNSS and the Gold Cards (read live
+  // 2026-11-16). A trait bid there used to build, wrap and approve, then be refused
+  // at the post, the gas spent (review 2026-11-16 F5). It is refused first now.
+  it("a trait bid where OpenSea has trait offers off is refused before any wallet call", async () => {
+    const getProvider = vi.fn(h.account.connector.getProvider);
+    h.account.connector.getProvider = getProvider;
+    const offers = await import("./api-offers");
+    for (const slug of ["gnssart", "junglebaygoldcards"]) {
+      const res = await offers.createTraitOffer({ traitType: "Background", traitValue: "Green", priceEth: "0.04", slug, openseaSlug: slug });
+      expect(res.error, slug).toBe("trait-offers-off");
+      expect(res.message, slug).toMatch(/^OpenSea does not take trait bids on .+, so nothing was funded or signed\.$/);
+    }
+    expect(getProvider).not.toHaveBeenCalled();
+    expect(h.openseaPost).not.toHaveBeenCalled();
+    expect(h.contractCalls).toEqual([]);
+    expect(h.wrapEth).not.toHaveBeenCalled();
+    expect(h.approveWeth).not.toHaveBeenCalled();
+    // A collection bid on the same collections is still made.
+    openseaAnswers(GNSS);
+    expect((await offers.createCollectionOffer({ priceEth: "0.03", slug: "gnssart", openseaSlug: "gnssart" })).success).toBe(true);
   });
 
   it("checks the build, reads the counter, then wraps and approves, then signs, then posts", async () => {
@@ -430,6 +455,39 @@ describe("cancelling a bid", () => {
     expect((await offers.cancelOrder(bid())).error).toBe("rejected");
     expect(h.contractCalls.map((c) => c.method)).not.toContain("cancel");
     expect(h.openseaPost).not.toHaveBeenCalled();
+  });
+
+  // A LISTING on the same Seaport and zone (164 of 254 live GNSS listings were,
+  // 2026-11-15). After a free cancel, anyone OpenSea approved a fill for in the
+  // last 5 minutes can still buy it at the old price, while My Collection said
+  // "Listing cancelled". Only a bid takes the free cancel.
+  it("a listing on Seaport 1.6's SignedZone keeps the on-chain cancel", async () => {
+    const listing = {
+      offerer: WALLET,
+      zone: OPENSEA_SIGNED_ZONE,
+      offer: [{ itemType: 2, token: JBAC, identifierOrCriteria: "7", startAmount: "1", endAmount: "1" }],
+      consideration: [
+        { itemType: 0, token: "0x" + "0".repeat(40), identifierOrCriteria: "0", startAmount: "29700000000000000", endAmount: "29700000000000000", recipient: WALLET },
+        { itemType: 0, token: "0x" + "0".repeat(40), identifierOrCriteria: "0", startAmount: "300000000000000", endAmount: "300000000000000", recipient: OPENSEA_FEE },
+      ],
+      orderType: 2,
+      startTime: "1763251200",
+      endTime: "1763337600",
+      zoneHash: "0x" + "0".repeat(64),
+      salt: "7",
+      conduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+      totalOriginalConsiderationItems: 2,
+    };
+    const t = typedDataFor(listing, 0n, 1);
+    const LISTING_HASH = hashStruct({ data: t.message, primaryType: "OrderComponents", types: t.types });
+    h.openseaPost = vi.fn(async () => ({ last_signature_issued_valid_until: "2026-11-16T00:05:00Z" }));
+    const offers = await import("./api-offers");
+    const res = await offers.cancelOrder({ orderHash: LISTING_HASH, protocolAddress: SEAPORT_16, rawOrder: { order_hash: LISTING_HASH, protocol_address: SEAPORT_16, protocol_data: { parameters: listing } } });
+    expect(res.success).toBe(true);
+    expect(res.gasless).toBeUndefined();
+    expect(h.signTypedData).not.toHaveBeenCalled();
+    expect(h.openseaPost).not.toHaveBeenCalled();
+    expect(h.contractCalls.filter((c) => c.method === "cancel").map((c) => c.target)).toEqual([SEAPORT_16]);
   });
 
   it("a Seaport 1.5 or zone-less order keeps the on-chain cancel", async () => {

@@ -6,9 +6,15 @@ import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
 import { exactEth, shownEth } from "../../lib/formatPrice";
 import { askWalletToSwitch } from "../../lib/walletSwitch";
+import { BID_VENUE_FEE_ENABLED } from "../../constants";
 
 const PRICE_RE = /^\d{1,6}(\.\d{1,18})?$/;
 const short = (a) => (typeof a === "string" && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a || "");
+// An offer is signed in steps of 0.00001 WETH, rounded down (lib/seaportOffer.js
+// PRICE_TICK_WEI), so its field takes 5 decimals at most, as MakeOfferModal's does:
+// what is typed, and what the toast repeats, is what is signed.
+const OFFER_DECIMALS = 5;
+const capOfferDecimals = (s) => (s.includes(".") ? s.slice(0, s.indexOf(".") + 1 + OFFER_DECIMALS) : s);
 
 /**
  * The venue's own trading of one Base buy collection item, on Base: its
@@ -18,7 +24,8 @@ const short = (a) => (typeof a === "string" && a.length > 10 ? `${a.slice(0, 6)}
  * How money moves. A listing here: the buyer pays the price plus Base gas; the
  * seller gets the price minus the venue's 0.5%, which goes to the venue's Base
  * treasury Safe. An offer here: paid in WETH on Base; when the owner accepts,
- * the owner gets the offer minus OpenSea's 1% and the venue's 0.5%.
+ * the owner gets the offer minus OpenSea's 1%. The venue takes nothing on an
+ * offer until BID_VENUE_FEE_ENABLED puts its 0.5% line on every bid.
  */
 export default function TradeHereBase({ collection, item, wallet, onConnect, addToast }) {
   const chainName = walletChainLabel(collection.chain);
@@ -176,12 +183,12 @@ export default function TradeHereBase({ collection, item, wallet, onConnect, add
       <form className="ext-trade-form" onSubmit={(e) => { e.preventDefault(); offer(); }}>
         <label className="ext-fact-label" htmlFor={`ext-offer-${tokenId}`}>Make an offer</label>
         <div className="ext-trade-inputs">
-          <input id={`ext-offer-${tokenId}`} inputMode="decimal" placeholder="Offer in WETH" value={offerPrice} onChange={(e) => setOfferPrice(e.target.value.trim())} />
+          <input id={`ext-offer-${tokenId}`} inputMode="decimal" placeholder="Offer in WETH" value={offerPrice} onChange={(e) => setOfferPrice(capOfferDecimals(e.target.value.trim()))} />
           <button type="submit" className="btn-primary ext-trade-btn" disabled={busy === "offer"}>
             {busy === "offer" ? "Confirming..." : !wallet ? "Connect Wallet" : "Make offer"}
           </button>
         </div>
-        <p className="ext-panel-note">{`Paid in WETH on ${chainName}: your ETH is wrapped first if needed. If the owner accepts, they get your offer minus OpenSea's 1% and the venue's 0.5%. Open for 7 days.`}</p>
+        <p className="ext-panel-note">{`Paid in WETH on ${chainName}: your ETH is wrapped first if needed. If the owner accepts, they get your offer minus OpenSea's 1%${BID_VENUE_FEE_ENABLED ? " and the venue's 0.5%." : "; the venue takes no fee on offers."} Open for 7 days.`}</p>
       </form>
 
       {notice && (

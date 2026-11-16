@@ -280,6 +280,25 @@ export function isSeaport16SignedZoneOrder(params, protocolAddress) {
     && lower(params?.zone) === lower(OPENSEA_SIGNED_ZONE);
 }
 
+/**
+ * True for a BID on this chain: it offers only this chain's WETH (or ETH) and asks
+ * for an NFT delivered to its own offerer. Only a bid takes OpenSea's free cancel.
+ * After a free cancel OpenSea can still complete a sale it approved in the last 5
+ * minutes, which a bidder is told; a LISTING keeps the on-chain cancel, which is
+ * final once mined, so a seller is never told "cancelled" while it can still sell.
+ */
+export function isBidOrder(params, chainId) {
+  const weth = lower(BID_WETH_BY_CHAIN[chainId]);
+  const offerer = lower(params?.offerer);
+  const offer = Array.isArray(params?.offer) ? params.offer : [];
+  const consideration = Array.isArray(params?.consideration) ? params.consideration : [];
+  const paysOnly = offer.length > 0 && offer.every((i) => Number(i?.itemType) === ITEM_TYPE.NATIVE
+    || (Number(i?.itemType) === ITEM_TYPE.ERC20 && weth !== "" && lower(i?.token) === weth));
+  const wantsNft = offerer !== "" && consideration.some((c) => Number(c?.itemType) >= ITEM_TYPE.ERC721
+    && Number(c?.itemType) <= ITEM_TYPE.ERC1155_WITH_CRITERIA && lower(c?.recipient) === offerer);
+  return paysOnly && wantsNft;
+}
+
 /** Seaport 1.6's EIP-712 domain on this chain. */
 export function seaport16Domain(chainId) {
   if (!BID_WETH_BY_CHAIN[chainId]) throw new RangeError(`no Seaport 1.6 domain for chain ${chainId}`);

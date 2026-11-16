@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { TRAIT_LORE } from "../constants";
+import { TRAIT_LORE, openseaTraitOffersOn } from "../constants";
 import NftImage from "./NftImage";
 import TraitBidPanel from "./TraitBidPanel";
 import MakeOfferModal from "./MakeOfferModal";
@@ -805,7 +805,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
                         <span style={{ ...S.floorText, color: "var(--green)" }}>
                           {floorPrice < 0.01 ? "<0.01" : floorPrice.toFixed(floorPrice < 1 ? 3 : 2)} ETH
                         </span>
-                      ) : (
+                      ) : openseaTraitOffersOn(collection) && (
                         <button
                           style={S.offerBtn}
                           onClick={(e) => handleOffer(e, category.key, v.value)}

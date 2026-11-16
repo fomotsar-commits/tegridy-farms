@@ -100,3 +100,66 @@ describe("every screen that shows a transaction result words a notice as a notic
     expect(stale).toEqual([]);
   });
 });
+
+// A FREE CANCEL IS NOT THE SAME NEWS AS AN ON-CHAIN ONE.
+//
+// cancelOrder (api-offers.js) cancels a bid through OpenSea without gas, and then
+// OpenSea can still complete a sale it approved in the last 5 minutes. Its answer
+// says so in `message`. A screen that toasts its own "cancelled successfully!"
+// over that answer tells the user the order is dead while it can still fill (My
+// Collection did, review 2026-11-16 F1). So every screen that calls cancelOrder
+// words its success branch with the answer's own message.
+describe("every screen that calls cancelOrder says what the cancel said", () => {
+  // `const R = await cancelOrder(...)`, then `if (R.success) { ... }`: the
+  // success branch must read `R.message`. A call in any other shape is reported,
+  // so a new screen cannot slip past by being written differently.
+  function cancelWording(path) {
+    const kind = path.endsWith("x") ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+    const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true, kind);
+    const problems = [];
+    let calls = 0;
+    const reads = (node, name, prop) => {
+      let found = false;
+      const visit = (n) => {
+        if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name && n.name.text === prop) found = true;
+        if (!found) ts.forEachChild(n, visit);
+      };
+      visit(node);
+      return found;
+    };
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "cancelOrder") {
+        calls += 1;
+        const decl = ts.isAwaitExpression(node.parent) && ts.isVariableDeclaration(node.parent.parent) ? node.parent.parent : null;
+        const name = decl && ts.isIdentifier(decl.name) ? decl.name.text : null;
+        let scope = node.parent;
+        while (scope && !ts.isFunctionLike(scope)) scope = scope.parent;
+        const branches = [];
+        const findIf = (n) => {
+          if (ts.isIfStatement(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression)
+            && n.expression.expression.text === name && n.expression.name.text === "success") branches.push(n.thenStatement);
+          ts.forEachChild(n, findIf);
+        };
+        if (name && scope) findIf(scope);
+        if (!name || branches.length === 0) problems.push("calls cancelOrder in a shape this check cannot read");
+        else if (!branches.every((b) => reads(b, name, "message"))) problems.push(`its success branch does not show ${name}.message`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return { calls, problems };
+  }
+
+  const screens = walk(ROOT)
+    .map((path) => ({ file: relative(ROOT, path).replace(/\\/g, "/"), ...cancelWording(path) }))
+    .filter((f) => f.calls > 0 && !DEFINED_IN.has(f.file) && !(f.file in HANDS_IT_ON));
+
+  it("finds the screens that call it (a scan that matched nothing would pass vacuously)", () => {
+    expect(screens.map((f) => f.file)).toContain("components/MyCollection.jsx");
+  });
+
+  it("each one shows the answer's own message when the cancel succeeds", () => {
+    const silent = screens.filter((f) => f.problems.length > 0).map((f) => `${f.file}: ${f.problems.join("; ")}`);
+    expect(silent, "toast result.message on success: a free cancel's answer carries the 5-minute caveat").toEqual([]);
+  });
+});

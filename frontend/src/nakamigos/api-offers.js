@@ -1,5 +1,5 @@
 import { parseEther, formatEther } from "viem";
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, SEAPORT_ADDRESS, SEAPORT_DOMAIN, CONDUIT_ADDRESS, PLATFORM_FEE_BPS, SEAPORT_ADDRESSES_BY_CHAIN, WETH_BY_CHAIN, PLATFORM_FEE_RECIPIENTS, BID_VENUE_FEE_ENABLED, openseaRequiredBidFees } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, SEAPORT_ADDRESS, SEAPORT_DOMAIN, CONDUIT_ADDRESS, PLATFORM_FEE_BPS, SEAPORT_ADDRESSES_BY_CHAIN, WETH_BY_CHAIN, PLATFORM_FEE_RECIPIENTS, BID_VENUE_FEE_ENABLED, openseaRequiredBidFees, openseaTraitOffersOn } from "./constants";
 import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS, fulfillCallRefusal } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
@@ -9,7 +9,7 @@ import { collectionOfferQuantity, normalizeCollectionOffer, safePriceFromWei, fe
 import { cancelChainFor, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal, buyChainFor, bookCollectionByContract, VENUE_CHAIN_IDS } from "./lib/venue";
 import {
   SEAPORT_16_ADDRESS, roundUnitPriceDown, validateBuildResponse, buildBidParameters, typedDataFor,
-  wethApprovalTarget, isSeaport16SignedZoneOrder,
+  wethApprovalTarget, isSeaport16SignedZoneOrder, isBidOrder,
 } from "./lib/seaportOffer";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { acceptTradeRefusal, decodeSeaportTrade } from "./lib/seaportTrade";
@@ -139,8 +139,16 @@ async function fetchBestOfferOrThrow(tokenId, slug = COLLECTION_SLUG, { openseaS
   if (!data.price) return null;
   const endSec = parseInt(data.protocol_data?.parameters?.endTime);
   const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
+  // PER ITEM: `price` is the whole order, so a collection bid for 2 would show, and
+  // net, twice what one token sells into. OpenSea's own price_per_item when it
+  // gives one, else the total over the bid's quantity, as normalizeOffer does.
+  let unitWei = data.price_per_item?.value;
+  if (!/^\d+$/.test(String(unitWei ?? ""))) {
+    try { unitWei = (BigInt(data.price.value) / BigInt(collectionOfferQuantity(data.protocol_data?.parameters))).toString(); }
+    catch { unitWei = data.price.value; } // malformed: the total, as before
+  }
   return {
-    price: safePriceFromWei(data.price.value),
+    price: safePriceFromWei(unitWei),
     currency: data.price.currency,
     maker: data.protocol_data?.parameters?.offerer,
     orderHash: data.order_hash,
@@ -638,6 +646,11 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
   if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
   const collection = venueCollectionBySlug(osSlug);
+  // OpenSea refuses a trait bid where it has trait offers off, and only at the
+  // post, after the wrap and approval: so it is refused here, before any wallet call.
+  if (!openseaTraitOffersOn(collection)) {
+    return { error: "trait-offers-off", message: `OpenSea does not take trait bids on ${collection.name}, so nothing was funded or signed.` };
+  }
   return placeBid({
     kind: "trait",
     collection,
@@ -818,14 +831,18 @@ export async function cancelOrder(order) {
     const orderProtocolAddress =
       order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
 
-    // ── A Seaport 1.6 SignedZone order (every bid made here): OpenSea's gasless
+    // ── A BID on Seaport 1.6's SignedZone (every bid made here): OpenSea's gasless
     // cancel first (lib/seaportCancel.js cancelSeaportOrderGasless). It costs
     // nothing, and OpenSea stops approving fills at once, except a fill it
-    // approved in the last 5 minutes, which the message says. If OpenSea refuses
-    // it (a very new order may need an on-chain cancel), cannot be reached, or
-    // the order hash is not this order's, the on-chain cancel below runs as
-    // before. A Seaport 1.5 or zone-less order always takes the on-chain cancel.
+    // approved in the last 5 minutes, which the message says (every screen that
+    // calls this shows it: txOutcome.guard.test.js). If OpenSea refuses it (a very
+    // new order may need an on-chain cancel), cannot be reached, or the order hash
+    // is not this order's, the on-chain cancel below runs as before. A LISTING
+    // always takes the on-chain cancel, which is final once mined: a seller told
+    // "cancelled" must not be sellable for 5 more minutes (lib/seaportOffer.js
+    // isBidOrder). So does a Seaport 1.5 or zone-less order.
     if (isSeaport16SignedZoneOrder(params, orderProtocolAddress)
+      && isBidOrder(params, where.chainId)
       && String(params.offerer || "").toLowerCase() === String(signerAddress).toLowerCase()) {
       const orderHash = order.orderHash || order.order_hash || order.rawOrder?.order_hash || null;
       let off = null;

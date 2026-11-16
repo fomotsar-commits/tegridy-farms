@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   COLLECTIONS, OPENSEA_REQUIRED_BID_FEES, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, BID_VENUE_FEE_ENABLED,
-  PLATFORM_FEE_BPS, openseaRequiredBidFees,
+  PLATFORM_FEE_BPS, openseaRequiredBidFees, OPENSEA_TRAIT_OFFERS, openseaTraitOffersOn,
 } from "./constants";
 import { bookCollectionByContract } from "./lib/venue";
 
@@ -25,6 +25,29 @@ describe("the fees OpenSea requires on a bid", () => {
     expect(openseaRequiredBidFees({ slug: "boredapeyachtclub" })).toBeNull();
     expect(openseaRequiredBidFees({ slug: "toString" })).toBeNull();
     expect(Object.isFrozen(OPENSEA_REQUIRED_BID_FEES)).toBe(true);
+  });
+});
+
+describe("OpenSea's trait-offer switch", () => {
+  // Read live 2026-11-16, GET /api/v2/collections/{slug} `trait_offers_enabled`
+  // (dev/bidbot-2026-11-15/fix-bids/live-trait-offers.json). A trait bid on a
+  // collection where it is off cost the wrap and approval gas before OpenSea
+  // refused the post (review 2026-11-16 F5).
+  it("is pinned for every collection with pinned bid fees, as OpenSea answered", () => {
+    expect(Object.keys(OPENSEA_TRAIT_OFFERS).sort()).toEqual(Object.keys(OPENSEA_REQUIRED_BID_FEES).sort());
+    const on = Object.values(COLLECTIONS).filter((c) => openseaTraitOffersOn(c)).map((c) => c.slug).sort();
+    expect(on).toEqual(["junglebay", "nakamigos"]);
+    for (const slug of ["gnssart", "junglebaygoldcards", "bojungles", "memeticseeds"]) {
+      expect(openseaTraitOffersOn(COLLECTIONS[slug]), slug).toBe(false);
+    }
+    expect(Object.isFrozen(OPENSEA_TRAIT_OFFERS)).toBe(true);
+  });
+
+  it("is off for anything not pinned, so no trait bid is placed on a guess", () => {
+    expect(openseaTraitOffersOn(null)).toBe(false);
+    expect(openseaTraitOffersOn(COLLECTIONS.junglets)).toBe(false);
+    expect(openseaTraitOffersOn({ slug: "boredapeyachtclub" })).toBe(false);
+    expect(openseaTraitOffersOn({ slug: "toString" })).toBe(false);
   });
 });
 

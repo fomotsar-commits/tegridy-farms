@@ -2,7 +2,7 @@
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
-import { VENUE_SLUGS, VENUE_CONTRACTS, READ_ONLY_OPENSEA_SLUGS as READ_ONLY_SLUGS, BASE_BUY_SLUGS, BASE_BUY_CONTRACTS } from "./_lib/venue-registry.js";
+import { VENUE_SLUGS, VENUE_CONTRACTS, VENUE_SLUG_CONTRACTS, READ_ONLY_OPENSEA_SLUGS as READ_ONLY_SLUGS, BASE_BUY_SLUGS, BASE_BUY_CONTRACTS } from "./_lib/venue-registry.js";
 
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
 if (!process.env.OPENSEA_API_KEY) {
@@ -179,6 +179,29 @@ function fillMovesOnlyVenueNfts(data, named, allowed = ALLOWED_CONTRACTS) {
 // no longer admitted.
 const CRITERIA_OFFER_PATHS = new Set(["offers/build", "offers"]);
 const SEAPORT_16 = "0x0000000000000068f116a894984e2db1123eb395";
+// What else a criteria build or post may say about its collection: its traits,
+// its numeric traits, and its contract only when that is the slug's own. Any other
+// key could point OpenSea at something the slug check never saw.
+const CRITERIA_KEYS = new Set(["collection", "traits", "numericTraits", "contract"]);
+
+/** `{ status, error }` when a criteria build or post names more than its venue slug, else null. */
+function criteriaOfferProblem(body, slug) {
+  // OpenSea reads a criteria post's order from protocol_data.parameters. A
+  // top-level `parameters` would be a decoy the contract check below read instead.
+  if (Object.prototype.hasOwnProperty.call(body, "parameters")) {
+    return { status: 400, error: "A criteria offer carries its order in protocol_data" };
+  }
+  const criteria = body.criteria;
+  const extra = Object.keys(criteria).find((key) => !CRITERIA_KEYS.has(key));
+  if (extra) return { status: 400, error: `Criteria key not allowed: ${extra}` };
+  if (Object.prototype.hasOwnProperty.call(criteria, "contract")) {
+    const address = criteria.contract?.address;
+    if (typeof address !== "string" || address.toLowerCase() !== VENUE_SLUG_CONTRACTS[slug]) {
+      return { status: 403, error: "Contract not supported" };
+    }
+  }
+  return null;
+}
 
 // OpenSea's gasless cancel of a SignedZone order: POST
 // orders/chain/{chain}/protocol/{protocol}/{orderHash}/cancel with a body of the
@@ -195,6 +218,45 @@ function cancelRequestProblem(body, params) {
   if (!keys || keys.length !== 1 || keys[0] !== "offererSignature") return "A cancel carries exactly one offerer signature";
   if (typeof body.offererSignature !== "string" || !CANCEL_SIGNATURE_RE.test(body.offererSignature)) return "Invalid offerer signature";
   return null;
+}
+
+// THE VENUE'S OPENSEA KEY CANCELS THE VENUE'S ORDERS, NOT ANYONE'S. The order is
+// read first, from OpenSea's own copy at the cancel's chain, protocol and hash
+// (GET orders/chain/{chain}/protocol/{protocol}/{hash}), and every NFT in it must
+// be one this venue trades on that chain (FILL_CONTRACTS). Only an order's maker
+// can sign its cancel, so an outside order only spent the key's quota; it is still
+// refused (review 2026-11-16 F7). An order that cannot be read is not cancelled
+// here, and the site then cancels it on chain.
+/** `{ status, body }` refusing this gasless cancel, or null to forward it. */
+async function cancelOrderRefusal(path) {
+  const allowed = FILL_CONTRACTS.get(CANCEL_PATH_RE.exec(path)[1]);
+  let read;
+  try {
+    const headers = { Accept: "application/json" };
+    if (OPENSEA_KEY) headers["x-api-key"] = OPENSEA_KEY;
+    read = await fetch(`https://api.opensea.io/api/v2/${path.replace(/\/cancel$/, "")}`, { headers });
+  } catch {
+    return { status: 502, body: { error: "Upstream service error" } };
+  }
+  if (!read.ok) {
+    // Answered as the forward below answers a refusal: a permanent one passes
+    // through, so the site does not retry it; anything else is a 502.
+    return PERMANENT_UPSTREAM_STATUSES.has(read.status)
+      ? { status: read.status, body: { error: "upstream-rejected", status: read.status } }
+      : { status: 502, body: { error: "Upstream service error" } };
+  }
+  let order;
+  try {
+    const { text, truncated } = await readBoundedText(read, MAX_RESPONSE_BYTES);
+    if (truncated) return { status: 502, body: { error: "Upstream response too large" } };
+    order = JSON.parse(text)?.order;
+  } catch {
+    return { status: 502, body: { error: "Upstream returned invalid response" } };
+  }
+  const p = order?.protocol_data?.parameters;
+  const nfts = [...listOf(p?.offer), ...listOf(p?.consideration)].filter((i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5);
+  const venue = nfts.length > 0 && nfts.every((i) => typeof i?.token === "string" && allowed.has(i.token.toLowerCase()));
+  return venue ? null : { status: 403, body: { error: "Contract not supported" } };
 }
 
 // Whitelist of allowed path prefixes — reject anything that doesn't start with one of these.
@@ -365,11 +427,15 @@ export default async function handler(req, res) {
     if (typeof protocol !== "string" || protocol.toLowerCase() !== SEAPORT_16) {
       return res.status(400).json({ error: "Only Seaport 1.6 offers are made here" });
     }
+    const problem = criteriaOfferProblem(req.body, slug);
+    if (problem) return res.status(problem.status).json({ error: problem.error });
   }
 
   if (CANCEL_PATH_RE.test(path)) {
     const problem = cancelRequestProblem(req.body, params);
     if (problem) return res.status(400).json({ error: problem });
+    const refusal = await cancelOrderRefusal(path);
+    if (refusal) return res.status(refusal.status).json(refusal.body);
   }
 
   // A fill is built for Ethereum (venue NFTs) or Base (the Base buy
@@ -389,9 +455,13 @@ export default async function handler(req, res) {
   }
 
   // Validate contract addresses in POST bodies to prevent open-proxy abuse. A
-  // Base order POST may carry only the Base buy collections; every other POST
-  // only venue contracts.
-  const postNfts = ORDER_POST_CONTRACTS.get(path) || ALLOWED_CONTRACTS;
+  // Base order POST may carry only the Base buy collections; a criteria post only
+  // its slug's own collection (its order is protocol_data.parameters, where
+  // OpenSea reads it: a top-level `parameters` was refused above); every other
+  // POST only venue contracts.
+  const postNfts = req.method === "POST" && CRITERIA_OFFER_PATHS.has(path)
+    ? new Set([VENUE_SLUG_CONTRACTS[req.body.criteria.collection.slug]])
+    : ORDER_POST_CONTRACTS.get(path) || ALLOWED_CONTRACTS;
   if (req.method === "POST" && req.body && typeof req.body === "object") {
     const seaportParams = req.body.parameters || req.body.protocol_data?.parameters;
     if (seaportParams) {

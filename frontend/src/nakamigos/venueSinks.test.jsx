@@ -559,7 +559,8 @@ describe("api-offers.js", () => {
     const offers = await import("./api-offers");
     expect((await offers.createItemOffer({ tokenId: "1", priceEth: 0.01, contract: GOLD })).error).toBe("no-wallet");
     expect((await offers.createCollectionOffer({ priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" })).error).toBe("no-wallet");
-    expect((await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" })).error).toBe("no-wallet");
+    // A trait bid where OpenSea takes them (not GNSS or the Gold Cards: refused before the wallet).
+    expect((await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebay", openseaSlug: "junglebay" })).error).toBe("no-wallet");
     expect((await offers.acceptOffer({ orderHash: "0xoffer", tokenContract: VENUE, tokenId: "1" })).error).toBe("no-wallet");
   });
 
@@ -600,10 +601,10 @@ describe("api-offers.js", () => {
       expectNothingFundedOrSigned(await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
     });
 
-    it("createTraitOffer refuses a gnssart build whose NFT is the memes", async () => {
+    it("createTraitOffer refuses a JBAC build whose NFT is the memes", async () => {
       answerBuild([criteria(ADDR.junglebaymemes)]);
       const offers = await import("./api-offers");
-      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" }));
+      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebay", openseaSlug: "junglebay" }));
     });
 
     it("refuses a build that names the right contract with a second, foreign NFT beside it", async () => {
@@ -621,7 +622,7 @@ describe("api-offers.js", () => {
     it("refuses a build that names no NFT at all", async () => {
       answerBuild([{ itemType: 1, token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET }]);
       const offers = await import("./api-offers");
-      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
+      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebay", openseaSlug: "junglebay" }));
     });
 
     it("a build that fails costs no gas: nothing is wrapped or approved", async () => {
@@ -649,10 +650,10 @@ describe("api-offers.js", () => {
       expect(posted()).toEqual(["offers/build", "offers"]);
     });
 
-    it("positive control: a gnssart trait build naming gnssart is signed", async () => {
-      answerBuild([criteria(VENUE)]);
+    it("positive control: a JBAC trait build naming JBAC is signed", async () => {
+      answerBuild([criteria(ADDR.junglebay)]);
       const offers = await import("./api-offers");
-      const res = await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" });
+      const res = await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebay", openseaSlug: "junglebay" });
       expect(res.success).toBe(true);
       expect(h.signTypedData).toHaveBeenCalledTimes(1);
     });

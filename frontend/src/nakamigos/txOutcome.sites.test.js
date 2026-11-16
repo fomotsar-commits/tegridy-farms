@@ -330,8 +330,9 @@ const SITES = [
     ["createItemOffer", "wrap-failed", "approve-failed", () => {}, async () => (await import("./api-offers")).createItemOffer({ tokenId: "1", priceEth: 0.01, contract: GOLD })],
     ["createCollectionOffer", "wrap-failed", "approve-failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(GOLD)(path)); },
       async () => (await import("./api-offers")).createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" })],
-    ["createTraitOffer", "wrap-failed", "approve-failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(VENUE)(path)); },
-      async () => (await import("./api-offers")).createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" })],
+    // On JBAC: OpenSea takes no trait bids on GNSS, so one there is refused before any wallet call.
+    ["createTraitOffer", "wrap-failed", "approve-failed", () => { h.openseaPost = vi.fn(async (path) => criteriaBuild(ADDR.junglebay)(path)); },
+      async () => (await import("./api-offers")).createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebay", openseaSlug: "junglebay" })],
     ["createTradeOffer", "wrap-failed", "approve-failed", () => { h.approved = true; },
       async () => (await import("./lib/trades")).createTradeOffer({
         give: [{ contract: GOLD, tokenId: "1" }], get: [{ contract: VENUE, tokenId: "2" }], taker: TAKER, wethTopupEth: "0.01",

@@ -19,9 +19,9 @@
  *     collection baked into the order, so `royaltyIncluded` is true.
  *
  *  2. EXACT, BY SHARE — when the order's fee lines are known as basis points of
- *     its offer (`orderFeeBps`, offerNormalize.feeBpsOf): every line not paid to
- *     the bidder, royalty included. A share holds per item on a multi-item bid,
- *     which a wei total does not.
+ *     its offer (`orderFeeBps`, offerNormalize.feeBpsOf): every payment line,
+ *     royalty included, and one back to the bidder too, since the seller pays it.
+ *     A share holds per item on a multi-item bid, which a wei total does not.
  *
  *  3. ESTIMATE — when the order's lines aren't available, fall back to the
  *     collection's required OpenSea fee (`feeBps`). Royalty cannot be derived

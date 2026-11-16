@@ -3,7 +3,7 @@ import { hashStruct, hashTypedData, hashDomain } from "viem";
 import {
   SEAPORT_16_ADDRESS, OPENSEA_SIGNED_ZONE, OPENSEA_CONDUIT_KEY, ZERO_HASH, BID_WETH_BY_CHAIN, SEAPORT_ORDER_TYPES,
   PRICE_TICK_WEI, ORDER_TYPE, roundUnitPriceDown, isOnPriceTick, orderTypeFor, validateBuildResponse,
-  buildBidParameters, typedDataFor, seaport16Domain, wethApprovalTarget,
+  buildBidParameters, typedDataFor, seaport16Domain, wethApprovalTarget, isBidOrder,
 } from "./seaportOffer";
 import * as constants from "../constants";
 
@@ -383,5 +383,55 @@ describe("one WETH approval budget for every live bid", () => {
   it("stops at the 100 WETH cap, and asks for nothing more once it is reached", () => {
     expect(wethApprovalTarget({ allowance: 0n, liveOfferTotals: [150n * E], bidTotal: E, cap: CAP }).approve).toBe(CAP);
     expect(wethApprovalTarget({ allowance: CAP, liveOfferTotals: [150n * E], bidTotal: E, cap: CAP }).approve).toBeNull();
+  });
+});
+
+describe("isBidOrder: only a bid takes OpenSea's free cancel", () => {
+  // After a free cancel OpenSea can still complete a sale it approved in the last
+  // 5 minutes. A bidder is told so; a LISTING keeps the on-chain cancel, which is
+  // final once mined (review 2026-11-16 F1).
+  const bid = (chainId, kind = "collection") => buildBidParameters({
+    offerer: BIDDER, startTime: T0, endTime: T1, salt: SALT, chainId, kind,
+    collectionContract: chainId === 1 ? JBAC : BOJUNGLES, tokenId: kind === "item" ? "7" : undefined, quantity: 1,
+    unitPriceWei: 20_000_000_000_000_000n, feeLines: OS_1PCT, build: kind === "item" ? undefined : liveBuild(JBAC_LC, 1),
+  });
+  const listing = {
+    offerer: BIDDER, zone: OPENSEA_SIGNED_ZONE,
+    offer: [{ itemType: 2, token: JBAC, identifierOrCriteria: "7", startAmount: "1", endAmount: "1" }],
+    consideration: [{ itemType: 0, token: "0x" + "0".repeat(40), identifierOrCriteria: "0", startAmount: "1000", endAmount: "1000", recipient: BIDDER }],
+  };
+
+  it("a bid built here is one: collection and item, on Ethereum and on Base", () => {
+    expect(isBidOrder(bid(1), 1)).toBe(true);
+    expect(isBidOrder(bid(1, "item"), 1)).toBe(true);
+    expect(isBidOrder(bid(8453, "item"), 8453)).toBe(true);
+    // The NFT line's recipient read in any case.
+    const upper = bid(1);
+    upper.consideration[0] = { ...upper.consideration[0], recipient: BIDDER.toLowerCase() };
+    expect(isBidOrder(upper, 1)).toBe(true);
+  });
+
+  it("a listing is not: it offers the NFT", () => {
+    expect(isBidOrder(listing, 1)).toBe(false);
+  });
+
+  it("nor an order paying in another token, or in another chain's WETH", () => {
+    const usdc = bid(1);
+    usdc.offer = [{ ...usdc.offer[0], token: "0xA0b86991c6218b36c1D19D4a2e9Eb0cE3606eB48" }];
+    expect(isBidOrder(usdc, 1)).toBe(false);
+    expect(isBidOrder(bid(1), 8453)).toBe(false);
+  });
+
+  it("nor one whose NFT goes to someone else, or that asks for no NFT", () => {
+    const elsewhere = bid(1);
+    elsewhere.consideration[0] = { ...elsewhere.consideration[0], recipient: OPENSEA_FEE };
+    expect(isBidOrder(elsewhere, 1)).toBe(false);
+    const noNft = bid(1);
+    noNft.consideration = noNft.consideration.slice(1);
+    expect(isBidOrder(noNft, 1)).toBe(false);
+  });
+
+  it("nor anything unreadable", () => {
+    for (const p of [undefined, null, {}, { offer: [], consideration: [] }]) expect(isBidOrder(p, 1)).toBe(false);
   });
 });

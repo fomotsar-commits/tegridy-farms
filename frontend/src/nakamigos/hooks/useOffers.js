@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { fetchCollectionOffers, fetchAllCollectionOffers, deriveTraitOffers } from "../api-offers";
 import { offersQuery, queryKeys } from "../lib/queryConfig";
+import { openseaTraitOffersOn } from "../constants";
 
 export function useCollectionOffers() {
   const collection = useActiveCollection();
@@ -19,7 +20,9 @@ export function useCollectionOffers() {
 
 // Trait offers are derived from `offers/collection/{slug}/all`, which is NOT the
 // feed useCollectionOffers reads: that one holds only bids for ANY token (see
-// fetchCollectionOffers), and a trait bid is not one.
+// fetchCollectionOffers), and a trait bid is not one. `traitBidsOn` says whether
+// OpenSea takes a NEW trait bid on this collection (constants.js
+// OPENSEA_TRAIT_OFFERS): the trait-bid buttons that read these offers show only then.
 export function useTraitOffers() {
   const collection = useActiveCollection();
   const slug = collection?.slug;
@@ -32,5 +35,5 @@ export function useTraitOffers() {
     enabled: !!osSlug,
   });
   const data = useMemo(() => deriveTraitOffers(query.data || []), [query.data]);
-  return { ...query, data };
+  return { ...query, data, traitBidsOn: openseaTraitOffersOn(collection) };
 }

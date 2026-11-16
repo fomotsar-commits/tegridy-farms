@@ -25,8 +25,8 @@ const percent = (bps) => String(Number((Number(bps) / 100).toFixed(2)));
  * arithmetic the order already carries.
  *
  *  - When `feeBps` (the bid's own fee lines as bps of its offer, from
- *    offerNormalize.feeBpsOf) is known, the net is EXACT: every line not paid to
- *    the bidder comes off, a royalty included.
+ *    offerNormalize.feeBpsOf) is known, the net is EXACT: every payment line the
+ *    bid asks for comes off, a royalty included, and so does one back to the bidder.
  *  - Otherwise it shows the collection's required OpenSea fee and says the
  *    figure is estimated; a royalty, if any, is never invented.
  *

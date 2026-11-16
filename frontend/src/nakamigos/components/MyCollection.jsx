@@ -215,7 +215,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
       const result = await cancelOrder(listing);
 
       if (result.success) {
-        addToast?.("Listing cancelled successfully!", "success");
+        // The cancel's own words when it has them: a free cancel says a sale OpenSea
+        // approved in the last 5 minutes can still go through.
+        addToast?.(result.message || "Listing cancelled successfully!", "success");
         setListings((prev) => prev.filter((l) => l.orderHash !== listing.orderHash));
       } else if (result.error === "rejected") {
         addToast?.("Listing cancellation was declined in your wallet.", "info");
