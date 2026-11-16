@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { createNativeListing, fetchNativeListings, fulfillNativeOrder, cancelNativeListing } from "../../lib/orderbook";
 import { createItemOffer, fetchTokenOfferBook, acceptOffer } from "../../api-offers";
 import { chainTxUrl, walletChainLabel } from "../../lib/venue";
+import { BID_VENUE_FEE_ENABLED } from "../../constants";
 import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
 import { exactEth, shownEth } from "../../lib/formatPrice";
 import { askWalletToSwitch } from "../../lib/walletSwitch";
-import { BID_VENUE_FEE_ENABLED } from "../../constants";
 
 const PRICE_RE = /^\d{1,6}(\.\d{1,18})?$/;
 const short = (a) => (typeof a === "string" && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a || "");
