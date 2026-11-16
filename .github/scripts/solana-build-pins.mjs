@@ -91,6 +91,15 @@ const keys = Object.values(CI_JOBS).flatMap((j) => j.match(/^ {10}key: .*$/gm) ?
 rule(keys.length === 4, `found ${keys.length} cargo cache keys, expected 4`);
 for (const k of keys) rule(/env\.(CLMM_)?SOLANA_VERSION/.test(k) && k.includes('steps.rust.outputs.cachekey'), `"${k.trim()}" names no tool version`);
 
+// XCHL-16, NE-03: no compose file hands the host's Solana key folder to a container, and the
+// devnet deploy script names devnet and its key on each command instead of changing settings.
+rule(!existsSync('solana/tegridy-amm/docker-compose.yml'), 'solana/tegridy-amm/docker-compose.yml mounts the Solana key folder again');
+const devnet = code(read('solana/tegridy-amm/deploy-devnet.sh')).map((l) => l.trim());
+rule(!devnet.some((l) => /\bsolana config set\b/.test(l)), "deploy-devnet.sh changes the operator's Solana settings");
+const onChain = devnet.filter((l) => /\b(?:solana (?:balance|airdrop|program)|spl-token create-account)\b/.test(l));
+rule(onChain.length === 6, `deploy-devnet.sh has ${onChain.length} commands that reach a cluster, expected 6`);
+for (const l of onChain) rule(l.includes('--url devnet') && /--(?:keypair|fee-payer) "\$PAYER"/.test(l), `deploy-devnet.sh: "${l}" does not name devnet and its key`);
+
 if (checked === 0) problems.push('checked nothing');
 for (const p of problems) console.log(`::error::${p}`);
 console.log(`${checked} pins checked, ${problems.length} broken`);
