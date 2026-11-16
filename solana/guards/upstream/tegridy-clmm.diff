@@ -1651,7 +1651,9 @@
 < pub mod create_permissioned_pool;
 < pub use create_permissioned_pool::*;
 === programs/amm/src/instructions/open_position.rs ===
-412,458c412,414
+3d2
+< use crate::libraries::tick_math;
+412,458c411,413
 <     if *liquidity == 0 {
 <         let base_flag = match base_flag {
 <             // when establishing a new position , liquidity allows for further additions
@@ -1703,29 +1705,30 @@
 >     if *liquidity == 0 && base_flag.is_none() {
 >         // when establishing a new position , liquidity allows for further additions
 >         return Ok(LiquidityChangeResult::default());
-459a416,417
+459a415,416
 >     // memetics.finance: a deposit states its liquidity. Sizing it from one coin at the price it
 >     // lands at bounded the other coin on one side only (2026-11-15 audit, RNG-12).
-798a757,758
+798a756,757
 > // Changed by memetics.finance (tegridy-clmm): the venue's name, symbol and link. The link is
 > // not served yet; it must be before any deploy (docs/RANGE_POOLS_PLAN.md).
-801,802c761,762
+801,802c760,761
 <         String::from("Raydium Concentrated Liquidity"),
 <         String::from("RCL"),
 ---
 >         String::from("Memetics Range Position"),
 >         String::from("MEM-RANGE"),
-804c764
+804c763
 <             "https://dynamic-ipfs.raydium.io/clmm/position?id={}",
 ---
 >             "https://memetics.finance/position/{}.json",
-1028a989,1041
+1028a988,1041
 >     }
 > }
 > 
 > #[cfg(test)]
 > mod deposit_states_its_liquidity_test {
 >     use super::*;
+>     use crate::libraries::tick_math;
 >     use anchor_lang::solana_program::program_pack::Pack;
 >     use anchor_lang::{system_program, Discriminator};
 >     use anchor_spl::token_2022::spl_token_2022;

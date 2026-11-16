@@ -1,6 +1,5 @@
 use crate::error::ErrorCode;
 use crate::libraries::liquidity_math;
-use crate::libraries::tick_math;
 use crate::states::*;
 use crate::util::*;
 use anchor_lang::prelude::*;
@@ -992,6 +991,7 @@ mod modify_position_test {
 #[cfg(test)]
 mod deposit_states_its_liquidity_test {
     use super::*;
+    use crate::libraries::tick_math;
     use anchor_lang::solana_program::program_pack::Pack;
     use anchor_lang::{system_program, Discriminator};
     use anchor_spl::token_2022::spl_token_2022;
