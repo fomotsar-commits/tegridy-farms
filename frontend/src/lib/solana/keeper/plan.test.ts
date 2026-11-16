@@ -5,7 +5,7 @@
 // on-chain IDL, and match what its API built for a live quote on 2026-10-31.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { ExtensionType, getAccountLen, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../cpswap/ix';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
@@ -286,8 +286,24 @@ describe('lamportsInCoin: a new account’s rent, as a cost in the trip’s coin
   it('is lamports for SOL, and USDC at the two listed prices, rounded up', () => {
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, SOL_QUOTE, usd)).toBe(NEW_ACCOUNT_RENT);
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, SOL_QUOTE, new Map())).toBe(NEW_ACCOUNT_RENT); // SOL needs no price
-    expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, usd)).toBe(414_816n); // 0.00207408 SOL at $200
+    expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, usd)).toBe(314_960n); // 0.0015748 SOL at $200
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, new Map([[USDC_QUOTE.mint, 1]]))).toBeNull();
+  });
+});
+
+describe('NEW_ACCOUNT_RENT: what a coin’s first trip must earn back for the account it opens', () => {
+  // Mainnet's rent, read 2026-11-15 (getMinimumBalanceForRentExemption): 5,080 lamports a byte, 128 bytes on top.
+  const rent = (bytes: number) => BigInt((128 + bytes) * 5_080);
+
+  it('is the rent of the largest account the keeper opens: Token-2022, with a transfer fee', () => {
+    expect(NEW_ACCOUNT_RENT).toBe(rent(getAccountLen([ExtensionType.ImmutableOwner, ExtensionType.TransferFeeAmount])));
+    expect(NEW_ACCOUNT_RENT).toBe(1_574_800n);
+  });
+
+  it('is never under the rent of the smaller accounts: a classic one, or Token-2022 with no fee', () => {
+    expect(rent(getAccountLen([]))).toBe(1_488_440n);
+    expect(rent(getAccountLen([ExtensionType.ImmutableOwner]))).toBe(1_513_840n);
+    expect(NEW_ACCOUNT_RENT).toBeGreaterThan(rent(getAccountLen([ExtensionType.ImmutableOwner])));
   });
 });
 

@@ -58,11 +58,11 @@ export interface KeeperLimits extends RuleSettings {
 export const DEFAULT_LIMITS: KeeperLimits = { maxTradeUsd: 25, minProfitUsd: 0.01, slippageBps: 50, microLamports: 10_000, lighthouseProven: false };
 
 /**
- * Rent for a token account the keeper opens on its first trade of a token (a Token-2022
- * account with its one extension, the larger of the two kinds). It is a cost of that trade:
- * the round trip must earn it back on top of the floor.
+ * Rent for a token account the keeper opens on its first trade of a token: the largest kind it
+ * opens (Token-2022 with a transfer fee, 182 bytes), at mainnet's rent on 2026-11-15. It is a cost
+ * of that trade: the round trip must earn it back on top of the floor.
  */
-export const NEW_ACCOUNT_RENT = 2_074_080n;
+export const NEW_ACCOUNT_RENT = 1_574_800n;
 
 /** `lamports` in the coin's base units, at Jupiter's listed prices; null without a price. */
 export function lamportsInCoin(lamports: bigint, coin: { mint: string; decimals: number }, usd: ReadonlyMap<string, number>): bigint | null {
