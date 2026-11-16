@@ -944,7 +944,7 @@ This branch sets `REWARDS_DURATION_SECS` to four years. Mainnet still runs the 9
   `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` before the proposal runs (it held 0). Size the
   refill as BAYLA a day times 1,460 and name the swept amount in it. Approve it by 2026-12-21
   15:32 UTC and execute it just after 2026-12-23 15:32:16 UTC: before that second it is refused
-  unless it brings about 33 million BAYLA.
+  unless it brings about 32 to 33 million BAYLA.
 - **Until a fix for the "degraded" flag ships, queue the flag only when no reward window is
   running,** and sweep before queuing it. A flag queued while rewards are paying can be used
   during its 48-hour notice to take reward share from stakers who stay. After a four-year refill a

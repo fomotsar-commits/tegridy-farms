@@ -46,6 +46,7 @@ This policy covers all four. On Solana mainnet: `cp-swap` at
 
 ## If you are an auditor
 
-`AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap diff against
+`AUDIT_RFQ.md` covers `cp-swap` and `tegridy-launch` only. `bayla-ladder` and the range-pool
+program are covered by this policy but not by that request. The short version: `cp-swap` is a cheap diff against
 audited upstream (four constants, one small added instruction, `create_lp_metadata`, the
 program's own name and contact text, and since 2026-11 the fee rules and the swap guard); `tegridy-launch` is the real review.

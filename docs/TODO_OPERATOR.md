@@ -81,7 +81,8 @@ cover a new proposal, which costs its proposer 0.0032 to 0.0061 SOL of rent, so 
 can propose anything, a pause included.
 
 - Send 0.02 SOL to each member wallet. The 2026-11-14 entry below already sends 0.02 SOL to member
-  A, one of these two; this adds the other, so either key can propose.
+  A, `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`: send that once, not twice. This adds member B,
+  `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`, so either key can propose.
 - The 2026-11-14 entry's other amounts stand: 7.00 SOL to the paying wallet and 0.01 SOL to the
   vault. The vault holds 0.01273992 SOL of plain SOL and the range operation account costs it
   0.01857756 SOL, so it needs at least 0.0065 SOL more; the 0.01 covers that.
@@ -119,16 +120,23 @@ The 2026-11-14 entry below and its paper still hold. Add these:
 
 ### c2. Range limit orders stay, and their arithmetic is patched (your decision of 2026-11-15)
 
-After the pending range upgrade (#36) a new pool is born with limit orders off. **Never switch them
-on for any pool until the second range round has executed:** branch
-`fix/range-program-second-round-2026-11-15`, its own pull request and its own upgrade. That round
-is planned to patch the limit orders' arithmetic and to send the LPs' share of a limit-order fill's
-fee to the venue; it had no pull request when this was written. Before it executes, check that its
-pull request says it does both, and follow its "To go live".
+After the pending range upgrade (#36) a new pool is born with limit orders off. The second range
+round is pull request #1271 (branch `fix/range-program-second-round-2026-11-15`), a program upgrade
+of its own. In this order:
 
-How money moves on a range pool meanwhile: a trader pays 1% of each swap. 84% of that fee goes to
-the LPs whose range holds the price, 5.6% to the island's Workshop and 10.4% to the vault. Opening
-a pool pays the vault 0.5 SOL. Limit-order makers earn no fee.
+1. The pending range upgrade, #36 and #37, as the 2026-11-14 entry says. #1271 asks you to decide
+   whether its build rides that upgrade in #36's place or follows it as a second upgrade.
+2. #1271 merged on your word, then its upgrade: a vault proposal, 2-of-2, then 48 hours. Before it
+   executes, follow #1271's "To go live" (its spill account, the buffer's hash against CI's, the
+   registry pin, the local-chain suites).
+3. **Never switch limit orders on for any pool until #1271's upgrade has executed.** After it, each
+   pool is its own status proposal and its own 48 hours.
+
+How money moves on a range pool: a trader pays 1% of each swap. 84% of that fee goes to the LPs
+whose range holds the price, 5.6% to the island's Workshop and 10.4% to the vault. When no LP is in
+range, the vault gets the LPs' 84% too. Once #1271 has executed, the vault also gets the 84% on
+every limit-order fill (your decision of 2026-11-15), so a fill pays the vault 94.4% and the island
+5.6%. Opening a pool pays the vault 0.5 SOL. Limit-order makers earn no fee.
 
 ### d. Old proposals: #30, #18 and #3
 
@@ -160,7 +168,7 @@ there are five: #3, #18, #30, #34 and #35.
    scheduled they pay nobody. **Never put a sweep inside a vault transaction:** anyone can sweep
    first, and the bundled transaction then fails.
 2. **The refill, in a proposal of its own.** The reward stream ends 2026-12-23 15:32:16 UTC. A
-   refill that executes before that second is refused unless it brings about 33 million BAYLA; after
+   refill that executes before that second is refused unless it brings about 32 to 33 million BAYLA; after
    it, any refill is spread over four years.
    - Fund the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` first. It holds 0,
      and the refill is paid from it.
@@ -197,8 +205,9 @@ transfer, then unwrap the copy.
    (one step with no acceptance: paste the vault's whole address and read it back), or record that
    they stay with that wallet by choice.
 3. **A larger Jupiter plan.** The free key's whole allowance is 60 calls a minute, and the site's
-   relay lets one visitor use all of it. Other visitors then fall back to Jupiter's keyless host,
-   which Jupiter is retiring; while it lasts the venue misses its 0.5% on Jupiter swaps. A larger
+   relay lets one visitor use all of it. When it runs out, other visitors fall back to Jupiter's
+   keyless host, which is slower and which Jupiter is retiring. Only if that host is gone too do
+   Jupiter swaps stop, and then the venue misses its 0.5% on them. A larger
    plan is the only fix that works. Your earlier word, "stay on free now", is in the 2026-10-24
    entry below.
 4. **A rule on trunk.** Nothing on `mvp-launch` requires a pull request or a passing check today. A
@@ -1193,7 +1202,7 @@ The options as they were laid out on 2026-10-20:
 | ✅ **Day 0, done 2026-10-21** (planned Mon 11-16 to Mon 11-30) | Steps 1 to 14 of `C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`: upload, hand over, propose, approve. About 40 minutes. Proposal #17. | you, both members |
 | **Day 2, Fri 10-23 from 06:37:12** (48 hours after step 14; the page names the minute) | Steps 15 and 16: execute, check. Then merge its pull request, #942 (branch `feat/bayla-ladder-four-year-gated`). | either member |
 | ✅ Done 2026-10-20 (due by Fri 12-18) | The refill page is built (the ladder pack's refill step). It must refuse unless the four-year program is live. | a session |
-| Fri 12-18 to Sun 12-20 | A session runs the ladder's sweep (anyone may: it moves 35,713.98 BAYLA of emergency-exit fees into the pot). Send the refill BAYLA to the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy`, a tiny test amount first. Member A proposes the refill on the refill page. | you, member A, a session |
+| Fri 12-18 to Sun 12-20 | ~~A session runs the ladder's sweep (35,713.98 BAYLA).~~ Superseded: sweep now, as the 2026-11-15 entry above says (step e: 273,857.833139 BAYLA idle at the audit's read), and again just before the refill. Send the refill BAYLA to the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy`, a tiny test amount first. Member A proposes the refill on the refill page. | you, member A, a session |
 | **By Mon 12-21 15:32:16** | Member B's approval, the second one. The 48 hours run from it. | member B |
 | **Wed 12-23 15:32:16, or just after** | Execute the refill. Rewards then run to 2030-12-22. Every hour later pays stakers nothing. | either member |
 
