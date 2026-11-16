@@ -7,8 +7,8 @@ How the protocol is put together. Written for developers, integrators, and audit
 > *not* part of these flows:
 >
 > - **Base 8453 and Robinhood 4663** (live 2026-08-25) run the same factory / router / TWAP /
->   fee-router stack, but their fee sink is a **remittance Safe rather than a distributor** —
->   no veTOWELI, no staker leg, no POL. An L2 fee is queued for the bridge. Robinhood also
+>   fee-router stack with no veTOWELI, no referral share and no POL: every swap and pool fee there
+>   lands in the L2 treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`. Robinhood also
 >   carries a deployed `AttestedSequencerUptimeFeed`, because Chainlink publishes no uptime
 >   feed for it and `SequencerCheck` reverts off-mainnet on a zero feed.
 > - **The bungalow lighthouses** (`LighthouseLadder` on Ethereum and Base, Streamflow on
@@ -17,15 +17,14 @@ How the protocol is put together. Written for developers, integrators, and audit
 > - **Solana** is a Jupiter-routed swap plus those Streamflow pools. Our own two Solana
 >   programs were deployed 2026-08-08 and **closed 2026-08-13**; their ids are spent.
 >
-> Read `frontend/src/lib/chains/registry.ts` for what each chain is *capable* of — it encodes
-> the fee-sink **kind** per chain, so a surface cannot accidentally describe a remittance Safe
-> as a staker rail.
+> Read `frontend/src/lib/chains/registry.ts` for what each chain is *capable* of. Its `feeSink`
+> is each chain's treasury Safe.
 
 ## Contents
 
 - [System overview](#system-overview)
 - [Core flows](#core-flows)
-  - [Fee flow — the two rails, and where the staker leg stops](#fee-flow)
+  - [Fee flow: two rails, both into the treasury Safe](#fee-flow)
   - [Staking lifecycle](#staking-lifecycle)
   - [Gauge voting with commit-reveal](#gauge-voting)
   - [LP farming boost](#lp-farming-boost)
@@ -107,19 +106,17 @@ Three runtime surfaces:
 
 ### Fee flow
 
-**There are two protocol-fee rails and they never touch.** The AMM rail is `TegridyPair`'s ⅙-of-0.3%
-`feeTo` mint, which lands in the treasury Safe **as LP tokens** and has no path to a staker. The staker
-rail is the app's smart front-door: `SwapFeeRouter` takes its own 0.5% in ETH on the way through. The
-diagram below used to draw a `TegridyPair → SwapFeeRouter` "protocol fee (bps)" arrow; **that arrow was
-never implemented** — the pair does not know the router exists — and it made the two rails look like
-one funnel. Both rails are drawn separately now.
+**There are two protocol-fee rails, and both end in the treasury Safe.** The AMM rail is
+`TegridyPair`'s ⅙-of-0.3% `feeTo` mint, which lands in the treasury Safe as LP tokens. The swap rail
+is the app's smart front-door: `SwapFeeRouter` takes its own 0.5% in ETH on the way through. The pair
+does not know the router exists, so the two rails are drawn separately.
 
-The staker rail is also not a straight line. `SwapFeeRouter._recordReferralFee` forwards the **whole**
-fee to `ReferralSplitter` at swap time; `referralFeeBps` (2000) is kept for the referrer, or for the
-treasury when none qualifies, and the ~80% remainder is credited back as `callerCredit` recoverable
-only by a permissionless `recoverCallerCredit()`. That call has never been made, so nothing has
-reached `RevenueDistributor`. See [REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md) for the calibration
-discussion and [CONTRACTS.md](CONTRACTS.md) for the live reads.
+The swap rail is not a straight line. `SwapFeeRouter._recordReferralFee` forwards the whole fee to
+`ReferralSplitter` at swap time. `referralFeeBps` (2000) is kept for the referrer, or for the treasury
+when none qualifies, and the other 80% is credited back as `callerCredit`, recoverable by a
+permissionless `recoverCallerCredit()`. The router pays it out on `distributeFeesToStakers()` to its
+`revenueDistributor` address, which the owner's ruling of 2026-11-15 made the treasury Safe. No swap
+fee reaches `RevenueDistributor` or stakers. See [CONTRACTS.md](CONTRACTS.md) for the live reads.
 
 ```mermaid
 sequenceDiagram
@@ -129,8 +126,6 @@ sequenceDiagram
     participant R as TegridyRouter
     participant P as TegridyPair
     participant RS as ReferralSplitter
-    participant RD as RevenueDistributor
-    participant S as Stakers
     participant T as Treasury Safe
     participant POL as POLAccumulator (reserved)
 
@@ -140,13 +135,11 @@ sequenceDiagram
     SFR->>R: swap the remainder
     R->>P: execute swap
     P-->>R: output tokens
-    P->>T: AMM rail — 1/6 of 0.3% minted to feeTo<br/>as LP TOKENS, a separate rail that<br/>never becomes staker ETH
+    P->>T: AMM rail, 1/6 of 0.3% minted to feeTo<br/>as LP tokens
     SFR->>RS: 100% of the skimmed fee
-    RS->>T: referralFeeBps 20% — referrer if qualified,<br/>else treasury. Never staker yield.
-    RS-->>SFR: ~80% held as callerCredit —<br/>released only by recoverCallerCredit()
-    Note over RS,SFR: NEVER CALLED. Everything the rail has<br/>ever earned is still sitting in the splitter.
-    SFR->>RD: stakerShareBps of what returns
-    RD-->>S: epoch accrual (claimed on demand)<br/>0 epochs opened to date
+    RS->>T: referralFeeBps 20%, to the referrer if qualified,<br/>else to the treasury
+    RS-->>SFR: the other 80% as callerCredit,<br/>released by recoverCallerCredit()
+    SFR->>T: distributeFeesToStakers() pays revenueDistributor,<br/>which is the treasury Safe
     SFR--)POL: inactive lever (polShareBps = 0,<br/>and polAccumulator() is unset)
     R-->>U: swap output
 ```

@@ -38,74 +38,40 @@ All supply has been minted and is in circulation somewhere — in treasury, LP, 
 
 ---
 
-## Yield flow — where the real return comes from
+## Yield flow: stakers earn TOWELI, swap fees go to the treasury
 
-**The design:** TOWELI holders are not meant to rely on token emissions for yield. They earn **ETH**
-from protocol swap fees. The 10% future-emissions bucket is secondary — a supplementary incentive for
-LP farmers, not the core value accrual.
+TOWELI stakers earn TOWELI from the reward pool and nothing else. Since the owner's ruling of
+2026-11-15 the venue's swap fee goes to the treasury Safe of its chain, never to stakers.
 
-> **The rail has collected. It has never paid.** Corrected 2026-08-12 — the previous revision of this
-> box said no fee had ever accrued, which was false: `SwapFeeRouter` has taken fee ETH. Every wei of it
-> is still in `ReferralSplitter`, because the ~80% remainder is held as `callerCredit` and only moves
-> when someone calls the permissionless `recoverCallerCredit()`, which nobody has. `RevenueDistributor`
-> holds `0` and `totalDistributed()` reads `0`. **No staker has ever been paid.** The diagram below is
-> the wiring, not a record of payments — and note the splitter hop, which the old diagram omitted.
+**How the venue earns on Ethereum, and where each part lands:**
 
-```
-                       ┌──────────────────────┐
-                       │   Native DEX Pairs   │
-                       │  (swap fee accrual)  │
-                       └──────────┬───────────┘
-                                  │ fee tokens
-                                  ▼
-                       ┌──────────────────────┐
-                       │   SwapFeeRouter      │◀────────────┐
-                       │   0x6d5791A6...      │             │
-                       └──────────┬───────────┘             │
-                                  │ 100% of the fee,        │ ~80% back, but ONLY on a
-                                  ▼ at swap time            │ recoverCallerCredit() call
-                       ┌──────────────────────┐             │ — NEVER CALLED
-                       │  ReferralSplitter    │─────────────┘
-                       │   0x6B3442dA...      │
-                       └──────────┬───────────┘
-                                  │ referralFeeBps = 20%, cannot be set to 0
-                                  ▼
-                       ┌──────────────────────┐
-                       │ Referrer, or Treasury│
-                       │ if none qualifies    │   ← never staker yield
-                       └──────────────────────┘
+1. **Swap fee.** `SwapFeeRouter` keeps 0.5% (`feeBps() == 50`) of each swap made through the
+   site's own router.
+2. **Referral share.** At swap time the router hands the whole fee to `ReferralSplitter`, which
+   keeps 20% (`referralFeeBps() == 2000`) for the trader's referrer, or for the treasury Safe when
+   there is none. The share cannot be set to zero (`proposeReferralFee` rejects `0`) and the
+   splitter cannot be unwired while it is above zero.
+3. **The other 80%** waits in the splitter as the router's credit until anyone calls
+   `recoverCallerCredit()`, then in the router until anyone calls `distributeFeesToStakers()`.
+   Despite its name, that call pays the treasury Safe
+   [`0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d).
+4. **Pool cut.** On our own pools where it is switched on (TOWELI/WETH since 2026-10-16), the venue
+   takes one sixth of the 0.3% pool fee (0.05% of the volume), minted to the treasury Safe as LP
+   tokens.
+5. **Opening fee.** 0.006 ETH to open a pool on the paid factory, paid straight to the treasury Safe.
 
-                       ┌──────────────────────┐
-                       │  RevenueDistributor  │   stakerShareBps applies to what
-                       │   0xF993316E...      │   comes BACK, not to the fee
-                       └──────────┬───────────┘
-                                  │
-                                  ▼ pro-rata by veTOWELI voting power
-                       ┌──────────────────────┐
-                       │       Stakers        │
-                       │  0 epochs to date    │
-                       └──────────────────────┘
-```
+**The router's split levers** divide what `distributeFeesToStakers()` pays out. Their ceilings are
+constants in [contracts/src/SwapFeeRouter.sol](../contracts/src/SwapFeeRouter.sol), and every leg
+lands in the treasury Safe:
 
-**Current state (read on-chain 2026-08-12):** `stakerShareBps() == 10000` and `polShareBps() == 0` —
-but read what those apply to. They govern the split of `accumulatedETHFees`, i.e. of whatever has come
-**back** from the splitter, not of the fee the swapper paid. Upstream of them, `referralFeeBps` is
-`2000`, so the standing ceiling on staker yield is **~80% of the fee, not 100%**, and it is not a
-governance knob: `ReferralSplitter.proposeReferralFee` rejects `0` outright, and
-`SwapFeeRouter.applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is
-above zero, so the splitter cannot be zeroed or unwired. The `SwapFeeRouter` additionally has dormant
-levers to route a % to a **Treasury** bucket and to a **POL Accumulator** (protocol-owned liquidity
-sink); those are parameterised but set to zero pending a governance proposal — see
-[REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md).
-
-Ceilings, taken from the constants in [contracts/src/SwapFeeRouter.sol](../contracts/src/SwapFeeRouter.sol):
-- **Stakers:** `10000` bps of the recovered pot today, which is ~80% of the fee once the referral share
-  is out. `MIN_STAKER_SHARE_BPS = 5_000` is the hard floor on the router's own split, so *that* leg can
-  never drop below **50%**.
-- **Referral (upstream, not a router lever):** `2000` bps of the raw fee, capped at
-  `MAX_REFERRAL_FEE = 3_000` (**30%**) and floored above zero. This is the only mandatory deduction.
-- **POL:** 0% today. `MAX_POL_SHARE_BPS = 2_500` caps it at **25%**. Goes to [POLAccumulator](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) — which is deployed but **not wired**: `SwapFeeRouter.polAccumulator()` currently reads `0x0…0`, so the lever has nowhere to send value even if it were raised.
-- **Treasury:** 0% today. It is the *remainder* (`BPS − stakerShare − polShare`), not a separately-capped lever, so with the POL share at zero the treasury leg can reach **50%** — the mirror of the staker floor. There is no 20% cap on it.
+- **`stakerShareBps`:** `10000` today, never below `MIN_STAKER_SHARE_BPS = 5_000` (**50%**). The
+  name is old: it is the share paid to the router's `revenueDistributor` address, the treasury Safe.
+- **Treasury:** the remainder (`BPS − stakerShare − polShare`), so up to **50%**; 0% today. It is
+  paid to the router's `treasury` address, also the treasury Safe.
+- **POL:** 0% today, capped by `MAX_POL_SHARE_BPS = 2_500` at **25%**.
+  [POLAccumulator](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) is
+  deployed but not wired (`polAccumulator()` reads `0x0`), so a POL share would fold into the
+  treasury leg.
 
 ---
 
@@ -139,10 +105,10 @@ still an **Ethereum-only** number.
 
 - **TOWELI exists on Ethereum and nowhere else.** No bridge, no wrapped version on Base,
   Robinhood or Solana, and none is planned. The supply table above is the whole supply.
-- **The L2 legs do not pay stakers.** Base 8453 and Robinhood 4663 run the same
-  factory/router/TWAP/fee stack, but their fee sink is a **remittance Safe**, not a
-  distributor — a fee captured there is *queued for the bridge*, and calling it staker yield
-  would be false. Nothing in the yield flow above changes because an L2 earned a fee.
+- **Base and Robinhood Chain pay the L2 treasury Safe.** Base 8453 and Robinhood 4663 run the
+  same factory/router/TWAP/fee stack without the referral share. Every swap and pool fee there
+  lands in the L2 treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, the same address on
+  both chains.
 - **The Solana surface is fee-capture and staking only.** The Jupiter-routed swap takes a
   platform fee into a Solana fee account; it does not touch TOWELI.
 - **The bungalow lighthouses pay their own token, not TOWELI.** Thirteen resident tokens each
@@ -216,7 +182,6 @@ Beyond the raw distribution above, here are the on-chain addresses where TOWELI 
 | Staker positions | [TegridyStaking](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | User locks |
 | LP farmer positions | [TegridyLPFarming](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) | LP deposits |
 | Protocol treasury | [Treasury Safe](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) | Ops reserve + early-exit penalties |
-| Revenue distributor | [RevenueDistributor](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | In-flight reward claims |
 | POL sink | [POLAccumulator](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) | Locked-LP accumulator (deployed, not wired) |
 | Native LP | [TegridyLP](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) | TOWELI/WETH native pair |
 | External LP | [Uniswap V2 pair](https://etherscan.io/address/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) | Historical Uniswap listing |
@@ -245,8 +210,8 @@ Any balance not in the contracts above is in EOA wallets, exchange hot-wallets, 
 - **1B TOWELI ceiling.** No mint path in the deployed bytecode; holder-callable `burn`/`burnFrom` are present, so supply can only fall. Two years live on mainnet. The live contract is a generator template, **not** this repo's `Toweli.sol`, and has **no** EIP-2612 permit.
 - **Fair-launch distribution.** No VC allocation, no pre-sale.
 - **LP seed 30% / Treasury 10% / Community 10% / Team 5% / Circulating 45%** — historical distribution; current on-chain state is the source of truth.
-- **Yield is designed to come from ETH fees, not TOWELI emissions** — the rail has collected, but the take is parked in `ReferralSplitter` behind an uncalled `recoverCallerCredit()`, and `RevenueDistributor` has never paid anyone. This is a design, not a track record.
-- **A 20% referral cut comes off every fee before stakers see it**, and it cannot be set to zero or unwired. Staker yield is capped at ~80% of the fee, not 100%.
+- **Stakers earn TOWELI only.** The venue's swap fee goes to the treasury Safe of its chain (owner ruling 2026-11-15).
+- **On Ethereum a 20% referral share comes off each swap fee first**, to the trader's referrer or the treasury Safe. It cannot be set to zero or unwired.
 - **Boost ceiling 4.5×.** 0.4× at 7-day lock → 4.0× at 4-year lock + 0.5× JBAC bonus.
 - **Flat 25% early-exit penalty, paid in full to the treasury** — not recycled to stakers.
 - **POL sink is dormant twice over:** the lever is 0% and `SwapFeeRouter.polAccumulator()` is unset. Activation is a governance decision plus a wiring transaction; see [REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md) § fee calibration.
