@@ -2400,7 +2400,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       }
       if (outcome === 'unknown') {
         // The same "we can't tell, check before you send it again" the DCA and
-        // limit tabs raise (confirmSent above). A swap that may have landed with
+        // limit tabs raise (signSendBuilt above). A swap that may have landed with
         // no site fee says that too: the waiver is never silent in a result.
         surfaceUnconfirmedTx(toast, {
           hash: sig,

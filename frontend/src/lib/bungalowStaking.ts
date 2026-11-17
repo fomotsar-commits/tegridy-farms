@@ -1461,11 +1461,6 @@ export async function claimRewardsInstructions(args: {
   }
 }
 
-/** A claim its test run refused, said as `claimRewards` says the same refusal (6012, 6000, 6013). */
-export function claimRefusal(logs: readonly string[]): string {
-  return writeFailure(Object.assign(new Error('its test run refused it'), { logs: [...logs] }), CLAIM_FAILED).reason;
-}
-
 /**
  * True while the vault is too thin to make staking EXIT-SAFE: empty, below
  * one whole reward token (the 1-raw-unit "dust defeats the empty banner"
