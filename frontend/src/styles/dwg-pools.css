@@ -364,6 +364,9 @@ section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child { justify-content: flex-start; column-gap: 14px; row-gap: 3px; }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-worth'] { margin: 0; font: 700 13px/1.3 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-ink); }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > p { font: 500 11px/1.45 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-dim); }
+/* PriceFlip makes its 44px press area from 28px of padding on a 16px line. A row's facts above are
+   11px on 1.45, a 15.95px line, which left every row's price 43.94px tall. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-testid='lp-price-flip'] { min-height: 44px; }
 .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'] {
   border-radius: 0; background: transparent; border-color: currentColor;
   /* 11px: a warning is drawn no smaller than the tag it replaces. */
