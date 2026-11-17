@@ -144,7 +144,6 @@ const abi = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'getConduit', stateMutability: 'view', inputs: [{ name: 'conduitKey', type: 'bytes32' }], outputs: [{ type: 'address' }, { type: 'bool' }] },
 ];
-const fn = (name) => abi.find((a) => a.name === name);
 
 const orders = [];
 for (const c of cases) {

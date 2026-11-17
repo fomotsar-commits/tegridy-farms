@@ -127,6 +127,21 @@ test('create writes a scrypt 2^18 keystore that opens with its password, prints 
   }
 });
 
+test('a create that fails after the file is reserved leaves no file behind, and the next try still works', async () => {
+  // The file is reserved with an exclusive create before the slow key derivation. If anything
+  // after that fails (here: scrypt parameters it refuses), the empty reservation must go too,
+  // or the owner's next `create` would refuse with "already exists" over a 0-byte file.
+  const dir = tempDir('create-fail');
+  try {
+    await assert.rejects(createKeystoreFile(dir, 'correct horse battery staple', { n: 3, r: 8, p: 1 }));
+    assert.equal(fs.existsSync(path.join(dir, KEYSTORE_FILE)), false);
+    const address = await createKeystoreFile(dir, 'correct horse battery staple');
+    assert.match(address, /^0x[0-9a-f]{40}$/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('create refuses short or non-ASCII passwords', async () => {
   assert.match(passwordProblem('short'), /12 characters/);
   assert.match(passwordProblem('pässwörd-long-enough'), /ASCII/);

@@ -185,8 +185,19 @@ export async function createKeystoreFile(keysDir, password, params = CREATE_SCRY
   const problem = passwordProblem(password);
   if (problem) fail(problem);
   const file = path.join(keysDir, KEYSTORE_FILE);
-  if (fs.existsSync(file)) fail(`${file} already exists; the signer never overwrites a key`);
+  // Reserve the file first with an exclusive create ('wx'), so the refusal still comes before the
+  // slow key derivation, and nothing can slip in between a check and the write (CodeQL
+  // js/file-system-race): the bytes go into this same handle. A failed creation removes the
+  // empty reservation again, so no half-made keystore is ever left behind.
+  let fd;
+  try {
+    fd = fs.openSync(file, 'wx', 0o600);
+  } catch (e) {
+    if (e?.code === 'EEXIST') fail(`${file} already exists; the signer never overwrites a key`);
+    throw e;
+  }
   let key;
+  let written = false;
   do {
     key = new Uint8Array(crypto.randomBytes(32));
   } while (!isValidPrivateKey(key));
@@ -197,10 +208,14 @@ export async function createKeystoreFile(keysDir, password, params = CREATE_SCRY
     const same = crypto.timingSafeEqual(Buffer.from(back), Buffer.from(key));
     back.fill(0);
     if (!same) fail('the new keystore did not decrypt back to its key; nothing was written');
-    fs.writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    fs.writeSync(fd, `${JSON.stringify(doc, null, 2)}\n`);
+    fs.fsyncSync(fd);
+    written = true;
     return `0x${doc.address}`;
   } finally {
     key.fill(0);
+    fs.closeSync(fd);
+    if (!written) fs.rmSync(file, { force: true });
   }
 }
 
