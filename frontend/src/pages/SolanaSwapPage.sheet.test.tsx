@@ -13,6 +13,8 @@ const { toast, connection, wallet, jup } = vi.hoisted(() => ({
     getParsedTokenAccountsByOwner: vi.fn(),
     getSignatureStatuses: vi.fn(),
     getMultipleAccountsInfo: vi.fn(),
+    // The final test run before the wallet (Phantom, ticket #467471: lib/solana/walletWrite.ts testBeforeWallet).
+    simulateTransaction: vi.fn(),
   },
   wallet: { sendTransaction: vi.fn() },
   jup: {
@@ -41,9 +43,18 @@ const connect = vi.hoisted(() => ({ open: vi.fn() }));
 // The venue's fee account: off as the test build has none, on as the live site has one.
 const fee = vi.hoisted(() => ({ on: false }));
 vi.mock('../components/solana/useSolanaConnect', () => ({ useSolanaConnect: () => connect.open }));
+// Jupiter's swap: web3.js cannot serialize under jsdom, so a stand-in this wallet pays, with
+// what the final test run before the wallet reads off it.
 vi.mock('@solana/web3.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@solana/web3.js')>()),
-  VersionedTransaction: { deserialize: () => ({}) },
+  VersionedTransaction: {
+    deserialize: () => ({
+      version: 0,
+      message: { staticAccountKeys: [OWNER], compiledInstructions: [], header: { numRequiredSignatures: 1 } },
+      signatures: [new Uint8Array(64)],
+      serialize: () => new Uint8Array([1, 2, 3]),
+    }),
+  },
 }));
 vi.mock('../components/solana/SolanaProviders', () => ({ SolanaProviders: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('../components/solana/SolanaConnectButton', () => ({ SolanaConnectButton: () => null }));
@@ -110,6 +121,8 @@ beforeEach(() => {
   connection.getBalance.mockReset().mockResolvedValue(10_000_000_000);
   connection.getParsedTokenAccountsByOwner.mockReset().mockResolvedValue({ value: [] });
   connection.getSignatureStatuses.mockReset().mockResolvedValue(confirmed);
+  // The final test run passes, and the wallet keeps plenty of SOL after it.
+  connection.simulateTransaction.mockReset().mockResolvedValue({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 9_400_000_000, data: ['', 'base64'] }] } });
   connection.getMultipleAccountsInfo.mockReset().mockImplementation(async (keys: PublicKey[]) => keys.map(() => ({ owner: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })));
   wallet.sendTransaction.mockReset().mockResolvedValue(SIG);
   jup.getQuote.mockReset().mockResolvedValue(quote);
