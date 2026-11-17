@@ -6,6 +6,7 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 import { getReadProvider } from "../lib/rpcProvider";
 import { liveIpfsUrl } from "../../lib/ipfsGateways";
 import { IpfsImg } from "../../components/IpfsImg";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 const MAX_GRID = 24;
 
@@ -279,6 +280,9 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
   const isWhale = totalCount >= 10;
   const isCollector = totalCount >= 5;
   const isOwnProfile = wallet && address.toLowerCase() === wallet.toLowerCase();
+  // The heading: "House" for the venue's own wallet, ahead of any ENS name it holds (as the
+  // Modal's owner line reads), else the ENS name. The address stays under it, copyable.
+  const name = houseLabel(address) ?? ensName;
 
   return (
     <div
@@ -373,7 +377,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           )}
 
           <div style={{ minWidth: 0, flex: 1 }}>
-            {ensName && (
+            {name && (
               <div
                 style={{
                   fontFamily: "var(--display)",
@@ -384,7 +388,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   letterSpacing: "-0.01em",
                 }}
               >
-                {ensName}
+                {name}
               </div>
             )}
             <div
@@ -392,8 +396,8 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               title="Click to copy full address"
               style={{
                 fontFamily: "var(--mono)",
-                fontSize: ensName ? 12 : 16,
-                color: ensName ? "var(--text-dim)" : "var(--text)",
+                fontSize: name ? 12 : 16,
+                color: name ? "var(--text-dim)" : "var(--text)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -401,7 +405,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                 transition: "color 0.2s",
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = "var(--gold)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = ensName ? "var(--text-dim)" : "var(--text)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = name ? "var(--text-dim)" : "var(--text)")}
             >
               {shortenAddress(address)}
               <span style={{ fontSize: 11, opacity: 0.6 }}>

@@ -6,7 +6,7 @@ import type { LendingMarket } from './lenderPitch';
 import { spreadTags, wallElevation, wallFacts, type WallFacts } from './wall';
 
 const JBAC = { name: 'Jungle Bay Ape Club', symbol: 'JBAC', address: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' };
-const read: LendingMarket = { floor: 0.05, sales30d: 76, bids: { bestBid: 0.0394, nearFloor: 0 } };
+const read: LendingMarket = { floor: 0.05, sales30d: 76, bids: { bestBid: 0.0394, nearFloorBids: [] } };
 const SHARES = [
   { pct: 60, amount: '0.0300' },
   { pct: 75, amount: '0.0375' },
@@ -28,7 +28,7 @@ describe('what the wall may draw (wallFacts)', () => {
   });
 
   it('with no floor read, nothing is to scale: no level, no zone, and the floor says NOT READ first', () => {
-    const f = facts({ market: { floor: null, sales30d: null, bids: { bestBid: 0.012, nearFloor: null } }, principal: 0.02 });
+    const f = facts({ market: { floor: null, sales30d: null, bids: { bestBid: 0.012, nearFloorBids: null } }, principal: 0.02 });
     expect(f.mode).toBe('nts');
     expect([f.top, f.zone]).toEqual([null, null]);
     expect(f.shares).toEqual([]);
@@ -56,7 +56,7 @@ describe('what the wall may draw (wallFacts)', () => {
   });
 
   it('names the zone the amount stands in exactly as FloorBar does', () => {
-    for (const bids of [read.bids, { bestBid: null, nearFloor: null }, null]) {
+    for (const bids of [read.bids, { bestBid: null, nearFloorBids: null }, null]) {
       for (const principal of [0.01, 0.0394, 0.045, 0.05, 0.07]) {
         const f = facts({ market: { ...read, bids }, principal });
         expect(f.zone).toBe(barZone(principal, read.floor!, bids?.bestBid ?? null));
@@ -66,7 +66,7 @@ describe('what the wall may draw (wallFacts)', () => {
   });
 
   it('says NONE only when the bids were read and none is open, and NOT READ when they were not read', () => {
-    const none = facts({ market: { ...read, bids: { bestBid: null, nearFloor: null } } });
+    const none = facts({ market: { ...read, bids: { bestBid: null, nearFloorBids: null } } });
     const unread = facts({ market: { ...read, bids: null } });
     expect([none.bidState, unread.bidState]).toEqual(['none', 'unread']);
     expect(label(none, 'bid')).toMatchObject({ t: 'BEST BID', v: 'NONE' });
@@ -91,7 +91,7 @@ describe('the levels (wallElevation)', () => {
   it('draws the loan only to scale and typed, and the dimension says how far under the floor it is', () => {
     expect(wallElevation(600, facts(), JBAC).loanY).toBeNull();
     // A bid well clear of the dimension's middle, so no tag stands where its words go.
-    const market = { ...read, bids: { bestBid: 0.02, nearFloor: 0 } };
+    const market = { ...read, bids: { bestBid: 0.02, nearFloorBids: [] } };
     const d = wallElevation(600, facts({ market, principal: 0.03 }), JBAC);
     expect(d.loanY).not.toBeNull();
     expect(d.loanY!).toBeGreaterThan(d.floorY!);

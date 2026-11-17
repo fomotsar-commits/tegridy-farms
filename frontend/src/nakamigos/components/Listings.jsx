@@ -17,6 +17,7 @@ import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
 import { toastTxNotice } from "../lib/txOutcome";
 import { fetchCollectionOffers, fetchBestOffer } from "../api-offers";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 /* ── Sort helpers ── */
 const SORT_OPTIONS = [
@@ -123,6 +124,8 @@ const ListingCard = memo(function ListingCard({
   const handleAddToCart = useCallback((e) => { e.stopPropagation(); onAddToCart?.(nft); }, [onAddToCart, nft]);
 
   const isOwnListing = wallet && nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase();
+  // A listing by the venue's own wallet says so on its card. Null for everyone else.
+  const house = houseLabel(nft.maker);
 
   return (
     <div className="listing-card" onClick={handleClick} onKeyDown={handleKeyDown} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
@@ -185,6 +188,11 @@ const ListingCard = memo(function ListingCard({
         {bestOffer && (
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", marginTop: 2 }}>
             Best offer: <Eth size={8} /> {bestOffer.toFixed(4)}
+          </div>
+        )}
+        {house && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+            {house}
           </div>
         )}
         <div className="listing-card-actions">

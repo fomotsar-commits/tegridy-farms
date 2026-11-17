@@ -7,7 +7,7 @@ import { LoanWall } from './LoanWall';
 import { WallAxo } from './WallAxo';
 
 const col = COLLECTIONS[0]!.address;
-const market = (over: Partial<LendingMarket> = {}): LendingMarket => ({ floor: 0.05, sales30d: 76, bids: { bestBid: 0.0394, nearFloor: 0 }, ...over });
+const market = (over: Partial<LendingMarket> = {}): LendingMarket => ({ floor: 0.05, sales30d: 76, bids: { bestBid: 0.0394, nearFloorBids: [] }, ...over });
 const wall = (c: HTMLElement) => c.querySelector('.l01-wall')!;
 
 describe('the wall on the Lend tab (L-01)', () => {

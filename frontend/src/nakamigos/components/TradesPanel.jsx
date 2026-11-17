@@ -8,6 +8,7 @@ import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTra
 import { toastTxNotice } from "../lib/txOutcome";
 import { getNotificationStatus, subscribeToPush, unsubscribeFromPush, isSubscribed } from "../lib/notifications";
 import { fetchWalletNfts } from "../api";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 /** Bell toggle for trade push alerts. Hidden until VAPID keys are configured. */
 function PushToggle({ wallet, addToast }) {
@@ -256,7 +257,8 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
             onClick={() => onPickProfile?.(other)}
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)" }}
           >
-            {short(other)}
+            {/* The venue's own wallet reads "House" here too (a trade sent for an NFT it owns). */}
+            {houseLabel(other) ?? short(other)}
           </button>
           {trade.counter_of && <span style={{ marginLeft: 8, color: "var(--gold)" }}>COUNTER</span>}
         </div>

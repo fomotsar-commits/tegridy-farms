@@ -6,6 +6,7 @@ import { getFriendlyError } from "../../lib/errorMessages";
 import { isTxNotice } from "../../lib/txOutcome";
 import { exactEth, shownEth } from "../../lib/formatPrice";
 import { askWalletToSwitch } from "../../lib/walletSwitch";
+import { houseLabel } from "../../../lib/house/houseRegistry.js";
 
 const PRICE_RE = /^\d{1,6}(\.\d{1,18})?$/;
 const short = (a) => (typeof a === "string" && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a || "");
@@ -152,7 +153,7 @@ export default function TradeHereBase({ collection, item, wallet, onConnect, add
         {best && (
           <>
             <strong className="ext-trade-price">{best.price} {best.currency || "WETH"}</strong>
-            <span className="ext-panel-note">from {short(best.maker)}</span>
+            <span className="ext-panel-note">from {houseLabel(best.maker) ?? short(best.maker)}</span>
             {wallet && (
               <button type="button" className="btn-secondary ext-trade-btn" disabled={busy === "accept"} onClick={accept}>
                 {busy === "accept" ? "Confirming..." : "Accept (owner)"}

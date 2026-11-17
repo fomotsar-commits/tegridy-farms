@@ -4,6 +4,7 @@ import { fetchTokenOfferBook, acceptOffer } from "../api-offers";
 import { getFriendlyError } from "../lib/errorMessages";
 import { toastTxNotice } from "../lib/txOutcome";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 import NetProceeds from "./NetProceeds";
 
 export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, ownerAddress }) {
@@ -228,7 +229,9 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
                     <Eth size={10} /> {Number.isFinite(offer.price) ? offer.price.toFixed(4) : "—"}
                   </div>
                   <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                    {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
+                    {/* The venue's own bidder is named. This book cannot tell a bid on
+                        this token from a bid on any token, so no count is claimed here. */}
+                    {houseLabel(offer.maker) ?? (offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : "")}
                     {offer.expiry ? ` \u00b7 ${timeLeft(offer.expiry)}` : ""}
                   </div>
                 </div>

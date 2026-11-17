@@ -34,8 +34,28 @@ import {
 } from "../../lib/detection";
 import { isSelfSale } from "./washTrade";
 import { alchemyGet } from "./proxy";
+import { createHouseRegistry, isHouseWallet } from "../../lib/house/houseRegistry.js";
 
 export const INTEGRITY_METHOD_VERSION = "nft-integrity/1.0.0";
+
+/**
+ * Which wallets are the venue's own (lib/house/houseRegistry.json), or the list a caller
+ * passes in place of it. The venue's bidder buys from many sellers, and a seller who sells
+ * it two NFTs into one bid is ordinary demand, not a coordinated pair.
+ */
+function houseTest(houseWallets) {
+  if (houseWallets == null) return isHouseWallet;
+  return createHouseRegistry({ wallets: [...houseWallets].map((address) => ({ address })) }).isHouseWallet;
+}
+
+/**
+ * A sale between the house and an outside wallet draws no edge. A sale between two house
+ * wallets still does (the venue trading with itself is exactly what this graph is for), and
+ * a house wallet selling to itself is still a same-wallet sale.
+ */
+function houseCrossing(s, isHouse) {
+  return isHouse(s.seller) !== isHouse(s.buyer);
+}
 
 /** A 0x-prefixed 40-hex EVM address (lowercased), else null. */
 function normAddr(value) {
@@ -115,16 +135,24 @@ class UnionFind {
  * These are the classic self-dealing fingerprints; a one-off A→B sale is NOT an
  * edge (that is ordinary demand). Clusters of size 1 are dropped.
  *
+ * A sale between the venue's own wallet and an outside one is never an edge (the house
+ * bidder buys up to its quantity from whoever sells, so "A sold to the house twice" is a
+ * seller filling a standing bid). Those sales are listed apart, as house trades.
+ *
  * @param {object[]} sales  normalized sale objects (from `normalizeSale`)
+ * @param {{ isHouse?: (address: string) => boolean }} [opts]  defaults to the registry
  * @returns {{ clusterOf: Map<string,string>, clusters: Array }}
  */
-export function buildTradeClusters(sales) {
+export function buildTradeClusters(sales, { isHouse = isHouseWallet } = {}) {
   const uf = new UnionFind();
   const pairSeen = new Map(); // "a|b" (a<b) -> Set of directions seen
   const edgeWallets = new Set();
 
   for (const s of sales) {
     if (!s || s.seller === s.buyer) continue; // self-sales handled separately
+    // A house trade (listed apart) never enters pairSeen, and edges are drawn only for
+    // pairs in pairSeen, so it can make neither a both-ways nor a repeated one-way edge.
+    if (houseCrossing(s, isHouse)) continue;
     const a = s.seller;
     const b = s.buyer;
     const key = a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -202,12 +230,15 @@ export function buildTradeClusters(sales) {
  * are no comparable sales. Never accuses — it reports counts and shares.
  *
  * @param {object[]} salesInput  raw sale rows (activity-feed or price-history shape)
+ * @param {{ observedAt?: number, houseWallets?: Iterable<string> }} [opts]  houseWallets
+ *   replaces the registry's list (tests); left out, the registry is read
  * @returns {object}
  */
-export function analyzeWashTrading(salesInput, { observedAt } = {}) {
+export function analyzeWashTrading(salesInput, { observedAt, houseWallets } = {}) {
   const rawList = Array.isArray(salesInput) ? salesInput : [];
   const sales = rawList.map(normalizeSale).filter(Boolean);
   const usable = sales.length;
+  const isHouse = houseTest(houseWallets);
 
   if (usable === 0) {
     return {
@@ -218,6 +249,7 @@ export function analyzeWashTrading(salesInput, { observedAt } = {}) {
           : "No sales in the observed window.",
       totalSales: rawList.length,
       comparableSales: 0,
+      houseTrades: { count: 0, volumeEth: 0, trades: [] },
     };
   }
 
@@ -240,7 +272,18 @@ export function analyzeWashTrading(salesInput, { observedAt } = {}) {
     }
   });
 
-  const { clusterOf, clusters } = buildTradeClusters(sales);
+  const { clusterOf, clusters } = buildTradeClusters(sales, { isHouse });
+
+  // Every sale the venue's own wallet was a side of, for the panel's "House trades" list:
+  // published apart, never folded into anyone else's cluster.
+  const houseTrades = [];
+  let houseVolume = 0;
+  for (const s of sales) {
+    const bought = isHouse(s.buyer);
+    if (!bought && !isHouse(s.seller)) continue;
+    houseTrades.push({ side: bought ? "bought" : "sold", seller: s.seller, buyer: s.buyer, tokenId: s.tokenId, price: s.price, time: s.time, hash: s.hash });
+    if (s.price != null) houseVolume += s.price;
+  }
 
   // Cluster-internal sales (both sides in the same coordinated cluster).
   let clusterSaleCount = 0;
@@ -324,6 +367,7 @@ export function analyzeWashTrading(salesInput, { observedAt } = {}) {
       volumeEth: round(suspectVolume),
       shareOfVolume: totalVolume > 0 ? suspectVolume / totalVolume : 0,
     },
+    houseTrades: { count: houseTrades.length, volumeEth: round(houseVolume), trades: houseTrades },
   };
 }
 
@@ -495,10 +539,13 @@ export function computeMarketIntegrity({
   floorDepth = 100,
   observedAt,
   listingsUnavailable = false,
+  houseWallets,
 } = {}) {
   const ts = observedAt ?? Math.floor(Date.now() / 1000);
-  const wash = analyzeWashTrading(sales, { observedAt: ts });
-  const clusterOf = wash.measured ? buildTradeClusters(sales.map(normalizeSale).filter(Boolean)).clusterOf : new Map();
+  const wash = analyzeWashTrading(sales, { observedAt: ts, houseWallets });
+  // The same house rule as the wash graph, so no seller is overlaid as coordinated with the house.
+  const isHouse = houseTest(houseWallets);
+  const clusterOf = wash.measured ? buildTradeClusters(sales.map(normalizeSale).filter(Boolean), { isHouse }).clusterOf : new Map();
   const floor = analyzeFloorConcentration(listings, {
     depth: floorDepth,
     observedAt: ts,

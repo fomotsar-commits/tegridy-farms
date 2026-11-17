@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-17
 
+- Marketplace and NFT lending: the depth chart no longer gives a verdict built on bids nobody may be able to pay, the lending card's near-floor count includes only bidders who hold and have approved the WETH, and our own order book takes and fills only listings, reported by their buyer, so nobody can pad the volume figure.
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
 
 ### 2026-11-16

@@ -12,10 +12,20 @@
 //
 // WORDS: /nft-finance has a visible-word ceiling (e2e/word-budget.spec.ts). The card's title
 // is the pitch, the tiles are bare numbers, and every explanation sits in "Why".
-import { formatEther } from 'viem';
+//
+// The venue's own bids (lib/house/houseRegistry.json) count in no number here, and "Near
+// floor" counts only the NFTs each bidder's WETH can pay for: one multicall reads up to 50
+// bidders' WETH balance and allowance to OpenSea's conduit, as the Offers tab reads lenders'.
+import { useMemo } from 'react';
+import { useReadContracts } from 'wagmi';
+import { formatEther, type Address } from 'viem';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
-import { exitCheck, underFloorPct, useLendingMarket } from '../../lib/gondi/lenderPitch';
+import { CHAIN_ID } from '../../lib/constants';
+import { ERC20_ABI } from '../../lib/contracts';
+import { WETH_ADDRESS } from '../../lib/gondi/loanOffer.js';
+import { OPENSEA_CONDUIT, exitCheck, fundedNearFloor, fundingMakers, underFloorPct, useLendingMarket } from '../../lib/gondi/lenderPitch';
+import { houseWallets } from '../../lib/house/houseRegistry.js';
 import { CARD_BG, CARD_BORDER, LABEL_STYLE, LENDING_LIVE, collectionSymbol } from './nftLendingShared';
 import { FloorBar } from './FloorBar';
 
@@ -38,10 +48,24 @@ export function LenderMarketPanel({
   const check = principal !== null ? exitCheck(principal, bids) : null;
   const under = principal !== null ? underFloorPct(principal, m?.floor ?? null) : null;
 
+  // Who bids near the floor, and what their WETH can pay for. batchSize 0 keeps the reads in
+  // ONE aggregate3 call: viem's default would split 100 calls into ~1 KB chunks.
+  const makers = useMemo(() => fundingMakers(bids), [bids]);
+  const funds = useReadContracts({
+    contracts: makers.flatMap((maker) => [
+      { address: WETH_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [maker as Address], chainId: CHAIN_ID } as const,
+      { address: WETH_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [maker as Address, OPENSEA_CONDUIT], chainId: CHAIN_ID } as const,
+    ]),
+    batchSize: 0,
+    query: { enabled: LENDING_LIVE && makers.length > 0, staleTime: 60_000, refetchOnWindowFocus: false },
+  });
+  const nearFloor = fundedNearFloor(bids, makers, funds.data);
+  const houseRuns = houseWallets().length > 0;
+
   const tiles = [
     { label: 'Floor', value: m?.floor != null ? `${eth(m.floor)} ETH` : '–' },
     { label: 'Best bid', value: !bids ? '–' : bids.bestBid === null ? 'None' : `${eth(bids.bestBid)} WETH` },
-    { label: 'Near floor', value: bids?.nearFloor != null ? String(bids.nearFloor) : '–' },
+    { label: 'Near floor', value: nearFloor != null ? String(nearFloor) : '–', loading: makers.length > 0 && funds.isLoading },
     { label: 'Sales, 30d', value: m?.sales30d != null ? String(m.sales30d) : '–' },
   ];
 
@@ -57,12 +81,17 @@ export function LenderMarketPanel({
             <p className="text-white/80 text-[11px] uppercase tracking-wider" style={LABEL_STYLE}>
               {t.label}
             </p>
-            <p className="text-white text-[15px] font-semibold font-mono" data-unread={!market.isLoading && t.value === '–' ? '' : undefined} style={LABEL_STYLE}>
-              {market.isLoading ? '…' : t.value}
+            <p className="text-white text-[15px] font-semibold font-mono" data-unread={!market.isLoading && !t.loading && t.value === '–' ? '' : undefined} style={LABEL_STYLE}>
+              {market.isLoading || t.loading ? '…' : t.value}
             </p>
           </div>
         ))}
       </div>
+      {houseRuns && (
+        <p className="text-white/80 text-[12px]" style={LABEL_STYLE} data-testid="lender-market-house">
+          Our own house bids are not counted here.
+        </p>
+      )}
       {setPrincipal && (
         <FloorBar symbol={collectionSymbol(collection)} principal={principal} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
       )}
@@ -87,8 +116,8 @@ export function LenderMarketPanel({
         </p>
         <p className="mt-1">
           Floor: the cheapest OpenSea listing. Best bid: the highest open OpenSea bid for any NFT in the collection, what you
-          could sell for today. Near floor: how many NFTs open bids would buy within 10% of the floor. Sales, 30d: sales in
-          the last 30 days.
+          could sell for today. Near floor: how many NFTs open bids would buy within 10% of the floor, counting only what each
+          bidder&apos;s WETH can pay for. Sales, 30d: sales in the last 30 days.
         </p>
         <p className="mt-1">
           Read from OpenSea through this site, each minute. Blur&apos;s bids are not counted, so there may be more buyers than

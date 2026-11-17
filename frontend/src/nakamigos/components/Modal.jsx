@@ -20,6 +20,7 @@ import { formatPrice, formatListingPrice, listingPriceTitle } from "../lib/forma
 import { excludeSelfSales } from "../lib/washTrade";
 import Usd from "./Usd";
 import useEns from "../hooks/useEns";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 const ComparableSales = lazy(() => import("./ComparableSales").catch(() => ({ default: () => null })));
 const TradeWindow = lazy(() => import("./TradeWindow").catch(() => ({ default: () => null })));
@@ -329,7 +330,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                       role="button"
                       tabIndex={0}
                     >
-                      {"\u00b7"} Owner: {ownerEns || `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}`} {copied === "owner" ? "\u2713" : ""}
+                      {/* The venue's own wallet reads "House", ahead of any ENS name it
+                          holds; the copy button still copies its full address. */}
+                      {"\u00b7"} Owner: {houseLabel(nft.owner) || ownerEns || `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}`} {copied === "owner" ? "\u2713" : ""}
                     </span>
                     {onViewProfile && (
                       <span

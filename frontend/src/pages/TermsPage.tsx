@@ -6,6 +6,7 @@ import { SWAP_FEE_BPS } from '../lib/constants';
 import { DEFAULT_FEE_CONSTITUTION, LAUNCH_FEE_TIER, TOWELI_NUMERAIRE } from '../lib/launcher/config';
 import { protocolFeeSink } from '../lib/launcher/launchService';
 import { MIGRATION_POOL } from '../lib/launcher/airlock';
+import { houseWallets } from '../lib/house/houseRegistry.js';
 
 // Render the swap fee straight from the on-chain-mirrored constant so Terms can
 // never drift from the Risks page / contract again (F373/F440).
@@ -36,6 +37,17 @@ const FEE_CONSTITUTION_TEXT = DEFAULT_FEE_CONSTITUTION.map(
     `${l.role === 'protocol-stakers' ? PROTOCOL_FEE_RECIPIENT : l.recipient} ${(l.shareBps / 100).toFixed(0)}%`,
 ).join(', ');
 
+// The operator's NFT bidder (funded with the operator's own money, owner 2026-11-16), in §2 only
+// once lib/house/houseRegistry.json names its wallet. §15 promises notice of material changes, so
+// the sentence arrives with the bidder, not before; termsHouseBidder.test.ts also holds the
+// "Last updated" line to that change.
+export const HOUSE_BIDDER_SENTENCE =
+  "The venue's operator may run a disclosed bidder with their own money; when they do, its wallet, rules and trades are published.";
+const HOUSE_BIDDER_TERMS = houseWallets().length > 0 ? ` ${HOUSE_BIDDER_SENTENCE}` : '';
+
+/** The "Last updated" line. Change it in the same commit as any change to these Terms. */
+export const TERMS_LAST_UPDATED = 'August 2026';
+
 // Exported for the content guard in termsLauncherCoverage.test.ts, which pins that the
 // launcher rails described here stay in step with the launcher feature flags.
 export const SECTIONS = [
@@ -45,7 +57,8 @@ export const SECTIONS = [
   },
   {
     title: '2. Description of Services',
-    body: 'memetics.finance is a decentralized finance (DeFi) protocol built on the Ethereum blockchain. The Protocol provides the following services: yield farming and liquidity provision through automated market maker pools; token swapping via integrated DEX functionality; TOWELI token staking with vote-escrow mechanics; peer-to-peer NFT lending with collateral-based loan origination; an NFT AMM for automated NFT trading; and a token launcher through which any user may create, issue and deploy a new ERC-20 token on Ethereum mainnet using the third-party Doppler protocol, paired against either native ETH or TOWELI, which runs a dynamic auction and graduates into a Uniswap V4 pool. The Protocol previously published a Solana sub-brand launch rail over a third-party Dynamic Bonding Curve program. THAT RAIL WAS RETIRED ON 2026-08-23 and the Protocol offers no Solana launch service at this time. The Protocol\'s own Solana launch program is written but is not deployed on any cluster, and no Solana token can be created through the Protocol until it is. All Ethereum services are provided through non-custodial smart contracts deployed on the Ethereum mainnet.',
+    body: 'memetics.finance is a decentralized finance (DeFi) protocol built on the Ethereum blockchain. The Protocol provides the following services: yield farming and liquidity provision through automated market maker pools; token swapping via integrated DEX functionality; TOWELI token staking with vote-escrow mechanics; peer-to-peer NFT lending with collateral-based loan origination; an NFT AMM for automated NFT trading; and a token launcher through which any user may create, issue and deploy a new ERC-20 token on Ethereum mainnet using the third-party Doppler protocol, paired against either native ETH or TOWELI, which runs a dynamic auction and graduates into a Uniswap V4 pool. The Protocol previously published a Solana sub-brand launch rail over a third-party Dynamic Bonding Curve program. THAT RAIL WAS RETIRED ON 2026-08-23 and the Protocol offers no Solana launch service at this time. The Protocol\'s own Solana launch program is written but is not deployed on any cluster, and no Solana token can be created through the Protocol until it is. All Ethereum services are provided through non-custodial smart contracts deployed on the Ethereum mainnet.' +
+      HOUSE_BIDDER_TERMS,
   },
   {
     title: '3. Eligibility',
@@ -162,7 +175,7 @@ export default function TermsPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: August 2026
+            Last updated: {TERMS_LAST_UPDATED}
           </p>
         </m.div>
       </div>

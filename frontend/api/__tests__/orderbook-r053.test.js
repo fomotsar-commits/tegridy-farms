@@ -286,8 +286,7 @@ describe("orderbook R053 — signature + ownership + price overflow", () => {
   // consideration, the listings mapper renders every price as ETH, and
   // fulfillNativeOrder pays the consideration sum as msg.value — so a stored
   // ERC-20 listing would display in the wrong unit and try to send token base
-  // units as wei. OFFERS are deliberately NOT restricted: bidding WETH/USDC for
-  // an NFT is the standard flow and has its own handling (see the test below).
+  // units as wei. (Offers are refused outright since 2026-11-16: see below.)
   it("rejects an ERC-20 denominated LISTING (ETH-only)", async () => {
     const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
     const order = buildOrder(); // offer = NFT  => isListing
@@ -306,34 +305,68 @@ describe("orderbook R053 — signature + ownership + price overflow", () => {
     expect(insertedRows).toHaveLength(0);
   });
 
-  it("happy path on USDC offer (different decimals) — price scales to 6 dp", async () => {
-    const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
-    // ERC20 offer (USDC) for an NFT (consideration)
+  // 2026-11-16: the native book holds LISTINGS only. This used to store a WETH/USDC bid as
+  // order_type "offer" (no ownership check, no currency guard), and `fill` would mark one
+  // filled, so a bid paid to oneself padded the venue's public volume figure. Bids go to
+  // OpenSea; this path refuses anything that does not offer an NFT, before any signature
+  // or chain read, and stores nothing.
+  const asBid = (offerItem) => {
     const order = buildOrder();
-    // Convert to an OFFER type instead of listing
-    order.parameters.offer = [{
-      itemType: 1, // ERC20
-      token: USDC,
-      identifierOrCriteria: "0",
-      startAmount: "1000000000", // 1000 USDC at 6 decimals
-      endAmount: "1000000000",
-    }];
+    order.parameters.offer = [offerItem];
     order.parameters.consideration = [{
-      itemType: 2, // ERC721 in the consideration for offers
+      itemType: 2, // the NFT the bidder wants
       token: NAKAMIGOS,
       identifierOrCriteria: "42",
       startAmount: "1",
       endAmount: "1",
       recipient: OFFERER,
     }];
-    const { req, res, statusSpy } = makeReqRes({ action: "create", order });
+    return order;
+  };
+
+  it("refuses a USDC or WETH bid: only listings are accepted, and nothing is stored", async () => {
+    const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+    const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+    for (const token of [USDC, WETH]) {
+      const order = asBid({ itemType: 1, token, identifierOrCriteria: "0", startAmount: "1000000000", endAmount: "1000000000" });
+      const { req, res, statusSpy, jsonSpy } = makeReqRes({ action: "create", order });
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(400);
+      expect(jsonSpy).toHaveBeenCalledWith({ error: "Only listings are accepted" });
+    }
+    expect(insertedRows).toHaveLength(0);
+    expect(sigCheckMock).not.toHaveBeenCalled();
+    expect(ownerCheckMock).not.toHaveBeenCalled();
+    expect(recoverMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a native-ETH bid the same way", async () => {
+    const order = asBid({ itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "1", endAmount: "1" });
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({ action: "create", order });
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Only listings are accepted" });
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it("still refuses an ERC1155 offer item as a listing it cannot check", async () => {
+    const order = buildOrder();
+    order.parameters.offer[0].itemType = 3;
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({ action: "create", order });
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Listings must offer an ERC721 (itemType 2)" });
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it("stores a real listing as a listing, and says so", async () => {
+    const order = buildOrder();
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({ action: "create", order });
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(201);
-    // For OFFERS we don't run ownership (offerer offers ERC20, doesn't own NFT)
-    expect(ownerCheckMock).not.toHaveBeenCalled();
+    expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({ success: true, orderType: "listing" }));
     expect(insertedRows).toHaveLength(1);
-    expect(insertedRows[0].order_type).toBe("offer");
-    // 1000 USDC ÷ 10^6 = 1000.00000000
-    expect(insertedRows[0].price_eth).toBe(1000);
+    expect(insertedRows[0].order_type).toBe("listing");
+    expect(ownerCheckMock).toHaveBeenCalledTimes(1);
   });
 });

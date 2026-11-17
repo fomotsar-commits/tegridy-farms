@@ -1,9 +1,16 @@
 import { Eth } from "./Icons";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 // Moved verbatim from OrderBookPanel — used only by the native-listings list.
 function formatAddress(addr) {
   if (!addr) return "";
   return addr.slice(0, 6) + "..." + addr.slice(-4);
+}
+
+// Who listed it: "You", "House" for the venue's own wallet (lib/house/houseRegistry.json),
+// else the maker's address as before.
+function makerName(order, isMine) {
+  return isMine ? "You" : houseLabel(order.maker) ?? formatAddress(order.maker);
 }
 
 // A single listing shows its token (#123); a bundle shows "Bundle · N NFTs" with the
@@ -197,7 +204,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 7, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
-                <span>{isMine ? "You" : formatAddress(order.maker)} &middot; {formatDate(order.created_at)}</span>
+                <span>{makerName(order, isMine)} &middot; {formatDate(order.created_at)}</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                   <RowContext order={order} floorPrice={floorPrice} />
                   <StatusBadge status={order.status} />
@@ -241,7 +248,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
                   </span>
                 </td>
                 <td style={tdStyle}>
-                  <span style={{ color: "var(--text-dim)" }}>{isMine ? "You" : formatAddress(order.maker)}</span>
+                  <span style={{ color: "var(--text-dim)" }}>{makerName(order, isMine)}</span>
                 </td>
                 <td style={tdStyle}>
                   <span style={{ color: "var(--text-muted)" }}>{formatDate(order.created_at)}</span>

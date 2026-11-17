@@ -8,6 +8,8 @@ import { SHORTCUTS_FLAT } from "../lib/shortcuts";
 import { chainLabel, descriptionSourceLabel, explorerAddressUrl } from "../lib/venue";
 import { formatPrice } from "../lib/formatPrice";
 import { FinePrint } from "../../components/ui/FinePrint";
+import HouseBidsDisclosure, { HOUSE_BIDS_ID } from "./HouseBidsDisclosure";
+import { houseWallets } from "../../lib/house/houseRegistry.js";
 
 function formatVol(n) {
   if (n == null) return null;
@@ -71,6 +73,8 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
   const isJungleBay = collection.contract.toLowerCase() === JUNGLEBAY_CONTRACT.toLowerCase();
   const lore = COLLECTION_LORE[slug];
   const facts = FUN_FACTS[slug];
+  // The venue's own bidder, once it runs: one link up here to what it is, down the page.
+  const houseRuns = houseWallets().length > 0;
 
   const displaySupply = stats?.supply ?? collection.supply ?? null;
   const statCards = [
@@ -199,6 +203,12 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
                 </span>
               ))}
             </div>
+          )}
+
+          {houseRuns && (
+            <a href={`#${HOUSE_BIDS_ID}`} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)" }}>
+              House bids {"↓"}
+            </a>
           )}
         </div>
       </div>
@@ -372,6 +382,9 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           </a>
         ))}
       </div>
+
+      {/* The venue's own bidder: nothing at all until the registry names its wallet. */}
+      <HouseBidsDisclosure />
 
       {/* Keyboard shortcuts: a reference, so it opens on request. */}
       <div className="about-shortcuts">

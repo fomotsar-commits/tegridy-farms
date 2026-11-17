@@ -30,13 +30,23 @@ const WALLET = '0x1111111111111111111111111111111111111111';
 
 // OpenSea through /api/opensea, for JBAC (the Lend tab's first collection).
 let market: { stats: unknown; statsStatus: number; offers: unknown; offersStatus: number };
+// Each bid by its own bidder, through OpenSea's conduit (the shape every live bid had, 2026-11-15).
+let bidders = 0;
 const seaportBid = (eth: string, qty = 1, criteria: Record<string, unknown> = { trait: null }) => {
   const wei = (parseEther(eth) * BigInt(qty)).toString();
+  bidders += 1;
   return {
     order_hash: '0x01',
     price: { currency: 'WETH', value: wei },
     criteria: { collection: { slug: 'junglebay' }, ...criteria },
-    protocol_data: { parameters: { offer: [{ startAmount: wei }], consideration: [{ itemType: 4, identifierOrCriteria: '0', startAmount: String(qty) }] } },
+    protocol_data: {
+      parameters: {
+        offerer: '0x' + bidders.toString(16).padStart(40, '0'),
+        conduitKey: '0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000',
+        offer: [{ startAmount: wei }],
+        consideration: [{ itemType: 4, identifierOrCriteria: '0', startAmount: String(qty) }],
+      },
+    },
   };
 };
 const fetchMock = vi.fn(async (url: string) => {
@@ -132,6 +142,30 @@ describe('idea 4: who buys it', () => {
     await waitFor(() => expect(within(tile('Best bid')).getByText('None')).toBeTruthy());
     fillLend('0.25');
     expect(screen.getByTestId('lender-exit-check').textContent).toContain('No open bids right now');
+  });
+
+  // 2026-11-16: a bid is a signature; only WETH held AND approved to OpenSea's conduit buys.
+  it('near floor counts only the NFTs each bidder\'s WETH can pay for', async () => {
+    // Every bidder has approved just 0.28 WETH: one NFT at 0.28, one at 0.27, not five.
+    wagmiMock.setReadResult({ functionName: 'allowance', address: WETH_ADDRESS, result: parseEther('0.28') });
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    await waitFor(() => expect(within(tile('Near floor')).getByText('2')).toBeTruthy());
+  });
+
+  it('near floor is "–", never 0, when no bidder\'s WETH could be read', async () => {
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: WETH_ADDRESS, result: undefined, status: 'failure' });
+    wagmiMock.setReadResult({ functionName: 'allowance', address: WETH_ADDRESS, result: undefined, status: 'failure' });
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    expect(within(tile('Near floor')).getByText('–')).toBeTruthy();
+  });
+
+  it('says nothing about house bids while the venue runs none (registry empty)', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    expect(screen.queryByTestId('lender-market-house')).toBeNull();
+    expect(card().textContent).not.toMatch(/house/i);
   });
 
   it('a failed bid read shows "–", never "None", and draws no verdict', async () => {

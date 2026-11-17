@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { fetchActivity, fetchListings } from "../api";
 import { computeMarketIntegrity, fetchCollectionOwners } from "../lib/marketIntegrity";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 // ── Descriptive band → label + color (shared by ownership + floor) ──
 const BAND_META = {
@@ -191,7 +192,7 @@ export function OwnershipPanel({ result, truncated }) {
 }
 
 // ── Wash-trade / self-dealing signals ──
-function WashPanel({ result, capped, onViewProfile }) {
+export function WashPanel({ result, capped, onViewProfile }) {
   // At the fetch cap the window claim would overstate coverage — a busy
   // collection's 30 days got clipped to the most recent 100 events.
   const windowLabel = capped
@@ -246,10 +247,32 @@ function WashPanel({ result, capped, onViewProfile }) {
                         cursor: onViewProfile ? "pointer" : "default",
                       }}
                     >
-                      {shortAddr(w)}
+                      {/* A house wallet is named here too; its address stays on hover. */}
+                      {houseLabel(w) ?? shortAddr(w)}
                     </button>
                   ))}
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* The venue's own bidder (lib/house/houseRegistry.json): its trades are listed here,
+          apart, and never put a seller in a group with it (lib/marketIntegrity.js). Nothing
+          shows while the registry names no wallet. */}
+      {result.houseTrades?.count > 0 && (
+        <div style={{ marginTop: 14 }} data-testid="house-trades">
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: 8 }}>
+            HOUSE TRADES ({result.houseTrades.count})
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+            {result.houseTrades.trades.map((t, i) => (
+              <div key={`${t.hash ?? "trade"}-${i}`}>
+                {t.side === "bought"
+                  ? `House bought #${t.tokenId ?? "?"} from ${houseLabel(t.seller) ?? shortAddr(t.seller)}`
+                  : `House sold #${t.tokenId ?? "?"} to ${houseLabel(t.buyer) ?? shortAddr(t.buyer)}`}
+                {t.price != null && <> · <Eth size={9} />{num(t.price, 4)}</>}
               </div>
             ))}
           </div>

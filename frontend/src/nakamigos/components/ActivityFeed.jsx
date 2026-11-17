@@ -5,6 +5,7 @@ import { isSelfSale } from "../lib/washTrade";
 import { EnsName } from "../hooks/useEns.jsx";
 import { fetchActivity } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { houseLabel } from "../../lib/house/houseRegistry.js";
 
 const EVENT_COLORS = {
   sale: "var(--green)",
@@ -409,10 +410,12 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             <div className="activity-token-name">
               {a.token?.name || "Unknown"}
             </div>
+            {/* The venue's own wallet reads "House" on either side, as on the offers and
+                listings it makes; everyone else reads as before. */}
             <div className="activity-parties">
               {(a.fromFull || a.from) && (
                 <span className="activity-addr">
-                  {a.fromFull ? <EnsName address={a.fromFull} /> : a.from}
+                  {a.fromFull ? (houseLabel(a.fromFull) ?? <EnsName address={a.fromFull} />) : a.from}
                 </span>
               )}
               {a.from && a.to && (
@@ -420,7 +423,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
               )}
               {(a.toFull || a.to) && (
                 <span className="activity-addr">
-                  {a.toFull ? <EnsName address={a.toFull} /> : a.to}
+                  {a.toFull ? (houseLabel(a.toFull) ?? <EnsName address={a.toFull} />) : a.to}
                 </span>
               )}
             </div>
