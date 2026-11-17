@@ -227,7 +227,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
   const stakeClosed = depositsFrozen || rewardsEnded || paysNothing || periodFinishRaw === null || big(3) === null;
 
   return (
-    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} data-ladder-card="evm" style={{ border: '1px solid var(--color-purple-75)' }}>
       <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="evm-ladder-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
@@ -259,7 +259,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4" data-s01="stats">
               <Stat label="Reward vault" value={`${fmtRaw(view.vaultRaw, decimals)} ${bungalow.symbol}`} title="The contract's own rewardSurplus(): its balance minus every staker's principal. This is what it can actually pay." />
               <Stat label="Total staked" value={`${fmtRaw(big(0), decimals)} ${bungalow.symbol}`} />
               <Stat label="Pool pays (all stakers)" value={view.payingNowRawPerSec === null ? '—' : `${fmtRaw(view.payingNowRawPerSec * 86_400n, decimals)}/day`} title="Pool-wide, shared across every staker by lock weight — not your personal rate." />
@@ -319,9 +319,9 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                 connect a wallet to even SEE is a ladder nobody climbs. Only the
                 amount field and the buttons below need a wallet. */}
             <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-3 gap-2 mb-3" data-s01="rungs">
               {RUNGS.map((r, i) => (
-                <button key={r.length} type="button" onClick={() => setRung(i)}
+                <button key={r.length} type="button" onClick={() => setRung(i)} data-rung={i === rung ? 'on' : 'off'}
                   className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
                   style={{
                     background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
@@ -359,7 +359,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
               </button>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="grid grid-cols-2 gap-3 mb-4" data-s01="stats">
                   <Stat label="Your principal" value={`${fmtRaw(myPrincipalRaw, decimals)} ${bungalow.symbol}`} />
                   <Stat label="Claimable" value={`${fmtRaw(earnedRaw, decimals)} ${bungalow.symbol}`} />
                 </div>
@@ -539,7 +539,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
 
 function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }} title={title}>
+    <div className="rounded-xl px-3 py-2.5" data-stat="" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }} title={title}>
       <p className="text-[10px] uppercase tracking-wider text-white/50 mb-1">{label}</p>
       <p className="text-white text-[14px] tabular-nums">{value}</p>
     </div>
