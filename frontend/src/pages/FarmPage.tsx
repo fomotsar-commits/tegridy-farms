@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
+import { localeCut } from '../lib/formatting';
 import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
 import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
@@ -300,7 +301,7 @@ function ToweliFarm() {
   // means "could not read", and conflating the two was exactly the dry-day
   // display bug. isDry only flips once reads landed, so the distinction holds.
   const rewardsRemainingDisplay = pool.isDeployed && (rewardsRemainingNum > 0 || pool.isDry)
-    ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
+    ? `${localeCut(pool.rewardsRemaining, 0)} TOWELI`
     : '–';
 
   // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).

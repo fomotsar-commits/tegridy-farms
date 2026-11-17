@@ -54,6 +54,16 @@ describe('planEvmPool', () => {
     expect(p.claims[0]!.caution).toMatch(/holds 2 PEPE now/);
   });
 
+  it('the vault sentence never names more than the vault holds: 1,284.5 is 1,284, never 1,285', () => {
+    const p = ok(pepe, { earnedRaw: 2_000n * 10n ** 18n, surplusRaw: 1_284_500_000_000_000_000_000n });
+    expect(p.claims[0]!.caution).toMatch(/holds 1,284 PEPE now/);
+    for (const surplusRaw of [999_999_000_000_000_000_000n, 10n ** 18n - 1n, 1_999_999_999_999_999_999n]) {
+      const said = /holds ([\d,.]+) PEPE/.exec(ok(pepe, { earnedRaw: 10n ** 30n, surplusRaw }).claims[0]!.caution ?? '')![1]!;
+      const [whole, frac = ''] = said.replace(/,/g, '').split('.');
+      expect(BigInt(whole! + frac.padEnd(18, '0')), said).toBeLessThanOrEqual(surplusRaw);
+    }
+  });
+
   it('an unread vault is not a gate', () => {
     expect(ok(pepe, { surplusRaw: null }).claims[0]!.caution).toBeNull();
   });
