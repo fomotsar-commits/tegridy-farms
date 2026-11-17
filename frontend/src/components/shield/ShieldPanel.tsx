@@ -25,14 +25,15 @@ export function ShieldPanel() {
   const fired = alerts.evaluations.filter((e) => e.verdict === 'fired');
 
   return (
-    <section className="space-y-3" aria-label={SHIELD_COPY.title}>
+    <section className="space-y-3" data-dwg="shield" aria-label={SHIELD_COPY.title}>
       {/* The subtitle moved into the notice's "How it works" (owner 2026-10-14: fewer words). */}
-      <h3 className="heading-luxury text-[15px] text-white">{SHIELD_COPY.title}</h3>
+      <h3 className="dwg-h2">{SHIELD_COPY.title}</h3>
 
       <ShieldAutomationNotice />
 
       {snapshot.status !== 'ready' && (
         <p
+          data-dwg="line"
           className="text-[12px] leading-snug rounded-xl p-3"
           style={{
             color: snapshot.status === 'unreadable' ? '#FFD37C' : 'rgba(255,255,255,0.7)',
@@ -47,6 +48,7 @@ export function ShieldPanel() {
 
       {snapshot.status === 'ready' && snapshot.positions.length === 0 && (
         <p
+          data-dwg="line"
           className="text-white/70 text-[12px] leading-snug rounded-xl p-3"
           style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
         >
@@ -67,6 +69,7 @@ export function ShieldPanel() {
           alerts being taken care of. */}
       {snapshot.status === 'ready' && snapshot.positions.length > 0 && alerts.rules.length === 0 && (
         <p
+          data-dwg="line"
           className="text-[12px] leading-snug rounded-xl p-3"
           style={{ color: '#FFD37C', background: '#000', border: '1px solid var(--color-purple-75)' }}
           role="status"
@@ -77,6 +80,7 @@ export function ShieldPanel() {
 
       {alerts.rules.length > 0 && (
         <section
+          data-dwg="plate"
           className="relative isolate rounded-xl p-4"
           style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
           aria-label="Deadline alerts"

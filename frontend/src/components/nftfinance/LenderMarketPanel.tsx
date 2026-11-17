@@ -72,16 +72,16 @@ export function LenderMarketPanel({
   return (
     <div className="relative isolate rounded-xl p-3 md:p-4 space-y-2" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }} data-testid="lender-market">
       <CardArt pageId="nft-finance" idx={27} />
-      <p className="text-white text-[13px] font-semibold" style={LABEL_STYLE}>
+      <p className="text-white text-[13px] font-semibold" data-dwg="kicker" style={LABEL_STYLE}>
         A floor bid that earns while it waits.
       </p>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2" data-dwg="schedule">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <p className="text-white/80 text-[11px] uppercase tracking-wider" style={LABEL_STYLE}>
               {t.label}
             </p>
-            <p className="text-white text-[15px] font-semibold font-mono" style={LABEL_STYLE}>
+            <p className="text-white text-[15px] font-semibold font-mono" data-unread={!market.isLoading && !t.loading && t.value === '–' ? '' : undefined} style={LABEL_STYLE}>
               {market.isLoading || t.loading ? '…' : t.value}
             </p>
           </div>

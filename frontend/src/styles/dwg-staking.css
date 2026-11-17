@@ -1,0 +1,431 @@
+/* S-01 · THE LADDER HOUSE (owner, 2026-11-15): a staking pool's page, /earn/<pool>, as one sheet of the
+   drawing set (styles/dwg.css). Every rule is scoped under .dwg[data-sheet='S'], the page's root
+   wrapper, so the home page's compact ladder card and every other page keep their look. Unlayered:
+   it beats a Tailwind utility; an inline style is replaced only with !important, and each such
+   line names the inline value it replaces. Words drawn here come from data-* or a counter, so
+   they are no part of the page's words, and their alternative text is empty (`/ ""`, see dwg.css). */
+
+/* ── 0. The sheet, and the way back above it ── */
+.dwg[data-sheet='S'] .s01-sheet {
+  max-width: 70rem; margin-inline: auto; counter-reset: s01-band;
+  --s01-accent: var(--dwg-green);
+  --s01-gap: clamp(20px, 3vw, 44px);
+  --s01-margin: minmax(11.25rem, calc((100% - 2 * var(--dwg-pad)) * 0.22));
+  /* One set of tracks for every band from 64rem: the margin column holds its plaque and its head. */
+  --s01-split: [full-start] var(--dwg-pad) [m-start] var(--s01-margin) [m-end] var(--s01-gap) [c-start] minmax(0, 1fr) [c-end] var(--dwg-pad) [full-end];
+  --s01-hatch: repeating-linear-gradient(135deg, rgba(245, 228, 184, 0.24) 0 1px, transparent 1px 6px);
+  --s01-hatch-spot: repeating-linear-gradient(135deg, color-mix(in srgb, var(--dwg-spot) 72%, transparent) 0 1px, transparent 1px 5px);
+  --s01-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.dwg[data-sheet='S'] .s01-back { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin: -14px 0 4px; font: 600 11px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); text-decoration: none; text-shadow: none; }
+.dwg[data-sheet='S'] .s01-back:hover { color: var(--dwg-ink); text-decoration: none; }
+/* The fonts have no arrow: the glyph's own box is emptied and an arrow is drawn in it. */
+.dwg[data-sheet='S'] .s01-back > span[aria-hidden] { font-size: 0; }
+.dwg[data-sheet='S'] .s01-back > span[aria-hidden]::before { content: ''; display: block; width: 15px; height: 9px; background: currentColor; clip-path: polygon(100% 40%, 38% 40%, 38% 0, 0 50%, 38% 100%, 38% 60%, 100% 60%); }
+/* A wallet on the wrong network: its alert stands inside the frame, off its edges. */
+.dwg[data-sheet='S'] .s01-sheet > [role='alert'] { margin: 14px var(--dwg-pad) 0; }
+
+/* Hard corners, flat cards, cream ink: what any classic card on the sheet loses. */
+.dwg[data-sheet='S'] .s01-sheet :is([class*='rounded'], .glass-card-animated, .badge, .stat-value, .label-pill) { border-radius: 0; }
+.dwg[data-sheet='S'] .s01-sheet .glass-card-animated { animation: none; box-shadow: none; }
+.dwg[data-sheet='S'] .s01-sheet .heading-luxury { font-family: var(--font-family-heading); font-weight: 900; letter-spacing: -0.035em; line-height: 0.98; color: var(--dwg-ink); text-shadow: none; }
+.dwg[data-sheet='S'] .s01-sheet :is(.text-white, strong) { color: var(--dwg-ink); }
+.dwg[data-sheet='S'] .s01-sheet :is(.text-white\/85, .text-white\/80) { color: var(--dwg-soft); }
+.dwg[data-sheet='S'] .s01-sheet :is(.text-white\/75, .text-white\/70) { color: rgba(245, 228, 184, 0.72); }
+/* index.css lifts these to white at 0.82 to 0.88 with !important; on the sheet they are cream. */
+.dwg[data-sheet='S'] .s01-sheet :is(.text-white\/65, .text-white\/60, .text-white\/55, .text-white\/50, .text-white\/45, .text-white\/40) { color: var(--dwg-dim) !important; }
+.dwg[data-sheet='S'] .s01-sheet .fine-print > div { color: var(--dwg-soft); }
+/* The app's buttons, as the sheet's blocks (dwg.css gives them their ink): a finger's height, and the drawn arrow on the one action. */
+.dwg[data-sheet='S'] .s01-sheet :is(.btn-primary, .btn-secondary) { display: inline-flex; align-items: center; justify-content: center; gap: 16px; min-height: 48px; padding: 0 18px; line-height: 1.15; text-align: left; text-decoration: none; }
+.dwg[data-sheet='S'] .s01-sheet .btn-secondary { min-height: 44px; padding: 0 14px; font-size: 10.5px; }
+.dwg[data-sheet='S'] .s01-sheet .btn-primary { justify-content: space-between; }
+.dwg[data-sheet='S'] .s01-sheet .btn-primary.w-full { display: flex; }
+.dwg[data-sheet='S'] .s01-sheet .btn-primary::after { content: ''; flex: none; width: 15px; height: 9px; background: currentColor; clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%); }
+.dwg[data-sheet='S'] .s01-sheet .btn-primary:hover:not(:disabled) { background: var(--dwg-green); }
+/* The second way in, beside the first: the same block, unfilled, so the sheet keeps one green action. */
+.dwg[data-sheet='S'] .s01-sheet .btn-primary[data-quiet] { background: transparent; color: var(--dwg-ink); border-color: var(--dwg-line-3); }
+.dwg[data-sheet='S'] .s01-sheet .btn-primary[data-quiet]:hover:not(:disabled) { background: transparent; box-shadow: 4px 4px 0 var(--dwg-spot); }
+/* An alert's strong words keep the alert's own ink. */
+.dwg[data-sheet='S'] .s01-sheet [role='alert'] strong { color: inherit; }
+/* "Try again" inside a sentence: its words stay in the line, its press area is a finger's height. */
+.dwg[data-sheet='S'] .s01-sheet :is(p, div)[role='alert'] > button { position: relative; padding: 13px 4px; margin: -13px -4px; color: var(--dwg-ink); }
+/* A scroll reveal never holds a figure back: the card and its ledger cells stand shown, whatever
+   framer has written inline (opacity 0, a translateY) while it waits for the view. */
+.dwg[data-sheet='S'] .s01-still, .dwg[data-sheet='S'] .s01-sheet [data-fact], .dwg[data-sheet='S'] .s01-sheet [data-s01='you'], .dwg[data-sheet='S'] .s01-sheet [data-s01='you'] > div { opacity: 1 !important; transform: none !important; }
+
+/* ── 1. The hero: the word, and the house beside it ── */
+.dwg[data-sheet='S'] .s01-hero { position: relative; isolation: isolate; overflow: hidden; container-type: inline-size; margin: 0; padding: 14px var(--dwg-pad) 4px; }
+/* The film over the page's picture. From a tablet a doorway is cut in it: the room, seen through the sheet. */
+.dwg[data-sheet='S'] .s01-hero::before { content: ''; position: absolute; inset: 0; z-index: -3; pointer-events: none; background: var(--dwg-film); }
+.dwg[data-sheet='S'] .s01-door, .dwg[data-sheet='S'] .s01-kicker { display: none; }
+/* The word: one text node, sized by the ticker's length (--sym) so BRAINLET fits where SOY does. */
+.dwg[data-sheet='S'] .s01-word { margin: 0 0 0.5rem; white-space: nowrap; font-size: min(1.875rem, calc(100cqw / ((var(--sym, 5) + 7) * 0.62))); line-height: 1.2; letter-spacing: -0.03em; }
+.dwg[data-sheet='S'] .s01-hero .dwg-lede { max-width: 32rem; }
+.dwg[data-sheet='S'] .s01-hero .fine-print { max-width: 32rem; }
+.dwg[data-sheet='S'] .s01-hero .fine-print p:first-child { font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.16em; }
+
+/* ── 2. The figure: the pool's own bungalow (farm/IsoBungalow.tsx, imported), its ladder and the pick ── */
+.dwg[data-sheet='S'] .s01-house { pointer-events: none; }
+.dwg[data-sheet='S'] .s01-figbox { position: relative; }
+.dwg[data-sheet='S'] .s01-figbox > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+/* Drawn large, the house keeps a drawing's hairlines: every stroke of the figure is in screen pixels. */
+.dwg[data-sheet='S'] .s01-fig > g :is(line, polyline, polygon, rect, circle, ellipse, path) { vector-effect: non-scaling-stroke; }
+/* The imported house's pointer shapes (IsoBungalow's data-hit polygons) take no pointer here: the figure is a picture. */
+.dwg[data-sheet='S'] .s01-fig [data-hit] { pointer-events: none; }
+/* Two of the house's own strokes are shapes, not lines, and keep the model's scale: the shade under the verge, the ridge. */
+.dwg[data-sheet='S'] .s01-fig [data-wall='gable'] polyline[stroke-width='12'] { vector-effect: none; }
+.dwg[data-sheet='S'] .s01-fig [data-ridge] { vector-effect: none; stroke-width: 1.5; }
+.dwg[data-sheet='S'] .s01-fig .s01-rail { stroke-width: 1.7px; stroke-opacity: 0.92; }
+.dwg[data-sheet='S'] .s01-fig .s01-rung { stroke-width: 1.4px; stroke-opacity: 0.88; }
+.dwg[data-sheet='S'] .s01-fig [data-climbed] { stroke-width: 2.2px; stroke-opacity: 1; }
+.dwg[data-sheet='S'] .s01-fig .s01-pick line { stroke-width: 1.2px; }
+.dwg[data-sheet='S'] .s01-fig .s01-pick .s01-pick-rung { stroke-width: 4px; }
+/* The pick climbs: its rung, the foot of its measure and the measure's run move as one, with a spring. */
+.dwg[data-sheet='S'] .s01-fig :is(.s01-pick, .s01-pick-foot, .s01-pick-run) { transition: transform 0.6s var(--s01-spring); }
+.dwg[data-sheet='S'] .s01-fig :is(.s01-ground, .s01-ladder, .s01-leaders) { animation: dwg-fill-in 0.9s var(--dwg-ease) both; }
+.dwg[data-sheet='S'] .s01-fig .s01-ladder { animation-delay: 0.25s; }
+.dwg[data-sheet='S'] .s01-fig .s01-leaders { animation-delay: 0.45s; }
+/* The meter on the wall turns twice when a wallet's meter runs, then stands. */
+.dwg[data-sheet='S'] .s01-fig .s01-meterbox[data-meter='live'] .s01-needle { transform-box: fill-box; transform-origin: 50% 100%; animation: s01-needle 2.4s var(--dwg-ease) 2; }
+@keyframes s01-needle { to { transform: rotate(360deg); } }
+/* The figure's words: spans laid over it at a point of the drawing, their words from data-t. */
+.dwg[data-sheet='S'] .s01-tag { display: inline-flex; align-items: baseline; gap: 7px; padding: 5px 8px 4px; transform: translate(-100%, -50%); background: var(--dwg-spot); color: var(--dwg-bg); font-family: var(--font-family-heading); font-weight: 900; font-size: 17px; line-height: 1; letter-spacing: -0.03em; transition: left 0.6s var(--s01-spring), top 0.6s var(--s01-spring); }
+.dwg[data-sheet='S'] .s01-tag::after { content: attr(data-u); content: attr(data-u) / ""; font: 700 10px/1 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.dwg[data-sheet='S'] .s01-bub { display: grid; place-items: center; width: 22px; height: 22px; transform: translate(-50%, -50%); border: 1px solid var(--dwg-line-3); border-radius: 50%; background: var(--dwg-bg); color: var(--dwg-ink); font: 700 10.5px/1 var(--font-family-mono); letter-spacing: 0; }
+/* The room's plate, lettered on its plot: the span is laid in the ground's plane by its own matrix. */
+.dwg[data-sheet='S'] .s01-plate { font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.2em; text-transform: uppercase; color: rgba(245, 228, 184, 0.62); }
+/* The figure's title, under it: its number, a rule, and what the drawing is to scale of. */
+.dwg[data-sheet='S'] .s01-vt { display: flex; align-items: center; gap: 12px; margin: 6px 0 0; font: 500 10px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg[data-sheet='S'] .s01-vt span::before { content: attr(data-t); content: attr(data-t) / ""; }
+.dwg[data-sheet='S'] .s01-vt span:first-child { padding: 4px 6px 3px; border: 1px solid var(--dwg-line-3); color: var(--dwg-ink); font-weight: 700; }
+.dwg[data-sheet='S'] .s01-vt b { flex: 1; height: 1px; background: var(--dwg-line-2); }
+/* The same figure again after the controls it answers, for a phone: whole, with its words. */
+.dwg[data-sheet='S'] .s01-house[data-place='rail'] { width: min(100%, 25rem); margin: 20px auto 0; }
+@media (max-width: 47.99rem) {
+  /* A phone: the house stands behind the word, taking no height, and fades out above the line under it. */
+  .dwg[data-sheet='S'] .s01-hero > .s01-house { position: absolute; z-index: -1; right: -8px; top: -8px; width: min(42%, 150px); opacity: 0.92; -webkit-mask-image: linear-gradient(to bottom, #000 22%, transparent 60%); mask-image: linear-gradient(to bottom, #000 22%, transparent 60%); }
+  .dwg[data-sheet='S'] .s01-hero > .s01-house :is(.dwg-figlabel, .s01-vt, .s01-leaders, .s01-pick-foot, .s01-pick line:not(.s01-pick-rung), .s01-pick circle) { display: none; }
+}
+
+/* ── 3. Bands: the lock ladder card, opened out on the sheet ── */
+.dwg[data-sheet='S'] [data-s01='pools'] { display: block; }
+.dwg[data-sheet='S'] [data-s01='pools'] .gap-5 { gap: 0; }
+.dwg[data-sheet='S'] [data-ladder-card] { border: 0 !important; /* inline: 1px solid var(--color-purple-75) */ background: transparent; }
+/* The card you have money in: a steady green edge, where the classic card wears a ring. */
+.dwg[data-sheet='S'] [data-ladder-card].position-glow { box-shadow: none; }
+.dwg[data-sheet='S'] [data-ladder-card].position-glow::after { content: ''; position: absolute; z-index: 20; left: 0; top: 0; bottom: 0; width: 3px; background: var(--dwg-green); }
+.dwg[data-sheet='S'] [data-testid='position-mark'] { right: var(--dwg-pad); top: 10px; padding: 5px 9px 4px; border: 1.5px solid var(--dwg-green); background: transparent !important; /* inline: var(--color-kyle) */ color: var(--dwg-green) !important; /* inline: #04120a */ box-shadow: none !important; /* inline: a green glow */ font: 800 10px/1 var(--font-family-mono); letter-spacing: 0.2em; transform: rotate(-4deg); }
+/* The card's own scrim becomes the sheet's film: darker under the words, the picture showing to the right. */
+.dwg[data-sheet='S'] [data-ladder-card] > div.absolute.inset-0 { background: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.88) 56%, rgba(5, 8, 15, 0.66) 100%) !important; /* inline: rgba(4,9,18,0.52) */ }
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 { padding: 0; gap: 0; border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > :is(p, div) { margin: 0 var(--dwg-pad) 18px; }
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > p:not([role]) { font: 500 11px/1.3 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim) !important; /* .text-white/70 */ }
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > :is(header, section) { position: relative; margin: 0; padding-inline: var(--dwg-pad); }
+/* A band's plaque: its number in the set, from a counter, so it is drawn and never read out as a word.
+   It is never a heading's own ::before: a heading's name is matched whole by the page's specs. */
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > header,
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='ladder'], [data-s01='positions'], [data-ledger], [data-s01='funding'], [data-s01='live'], [data-heat-card]) { counter-increment: s01-band; }
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > header::before,
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='ladder'], [data-s01='positions'], [data-ledger], [data-s01='live'], [data-heat-card])::before,
+.dwg[data-sheet='S'] [data-s01='funding'] > .relative.z-10::before {
+  content: counter(s01-band, decimal-leading-zero); content: counter(s01-band, decimal-leading-zero) / ""; position: absolute; left: var(--dwg-pad); top: 22px; width: 26px;
+  font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink);
+}
+.dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > header::before { top: 20px; }
+/* A band's head stands on its plaque's line; from 64rem it stands under it, in the margin column. */
+.dwg[data-sheet='S'] [data-ladder-card='full'] header > p:first-child,
+.dwg[data-sheet='S'] [data-ledger] > p:first-child,
+.dwg[data-sheet='S'] [data-s01='positions'] > p:first-child,
+.dwg[data-sheet='S'] #ladder-rungs-label,
+.dwg[data-sheet='S'] [data-s01='funding'] h2,
+.dwg[data-sheet='S'] [data-heat-card] > h2,
+.dwg[data-sheet='S'] [data-s01='live'] > p { padding-left: 38px; min-height: 21px; }
+.dwg[data-sheet='S'] [data-ladder-card='full'] header { padding-top: 20px; }
+/* Below 64rem the stamp stands over the caption's line, so the band's head starts a line lower for a wallet that is in. */
+.dwg[data-sheet='S'] [data-ladder-card='full'].position-glow header { padding-top: 38px; }
+.dwg[data-sheet='S'] [data-ladder-card='full'].position-glow > .relative.z-10 > header::before { top: 38px; }
+.dwg[data-sheet='S'] [data-ladder-card='full'] header > p:first-child { display: flex; align-items: center; gap: 8px; min-height: 17px; margin: 0 0 12px; font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 11px; font-weight: 500; line-height: 17px; letter-spacing: 0.16em; color: var(--dwg-dim) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-ladder-card='full'] header > p:first-child::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg[data-sheet='S'] [data-ladder-card='full'] header > h2 { margin: 0 0 2px; font-size: clamp(1.375rem, 2.3vw, 1.75rem); }
+/* A label that is its band's head: the same heavy word as a heading. */
+.dwg[data-sheet='S'] [data-ledger] > p:first-child,
+.dwg[data-sheet='S'] [data-s01='positions'] > p:first-child,
+.dwg[data-sheet='S'] [data-s01='live'] > p,
+.dwg[data-sheet='S'] #ladder-rungs-label {
+  margin: 0 0 14px; font-family: var(--font-family-heading) !important; /* inline on two of them: the same font, kept */ font-weight: 900; font-size: clamp(1.375rem, 2.3vw, 1.75rem); line-height: 0.98; letter-spacing: -0.035em; text-transform: none;
+  color: var(--dwg-ink) !important; /* inline: white at 0.7 or 0.78, or var(--color-kyle) */
+}
+
+/* ── 4. Band 01 · the meter ── */
+.dwg[data-sheet='S'] [data-s01='meter'] { padding-top: 8px; padding-bottom: 20px; }
+.dwg[data-sheet='S'] [data-s01='meter'] > .grid { gap: 18px 28px; }
+.dwg[data-sheet='S'] [data-s01='counter'] { overflow: visible; padding: 0; gap: 12px; background: none !important; /* inline: a green wash over PANEL_BG */ border: 0 !important; /* inline: 1px solid HAIR */ }
+/* Nothing counted yet: the counter's window drawn in dashes and hatch, its one line where the digits will race. */
+.dwg[data-sheet='S'] [data-s01='dormant'] {
+  position: relative; max-width: 34rem; padding: 15px 16px 22px; border: 1px dashed var(--dwg-line-3); background: repeating-linear-gradient(135deg, rgba(245, 228, 184, 0.07) 0 1px, transparent 1px 7px), rgba(5, 8, 15, 0.5);
+  font-weight: 900 !important; /* inline: 700 */ font-size: clamp(1.25rem, 5.4cqi, 1.875rem) !important; /* inline: clamp(1.5rem, 6cqi, 2.75rem), a headline's size */ line-height: 1.02 !important; /* inline: 1.1 */ letter-spacing: -0.035em; color: var(--dwg-ink);
+}
+/* A counter's scale along the foot of its window. */
+.dwg[data-sheet='S'] :is([data-s01='dormant'], [data-s01='digits'])::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 8px; height: 6px; background: repeating-linear-gradient(90deg, var(--dwg-line-2) 0 1px, transparent 1px 10px), linear-gradient(var(--dwg-line-2), var(--dwg-line-2)) left bottom / 100% 1px no-repeat; }
+/* The racing digits, framed as a counter. The digits, their sr-only figure and their order are untouched. */
+.dwg[data-sheet='S'] [data-s01='digits'] { position: relative; justify-self: stretch; justify-content: space-between; padding: 14px 18px 24px; border: 1px solid var(--dwg-line-3); background: rgba(5, 8, 15, 0.62); box-shadow: inset 0 0 0 3px rgba(5, 8, 15, 0.62), inset 0 0 0 4px var(--dwg-line); }
+.dwg[data-sheet='S'] [data-s01='digits'] > span:first-child, .dwg[data-sheet='S'] [data-s01='digits'] > span:first-child > span:first-child { color: var(--dwg-ink) !important; /* inline: #fff, or white at 0.5 on a real zero */ }
+.dwg[data-sheet='S'] [data-s01='digits'] > span:first-child > span:nth-child(2) { color: rgba(245, 228, 184, 0.45) !important; /* inline: rgba(255,255,255,0.5) */ }
+.dwg[data-sheet='S'] [data-s01='digits'] > span:nth-child(2) { align-self: center; padding: 4px 6px 3px; background: var(--dwg-ink); color: var(--dwg-bg) !important; /* inline: var(--color-kyle) */ font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-weight: 700 !important; font-size: 11px !important; /* inline: max(11px, 0.28em) */ line-height: 1; letter-spacing: 0.14em !important; }
+.dwg[data-sheet='S'] [data-s01='counter'] > .grid > p:first-child, .dwg[data-sheet='S'] [data-s01='you'] > p:first-child, .dwg[data-sheet='S'] [data-s01='you'] > div > p:first-child { margin: 0 0 8px; font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 10.5px; letter-spacing: 0.16em; color: var(--dwg-dim) !important; /* inline: green, or white at 0.7 */ }
+/* Why the meter runs or stands: a tag. Its dot is square, and green only while it runs. */
+.dwg[data-sheet='S'] [data-s01='counter'] > .grid > span.rounded-full { padding: 5px 9px; background: transparent !important; /* inline: a green or grey wash */ border-color: var(--dwg-line-3) !important; color: var(--dwg-ink) !important; font: 700 10px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; }
+.dwg[data-sheet='S'] [data-s01='counter'] > .grid > span.rounded-full > span { background: var(--dwg-green) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-held-time] { margin-top: 14px; }
+/* You in this pool: a second column of the same band, ruled off, not a box. */
+.dwg[data-sheet='S'] [data-s01='you'] { padding: 0; gap: 16px; background: none !important; /* inline: LEDGER_BG */ border: 0 !important; /* inline: 1px solid HAIR */ }
+.dwg[data-sheet='S'] [data-s01='you'] > div > p.tabular-nums:nth-child(2) { font-family: var(--font-family-heading) !important; /* inline: mono */ font-weight: 900 !important; /* inline: 600 */ letter-spacing: -0.04em; color: var(--dwg-ink); }
+.dwg[data-sheet='S'] [data-s01='you'] > div > p.tabular-nums:nth-child(2) > span { font-family: var(--font-family-mono) !important; letter-spacing: 0.14em; color: var(--dwg-dim) !important; }
+.dwg[data-sheet='S'] [data-s01='you'] .h-1\.5 { height: 5px; background: var(--dwg-line) !important; /* inline: white at 0.08 */ }
+.dwg[data-sheet='S'] [data-s01='you'] .h-1\.5 > div { background: var(--dwg-green) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-s01='you'] > .grid { grid-template-columns: minmax(0, 1fr); background: none !important; /* inline: DIVIDED_BG */ border: 0 !important; border-top: 1px solid var(--dwg-line-3) !important; gap: 0; overflow: visible; }
+
+/* ── 5. A fact: one row of a schedule. Its number, its label, a dotted leader, the measured value; its state under it. ── */
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row'] { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 4px 12px; padding: 12px 0 11px; background: transparent !important; /* inline: CELL_BG */ border-bottom: 1px solid var(--dwg-line); counter-increment: s01-fact; }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row']::before { content: counter(s01-fact, decimal-leading-zero); content: counter(s01-fact, decimal-leading-zero) / ""; order: 0; flex: none; width: 22px; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.45); }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row']::after { content: ''; order: 2; flex: 1 1 20px; min-width: 12px; height: 0; border-bottom: 1px dotted var(--dwg-line-2); transform: translateY(-4px); }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row'] > p:nth-child(1) { order: 1; }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row'] > p:nth-child(2) { order: 3; margin-left: auto; justify-self: auto; }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row'] > p:nth-child(3) { order: 4; flex-basis: 100%; text-align: right; font: 600 10.5px/1.2 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.dwg[data-sheet='S'] .s01-sheet [data-fact] > p:first-child { font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 10.5px; letter-spacing: 0.14em; color: var(--dwg-dim) !important; /* inline: rgba(76,175,80,0.9) */ }
+.dwg[data-sheet='S'] .s01-sheet [data-fact] > p:nth-child(2) > span:first-child { font-family: var(--font-family-heading); font-weight: 900 !important; /* inline: 600 */ font-size: clamp(1.25rem, 2.3vw, 1.625rem) !important; /* inline: clamp(18px, calc(2.2cqi + 10px), 24px) */ line-height: 1 !important; letter-spacing: -0.04em; color: var(--dwg-ink) !important; /* inline: #ffffff */ }
+.dwg[data-sheet='S'] .s01-sheet [data-fact] > p:nth-child(2) > span[data-tone='good'] { color: var(--dwg-green) !important; }
+.dwg[data-sheet='S'] .s01-sheet [data-fact] > p:nth-child(2) > span:nth-child(2) { font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 10.5px !important; /* inline: max(11px, 0.5em) */ font-weight: 600 !important; letter-spacing: 0.14em !important; color: var(--dwg-dim) !important; /* inline: white at 0.55 */ }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='inline'] > p:nth-child(2) > span:first-child { font-size: 1.25rem !important; /* inline: 15px */ }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row']:has(> p:nth-child(3)) { background: repeating-linear-gradient(135deg, rgba(240, 178, 107, 0.09) 0 1px, transparent 1px 7px) !important; /* inline: CELL_BG */ }
+.dwg[data-sheet='S'] .s01-sheet [data-fact='row']:has(> p:nth-child(3)) > p:nth-child(2) > span:first-child { color: var(--dwg-warn) !important; /* inline: #ffffff */ }
+.dwg[data-sheet='S'] .s01-sheet :is([data-ledger], [data-s01='you']) { counter-reset: s01-fact; }
+.dwg[data-sheet='S'] [data-ledger] { gap: 0; padding-top: 20px; padding-bottom: 14px; border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='S'] [data-ledger] > .grid { grid-template-columns: minmax(0, 1fr); gap: 0; overflow: visible; background: none !important; /* inline: DIVIDED_BG */ border: 0 !important; /* inline: 1px solid HAIR */ border-top: 1px solid var(--dwg-line-3) !important; }
+.dwg[data-sheet='S'] [data-ledger] [data-fact='row'] { grid-column: auto; }
+.dwg[data-sheet='S'] [data-ledger] .fine-print ul { color: var(--dwg-soft) !important; /* inline: white at 0.62 */ }
+.dwg[data-sheet='S'] [data-ledger] .fine-print strong { color: var(--dwg-ink) !important; /* inline: #fff */ }
+@media (max-width: 47.99rem) {
+  /* A phone's row has no room for its number: label, leader and value keep one line where they can. */
+  .dwg[data-sheet='S'] .s01-sheet [data-fact='row']::before { content: none; }
+  .dwg[data-sheet='S'] .s01-sheet [data-fact='row'] { gap: 4px 8px; }
+}
+
+/* ── 6. Band 02 · the staircase, as an elevation of the ladder, and the action rail ── */
+.dwg[data-sheet='S'] [data-s01='ladder'] { padding-top: 20px; padding-bottom: 22px; background: transparent !important; /* inline: PANEL_BG */ border: 0 !important; /* inline: 1px solid HAIR */ border-top: 1px solid var(--dwg-line-2) !important; }
+.dwg[data-sheet='S'] [data-s01='ladder'] > .grid { gap: 18px 28px; }
+/* The elevation: the bars stand on a datum over their label course, against levels at each quarter of the tallest. */
+.dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] {
+  --s01-h: 116px; --s01-top: 22px; --s01-bot: 26px; --s01-bar: calc(var(--s01-h) - var(--s01-top) - var(--s01-bot));
+  position: relative; overflow: hidden; height: var(--s01-h);
+  background:
+    linear-gradient(to bottom, var(--dwg-line) 0 1px, transparent 1px 25%, var(--dwg-line) 25% calc(25% + 1px), transparent calc(25% + 1px) 50%, var(--dwg-line) 50% calc(50% + 1px), transparent calc(50% + 1px) 75%, var(--dwg-line) 75% calc(75% + 1px), transparent calc(75% + 1px) calc(100% - 1px), var(--dwg-line-3) calc(100% - 1px) 100%)
+    0 var(--s01-top) / 100% var(--s01-bar) no-repeat;
+}
+/* The levels' figures: one string from data-scale, a line to each level, each standing on its own level's line. */
+.dwg[data-sheet='S'] [data-s01='ladder'] [role='group']::after { content: attr(data-scale); content: attr(data-scale) / ""; position: absolute; left: 13px; top: calc(var(--s01-top) + var(--s01-bar) / 8 - 7px); white-space: pre; pointer-events: none; font: 500 10px var(--font-family-mono); line-height: calc(var(--s01-bar) / 4); letter-spacing: 0.02em; color: var(--dwg-dim); }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung] { position: relative; gap: 0; padding: 0 3px; background: transparent !important; /* inline: a green wash on the picked rung */ outline-offset: -2px; }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='on'] { z-index: 1; }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung] > span:first-child { height: var(--s01-top); font-size: 10.5px; font-weight: 500; line-height: var(--s01-top); letter-spacing: -0.02em; color: var(--dwg-dim) !important; /* inline: white at 0.66 */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='on'] > span:first-child { font-weight: 700; color: var(--dwg-spot) !important; /* inline: #fff */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung] > span:last-child { height: 18px; margin: 5px 1px 3px; font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 10.5px; font-weight: 700 !important; /* inline: 600 */ line-height: 18px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dwg-dim) !important; /* inline: white at 0.72 */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='on'] > span:last-child { background: var(--dwg-spot); color: var(--dwg-bg) !important; /* inline: #fff */ }
+/* A bar: hatched while it is only offered, hatched in the spot ink once climbed past, solid when picked. */
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung] > span:nth-child(2) > span { position: relative; min-height: 4px; border: 1px solid rgba(245, 228, 184, 0.5); border-bottom: 0; background: var(--s01-hatch) !important; /* inline: a purple fill */ box-shadow: none !important; /* inline: a purple top light */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='climbed'] > span:nth-child(2) > span { border-color: var(--dwg-spot); background: var(--s01-hatch-spot) !important; /* inline: var(--color-purple-40) */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='on'] > span:nth-child(2) > span { border-color: var(--dwg-spot); background: var(--dwg-spot) !important; /* inline: a green to purple gradient */ }
+/* The picked level, struck across the whole elevation. */
+.dwg[data-sheet='S'] [data-s01='ladder'] [data-rung='on'] > span:nth-child(2) > span::after { content: ''; position: absolute; top: -1px; left: -100vw; width: 200vw; border-top: 1px dashed var(--dwg-spot); pointer-events: none; }
+.dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] + div { margin-top: 0; padding-top: 8px; border-top: 0 !important; /* inline: a white rule; the datum is drawn in the elevation */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] + div > p { color: var(--dwg-dim) !important; /* inline: white at 0.62 */ }
+.dwg[data-sheet='S'] [data-s01='ladder'] .gap-4 { gap: 12px; }
+.dwg[data-sheet='S'] [data-s01='ladder'] fieldset > div:first-of-type > label { font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-size: 10.5px; letter-spacing: 0.16em; color: var(--dwg-dim) !important; /* inline: rgba(76,175,80,0.9) */ }
+.dwg[data-sheet='S'] #ladder-amount { min-height: 48px; padding: 0 14px; background: rgba(5, 8, 15, 0.72) !important; /* inline: black at 0.6 */ border-color: var(--dwg-line-2) !important; /* inline: var(--color-purple-25) */ color: var(--dwg-ink); font-size: 16px; font-weight: 500; }
+.dwg[data-sheet='S'] #ladder-amount:focus { border-color: var(--dwg-ink) !important; }
+.dwg[data-sheet='S'] [data-s01='ladder'] fieldset .btn-secondary { min-height: 48px; }
+/* This lock at a glance: valve tags. */
+.dwg[data-sheet='S'] [data-s01='ladder'] ul[aria-label] > li { padding: 6px 9px 5px; background: transparent !important; /* inline: a purple wash */ border-color: var(--dwg-line-2) !important; /* inline: var(--color-purple-25) */ color: var(--dwg-ink) !important; /* inline: white at 0.9 */ font: 700 10px/1 var(--font-family-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* ── 7. Your positions: a row each, ruled, with every exit's price on its button ── */
+.dwg[data-sheet='S'] [data-s01='positions'] { gap: 0; padding-top: 20px; padding-bottom: 18px; border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='S'] [data-s01='positions'] > ul { border-top: 1px solid var(--dwg-line-3); }
+.dwg[data-sheet='S'] [data-s01='positions'] > ul > li { margin: 0; padding: 16px 0 10px; background: transparent !important; /* inline: rgba(7,11,22,0.94) */ border: 0 !important; /* inline: 1px solid white at 0.08 */ border-bottom: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='S'] [data-s01='positions'] > ul > li > div:first-child > p:first-child { font-family: var(--font-family-heading); font-weight: 900; font-size: 1.5rem; line-height: 1; letter-spacing: -0.04em; }
+.dwg[data-sheet='S'] [data-s01='positions'] > ul > li > div:first-child > p:first-child > span { font-family: var(--font-family-mono) !important; /* inline: the heading font */ font-weight: 600; letter-spacing: 0.14em; color: var(--dwg-dim) !important; /* inline: white at 0.55 */ }
+.dwg[data-sheet='S'] [data-s01='positions'] > ul > li > div:first-child > p[style] { color: var(--dwg-green) !important; /* inline: var(--color-kyle-bright) */ }
+.dwg[data-sheet='S'] [data-s01='positions'] .h-1 { background: var(--dwg-line) !important; /* inline: white at 0.08 */ }
+.dwg[data-sheet='S'] [data-s01='positions'] .h-1 > div { background: var(--dwg-spot) !important; /* inline: var(--color-purple-60) */ }
+/* An exit's button: an unfilled block. The emergency door is coral; an armed door is filled. */
+.dwg[data-sheet='S'] [data-s01='positions'] li button:not([class*='btn-']) { min-height: 44px; padding: 0 14px; background: transparent !important; /* inline: black at 0.5, or a red wash */ border-color: var(--dwg-line-3) !important; /* inline: purple, or red */ color: var(--dwg-ink) !important; /* inline: white */ font: 700 10.5px/1.15 var(--font-family-mono); letter-spacing: 0.1em; text-transform: uppercase; text-align: left; transition: background-color 0.2s ease, color 0.2s ease; }
+.dwg[data-sheet='S'] [data-s01='positions'] li button[data-tone='danger'] { border-color: var(--dwg-bad) !important; color: var(--dwg-bad) !important; }
+.dwg[data-sheet='S'] [data-s01='positions'] li button[data-armed] { background: var(--dwg-bad) !important; border-color: var(--dwg-bad) !important; color: var(--dwg-bg) !important; }
+.dwg[data-sheet='S'] [data-s01='positions'] li button:not([class*='btn-']):hover:not(:disabled) { background: rgba(245, 228, 184, 0.08) !important; }
+
+/* ── 8. The page's own cards: funding, live today, heat. Bands, each over its own picture. ── */
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='funding'], [data-s01='live'], [data-heat-card]) { position: relative; margin: 0; border: 0 !important; /* inline: 1px solid var(--color-purple-25) */ border-top: 1px solid var(--dwg-line-2) !important; background: transparent !important; /* inline: rgba(4,9,18,0.72) on two of them */ }
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='live'], [data-heat-card]) { padding: 20px var(--dwg-pad) 22px; }
+.dwg[data-sheet='S'] [data-s01='funding'] > .relative.z-10 { padding: 20px var(--dwg-pad) 12px; }
+/* Each card's scrim becomes the film: the picture shows to the right of the words. */
+.dwg[data-sheet='S'] [data-s01='funding'] > div.absolute.inset-0 + div.absolute.inset-0,
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='live'], [data-heat-card]) > [data-card-art] > span:nth-of-type(1) { background: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.86) 56%, rgba(5, 8, 15, 0.6) 100%) !important; /* inline: rgba(4,9,18,0.78) */ }
+.dwg[data-sheet='S'] .s01-sheet :is([data-s01='funding'], [data-heat-card]) h2 { margin: 0 0 12px; font-size: clamp(1.375rem, 2.3vw, 1.75rem); }
+.dwg[data-sheet='S'] [data-s01='funding'] p, .dwg[data-sheet='S'] [data-heat-card] > p { font-size: 13px; line-height: 1.5; color: var(--dwg-soft); }
+.dwg[data-sheet='S'] [data-s01='live'] > .flex { gap: 8px; }
+.dwg[data-sheet='S'] [data-s01='live'] > .inline-flex { padding: 0 0 0 12px; gap: 6px 14px; background: transparent !important; /* inline: black at 0.6 */ border: 1px solid var(--dwg-line-2) !important; /* inline: var(--color-kyle-40) */ }
+.dwg[data-sheet='S'] [data-s01='live'] > .inline-flex > span:first-child { font: 500 10px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-s01='live'] > .inline-flex > button { min-height: 44px; font-family: var(--font-family-mono); font-size: 13px; font-weight: 700; color: var(--dwg-ink) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-s01='live'] > .inline-flex > button svg { color: var(--dwg-dim); }
+.dwg[data-sheet='S'] [data-s01='live'] > .inline-flex > a { display: inline-flex; align-items: center; min-height: 44px; padding-right: 12px; font: 600 10.5px/1 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg[data-sheet='S'] #bungalow-heat-address { min-width: 0; min-height: 48px; padding: 0 14px; background: rgba(5, 8, 15, 0.72) !important; /* inline: black at 0.6 */ border-color: var(--dwg-line-2) !important; /* inline: var(--color-purple-25) */ color: var(--dwg-ink); font-family: var(--font-family-mono); font-size: 16px; }
+.dwg[data-sheet='S'] #bungalow-heat-address::placeholder { color: rgba(245, 228, 184, 0.45); }
+/* A phone: the field keeps the whole line, as today, so its hint is read whole; the button goes under it. */
+@media (max-width: 47.99rem) { .dwg[data-sheet='S'] #bungalow-heat-address { flex-basis: 100%; } }
+.dwg[data-sheet='S'] [data-heat-card] .btn-secondary { min-height: 48px; }
+
+/* A pool card's stand-ins (the lazy card's fallback; "Not deployed yet"): the same band, flat, with its plaque. */
+.dwg[data-sheet='S'] [data-s01='pools'] > .glass-card-animated:not([data-ladder-card]) { position: relative; border: 0 !important; /* inline: 1px solid var(--color-purple-75) */ border-top: 1px solid var(--dwg-line-2) !important; counter-increment: s01-band; }
+.dwg[data-sheet='S'] [data-s01='pools'] > .glass-card-animated:not([data-ladder-card]) > .relative.z-10 { padding: 20px var(--dwg-pad) 22px; }
+.dwg[data-sheet='S'] [data-s01='pools'] > .glass-card-animated:not([data-ladder-card]) > .relative.z-10::before { content: counter(s01-band, decimal-leading-zero); content: counter(s01-band, decimal-leading-zero) / ""; display: block; width: 26px; margin-bottom: 12px; font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink); }
+.dwg[data-sheet='S'] [data-s01='pools'] > .glass-card-animated:not([data-ladder-card]) > .relative.z-10 > p:first-child { margin: 0 0 10px; font: 500 11px/1.3 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim) !important; /* .text-white/70, or inline var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-s01='pools'] > .glass-card-animated:not([data-ladder-card]) > .absolute.inset-0:not(:has(img)) { background: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.86) 56%, rgba(5, 8, 15, 0.6) 100%) !important; /* inline: rgba(4,9,18,0.85) or 0.78 */ }
+
+/* ── 8b. The EVM lock ladder card (EvmLadderPoolLive): the same band, its tiles a schedule, its rungs valve tags ── */
+.dwg[data-sheet='S'] [data-ladder-card='evm'] { counter-increment: s01-band; }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 { position: relative; padding: 20px var(--dwg-pad) 14px; border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10::before { content: counter(s01-band, decimal-leading-zero); content: counter(s01-band, decimal-leading-zero) / ""; position: absolute; left: var(--dwg-pad); top: 20px; width: 26px; font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink); }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] p.uppercase { font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--dwg-dim) !important; /* inline: the room's accent on the eyebrow; .text-white/50 on the rest */ }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > p:first-child { display: flex; align-items: center; gap: 8px; min-height: 17px; margin: 0 0 12px; padding-left: 38px; line-height: 17px; }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > p:first-child::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] h2 { margin: 0 0 6px; font-size: clamp(1.375rem, 2.3vw, 1.75rem); }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > h2 + div > button { min-height: 44px; font-family: var(--font-family-mono); font-size: 12px; font-weight: 700; color: var(--dwg-ink) !important; /* inline: var(--color-kyle) */ }
+.dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > h2 + div > a { display: inline-flex; align-items: center; min-height: 44px; font: 600 10.5px/1 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='stats'] { grid-template-columns: minmax(0, 1fr); gap: 0; border-top: 1px solid var(--dwg-line-3); }
+.dwg[data-sheet='S'] .s01-sheet [data-stat] { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 4px 12px; padding: 12px 0 11px; background: transparent !important; /* inline: white at 0.04 */ border: 0 !important; /* inline: 1px solid white at 0.07 */ border-bottom: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='S'] .s01-sheet [data-stat]::after { content: ''; order: 2; flex: 1 1 20px; min-width: 12px; height: 0; border-bottom: 1px dotted var(--dwg-line-2); transform: translateY(-4px); }
+.dwg[data-sheet='S'] .s01-sheet [data-stat] > p:first-child { order: 1; margin: 0; }
+.dwg[data-sheet='S'] .s01-sheet [data-stat] > p:last-child { order: 3; margin-left: auto; }
+.dwg[data-sheet='S'] .s01-sheet [data-stat] > p:last-child { font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.125rem, 2vw, 1.375rem); line-height: 1; letter-spacing: -0.04em; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] { gap: 6px; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] > button { min-height: 52px; background: transparent !important; /* inline: black at 0.4, or a green wash */ border-color: var(--dwg-line-2) !important; /* inline: white at 0.12, or the accent */ color: var(--dwg-ink) !important; /* inline: white */ font: 700 11px/1.2 var(--font-family-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] > button > span { margin-top: 3px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: inherit !important; /* .text-white/50 */ opacity: 0.72; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] > button[data-rung='on'] { background: var(--dwg-spot) !important; border-color: var(--dwg-spot) !important; color: var(--dwg-bg) !important; }
+.dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] > button[data-rung='on'] > span { opacity: 0.8; }
+
+/* ── 8c. The TOWELI farm's classic blocks, in one band (.dwg-band.s01-classic): flat tiles, hairlines, the sheet's type ── */
+.dwg[data-sheet='S'] .s01-classic { padding-top: 26px; }
+.dwg[data-sheet='S'] .s01-classic :is(h2, h3) { font-family: var(--font-family-heading); font-weight: 900; letter-spacing: -0.035em; color: var(--dwg-ink); text-shadow: none; }
+.dwg[data-sheet='S'] .s01-classic :is(.glass-card-animated, .rounded-xl, .rounded-2xl) { box-shadow: none !important; /* inline on the connect prompt: a drop shadow */ }
+.dwg[data-sheet='S'] .s01-classic [role='region'].rounded-2xl { margin-block: 8px 28px; border-color: var(--dwg-line-2) !important; /* inline: cream at 0.12 */ }
+.dwg[data-sheet='S'] .s01-classic .stat-value { padding: 0; background: transparent; font-family: var(--font-family-heading); font-weight: 900; letter-spacing: -0.04em; }
+.dwg[data-sheet='S'] .s01-classic .label-pill { padding: 0; background: transparent; }
+.dwg[data-sheet='S'] .s01-classic p.uppercase { font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.14em; }
+/* On the sheet's classic and EVM cards no purple line and no glow under a word survives, whichever element wrote it inline. */
+.dwg[data-sheet='S'] .s01-sheet :where(.s01-classic, [data-ladder-card='evm']) [style*='--color-purple'], .dwg[data-sheet='S'] .s01-sheet [data-ladder-card='evm'][style*='--color-purple'] { border-color: var(--dwg-line-2) !important; /* inline: var(--color-purple-75), -25 or -20 */ }
+.dwg[data-sheet='S'] .s01-sheet :where(.s01-classic, [data-ladder-card='evm']) [style*='text-shadow'] { text-shadow: none !important; /* inline: a black glow */ }
+.dwg[data-sheet='S'] .s01-classic li[aria-current='true'] { background: var(--dwg-spot) !important; /* inline: var(--color-purple-75) */ }
+.dwg[data-sheet='S'] .s01-classic li[aria-current='true'] :is(span, .stat-value) { color: var(--dwg-bg) !important; /* inline: green; .text-white */ }
+/* LP Farming's stat tiles: a flat hairline tile for the inline purple fill (background: var(--color-purple-75)). */
+.dwg[data-sheet='S'] .s01-classic div[style*='background: var(--color-purple-75)'] { background: rgba(5, 8, 15, 0.6) !important; border-color: var(--dwg-line-2) !important; border-radius: 0; }
+
+/* ── 9. The title block: the sheet's foot ── */
+.dwg[data-sheet='S'] .s01-title { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dwg[data-sheet='S'] .s01-title > *:nth-child(odd) { border-left: 0; }
+.dwg[data-sheet='S'] .s01-title > *:nth-child(n + 3) { border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='S'] .s01-title > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.dwg[data-sheet='S'] .s01-title [data-ink='room'] { color: var(--s01-accent); }
+
+/* ── 10. From a tablet: the hero is a spread, the word beside the house, a doorway cut in the film ── */
+@media (min-width: 48rem) {
+  .dwg[data-sheet='S'] .s01-hero { display: grid; grid-template-columns: minmax(0, 0.43fr) minmax(0, 0.57fr); grid-template-rows: auto auto auto auto minmax(0, 1fr); padding: 18px var(--dwg-pad) 18px; --door-w: 70px; --door-h: 108px; }
+  .dwg[data-sheet='S'] .s01-hero[data-door]::before {
+    -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0); mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+    -webkit-mask-size: var(--door-w) var(--door-h), 100% 100%; mask-size: var(--door-w) var(--door-h), 100% 100%;
+    -webkit-mask-position: left var(--dwg-pad) bottom 18px, 0 0; mask-position: left var(--dwg-pad) bottom 18px, 0 0;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  /* The doorway: its frame, its leaf standing open, its sill, its number. A grid item, so opened small print pushes it down, not under. */
+  .dwg[data-sheet='S'] .s01-door { display: block; position: relative; grid-area: 5 / 1; align-self: end; justify-self: start; width: var(--door-w); height: var(--door-h); margin-top: 18px; border: 1px solid var(--dwg-line-3); border-bottom: 0; }
+  .dwg[data-sheet='S'] .s01-door::before { content: ''; position: absolute; left: -12px; right: -64px; bottom: 0; height: 1px; background: var(--dwg-line-3); }
+  .dwg[data-sheet='S'] .s01-door::after { content: ''; position: absolute; inset: 5px 5px 0; border: 1px dashed rgba(245, 228, 184, 0.42); border-bottom: 0; }
+  .dwg[data-sheet='S'] .s01-door > i { position: absolute; left: 100%; bottom: 0; width: 30px; height: 100%; border: 1px solid var(--dwg-line-2); border-left: 0; background: repeating-linear-gradient(135deg, rgba(245, 228, 184, 0.12) 0 1px, transparent 1px 6px), rgba(5, 8, 15, 0.55); transform-origin: 0 100%; transform: skewY(-22deg); }
+  .dwg[data-sheet='S'] .s01-door > b { position: absolute; left: calc(100% + 46px); bottom: 7px; white-space: nowrap; font: 500 10px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); }
+  .dwg[data-sheet='S'] .s01-door > b::before { content: attr(data-t); content: attr(data-t) / ""; }
+  .dwg[data-sheet='S'] .s01-kicker { display: flex; grid-area: 1 / 1; margin: 2px 0 14px; }
+  .dwg[data-sheet='S'] .s01-hero > h1 { grid-area: 2 / 1; }
+  .dwg[data-sheet='S'] .s01-hero > h1 + p { grid-area: 3 / 1; }
+  .dwg[data-sheet='S'] .s01-hero > .fine-print { grid-area: 4 / 1; }
+  .dwg[data-sheet='S'] .s01-word { margin: 0 0 0.9rem; white-space: normal; font-size: min(6.5rem, calc(43cqw / (max(5, var(--sym, 5) + 1) * 0.66))); line-height: 0.86; letter-spacing: -0.055em; }
+  .dwg[data-sheet='S'] .s01-hero > .s01-house { grid-column: 2; grid-row: 1 / -1; align-self: center; justify-self: end; width: min(100%, calc(46vh * var(--s01-ratio, 1.1))); margin: -2px -8px 0 0; }
+  .dwg[data-sheet='S'] .s01-house[data-place='rail'] { display: none; }
+  .dwg[data-sheet='S'] [data-s01='meter'] > .grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+  .dwg[data-sheet='S'] [data-s01='meter'] > .grid > div { grid-column: auto; }
+  .dwg[data-sheet='S'] [data-s01='you'] { padding-left: 28px; border-left: 1px solid var(--dwg-line-2) !important; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] { --s01-h: 232px; }
+  .dwg[data-sheet='S'] .s01-sheet [data-s01='rungs'] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .dwg[data-sheet='S'] .s01-title { grid-template-columns: minmax(0, 0.8fr) repeat(3, minmax(0, 0.85fr)) minmax(0, 1.5fr); }
+  .dwg[data-sheet='S'] .s01-title > *:nth-child(odd) { border-left: 1px solid var(--dwg-line-2); }
+  .dwg[data-sheet='S'] .s01-title > *:first-child { border-left: 0; }
+  .dwg[data-sheet='S'] .s01-title > *:nth-child(n + 3) { border-top: 0; }
+  .dwg[data-sheet='S'] .s01-title > *:last-child:nth-child(odd) { grid-column: auto; }
+}
+/* A tablet: the elevation and its rail stand side by side, on one datum. */
+@media (min-width: 48rem) and (max-width: 63.99rem) {
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: end; gap: 0 28px; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid > div { grid-column: auto; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid > div:nth-child(2) { padding-bottom: 26px; }
+}
+
+/* ── 11. From 64rem: every band splits, its plaque and head in the margin column ── */
+@media (min-width: 64rem) {
+  .dwg[data-sheet='S'] .s01-hero { --door-w: 86px; --door-h: 134px; }
+  /* The stamp stands beside the band's plaque, in the margin. */
+  .dwg[data-sheet='S'] [data-testid='position-mark'] { right: auto; left: calc(var(--dwg-pad) + 40px); top: 20px; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 { display: grid; grid-template-columns: var(--s01-split); align-items: start; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > * { grid-column: c; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > :is(p, div) { margin: 22px 0 0; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > :is(p, div):last-child { margin-bottom: 24px; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > header, .dwg[data-sheet='S'] [data-ladder-card='full'].position-glow > .relative.z-10 > header { grid-column: m; grid-row: 1 / span 4; padding: 22px 0 22px; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > header::before, .dwg[data-sheet='S'] [data-ladder-card='full'].position-glow > .relative.z-10 > header::before { left: 0; top: 22px; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > section[data-s01='meter'] { padding: 22px 0 24px; }
+  .dwg[data-sheet='S'] [data-ladder-card='full'] > .relative.z-10 > section:not([data-s01='meter']) { grid-column: full; padding-inline: 0; }
+  /* A band: the same tracks, its own grid, so its rule runs the sheet's whole width. */
+  .dwg[data-sheet='S'] .s01-sheet :is([data-s01='ladder'], [data-s01='positions'], [data-ledger], [data-s01='live'], [data-heat-card]),
+  .dwg[data-sheet='S'] [data-s01='funding'] > .relative.z-10 { display: grid; grid-template-columns: var(--s01-split); align-items: start; gap: 0; padding: 22px 0 24px; }
+  /* Everything in a band stands in its content column (a card's picture, laid behind it, keeps the whole band). */
+  .dwg[data-sheet='S'] :where([data-s01='ladder'], [data-s01='positions'], [data-ledger], [data-s01='live'], [data-heat-card], [data-s01='funding'] > .relative.z-10) > :where(:not([data-card-art])) { grid-column: c; }
+  /* Its head stands under its plaque, in the margin. */
+  .dwg[data-sheet='S'] [data-ladder-card='full'] header > p:first-child,
+  .dwg[data-sheet='S'] [data-ledger] > p:first-child,
+  .dwg[data-sheet='S'] [data-s01='positions'] > p:first-child,
+  .dwg[data-sheet='S'] #ladder-rungs-label,
+  .dwg[data-sheet='S'] [data-s01='funding'] h2,
+  .dwg[data-sheet='S'] [data-heat-card] > h2,
+  .dwg[data-sheet='S'] [data-s01='live'] > p { padding-left: 0; padding-top: 29px; }
+  .dwg[data-sheet='S'] [data-ledger] > p:first-child,
+  .dwg[data-sheet='S'] [data-s01='positions'] > p:first-child,
+  .dwg[data-sheet='S'] [data-s01='funding'] h2,
+  .dwg[data-sheet='S'] [data-heat-card] > h2,
+  .dwg[data-sheet='S'] [data-s01='live'] > p { grid-column: m; grid-row: 1 / span 6; margin: 0; }
+  .dwg[data-sheet='S'] [data-s01='funding'] > .relative.z-10 { padding-bottom: 12px; }
+  .dwg[data-sheet='S'] [data-s01='live'] > .inline-flex { justify-self: start; }
+  /* The EVM card splits like every band: its eyebrow, heading and address in the margin. */
+  .dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 { display: grid; grid-template-columns: var(--s01-split); align-items: start; padding: 22px 0 14px; }
+  .dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > * { grid-column: c; }
+  .dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > p:first-child { padding-left: 0; }
+  .dwg[data-sheet='S'] [data-ladder-card='evm'] > .relative.z-10 > h2 { grid-column: m; grid-row: 1 / span 12; padding-top: 29px; }
+  /* Band 02: the label is the head; the elevation and the rail share the content column, on one datum. */
+  .dwg[data-sheet='S'] .s01-sheet [data-s01='ladder'] { grid-template-rows: auto minmax(0, 1fr); grid-template-columns: [full-start] var(--dwg-pad) [m-start] var(--s01-margin) [m-end] var(--s01-gap) [c-start] minmax(0, 1.5fr) [stair-end] var(--s01-gap) [rail-start] minmax(0, 1fr) [c-end] var(--dwg-pad) [full-end]; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid, .dwg[data-sheet='S'] [data-s01='ladder'] > .grid > div:first-child { display: contents; }
+  .dwg[data-sheet='S'] #ladder-rungs-label { grid-column: m; grid-row: 1 / span 2; margin: 0; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] { grid-column: c-start / stair-end; grid-row: 1; --s01-h: 264px; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] [role='group'] + div { grid-column: c-start / stair-end; grid-row: 2; }
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid > div:nth-child(2) { grid-column: rail-start / c-end; grid-row: 1 / span 2; align-self: start; }
+  /* With no form to fill, the rail stands on the elevation's datum. */
+  .dwg[data-sheet='S'] [data-s01='ladder'] > .grid > div:nth-child(2):not(:has(fieldset)) { grid-row: 1; align-self: end; padding-bottom: 26px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dwg[data-sheet='S'] .s01-fig :is(.s01-pick, .s01-pick-foot, .s01-pick-run), .dwg[data-sheet='S'] .s01-tag { transition: none; }
+  .dwg[data-sheet='S'] .s01-fig :is(.s01-ground, .s01-ladder, .s01-leaders), .dwg[data-sheet='S'] .s01-fig .s01-needle { animation: none; }
+}

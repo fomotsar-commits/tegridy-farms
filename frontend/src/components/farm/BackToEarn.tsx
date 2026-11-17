@@ -9,7 +9,7 @@ export function BackToEarn() {
   return (
     <Link
       to="/earn"
-      className="inline-flex items-center gap-1.5 mb-4 text-[13px] text-white/80 hover:text-white underline-offset-2 hover:underline"
+      className="s01-back inline-flex items-center gap-1.5 mb-4 text-[13px] text-white/80 hover:text-white underline-offset-2 hover:underline"
     >
       <span aria-hidden="true">←</span>
       Back to Earn
