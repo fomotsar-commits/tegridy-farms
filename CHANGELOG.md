@@ -7,6 +7,20 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-16
+
+- Earn: Harvest is drawn as a small street: each coin with something to claim is a building with one storey per claim, and every claim has a lane to a glass building marked YOUR WALLET. A lane turns green and a plate lands in your wallet only when its claim is paid, and every storey, lane and plate is the same size whatever it pays.
+- Earn: Harvest no longer rounds an amount up, and after a run its total counts only what was claimed.
+- Earn: Harvest's total for a coin says "at most" when a claim it adds up may pay less than shown.
+- Earn: Harvest says what its daily rate is a rate on: the pool, and the stake it is worked out on.
+- Earn: Harvest keeps listing the pools it leaves alone or could not read during and after a run, and says by the button when a pool could not be read.
+- Earn: pools Harvest could not read for the same reason are named in one line, with one Try again.
+- Earn: with nothing to claim and a pool not read, Harvest's button says Check again, not Nothing to claim.
+- Earn: with nothing to claim and a pool not read, Harvest shows no drawing.
+- Earn: Harvest says a refused claim, a short reward vault and an older stake's caution in plainer words, and when a run is done it counts a refused claim as refused, as the claim's row does.
+- Earn: while a claim waits on your wallet, its row in Harvest says Check your wallet.
+- Earn: Harvest's drawing draws itself in the first time it comes into view and leans a little toward your pointer; with reduced motion it stands still.
+
 ### 2026-11-15
 
 - Bungalows: the QR room has left the island, so it has left the venue too. Its page, its door, its place in Buy all bungalows on Base, its torch place and its art are gone; the open lot is now Lot 12. No stake was left behind: its pools hold no QR.
