@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-17
+
+- Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
+
 ### 2026-11-16
 
 - Earn: Harvest is drawn as a small street: each coin with something to claim is a building with one storey per claim, and every claim has a lane to a glass building marked YOUR WALLET. A lane turns green and a plate lands in your wallet only when its claim is paid, and every storey, lane and plate is the same size whatever it pays.
@@ -34,7 +38,6 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
-- UNFILLED-UNTIL-THE-UPGRADE-EXECUTES (move this line under the heading of the day it reaches trunk, then delete these brackets and the word before them) Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
 - Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
 - Marketplace: a new look, on the same contracts. It opens straight on the collections with no splash, and the collage background, the scrolling strip, the glitch between tabs and the click sounds are gone. Pages are dark and plain with one accent colour (the theme button switches between lime, ice blue and amber), a collection opens on its name, its numbers and five of its pieces, gallery pictures are square, and the phone's bottom bar has drawn icons. Buying, listing, offers and the flat 0.5% fee are unchanged. The art studio no longer has marketplace slots, so a bungalow's skin does not dress the marketplace. Elsewhere on the site, loading placeholders shimmer in the site's own purple tint.
 - Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.
@@ -366,70 +369,6 @@ The site's Changelog tab shows both files.
 - Swap (Ethereum): the venue's swap fee goes only to the venue's own Safe on the trade's chain. Ethereum was set to the Base Safe, which nobody controls there, so the Ethereum swap fee is off until that is fixed. No fee ever went to it.
 - Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. When GeckoTerminal is busy, the last copy shows with the time it was read.
 - Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
-
-### 2026-10-14
-
-- Pools: Create, Add and Remove come first, then your positions, one Rates card (trade fee, to the pool, to the venue) and one Swap routes card. Four cards that repeated the fee split are now that one table. Ethereum Add / Remove says Add and Remove, not "Grow the Crop" and "Pull Crop Out".
-- Earn: a farm or pool whose rewards have ended no longer takes new stakes; the TOWELI/ETH LP farm says it stopped paying on Jun 15, 2026. Withdraw, Claim and Exit still work.
-- Bungalows: a lock-ladder or lighthouse pool that pays 0 rewards now, because it was never funded or its rate is 0, no longer takes new stakes. All six Ethereum and Base ladders (PEPE, QR, MFER, BNKR, DRB, JBM) read a rate of 0 on Oct 14, 2026, and nobody is staked in them. Each says so in one line; claim and exit still work, and Stake comes back by itself once a pool is funded.
-- NFT owner panel: plain wording in place of the dashes in its notices.
-- Bayla lighthouse staking: when a claim or an unstake fails, the reason is read from the program that failed, never from numbers in the error's text. A claim the reward program can never pay could be called "vault short" when a compute count in the error happened to read 6012, which stopped the rescue that frees your stake; and a lock that had not opened could be called "vault short" too.
-- Solana LP: "Add with one coin" on our own pools swaps part of your coin for the other, through Jupiter or the pool, whichever pays more, then adds both. Two signatures; if the second is cancelled, it is offered again for an hour.
-- A tab left open while the site is updated now refreshes itself once, to the same address, the next time you open a page it has not loaded yet. It used to show "Something went wrong". It never refreshes while a transaction is at your wallet or on its way: it says the site was updated and gives you a Refresh button.
-- Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
-- Solana swap: one line under the form, and the same on our pool's review, gives the pair's 24h average traded price (weighted by volume, worked out by the site) and how far your trade's price is above or below it. How it is worked out is in a drop-down. When the pair traded too little it says so, and a failed read says "could not be read". It never holds a trade.
-- Staking and pools: the card you have money in now wears a steady green ring and a "You’re in" mark, on every staking card, lock ladder, LP farm, your Solana pool shares and the dashboard, so your position is the first thing you see. Cards you are not in keep their purple pulse.
-- Fewer words again on Pools, Earn, the pool rooms, NFT Finance, the Marketplace and the Bayla bungalow: a heading and a line per page, the explaining under "Details" or "How it works". Pools on a phone went from 570 visible words to 220.
-- Earn on a phone: the Open button for every pool is on the first screen; before, it sat off the right edge of the list. In the TOWELI room, Connect wallet is on the first screen instead of eight screens down.
-- NFT Finance: Lend, Borrow and My Loans and the form are one screen down instead of three and a half; the four-step explanations and the shield’s small print fold away.
-- Marketplace: the opening animation has an Enter button from the first moment and leaves on its own after about three seconds; the first screen then shows Browse, Buy, Sell / List and Make offer. The marketplace is now in the bungalow studios as "Island · Marketplace", so a skin can dress its backdrop and cards.
-- Bayla bungalow: two more doors, Marketplace and NFT loans, on the front page and the dashboard. The studio’s NFT group is now called "NFT Finance".
-- Earn and Liquidity on a phone: each pool's Open or Provide button now sits on the screen beside the pool's name. It used to sit past the right edge of the list, reachable only by swiping the list sideways, with nothing to say so. The pool's chain and terms (on Liquidity, its TVL and routed volume) now show under its name.
-- A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
-- Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
-- A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
-- After the site goes back to an earlier version, a page could stay broken for one browser: it had asked for a script or a stylesheet while the site did not have it, and kept the wrong answer for up to a year. The site's background worker no longer keeps that answer, and it asks the site again when the browser itself kept it. A browser that does not run the worker is not covered yet.
-- Pools and Earn, every tab: each page has a background and each card a picture, and both studios list them all, under the tab's own name (Pools · Add / Remove, Solana LP, Venue AMM, Zap; Earn · Staking, Pool rooms, NFT Loans, Referrals, Yield, Copy Trading, Competitions, Checkout). The same goes for every other tab's cards. Pictures rotate until a studio places one.
-- Fewer words on every main page and tab: each says what it does in a line, with the fine print under a small "Details", "How it works" or "Risks" drop-down. What you earn, what the venue takes and every warning stay on screen.
-- Solana swap: a swap in one of our own pools now always stops on its review before your wallet is asked. Before, a swap whose fresh quote matched the form went straight to the wallet.
-- Solana swap through Jupiter: when the test run of Jupiter's transaction cannot run, nothing is sent and the page says "could not run just now, so nothing was sent. Press again." Before, the transaction went to your wallet unchecked.
-- Solana swap: "Swap would fail" now gives only a cause the network itself wrote, in plain words, or a fixed sentence. It no longer shows a line a token's own program printed.
-- Swap (Ethereum and Solana): one Ethereum / Solana switch above the swap card. The second, fixed one that covered the top of the form and the review when you scrolled is gone.
-- Solana DCA: a recurring order with a Token-2022 token such as BAYLA, on either side, is refused with one sentence before anything is signed: Jupiter's recurring orders cannot run it. Cancel still works for orders already running.
-- Solana DCA: the hint now says Jupiter's real minimum, $50 per buy, and when the page has read the price it says what each buy is worth and holds Start below $50.
-- Solana swap: a swap you sent and that is not confirmed yet now holds Buy for that wallet, by either route, in every tab of the site and after a reload, with its signature and a link. Buy comes back when the network says it landed, failed or can no longer land, after 10 minutes, or when you turn it back on. Another wallet is not held.
-- Solana swap: a wallet whose answer did not come back now reads "Sent or not, we cannot tell" with what was pressed, and the amount is cleared. A price or transaction that could not be fetched at the press reads "Not sent" with the reason, and the form stays as it was. Neither says "Swap failed" any more.
-- Solana swap, DCA, limit orders, the BAYLA lock ladder and lighthouse staking: a cancel in the wallet reads the same everywhere, including Trust's cancel that carries only code 4001, and a wallet that was never asked says why.
-- Solana swap: a swap sent from the same wallet in another tab now also stops a press already under way here. An open review of a swap in our pool closes and shows the hold card, and a press through Jupiter is stopped just before the wallet. Either way the page says "Not sent" and your wallet is not asked.
-- Solana swap with site data blocked: switching to another wallet and back no longer turns Buy back on while the first wallet's swap may still land.
-- Solana swap: a wallet that cannot take Jupiter's kind of transaction, or a page with no wallet chosen, now reads "Not sent" with the reason, not "Sent or not, we cannot tell".
-- Lighthouse staking: if the wallet signed and the send then stopped, the page now says it cannot tell whether the stake, unstake or claim was sent, and asks you to check your wallet first. It no longer says "Nothing moved".
-- Solana swap: when your wallet's answer is lost before a signature comes back, Buy is now held for that wallet too, until the swap can no longer land (2 minutes at most) or you turn it back on. The card says no signature is known.
-- Solana swap through Jupiter: the hold of a sent swap now ends as soon as the swap's own blockhash can no longer land, read from the network, instead of waiting out a block-height estimate. The 10-minute limit stays.
-- Solana swap through Jupiter: when the test run cannot run twice in a row, the page says "This check keeps failing on our side. Nothing was sent." and, when one of our pools quotes the trade, offers its review.
-- Solana swap: the "Swap submitted" note no longer has a dash in it.
-- Solana DCA: at most one warning line shows at a time. A Token-2022 token comes first, then "Insufficient", then the under-$50 line.
-- Solana swap in our own pool: after a swap that is not confirmed, "I checked my wallet: start over" now turns Buy back on in one press. It still says this does not cancel the swap.
-- Lighthouse staking: the rescue that closes a position and gives up its unclaimed rewards now runs past a failed claim only when the network's own log names the reward program's error 6000. A message that only contains the number no longer counts.
-- Solana LP: a pool card is now headed by its pair and fee, for example "BAYLA / SOL · 1% tier", like your positions. What the pool has earned comes right under its price, before the fees and the deposit checks. Addresses show short, with the whole address, Copy and Explorer one press away. A token the site lists, such as BAYLA, is named in the amounts and the price instead of "tokens".
-- Venue AMM: the fee sheet now shows the public fee tier first, the one every pool opened from this site uses. On mainnet that is 1% a trade, of which liquidity providers keep 0.84% of each trade. The launch pools' tier is under it, as before.
-- NFT Finance in a narrow window with a mouse: small arrows now sit over each end of the row of section tabs that has more tabs past it, and a press moves the row along by one tab. They do not show on a phone or a tablet, where the row is swiped, and the keyboard still moves between the tabs themselves.
-- Home: the headline no longer jumps 44.5px down, or changes its letter spacing, when the page finishes loading on a phone.
-- Home and the TOWELI home: each chain pill (Solana, Ethereum, Base) can be pressed anywhere in an area 46.5px tall, up from 24.5px. The pills look the same.
-- Changelog: on a 360px phone, long lines (file paths like ".audit_101/...") wrap inside their card instead of being cut off at its edge.
-- NFT Finance, Pooled Lending: on a 360px phone the "Not deployed" badges stay on screen and the page no longer slides 6px sideways.
-- TOWELI room: Towelie's round button in the corner steps aside while a row of section tabs is under it, so it never covers a tab. It comes back when the tabs scroll away.
-- Launch: on a phone the four steps wrap onto a second line instead of being cut off at "Fees & disclo".
-- Heat card: "Post my number" and "How heat is earned" now have a 16px gap between them.
-- Solana positions: one transaction reads "The one transaction read on your shares is not a deposit" instead of "None of the 1 transaction". A busy network during "Find this share's pool on the chain" says "the network is busy; try again in a minute" instead of "HTTP 429".
-- Safari on pages without a tab row: a text field you tap no longer ends up 2px under the top bar. The page keeps 74px clear under the bar, up from 64px.
-- Safari: the label above a text field you tap (for example "Campaign address" on Airdrop) now shows below the top bar, not under it.
-- Pages with a row of section tabs (Pools, Earn, Launch, Check, the island's pages, Learn and the rest): the row now scrolls away with the page instead of staying pinned under the top bar, where it covered fields, buttons and links on 19 of the 21 pages measured once you scrolled.
-- NFT Finance: the row of section tabs now sits above the overview cards, so on a 390x844 phone it is whole on screen and no longer half under the bottom bar.
-- Home on a phone: the address field and the "Read Heat" button no longer grow from 37.5px to 44px tall, or the button's words from 13px to 14px, when the page finishes loading.
-- Venue AMM: under the public fee tier's rates, how they are read (or why none could be) now sits in a closed "How it works" or "Why no fee" drop-down, as it already did for the launch tier.
-- TOWELI room, footer, welcome screen, Lore and Security pages: the sentences about where Ethereum swap fees go now say a referral share comes off first and the rest goes toward stakers. The TOWELI room no longer says fees go to "the liquidity engine and operations", a share that is 0 on chain.
-- NFT collection owners: the owner panel now proposes a price, allowlist or auction change and carries it out 24 hours later (the one-step buttons it had always failed), shows what is waiting, and will not switch a live sale straight between a fixed price and an auction.
 
 ## Earlier
 

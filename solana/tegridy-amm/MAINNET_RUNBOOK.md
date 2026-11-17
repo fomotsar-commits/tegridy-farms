@@ -442,10 +442,10 @@ and #34 from 05:13:59 UTC. Its four facts, read from mainnet by `read-upgrade-re
 
 | | |
 |---|---|
-| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Day of the execute (UTC) | `2026-11-17` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `470,581,826` |
+| Transaction of the execute (its signature) | `31HTzjfSpKRs6595FYLGJfphvPgeRUD2kqtG6psFJmjufaV6ApgNvtcyEwxyR54kKw75DirZ21uZi69Wri2QpsNV` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
 
 The keeper, #34, is a setting and not an upgrade, so it has no row above. The pack's
 `scripts/8-verify-keeper.mjs` reads it: the robot's simulated buy gets the bare curve, and
