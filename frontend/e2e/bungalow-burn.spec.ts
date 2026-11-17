@@ -156,8 +156,8 @@ async function slidSideways(page: Page): Promise<number> {
 }
 
 test.describe('the burn card, on every door', () => {
-  test('this file knows all twelve token bungalows', () => {
-    expect(TOKEN_ROOMS.map((b) => b.id)).toHaveLength(12);
+  test('this file knows all eleven token bungalows', () => {
+    expect(TOKEN_ROOMS.map((b) => b.id)).toHaveLength(11);
   });
 
   for (const b of TOKEN_ROOMS) {
@@ -259,28 +259,28 @@ test.describe('the burn card, read and fitted', () => {
     expect(await slidSideways(page), 'the page slid sideways').toBe(0);
   });
 
-  test('/qr on Base counts the burn address and its own contract, and shows a supply fall without counting it', async ({ page }) => {
+  test('/drb on Base counts the burn address and its own contract, and shows a supply fall without counting it', async ({ page }) => {
     test.skip(test.info().project.name !== 'chromium', 'figures, not layout');
-    await seed(page, 'qr');
+    await seed(page, 'drb');
     const E18 = 10n ** 18n;
     // 10B destroyed with burn(): supply 90B. The card cannot tell that from a bridge-out.
     await stubChain(page, {
       evm: {
-        token: room('qr').address!, totalSupply: 90_000_000_000n * E18, decimals: 18,
+        token: room('drb').address!, totalSupply: 90_000_000_000n * E18, decimals: 18,
         atBurnAddress: 6_669_949_934n * E18, inOwnContract: 112_159n * E18,
       },
     });
-    await gotoRoute(page, '/qr');
+    await gotoRoute(page, '/drb');
 
-    const card = burnCard(page, 'QR');
+    const card = burnCard(page, 'DRB');
     await expect(card.locator('dl')).toBeVisible({ timeout: 30_000 });
-    await expect(headline(page, 'QR')).toHaveText('6.67%');
+    await expect(headline(page, 'DRB')).toHaveText('6.67%');
     await expect(card).toContainText('Read from Base.');
     await expect(card.locator('dt')).toHaveText([
       'Burnt', 'Sent to the burn address', 'Stuck in the token contract', 'Ever minted', 'Supply fall, not counted',
     ]);
     await expect(card.locator('dd')).toHaveText([
-      '6,670,062,093 QR', '6,669,949,934 QR', '112,159 QR', '100,000,000,000 QR', '10,000,000,000 QR',
+      '6,670,062,093 DRB', '6,669,949,934 DRB', '112,159 DRB', '100,000,000,000 DRB', '10,000,000,000 DRB',
     ]);
   });
 

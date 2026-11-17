@@ -123,7 +123,7 @@ describe('Every position: every holder of every pool, whoever holds it', () => {
   it('a list of pools that could not be read says so, and reads no holders', async () => {
     const r = readers([], async () => ({ kind: 'ok', holders: [], capped: false }), { listPools: vi.fn(async () => ({ kind: 'unread' as const, detail: 'index down' })) });
     mount(r);
-    expect(await within(await screen.findByTestId('lp-every-position')).findByText(/could not be read just now, so neither could their holders/)).toBeTruthy();
+    expect(await within(await screen.findByTestId('lp-every-position')).findByText('Positions could not be read just now. That does not mean there are none.')).toBeTruthy();
     expect(r.holders).not.toHaveBeenCalled();
   });
 

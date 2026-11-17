@@ -517,9 +517,11 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
 
     it('the next Sign sends what that review said: the no-fee transaction, to the wallet once', async () => {
       const real = await vi.importActual<Leg>('./oneCoinSwap');
-      // The real send path; only the chain reads after the wallet are stood in for.
+      // The real send path; only the chain reads after the wallet are stood in for. Through the
+      // wallet's own send (no `sign`): web3 cannot serialize what a wallet signed under jsdom, and
+      // the page's send of signed bytes is pinned under node (lib/solana/swap/walletSwapSend.test.ts).
       const rpc = { getBlockHeight: async () => 1_000, getSignatureStatuses: async () => ({ context: { slot: 1 }, value: [null] }) };
-      leg.send = vi.fn<Leg['sendJupiterLeg']>((d, a) => real.sendJupiterLeg({ ...d, rpc: rpc as never, confirm: async () => 'confirmed' }, a));
+      leg.send = vi.fn<Leg['sendJupiterLeg']>((d, a) => real.sendJupiterLeg({ ...d, sign: undefined, rpc: rpc as never, confirm: async () => 'confirmed' }, a));
       leg.received = vi.fn(async () => 50_000_000n);
       const { sign } = await toReview();
       sign();

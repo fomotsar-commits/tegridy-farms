@@ -1,74 +1,94 @@
-import { test, expect, type Page } from '@playwright/test';
-import { gotoRoute, waitForQuiescence, gotoNakamigos, GECKO_EDGE_GLOB } from './fixtures/routes';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { test, expect, type Page, type Route } from '@playwright/test';
+import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
+import { BAYLA_LADDER_RECORDING } from './fixtures/baylaLadderPool';
+import { MAINNET_VENUE_RECORDING } from '../src/lib/solana/cpswap/mainnetVenue.fixture';
 
-/**
- * The word budget: how many words a visitor can SEE on a route, before pressing anything.
- *
- * Owner, 2026-10-14: "this entire site is super wordy. noone will read this and they
- * will be drowned in too much info and not even see the stuff they are to interact
- * with ... as little words as possible". Owner, 2026-10-13: disclaimers and how-it-works
- * go in closed drop-downs. The rule (components/ui/FinePrint.tsx) says where words go;
- * this spec says how many may stay out. A route that grows past its ceiling fails and
- * names its longest blocks, so a sentence cannot creep back onto the page one PR at a
- * time. A ceiling only comes down (lower it when a route does); raising one is the
- * owner's call.
- *
- * What is counted: the words of `main`'s innerText (what renders; a closed details
- * element contributes only its summary) after the route has settled, in the Bayla
- * skin, on the production build, at a desktop width and at a phone width. The top
- * bar, the footer and the drawer are outside `main` and not counted. A ledger of
- * failed reads (data-unread-ledger) is assembled from what the network answered, so
- * it is not copy and is left out, as the em-dash census leaves it.
- *
- * Numbers move with the chain (a count of pools, a token's name, a date), so each
- * ceiling sits about a tenth above what was measured on 2026-10-14. A failure well
- * under that slack is words, not data.
- */
+// The words a visitor sees on a route before pressing anything: `main`'s innerText (a closed
+// details counts only its summary), Bayla skin, production build, desktop and phone width.
+// Owner, 2026-10-14: "as little words as possible". A ceiling only comes down; raising one is
+// the owner's call. A failure names the route's longest blocks.
+// The unread ledger (data-unread-ledger) is network output, not copy, and is left out.
+
+// Every read is fixed, so the count is the copy's and holds from run to run: Solana answers
+// from mainnet recordings, every other /api path and outside host is refused. Read live, the
+// home ranged 284 to 432 on one build as the public RPC answered or not (CI, 2026-11-03 to 14).
+// A Solana call no recording holds fails the route by name. To record it, with port 4173 free:
+// WORD_BUDGET_RECORD=1 npx playwright test e2e/word-budget.spec.ts --project=chromium --workers=1
+const READS_FILE = fileURLToPath(new URL('./fixtures/word-budget-reads.json', import.meta.url));
+const RECORD = process.env.WORD_BUDGET_RECORD === '1';
+
+type Recording = { note: string; recordedAt: string; slot: number; answers: Record<string, unknown> };
+const readsFile = (): Recording => JSON.parse(readFileSync(READS_FILE, 'utf8'));
+const RECORDED: Record<string, unknown> = {
+  ...BAYLA_LADDER_RECORDING.answers,
+  ...MAINNET_VENUE_RECORDING.answers,
+  ...readsFile().answers,
+};
+
 const PHONE = 390;
 
-/** Measured 2026-10-14 after the fewer-words pass (desktop / phone): / 183 / 183,
- *  /earn 124 / 109, /liquidity 125 / 126, /solana-lp 199 / 194, /pools 264 / 260 (after the
- *  duplicate fee cards went, owner 2026-10-14; 339 / 336 before),
- *  /zap 84 / 84, /nft-finance 246 / 233, /nakamigos 227 / 227, /bayla 288 / 288,
- *  /dashboard 201 / 201. Before the pass, on the phone: /pools 570, /solana-lp 390,
- *  /bayla 351, /nft-finance 320, /dashboard 246, /liquidity 176, /earn 160.
- *  Re-measured 2026-10-15 on both Solana pool tabs after trunk's All pools card (#815)
- *  came in, which the owner kept ("keep the list of all pools"): /solana-lp 238 / 233,
- *  /pools 309 / 305. Each figure also carries the finder's "anyone can copy a name"
- *  warning, back on screen at the address field, and on /pools the line that the
- *  team's vault can pause removing. Here the list's read fails (no pool index behind a
- *  local build), so its "could not be read" line stands where pool rows would. */
+// Measured 2026-11-14 with every read fixed (desktop / phone): / 360 / 360, /earn 128 / 112,
+// /liquidity 136 / 137, /pools 330 / 330, /zap 79 / 79, /nft-finance 252 / 248,
+// /nakamigos 274 / 274, /bayla 389 / 388, /dashboard 197 / 197. /pools is over its ceiling once
+// its venue reads: live, CI's reads of it failed (255 at most), so the overage never showed.
 const BUDGET: Record<string, { desktop: number; phone: number }> = {
-  // Raised 2026-10-16 for the cards the owner asked for on the home (stake BAYLA, add SOL + BAYLA:
-  // "put the bayla staking module and the lp pool module here on the homepage"): 373 measured on the
-  // desktop with both drawn, 220 of them the cards' (238 when the LP card waits on the venue's read),
-  // after the hero's two sentences went into How heat works. 200 / 200 before them.
-  // Raised 2026-11-02 for the frictionless set (island answer twenty-four): the amount chips and
-  // the coin names' head-and-tail on the home's two cards are controls, counted as words; CI
-  // measured 432 on the desktop with both cards drawn.
   '/': { desktop: 440, phone: 440 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
-  // One Rates card and one Swap routes card since 2026-10-14 (four fee cards before);
-  // raised 2026-10-15 for the All pools card (290 / 285 before it). Lowered 2026-10-30: 292 / 292
-  // measured with the Rates table landed (252 / 252 on a run where it had not), with the Arbitrage
-  // card (its unread line, Read again and its small print's summary) and without the hero's eyebrow
-  // and Details, the share card's second "Nothing to claim.", Every position's lead line and the
-  // list's arbitrage prose: 340 / 335 before.
   '/pools': { desktop: 325, phone: 325 },
   '/zap': { desktop: 95, phone: 95 },
   '/nft-finance': { desktop: 275, phone: 260 },
-  // Its landing counts live collection data (listings, floors): 227 and 265 on two runs.
   '/nakamigos': { desktop: 300, phone: 300 },
-  // Raised 2026-10-21 for the home's three cards on BAYLA's door (owner: "A: raise the limit to
-  // 500"), with the lore and the pool on record folded into FinePrint: 345 / 345 measured, 481 / 359
-  // before the folds. The cards are 52 to 181 of it, by what the chain reads answer. 320 / 320 before.
   '/bayla': { desktop: 500, phone: 500 },
   '/dashboard': { desktop: 225, phone: 225 },
 };
 
-/** Routes with a GeckoTerminal feed: aborted, so a slow edge cannot make the count wait. */
-const FEED_ROUTES = new Set(['/', '/bayla', '/dashboard', '/nakamigos']);
+type Call = { id?: unknown; method?: unknown; params?: unknown[] };
+
+/** Fixes every read the page makes; returns the Solana calls no recording held. */
+async function fixReads(page: Page): Promise<string[]> {
+  const own = new URL(test.info().project.use.baseURL!).host;
+  await page.route('**/api/**', (r) => r.abort());
+  await page.route((url) => url.host !== own, (r) => r.abort());
+  const unanswered: string[] = [];
+  // Registered last, so it runs first.
+  await page.route('**/api/solrpc', async (route) => {
+    let body: unknown = null;
+    try { body = route.request().postDataJSON(); } catch { /* not JSON: unanswered */ }
+    const calls = (Array.isArray(body) ? body : [body]) as Call[];
+    const keys = calls.map((c) => `${String(c?.method)}:${String(c?.params?.[0])}`);
+    if (!keys.every((k) => k in RECORDED)) {
+      if (RECORD && (await recordFromMainnet(route, keys))) return;
+      unanswered.push(...keys.filter((k) => !(k in RECORDED)));
+      return route.abort();
+    }
+    const replies = calls.map((c, i) => ({ jsonrpc: '2.0', id: c.id, result: RECORDED[keys[i]!] }));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Array.isArray(body) ? replies : replies[0]) });
+  });
+  return unanswered;
+}
+
+/** Record mode: asks mainnet through the preview's proxy until it answers, and writes the answers down. */
+async function recordFromMainnet(route: Route, keys: string[]): Promise<boolean> {
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const res = await route.fetch();
+    const json = res.status() === 200 ? await res.json().catch(() => null) : null;
+    const replies = (Array.isArray(json) ? json : [json]) as { result?: unknown }[];
+    if (json && replies.every((r) => r && 'result' in r)) {
+      const file = readsFile();
+      replies.forEach((r, i) => { file.answers[keys[i]!] = r.result; RECORDED[keys[i]!] = r.result; });
+      file.recordedAt = new Date().toISOString().slice(0, 10);
+      file.answers = Object.fromEntries(Object.entries(file.answers).sort(([a], [b]) => a.localeCompare(b)));
+      writeFileSync(READS_FILE, `${JSON.stringify(file, null, 1)}\n`);
+      await route.fulfill({ response: res, json });
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1500 * attempt));
+  }
+  return false;
+}
 
 async function settle(page: Page, path: string) {
   if (path === '/nakamigos') await gotoNakamigos(page);
@@ -114,8 +134,12 @@ for (const [path, ceiling] of Object.entries(BUDGET)) {
           localStorage.setItem('tegridy-bungalow', 'bayla');
         } catch { /* private mode */ }
       });
-      if (FEED_ROUTES.has(path)) await page.route(GECKO_EDGE_GLOB, (r) => r.abort());
+      const unanswered = await fixReads(page);
       await settle(page, path);
+      expect(
+        [...new Set(unanswered)],
+        `${path} asked Solana for something no recording holds, so a card read nothing: record it (see the top of this file)`,
+      ).toEqual([]);
       const { words, longest } = await visibleWords(page);
       console.log(`[word-budget] ${path} ${width} ${words}`);
       expect(

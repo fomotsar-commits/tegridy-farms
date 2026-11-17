@@ -289,7 +289,8 @@ function inTime(work, ms) {
   if (!(ms < 2 ** 31)) return work; // setTimeout fires at once for a longer wait, Infinity too
   let timer;
   const late = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error("out of time for this run: nothing saved, the next run reads it again")), ms);
+    const e = new Error("out of time for this run: nothing saved, the next run reads it again");
+    timer = setTimeout(() => reject(Object.assign(e, { outOfTime: true })), ms);
   });
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
@@ -357,10 +358,13 @@ export async function main({
   const priceOf = pricer(fetchImpl);
 
   let failed = 0;
+  // A let-go ends the run. Node's timers keep their own clock and can fire a millisecond
+  // before Date.now() reaches stopBy, and the next source would start in that sliver.
+  let over = false;
   for (const source of sources) {
     const row = rows.get(source) ?? null;
     const left = stopBy - Date.now();
-    if (left <= 0) {
+    if (over || left <= 0) {
       failed++;
       error(`::error title=Volume source ${source} not counted::the run was out of time before it began; the next run counts it`);
       continue;
@@ -406,6 +410,7 @@ export async function main({
         log(`${source}: another run counted first; nothing written`);
         continue;
       }
+      if (e?.outOfTime) over = true;
       failed++;
       const msg = String(e?.message ?? e).slice(0, 300);
       error(`::error title=Volume source ${source} not counted::${msg}`);

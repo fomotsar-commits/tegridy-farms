@@ -1,44 +1,22 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useDrawnWidth } from '../../hooks/useDrawnWidth';
 import { MAX_BOOST_BPS, MAX_LOCK_DURATION, MIN_BOOST_BPS, MIN_LOCK_DURATION } from '../../lib/constants';
-import { EDITORIAL_BG, EDITORIAL_GREEN, EDITORIAL_INK, HEADING_FONT, mixHex } from '../../lib/editorial';
-import { bounds, groundMatrix, iso, pts, solid, type Pt } from '../../lib/iso';
-import { CHAIN_LABEL, hasLadder, type VenuePoolRow } from '../../lib/venuePools';
+import { EDITORIAL_BG, EDITORIAL_GREEN, EDITORIAL_INK, mixHex } from '../../lib/editorial';
+import { groundMatrix, iso, pts, type Pt } from '../../lib/iso';
+import { HOUSE_D, MURAL_ACROSS, RAIL_GAP, RAIL_TOP, U, gableFrame, muralFrame, rungHeights } from '../../lib/isoBungalow';
+import { muralOf, muralWidth, readFacts, restDim, usePictures } from '../../lib/isoMural';
+import { KEY, NAME_PX, PAD, TURN, groundOf, keyFoot, planBox, planStreets, roadOf } from '../../lib/isoPlan';
+import type { VenuePoolRow } from '../../lib/venuePools';
+import { BungalowDefs, IsoBungalow } from './IsoBungalow';
 
 /**
- * Earn's site model (owner, 2026-11-14: "avantegarde edition 5d architect vibes"): every pool on
- * the island as a block on a site plan, drawn as an architect's axonometric, one street per chain.
- *
- * ⚠️ IT DRAWS ONLY WHAT THE REGISTRY KNOWS, TO SCALE. The list beside it reads no chain
- * (VenuePoolIndex.tsx says why), so neither does this: a block's shape is its pool's program, never
- * a rate, a balance or a size. A pool with the lock ladder is a ramp whose section is the ladder
- * itself: its run is the lock, seven days to four years, and its rise is the share that lock earns,
- * from the floor to the ceiling, both from the contract's constants (as lib/poolShape.ts words
- * them). A pool with no ladder is a flat slab one share high. Nothing here can be read as "this
- * pool pays more": every ramp is the same ramp.
- *
- * A picture, not a control: it is hidden from assistive tech, and every pool it shows is a row
- * with a real link in the schedule under it. Pointing at a block lights its row there and the
- * other way round (`active`); a press on a block opens its pool for a pointer's convenience.
- * Left alone it lights each pool in turn, and holds still under reduced motion or off screen.
+ * Earn's site model: every pool as the same brick bungalow on its chain's street, wearing its room's
+ * picture (IsoBungalow.tsx; the plan is lib/isoPlan.ts). ⚠️ It draws only what the registry knows,
+ * never a rate, a balance or a size; one thing is to scale, a ladder's rungs, with the key giving
+ * their two ends from the contract's constants. Hidden from assistive tech: each house is a linked
+ * row in the schedule, and pointing at either lights both; a press on a house opens its pool. Idle,
+ * it lights each house in turn, and holds still under reduced motion or off screen.
  */
-
-/** Pixels per unit on the sheet. */
-const U = 20;
-/** A block's footprint along its street (x) and across it (y). */
-const W = 2.1;
-const D = 1.7;
-const GAP_X = 0.55;
-/** Between streets: room for the chain's name on the ground, clear of the street in front. */
-const GAP_Y = 2.1;
-/** Units of height per 1.00× of share. */
-const RISE = 0.8;
-const PAD = 0.3;
-/** How far the site's grid runs past the streets. */
-const EDGE = 0.9;
-
-const LADDER_LO = (MIN_BOOST_BPS / 10_000) * RISE;
-const LADDER_HI = (MAX_BOOST_BPS / 10_000) * RISE;
-const SLAB = 1 * RISE;
 
 const FLOOR_LABEL = `${(MIN_BOOST_BPS / 10_000).toFixed(2)}×`;
 const CEILING_LABEL = `${(MAX_BOOST_BPS / 10_000).toFixed(2)}×`;
@@ -47,45 +25,44 @@ const LONG_LOCK = `${Math.round(MAX_LOCK_DURATION / (365 * 86_400))}y`;
 
 const MONO = { fontFamily: 'var(--font-family-mono)' } as const;
 
-interface Block {
-  row: VenuePoolRow;
-  ladder: boolean;
-  x: number;
-  y: number;
-}
-
-interface Street {
-  chain: string;
-  y: number;
-  length: number;
-  blocks: Block[];
-  /** Where along the street its name starts: past the end of any ramps standing in front of it. */
-  nameAt: number;
+/**
+ * The copy of each picture the walls take first (lib/isoMural.ts muralWidth), from the device
+ * pixels a picture spans on the front wall at the drawing's first measure. Null until then, so
+ * no picture is fetched at a guessed size; where the drawing cannot be measured, the 480.
+ */
+function pictureCopy(firstDevicePx: number, unitsWide: number): 128 | 480 | null {
+  if (firstDevicePx > 0) return muralWidth((MURAL_ACROSS * firstDevicePx) / unitsWide);
+  return typeof ResizeObserver === 'function' ? null : 480;
 }
 
 /**
- * The plan: one street per chain, the tallest at the back so no street hides another, and the
- * longer of two equals behind the shorter.
+ * The picture on a house's walls: the copy chosen for the front wall and, where that is the 128
+ * and the picture's widest wall turns out to need more (the gable lays a wide picture wider than
+ * the front does), the 480 too, shown once it is read. `perUnit` is device pixels per unit of
+ * the drawing at its first measure. Every copy it may show is in `srcs`, for the store to read.
  */
-function planStreets(rows: readonly VenuePoolRow[]): Street[] {
-  const byChain = new Map<string, VenuePoolRow[]>();
-  for (const row of rows) byChain.set(row.chain, [...(byChain.get(row.chain) ?? []), row]);
-  const height = (list: VenuePoolRow[]) => (list.some((r) => hasLadder(r.terms)) ? LADDER_HI : SLAB);
-  const ordered = [...byChain.entries()].sort((a, b) => height(b[1]) - height(a[1]) || b[1].length - a[1].length);
-  const lengthOf = (list: VenuePoolRow[]) => list.length * W + (list.length - 1) * GAP_X;
-  return ordered.map(([chain, list], i) => {
-    const y = i * (D + GAP_Y);
-    // A ramp is tall enough to stand between the eye and the ground behind it, so a street's name
-    // starts where the ramps in front of it end. A slab is too low to hide it.
-    const hidden = Math.max(-PAD, ...ordered.slice(i + 1).filter(([, front]) => front.some((r) => hasLadder(r.terms))).map(([, front]) => lengthOf(front) + 0.8));
-    return {
-      chain,
-      y,
-      length: lengthOf(list),
-      blocks: list.map((row, j) => ({ row, ladder: hasLadder(row.terms), x: j * (W + GAP_X), y })),
-      nameAt: hidden,
-    };
-  });
+function wallPicture(roomId: string, want: 128 | 480 | null, perUnit: number) {
+  const first = want ? muralOf(roomId, want) : null;
+  if (!first) return { srcs: [] as string[], position: undefined, shown: null };
+  const firstFacts = readFacts(first.src);
+  const widest = firstFacts
+    ? Math.max(muralFrame(firstFacts, first.position).width, gableFrame(firstFacts, first.position).width)
+    : 0;
+  const larger = want === 128 && widest > 0 && muralWidth(widest * perUnit) === 480 ? muralOf(roomId, 480) : null;
+  const largerFacts = readFacts(larger?.src);
+  const shown = larger && largerFacts ? { src: larger.src, facts: largerFacts } : firstFacts ? { src: first.src, facts: firstFacts } : null;
+  return { srcs: larger ? [first.src, larger.src] : [first.src], position: first.position, shown };
+}
+
+/**
+ * How many of the drawing's units one CSS pixel is, so the key's words keep their size when the
+ * drawing is drawn small (an upright iPad, a short laptop screen). Never below one: on a large
+ * screen the words grow with the drawing like everything else. Never above KEY.scaleMax, the
+ * size its corner is measured to hold (lib/isoPlan.ts keyBox).
+ */
+function wordScale(drawnPx: number, unitsWide: number): number {
+  if (drawnPx <= 0) return 1;
+  return Math.min(KEY.scaleMax, Math.max(1, Math.round((unitsWide / drawnPx) * 100) / 100));
 }
 
 function prefersReducedMotion(): boolean {
@@ -118,7 +95,7 @@ function useTour(ids: readonly string[], on: boolean, host: RefObject<SVGSVGElem
 
 export function IsoIsland({ rows, active, onActive, onOpen, className = '' }: {
   rows: readonly VenuePoolRow[];
-  /** The pool a row is pointed at, by id; it lights here. */
+  /** The pool pointed at, here or at its row, by id: it lights, and its roof lifts. */
   active?: string | null;
   onActive?: (id: string | null) => void;
   onOpen?: (id: string) => void;
@@ -128,30 +105,23 @@ export function IsoIsland({ rows, active, onActive, onOpen, className = '' }: {
   const fade = `iso${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const host = useRef<SVGSVGElement>(null);
   const streets = planStreets(rows);
-  const blocks = streets.flatMap((s) => s.blocks);
-  const toured = useTour(blocks.map((b) => b.row.id), !active, host);
+  const plots = streets.flatMap((s) => s.plots);
+  const g = groundOf(streets);
+  const { box, key } = planBox(streets);
+  const drawn = useDrawnWidth(host);
+  const k = wordScale(drawn.now, box.w);
+  const want = pictureCopy(drawn.first, box.w);
+  const walls = new Map(plots.map((b) => [b.row.id, wallPicture(b.row.id, want, drawn.first / box.w)]));
+  usePictures(plots.flatMap((b) => walls.get(b.row.id)?.srcs ?? []));
+  const toured = useTour(plots.map((b) => b.row.id), !active, host);
   const lit = active ?? toured;
-
-  const shape = (b: Block) => (b.ladder ? solid(b.x, b.y, W, D, LADDER_LO, LADDER_HI, U) : solid(b.x, b.y, W, D, SLAB, SLAB, U));
-  const shapes = blocks.map((b) => ({ b, s: shape(b) }));
-
-  // The ladder that carries the measures: the back street's last ramp, whose tall end nothing stands beside.
-  const measured = streets.find((s) => s.blocks.some((b) => b.ladder))?.blocks.filter((b) => b.ladder).at(-1) ?? null;
-
-  const maxX = Math.max(0, ...streets.map((s) => s.length));
-  const maxY = streets.length ? streets[streets.length - 1]!.y + D : D;
-  const ground: Pt[] = [
-    iso([-EDGE, -EDGE, 0], U), iso([maxX + EDGE, -EDGE, 0], U),
-    iso([maxX + EDGE, maxY + EDGE + 0.9, 0], U), iso([-EDGE, maxY + EDGE + 0.9, 0], U),
-  ];
-  const [bx, by, bw, bh] = bounds([...ground, ...shapes.flatMap(({ s }) => [...s.top, ...s.left, ...s.right])]);
-  // Room for a lit block's name above it and the measures to its right.
-  const box = { x: Math.floor(bx - 6), y: Math.floor(by - 34), w: Math.ceil(bw + 62), h: Math.ceil(bh + 44) };
 
   // The site's grid: a line each unit along both ground axes, fading toward the sheet's edge.
   const grid: [Pt, Pt][] = [];
-  for (let gx = Math.ceil(-EDGE); gx <= maxX + EDGE; gx++) grid.push([iso([gx, -EDGE, 0], U), iso([gx, maxY + EDGE + 0.9, 0], U)]);
-  for (let gy = Math.ceil(-EDGE); gy <= maxY + EDGE + 0.9; gy++) grid.push([iso([-EDGE, gy, 0], U), iso([maxX + EDGE, gy, 0], U)]);
+  for (let gx = Math.ceil(g.x0); gx <= g.x1; gx++) grid.push([iso([gx, g.y0, 0], U), iso([gx, g.y1, 0], U)]);
+  for (let gy = Math.ceil(g.y0); gy <= g.y1; gy++) grid.push([iso([g.x0, gy, 0], U), iso([g.x1, gy, 0], U)]);
+
+  const anyLadder = plots.some((b) => b.ladder);
 
   return (
     <svg
@@ -170,80 +140,109 @@ export function IsoIsland({ rows, active, onActive, onOpen, className = '' }: {
         <mask id={`${fade}-m`} maskUnits="userSpaceOnUse" x={box.x} y={box.y} width={box.w} height={box.h}>
           <rect x={box.x} y={box.y} width={box.w} height={box.h} fill={`url(#${fade}-g)`} />
         </mask>
+        <BungalowDefs id={fade} />
       </defs>
 
       <g mask={`url(#${fade}-m)`} stroke={EDITORIAL_INK} strokeOpacity="0.09" strokeWidth="1" vectorEffect="non-scaling-stroke">
         {grid.map(([a, b], i) => <line key={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} vectorEffect="non-scaling-stroke" />)}
       </g>
 
+      {/* Back to front: a street's plots, its road, then the houses on it, so a house in front
+          stands over the street behind. */}
       {streets.map((s) => {
         const plot: Pt[] = [
           iso([-PAD, s.y - PAD, 0], U), iso([s.length + PAD, s.y - PAD, 0], U),
-          iso([s.length + PAD, s.y + D + PAD, 0], U), iso([-PAD, s.y + D + PAD, 0], U),
+          iso([s.length + PAD, s.y + HOUSE_D + PAD, 0], U), iso([-PAD, s.y + HOUSE_D + PAD, 0], U),
         ];
+        const r = roadOf(s);
+        const road: Pt[] = [iso([g.x0, r.y0, 0], U), iso([s.roadEnd, r.y0, 0], U), iso([s.roadEnd, r.y1, 0], U), iso([g.x0, r.y1, 0], U)];
+        // The centre line, broken where the name is painted, and stopping short of the turning circle.
+        const dashes: [Pt, Pt][] = [
+          [iso([g.x0 + 0.3, r.mid, 0], U), iso([s.nameAt - 0.35, r.mid, 0], U)],
+          [iso([s.nameTo + 0.35, r.mid, 0], U), iso([s.roadEnd - TURN - 0.2, r.mid, 0], U)],
+        ];
+        const kerb = { stroke: EDITORIAL_INK, strokeOpacity: 0.2, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const };
+        const roadFill = mixHex(EDITORIAL_BG, EDITORIAL_INK, 0.06);
         return (
           <g key={s.chain}>
-            <polygon points={pts(plot)} fill={EDITORIAL_BG} fillOpacity="0.55" stroke={EDITORIAL_INK} strokeOpacity="0.28" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-            {/* The street's name, lying on the ground along it, as a site plan letters a road. */}
-            <text transform={groundMatrix([s.nameAt, s.y + D + PAD + 0.66, 0], U)} fontSize="11.5" letterSpacing="0.16em"
-              fill={EDITORIAL_INK} fillOpacity="0.6" style={{ ...MONO, textTransform: 'uppercase' }} className="max-md:hidden">
-              {CHAIN_LABEL[s.chain] ?? s.chain}
-            </text>
+            <polygon points={pts(plot)} fill={mixHex(EDITORIAL_BG, EDITORIAL_INK, 0.05)} fillOpacity="0.9" stroke={EDITORIAL_INK} strokeOpacity="0.22" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            <g data-road={s.chain}>
+              <ellipse cx="0" cy="0" rx={TURN * U} ry={TURN * U} transform={groundMatrix([s.roadEnd, r.mid, 0], U)} fill={roadFill} fillOpacity="0.9" {...kerb} />
+              <polygon points={pts(road)} fill={roadFill} fillOpacity="0.9" />
+              <line x1={road[0]![0]} y1={road[0]![1]} x2={road[1]![0]} y2={road[1]![1]} {...kerb} />
+              <line x1={road[3]![0]} y1={road[3]![1]} x2={road[2]![0]} y2={road[2]![1]} {...kerb} />
+              {dashes.filter(([a, b]) => b[0] - a[0] > 8).map(([a, b], i) => (
+                <line key={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={EDITORIAL_INK} strokeOpacity="0.3" strokeWidth="1" strokeDasharray="5 6" vectorEffect="non-scaling-stroke" />
+              ))}
+              {/* The street's name, painted on its road, as a site plan letters a road. */}
+              <text transform={groundMatrix([s.nameAt, r.mid + 0.25, 0], U)} fontSize={NAME_PX} letterSpacing="0.16em"
+                fill={EDITORIAL_INK} fillOpacity="0.7" style={{ ...MONO, textTransform: 'uppercase' }} className="max-md:hidden">
+                {s.name}
+              </text>
+            </g>
+            {s.plots.map((b) => {
+              const on = lit === b.row.id;
+              const up = active === b.row.id;
+              const wall = walls.get(b.row.id);
+              const shown = wall?.shown ?? null;
+              return (
+                <g key={b.row.id} data-pool={b.row.id} data-lit={on ? '' : undefined} data-lifted={up ? '' : undefined}
+                  onMouseEnter={() => onActive?.(b.row.id)} onClick={() => onOpen?.(b.row.id)}
+                  style={{ cursor: onOpen ? 'pointer' : undefined }}>
+                  <IsoBungalow defs={fade} x={b.x} y={b.y} art={shown?.src}
+                    frames={shown ? { front: muralFrame(shown.facts, wall?.position), gable: gableFrame(shown.facts, wall?.position) } : null}
+                    dim={restDim(shown?.facts.luma)}
+                    accent={b.row.accent ?? EDITORIAL_GREEN} lit={on} lifted={up} ladder={b.ladder} symbol={b.row.symbol} />
+                </g>
+              );
+            })}
           </g>
         );
       })}
 
-      {shapes.map(({ b, s }) => {
-        const on = lit === b.row.id;
-        const accent = b.row.accent ?? EDITORIAL_GREEN;
-        const edge = on ? '#ffffff' : EDITORIAL_INK;
-        const face = { stroke: edge, strokeOpacity: on ? 0.95 : 0.5, strokeWidth: 1, strokeLinejoin: 'round' as const, vectorEffect: 'non-scaling-stroke' as const, style: { transition: 'fill 0.45s ease, stroke-opacity 0.45s ease' } };
-        const [tx, ty, tw] = bounds(s.top);
-        return (
-          <g key={b.row.id} data-pool={b.row.id} data-lit={on ? '' : undefined}
-            onMouseEnter={() => onActive?.(b.row.id)} onClick={() => onOpen?.(b.row.id)}
-            style={{ cursor: onOpen ? 'pointer' : undefined, transform: on ? 'translateY(-7px)' : 'translateY(0px)', transition: 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)' }}>
-            <polygon points={pts(s.right)} fill={mixHex(EDITORIAL_BG, accent, on ? 0.38 : 0.1)} {...face} />
-            <polygon points={pts(s.left)} fill={mixHex(EDITORIAL_BG, accent, on ? 0.6 : 0.2)} {...face} />
-            <polygon points={pts(s.top)} fill={mixHex(EDITORIAL_BG, accent, on ? 0.95 : 0.36)} {...face} />
-            {on && (
-              <g className="iso-label max-md:hidden" pointerEvents="none">
-                <line x1={tx + tw / 2} y1={ty - 4} x2={tx + tw / 2} y2={ty - 20} stroke={EDITORIAL_GREEN} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-                <text x={tx + tw / 2} y={ty - 26} textAnchor="middle" fontSize="16" fontWeight="900" letterSpacing="-0.03em" fill="#ffffff" style={HEADING_FONT}>
-                  {b.row.symbol}
-                </text>
-              </g>
-            )}
-          </g>
-        );
-      })}
-
-      {measured && <Measures block={measured} />}
+      {anyLadder && <LadderKey right={key.right} top={key.top} k={k} />}
     </svg>
   );
 }
 
 /**
- * The ladder's own figures on one ramp, set out as a dimension: the lock along its run and the
- * share up its tall end, from the same constants the rows' terms are worded from.
+ * The drawing's key, in its top right corner: a lock ladder drawn to the same scale as the
+ * ladders on the houses, its first rung marked with the shortest lock and the floor of the share,
+ * its top rung with the longest lock and the ceiling, from the contract's constants. Its words
+ * are `k` times their size, so they read at the same size however small the drawing is drawn;
+ * the ladder itself never scales.
  */
-function Measures({ block }: { block: Block }) {
-  const lowFoot = iso([block.x, block.y + D, 0], U);
-  const highFoot = iso([block.x + W, block.y + D, 0], U);
-  const post = iso([block.x + W, block.y, 0], U);
-  const x = post[0] + 12;
-  const top = post[1] - LADDER_HI * U;
-  const floor = post[1] - LADDER_LO * U;
-  const line = { stroke: EDITORIAL_INK, strokeOpacity: 0.7, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const };
-  const label = { fontSize: 11.5, fill: EDITORIAL_INK, fillOpacity: 0.8, style: MONO };
+function LadderKey({ right, top, k }: { right: number; top: number; k: number }) {
+  const px = (n: number) => Math.round(n * 100) / 100;
+  const caption = px(KEY.captionPx * k);
+  const foot = keyFoot(top, k);
+  const rails = [right - 6 - RAIL_GAP * U, right - 6] as const;
+  const rungs = rungHeights();
+  const yOf = (z: number) => foot - z * U;
+  const line = { stroke: EDITORIAL_INK, strokeOpacity: 0.85, strokeLinecap: 'round' as const };
+  const label = { fontSize: px(KEY.figurePx * k), fill: EDITORIAL_INK, fillOpacity: 0.85, textAnchor: 'end' as const, style: MONO };
+  const marks = [
+    { z: rungs[rungs.length - 1]!, lock: LONG_LOCK, share: CEILING_LABEL },
+    { z: rungs[0]!, lock: SHORT_LOCK, share: FLOOR_LABEL },
+  ];
   return (
-    <g className="max-md:hidden" pointerEvents="none">
-      <line x1={x} y1={post[1]} x2={x} y2={top} {...line} />
-      {[post[1], floor, top].map((y) => <line key={y} x1={x - 4} y1={y} x2={x + 4} y2={y} {...line} />)}
-      <text x={x + 9} y={top + 4} {...label}>{CEILING_LABEL}</text>
-      <text x={x + 9} y={floor + 1} {...label}>{FLOOR_LABEL}</text>
-      <text x={lowFoot[0] - 2} y={lowFoot[1] + 15} textAnchor="middle" {...label}>{SHORT_LOCK}</text>
-      <text x={highFoot[0] + 2} y={highFoot[1] + 15} textAnchor="middle" {...label}>{LONG_LOCK}</text>
+    <g className="max-md:hidden" pointerEvents="none" data-key="">
+      {/* Each text hides itself too: a browser's innerText still counts text inside a hidden group. */}
+      <text x={right} y={top + caption} fontSize={caption} letterSpacing="0.16em" textAnchor="end"
+        fill={EDITORIAL_INK} fillOpacity="0.6" style={{ ...MONO, textTransform: 'uppercase' }} className="max-md:hidden">
+        Lock ladder
+      </text>
+      <line x1={right - 22} y1={foot} x2={right} y2={foot} stroke={EDITORIAL_INK} strokeOpacity="0.4" />
+      {rails.map((x) => <line key={x} x1={x} y1={foot} x2={x} y2={yOf(RAIL_TOP)} strokeWidth="1.4" {...line} />)}
+      {rungs.map((z) => <line key={z} data-key-rung={z.toFixed(4)} x1={rails[0]} y1={yOf(z)} x2={rails[1]} y2={yOf(z)} strokeWidth="1.1" {...line} />)}
+      {marks.map((m) => (
+        <g key={m.lock}>
+          <line x1={rails[0] - 7} y1={yOf(m.z)} x2={rails[0] - 2} y2={yOf(m.z)} stroke={EDITORIAL_GREEN} strokeWidth="1" />
+          <text x={rails[0] - 10} y={yOf(m.z) + px(4 * k)} {...label} className="max-md:hidden">
+            <tspan fill={EDITORIAL_GREEN} fillOpacity="1">{m.lock}</tspan> <tspan>{m.share}</tspan>
+          </text>
+        </g>
+      ))}
     </g>
   );
 }

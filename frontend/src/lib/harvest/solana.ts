@@ -113,11 +113,11 @@ export function planStreamflow(target: StakeTarget, pool: PoolView, entries: rea
         continue;
       }
       if (rp.fundedRaw !== null && pending > rp.fundedRaw) {
-        plan.held.push({ key, ...base, amountRaw: pending, decimals: rp.decimals, reason: 'The reward vault cannot cover this yet, so a claim would revert. Nothing is lost: it keeps accruing.' });
+        plan.held.push({ key, ...base, amountRaw: pending, decimals: rp.decimals, reason: 'The reward vault cannot cover this yet, so a claim would fail. Nothing is lost: it stays owed.' });
         continue;
       }
       const caution = claimBrokenByRateChange(e, rp)
-        ? 'This stake is older than the pool’s rate change, so this claim may not pay. If it does not, nothing moves.'
+        ? 'This stake was made before the pool changed its reward rate, so this claim may not pay. If it does not, nothing is claimed.'
         : null;
       plan.claims.push({
         key, ...base, detail, amountRaw: pending, decimals: rp.decimals, caution,
@@ -496,6 +496,6 @@ async function sendAndWatch(conn: ClaimConn, raw: Uint8Array, sig: string, confi
   const sent = await sendSigned(conn, raw, sig, confirmMs);
   if (sent.kind === 'not-sent') return { kind: 'unconfirmed', reason: sent.why };
   if (sent.outcome === 'confirmed') return { kind: 'claimed', tx: sig };
-  if (sent.outcome === 'reverted') return { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: sig };
+  if (sent.outcome === 'reverted') return { kind: 'reverted', reason: 'Nothing was claimed, so it stays owed. Only the network fee was spent.', tx: sig };
   return { kind: 'unconfirmed', reason: 'Sent, but not confirmed within a minute, so it may still land. Check it on Solscan before claiming again.', tx: sig, stop: true };
 }

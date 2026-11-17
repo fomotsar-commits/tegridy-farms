@@ -63,7 +63,7 @@ const tokenUnits = (mint: string, safety: TokenSafety | null): { one: string; ma
 /** A group of the card's lines under its name, which a screen reader lists as a heading. */
 function Part({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-2 pt-3" style={DIVIDER}>
+    <div className="space-y-2 pt-3" style={DIVIDER} data-dwg="part">
       <h4 className="text-[10px] uppercase tracking-[0.18em] text-white/55 font-semibold">{title}</h4>
       {children}
     </div>

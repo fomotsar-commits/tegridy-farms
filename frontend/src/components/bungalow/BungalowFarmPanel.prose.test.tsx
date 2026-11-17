@@ -33,7 +33,7 @@ async function farm(bungalow: Bungalow) {
 describe("a room's farm carries no prose em dash", () => {
   it('judges every live room but TOWELI, whose farm is its own', () => {
     expect(ROOMS.map((b) => b.id).sort()).toEqual(
-      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jbm', 'mfer', 'pepe', 'qr', 'rizz', 'soy'],
+      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jbm', 'mfer', 'pepe', 'rizz', 'soy'],
     );
   });
 

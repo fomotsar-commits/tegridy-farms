@@ -10,7 +10,7 @@
 // from Gondi's own arithmetic (lib/gondi/loanMath.ts).
 import { useId, useState } from 'react';
 import { dayOf, lifeFraction, reminderMarks, scrubStep } from '../../lib/gondi/timeline';
-import { fmtWeth, formatDue } from './nftLendingShared';
+import { fmtWeth, formatDue, formatDuration } from './nftLendingShared';
 import { useDrawWidth } from '../../hooks/useDrawWidth';
 import { fitCentred, monoWidth } from '../../lib/markLabels';
 
@@ -89,7 +89,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
   );
 
   return (
-    <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline">
+    <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline" data-run={formatDuration(duration)}>
       {/* On a phone the date takes the next line, rather than the two squeezing each other. */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid="loan-timeline-top">
         <p className={`whitespace-nowrap text-[15px] font-semibold font-mono ${atWall ? 'text-amber-300' : 'text-emerald-300'}`} data-testid="loan-timeline-headline">

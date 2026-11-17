@@ -210,7 +210,20 @@ export function signatureOf(tx: VersionedTransaction): string | null {
 /** How often the same signed bytes are sent again while the chain has not answered. */
 const RESEND_MS = 2_000;
 
-export type SentLeg = { kind: 'not-sent'; why: string } | { kind: 'sent'; outcome: ConfirmOutcome['outcome'] };
+/**
+ * `reason`: the network's own words for a refusal at the first send, and its last log
+ * lines, when it gave them (null: it gave none). The swap says them; the basket's row keeps `why`.
+ */
+export type SendRefusal = { message: string; logs: readonly string[] } | null;
+export type SentLeg = { kind: 'not-sent'; why: string; reason?: SendRefusal } | { kind: 'sent'; outcome: ConfirmOutcome['outcome'] };
+
+/** A send error's own message and logs (web3.js SendTransactionError), or null when it has none. */
+function refusalOf(e: unknown): SendRefusal {
+  const o = (typeof e === 'object' && e !== null ? e : {}) as { transactionMessage?: unknown; transactionLogs?: unknown; message?: unknown };
+  const message = typeof o.transactionMessage === 'string' ? o.transactionMessage : typeof o.message === 'string' ? o.message : '';
+  const logs = Array.isArray(o.transactionLogs) ? o.transactionLogs.filter((l): l is string => typeof l === 'string') : [];
+  return message || logs.length ? { message, logs } : null;
+}
 
 /**
  * Send a transaction the wallet signed (and did not send) through our own RPC, and watch
@@ -230,8 +243,8 @@ export async function sendSigned(
     await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e ?? '');
-    if (/Blockhash not found/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.tooSlow };
-    if (/simulation failed|preflight/i.test(msg) && !/already been processed/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.refusedFirst };
+    if (/Blockhash not found/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.tooSlow, reason: refusalOf(e) };
+    if (/simulation failed|preflight/i.test(msg) && !/already been processed/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.refusedFirst, reason: refusalOf(e) };
   }
   const again = setInterval(() => { void conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}); }, RESEND_MS);
   try {

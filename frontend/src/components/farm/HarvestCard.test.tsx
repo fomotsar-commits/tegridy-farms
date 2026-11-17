@@ -122,7 +122,7 @@ describe('Harvest card', () => {
     const claimed = screen.getByRole('link', { name: /Claimed: view the transaction/ }) as HTMLAnchorElement;
     expect(claimed.href).toContain('basescan.org/tx/0xfeed');
     expect(screen.getByText(/only the network fee was spent/)).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 reverted.');
+    expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 refused.');
     expect(evm.refetch).toHaveBeenCalled();
   });
 
@@ -151,6 +151,27 @@ describe('Harvest card', () => {
     show();
     expect(screen.getByText('Nothing to claim right now.')).toBeTruthy();
     expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+  });
+
+  it('nothing to claim and a pool not read: never "Nothing to claim", a zero it did not read; Check again reads the pools afresh', () => {
+    const jbm = { key: 'evm:jbm', chain: 'base' as const, roomId: 'jbm', what: 'your JBM rewards', detail: 'The JBM pool did not answer.' };
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [jbm] }, batchable: ONE_BY_ONE };
+    const unreadOnly = show();
+    expect(screen.queryByRole('button', { name: 'Nothing to claim' })).toBeNull();
+    expect(screen.queryByText('Nothing to claim right now.')).toBeNull();
+    const again = screen.getByRole('button', { name: 'Check again' }) as HTMLButtonElement;
+    expect(again.disabled).toBe(false);
+    held.forget.mockClear();
+    evm.refetch.mockClear();
+    fireEvent.click(again);
+    expect(held.forget).toHaveBeenCalledTimes(1);
+    expect(evm.refetch).toHaveBeenCalledTimes(1);
+    expect(evm.send).not.toHaveBeenCalled();
+    unreadOnly.unmount();
+    // With every pool read and nothing to claim, it says so, and cannot be pressed.
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    show();
+    expect((screen.getByRole('button', { name: 'Nothing to claim' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   // The bar (owner, 2026-11-14: "the bar that adds them all together plus shows % and daily

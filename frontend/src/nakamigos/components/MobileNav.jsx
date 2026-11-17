@@ -109,6 +109,9 @@ export default function MobileNav({ tab, onTabChange, allowedTabs }) {
               onClick={() => handleTab(t.key)}
               aria-current={tab === t.key ? "page" : undefined}
               aria-label={t.label}
+              // The same tour marks as the header's tabs, which a phone hides:
+              // the first-visit tour points here instead (lib/tourTarget.js).
+              data-tour={t.key === "gallery" ? "gallery" : t.key === "listings" ? "floor" : undefined}
             >
               <TabIcon name={t.icon} />
               <span>{t.label}</span>

@@ -4,15 +4,16 @@ import { lpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import { poolsFrameOnScreen, poolsFrameReplaced } from '../lib/poolsFrame';
 import { PageSkeleton } from './PageSkeleton';
 import { SwapSkeleton } from './PageSkeletons';
+import { SheetRuler } from './dwg/SheetRuler';
 
-/** LpDoorFrame's card (curve/uiFormat CARD and CARD_STYLE), without its art. */
+/** LpDoorFrame's card (curve/uiFormat CARD and CARD_STYLE), without its art; styles/dwg-pools.css flattens both alike. */
 const DOOR_STYLE = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /**
  * The pools page's first frame, as its static HTML paints it (scripts/render-pools-frame.mjs):
- * PoolsPage's own shell and heading, class for class, under the host's pt-14, and the LP door's
- * waiting card when the address asks for an add. `data-route-loading` keeps the e2e readiness
- * probe (gotoRoute) waiting for the page. Wallet-free, and it never says "Loading".
+ * PoolsPage's own shell, sheet, ruler and heading, class for class, under the host's pt-14, and
+ * the LP door's waiting card when the address asks for an add. `data-route-loading` keeps the e2e
+ * readiness probe (gotoRoute) waiting for the page. Wallet-free, and it never says "Loading".
  */
 export function PoolsFrame() {
   const [params] = useSearchParams();
@@ -21,14 +22,17 @@ export function PoolsFrame() {
     <div className="pt-14" aria-busy="true" data-route-loading>
       <div className="relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
-        <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
+        <div className="relative z-10 max-w-[1120px] mx-auto px-4 md:px-6 pt-8 pb-16">
           {door && (
-            <section aria-label="Add liquidity" className="rounded-2xl p-5 relative overflow-hidden isolate mb-6" style={DOOR_STYLE}>
+            <section aria-label="Add liquidity" data-dwg="door" className="rounded-2xl p-5 relative overflow-hidden isolate mb-6" style={DOOR_STYLE}>
               <p role="status" className="text-white/70 text-[13px]">Reading this pool from the chain…</p>
             </section>
           )}
-          <div className="mb-6">
-            <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">Liquidity pools.</h1>
+          <div className="dwg dwg-sheet" data-sheet="P">
+            <SheetRuler />
+            <div className="mb-6" data-dwg="hero">
+              <h1 className="dwg-word" data-break="" data-echo="Liquidity pools.">Liquidity pools.</h1>
+            </div>
           </div>
         </div>
       </div>
