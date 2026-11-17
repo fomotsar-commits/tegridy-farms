@@ -30,7 +30,9 @@ import {
   isDeployed,
 } from '../lib/constants';
 // NFT lending runs on Gondi's v3.2 loan contract (lib/gondi), not TEGRIDY_NFT_LENDING_ADDRESS.
-import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
+import { GONDI_LOAN_ADDRESS, LENDING_COLLECTIONS } from '../lib/gondi/loanOffer.js';
+import { SheetRuler } from '../components/dwg/SheetRuler';
+import { WallAxo } from '../components/dwg/WallAxo';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { STRIP_ARROW_PX, useTabStripArrows } from '../components/layout/tabStripScroll';
 import { artImgProps } from '../lib/artSrcSet';
@@ -176,24 +178,36 @@ export default function LendingPage() {
   };
 
   return (
-    <div className="-mt-14 relative min-h-screen">
+    <div className="-mt-14 relative min-h-screen dwg" data-sheet="L">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="nft-finance" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-24 pb-16">
+        {/* Sheet L-01 (styles/dwg-loans.css): one frame round everything the column holds. */}
+        <div className="dwg-sheet">
+        <SheetRuler />
         {/* Header */}
         <m.div
           className="text-center mb-6"
+          data-dwg="hero"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* F306: the backdrop gallery art is dark in BOTH themes, but light-mode
-              .heading-luxury turns the title dark navy (#1e1b4b) and it sinks into
-              the painting. Force white + a dark scrim inline so it stays legible. */}
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ color: '#ffffff', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
-          <p className="text-white max-w-md mx-auto text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          {/* The hero's drawing, all aria-hidden and before the h1: the film with its opening on the
+              page's picture, the wall as a model, and the key naming each collection whole. */}
+          <div className="l01-film dwg-grain" aria-hidden="true" />
+          <span className="l01-window" data-t="FIG. 01" aria-hidden="true" />
+          <WallAxo />
+          <div className="l01-key" aria-hidden="true">
+            <span className="dwg-t l01-key-cap" data-t="ON THE WALL" />
+            {LENDING_COLLECTIONS.map((c) => (
+              <span key={c.address} className="l01-key-row" data-t={c.symbol} data-v={c.address} />
+            ))}
+          </div>
+          <h1 className="dwg-word" data-break><span data-echo="NFT Finance">NFT Finance</span></h1>
+          <p className="dwg-lede">
             Borrow against your NFT, lend to others, or trade NFTs in a pool.
           </p>
         </m.div>
@@ -207,6 +221,7 @@ export default function LendingPage() {
             arrows. e2e/nft-finance-strip.spec.ts. */}
         <m.div
           className="relative mb-6 mx-auto w-full md:w-fit max-w-full"
+          data-dwg="index"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -239,6 +254,7 @@ export default function LendingPage() {
                 {section === key && (
                   <m.div
                     layoutId="nft-finance-tab"
+                    data-dwg="pill"
                     className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                   />
@@ -248,13 +264,13 @@ export default function LendingPage() {
                     {label}
                     {/* No tab strip says Soon (docs/FACE_LAWS.md, law 23): an undeployed panel says so itself. */}
                     {SECTION_DEPLOYED[key] && (
-                      <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                      <span data-dwg="live" className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                         Live
                       </span>
                     )}
                   </span>
                   {subtitle && (
-                    <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
+                    <span data-dwg="sub" className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
                       {subtitle}
                     </span>
                   )}
@@ -281,6 +297,7 @@ export default function LendingPage() {
             intro banner above the panel; logged-in behaviour is unchanged. */}
         {!isConnected && (
           <m.div
+            data-dwg="notice"
             className="relative isolate max-w-2xl mx-auto mb-6 rounded-xl px-4 py-3 text-center"
             style={{ background: 'rgba(6,12,26,0.72)', border: '1px solid rgba(245,228,184,0.12)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
             initial={{ opacity: 0, y: 8 }}
@@ -315,7 +332,7 @@ export default function LendingPage() {
           <Suspense fallback={<PageSkeleton />}>
             {section === 'nftlending' && (isDeployed(GONDI_LOAN_ADDRESS)
               ? (
-                <div className="space-y-6">
+                <div className="space-y-6" data-dwg="stack">
                   <NFTLendingSection />
                   {/* Above the fold of "My Loans" would be better; it sits here because
                       the shield reads the same loans and must not fork the read. */}
@@ -333,6 +350,7 @@ export default function LendingPage() {
         <AnimatePresence>
           {!introDismissed && (
             <m.div
+              data-dwg="figs"
               className="mt-8"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -344,6 +362,8 @@ export default function LendingPage() {
                 {introCards().map((card, i) => (
                   <m.button
                     key={card.key}
+                    data-dwg="fig"
+                    data-current={section === card.key ? '' : undefined}
                     onClick={() => handleSectionChange(card.key)}
                     aria-label={`Open ${card.title}`}
                     className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
@@ -363,7 +383,7 @@ export default function LendingPage() {
                         card's black-and-white stairwell, 2026-11-14) read as a plain dark box. */}
                     <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.5)', textShadow: '0 1px 3px rgba(0, 0, 0, 0.9)' }}>
                     <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
+                      <div data-dwg="fig-icon" className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
                         <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d={card.icon} />
                         </svg>
@@ -372,11 +392,11 @@ export default function LendingPage() {
                         <h3 className="text-[13px] font-semibold text-white mb-1 flex items-center gap-1.5">
                           {card.title}
                           {SECTION_DEPLOYED[card.key] ? (
-                            <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                            <span data-dwg="live" className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                               Live
                             </span>
                           ) : (
-                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                            <span data-dwg="soon" className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                               Soon
                             </span>
                           )}
@@ -390,6 +410,7 @@ export default function LendingPage() {
               </div>
               <div className="flex justify-center">
                 <button
+                  data-dwg="dismiss"
                   onClick={dismissIntro}
                   className="text-[12px] text-white/60 hover:text-white transition-colors px-3 py-1 rounded-full bg-black/40 border border-white/10"
                 >
@@ -399,6 +420,15 @@ export default function LendingPage() {
             </m.div>
           )}
         </AnimatePresence>
+        {/* The title block, the sheet's foot: every cell drawn from data, no words. */}
+        <div className="dwg-title l01-title" aria-hidden="true">
+          <div><div className="dwg-tcap" data-cap="Sheet" /><div className="dwg-sheetno" data-no="L-01" /></div>
+          <div><div className="dwg-tcap" data-cap="Drawing" /><div className="dwg-tval" data-val="THE WALL · ELEVATION A" /></div>
+          <div><div className="dwg-tcap" data-cap="Venue" /><div className="dwg-tval" data-val="MEMETICS.FINANCE" /></div>
+          <div><div className="dwg-tcap" data-cap="Network" /><div className="dwg-tval" data-val="ETHEREUM" /></div>
+          <div><div className="dwg-tcap" data-cap="Loan contract · Gondi v3.2" /><div className="dwg-tval" data-val={GONDI_LOAN_ADDRESS} /></div>
+        </div>
+        </div>
       </div>
     </div>
   );

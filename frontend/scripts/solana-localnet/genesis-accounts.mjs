@@ -55,15 +55,15 @@
 //   TEGRIDY_RELEASE_ARTIFACTS (default C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts)
 // Since the pool program's upgrades that folder must also hold the build mainnet runs now,
 // under its own names, beside the release's files (which stay as they are):
-//   cp_swap.upgrade-01fe923b.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
-//   raydium_cp_swap.upgrade-01fe923b.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
-//   SHA256SUMS.upgrade-01fe923b                  one line for each: the sha256, two spaces, the file name
+//   cp_swap.upgrade-9f0150e3.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
+//   raydium_cp_swap.upgrade-9f0150e3.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
+//   SHA256SUMS.upgrade-9f0150e3                  one line for each: the sha256, two spaces, the file name
 // The first two are the files of the pack
-//   C:/Users/jimbo/solana-launch-release-2026-09-26/pool-swap-guard-upgrade-2026-11/binary-to-deploy
+//   C:/Users/jimbo/solana-launch-release-2026-09-26/pool-keeper-fee-upgrade-2026-11/binary-to-deploy
 // (there the IDL is named raydium_cp_swap.idl.json). The list ends its lines in LF. A list
 // typed on Windows (CR LF) is read the same by this script and by start-validator.sh.
-// The three files of the upgrade before it (...upgrade-1e55bcdc...) stay in the folder too:
-// that build is the roll-back build now, and this harness no longer loads it.
+// The files of the upgrades before it (...upgrade-01fe923b..., the roll-back build now, and
+// ...upgrade-1e55bcdc...) stay in the folder too, and this harness no longer loads them.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -111,33 +111,34 @@ export function baylaMintAuthority() {
 
 /**
  * The pool program's files, as the artifacts folder names them: the build mainnet has run
- * since the upgrade that added the swap guard and the fee rules of 2026-11-03
- * (MAINNET_RUNBOOK.md, section 4b), and the IDL emitted from the same source. Like the
- * build before it, it has `create_lp_metadata` and refuses a public `initialize` on fee
- * tier 0. They sit beside the files of the two builds mainnet ran before: the first
- * upgrade's (`cp_swap.upgrade-1e55bcdc.mainnet.so`, the roll-back build now) and the
- * 2026-09-26 release's own `cp_swap.mainnet.so` and `raydium_cp_swap.idl.json`. Those
- * stay in the folder untouched and this harness no longer loads them.
+ * since the upgrade that added the keeper's fee (a fee tier's named keeper swaps free of the
+ * trade and creator fees; MAINNET_RUNBOOK.md, section 4b), and the IDL emitted from the same
+ * source. It keeps everything the builds before it added: the swap guard, the fee rules of
+ * 2026-11-03, `create_lp_metadata` and the refusal of a public `initialize` on fee tier 0.
+ * They sit beside the files of the builds mainnet ran before (`cp_swap.upgrade-01fe923b...`,
+ * the roll-back build now, `cp_swap.upgrade-1e55bcdc...` and the 2026-09-26 release's own
+ * `cp_swap.mainnet.so`), which stay in the folder untouched and are no longer loaded.
  */
-export const POOL_PROGRAM_SO = 'cp_swap.upgrade-01fe923b.mainnet.so';
-export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-01fe923b.idl.json';
+export const POOL_PROGRAM_SO = 'cp_swap.upgrade-9f0150e3.mainnet.so';
+export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-9f0150e3.idl.json';
 
 /**
  * Every file the validator and the encoder are built on, pinned here by sha256 so a swapped
  * file cannot pass. The two launcher files are the 2026-09-26 release's. The pool program's
- * binary is 714,776 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
+ * binary is 715,224 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
  * and from start-validator.sh, and ties the site's wording about the pool program to it.
  *
  * The repo's pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json) and the folder's copy
  * are the same file, so they share the one pin below. src/lib/launcher/solana/write/idl.test.ts
- * holds what each upgrade changed in it: undo the swap guard's error, its two fields and its
- * comment lines and the file is the IDL of the build before (`1e8fd792...`); take
+ * holds what each upgrade changed in it: undo the keeper fee's two reworded comments and the
+ * file is the IDL of the build before (`de4c6c7a...`); undo the swap guard's error, its two
+ * fields and its comment lines and it is the one before that (`1e8fd792...`); take
  * `create_lp_metadata` out of that and it is the 2026-09-26 release's.
  */
 export const PINNED_SHA256 = Object.freeze({
-  'cp_swap.upgrade-01fe923b.mainnet.so': '01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938',
+  'cp_swap.upgrade-9f0150e3.mainnet.so': '9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146',
   'tegridy_launch.mainnet.so': 'a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d',
-  'raydium_cp_swap.upgrade-01fe923b.idl.json': 'de4c6c7a24bb690a7659c3a7965bf87ea5e76e6cb8f0483ef5d81114bad81889',
+  'raydium_cp_swap.upgrade-9f0150e3.idl.json': '09cf1cacc36949b411289f64fce04e02e31bf4de4ce673aa66b050ba50d3db36',
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
@@ -145,7 +146,7 @@ export const PINNED_SHA256 = Object.freeze({
  * The checksum list in the artifacts folder that must name each pinned file. The release's
  * own SHA256SUMS is never edited: the upgrade's two files came with a list of their own.
  */
-export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-01fe923b';
+export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-9f0150e3';
 const SUMS_FILE = Object.freeze({
   [POOL_PROGRAM_SO]: UPGRADE_SUMS,
   [POOL_PROGRAM_IDL]: UPGRADE_SUMS,
@@ -342,7 +343,8 @@ export function ammConfigValues() {
     creator_fee_rate: 0n,
     // The swap guard's two fields (the upgrade of 2026-11), taken from the padding. Every
     // tier holds zeros there until the vault sets them: the guard off, and nobody as keeper
-    // (the all-zero key). The golden check below holds these against mainnet's own bytes.
+    // (the all-zero key), so nobody swaps free of the fees here. The golden check below holds
+    // these against mainnet's own bytes as read before the vault set either.
     swap_guard: 0n,
     keeper: PublicKey.default,
   };
