@@ -7,8 +7,13 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-17
+
+- Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
+
 ### 2026-11-16
 
+- Add / Remove, a staking pool's page and NFT loans are each drawn as an architect's sheet now, as Earn is: every pool a tank filled to its dollars, a pool's bungalow with its lock ladder, a loan as a line on a gallery wall. No word, fee, rule or button changed.
 - Earn: Harvest is drawn as a small street: each coin with something to claim is a building with one storey per claim, and every claim has a lane to a glass building marked YOUR WALLET. A lane turns green and a plate lands in your wallet only when its claim is paid, and every storey, lane and plate is the same size whatever it pays.
 - Earn: Harvest no longer rounds an amount up, and after a run its total counts only what was claimed.
 - Earn: Harvest's total for a coin says "at most" when a claim it adds up may pay less than shown.
