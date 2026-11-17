@@ -91,7 +91,7 @@ const signsAll = (signer: object | null | undefined) =>
  * with a Solana connection can hold it: it signs with that page's one connection.
  *
  * This is the reading and the run. What it draws is HarvestView.tsx, which takes plain values
- * (owner, 2026-11-14: "next gen esp the harvest": the claims drawn as plates, HarvestStack.tsx).
+ * (the claims drawn as storeys, HarvestGranary.tsx).
  */
 export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6' }: {
   quiet?: boolean;
@@ -169,12 +169,14 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     reread();
   };
 
+  // Nothing to claim but a pool not read: that is no zero, so the press reads again, as Try again does.
+  const recheck = run === null && !reading && claims.length === 0 && unread.length > 0;
   let label: string;
   let disabled = true;
   if (running) {
     const at = run!.rows.findIndex((r) => r.state.kind === 'sending' || r.state.kind === 'waiting');
     label = `Claiming ${Math.max(at, 0) + 1} of ${run!.rows.length}…`;
-  } else if (run?.done) {
+  } else if (run?.done || recheck) {
     label = 'Check again';
     disabled = false;
   } else if (reading) label = 'Reading your pools…';
@@ -186,6 +188,10 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   const press = () => {
     if (run?.done) {
       setRun(null);
+      reread();
+      return;
+    }
+    if (recheck) {
       reread();
       return;
     }
