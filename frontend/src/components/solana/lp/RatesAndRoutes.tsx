@@ -88,6 +88,13 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
         <FinePrint summary="Details">
           <p>Read from the chain when this page loads.</p>
           {publicTier && <p>{earnSentence(publicTier)}</p>}
+          {/* True of the pool program since its keeper-fee upgrade (states/config.rs swap_fee_rates);
+              proposal #34 names the price robot keeper of both tiers. poolProgramCopy.test.ts ties it to the pin. */}
+          <p data-testid="lp-keeper-fee">
+            A fee tier&rsquo;s named keeper, the venue&rsquo;s own price robot (wallet{' '}
+            <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>), pays no trade fee and no creator fee
+            on its own swaps, so those swaps pay nothing to LPs, the venue or the island. Everyone else pays as before.
+          </p>
           {howYouEarn(publicTier).map((line) => (
             <p key={line}>{line}</p>
           ))}

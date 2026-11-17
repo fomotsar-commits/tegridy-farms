@@ -13,13 +13,32 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
-// True of the pool program RUNNING on mainnet since its 2026-11 upgrade: create_lp_metadata,
-// a public initialize that refuses fee tier 0, fee limits, and a swap guard the vault can
-// switch on. src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness
-// pins, so the two only move together (a roll-back too). It names no trader: the notice says
-// which routes exist, never who uses them.
+// True of the pool program RUNNING on mainnet since its keeper-fee upgrade: that build has
+// create_lp_metadata, refuses a public initialize on fee tier 0, holds a fee tier's fees
+// inside limits, has the swap guard, and lets a fee tier's keeper swap free of the fees.
+// src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness pins,
+// so the two can only move together (a roll-back too). The fork line names no trader.
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+/**
+ * Who pays no fee (states/config.rs swap_fee_rates): a tier's keeper, on the swaps it signs.
+ * The vault names it (proposal #34: the price robot, on both tiers). Said beside what LPs keep.
+ * The creator fee is named only where the pool charges one, as lpShareLine does.
+ */
+const KEEPER_PAYS = {
+  both: 'pays no trade fee and no creator fee on its own swaps',
+  trade: 'pays no trade fee on its own swaps',
+} as const;
+function KeeperLine({ creatorFee }: { creatorFee: boolean }) {
+  return (
+    <>
+      A fee tier&apos;s named keeper, the venue&apos;s own price robot (wallet{' '}
+      <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>),{' '}
+      {creatorFee ? KEEPER_PAYS.both : KEEPER_PAYS.trade}, so those swaps earn liquidity providers nothing. Everyone else pays as
+      before.
+    </>
+  );
+}
 /**
  * The risk in one sentence, first in every Risks drop-down (owner, 2026-10-17). The wait is said
  * as read: Squads multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock
@@ -93,6 +112,7 @@ export function LpBeforeYouAdd({
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
+        <li><KeeperLine creatorFee={config !== null && chargedCreatorFeeRate(config, enableCreatorFee) > 0n} /></li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
       </LpRisksDetails>
     </div>
@@ -170,6 +190,8 @@ export function LpBeforeYouOpen({
         {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
+        {/* A pool opened from this site charges no creator fee (CREATOR_FEE_SWITCH.publicOpen). */}
+        <li><KeeperLine creatorFee={false} /></li>
         <li>
           Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}{nameRecord !== null ? `, plus ${solExact(nameRecord)} for the pool share's name record (Metaplex's fee and the record's deposit)` : ''}.{' '}
           {!coin.native && `${nameRecord !== null ? 'All of it is' : 'Both are'} paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
