@@ -217,11 +217,12 @@ describe("no view-only contract is admitted in an order body", () => {
   });
 
   it("a criteria offer names its collection by slug, and only a venue slug is built or posted", async () => {
-    for (const path of ["offers/build", "criteria_offers"]) {
+    // `offers` is OpenSea's criteria-offer post since `criteria_offers` went away.
+    for (const path of ["offers/build", "offers"]) {
       const refused = await call({
         method: "POST",
         query: { path },
-        body: { criteria: { collection: { slug: "bojungless" } }, offerer: "0x" + "a".repeat(40), quantity: 1 },
+        body: { criteria: { collection: { slug: "bojungless" } }, offerer: "0x" + "a".repeat(40), quantity: 1, protocol_address: "0x0000000000000068F116a894984e2DB1123eB395" },
       });
       expect(refused.status, path).toBe(403);
     }
@@ -230,7 +231,7 @@ describe("no view-only contract is admitted in an order body", () => {
     const allowed = await call({
       method: "POST",
       query: { path: "offers/build" },
-      body: { criteria: { collection: { slug: "junglebaygoldcards" } }, offerer: "0x" + "a".repeat(40), quantity: 1 },
+      body: { criteria: { collection: { slug: "junglebaygoldcards" } }, offerer: "0x" + "a".repeat(40), quantity: 1, protocol_address: "0x0000000000000068F116a894984e2DB1123eB395", offer_protection_enabled: true },
     });
     expect(allowed.status).toBe(200);
   });
@@ -479,8 +480,8 @@ describe("Bojungles and Seeds take offers on Base", () => {
     });
   }
 
-  it("offers/build and criteria_offers still refuse a Base slug: only item offers are made on Base", async () => {
-    for (const path of ["offers/build", "criteria_offers"]) {
+  it("offers/build and offers still refuse a Base slug: only item offers are made on Base", async () => {
+    for (const path of ["offers/build", "offers"]) {
       const out = await call({ method: "POST", query: { path }, body: { criteria: { collection: { slug: "bojungless" } } } });
       expect(out.status).toBe(403);
     }

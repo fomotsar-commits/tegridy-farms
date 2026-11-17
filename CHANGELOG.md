@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-17
 
+- Marketplace: bids work again. Collection, trait and single-NFT bids had failed since OpenSea changed its bid format in April 2024. Nothing costs gas until a bid is fully built and checked, one WETH approval covers all your open bids, sellers see the bid's real fee (OpenSea's 1%), and the venue takes no fee on bids for now.
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
 
 ### 2026-11-16

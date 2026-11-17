@@ -59,6 +59,33 @@ describe("computeNetProceeds", () => {
     expect(r.exact).toBe(false);
     expect(r.fee).toBeCloseTo(0.02, 12);
   });
+
+  it("EXACT BY SHARE: the order's own fee bps beat the estimate", () => {
+    // A bid carrying OpenSea's 1% only, while the estimate would say 1.5%.
+    const r = computeNetProceeds(0.05, { orderFeeBps: 100, feeBps: 150 });
+    expect(r.exact).toBe(true);
+    expect(r.royaltyIncluded).toBe(true);
+    expect(r.fee).toBeCloseTo(0.0005, 12);
+    expect(r.net).toBeCloseTo(0.0495, 12);
+  });
+
+  it("EXACT BY SHARE includes a royalty line and clamps to [0, gross]", () => {
+    expect(computeNetProceeds(1, { orderFeeBps: 800 }).net).toBeCloseTo(0.92, 12);
+    expect(computeNetProceeds(1, { orderFeeBps: 20000 }).net).toBe(0);
+    expect(computeNetProceeds(1, { orderFeeBps: -5 }).fee).toBe(0);
+  });
+
+  it("an order with no fee lines at all nets the whole bid, exactly", () => {
+    const r = computeNetProceeds(1, { orderFeeBps: 0, feeBps: 100 });
+    expect(r.exact).toBe(true);
+    expect(r.net).toBe(1);
+  });
+
+  it("an unknown share (null) falls through to the estimate", () => {
+    const r = computeNetProceeds(1, { orderFeeBps: null, feeBps: 100 });
+    expect(r.exact).toBe(false);
+    expect(r.fee).toBeCloseTo(0.01, 12);
+  });
 });
 
 describe("feeEthFromConsideration", () => {

@@ -8,7 +8,7 @@ import OrderBookPanel from "./OrderBookPanel";
 import { FilterPills } from "./FilterSidebar";
 import DepthChart from "./DepthChart";
 import MakeOfferModal from "./MakeOfferModal";
-import { OPENSEA_ITEM } from "../constants";
+import { OPENSEA_ITEM, openseaTraitOffersOn } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
@@ -768,8 +768,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         <div style={{ flex: 1 }}>
           <CollectionOffersPanel wallet={wallet} onConnect={onConnect} addToast={addToast} />
         </div>
-        {/* Trait Offer button + dropdown */}
-        <div style={{ position: "relative", flexShrink: 0, marginTop: 20 }}>
+        {/* Trait Offer button + dropdown, where OpenSea takes trait bids */}
+        {openseaTraitOffersOn(collection) && <div style={{ position: "relative", flexShrink: 0, marginTop: 20 }}>
           <button
             onClick={() => setTraitOfferOpen(prev => !prev)}
             className="btn-primary"
@@ -838,7 +838,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               </button>
             </div>
           )}
-        </div>
+        </div>}
       </div>
 
       </details>

@@ -728,7 +728,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                   </div>
                   {/* F666: net-proceeds preview — what the owner receives after
                       fees/royalty if they accept. Display only; accept tx unchanged. */}
-                  <NetProceeds price={offer.price} feeWei={offer.feeWei} />
+                  <NetProceeds price={offer.price} feeBps={offer.feeBps} contract={offer.tokenContract || collection.contract} />
                 </div>
               );
             })

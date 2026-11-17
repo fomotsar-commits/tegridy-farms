@@ -3,7 +3,7 @@ import { useTraitOffers } from "../hooks/useOffers";
 import EmptyState from "./EmptyState";
 
 export default function TraitBidPanel({ traitKey, traitValue, matchCount, sampled, wallet, onMakeOffer }) {
-  const { data: traitOffers = {}, isLoading: loading } = useTraitOffers();
+  const { data: traitOffers = {}, isLoading: loading, traitBidsOn } = useTraitOffers();
 
   const offerData = traitOffers?.[traitKey]?.[traitValue];
   const bestPrice = Number.isFinite(offerData?.priceEth) && offerData.priceEth > 0 ? offerData.priceEth : null;
@@ -26,13 +26,16 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, sample
             {matchCount != null ? `${matchCount}${sampled ? " loaded" : ""} NFTs have this trait` : "Trait offers"}
           </div>
         </div>
-        <button
-          onClick={() => onMakeOffer({ key: traitKey, value: traitValue })}
-          className="btn-primary"
-          style={{ fontSize: 13, padding: "10px 16px", minHeight: 44 }}
-        >
-          {wallet ? "Bid on Trait" : "Connect & Bid"}
-        </button>
+        {/* Only where OpenSea takes trait bids (constants.js OPENSEA_TRAIT_OFFERS). */}
+        {traitBidsOn && (
+          <button
+            onClick={() => onMakeOffer({ key: traitKey, value: traitValue })}
+            className="btn-primary"
+            style={{ fontSize: 13, padding: "10px 16px", minHeight: 44 }}
+          >
+            {wallet ? "Bid on Trait" : "Connect & Bid"}
+          </button>
+        )}
       </div>
 
       {loading ? (

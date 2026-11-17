@@ -6,7 +6,7 @@ import EmptyState from "./EmptyState";
 
 export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
   const { data: collectionOffers = [], isLoading: coLoading, refetch: refetchCO } = useCollectionOffers();
-  const { data: traitOffers = {}, isLoading: toLoading, refetch: refetchTO } = useTraitOffers();
+  const { data: traitOffers = {}, isLoading: toLoading, refetch: refetchTO, traitBidsOn } = useTraitOffers();
   const loading = coLoading || toLoading;
   const [showOfferModal, setShowOfferModal] = useState(null); // null | "collection" | { key, value }
 
@@ -141,9 +141,9 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
                     style={{
                       display: "flex", justifyContent: "space-between", alignItems: "center",
                       padding: "6px 8px", borderBottom: "1px solid var(--border)",
-                      cursor: "pointer",
+                      cursor: traitBidsOn ? "pointer" : "default",
                     }}
-                    onClick={() => setShowOfferModal({ key: to.traitType, value: to.traitValue })}
+                    onClick={traitBidsOn ? () => setShowOfferModal({ key: to.traitType, value: to.traitValue }) : undefined}
                   >
                     <div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>

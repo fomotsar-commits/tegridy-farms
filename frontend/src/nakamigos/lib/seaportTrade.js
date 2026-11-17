@@ -229,6 +229,12 @@ export function acceptTradeRefusal(trade, { seller, nftContract, tokenId, txValu
           return refuse("nft-mismatch", "The fill asks for a different token than the one being sold.");
         }
       } else if (c.itemType === ERC20) {
+        // The seller pays every line of a bid, so a line back to the bidder hands
+        // the bidder their own money out of the seller's proceeds: a bid of 10
+        // that pays 9.9 back buys the NFT for 0.1.
+        if (c.recipient === o.offerer) {
+          return refuse("pays-bidder", "This bid pays part of itself back to the bidder, so you would get less than it shows.");
+        }
         add(owed, c.token, c.amount);
       } else {
         return refuse("pays-eth", "The fill would make you pay ETH to accept an offer.");

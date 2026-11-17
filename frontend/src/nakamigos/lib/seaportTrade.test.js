@@ -181,6 +181,21 @@ describe("a tampered accept is refused", () => {
     expect(acceptTradeRefusal(decode(tx), acceptArgs())?.error).toBe("added-payments");
   });
 
+  // A bid's signed order may ask the seller to pay its own bidder back: offer 10
+  // WETH, ask for the NFT, 0.1 to OpenSea and 9.9 back to the bidder. Every line
+  // still sums to the offer, so the fees check passes, and the seller hands the NFT
+  // over for nothing (review 2026-11-16 F3).
+  it("a bid that pays WETH back to its own bidder, signed into the order", () => {
+    const tx = clone(LIVE_ACCEPT);
+    const bid = bidder(tx);
+    const refund = BigInt(bid.offer[0].startAmount) - BigInt(bid.consideration[1].startAmount);
+    bid.consideration.push({ ...bid.consideration[1], startAmount: String(refund), endAmount: String(refund), recipient: bid.offerer });
+    bid.totalOriginalConsiderationItems = String(bid.consideration.length);
+    const refusal = acceptTradeRefusal(decode(tx), acceptArgs());
+    expect(refusal?.error).toBe("pays-bidder");
+    expect(refusal?.message).toMatch(/back to the bidder/);
+  });
+
   it("fees larger than the bid itself", () => {
     const tx = clone(LIVE_ACCEPT);
     const fee = bidder(tx).consideration[1];

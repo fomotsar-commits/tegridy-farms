@@ -59,7 +59,39 @@ export function normalizeCollectionOffer(o) {
     maker: params?.offerer,
     orderHash: o?.order_hash,
     criteria: o?.criteria,
+    feeBps: feeBpsOf(params),
+    // How many items the bid still buys (a bid for 2 that bought 1 buys 1 more). Only a whole
+    // number OpenSea states counts; anything else is "not known", never a guess.
+    remainingQuantity: Number.isInteger(o?.remaining_quantity) ? o.remaining_quantity : null,
   };
+}
+
+/**
+ * The fees a bid's own order takes, in basis points of what it offers: EVERY
+ * payment line in its consideration (OpenSea's fee, a royalty, the venue's line),
+ * over the offer total. The seller who fills the bid pays each one out of what
+ * the bid offers, whoever it is paid to: a line back to the bidder is paid by the
+ * seller too, so it counts (and lib/seaportTrade.js refuses to accept such a bid).
+ * Scale-free, so it holds per item on a multi-item bid, and to two decimals of a bps.
+ *
+ * null when the order's lines are not known (no parameters, no payment offered),
+ * so a reader shows an estimate rather than a fee of zero.
+ */
+export function feeBpsOf(parameters) {
+  if (!parameters || !Array.isArray(parameters.offer) || !Array.isArray(parameters.consideration)) return null;
+  const isPayment = (i) => Number(i?.itemType) === 0 || Number(i?.itemType) === 1;
+  try {
+    let offered = 0n;
+    for (const i of parameters.offer) if (isPayment(i)) offered += BigInt(i.startAmount || "0");
+    if (offered <= 0n) return null;
+    let fees = 0n;
+    for (const c of parameters.consideration) {
+      if (isPayment(c)) fees += BigInt(c.startAmount || "0");
+    }
+    return Number((fees * 1_000_000n) / offered) / 100;
+  } catch {
+    return null; // a malformed amount: no exact figure, the reader estimates
+  }
 }
 
 export function safePriceFromWei(wei) {

@@ -83,8 +83,13 @@ export const COLLECTIONS = {
     },
     explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0xa1De9f93c56C290C48849B1393b09eB616D55dbb" },
     blurSlug: "gnssart",
-    supply: 9696, // On-chain totalSupply (token IDs go up to 9000+)
-    mintBlock: 18400000, // Oct 2023 — post-merge
+    // totalSupply() 9,697 on Ethereum at block 26,424,107 (read 2026-11-16); one of
+    // them is held by 0x...dEaD, so 9,696 can still trade. Token IDs go up to 9000+.
+    supply: 9697,
+    // The contract's creation block (tx 0xaea4a9f4...8699, 2022-03-17): eth_getCode
+    // is empty at 14,403,801 and 18,283 bytes at 14,403,802. The old 18,400,000
+    // (Oct 2023) cut every earlier sale and transfer out of the log scans.
+    mintBlock: 14403802,
     metadataBase: "https://assets.mgxs.co",
     image: "/collections/gnssart.jpg",
     description: "GNSS Art is a generative art collection by MGXS featuring algorithmically crafted 3D digital sculptures on the Ethereum blockchain. Each piece is uniquely generated through mathematical parameters including fractal geometry, warp cycles, and convergency algorithms.",
@@ -110,8 +115,14 @@ export const COLLECTIONS = {
     },
     explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9" },
     blurSlug: "junglebay",
-    supply: 5555, // On-chain totalSupply (reflects burns); fallback if API unavailable
-    mintBlock: 14150000, // Feb 2022 — pre-merge (PoW era)
+    // totalSupply() and maxSupply() are both 5,555 at block 26,424,107 (read
+    // 2026-11-16). The total does NOT drop for burns: 38 apes sit at 0x...dEaD
+    // (balanceOf), and OpenSea's own count is 5,518. Fallback when no live read answers.
+    supply: 5555,
+    // The contract's creation block (tx 0xe10ae46b...8870, 2022-01-06, pre-merge):
+    // eth_getCode is empty at 13,949,932 and 10,198 bytes at 13,949,933. The old
+    // 14,150,000 started after the mint.
+    mintBlock: 13949933,
     // Built on the first live gateway of the site-wide list: this base becomes
     // every Jungle Bay card's `<id>.png`, and it sat on ipfs.io until that
     // gateway was retired (2026-09-21), breaking every card. NftImage walks the
@@ -384,7 +395,9 @@ const CHAIN_ID = 1; // Ethereum Mainnet
 
 // Seaport / WETH addresses
 export const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-// Seaport v1.5 — verify compatibility if OpenSea migrates to v1.6 (0x0000000000000068F116a894984e2DB1123eB395)
+// Seaport 1.5: the venue's own order book (native listings) still signs for it.
+// Every BID is Seaport 1.6 with OpenSea's SignedZone (lib/seaportOffer.js):
+// OpenSea stopped taking 1.5 orders in April 2024.
 export const SEAPORT_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 
 // SECURITY: the ONLY contracts we will ever send a fulfillment (and its ETH) to.
@@ -462,8 +475,67 @@ export const SEAPORT_ORDER_TYPES = {
 export const CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
 export const CONDUIT_ADDRESS = "0x1E0049783F008A0085193E00003D00cd54003c71";
 export const OPENSEA_FEE_RECIPIENT = "0x0000a26b00c1F0DF003000390027140000fAa719";
-// 1% — OpenSea fee since Sep 2025. May vary per collection. Consider fetching from OpenSea API.
+// 1%: OpenSea's own fee since Sep 2025, the one fee every collection below requires.
 export const OPENSEA_FEE_BPS = 100;
+
+// THE FEES OPENSEA REQUIRES ON A BID, per collection the site bids on (by app slug).
+//
+// OpenSea's SDK puts exactly the collection's REQUIRED fees on every offer, each
+// as a WETH line of the offer total (opensea-js OrdersManager.getFees, optional
+// creator fees left out). Read live 2026-11-16, GET /api/v2/collections/{slug}:
+// every one requires OpenSea's 1% to OPENSEA_FEE_RECIPIENT and nothing else; the
+// creator fees are all optional (nakamigos 5%, gnssart 5%, junglebay 7%,
+// junglebaygoldcards 7%, bojungless 4%, seeds 3.69%).
+//
+// Pinned rather than read at bid time, so no API answer ever decides where a
+// bidder's WETH goes. A collection missing here is not bid on (api-offers.js
+// refuses it before any wallet call), so a new collection gets its fees read and
+// written here first. If OpenSea starts requiring another fee, OpenSea refuses
+// the post and the row needs updating.
+export const OPENSEA_REQUIRED_BID_FEES = Object.freeze({
+  nakamigos: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+  gnssart: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+  junglebay: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+  junglebaygoldcards: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+  bojungles: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+  memeticseeds: Object.freeze([{ recipient: OPENSEA_FEE_RECIPIENT, bps: OPENSEA_FEE_BPS }]),
+});
+
+/** The fee lines OpenSea requires on a bid for this collection, or null when not pinned. */
+export function openseaRequiredBidFees(collection) {
+  return (collection && Object.prototype.hasOwnProperty.call(OPENSEA_REQUIRED_BID_FEES, collection.slug))
+    ? OPENSEA_REQUIRED_BID_FEES[collection.slug]
+    : null;
+}
+
+// WHETHER OPENSEA TAKES A TRAIT BID, per collection (by app slug): its
+// `trait_offers_enabled`, read live 2026-11-16 from GET /api/v2/collections/{slug}.
+// Where it is off, OpenSea refuses the post, so a trait bid there is refused before
+// any wallet call (api-offers.js createTraitOffer) and its buttons are not shown;
+// it used to cost the wrap and approval gas first. Pinned for every collection
+// above; anything not pinned counts as off.
+export const OPENSEA_TRAIT_OFFERS = Object.freeze({
+  nakamigos: true,
+  gnssart: false,
+  junglebay: true,
+  junglebaygoldcards: false,
+  bojungles: false,
+  memeticseeds: false,
+});
+
+/** True when OpenSea takes trait bids on this collection (pinned above). */
+export function openseaTraitOffersOn(collection) {
+  return !!collection && Object.prototype.hasOwnProperty.call(OPENSEA_TRAIT_OFFERS, collection.slug)
+    && OPENSEA_TRAIT_OFFERS[collection.slug] === true;
+}
+
+// THE VENUE'S LINE ON A BID: one switch for every bid (collection, trait and one
+// NFT), OFF. When on, a bid carries one more WETH line, PLATFORM_FEE_BPS (0.5%) of
+// the offer to this chain's fee Safe, paid out of what the seller receives when the
+// bid is accepted. It stays off until (1) one real test bid proves OpenSea's post
+// accepts a third-party fee line on a SignedZone bid, AND (2) a simulated fill
+// pays it (docs/FEE_LEAK_LEDGER.md L-2). Replaces the old criteria-only switch.
+export const BID_VENUE_FEE_ENABLED = false;
 
 // Platform fee: 0.5% on every native trade, half of OpenSea's 1% (owner's call, 2026-10-18).
 // api/_lib/platform-fee.js holds the server's copy; a test keeps the two equal.

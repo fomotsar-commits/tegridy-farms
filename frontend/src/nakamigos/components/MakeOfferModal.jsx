@@ -9,6 +9,16 @@ import { getFriendlyError } from "../lib/errorMessages";
 import { toastTxNotice } from "../lib/txOutcome";
 import { sanitizeDecimalInput } from "../../lib/formatting";
 
+// Bids go in steps of 0.00001 WETH (lib/seaportOffer.js PRICE_TICK_WEI: on the
+// tick every fee is exact and divides by the quantity), so the price field takes
+// at most 5 decimals and what is typed is exactly what is signed.
+const BID_PRICE_DECIMALS = 5;
+function toBidPrice(raw) {
+  const s = sanitizeDecimalInput(raw);
+  const dot = s.indexOf(".");
+  return dot < 0 ? s : s.slice(0, dot + 1 + BID_PRICE_DECIMALS);
+}
+
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
   { label: "6 hours", hours: 6 },
@@ -69,8 +79,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
     fetchMyOffers(wallet, collectionContract)
       .then((offers) => {
         if (cancelled) return;
+        // The WHOLE of each live bid (offerWei), not its per-item price: a bid
+        // for 3 can pull 3 prices of WETH.
         const total = offers.reduce(
-          (sum, o) => sum + BigInt(o.priceWei || "0"), 0n
+          (sum, o) => sum + BigInt(o.offerWei || o.priceWei || "0"), 0n
         );
         setActiveOfferTotal(total);
       })
@@ -91,9 +103,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
 
     try {
       setStepLabel("Signing & submitting offer...");
+      // The typed decimal string, not a float of it: parsed to wei exactly.
       if (isCollectionOffer) {
         result = await createCollectionOffer({
-          priceEth: priceNum,
+          priceEth: price,
           expirationHours: expiration,
           slug: collectionSlug,
         });
@@ -101,14 +114,14 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         result = await createTraitOffer({
           traitType: trait.key,
           traitValue: trait.value,
-          priceEth: priceNum,
+          priceEth: price,
           expirationHours: expiration,
           slug: collectionSlug,
         });
       } else {
         result = await createItemOffer({
           tokenId: nft.id,
-          priceEth: priceNum,
+          priceEth: price,
           expirationHours: expiration,
           contract: collectionContract,
         });
@@ -341,7 +354,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                   inputMode="decimal"
                   placeholder="0.00"
                   value={price}
-                  onChange={(e) => setPrice(sanitizeDecimalInput(e.target.value))}
+                  onChange={(e) => setPrice(toBidPrice(e.target.value))}
                   disabled={step === "submitting"}
                   style={{
                     flex: 1, background: "transparent", border: "none", outline: "none",
