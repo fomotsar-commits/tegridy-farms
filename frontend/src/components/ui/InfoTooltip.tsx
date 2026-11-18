@@ -281,10 +281,12 @@ export function StepIndicator({
         const isComplete = i < currentStep;
         const isActive = i === currentStep;
         return (
-          <div key={i} className="flex items-center gap-1 flex-1">
+          // min-w-0 on the step and its pill: a row too narrow for its labels cuts them short
+          // (the label truncates) and never pushes the page wider than the screen.
+          <div key={i} className="flex items-center gap-1 flex-1 min-w-0">
             <div
               data-step={isComplete ? 'done' : isActive ? 'now' : 'next'}
-              className={`flex items-center gap-1.5 flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${
+              className={`flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${
                 isComplete
                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                   : isActive
@@ -297,7 +299,7 @@ export function StepIndicator({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
-                <span className="w-3 text-center">{i + 1}</span>
+                <span className="w-3 flex-shrink-0 text-center">{i + 1}</span>
               )}
               <span className="truncate">{label}</span>
             </div>
