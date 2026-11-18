@@ -15,6 +15,28 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
+
+**Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
+them shrink: `min-width: 0` on each, and the label's own `truncate` does the rest.
+
+**Measured** (the Lend form's three steps, "Wrap ETH", "Approve WETH", "Sign Offer"; Chromium on a
+production build, 2026-11-18): each step was `flex: 1 1 0%` with the default `min-width: auto`, so
+none could be narrower than its name. The three names need 368px. A 390px phone gives the row
+328px, and the last step ended 9px past the screen. With `min-width: 0` added, the phone fitted.
+At 834px wide the row is 379px: the names had fitted there before with 11px to spare, and now
+"Approve WETH" was cut short, because equal shares of 379px ignore that one name is longer. Sized
+by content (`flex: 1 1 auto`) under a container query on the row's own width, with `min-width: 0`
+kept as the last guard, no name was cut at any of twelve widths from 360px to 1280px.
+
+**Do:** treat `min-width: 0` on equal flex items as a change to how the row is shared out, not
+only as a way out of an overflow. Where labels differ in length, size the items by their content
+in the narrow case. Decide "narrow" by the row's own width (`container-type: inline-size` and
+`@container`), not the screen's: this row is narrowest on a phone and again on a tablet, where its
+column is one of two. A rule inside `@container` cannot style the container itself, so a gap for
+the row goes on its children. Measure at tablet widths as well as phone widths before calling it
+fixed.
+
 ## 2026-11-18: rounding a cost up can print it at twenty times its size, and an estimate rounded up can pass its own cap
 
 **Believed:** an amount the visitor pays is safe to round up at the digits shown, because the
