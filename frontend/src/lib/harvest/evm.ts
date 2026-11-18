@@ -87,7 +87,7 @@ export function planEvmPool(room: EvmHarvestRoom, read: EvmPoolRead): HarvestPla
 /** One claim's receipt, read the way every direct wait reads it (lib/txErrors), as Harvest says it. */
 export function receiptResult(outcome: DirectReceiptOutcome<unknown>, hash: `0x${string}`): ClaimResult {
   if (outcome.kind === 'success') return { kind: 'claimed', tx: outcome.replacement?.hash ?? hash };
-  if (outcome.kind === 'reverted') return { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: hash };
+  if (outcome.kind === 'reverted') return { kind: 'reverted', reason: 'Nothing was claimed, so it stays owed. Only the network fee was spent.', tx: hash };
   if (outcome.kind === 'replaced') {
     return { kind: 'unconfirmed', reason: 'Your wallet replaced this transaction (a cancel, or another call), so this claim did not run.', tx: hash, stop: true };
   }

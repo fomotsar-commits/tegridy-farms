@@ -109,6 +109,9 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
 
   return (
     <li
+      data-dwg="ticket"
+      data-kind="position"
+      data-band={health.band}
       className="relative isolate list-none rounded-xl p-4"
       style={{ background: 'rgba(0,0,0,0.6)', border: `1px solid ${color}` }}
     >
@@ -132,7 +135,7 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
       </p>
 
       {prepared.ok ? (
-        <div className="mt-3 rounded-lg p-3" style={{ background: '#0a0a0a', border: '1px solid var(--color-purple-75)' }}>
+        <div className="mt-3 rounded-lg p-3" data-dwg="prepared" style={{ background: '#0a0a0a', border: '1px solid var(--color-purple-75)' }}>
           <p className="text-white/70 text-[11px]">Prepared transaction</p>
           <dl className="mt-1.5 space-y-0.5 text-[11px]">
             <div className="flex justify-between gap-2">
@@ -154,6 +157,7 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
           </dl>
           <p className="mt-2 text-white/55 text-[11px] leading-snug">{prepared.action.disclosure}</p>
           <button
+            data-dwg="act"
             type="button"
             disabled={isPending || receipt.isLoading}
             onClick={() => {

@@ -61,7 +61,7 @@ const ASK_OPEN_PRESETS = [
 
 const TYPES = (t: unknown) => t as Record<string, { name: string; type: string }[]>;
 const INPUT =
-  'w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85';
+  'dwg-field w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85';
 const ROW_BG = 'rgba(13,21,48,0.8)';
 
 function termsLine(r: LoanRequestJson): string {
@@ -215,6 +215,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
             const answers = liveOffers.filter((o) => offerAnswersRequest(o, r)).length;
             return (
               <li
+                data-dwg="row"
                 key={r.nonce}
                 className="rounded-xl p-3 flex flex-wrap items-center justify-between gap-2"
                 style={{ background: ROW_BG, border: `1px solid ${CARD_BORDER}` }}
@@ -229,6 +230,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
                   </p>
                 </div>
                 <button
+                  data-dwg="quiet"
                   type="button"
                   disabled={busy}
                   aria-label={`Withdraw the request on ${nftName(r)}`}
@@ -257,7 +259,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
                     setPicked(c.address);
                     setTokenId('');
                   }}
-                  className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`dwg-chip min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
                     picked === c.address ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/10 text-white/80 hover:border-white/25'
                   }`}
                   style={{ background: picked === c.address ? SELECTED_BG : CARD_BG }}
@@ -377,6 +379,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
           )}
 
           <button
+            data-dwg="act"
             type="button"
             onClick={isConnected ? () => void handleAsk() : openConnectModal ?? (() => {})}
             disabled={askDisabled}
@@ -452,6 +455,7 @@ export function BorrowerRequests({ collection, onOffer }: { collection: Address;
           const r = row.request;
           return (
             <li
+              data-dwg="row"
               key={`${r.borrower}:${r.nonce}`}
               className="rounded-xl p-3 flex flex-wrap items-center justify-between gap-2"
               style={{ background: ROW_BG, border: `1px solid ${CARD_BORDER}` }}

@@ -7,6 +7,7 @@
 // zero, and never an empty list that reads as "you hold nothing".
 import { formatUnits } from 'viem';
 import { BUNGALOWS, RETIRED_STAKE_POOLS, type Bungalow } from '../bungalows';
+import { decimalText } from '../formatting';
 
 export type WalletChain = 'solana' | 'ethereum' | 'base';
 
@@ -112,14 +113,17 @@ export function evmLadderRooms(bungalows: readonly Bungalow[] = BUNGALOWS): (Bun
   );
 }
 
-/** A raw amount in whole coins, short: 52,000 · 1.23 · 0.0042. */
+/**
+ * A raw amount in whole coins, short: 52,000 · 1.23 · 0.0042. Every caller prints what a wallet
+ * holds, is owed or would receive, so it is CUT on the raw amount, never rounded up past it.
+ */
 export function fmtAmount(raw: bigint, decimals: number): string {
-  const n = Number(formatUnits(raw, decimals));
-  if (!Number.isFinite(n)) return formatUnits(raw, decimals);
-  if (n === 0) return '0';
-  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
-  if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  return n.toLocaleString('en-US', { maximumSignificantDigits: 3 });
+  const exact = formatUnits(raw, decimals);
+  if (!Number.isFinite(Number(exact))) return exact;
+  if (raw === 0n) return '0';
+  const whole = exact.replace(/^-/, '').split('.')[0]!;
+  const shape = whole.length >= 4 ? { places: 0, group: true } : whole !== '0' ? { places: 2, trim: true } : { sig: 3, trim: true };
+  return decimalText(exact, shape) ?? exact;
 }
 
 export function fmtUsd(v: number): string {

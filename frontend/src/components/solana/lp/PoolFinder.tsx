@@ -121,6 +121,8 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
 
 // "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
 const TASK_LABEL: Record<LpTask, string> = { create: 'Open a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
+/** Each task button's index-tab letter on /pools' sheet (styles/dwg-pools.css draws it from data-n). */
+const TASK_TAB = ['A', 'B', 'C'] as const;
 const TASK_LINE: Record<LpTask, string> = {
   create: `Pick a token. You can pair it with ${QUOTE_COINS_OR}.`,
   add: 'Pick a token. If it has no pool yet, your deposit opens one.',
@@ -506,10 +508,11 @@ export function PoolFinder({
         {tasks.length > 0 && (
           <div data-testid="lp-tasks" className="space-y-2">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
-              {tasks.map((t) => (
+              {tasks.map((t, k) => (
                 <button
                   key={t}
                   type="button"
+                  data-n={TASK_TAB[k]}
                   className={`${task === t ? 'btn-primary' : 'btn-secondary'} flex-1 min-w-0 min-h-[48px] px-2 text-[13px] leading-tight`}
                   aria-pressed={task === t}
                   onClick={() => choose(t)}
