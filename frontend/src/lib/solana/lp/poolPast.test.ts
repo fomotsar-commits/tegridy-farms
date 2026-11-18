@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { PublicKey } from '@solana/web3.js';
 import { poolStatePda } from '../../launcher/solana/curve/program';
-import { IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_WITHDRAW, decodePoolState } from '../cpswap/program';
+import { IX_CREATE_LP_METADATA, IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_WITHDRAW, decodePoolState } from '../cpswap/program';
 import { FORECAST_WORDS } from './format';
 import { tokenSymbol } from './identity';
 import { decodeObservationState } from './ownPrice';
@@ -178,7 +178,7 @@ describe('classifyPoolTx: a pool’s transactions by what they did', () => {
   }
 
   /** A deposit, withdrawal or opening step on the pool with its vault and share moves. */
-  function cpTx(kind: 'deposit' | 'withdrawal' | 'opening', o: { owner: string; lp: bigint; coin: bigint; token: bigint; signer?: string; signature?: string }): ParsedTx {
+  function cpTx(kind: 'deposit' | 'withdrawal' | 'opening', o: { owner: string; lp: bigint; coin: bigint; token: bigint; signer?: string; signature?: string; after?: TxIxSpec[] }): ParsedTx {
     const [lpAcc, auth, t0, t1] = [k(), k(), k(), k()];
     const sign = kind === 'withdrawal' ? -1n : 1n;
     const accounts = kind === 'opening'
@@ -187,9 +187,10 @@ describe('classifyPoolTx: a pool’s transactions by what they did', () => {
     const disc = kind === 'deposit' ? IX_DEPOSIT : kind === 'withdrawal' ? IX_WITHDRAW : IX_INITIALIZE;
     const d0 = sign * (view.quoteIsToken0 ? o.coin : o.token);
     const d1 = sign * (view.quoteIsToken0 ? o.token : o.coin);
+    const after = o.after ?? [];
     const raw = txJson({
-      keys: [...new Set([o.signer ?? o.owner, ...accounts, PROG])],
-      instructions: [{ program: PROG, accounts, data: ixData(disc, o.lp, 1n << 62n, 1n << 62n) }],
+      keys: [...new Set([o.signer ?? o.owner, ...accounts, PROG, ...after.flatMap((ix) => [ix.program, ...ix.accounts])])],
+      instructions: [{ program: PROG, accounts, data: ixData(disc, o.lp, 1n << 62n, 1n << 62n) }, ...after],
       balances: [
         { account: lpAcc, mint: p.lpMint, owner: o.owner, pre: 5n, post: 5n + sign * o.lp },
         { account: p.token0Vault, mint: p.token0Mint, owner: auth, pre: 10n ** 12n, post: 10n ** 12n + d0 },
@@ -222,6 +223,12 @@ describe('classifyPoolTx: a pool’s transactions by what they did', () => {
     expect(classify(cpTx('withdrawal', { owner, lp: 5n, coin: 1n, token: 50n }))).toMatchObject({ kind: 'withdrawal', signer: owner });
     // The wallet in the owner slot did not sign: not its deposit.
     expect(classify(cpTx('deposit', { owner, lp: 10n, coin: 1n, token: 100n, signer: k() })).kind).toBe('other');
+  });
+
+  it('this site’s opening, `initialize` then the share token’s name record (`create_lp_metadata`), is an opening, not mixed', () => {
+    const owner = k();
+    const nameRecord: TxIxSpec = { program: PROG, accounts: [owner, k(), view.address, p.lpMint, k(), k(), 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s', '11111111111111111111111111111111', 'SysvarRent111111111111111111111111111111111'], data: Uint8Array.from(IX_CREATE_LP_METADATA) };
+    expect(classify(cpTx('opening', { owner, lp: 10n, coin: 1n, token: 100n, after: [nameRecord] }))).toMatchObject({ kind: 'opening', signer: owner });
   });
 
   it('a swap on another pool is other; two steps are mixed; a failed one is failed; no record is unread; no balances is unread', () => {

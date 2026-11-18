@@ -1,7 +1,7 @@
 // Your positions, with what each one earned. A position is headed like its pool, its
 // addresses are short with the whole one a press away, and it says with no press that fees
-// are already in the shares. The earnings block reads by itself on the first two main
-// positions and on a press everywhere else; never for a set-aside or unplaced share. A read
+// are already in the shares. The earnings block reads by itself on every main position, one
+// at a time, top first; never for a set-aside or unplaced share. A read
 // that is running, paused, unread or worth-only says so and never prints a zero; a figure
 // under the rounding bound reads "none yet" with no sign and no digit; the only line that
 // names a yearly figure is the pace sentence, whole. The readers are fakes: no chain here.
@@ -273,31 +273,54 @@ describe('the row, top to bottom', () => {
 });
 
 describe('which shares work out their earnings by themselves', () => {
-  it('the first two main positions read with no press; the third reads nothing until its button is pressed', async () => {
+  it('every main position reads with no press, top first: the third too, so a pool of two island coins listed under the SOL pools still shows its figures', async () => {
     const v = view();
     const [a, b, c] = [position(v), position(v), position(v)];
     const ledger = vi.fn(async () => okRead());
     mount(readers({ ledger }, [a, b, c]));
     const [ra, rb, rc] = [await rowOf(a), await rowOf(b), await rowOf(c)];
-    await waitFor(() => expect([state(ra), state(rb)]).toEqual(['ok', 'ok']));
-    expect(ledger).toHaveBeenCalledTimes(2);
-    expect(ledger).toHaveBeenCalledWith({ lpAccount: a.lpAccount, lpMint: a.lpMint, owner: OWNER, lpAmount: a.lpAmount }, v);
-    expect(ledger).toHaveBeenCalledWith({ lpAccount: b.lpAccount, lpMint: b.lpMint, owner: OWNER, lpAmount: b.lpAmount }, v);
-    for (const r of [ra, rb]) {
+    await waitFor(() => expect([state(ra), state(rb), state(rc)]).toEqual(['ok', 'ok', 'ok']));
+    expect(ledger).toHaveBeenCalledTimes(3);
+    expect(ledger.mock.calls.map((call) => (call as unknown as [{ lpAccount: string }])[0].lpAccount)).toEqual([a.lpAccount, b.lpAccount, c.lpAccount]);
+    for (const p of [a, b, c]) expect(ledger).toHaveBeenCalledWith({ lpAccount: p.lpAccount, lpMint: p.lpMint, owner: OWNER, lpAmount: p.lpAmount }, v);
+    for (const r of [ra, rb, rc]) {
       expect(within(r).getByText('Put in')).toBeInTheDocument();
       expect(within(r).queryByRole('button', { name: BUTTON })).toBeNull();
+      // Worked out once, each row keeps a 44px button to work it out again.
+      expect(within(r).getByRole('button', { name: AGAIN })).toHaveClass('min-h-[44px]');
     }
-    // The third: the press, 44px tall, and nothing read or printed before it. The nothing-to-claim sentence needs no press.
-    expect(state(rc)).toBe('idle');
-    expect(within(rc).getByText(FEES)).toBeInTheDocument();
-    expect(within(rc).queryByText('Put in')).toBeNull();
-    expect(value(rc, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
-    const press = within(rc).getByRole('button', { name: BUTTON });
-    expect(press).toHaveClass('min-h-[44px]');
-    fireEvent.click(press);
-    await within(rc).findByText('Put in');
-    expect(ledger).toHaveBeenCalledTimes(3);
-    expect(ledger).toHaveBeenLastCalledWith({ lpAccount: c.lpAccount, lpMint: c.lpMint, owner: OWNER, lpAmount: c.lpAmount }, v);
+  });
+
+  it('one read at a time: the next row starts only once the row above has its answer, and waits saying it is working', async () => {
+    const v = view();
+    const [a, b, c] = [position(v), position(v), position(v)];
+    const answers = new Map<string, (r: LedgerRead) => void>();
+    let running = 0;
+    let most = 0;
+    const ledger = vi.fn((share: { lpAccount: string }) => {
+      most = Math.max(most, ++running);
+      return new Promise<LedgerRead>((resolve) => answers.set(share.lpAccount, (r) => { running--; resolve(r); }));
+    });
+    mount(readers({ ledger }, [a, b, c]));
+    const [ra, rb, rc] = [await rowOf(a), await rowOf(b), await rowOf(c)];
+    await waitFor(() => expect(ledger).toHaveBeenCalledTimes(1));
+    // Long enough for a second read to have started, had it not waited.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(ledger).toHaveBeenCalledTimes(1);
+    // The rows below are waiting, not idle: they say they are working, and their button is off.
+    for (const r of [rb, rc]) {
+      expect(state(r)).toBe('reading');
+      expect(within(r).getByRole('button', { name: BUTTON })).toHaveAttribute('aria-disabled', 'true');
+    }
+    await act(async () => answers.get(a.lpAccount)!(okRead()));
+    await waitFor(() => expect(ledger).toHaveBeenCalledTimes(2));
+    expect(state(ra)).toBe('ok');
+    await act(async () => answers.get(b.lpAccount)!(okRead()));
+    await waitFor(() => expect(ledger).toHaveBeenCalledTimes(3));
+    await act(async () => answers.get(c.lpAccount)!(okRead()));
+    await waitFor(() => expect(state(rc)).toBe('ok'));
+    expect(ledger.mock.calls.map((call) => (call as unknown as [{ lpAccount: string }])[0].lpAccount)).toEqual([a.lpAccount, b.lpAccount, c.lpAccount]);
+    expect(most).toBe(1);
   });
 
   it('never a set-aside share: no read, no block and no press, even with a reader that could and no other share to read', async () => {
@@ -316,7 +339,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(ledger).not.toHaveBeenCalled();
   });
 
-  it('a share with no pool, or whose pool could not be read, never reads and does not use up one of the two', async () => {
+  it('a share with no pool, or whose pool could not be read, never reads and holds up no other row', async () => {
     const v = view();
     const unplaced = position(v, { lpMint: key().toBase58(), placement: 'not-found', pool: null, value: null });
     const unreadPool = position(v, { lpMint: key().toBase58(), pool: { kind: 'unread', address: key().toBase58(), detail: 'HTTP 502' }, value: null });
@@ -324,10 +347,9 @@ describe('which shares work out their earnings by themselves', () => {
     const ledger = vi.fn(async () => okRead());
     mount(readers({ ledger }, [unplaced, unreadPool, a, b, c]));
     const [ra, rb, rc] = [await rowOf(a), await rowOf(b), await rowOf(c)];
-    await waitFor(() => expect([state(ra), state(rb)]).toEqual(['ok', 'ok']));
-    expect(ledger).toHaveBeenCalledTimes(2);
-    expect(ledger.mock.calls.map((call) => (call as unknown as [{ lpAccount: string }])[0].lpAccount).sort()).toEqual([a.lpAccount, b.lpAccount].sort());
-    expect(state(rc)).toBe('idle');
+    await waitFor(() => expect([state(ra), state(rb), state(rc)]).toEqual(['ok', 'ok', 'ok']));
+    expect(ledger).toHaveBeenCalledTimes(3);
+    expect(ledger.mock.calls.map((call) => (call as unknown as [{ lpAccount: string }])[0].lpAccount).sort()).toEqual([a.lpAccount, b.lpAccount, c.lpAccount].sort());
     for (const p of [unplaced, unreadPool]) expect(within(await rowOf(p)).queryByTestId('lp-ledger')).toBeNull();
   });
 
@@ -386,7 +408,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(ledger).toHaveBeenCalledTimes(1);
   });
 
-  it('a share whose amount changed is worked out again: by itself on a first row, on a new press elsewhere; nothing stale stays', async () => {
+  it('a share whose amount changed is worked out again by itself, top first; an unchanged one is not; nothing stale stays', async () => {
     const v = view();
     const [a, b, c] = [position(v), position(v), position(v)];
     const half = 5n * SOL;
@@ -396,18 +418,18 @@ describe('which shares work out their earnings by themselves', () => {
       .mockResolvedValue({ kind: 'ok', positions: [{ ...a, lpAmount: half }, b, { ...c, lpAmount: half }], chainNow: 6n, totalShares: 3 });
     mount(readers({ ledger, positions }, []));
     const [ra, rb, rc] = [await rowOf(a), await rowOf(b), await rowOf(c)];
-    fireEvent.click(within(rc).getByRole('button', { name: BUTTON }));
     await waitFor(() => expect([state(ra), state(rb), state(rc)]).toEqual(['ok', 'ok', 'ok']));
     expect(ledger).toHaveBeenCalledTimes(3);
     fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
-    // The first row reads again by itself for the shares it holds now; the second, unchanged, does not; the third offers its press again.
-    await waitFor(() => expect(value(ra, 'Put in')).toBe(`0.5 SOL and 50 ${TICKER}`));
-    expect(ledger).toHaveBeenCalledTimes(4);
-    expect(ledger).toHaveBeenLastCalledWith({ lpAccount: a.lpAccount, lpMint: a.lpMint, owner: OWNER, lpAmount: half }, v);
+    // The first and third rows read again by themselves for the shares they hold now; the second, unchanged, does not.
+    await waitFor(() => expect([value(ra, 'Put in'), value(rc, 'Put in')]).toEqual([`0.5 SOL and 50 ${TICKER}`, `0.5 SOL and 50 ${TICKER}`]));
+    expect(ledger).toHaveBeenCalledTimes(5);
+    expect(ledger.mock.calls.slice(3).map((call) => (call as unknown as [{ lpAccount: string; lpAmount: bigint }])[0])).toEqual([
+      { lpAccount: a.lpAccount, lpMint: a.lpMint, owner: OWNER, lpAmount: half },
+      { lpAccount: c.lpAccount, lpMint: c.lpMint, owner: OWNER, lpAmount: half },
+    ]);
     expect(state(rb)).toBe('ok');
-    expect(state(rc)).toBe('idle');
-    expect(within(rc).queryByText('Put in')).toBeNull();
-    expect(within(rc).getByRole('button', { name: BUTTON })).toBeInTheDocument();
+    expect(value(rb, 'Put in')).toBe(`1 SOL and 100 ${TICKER}`);
   });
 
   it('with no history reader at all: no button, no block, and the worth still printed', async () => {
@@ -682,13 +704,18 @@ describe('pressing a button never loses the keyboard, and each answer is read ou
     const v = view();
     const [a, b, c] = [position(v), position(v), position(v)];
     let answer: (r: LedgerRead) => void = () => {};
-    const ledger = vi.fn((share: { lpAccount: string }) => (share.lpAccount === c.lpAccount ? new Promise<LedgerRead>((resolve) => { answer = resolve; }) : Promise.resolve(okRead())));
+    // Each row's first read answers at once; the third row's second read (the press) waits.
+    const ledger = vi.fn((share: { lpAccount: string }) =>
+      share.lpAccount === c.lpAccount && ledger.mock.calls.filter((call) => (call as unknown as [{ lpAccount: string }])[0].lpAccount === c.lpAccount).length > 1
+        ? new Promise<LedgerRead>((resolve) => { answer = resolve; })
+        : Promise.resolve(okRead()));
     mount(readers({ ledger }, [a, b, c]));
     const rc = await rowOf(c);
     const blk = block(rc);
-    const press = within(blk).getByRole('button', { name: BUTTON });
-    // Before any press: the status line is already on the page, and silent.
-    expect(status(blk)).toBeEmptyDOMElement();
+    // Before the row's turn: the status line is already on the page, its button switched off.
+    expect(within(blk).getAllByRole('status')).toHaveLength(1);
+    await waitFor(() => expect(state(rc)).toBe('ok'));
+    const press = within(blk).getByRole('button', { name: AGAIN });
     press.focus();
     fireEvent.click(press);
     await waitFor(() => expect(status(blk)).toHaveTextContent(READING));
@@ -698,15 +725,15 @@ describe('pressing a button never loses the keyboard, and each answer is read ou
     await act(async () => {
       answer(okRead());
     });
-    await within(blk).findByText('Put in');
-    // The same button, now named for the next press; focus never went to the page body.
+    await waitFor(() => expect(status(blk)).toHaveTextContent(WORKED_OUT));
+    // The same button, ready for the next press; focus never went to the page body.
     expect(document.activeElement).toBe(press);
     expect(press).toHaveAccessibleName(AGAIN);
     expect(press).not.toHaveAttribute('aria-disabled', 'true');
     expect(document.activeElement).not.toBe(document.body);
     // One status line, the same element throughout, now saying it is done.
     expect(within(blk).getAllByRole('status')).toHaveLength(1);
-    expect(status(blk)).toHaveTextContent(WORKED_OUT);
+    expect(ledger).toHaveBeenCalledTimes(4);
   });
 
   it('Read 20 more that reads the last page hands focus to the button that stays', async () => {
@@ -743,7 +770,7 @@ describe('pressing a button never loses the keyboard, and each answer is read ou
 });
 
 describe('the automatic read fires once, and an answer is shown only for its own question', () => {
-  it('under React StrictMode, which runs every effect twice, three positions still make exactly two reads', async () => {
+  it('under React StrictMode, which runs every effect twice, three positions still make exactly three reads', async () => {
     const v = view();
     const [a, b, c] = [position(v), position(v), position(v)];
     const ledger = vi.fn(async () => okRead());
@@ -753,13 +780,13 @@ describe('the automatic read fires once, and an answer is shown only for its own
       </StrictMode>,
     );
     const [ra, rb, rc] = [await rowOf(a), await rowOf(b), await rowOf(c)];
-    await waitFor(() => expect([state(ra), state(rb), state(rc)]).toEqual(['ok', 'ok', 'idle']));
+    await waitFor(() => expect([state(ra), state(rb), state(rc)]).toEqual(['ok', 'ok', 'ok']));
     // Long enough for a second effect to have run.
     await new Promise((r) => setTimeout(r, 30));
-    expect(ledger).toHaveBeenCalledTimes(2);
+    expect(ledger).toHaveBeenCalledTimes(3);
   });
 
-  it('a row read on a press and then moved into the first two does not read again', async () => {
+  it('a row that moves up the list keeps its answer and does not read again', async () => {
     const v = view();
     const [a, b, c] = [position(v), position(v), position(v)];
     const ledger = vi.fn(async () => okRead());
@@ -768,17 +795,32 @@ describe('the automatic read fires once, and an answer is shown only for its own
       .mockResolvedValue({ kind: 'ok', positions: [c, a, b], chainNow: 6n, totalShares: 3 });
     mount(readers({ ledger, positions }, []));
     const [ra, rc] = [await rowOf(a), await rowOf(c)];
-    await waitFor(() => expect(state(ra)).toBe('ok'));
-    fireEvent.click(within(rc).getByRole('button', { name: BUTTON }));
-    await waitFor(() => expect(state(rc)).toBe('ok'));
+    await waitFor(() => expect([state(ra), state(rc)]).toEqual(['ok', 'ok']));
     expect(ledger).toHaveBeenCalledTimes(3);
     fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
     await waitFor(() => expect(positions).toHaveBeenCalledTimes(2));
     await waitFor(async () => expect((await screen.findAllByTestId('lp-position'))[0]).toBe(rc));
     await new Promise((r) => setTimeout(r, 30));
-    // The third row is first now and holds its answer; the row pushed out of the first two keeps its own.
+    // The third row is first now and holds its answer; the rows pushed down keep theirs.
     expect(ledger).toHaveBeenCalledTimes(3);
-    expect(state(rc)).toBe('ok');
+    expect([state(rc), state(ra)]).toEqual(['ok', 'ok']);
+  });
+
+  it('a row that leaves the page mid-read gives its turn up: the rows below it still read', async () => {
+    const v = view();
+    const [a, b] = [position(v), position(v)];
+    const ledger = vi.fn((share: { lpAccount: string }) => (share.lpAccount === a.lpAccount ? new Promise<LedgerRead>(() => {}) : Promise.resolve(okRead())));
+    const positions = vi.fn()
+      .mockResolvedValueOnce({ kind: 'ok', positions: [a, b], chainNow: 5n, totalShares: 2 })
+      .mockResolvedValue({ kind: 'ok', positions: [b], chainNow: 6n, totalShares: 1 });
+    mount(readers({ ledger, positions }, []));
+    const rb = await rowOf(b);
+    await waitFor(() => expect(ledger).toHaveBeenCalledTimes(1));
+    expect(state(rb)).toBe('reading');
+    // The first share is gone (sold or moved); its read never answers.
+    fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
+    await waitFor(() => expect(state(rb)).toBe('ok'));
+    expect(ledger).toHaveBeenCalledTimes(2);
   });
 
   it('an answer that arrives late, for shares that have since changed, never replaces the answer for the shares held now', async () => {
