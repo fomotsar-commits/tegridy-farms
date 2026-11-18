@@ -24,7 +24,7 @@ import {
   TEGRIDY_NFT_POOL_FACTORY_ABI,
   TEGRIDY_NFT_POOL_ABI,
 } from '../../lib/contracts';
-import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountUp, shortenAddress } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
@@ -969,14 +969,14 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
               <div className="flex justify-between text-sm">
                 <span className="text-white">{mode === 'buy' ? 'Total Cost' : 'Payout'}</span>
                 <span className="font-mono tabular-nums text-white font-semibold">
-                  {formatTokenAmount(formatEther(bestAmount), 6)} ETH
+                  {mode === 'buy' ? formatTokenAmountUp(formatEther(bestAmount), 6) : formatTokenAmount(formatEther(bestAmount), 6)} ETH
                 </span>
               </div>
               {protocolFee !== undefined && (
                 <div className="flex justify-between text-sm">
                   <span className="text-white">Protocol Fee</span>
                   <span className="font-mono tabular-nums text-white">
-                    {formatTokenAmount(formatEther(protocolFee), 6)} ETH
+                    {formatTokenAmountUp(formatEther(protocolFee), 6)} ETH
                   </span>
                 </div>
               )}

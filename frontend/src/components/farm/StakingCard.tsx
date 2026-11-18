@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { formatTokenAmount, formatTokenAmountGrouped, sanitizeDecimalInput } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountGroupedUp, formatTokenAmountUp, sanitizeDecimalInput, toFixedCut, toFixedUp } from '../../lib/formatting';
+import { RESERVE_EMPTY_COPY } from '../../lib/stakingClaimPaid';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
@@ -208,7 +209,7 @@ export function StakingCard({
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Boost</p>
-                <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
+                <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" nearest className="stat-value text-[16px] text-white" />
                 {/* STAKING_LOOK §2.3: revalidateBoost reverts LockExpired() on
                     any EXPIRED position (DS2-07 guard) — the old condition
                     (!pos.isLocked) rendered this button exactly and only in
@@ -249,7 +250,7 @@ export function StakingCard({
                     (§2.7) and a "+x/s" beside it was the same phantom accrual. */}
                 {pool?.isDry && (
                   <p className="text-white/70 text-[11px] mt-0.5" data-testid="claimable-reserve-empty">
-                    Reserve empty: nothing accrues, and a claim pays 0 until it is refilled.
+                    {RESERVE_EMPTY_COPY}
                   </p>
                 )}
                 {pos.accrualPerSec > 0 && !pool?.isDry && (
@@ -399,9 +400,10 @@ export function StakingCard({
                   </button>
                 )}
                 {pos.isLocked && confirms.earlyWithdraw && (() => {
-                  const stakedNum = parseFloat(pos.stakedFormatted) || 0;
-                  const penaltyAmt = stakedNum * (EARLY_WITHDRAWAL_PENALTY_PCT / 100);
-                  const receiveAmt = stakedNum - penaltyAmt;
+                  // The contract's own split (TegridyStaking.sol:1554): the penalty paid is shown
+                  // rounded up, what comes back is shown cut.
+                  const penaltyWei = (pos.stakedAmount * BigInt(EARLY_WITHDRAWAL_PENALTY_BPS)) / 10000n;
+                  const receiveWei = pos.stakedAmount - penaltyWei;
                   // earlyWithdraw pays rewards from the reserve, then BURNS the
                   // position, so any part the reserve can't pay is gone for good
                   // (measured on a mainnet fork 2026-10-27, empty reserve: one
@@ -416,8 +418,8 @@ export function StakingCard({
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
                     <p className="text-danger text-[12px] font-semibold mb-2">The cops showed up. You'll lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your crop to the {PENALTY_COPY.earlyExitLabel}. {PENALTY_COPY.earlyExitTagline}</p>
                     <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
-                      <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{penaltyAmt.toFixed(2)} TOWELI</span> will be sent to treasury</p>
-                      <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
+                      <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{toFixedUp(formatEther(penaltyWei), 2)} TOWELI</span> will be sent to treasury</p>
+                      <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{toFixedCut(formatEther(receiveWei), 2)} TOWELI</span></p>
                     </div>
                     {betaOver && !pausedOnChain && (
                       <p className="text-white/80 text-[11px] mb-2" data-testid="early-exit-wait-for-pause">
@@ -430,7 +432,7 @@ export function StakingCard({
                       </p>
                     ) : lostNum > 0 ? (
                       <p className="text-danger text-[11px] font-semibold mb-2" data-testid="early-exit-reward-loss">
-                        You also lose up to {formatTokenAmountGrouped(lostNum, 4)} TOWELI of unpaid rewards for good:
+                        You also lose up to {formatTokenAmountGroupedUp(lostNum, 4)} TOWELI of unpaid rewards for good:
                         the reward reserve can't pay them, and this closes your position.
                       </p>
                     ) : null}
@@ -564,7 +566,7 @@ export function StakingCard({
                         early-exit penalty, but forfeits your unclaimed rewards{' '}
                         {pos.positionUnread
                           ? '(the amount could not be read just now)'
-                          : `(currently ${formatTokenAmount(pos.pendingFormatted, 4)} TOWELI)`}
+                          : `(currently ${formatTokenAmountUp(pos.pendingFormatted, 4)} TOWELI)`}
                         {' '}for good. This cannot be undone.
                       </p>
                     )}

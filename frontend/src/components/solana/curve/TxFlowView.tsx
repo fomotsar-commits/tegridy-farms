@@ -103,8 +103,8 @@ export function SummaryRows({
   decimals: number | null;
   display: (s: string, max: number) => string;
 }) {
-  const tok = (v: bigint, d: number | null = decimals) => {
-    const f = formatTokenAmount(v, d);
+  const tok = (v: bigint, d: number | null = decimals, up = false) => {
+    const f = formatTokenAmount(v, d, undefined, { up });
     return f.isBaseUnits ? `${f.text} (base units)` : f.text;
   };
   switch (summary.kind) {
@@ -119,8 +119,8 @@ export function SummaryRows({
           <Row label="Decimals" value={String(summary.decimals)} />
           {summary.openingBuy ? (
             <>
-              <Row label="Your opening buy: you pay" value={SOL(summary.openingBuy.quote.lamportsIn)} />
-              <Row label="…of which trade fee" value={SOL(summary.openingBuy.quote.feeLamports)} />
+              <Row label="Your opening buy: you pay" value={`${formatSol(summary.openingBuy.quote.lamportsIn, 4, { up: true })} SOL`} />
+              <Row label="…of which trade fee" value={`${formatSol(summary.openingBuy.quote.feeLamports, 4, { up: true })} SOL`} />
               <Row label="You receive exactly" value={tok(summary.openingBuy.minTokensOut, 6)} />
             </>
           ) : (
@@ -136,12 +136,12 @@ export function SummaryRows({
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           {summary.fillsCurve && (
             <Notice tone="warn">
-              This buy fills the curve, so this transaction can take at most {SOL(summary.maxLamportsIn)} of the{' '}
+              This buy fills the curve, so this transaction can take at most {`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} of the{' '}
               {SOL(summary.requestedLamports)} you entered. The rest never leaves your wallet.
             </Notice>
           )}
-          <Row label="You pay (at most)" value={SOL(summary.maxLamportsIn)} />
-          <Row label="…of which trade fee" value={SOL(summary.quote.feeLamports)} />
+          <Row label="You pay (at most)" value={`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} />
+          <Row label="…of which trade fee" value={`${formatSol(summary.quote.feeLamports, 4, { up: true })} SOL`} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive (quoted)" value={tok(summary.quote.tokensOut)} />
           <Row label="You receive at least" value={tok(summary.minTokensOut)} />
@@ -152,7 +152,7 @@ export function SummaryRows({
       return (
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
-          <Row label="You sell" value={tok(summary.tokensIn)} />
+          <Row label="You sell" value={tok(summary.tokensIn, decimals, true)} />
           <Row label="You receive (quoted)" value={SOL(summary.quote.lamportsOut)} />
           <Row label="Trade fee" value={SOL(summary.quote.feeLamports)} />
           <FeeSplitRows split={summary.feeSplit} />
@@ -179,7 +179,7 @@ export function SummaryRows({
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           <Row label="Pool" value={summary.pool.toBase58()} />
-          <Row label="You pay" value={buying ? SOL(summary.amountIn) : tok(summary.amountIn)} />
+          <Row label="You pay" value={buying ? `${formatSol(summary.amountIn, 4, { up: true })} SOL` : tok(summary.amountIn, decimals, true)} />
           <Row label="You receive (quoted)" value={buying ? tok(summary.quote.outAmount) : SOL(summary.quote.outAmount)} />
           <Row label="You receive at least" value={buying ? tok(summary.minimumAmountOut) : SOL(summary.minimumAmountOut)} />
           <Row
