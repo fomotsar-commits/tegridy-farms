@@ -35,6 +35,8 @@ const h = vi.hoisted(() => ({
   prepareOwn: vi.fn(),
   /** The final test run before each coin's wallet prompt (Phantom, ticket #467471). */
   simulate: vi.fn(),
+  /** A coin's quoted amount, in its base units; 5,000,000 when unset. */
+  outFor: null as null | ((mint: string) => string),
 }));
 const hold = () => { h.gate = new Promise<void>((r) => { h.release = r; }); };
 
@@ -57,7 +59,7 @@ vi.mock('../../lib/jupiter', async (orig) => ({
     if (p.outputMint === h.failQuoteFor) throw new Error('Quote unavailable (429)');
     if (h.holdAllQuotes || p.outputMint === h.holdQuoteFor) await h.gate;
     return {
-    inputMint: SOL, outputMint: p.outputMint, inAmount: '1', outAmount: '5000000', otherAmountThreshold: '1', swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0',
+    inputMint: SOL, outputMint: p.outputMint, inAmount: '1', outAmount: h.outFor ? h.outFor(p.outputMint) : '5000000', otherAmountThreshold: '1', swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0',
     routePlan: [{ percent: 100, swapInfo: { ammKey: SOL_BASKET.find((c) => c.mint === p.outputMint)!.pool.address } }],
     };
   },
@@ -78,6 +80,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 
 import { IslandBasketSolana } from './IslandBasketSolana';
 import { JupiterBusyError } from '../../lib/solana/swap/jupiterBusy';
+import { toast } from 'sonner';
 
 const ready = { kind: 'ready', quote: { outAmount: '5000000' }, swapTransaction: 'AAAA', siteFeeWaived: false };
 const SOY = SOL_BASKET.find((c) => c.symbol === 'SOY')!;
@@ -105,6 +108,7 @@ beforeEach(() => {
   localStorage.removeItem('tegridy-island-split-v1');
   h.balance = 10_000_000_000;
   h.failQuoteFor = null;
+  h.outFor = null;
   h.own = [];
   h.holdQuoteFor = null;
   h.holdOwn = false;
@@ -139,6 +143,17 @@ describe('IslandBasketSolana', () => {
     const list = screen.getByRole('list', { name: 'Coins in this order' });
     expect(within(list).getAllByText(/· PumpSwap via Jupiter$/)).toHaveLength(4);
     expect(within(list).getByText(/· Raydium via Jupiter$/)).toBeInTheDocument();
+  });
+
+  it('what a coin pays is cut and what the order costs in SOL is rounded up: 1,235,000 is 1.23M, 0.103039 SOL is 0.1031', async () => {
+    // $10 at $97.05 a SOL is 0.103039 SOL.
+    h.prices = { [SOL]: 97.05 };
+    h.outFor = (mint) => (1_235_000n * 10n ** BigInt(SOL_BASKET.find((c) => c.mint === mint)!.decimals)).toString();
+    mount();
+    await openAndPrice();
+    const approx = String.fromCodePoint(0x2248);
+    for (const c of SOL_BASKET) expect(within(status(c.room)).getByText(`${approx} 1.23M`)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${approx} 0\\.1031 SOL$`))).toBeInTheDocument();
   });
 
   it('buys each coin in its own transaction, holding the wallet with a note until each confirms', async () => {
@@ -197,6 +212,18 @@ describe('IslandBasketSolana', () => {
     expect(h.sendSigned).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'));
     expect(h.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('a coin sent with no answer names the SOL it paid "for", rounded up: a fifth of 0.103039 SOL is 0.0207', async () => {
+    h.canSignAlone = false;
+    h.prices = { [SOL]: 97.05 };
+    h.send.mockRejectedValueOnce(new Error('connection lost'));
+    mount();
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled(), { timeout: 4000 });
+    const said = String((vi.mocked(toast.warning).mock.calls[0]![1] as { description?: unknown }).description);
+    expect(said).toMatch(/ for 0\.0207 SOL\b/);
   });
 
   it('a wallet that cannot sign alone signs and sends each coin itself, as before', async () => {

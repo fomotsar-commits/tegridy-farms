@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { toFixedUp } from '../../lib/formatting';
 import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
 import { MIN_USD_PER_COIN, SOL_BASKET, coinsInOrder, dollarsEach, minOrderUsd, shortAmount, splitOrder, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
@@ -444,7 +445,7 @@ export function IslandBasketSolana(p: {
         onSent: () => setLeg(b.i, { kind: 'busy', text: 'Confirming…' }),
       },
       b.tx,
-      { words: `${b.words} for ${sol(b.leg.amountIn).toFixed(4)} SOL`, slippageBps: p.slippageBps, timeoutMs: CONFIRM_TIMEOUT_MS },
+      { words: `${b.words} for ${toFixedUp(fromBaseUnits(b.leg.amountIn.toString(), 9), 4)} SOL`, slippageBps: p.slippageBps, timeoutMs: CONFIRM_TIMEOUT_MS },
     );
     if (end.kind === 'not-sent') {
       setLeg(b.i, { kind: 'not-sent', why: end.message });
@@ -548,7 +549,7 @@ export function IslandBasketSolana(p: {
     ? `Site fee: ${(SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2)}% of each coin bought through Jupiter goes to the venue. A coin bought in our own pool pays its pool fee instead, inside its quote.`
     : 'No site fee is taken here. A coin bought in our own pool pays its pool fee, inside its quote.';
   const perCoin = Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
-  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${sol(total).toFixed(4)} SOL` : null;
+  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${toFixedUp(fromBaseUnits(total.toString(), 9), 4)} SOL` : null;
   const left = legs ? legs.filter((_, i) => buyable(states[i])).length : n;
   const started = Object.keys(states).length > 0;
   // A coin whose Jupiter price could not be read: the order waits for it, whatever our pools quote.

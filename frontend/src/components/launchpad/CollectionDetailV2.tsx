@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
+import { toFixedUp } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
@@ -49,7 +50,7 @@ export function CollectionDetailV2({
   const shortAddr = `${dropAddress.slice(0, 6)}...${dropAddress.slice(-4)}`;
 
   const totalCost = useMemo(
-    () => Number(formatEther(drop.currentPrice * BigInt(mintQty))),
+    () => formatEther(drop.currentPrice * BigInt(mintQty)),
     [drop.currentPrice, mintQty],
   );
 
@@ -80,7 +81,7 @@ export function CollectionDetailV2({
     // price. A successful 0n is a real free mint and reaches the last one.
     if (drop.priceUnread) return 'Price unknown — reload';
     if (!drop.priceReadOk) return 'Reading price…';
-    return `Mint ${mintQty} for ${totalCost.toFixed(4)} ETH`;
+    return `Mint ${mintQty} for ${toFixedUp(totalCost, 4)} ETH`;
   }, [deployed, isConnected, drop.onMainnet, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.saleStateUnread, drop.saleStateReadOk, drop.currentPhase, drop.priceUnread, drop.priceReadOk, mintQty, totalCost]);
 
   const mintDisabled =
@@ -552,7 +553,7 @@ export function CollectionDetailV2({
               {/* Total cost */}
               {drop.currentPhase > 0 && !drop.isSoldOut && deployed && drop.priceReadOk && drop.saleStateReadOk && (
                 <p className="text-center text-xs text-white font-mono tabular-nums">
-                  Total: {totalCost.toFixed(4)} ETH
+                  Total: {toFixedUp(totalCost, 4)} ETH
                 </p>
               )}
             </div>
