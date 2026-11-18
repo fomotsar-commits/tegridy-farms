@@ -37,6 +37,8 @@ import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared } from '../curve/ports';
 import { OPEN_ON_REVIEW_MS } from './AddLiquidityPanel';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
+import { stepTwo } from '../../../lib/solana/lp/oneCoin';
+import { isPlanProblem } from '../../../lib/solana/lp/liquidityMath';
 import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
 import { reloadHeld } from '../../../lib/reloadHold';
 import { ONE_COIN_LINE } from './AddOneCoinPanel';
@@ -124,8 +126,8 @@ const SOL = 10n ** 9n;
 const UNIT = 10n ** 6n;
 
 /** 10 SOL and 1,000 tokens: 0.01 SOL a token. */
-function view(): PoolView {
-  const b = buildPool({ plain: true, mint: MINT, quote: SOL_QUOTE, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000n * UNIT, openTime: 1n });
+function view(lpSupply?: bigint): PoolView {
+  const b = buildPool({ plain: true, mint: MINT, quote: SOL_QUOTE, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000n * UNIT, openTime: 1n, lpSupply });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
   const quoteIsToken0 = pool.token0Mint === SOL_QUOTE.mint;
@@ -289,6 +291,33 @@ describe('Add with one coin', () => {
     const panel = screen.getByTestId('lp-one-coin-panel');
     fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
     expect(within(panel).getByRole('button', { name: 'Review: add with one coin' })).toBeDisabled();
+  });
+});
+
+describe('Add with one coin: what step 2 puts in is rounded up', () => {
+  /** `raw` at `decimals`, rounded up at four decimals, trailing zeros dropped: the review's figure. */
+  const up4 = (raw: bigint, decimals: number) => {
+    const units = (raw + 10n ** BigInt(decimals - 4) - 1n) / 10n ** BigInt(decimals - 4);
+    const frac = (units % 10_000n).toString().padStart(4, '0').replace(/0+$/, '');
+    return `${(units / 10_000n).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
+  };
+
+  it('step 1’s review says step 2’s "You put in about" rounded up, in SOL and in the token', async () => {
+    // A pool of 3,000,000 shares, so each side of what step 2 adds runs past the fourth decimal.
+    const v = await openOneCoin(view(3_000_000n));
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const plan = await within(panel).findByTestId('lp-one-step2-plan');
+    // Step 1 swaps 0.505050505 SOL for 49,494,949 units (49 tokens per 0.5 SOL); step 2 adds what that leaves.
+    expect(jup.getQuote).toHaveBeenNthCalledWith(2, expect.objectContaining({ amount: '505050505' }));
+    const two = stepTwo(v.snapshot, { quoteIsToken0: v.quoteIsToken0, paid: 'quote', kept: SOL - 505_050_505n, got: 49_494_949n, bps: 100n });
+    if (isPlanProblem(two)) throw new Error('no step 2');
+    const cost = v.quoteIsToken0 ? { sol: two.plan.cost0, tok: two.plan.cost1 } : { sol: two.plan.cost1, tok: two.plan.cost0 };
+    expect(cost.sol % 100_000n).not.toBe(0n);
+    expect(cost.tok % 100n).not.toBe(0n);
+    expect(within(plan).getByText('You put in about').nextElementSibling).toHaveTextContent(`${up4(cost.sol, 9)} SOL and ${up4(cost.tok, 6)} CORN`);
   });
 });
 

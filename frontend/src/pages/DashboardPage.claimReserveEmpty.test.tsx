@@ -167,6 +167,21 @@ describe('Dashboard Claim on an empty reward reserve', () => {
     fireEvent.click(screen.getByRole('tab', { name: /rewards/i }));
     expect(screen.getByRole('button', { name: /claim staking rewards \(42\.50 TOWELI\)/i })).toHaveAccessibleDescription(RESERVE_EMPTY_COPY);
   });
+
+  // A money warning over the page art: on the stat strip's dark plate, in amber at 12px, under both buttons.
+  it('sits on a dark plate in amber under each Claim button, never bare grey text on the art', () => {
+    const onPlate = (id: string) => {
+      const line = screen.getByTestId('claim-reserve-empty');
+      expect(line).toHaveAttribute('id', id);
+      expect(line).toHaveClass('text-amber-200', 'text-[12px]', 'rounded-lg');
+      expect(line).not.toHaveClass('text-white/70');
+      expect(line).toHaveStyle({ backgroundColor: 'rgba(0, 0, 0, 0.78)', borderColor: 'rgba(245, 158, 11, 0.25)' });
+    };
+    renderTab(/positions/i);
+    onPlate('claim-reserve-empty-positions');
+    fireEvent.click(screen.getByRole('tab', { name: /rewards/i }));
+    onPlate('claim-reserve-empty-rewards');
+  });
 });
 
 describe("Towelie's nudge to claim", () => {

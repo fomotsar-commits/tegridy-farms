@@ -160,3 +160,21 @@ describe('PoolAdminPanel — timelock reads GENUINE', () => {
     expect(spot.getByRole('button', { name: /execute/i })).toBeEnabled();
   });
 });
+
+describe('PoolAdminPanel: the spot price and the delta are prices, rounded to the nearest digit shown', () => {
+  it('the current figures and the queued ones, where a cut would read one digit low', () => {
+    stubIdle();
+    stub('pendingSpotPrice', parseEther('2.00007'));
+    stub('pendingSpotPriceExecuteAfter', BigInt(nowSec() - 60));
+    stub('pendingDelta', parseEther('0.50008'));
+    stub('pendingDeltaExecuteAfter', BigInt(nowSec() - 60));
+    render(
+      <PoolAdminPanel poolAddress={POOL} poolType={0} spotPrice={parseEther('0.12345678')} delta={parseEther('0.01237')} feeBps={0n} ethBalance={0n} onChange={() => {}} />,
+    );
+    const text = (label: 'Spot Price' | 'Delta') => screen.getByText(label).closest('.rounded-lg')!.textContent;
+    expect(text('Spot Price')).toContain('0.1235 ETH');
+    expect(text('Spot Price')).toContain('Pending → 2.0001');
+    expect(text('Delta')).toContain('0.0124 ETH');
+    expect(text('Delta')).toContain('Pending → 0.5001');
+  });
+});
