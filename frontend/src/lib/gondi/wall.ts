@@ -2,6 +2,7 @@
 // picked collection hung on it, drawn by components/dwg/LoanWall.tsx. Pure: the market card's
 // own read in, the drawing's numbers out, one unit to one pixel. The picture stands from datum
 // ±0 to the floor, so its height IS the floor. What was not read is listed, never drawn at a height.
+import { toFixedUp } from '../formatting';
 import { barMax, barZone, type BarZone } from './floorBar';
 import { underFloorPct, type LendingMarket } from './lenderPitch';
 
@@ -30,6 +31,8 @@ export interface WallFacts {
   readonly bidState: BidState;
   /** The amount typed, in WETH; null while nothing valid is typed. */
   readonly amount: number | null;
+  /** The same amount as an exact decimal: the LOAN tag rounds it up, the lender puts it up. Heights use `amount`. */
+  readonly exact: string | null;
   /** Where the amount stands, as FloorBar names it; null unless to scale and typed. */
   readonly zone: BarZone | null;
   readonly shares: readonly WallShare[];
@@ -40,20 +43,24 @@ export function wallFacts({
   market,
   loading,
   principal,
+  exact: exactIn = null,
   shares = [],
 }: {
   market: LendingMarket | undefined;
   loading: boolean;
   principal: number | null;
+  /** The principal as an exact decimal (formatEther); without it the LOAN tag reads the float. */
+  exact?: string | null;
   shares?: readonly WallShare[];
 }): WallFacts {
   const amount = usable(principal) ? principal : null;
-  if (loading) return { mode: 'reading', top: null, floor: null, bid: null, bidState: 'reading', amount, zone: null, shares: [] };
+  const exact = amount === null ? null : exactIn;
+  if (loading) return { mode: 'reading', top: null, floor: null, bid: null, bidState: 'reading', amount, exact, zone: null, shares: [] };
   const floor = market && usable(market.floor) ? market.floor : null;
   const bids = market ? market.bids : null;
   const bid = bids && usable(bids.bestBid) ? bids.bestBid : null;
   const bidState: BidState = !bids ? 'unread' : bid === null ? 'none' : 'read';
-  if (floor === null) return { mode: 'nts', top: null, floor: null, bid, bidState, amount, zone: null, shares: [] };
+  if (floor === null) return { mode: 'nts', top: null, floor: null, bid, bidState, amount, exact, zone: null, shares: [] };
   return {
     mode: 'scaled',
     top: barMax(floor, bid, amount),
@@ -61,6 +68,7 @@ export function wallFacts({
     bid,
     bidState,
     amount,
+    exact,
     zone: amount === null ? null : barZone(amount, floor, bid),
     shares,
   };
@@ -227,7 +235,7 @@ export function wallElevation(W: number, f: WallFacts, col: { readonly name: str
     let dimLabel: WallLabel | null = null;
     if (f.amount !== null) {
       loanY = r1(y(f.amount));
-      tags.push({ id: 'loan', k: 'loan', y: loanY, t: 'LOAN', v: `${f.amount.toFixed(4)}${compact ? '' : ' WETH'}`, tone: '' });
+      tags.push({ id: 'loan', k: 'loan', y: loanY, t: 'LOAN', v: `${toFixedUp(f.exact ?? f.amount, 4)}${compact ? '' : ' WETH'}`, tone: '' });
       // Between the loan and the floor: the figure the sentence under the floor bar gives.
       const under = underFloorPct(f.amount, scale.floor);
       const span = Math.abs(loanY - floorY);
@@ -254,7 +262,7 @@ export function wallElevation(W: number, f: WallFacts, col: { readonly name: str
       list.push({ id: 'floor', k: 'tag', t: 'FLOOR', v: 'NOT READ', tone: 'warn', n: Infinity });
       if (f.bidState === 'read' && f.bid !== null) list.push({ id: 'bid', k: 'tag', t: bidName, v: `${eth(f.bid)}${compact ? '' : ' WETH'}`, tone: 'ok', n: f.bid });
       else list.push({ id: 'bid', k: 'tag', t: bidName, v: f.bidState === 'none' ? 'NONE' : 'NOT READ', tone: f.bidState === 'none' ? '' : 'warn', n: -1 });
-      if (f.amount !== null) list.push({ id: 'loan', k: 'loan', t: 'LOAN', v: `${f.amount.toFixed(4)}${compact ? '' : ' WETH'}`, tone: '', n: f.amount });
+      if (f.amount !== null) list.push({ id: 'loan', k: 'loan', t: 'LOAN', v: `${toFixedUp(f.exact ?? f.amount, 4)}${compact ? '' : ' WETH'}`, tone: '', n: f.amount });
       list.sort((a, b) => b.n - a.n);
     }
     list.forEach((t, i) => {

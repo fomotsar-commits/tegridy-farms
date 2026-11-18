@@ -222,7 +222,7 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
       />
       {plan && (
         <div className="space-y-1.5" data-testid="range-create-plan">
-          <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1)}, exactly`} mono={false} />
+          <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1, true)}, exactly`} mono={false} />
           <p className="text-white/45 text-[10px]">The pool opens at your price in the same transaction, so nothing can move it in between. Review reads the chain again and test-runs it.</p>
         </div>
       )}

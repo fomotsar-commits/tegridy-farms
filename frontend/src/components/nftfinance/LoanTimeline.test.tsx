@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { parseEther } from 'viem';
 import { LoanTimeline, type TimelineCost } from './LoanTimeline';
 import { interestFor } from '../../lib/gondi/loanMath';
@@ -100,8 +100,9 @@ describe('the row under the axis: day 1, the reminders, due (owner 2026-11-12: t
 describe('borrower: what repaying on a given day costs', () => {
   it('an offer preview opens at the deadline, the most it can cost, and names what is lost', () => {
     render(<LoanTimeline side="borrower" exact={false} start={START} duration={30 * DAY} costAt={costAt} nft="NAKA #77" />);
-    // 1 WETH at 10% for 30 days = 0.008219... interest, rounded up by the contract's rule.
-    expect(text('loan-timeline-headline')).toBe('Repay 1.008219 WETH');
+    // 1 WETH at 10% for 30 days = 0.008219178... interest, rounded up by the contract's rule;
+    // what the borrower pays is shown rounded up at the last digit.
+    expect(text('loan-timeline-headline')).toBe('Repay 1.008220 WETH');
     expect(text('loan-timeline-when')).toContain('day 30 of 30 · about ');
     // Gondi refuses repayment AT the due second (_baseLoanChecks: end <= now), so the wall is
     // where repaying has already closed, not its last moment.
@@ -134,7 +135,7 @@ describe('borrower: what repaying on a given day costs', () => {
     const lastStop = now + Math.floor((end - now) / 21_600) * 21_600;
     expect(lastStop).toBeLessThan(end);
     fireEvent.change(slider(), { target: { value: String(lastStop) } });
-    expect(text('loan-timeline-headline')).toBe('Repay 1.008219 WETH');
+    expect(text('loan-timeline-headline')).toBe('Repay 1.008220 WETH');
     expect(text('loan-timeline-line')).toContain('Repay before this moment');
   });
 });
@@ -143,9 +144,22 @@ describe('lender: what a repaid loan leaves them, and what an unpaid one does', 
   it('shows the interest after the venue\'s share, and the venue\'s share in WETH', () => {
     render(<LoanTimeline side="lender" start={START} duration={30 * DAY} costAt={costAt} nft="a NAKA" />);
     fireEvent.change(slider(), { target: { value: String(START + 10 * DAY) } });
-    // 0.002740 interest, 5% of it (rounded up) to the venue.
-    expect(text('loan-timeline-headline')).toBe('You keep 0.002603 WETH');
+    // 0.002740 interest, 5% of it (rounded up) to the venue. The lender keeps 0.0026027397...:
+    // what they receive is cut at the last digit.
+    expect(text('loan-timeline-headline')).toBe('You keep 0.002602 WETH');
     expect(text('loan-timeline-line')).toBe('The venue keeps 0.000137 WETH of the interest. Drag to try another day.');
+  });
+
+  it('day 19, where the nearest digit is the lower one: what is paid or taken out still rounds up', () => {
+    // 1 WETH at 10% for 19 days: interest 0.005205479..., the venue's 5% 0.00026027397...
+    render(<LoanTimeline side="borrower" start={START} duration={30 * DAY} costAt={costAt} nft="NAKA #77" />);
+    fireEvent.change(slider(), { target: { value: String(START + 19 * DAY) } });
+    expect(text('loan-timeline-headline')).toBe('Repay 1.005206 WETH');
+    expect(text('loan-timeline-line')).toBe('0.005206 WETH of that is interest. Drag to try another day.');
+    cleanup();
+    render(<LoanTimeline side="lender" start={START} duration={30 * DAY} costAt={costAt} nft="a NAKA" />);
+    fireEvent.change(slider(), { target: { value: String(START + 19 * DAY) } });
+    expect(text('loan-timeline-line')).toBe('The venue keeps 0.000261 WETH of the interest. Drag to try another day.');
   });
 
   it('at the wall it says what the lender owns instead', () => {

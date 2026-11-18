@@ -20,12 +20,13 @@ export const tokenWord = (p: NamedPair): string => labelOf(p) ?? 'tokens';
 /** "BAYLA" or "The token", to open a sentence or a button. */
 export const tokenName = (p: NamedPair): string => labelOf(p) ?? 'The token';
 
-export function tokenAmount(p: NamedPair, v: bigint): string {
-  return `${formatTokenAmount(v, p.tokenDecimals, 6).text} ${tokenWord(p)}`;
+/** `up` rounds an amount put in or paid up at the last digit shown; held or received is cut. */
+export function tokenAmount(p: NamedPair, v: bigint, up = false): string {
+  return `${formatTokenAmount(v, p.tokenDecimals, 6, { up }).text} ${tokenWord(p)}`;
 }
 
-export function coinAmount(p: Pair, v: bigint): string {
-  return p.quote.native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, p.quoteDecimals, 6).text} ${p.quote.symbol}`;
+export function coinAmount(p: Pair, v: bigint, up = false): string {
+  return p.quote.native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, p.quoteDecimals, 6, { up }).text} ${p.quote.symbol}`;
 }
 
 /** A price as "0.0003 SOL per BAYLA". */
@@ -39,9 +40,9 @@ export function priceNumberText(p: NamedPair, price: number): string {
 }
 
 /** Token 0 and token 1 amounts as this pair reads them: the token first, then the coin. */
-export function bothAmounts(p: NamedPair, amount0: bigint, amount1: bigint): string {
+export function bothAmounts(p: NamedPair, amount0: bigint, amount1: bigint, up = false): string {
   const [token, coin] = p.tokenIsToken0 ? [amount0, amount1] : [amount1, amount0];
-  return `${tokenAmount(p, token)} and ${coinAmount(p, coin)}`;
+  return `${tokenAmount(p, token, up)} and ${coinAmount(p, coin, up)}`;
 }
 
 /** One of the site's own coins (a pairing coin or a listed room's), by its ticker alone; null for any other. */

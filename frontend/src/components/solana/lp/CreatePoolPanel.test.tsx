@@ -203,7 +203,7 @@ describe('the panel', () => {
     // isqrt(1e9 × 1e8) = 316,227,766; the program keeps 100.
     expect(within(panel).getByText('You get').nextElementSibling).toHaveTextContent('0.316227666 pool shares');
     expect(within(panel).getByText('Locked in the pool forever').nextElementSibling).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about');
-    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.2057 SOL and 100 tokens, plus the network fee');
+    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.2058 SOL and 100 tokens, plus the network fee');
     // Typing in the token box afterwards moves nothing else.
     fireEvent.change(tokens(panel), { target: { value: '101' } });
     expect(sol(panel)).toHaveValue('1');
@@ -480,6 +480,30 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('0.1');
     expect(tokens(panel)).toHaveValue('10');
     expect(reviewButton(panel)).toBeEnabled();
+  });
+
+  it('more tokens than the wallet holds, past the fourth decimal: what it needs is rounded up, what it has is cut', async () => {
+    // 500.00009 held reads 500 cut; 600.00001 needed reads 600.0001 rounded up, never 600.
+    mount(readers({ wallet: vi.fn(async () => facts({ token: { address: key().toBase58(), amount: 500_000_090n } })) }));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.change(tokens(panel), { target: { value: '600.00001' } });
+    await waitFor(() => expect(within(panel).getByRole('alert')).toHaveTextContent(/^You have 500 tokens; this needs 600\.0001 tokens\.$/));
+    expect(reviewButton(panel)).toBeDisabled();
+  });
+
+  it('"Account deposits": what the pool’s accounts keep for good is rounded up, the share account’s deposit is exact', async () => {
+    // 0.040012345 SOL reads 0.0401 rounded up; cut it would read 0.04.
+    const rents = { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_012_345n, nameRecord: 13_733_800n };
+    mount(readers({ wallet: vi.fn(async () => facts({ rents })) }));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.change(tokens(panel), { target: { value: '100' } });
+    expect(within(panel).getByText('Account deposits').nextElementSibling).toHaveTextContent(
+      /^about 0\.0401 SOL kept by the pool's accounts forever, plus 0\.00203928 SOL for your pool-share account/,
+    );
   });
 
   // Owner, 2026-10-03: "i still am not able to create lp on solana". The form was open
