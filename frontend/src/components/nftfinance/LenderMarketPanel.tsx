@@ -18,8 +18,11 @@ import { FinePrint } from '../ui/FinePrint';
 import { exitCheck, underFloorPct, useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { CARD_BG, CARD_BORDER, LABEL_STYLE, LENDING_LIVE, collectionSymbol } from './nftLendingShared';
 import { FloorBar } from './FloorBar';
+import { decimalText } from '../../lib/formatting';
 
 const eth = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+/** `eth`'s shape, the last digit rounded up: what the lender puts up, or loses selling short. */
+const ethUp = (v: string | number) => decimalText(v, { places: 4, up: true, trim: true, group: true }) ?? eth(Number(v));
 
 export function LenderMarketPanel({
   collection,
@@ -35,6 +38,8 @@ export function LenderMarketPanel({
   const m = market.data;
   const bids = m?.bids ?? null;
   const principal = principalWei !== null && principalWei > 0n ? Number(formatEther(principalWei)) : null;
+  // The amount as its exact wei: what the lender puts up reads rounded up, never below it.
+  const exact = principalWei !== null && principalWei > 0n ? formatEther(principalWei) : null;
   const check = principal !== null ? exitCheck(principal, bids) : null;
   const under = principal !== null ? underFloorPct(principal, m?.floor ?? null) : null;
 
@@ -64,7 +69,7 @@ export function LenderMarketPanel({
         ))}
       </div>
       {setPrincipal && (
-        <FloorBar symbol={collectionSymbol(collection)} principal={principal} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
+        <FloorBar symbol={collectionSymbol(collection)} principal={principal} exact={exact} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
       )}
       {check && principal !== null && (
         <p
@@ -73,9 +78,9 @@ export function LenderMarketPanel({
           data-testid="lender-exit-check"
         >
           {check.kind === 'covered'
-            ? `A buyer already bids ${eth(check.bestBid)} WETH, at or above your ${eth(principal)}.`
+            ? `A buyer already bids ${eth(check.bestBid)} WETH, at or above your ${ethUp(exact ?? principal)}.`
             : check.kind === 'short'
-            ? `Your ${eth(principal)} WETH is ${eth(check.gap)} over the best bid: unrepaid, selling today loses that.`
+            ? `Your ${ethUp(exact ?? principal)} WETH is ${ethUp(check.gap)} over the best bid: unrepaid, selling today loses that.`
             : 'No open bids right now: unrepaid, you may have to hold the NFT or list it.'}
           {under !== null && under > 0 ? ` ${under}% under the floor.` : under !== null && under < 0 ? ` ${(-under).toLocaleString('en-US')}% over the floor.` : ''}
         </p>

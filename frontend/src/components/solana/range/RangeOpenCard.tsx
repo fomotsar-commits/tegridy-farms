@@ -114,7 +114,7 @@ export function RangeOpenCard(p: {
       />
       {plan && (
         <div className="space-y-1.5" data-testid="range-plan">
-          <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1)} mono={false} />
+          <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1, true)} mono={false} />
           <p className="text-white/45 text-[10px]">Worked out from the pool as the page read it; read again and test-run when you press Review.</p>
         </div>
       )}

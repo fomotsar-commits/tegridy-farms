@@ -66,7 +66,8 @@ export const LAMPORTS_PER_SOL = 1_000_000_000n;
  *
  * Exact: the integer part comes from BigInt division and the fraction is padded from the remainder, so
  * nothing goes through a float. It cuts, so an amount received or held is never overstated; `up` rounds
- * away from zero instead, so an amount paid is never understated.
+ * away from zero instead, so an amount paid is never understated. Under one unit of the last digit shown,
+ * `up` keeps the floor below: "<0.0001" is true of the amount, and closer to it than 0.0001.
  *
  * THE FLOOR IS THE POINT. A NON-ZERO balance never renders as "0" or "0.0000" —
  * it renders as `<0.0001`, because a real balance shown as zero is the bug this
@@ -88,7 +89,7 @@ export function formatSol(
   let abs = neg ? -lamports : lamports;
   if (options.up && Number.isInteger(maxFractionDigits) && maxFractionDigits >= 0 && maxFractionDigits < 9) {
     const unit = 10n ** BigInt(9 - maxFractionDigits);
-    abs = ((abs + unit - 1n) / unit) * unit;
+    if (abs >= unit) abs = ((abs + unit - 1n) / unit) * unit;
   }
   const whole = abs / LAMPORTS_PER_SOL;
   const frac = abs % LAMPORTS_PER_SOL;
@@ -128,7 +129,7 @@ export function formatTokenAmount(
   let units = baseUnits;
   if (options.up && Number.isInteger(maxFractionDigits) && maxFractionDigits >= 0 && maxFractionDigits < decimals) {
     const unit = 10n ** BigInt(decimals - maxFractionDigits);
-    units = ((units + unit - 1n) / unit) * unit;
+    if (units >= unit) units = ((units + unit - 1n) / unit) * unit;
   }
   const whole = units / scale;
   const frac = units % scale;

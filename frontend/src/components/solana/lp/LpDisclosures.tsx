@@ -179,7 +179,7 @@ export function LpBeforeYouOpen({
 }) {
   const deposits =
     neverRefunded !== null
-      ? `about ${solAbout(neverRefunded)} in account deposits that never come back`
+      ? `about ${solAbout(neverRefunded, true)} in account deposits that never come back`
       : walletConnected
         ? 'account deposits that never come back (their amount could not be read)'
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';

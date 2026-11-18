@@ -70,6 +70,28 @@ describe('the bar on the Lend form', () => {
     expect(slider().getAttribute('aria-valuetext')).toBe(text);
   });
 
+  // What the lender puts up reads rounded up to a screen reader, as on the Lend form; the bar
+  // still draws the amount as typed. 0.12341 WETH: 0.1235 up, 0.1234 to the nearest.
+  it.each([
+    [0.2, 0.15, 'covered', '0.1235 WETH: at or under the best bid'],
+    [0.2, 0.1, 'under-floor', '0.1235 WETH: over the best bid, under the floor'],
+    [0.1, 0.075, 'over-floor', '0.1235 WETH: over the floor'],
+  ] as const)('0.12341 WETH lent reads 0.1235 to a screen reader (floor %s, best bid %s: %s)', (floor, bid, zone, text) => {
+    setup(0.12341, floor, bid);
+    expect(screen.getByTestId('floor-bar').dataset.zone).toBe(zone);
+    expect(slider().getAttribute('aria-valuetext')).toBe(text);
+  });
+
+  it('given the exact amount, the screen reader rounds that up: one wei over 0.03 WETH reads 0.0301', () => {
+    const drawn = setup(0.03);
+    const handle = drawn.container.querySelector('circle')!.getAttribute('cx');
+    expect(slider().getAttribute('aria-valuetext')).toBe('0.0300 WETH: at or under the best bid');
+    drawn.unmount();
+    const { container } = render(<FloorBar symbol="NAKA" principal={0.03} exact="0.030000000000000001" floor={0.08} bestBid={0.075} setPrincipal={vi.fn()} />);
+    expect(slider().getAttribute('aria-valuetext')).toBe('0.0301 WETH: at or under the best bid');
+    expect(container.querySelector('circle')!.getAttribute('cx')).toBe(handle);
+  });
+
   it('dragging the handle writes the amount box, to 4 decimals', () => {
     const { setPrincipal } = setup(0.07);
     fireEvent.change(slider(), { target: { value: '0.0604' } });
