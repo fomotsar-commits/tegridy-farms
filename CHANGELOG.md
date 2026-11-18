@@ -15,6 +15,7 @@ The site's Changelog tab shows both files.
 - Prices round to the nearest digit again instead of being cut: the TOWELI price on the dashboard, the price and FDV on Tokenomics, and an NFT pool's spot price and delta.
 - Dashboard: the empty-reserve warning under each Claim button now sits on a dark plate in amber, so it reads over light art and wraps on a phone.
 - Dashboard loans: a borrower's row says "You borrowed" where it said "You owe", because the figure is the loan amount, not what repaying costs. That amount and the Borrowing total are rounded up, as on the loan card.
+- NFT lending, the Lend form: with an amount typed, its three steps (Wrap ETH, Approve WETH, Sign Offer) now fit their row on a phone and on a tablet, each name whole. The row ran 9 pixels past a 390 pixel screen, so the page slid sideways, and 21 pixels past its column on a 768 pixel tablet.
 
 ### 2026-11-17
 

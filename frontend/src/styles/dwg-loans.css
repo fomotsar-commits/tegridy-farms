@@ -164,11 +164,26 @@
 /* In words what the offer does: a note with a green rule. inline: an emerald tint and border */
 .dwg[data-sheet='L'] [data-ui='tx-summary'] { border-radius: 0; padding: 10px 0 10px 14px; background: none !important; border: 0 !important; border-left: 2px solid var(--dwg-green) !important; font-size: 13px; line-height: 1.5; color: var(--dwg-soft); }
 .dwg[data-sheet='L'] [data-ui='tx-summary'] > [data-card-art] { display: none; }
-.dwg[data-sheet='L'] [data-ui='steps'] { gap: 0; margin: 0; }
+.dwg[data-sheet='L'] [data-ui='steps'] { gap: 0; margin: 0; container: l01-steps / inline-size; }
 .dwg[data-sheet='L'] [data-ui='steps'] [data-step] { border-radius: 0; padding: 8px 9px; background: none; border: 1px solid var(--dwg-line); color: var(--dwg-dim) !important; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; }
 .dwg[data-sheet='L'] [data-ui='steps'] [data-step='now'] { border-color: var(--dwg-spot); color: var(--dwg-spot) !important; }
 .dwg[data-sheet='L'] [data-ui='steps'] [data-step='done'] { border-color: var(--dwg-green); color: var(--dwg-green) !important; }
 .dwg[data-sheet='L'] [data-ui='steps'] > div > svg { margin: 0 3px; color: var(--dwg-line-3) !important; }
+/* Three equal steps cut "Approve WETH" short in a row under 432px. There each step is as wide as
+   its own words; the three need 368px (a 390px phone gives 328, a 768px tablet 347), so under
+   that they are set tighter, and under 320px (a 375px phone gives 313) the arrows go as well. */
+@container l01-steps (max-width: 447.99px) {
+  .dwg[data-sheet='L'] [data-ui='steps'] > div { flex: 1 1 auto; }
+}
+@container l01-steps (max-width: 371.99px) {
+  .dwg[data-sheet='L'] [data-ui='steps'] [data-step] { padding: 8px 6px; letter-spacing: 0.04em; }
+  .dwg[data-sheet='L'] [data-ui='steps'] > div > svg { margin: 0 1px; }
+}
+@container l01-steps (max-width: 319.99px) {
+  .dwg[data-sheet='L'] [data-ui='steps'] > div + div { margin-left: 4px; }
+  .dwg[data-sheet='L'] [data-ui='steps'] > div > svg { display: none; }
+  .dwg[data-sheet='L'] [data-ui='steps'] [data-step] { letter-spacing: 0.02em; }
+}
 /* inline: an amber tint and border */
 .dwg[data-sheet='L'] [data-ui='risk'] { border-radius: 0; padding: 10px 0 2px 14px; background: none !important; border: 0 !important; border-left: 2px solid var(--dwg-warn) !important; font-size: 13px; line-height: 1.45; color: var(--dwg-ink); }
 .dwg[data-sheet='L'] [data-ui='risk'] > svg { display: none; }
