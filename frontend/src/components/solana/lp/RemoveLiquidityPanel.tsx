@@ -371,7 +371,7 @@ function RemoveInner({
               {tokenFee && (
                 <Row
                   label="The token’s own transfer fee"
-                  value={`about ${tok(tokOut(plan).fee)} more (${feeRateText(tokenFee)}), kept by the token for its fee collector; the amounts above are after it`}
+                  value={`about ${tokensAbout(tokOut(plan).fee, decimals, true)} more (${feeRateText(tokenFee)}), kept by the token for its fee collector; the amounts above are after it`}
                   mono={false}
                 />
               )}

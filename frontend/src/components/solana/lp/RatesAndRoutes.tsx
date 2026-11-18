@@ -219,7 +219,7 @@ function tierName(index: number): string {
 function openLine(config: AmmConfigView, deposits: bigint | null): string {
   if (config.disableCreatePool) return 'Opening a pool: switched off.';
   const fee = config.createPoolFee > 0n ? solText(config.createPoolFee) : 'no fee';
-  const setup = deposits === null ? 'setup (not read)' : `${solText(deposits)} setup`;
+  const setup = deposits === null ? 'setup (not read)' : `${solText(deposits, true)} setup`;
   return `Open a pool: ${fee} + ${setup} + the share's name record, not refunded.`;
 }
 
@@ -240,7 +240,7 @@ function openingCost(fee: bigint, deposits: bigint | null, named: boolean): stri
   const base =
     deposits === null
       ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
-      : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
+      : `${feeText}, plus about ${solText(deposits, true)} of account deposits that are never refunded`;
   return named ? `${base}, and the new pool share's name record: Metaplex's ${solOf(METAPLEX_CREATE_FEE_LAMPORTS)} SOL fee and the record's own deposit` : base;
 }
 

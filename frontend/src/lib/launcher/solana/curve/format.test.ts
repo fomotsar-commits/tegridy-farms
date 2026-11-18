@@ -116,6 +116,47 @@ describe('formatTokenAmount', () => {
   });
 });
 
+// `up` is for an amount paid. From one unit of the last digit shown it rounds up; under one unit
+// it keeps the floor, because "<0.0001" is true of a 0.00005 fee and 0.0001 would be twice it.
+describe('up: under one unit of the last digit it reads "<0.0001", from one unit it rounds up', () => {
+  it('formatSol at 4 digits: one unit, one lamport under, one over, and zero', () => {
+    expect(formatSol(100_000n, 4, { up: true })).toBe('0.0001');
+    expect(formatSol(99_999n, 4, { up: true })).toBe('<0.0001');
+    expect(formatSol(100_001n, 4, { up: true })).toBe('0.0002');
+    expect(formatSol(0n, 4, { up: true })).toBe('0');
+    expect(formatSol(50_000n, 4, { up: true })).toBe('<0.0001');
+    expect(formatSol(99_999n, 4, { up: true, fixed: true })).toBe('<0.0001');
+    expect(formatSol(1_234_500_001n, 4, { up: true })).toBe('1.2346');
+  });
+
+  it('formatSol at 6 digits: one unit, one lamport under, one over, and zero', () => {
+    expect(formatSol(1_000n, 6, { up: true })).toBe('0.000001');
+    expect(formatSol(999n, 6, { up: true })).toBe('<0.000001');
+    expect(formatSol(1_001n, 6, { up: true })).toBe('0.000002');
+    expect(formatSol(0n, 6, { up: true })).toBe('0');
+  });
+
+  it('formatTokenAmount at 4 digits: one unit, one base unit under, one over, and zero', () => {
+    const up4 = (raw: bigint, decimals: number) => formatTokenAmount(raw, decimals, 4, { up: true }).text;
+    expect(up4(100_000n, 9)).toBe('0.0001');
+    expect(up4(99_999n, 9)).toBe('<0.0001');
+    expect(up4(100_001n, 9)).toBe('0.0002');
+    expect(up4(0n, 9)).toBe('0');
+    expect(up4(100n, 6)).toBe('0.0001');
+    expect(up4(99n, 6)).toBe('<0.0001');
+    expect(up4(101n, 6)).toBe('0.0002');
+    expect(up4(1_234_567_891n, 6)).toBe('1,234.5679');
+  });
+
+  it('formatTokenAmount at 6 digits: one unit, one base unit under, one over, and zero', () => {
+    const up6 = (raw: bigint) => formatTokenAmount(raw, 9, 6, { up: true }).text;
+    expect(up6(1_000n)).toBe('0.000001');
+    expect(up6(999n)).toBe('<0.000001');
+    expect(up6(1_001n)).toBe('0.000002');
+    expect(up6(0n)).toBe('0');
+  });
+});
+
 describe('decimalCommaToPoint', () => {
   const parse = (text: string) => parseDecimalToBaseUnits(text, 9);
   /** What the box holds after each key of `keys`, typed into an empty box. */

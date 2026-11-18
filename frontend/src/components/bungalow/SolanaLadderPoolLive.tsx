@@ -26,7 +26,7 @@ import {
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderExtendLock,
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
-import { fmtRaw, fmtRawParts, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
+import { fmtRaw, fmtRawParts, fmtRawUp, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { basisBehindWrite, confirmedSlotOf, noteWriteFence, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
@@ -487,7 +487,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
     <Fact
       inline
       label="Minimum stake"
-      value={pool ? fmtRaw(pool.minStakeRaw, decimals) : '–'}
+      value={pool ? fmtRawUp(pool.minStakeRaw, decimals) : '\u2013'}
       unit={sym}
       // The note it points at is in the ledger's Notes, which the compact card leaves out.
       describedBy={compact ? undefined : `${fid}-min`}
@@ -1469,7 +1469,7 @@ function PositionRow({
             quoted, never assumed. */}
         <ExitButton
           label={hatch.penaltyRaw > 0n
-            ? `Emergency withdraw: costs ${fmtRaw(hatch.penaltyRaw, decimals)} ${sym}`
+            ? `Emergency withdraw: costs ${fmtRawUp(hatch.penaltyRaw, decimals)} ${sym}`
             : 'Emergency withdraw: no penalty'}
           needsConfirm
           confirmed={confirmFor === key('hatch')}
@@ -1525,7 +1525,7 @@ function PositionRow({
             ? `No penalty. ${rewardsPaid}`
             : pool.degraded
               ? `No penalty while the pool is degraded. ${rewardsPaid}`
-              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
+              : `${fmtRawUp(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
         </p>
         <p className="m-0">{hatch.reason}</p>
       </FinePrint>

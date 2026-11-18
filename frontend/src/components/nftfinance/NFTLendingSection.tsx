@@ -76,6 +76,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  fmtWethUp,
   formatDue,
   formatDuration,
   newOfferId,
@@ -400,7 +401,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const handleWrap = () => {
     if (!preflight() || wethShort === null || wethShort === 0n) return;
     if (ethBalance && ethBalance.value < wethShort) {
-      toast.error(`You need ${fmtWeth(wethShort)} more ETH to wrap.`);
+      toast.error(`You need ${fmtWethUp(wethShort)} more ETH to wrap.`);
       return;
     }
     wrap(
@@ -499,9 +500,9 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const primary = !isConnected
     ? { label: 'Connect Wallet', onClick: openConnectModal ?? (() => {}) }
     : step === 0 && wethShort !== null && wethShort > 0n
-    ? { label: wrapping ? 'Confirm in Wallet...' : wrapQuery.isLoading ? 'Wrapping...' : `Wrap ${fmtWeth(wethShort)} ETH to WETH`, onClick: handleWrap }
+    ? { label: wrapping ? 'Confirm in Wallet...' : wrapQuery.isLoading ? 'Wrapping...' : `Wrap ${fmtWethUp(wethShort)} ETH to WETH`, onClick: handleWrap }
     : step === 1
-    ? { label: approving ? 'Confirm in Wallet...' : approveQuery.isLoading ? 'Approving...' : `Approve ${needed !== null ? fmtWeth(needed) : ''} WETH`, onClick: handleApprove }
+    ? { label: approving ? 'Confirm in Wallet...' : approveQuery.isLoading ? 'Approving...' : `Approve ${needed !== null ? fmtWethUp(needed) : ''} WETH`, onClick: handleApprove }
     : { label: signing ? 'Sign in Wallet...' : 'Sign Offer (no gas)', onClick: () => void handleSign() };
   // Every box the offer needs holds a valid value: the button is faded until then, so a
   // full-colour button always means a click goes to the wallet, not to an error toast.
@@ -718,11 +719,11 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             {venueCut !== null ? fmtWeth(interestPerLoan - venueCut, 6) : fmtWeth(interestPerLoan, 6)} WETH
           </p>
           <p className="text-white/70 text-[11px] mt-1">
-            {fmtWeth(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
+            {fmtWethUp(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
             {venueCut !== null && feeBps !== null ? `, after the venue's ${bpsToPercent(feeBps)}% of the interest` : ''}
           </p>
           <p className="text-amber-300 text-[12px] mt-2" data-testid="lend-default-outcome">
-            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWeth(principalWei)} WETH, and no interest.
+            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWethUp(principalWei)} WETH, and no interest.
           </p>
           {/* The offer as a loan you can drag through. Only with the fee read: without it
               "you keep" would be a guess. */}
@@ -760,9 +761,9 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
 
       {needed !== null && (
         <TxSummary art={<CardArt pageId="nft-finance" idx={25} />}>
-          You offer <span className="font-mono text-white font-semibold">{fmtWeth(principalWei!)} WETH</span>
+          You offer <span className="font-mono text-white font-semibold">{fmtWethUp(principalWei!)} WETH</span>
           {anyToken ? <> to anyone holding a {selectedSymbol}</> : <> to whoever holds {selectedSymbol} #{tokenId || '?'}</>}
-          {loansN !== null && loansN > 1n ? <>, up to {loansN.toString()} loans ({fmtWeth(needed)} WETH in all)</> : null}. Your WETH stays in your
+          {loansN !== null && loansN > 1n ? <>, up to {loansN.toString()} loans ({fmtWethUp(needed)} WETH in all)</> : null}. Your WETH stays in your
           wallet until a borrower takes the offer; then the loan contract sends it to them.
         </TxSummary>
       )}
@@ -892,7 +893,7 @@ function BorrowTab() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl px-4 py-2.5" data-dwg="highlights" style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}>
           <span className="text-[11px] text-white/85 uppercase tracking-wider">Highlights:</span>
           <span className="text-[12px] text-emerald-400 font-medium">Best APR: {bpsToPercent(bestApr)}%</span>
-          {largest !== null && <span className="text-[12px] text-blue-400 font-medium">Largest: {fmtWeth(largest, 2)} WETH</span>}
+          {largest !== null && <span className="text-[12px] text-blue-400 font-medium">Largest: {fmtWeth(largest)} WETH</span>}
         </div>
       )}
 
@@ -1221,7 +1222,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
               <TxSummary>
                 You lock <span className="font-mono text-white font-semibold">{collateralLabel}</span> and receive{' '}
                 <span className="font-mono text-white font-semibold">{fmtWeth(principal)} WETH</span>. Repaid at the end it costs{' '}
-                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>, due about{' '}
+                <span className="font-mono text-emerald-400 font-semibold">{fmtWethUp(atTerm, 6)} WETH</span>, due about{' '}
                 <span className="text-white font-semibold">{formatDue(nowSeconds() + duration)}</span>.
                 <span className="block text-[11px] text-white/70 mt-1">Repay early to pay less: interest counts only the days you borrow.</span>
               </TxSummary>

@@ -10,6 +10,12 @@ The site's Changelog tab shows both files.
 ### 2026-11-18
 
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
+- NFT loans: WETH amounts are written from your side of the loan. What you pay, owe or put up is rounded up at the digits shown (the wrap and approve buttons, the offer you sign, what repaying costs, the venue's share of the interest, the wall's LOAN tag, the Lend card's line about who would buy the NFT), and what you receive or are owed is cut. The borrow tab's Largest figure shows four decimals, like the offer card under it.
+- Lock-ladder pools: the early-exit and emergency penalties and the minimum stake are rounded up at the digits shown, never down.
+- Solana: fees and costs are rounded up at the digits shown, never down: a sell's fee, the pool fee and the creator fee, a token's own transfer fee, what opening a pool costs, what a range position or a one-coin add puts in, and a review's network and priority fees. An amount smaller than the last digit shown reads "<0.0001", never a whole 0.0001. A review's one-time account deposits, and the fees a refused transaction cost, are printed to the lamport. The Pools page's rates card states the opening deposits as the opening form does.
+- Prices round to the nearest digit again instead of being cut: the TOWELI price on the dashboard, the price and FDV on Tokenomics, and an NFT pool's spot price and delta.
+- Dashboard: the empty-reserve warning under each Claim button now sits on a dark plate in amber, so it reads over light art and wraps on a phone.
+- Dashboard loans: a borrower's row says "You borrowed" where it said "You owe", because the figure is the loan amount, not what repaying costs. That amount and the Borrowing total are rounded up, as on the loan card.
 
 ### 2026-11-17
 

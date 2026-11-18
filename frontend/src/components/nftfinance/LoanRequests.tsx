@@ -42,6 +42,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  fmtWethUp,
   formatDue,
   formatDuration,
   newOfferId,
@@ -64,8 +65,10 @@ const INPUT =
   'dwg-field w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85';
 const ROW_BG = 'rgba(13,21,48,0.8)';
 
-function termsLine(r: LoanRequestJson): string {
-  return `${fmtWeth(BigInt(r.principalAmount))} WETH · up to ${bpsToPercent(Number(r.maxAprBps))}% APR · ${formatDuration(Number(r.duration))}`;
+// `amount` writes the principal from the reader's side: cut for the borrower who would receive
+// it, rounded up (fmtWethUp) for a lender who would put it up.
+function termsLine(r: LoanRequestJson, amount = fmtWeth): string {
+  return `${amount(BigInt(r.principalAmount))} WETH · up to ${bpsToPercent(Number(r.maxAprBps))}% APR · ${formatDuration(Number(r.duration))}`;
 }
 
 function nftName(r: LoanRequestJson): string {
@@ -373,7 +376,7 @@ export function AskForLoan({ filterCollection, liveOffers }: { filterCollection?
 
           {atMost !== null && principalWei !== null && (
             <p className="text-white/85 text-[12px]" style={LABEL_STYLE} data-testid="ask-at-most">
-              At your highest rate, repaying at the end costs {fmtWeth(atMost, 6)} WETH for {fmtWeth(principalWei)} WETH borrowed. Lenders see that
+              At your highest rate, repaying at the end costs {fmtWethUp(atMost, 6)} WETH for {fmtWeth(principalWei)} WETH borrowed. Lenders see that
               rate and may offer a lower one.
             </p>
           )}
@@ -462,7 +465,7 @@ export function BorrowerRequests({ collection, onOffer }: { collection: Address;
             >
               <div>
                 <p className="text-white text-[13px] font-semibold font-mono">{nftName(r)}</p>
-                <p className="text-white/80 text-[12px]">{termsLine(r)}</p>
+                <p className="text-white/80 text-[12px]">{termsLine(r, fmtWethUp)}</p>
                 <p className="text-white/70 text-[11px] font-mono">{shortenAddress(r.borrower)}</p>
               </div>
               <button type="button" onClick={() => onOffer(r)} className="btn-primary min-h-[44px] px-4 rounded-xl text-[13px]" aria-label={`Offer on ${nftName(r)}`}>

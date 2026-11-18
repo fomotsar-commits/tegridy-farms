@@ -18,7 +18,7 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/solana/clmm/rangeMath';
-import { PAUSED_TEXT, bothAmounts } from './rangeText';
+import { PAUSED_TEXT, bothAmounts, withTokenLabel } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import { BRAINLET_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -608,6 +608,55 @@ describe('picking a range', () => {
     const review = await within(open).findByRole('button', { name: 'Review: open this position' });
     expect((review as HTMLButtonElement).disabled).toBe(true);
     expect(open.textContent).toContain('opening a position is not switched on here');
+  });
+});
+
+// What you put in is rounded up at the sixth decimal shown. BAYLA has six decimals and SOL is said
+// to the lamport, so only a token kept to more decimals shows it: one with nine, at 0.0003 SOL.
+describe('what you put in rounds up, for a token kept to nine decimals', () => {
+  const NINE = key(73).toBase58();
+  const nineReads = (pools: RangePool[]) =>
+    readers({ pools: { kind: 'ok', value: pools }, checks: [claims(NINE, 'NINE')], freeze: { kind: 'ok', value: { kind: 'mint', freezeAuthority: null, decimals: 9 } } });
+
+  /** NINE's pool with SOL, both at nine decimals, priced at 0.0003 SOL per NINE. */
+  function ninePool(): RangePool {
+    const { token0, token1 } = sortMints(new PublicKey(NINE), new PublicKey(WSOL_MINT));
+    const [num, den] = token0.toBase58() === NINE ? [3n, 10_000n] : [10_000n, 3n];
+    let x = 1n << 100n;
+    const n = (num << 128n) / den;
+    for (let i = 0; i < 200; i++) x = (x + n / x) >> 1n;
+    while (x * x > n) x -= 1n;
+    const data = encodePool({
+      ammConfig: CONFIG, mint0: token0, mint1: token1, vault0: key(5), vault1: key(6), observation: key(7),
+      decimals0: 9, decimals1: 9, tickSpacing: 120, liquidity: 10n ** 12n, sqrtPriceX64: x, tickCurrent: getTickAtSqrtPrice(x),
+    });
+    return { pool: decodePoolState(POOL.toBase58(), data)!, config: tier() };
+  }
+
+  it('the pick card’s “You put in about” is the review’s plan, the token rounded up', async () => {
+    const rp = ninePool();
+    show(nineReads([rp]), fakeApi(), 'on', `/range-pools?mint=${NINE}`);
+    const open = await screen.findByTestId('range-open');
+    fireEvent.click(await within(open).findByRole('button', { name: 'Wide' }));
+    fireEvent.change(within(open).getByLabelText(/How much NINE to put in/), { target: { value: '2.5' } });
+    const plan = await within(open).findByTestId('range-plan');
+    const pair = withTokenLabel(pairOf(rp.pool)!, 'NINE');
+    const range = presetRange(pair, rp.pool, 'wide');
+    if (typeof range !== 'object') throw new Error('range');
+    const want = depositFrom(pair, rp.pool, range, 'token', planFromCeiling(2_500_000_000n, 100))!;
+    expect(bothAmounts(pair, want.amount0, want.amount1, true)).not.toBe(bothAmounts(pair, want.amount0, want.amount1));
+    expect(within(plan).getByText('You put in about').nextElementSibling?.textContent).toBe(bothAmounts(pair, want.amount0, want.amount1, true));
+  });
+
+  it('the opening card’s “You put in” rounds the typed token amount up at the sixth decimal', async () => {
+    show(nineReads([]), fakeApi(), 'on', `/range-pools?mint=${NINE}`);
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+    fireEvent.click(await within(card).findByRole('button', { name: 'Wide' }));
+    // 2.5000001 NINE: 2.500001 rounded up at the sixth decimal, where a cut says 2.5.
+    fireEvent.change(within(card).getByLabelText(/How much NINE to put in/), { target: { value: '2.5000001' } });
+    const plan = await within(card).findByTestId('range-create-plan');
+    expect(within(plan).getByText('You put in').nextElementSibling?.textContent).toMatch(/^2\.500001 NINE and \d+\.\d+ SOL, exactly$/);
   });
 });
 
