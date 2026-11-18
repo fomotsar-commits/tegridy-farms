@@ -1,4 +1,5 @@
 import { BUNGALOWS } from './bungalows';
+import { decimalText } from './formatting';
 
 /**
  * "Buy all bungalows": a dollar amount split across every island room's coin on one chain,
@@ -275,12 +276,12 @@ export function acceptUsd(v: string, set: (s: string) => void): void {
   if (s === '' || /^\d{0,7}(\.\d{0,2})?$/.test(s)) set(s);
 }
 
-/** "1,234,567.89" -> "1.23M": a row has room for four figures. */
+/** "1,234,567.89" -> "1.23M": a row has room for four figures. Cut: a leg never pays less than it says. */
 export function shortAmount(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
-  const units: [number, string][] = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
-  for (const [v, s] of units) if (n >= v) return `${(n / v).toLocaleString('en-US', { maximumFractionDigits: 2 })}${s}`;
-  return n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 6 : 2 });
+  const units: [number, string][] = [[12, 'T'], [9, 'B'], [6, 'M'], [3, 'K']];
+  for (const [e, s] of units) if (n >= 10 ** e) return `${decimalText(n, { places: 2, group: true, trim: true, shift: -e })}${s}`;
+  return decimalText(n, { places: n < 1 ? 6 : 2, group: true, trim: true }) ?? '0';
 }
 
 /** Dollars, two decimals. */

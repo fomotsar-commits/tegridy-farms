@@ -64,9 +64,9 @@ export const LAMPORTS_PER_SOL = 1_000_000_000n;
 /**
  * Format a lamport amount as SOL.
  *
- * Exact: the integer part comes from BigInt division and the fraction is padded
- * from the remainder, so nothing is routed through a float. Truncates, never
- * rounds, so a displayed amount is never overstated.
+ * Exact: the integer part comes from BigInt division and the fraction is padded from the remainder, so
+ * nothing goes through a float. It cuts, so an amount received or held is never overstated; `up` rounds
+ * away from zero instead, so an amount paid is never understated.
  *
  * THE FLOOR IS THE POINT. A NON-ZERO balance never renders as "0" or "0.0000" —
  * it renders as `<0.0001`, because a real balance shown as zero is the bug this
@@ -82,10 +82,14 @@ export const LAMPORTS_PER_SOL = 1_000_000_000n;
 export function formatSol(
   lamports: bigint,
   maxFractionDigits = 4,
-  options: { fixed?: boolean } = {},
+  options: { fixed?: boolean; up?: boolean } = {},
 ): string {
   const neg = lamports < 0n;
-  const abs = neg ? -lamports : lamports;
+  let abs = neg ? -lamports : lamports;
+  if (options.up && Number.isInteger(maxFractionDigits) && maxFractionDigits >= 0 && maxFractionDigits < 9) {
+    const unit = 10n ** BigInt(9 - maxFractionDigits);
+    abs = ((abs + unit - 1n) / unit) * unit;
+  }
   const whole = abs / LAMPORTS_PER_SOL;
   const frac = abs % LAMPORTS_PER_SOL;
   const truncated = frac.toString().padStart(9, '0').slice(0, maxFractionDigits);
@@ -108,20 +112,26 @@ export function formatSol(
  * mint passes `null` and gets base units back with `isBaseUnits: true`, so the
  * page can say which one it is showing instead of silently assuming 9.
  *
- * Truncates like {@link formatSol}, with the same floor: a non-zero amount under the
- * shown precision reads `<0.0001`, never "0".
+ * Cuts like {@link formatSol}, or with `up` rounds away from zero, with the same floor:
+ * a non-zero amount under the shown precision reads `<0.0001`, never "0".
  */
 export function formatTokenAmount(
   baseUnits: bigint,
   decimals: number | null,
   maxFractionDigits = 4,
+  options: { up?: boolean } = {},
 ): { text: string; isBaseUnits: boolean } {
   if (decimals === null || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
     return { text: baseUnits.toString(), isBaseUnits: true };
   }
   const scale = 10n ** BigInt(decimals);
-  const whole = baseUnits / scale;
-  const frac = baseUnits % scale;
+  let units = baseUnits;
+  if (options.up && Number.isInteger(maxFractionDigits) && maxFractionDigits >= 0 && maxFractionDigits < decimals) {
+    const unit = 10n ** BigInt(decimals - maxFractionDigits);
+    units = ((units + unit - 1n) / unit) * unit;
+  }
+  const whole = units / scale;
+  const frac = units % scale;
   const digits = frac.toString().padStart(decimals, '0').slice(0, maxFractionDigits).replace(/0+$/, '');
   if (whole === 0n && frac > 0n && digits === '') {
     return { text: maxFractionDigits > 0 ? `<0.${'0'.repeat(maxFractionDigits - 1)}1` : '<1', isBaseUnits: false };

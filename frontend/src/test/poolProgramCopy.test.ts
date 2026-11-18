@@ -9,6 +9,10 @@
 // The upgrade of 2026-11 added the fee limits and the swap guard, and the same three places
 // name them. That wording is tied the same way: it must stand under the build that has the
 // guard, and it may not stand under either build from before it (a roll-back too).
+//
+// The upgrade after it added the keeper's fee: a fee tier's named keeper swaps free of the
+// trade and creator fees. The three places, and the Rates card's small print, say so, name
+// the keeper's wallet and say that everyone else pays as before. Tied the same way again.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -49,19 +53,48 @@ const BINARIES_WITHOUT_THE_SWAP_GUARD: readonly string[] = [BINARY_WITHOUT_THE_I
 const TRUE_ONLY_WITH_THE_SWAP_GUARD = [
   {
     file: 'src/components/solana/lp/LpDisclosures.tsx',
-    says: ['added fee limits and an added swap guard', 'refuses one that another program makes'],
+    says: ['added fee limits', 'an added swap guard', 'refuses one that another program makes'],
   },
   {
     file: 'src/components/solana/lp/SolanaLpSection.tsx',
-    says: ['added fee limits and an added swap guard', 'While the swap guard is on', 'It can switch the swap guard on or off for a fee tier'],
+    says: ['added fee limits', 'an added swap guard', 'While the swap guard is on', 'It can switch the swap guard on or off for a fee tier'],
   },
   {
     file: 'src/components/solana/VenueProgramCard.tsx',
-    says: ['fee limits and a swap guard', 'A swap that another program makes is refused'],
+    says: ['a swap guard', 'The fee limits:', 'A swap that another program makes is refused'],
   },
 ] as const;
 const guardSays = (file: string, phrase: string) => `${file}: mainnet runs the build with the swap guard, so it must say "${phrase}"`;
 const guardMustNotSay = (file: string, phrase: string) => `${file}: mainnet runs a build without the swap guard, so it must not say "${phrase}"`;
+
+/** The swap-guard upgrade's build (proposal #32): the fee limits and the guard, and no keeper's fee. */
+const BINARY_BEFORE_THE_KEEPER_FEE = '01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938';
+const BINARIES_WITHOUT_THE_KEEPER_FEE: readonly string[] = [...BINARIES_WITHOUT_THE_SWAP_GUARD, BINARY_BEFORE_THE_KEEPER_FEE];
+/** The keeper the vault names on both fee tiers (proposal #34): the venue's price robot, said whole. */
+const PRICE_ROBOT = '9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz';
+const RATES_CARD = 'src/components/solana/lp/RatesAndRoutes.tsx';
+
+/** What each place says only of a build with the keeper's fee: that it exists, who swaps free, and that everyone else pays. */
+const TRUE_ONLY_WITH_THE_KEEPER_FEE = [
+  {
+    file: 'src/components/solana/lp/LpDisclosures.tsx',
+    says: ["a fee exemption for a fee tier's keeper", 'pays no trade fee and no creator fee on its own swaps', 'Everyone else pays as before.', PRICE_ROBOT],
+  },
+  {
+    file: 'src/components/solana/lp/SolanaLpSection.tsx',
+    says: ['a fee exemption for a fee tier’s keeper', 'name a fee tier’s keeper', 'pays no trade fee and no creator fee on its own swaps', 'Everyone else pays as before.', PRICE_ROBOT],
+  },
+  {
+    file: 'src/components/solana/VenueProgramCard.tsx',
+    says: ['a fee exemption for a fee tier&rsquo;s keeper', 'pays no trade fee and no creator fee on its own swaps', 'Everyone else pays as before.', PRICE_ROBOT],
+  },
+  {
+    file: RATES_CARD,
+    says: ['pays no trade fee and no creator fee on its own swaps', 'Everyone else pays as before.', PRICE_ROBOT],
+  },
+] as const;
+const keeperSays = (file: string, phrase: string) => `${file}: mainnet runs the build with the keeper's fee, so it must say "${phrase}"`;
+const keeperMustNotSay = (file: string, phrase: string) => `${file}: mainnet runs a build without the keeper's fee, so it must not say "${phrase}"`;
 
 /** The two places the local harness pins the pool binary that mainnet runs. */
 function harnessPins(): { genesis: string | undefined; validator: string | undefined } {
@@ -108,6 +141,15 @@ function problems(deployedBinary: string, source: (file: string) => string): str
       if (!guarded && present) out.push(guardMustNotSay(line.file, phrase));
     }
   }
+  const keeperFree = !BINARIES_WITHOUT_THE_KEEPER_FEE.includes(deployedBinary);
+  for (const line of TRUE_ONLY_WITH_THE_KEEPER_FEE) {
+    const text = source(line.file);
+    for (const phrase of line.says) {
+      const present = text.includes(phrase);
+      if (keeperFree && !present) out.push(keeperSays(line.file, phrase));
+      if (!keeperFree && present) out.push(keeperMustNotSay(line.file, phrase));
+    }
+  }
   return out;
 }
 
@@ -131,10 +173,21 @@ const WITH_THE_SWAP_GUARD: Record<string, string> = {
     "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.",
   'src/components/solana/lp/SolanaLpSection.tsx':
     'Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits and an added swap guard. It can switch the swap guard on or off for a fee tier. While the swap guard is on, directly means sent by the wallet itself.',
-  'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction, one added check, fee limits and a swap guard. A swap that another program makes is refused.',
+  'src/components/solana/VenueProgramCard.tsx':
+    'comments, one added instruction, one added check, fee limits and a swap guard. The fee limits: a fee tier charges a trader more than nothing. A swap that another program makes is refused.',
 };
 const everyGuardPhrase = (message: (file: string, phrase: string) => string) =>
   TRUE_ONLY_WITH_THE_SWAP_GUARD.flatMap((line) => line.says.map((phrase) => message(line.file, phrase)));
+
+/** The wording that ships with the keeper-fee upgrade, one sample per file. */
+const WITH_THE_KEEPER_FEE: Record<string, string> = {
+  'src/components/solana/lp/LpDisclosures.tsx': `Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. A fee tier's named keeper, the venue's own price robot (wallet ${PRICE_ROBOT}), pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers nothing. Everyone else pays as before.`,
+  'src/components/solana/lp/SolanaLpSection.tsx': `Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier’s keeper. It can switch the swap guard on or off for a fee tier, name a fee tier’s keeper, add fee tiers. A fee tier’s named keeper pays no trade fee and no creator fee on its own swaps. On both fee tiers open today the vault names the venue’s own price robot, wallet ${PRICE_ROBOT}. Everyone else pays as before. While the swap guard is on, directly means sent by the wallet itself.`,
+  'src/components/solana/VenueProgramCard.tsx': `comments, one added instruction, one added check, fee limits, a swap guard and a fee exemption for a fee tier&rsquo;s keeper. The fee limits: a fee tier charges a trader more than nothing. A swap that another program makes is refused. The keeper is one wallet our vault names for a fee tier. It pays no trade fee and no creator fee on its own swaps. Everyone else pays as before. On both fee tiers open today the keeper is the venue&rsquo;s own price robot, wallet ${PRICE_ROBOT}.`,
+  [RATES_CARD]: `A fee tier&rsquo;s named keeper, the venue&rsquo;s own price robot (wallet ${PRICE_ROBOT}), pays no trade fee and no creator fee on its own swaps, so those swaps pay nothing to LPs, the venue or the island. Everyone else pays as before.`,
+};
+const everyKeeperPhrase = (message: (file: string, phrase: string) => string) =>
+  TRUE_ONLY_WITH_THE_KEEPER_FEE.flatMap((line) => line.says.map((phrase) => message(line.file, phrase)));
 
 describe('site copy about the pool program on mainnet follows the binary the harness pins', () => {
   it('the harness pins one pool binary, in both places', () => {
@@ -180,10 +233,27 @@ describe('site copy about the pool program on mainnet follows the binary the har
     const pinned = harnessPins().genesis ?? '';
     const guarded = !BINARIES_WITHOUT_THE_SWAP_GUARD.includes(pinned);
     if (guarded) {
-      // Under the first upgrade's build the rest of the wording is still right, so this is the whole list.
-      expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, read)).toEqual(everyGuardPhrase(guardMustNotSay));
+      // Under the first upgrade's build the rest of the wording is still right, so this is the
+      // whole list: the guard's phrases, and the keeper fee's while the source has them.
+      const keeperFree = !BINARIES_WITHOUT_THE_KEEPER_FEE.includes(pinned);
+      expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, read)).toEqual([
+        ...everyGuardPhrase(guardMustNotSay),
+        ...(keeperFree ? everyKeeperPhrase(keeperMustNotSay) : []),
+      ]);
     } else {
       expect(problems('f'.repeat(64), read)).toEqual(expect.arrayContaining(everyGuardPhrase(guardSays)));
+    }
+  });
+
+  // The keeper-fee wording, the same two ways. Pin the swap-guard build (a roll-back) and
+  // every phrase about the keeper's fee is asked to go, and nothing else; under any build
+  // that is none of the earlier ones, every phrase is asked for.
+  it('refuses the keeper-fee wording in the source once a build without it is pinned, and asks for it otherwise', () => {
+    const pinned = harnessPins().genesis ?? '';
+    if (!BINARIES_WITHOUT_THE_KEEPER_FEE.includes(pinned)) {
+      expect(problems(BINARY_BEFORE_THE_KEEPER_FEE, read)).toEqual(everyKeeperPhrase(keeperMustNotSay));
+    } else {
+      expect(problems('f'.repeat(64), read)).toEqual(expect.arrayContaining(everyKeeperPhrase(keeperSays)));
     }
   });
 
@@ -191,18 +261,34 @@ describe('site copy about the pool program on mainnet follows the binary the har
     const another = 'f'.repeat(64);
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => BEFORE_UPGRADE[f] ?? '')).toEqual([]);
     expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => AFTER_UPGRADE[f] ?? '')).toEqual([]);
-    expect(problems(another, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual([]);
+    expect(problems(BINARY_BEFORE_THE_KEEPER_FEE, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual([]);
+    expect(problems(another, (f) => WITH_THE_KEEPER_FEE[f] ?? '')).toEqual([]);
     // Each wording under the other binary: every line is named.
     expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => BEFORE_UPGRADE[f] ?? '').filter((p) => p.includes('must not say'))).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => AFTER_UPGRADE[f] ?? '')).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
     // The first upgrade's wording under the build with the guard: every guard phrase is asked for.
-    expect(problems(another, (f) => AFTER_UPGRADE[f] ?? '')).toEqual(everyGuardPhrase(guardSays));
+    expect(problems(BINARY_BEFORE_THE_KEEPER_FEE, (f) => AFTER_UPGRADE[f] ?? '')).toEqual(everyGuardPhrase(guardSays));
     // The swap-guard wording under either build from before it: every guard phrase is refused.
     expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual(everyGuardPhrase(guardMustNotSay));
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual(expect.arrayContaining(everyGuardPhrase(guardMustNotSay)));
+    // The swap-guard wording under the build with the keeper's fee: every keeper phrase is asked for, and only those.
+    expect(problems(another, (f) => WITH_THE_SWAP_GUARD[f] ?? '')).toEqual(everyKeeperPhrase(keeperSays));
+    // The keeper-fee wording under any build from before it: every keeper phrase is refused.
+    expect(problems(BINARY_BEFORE_THE_KEEPER_FEE, (f) => WITH_THE_KEEPER_FEE[f] ?? '')).toEqual(everyKeeperPhrase(keeperMustNotSay));
+    for (const earlier of BINARIES_WITHOUT_THE_SWAP_GUARD) {
+      expect(problems(earlier, (f) => WITH_THE_KEEPER_FEE[f] ?? '')).toEqual(expect.arrayContaining(everyKeeperPhrase(keeperMustNotSay)));
+    }
+    // A line that says who swaps free without the wallet, and one that leaves out that everyone else pays.
+    const noWallet: Record<string, string> = { ...WITH_THE_KEEPER_FEE, [RATES_CARD]: WITH_THE_KEEPER_FEE[RATES_CARD]!.replace(PRICE_ROBOT, 'the robot') };
+    expect(problems(another, (f) => noWallet[f] ?? '')).toEqual([keeperSays(RATES_CARD, PRICE_ROBOT)]);
+    const noOneElse: Record<string, string> = { ...WITH_THE_KEEPER_FEE, [RATES_CARD]: WITH_THE_KEEPER_FEE[RATES_CARD]!.replace(' Everyone else pays as before.', '') };
+    expect(problems(another, (f) => noOneElse[f] ?? '')).toEqual([keeperSays(RATES_CARD, 'Everyone else pays as before.')]);
     // A line that names the guard and not what it refuses.
-    const noRefusal: Record<string, string> = { ...WITH_THE_SWAP_GUARD, 'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction, one added check, fee limits and a swap guard.' };
-    expect(problems(another, (f) => noRefusal[f] ?? '')).toEqual([guardSays('src/components/solana/VenueProgramCard.tsx', 'A swap that another program makes is refused')]);
+    const noRefusal: Record<string, string> = {
+      ...WITH_THE_SWAP_GUARD,
+      'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction, one added check, fee limits and a swap guard. The fee limits: a fee tier charges a trader more than nothing.',
+    };
+    expect(problems(BINARY_BEFORE_THE_KEEPER_FEE, (f) => noRefusal[f] ?? '')).toEqual([guardSays('src/components/solana/VenueProgramCard.tsx', 'A swap that another program makes is refused')]);
     const silent: Record<string, string> = { ...AFTER_UPGRADE, 'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's." };
     expect(problems(BINARY_BEFORE_THE_SWAP_GUARD, (f) => silent[f] ?? '')).toEqual([
       'src/components/solana/lp/LpDisclosures.tsx: after the upgrade it must say "one added instruction"',

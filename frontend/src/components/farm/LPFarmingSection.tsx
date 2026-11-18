@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
-import { formatTokenAmount, formatPercent, formatNumber, sanitizeDecimalInput } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountUp, formatPercent, formatNumber, sanitizeDecimalInput } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
@@ -388,7 +388,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     if (belowMin) {
                       return (
                         <button className="btn-primary w-full py-2 text-sm rounded-lg" disabled>
-                          Min {formatTokenAmount(lpFarm.minStakeFormatted, 0)} LP required
+                          Min {formatTokenAmountUp(lpFarm.minStakeFormatted, 0)} LP required
                         </button>
                       );
                     }
@@ -423,7 +423,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     </p>
                   ) : lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
-                      Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
+                      Min stake <span className="font-mono">{formatTokenAmountUp(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
                         <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &middot; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
                       )}

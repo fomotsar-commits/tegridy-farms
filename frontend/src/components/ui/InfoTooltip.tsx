@@ -276,13 +276,14 @@ export function StepIndicator({
   currentStep: number; // 0-indexed
 }) {
   return (
-    <div className="flex items-center gap-1 mb-3">
+    <div className="flex items-center gap-1 mb-3" data-ui="steps">
       {steps.map((label, i) => {
         const isComplete = i < currentStep;
         const isActive = i === currentStep;
         return (
           <div key={i} className="flex items-center gap-1 flex-1">
             <div
+              data-step={isComplete ? 'done' : isActive ? 'now' : 'next'}
               className={`flex items-center gap-1.5 flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${
                 isComplete
                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
@@ -346,6 +347,7 @@ export function RiskBanner({
 
   return (
     <div
+      data-ui="risk"
       className={`${art ? 'relative isolate ' : ''}flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-[12px] text-white/80 leading-relaxed`}
       style={{ background: c.bg, border: `1px solid ${c.border}` }}
     >
@@ -374,6 +376,7 @@ export function RiskBanner({
 export function TxSummary({ children, art }: { children: React.ReactNode; art?: React.ReactNode }) {
   return (
     <div
+      data-ui="tx-summary"
       className={`${art ? 'relative isolate ' : ''}rounded-xl px-3.5 py-3 text-[12px] text-white/70 leading-relaxed`}
       style={{
         background: 'rgba(16, 185, 129, 0.06)',

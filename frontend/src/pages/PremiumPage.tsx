@@ -3,6 +3,7 @@ import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
+import { localeCut, localeUp } from '../lib/formatting';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { PREMIUM_ACCESS_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
@@ -247,7 +248,7 @@ export default function PremiumPage() {
               // Total Revenue showed a flat '0' — which is a claim, and the
               // wrong one, for a protocol whose revenue is the pitch. A real
               // on-chain zero still prints as before.
-              { label: 'Monthly Fee', value: premium.quoteUnread ? '—' : premium.monthlyFeeFormatted > 0 ? `${premium.monthlyFeeFormatted.toLocaleString()} TOWELI` : '...' },
+              { label: 'Monthly Fee', value: premium.quoteUnread ? '\u2014' : premium.monthlyFeeFormatted > 0 ? `${localeUp(formatEther(premium.monthlyFee))} TOWELI` : '...' },
               { label: 'Active Subscribers', value: premium.statsUnread ? '—' : premium.totalSubscribers.toString() },
               { label: 'Total Revenue', value: premium.statsUnread ? '—' : premium.totalRevenueFormatted > 0 ? `${premium.totalRevenueFormatted.toLocaleString()} TOWELI` : '0' },
               { label: 'Revenue Distributed', value: revenue.totalDistributed > 0 ? `${revenue.totalDistributed.toFixed(4)} ETH` : '0 ETH' },
@@ -336,12 +337,12 @@ export default function PremiumPage() {
                       {isLoading ? (
                         <Skeleton className="h-4 w-16 mx-auto" />
                       ) : hasData ? (
-                        `${Number(planCostDisplay).toLocaleString()} TOWELI`
+                        `${localeUp(planCostDisplay)} TOWELI`
                       ) : '...'}
                     </div>
                     {p.discount > 0 && hasData && !isLoading && (
                       <div className="text-white text-[11px] line-through mt-0.5">
-                        {Number(fullCostDisplay).toLocaleString()}
+                        {localeUp(fullCostDisplay)}
                       </div>
                     )}
                   </button>
@@ -359,7 +360,7 @@ export default function PremiumPage() {
                     {isLoading ? (
                       <Skeleton className="h-6 w-32" />
                     ) : premium.monthlyFee > 0n ? (
-                      `${Number(totalCostDisplay).toLocaleString()} TOWELI`
+                      `${localeUp(totalCostDisplay)} TOWELI`
                     ) : '...'}
                   </div>
                 </div>
@@ -369,7 +370,7 @@ export default function PremiumPage() {
                     {isLoading ? (
                       <Skeleton className="h-5 w-24 ml-auto" />
                     ) : (
-                      `${premium.userBalanceFormatted.toLocaleString()} TOWELI`
+                      `${localeCut(formatEther(premium.userBalance))} TOWELI`
                     )}
                   </div>
                 </div>
@@ -427,7 +428,7 @@ export default function PremiumPage() {
                   disabled={premium.isPending || premium.isConfirming}
                   className="btn-primary w-full py-3 text-[14px]"
                 >
-                  {premium.isPending ? 'Confirm in Wallet...' : premium.isConfirming ? 'Approving...' : `Approve ${Number(totalCostDisplay).toLocaleString()} TOWELI`}
+                  {premium.isPending ? 'Confirm in Wallet...' : premium.isConfirming ? 'Approving...' : `Approve ${localeUp(totalCostDisplay)} TOWELI`}
                 </button>
               ) : (
                 <button

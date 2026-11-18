@@ -81,7 +81,10 @@ function Row({ n, row, current, onActive }: { n: number; row: VenuePoolRow; curr
     <tr
       role="row"
       data-current={current ? '' : undefined}
-      onMouseEnter={() => onActive?.(row.id)}
+      // A mouse or a pen points; a finger only presses. Lighting the house above on a tap would
+      // be a hover iOS answers by dropping the tap's click, so the row would take two taps
+      // (IsoIsland.tsx says the same of the houses).
+      onPointerEnter={(e) => { if (e.pointerType !== 'touch') onActive?.(row.id); }}
       className={`group/row relative min-h-[64px] py-2.5 md:pl-3 border-b border-white/[0.10] ${ROW_GRID}`}
     >
       {/* The resident's colour rising up the row's edge, and the rule under it sweeping green, as the menu's do. */}
@@ -167,7 +170,7 @@ export function VenuePoolIndex({ activeId = null, onActive }: {
       <table
         role="table"
         className="block w-full text-left"
-        onMouseLeave={() => onActive?.(null)}
+        onPointerLeave={(e) => { if (e.pointerType !== 'touch') onActive?.(null); }}
         // Focus leaving the table (not moving between its rows) lets go of the row it marked.
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onActive?.(null);

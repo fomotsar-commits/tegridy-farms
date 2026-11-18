@@ -21,9 +21,10 @@ one `Cargo.toml` description line, one added instruction, `create_lp_metadata` (
 150 lines with its comments), and one added refusal in `initialize` (five lines: a public
 pool opening on fee tier 0, the launch tier, is refused). Since 2026-11 the delta is larger
 than that count: the fee rules of 2026-11-03 (fee ceilings, the fund fee's collector and its
-one hand-over, the Token-2022 check without exceptions) and the swap guard of 2026-11-10 (a
-fee tier can refuse a swap that another program calls). `TEGRIDY_FORK.md` has a section for
-each, with the files. That instruction gives a pool's lp token a Metaplex name
+one hand-over, the Token-2022 check without exceptions), the swap guard of 2026-11-10 (a
+fee tier can refuse a swap that another program calls) and the keeper's fee of 2026-11-11 (a
+fee tier's keeper swaps free of the trade and creator fees). `TEGRIDY_FORK.md` has a section
+for each, with the files. That instruction gives a pool's lp token a Metaplex name
 record so wallets can show it; it takes no arguments and moves no pool funds (its caller
 pays the record's rent and Metaplex's fee, about 0.014 SOL), but it signs a
 Metaplex call with the address that also owns the pool vaults, so it wants a careful read.
@@ -54,8 +55,8 @@ source. cp-swap has since been upgraded to a build of this source: the live prog
 one added instruction, `create_lp_metadata`, and the launch-tier refusal, and both went in
 unaudited. (It was upgraded on 2026-10-23, rolled back on 2026-10-24, upgraded again on
 2026-11-03, rolled back by mistake on 2026-11-04, and upgraded a third time on 2026-11-06.
-The upgrade of 2026-11, proposal #32, then put the fee rules and the swap guard on mainnet,
-unaudited too.)
+The upgrade of 2026-11-14, proposal #32, then put the fee rules and the swap guard on
+mainnet, and proposal #35 the keeper's fee, unaudited too.)
 The launcher is paused and has never opened a launch.
 
 **We'd like Scope A first, on its own.** We want our pools routed by Jupiter, which asks for

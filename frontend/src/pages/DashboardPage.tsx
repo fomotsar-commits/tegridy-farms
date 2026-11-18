@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { getAddressUrl } from '../lib/explorer';
-import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
+import { stakingClaimPaid, NOTHING_PAID_COPY, RESERVE_EMPTY_COPY } from '../lib/stakingClaimPaid';
 import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
 import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
 import { useUserPosition } from '../hooks/useUserPosition';
@@ -22,7 +22,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWholeNumberCut, formatWei } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -263,18 +263,20 @@ function ToweliDashboard() {
 
   // Towelie nudge: surface unclaimed yield. Dedup by `key` so the bubble
   // doesn't re-fire on every price tick or remount — once per page load.
-  // R047 H1: depend on `nudgeKey = round(pendingTotal*100)` so sub-cent
+  // R047 H1: depend on `nudgeKey = floor(pendingTotal*100)` so sub-cent
   // floating-point churn from the position hook doesn't re-fire the effect
   // on every price tick. `say` is stable from `TowelieProvider` (useCallback).
+  // Silent until the reserve is read and not empty: a claim on an empty one pays 0.
   const { say } = useTowelie();
-  const nudgeKey = Math.round(pendingTotal * 100);
+  const nudgeKey = Math.floor(pendingTotal * 100);
+  const reserveEmptyOrUnread = pool.isDry || pool.rewardsRemainingUnread;
   useEffect(() => {
-    if (!isConnected || isWrongNetwork || claimsPaused) return;
+    if (!isConnected || isWrongNetwork || claimsPaused || reserveEmptyOrUnread) return;
     if (!pos.hasPosition || nudgeKey < 1) return;
-    const amount = (nudgeKey / 100).toFixed(2);
+    const amount = formatTokenAmount(pos.pendingFormatted, 2);
     say(`You've got ${amount} TOWELI waiting. Claim it.`, { key: 'unclaimed-yield' });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say is stable; nudgeKey is the de-floated dep
-  }, [isConnected, isWrongNetwork, claimsPaused, pos.hasPosition, nudgeKey]);
+  }, [isConnected, isWrongNetwork, claimsPaused, reserveEmptyOrUnread, pos.hasPosition, nudgeKey]);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
@@ -493,7 +495,7 @@ function ToweliDashboard() {
         {/* Position Health (#7) — proactive warnings (lock expiring, boost at
             risk, rewards to claim). Self-gates to null when there's no position. */}
         <div className="mb-6">
-          <PositionHealth />
+          <PositionHealth reserveEmpty={pool.isDry} />
         </div>
 
         {/* AUDIT DASH-UX: tab bar — Header + Summary Stats above the bar stay
@@ -596,11 +598,15 @@ function ToweliDashboard() {
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
                   disabled={farmActions.isPending || farmActions.isConfirming || claimsPaused}
+                  aria-describedby={pool.isDry ? 'claim-reserve-empty-positions' : undefined}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
-                    : `Claim Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
+                    : `Claim Rewards (${formatTokenAmount(pos.pendingFormatted, 2)} TOWELI)`}
                 </button>
+                {pool.isDry && (
+                  <p id="claim-reserve-empty-positions" className="text-white/70 text-[11px] mt-2" data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
+                )}
               </m.div>
             )}
 
@@ -624,7 +630,7 @@ function ToweliDashboard() {
                     </div>
                     <div>
                       <p className="text-white text-[10px] mb-0.5">Boost</p>
-                      <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
+                      <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" nearest className="stat-value text-[16px] text-white" />
                     </div>
                     <div>
                       <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
@@ -752,7 +758,7 @@ function ToweliDashboard() {
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Redeemable</p>
                         <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH`}</p>
-                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatWholeNumber(lpPos.toweliAmount)} TOWELI`}</p>
+                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '\u2013' : `${formatWholeNumberCut(lpPos.toweliAmount)} TOWELI`}</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Value</p>
@@ -884,11 +890,15 @@ function ToweliDashboard() {
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
                   disabled={farmActions.isPending || farmActions.isConfirming || claimsPaused}
+                  aria-describedby={pool.isDry ? 'claim-reserve-empty-rewards' : undefined}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
-                    : `Claim Staking Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
+                    : `Claim Staking Rewards (${formatTokenAmount(pos.pendingFormatted, 2)} TOWELI)`}
                 </button>
+                {pool.isDry && (
+                  <p id="claim-reserve-empty-rewards" className="text-white/70 text-[11px] mt-2" data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
+                )}
               </m.div>
             )}
 

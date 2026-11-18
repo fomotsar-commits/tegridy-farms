@@ -9,7 +9,7 @@ import { useCowLimitOrder, type CowLimitRecord } from '../../hooks/useCowLimitOr
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { WETH_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { getTxUrl } from '../../lib/explorer';
-import { formatTokenAmount } from '../../lib/formatting';
+import { formatTokenAmountNearest, localeCut, localeUp } from '../../lib/formatting';
 import { FinePrint } from '../ui/FinePrint';
 
 const EXPIRY_OPTIONS = [
@@ -290,7 +290,7 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
       <div>
         <span className="text-white text-[12px] font-medium">{order.amount} {order.fromToken.symbol}</span>
         <span className="text-white text-[11px] mx-1.5">→</span>
-        <span className="text-white text-[11px]">@ {formatTokenAmount(order.targetPrice, 0)}</span>
+        <span className="text-white text-[11px]">@ {formatTokenAmountNearest(order.targetPrice, 0)}</span>
       </div>
       <div className="flex items-center gap-2">
         <span
@@ -327,8 +327,8 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
 }
 
 function CowOrderRow({ rec }: { rec: CowLimitRecord }) {
-  const sell = Number(formatUnits(BigInt(rec.sellAmount), rec.sellToken.decimals));
-  const buy = Number(formatUnits(BigInt(rec.buyAmount), rec.buyToken.decimals));
+  const sell = formatUnits(BigInt(rec.sellAmount), rec.sellToken.decimals);
+  const buy = formatUnits(BigInt(rec.buyAmount), rec.buyToken.decimals);
   const filled = rec.status === 'fulfilled' || rec.status === 'traded';
   const dead = rec.status === 'cancelled' || rec.status === 'expired';
   const label = filled ? 'Filled' : rec.status === 'cancelled' ? 'Cancelled' : rec.status === 'expired' ? 'Expired' : 'Open';
@@ -337,9 +337,9 @@ function CowOrderRow({ rec }: { rec: CowLimitRecord }) {
     <div className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
       style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
       <div className="min-w-0">
-        <span className="text-white text-[12px] font-medium">{sell.toLocaleString(undefined, { maximumFractionDigits: 4 })} {rec.sellToken.symbol}</span>
+        <span className="text-white text-[12px] font-medium">{localeUp(sell, 4)} {rec.sellToken.symbol}</span>
         <span className="text-white text-[11px] mx-1.5">&rarr;</span>
-        <span className="text-white text-[11px]">&ge; {buy.toLocaleString(undefined, { maximumFractionDigits: 2 })} {rec.buyToken.symbol}</span>
+        <span className="text-white text-[11px]">&ge; {localeCut(buy, 2)} {rec.buyToken.symbol}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <span className={`text-[10px] ${color}`}>{label}</span>
