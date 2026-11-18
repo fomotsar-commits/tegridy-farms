@@ -90,6 +90,19 @@ export function groundOf(streets: readonly Street[]) {
   return { x0: -EDGE, y0: -EDGE, x1: far + EDGE, y1: deep + EDGE };
 }
 
+/**
+ * The ground a house takes a press on, besides the house itself: its plot, from halfway across
+ * the gap to each neighbour, and from behind it to the kerb of its road (owner, 2026-11-15:
+ * "super hard to click on the houses"). A press between two houses, or on the light before a
+ * door, is meant for a house, so it lands on one. Ground never stands in front of anything behind
+ * it on the sheet, so a plot never takes a press from a house further back (isoPlan.test.ts).
+ */
+export function plotOutline(x: number, y: number): Pt[] {
+  const [x0, x1] = [x - GAP_X / 2, x + HOUSE_W + GAP_X / 2];
+  const [y0, y1] = [y - PAD, y + HOUSE_D + ROAD_FROM];
+  return [iso([x0, y0, 0], U), iso([x1, y0, 0], U), iso([x1, y1, 0], U), iso([x0, y1, 0], U)];
+}
+
 /** The drawing's width over its height, for a page that sizes it by the screen's height. */
 export function planAspect(rows: readonly VenuePoolRow[]): number {
   const { box } = planBox(planStreets(rows));

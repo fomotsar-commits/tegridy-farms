@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-17
 
+- Earn, the drawing of the island's houses: a press on a house, or on the ground just around it, now enters that house's bungalow, as its door on the front page does; it used to open the pool. On a phone the drawing has a row of its own under the title, whole and the width of the screen, where it used to sit behind the word Earn, cut off at the edge, with seven of its eleven houses out of reach. On a touch screen a tap no longer lifts a roof first, which on an iPhone or iPad could swallow the tap.
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
 - Amounts you receive, are owed or hold are cut at the digits shown, never rounded up: Harvest's vault line, the wallet board's balance, stake and earned rows, the dashboard and its position alerts, the Ethereum swap's You receive and Min. Received, limit and TWAP orders, liquidity, staking, referrals, receipts, Premium's Your Balance and the Solana basket's coin figures.
 - Amounts you pay are rounded up at the digits shown, never down: the early-exit penalty and the rewards an exit gives up, mint and upload prices, DCA totals, the Solana and Ethereum baskets' totals, an NFT pool's Total Cost and Protocol Fee, Premium's prices, Total Cost and Approve, what a receipt says you paid, a CoW order's sell amount, the LP farm's minimum stake, and the Solana curve's You pay, You sell and a buy's trade fee.
@@ -348,31 +349,6 @@ The site's Changelog tab shows both files.
 - Heat is the only number a person has here now: points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone. A room whose reward vault is empty shows no rate and says it pays nothing until funded.
 - Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool.
 - Solana wallet list on phones: on Android, Phantom opens this page in its own app; inside a wallet's own browser, that wallet is listed once; the whole list fits a small screen.
-
-### 2026-10-16
-
-- Solana pools: the risk line on every add, open and review now says what the team's vault can do (pause removing, change fees or replace the pool program, with 2 of 2 keys and no wait) and that no outside firm has checked our changes.
-- Solana LP: a pool whose price is more than 3% off now says what that costs you as a share of what you add, where it said the whole gap went to the first trade. The pool stays open to deposits.
-- Solana LP and Pools: opening a pool is called "Open a pool" on its buttons and card, and above its button the card says the whole cost read from the chain: the venue's fee plus account setup you do not get back (about 0.04 SOL today).
-- Solana LP, "Add with one coin": the swap step's review now shows its price change. On a route where the site fee cannot be taken (BAYLA's pump.fun route), it no longer says 0.50%: the first Sign sends nothing and shows the review again with "No site fee on this route", and the next Sign sends exactly that.
-- Solana LP, Remove liquidity: once a withdrawal is confirmed, the card says what you got (about this much SOL and this much of the token) and offers Swap it, which opens the Solana swap on that token, and Add to another pool, which brings the All pools list up. Close is still there.
-- Solana LP: each row of All pools carries short warning tags, such as Trading off, Frozen or Little money in pool, and busy moments no longer hold a pool's Add button back.
-
-### 2026-10-15
-
-- Solana swaps and the price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes.
-- The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
-- Towelie in the corner: a press on a tab sliding under him as you scroll now opens the tab instead of going to Towelie, in Safari on an iPad too.
-- Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
-- Launch: the graduation fee line, and the integrator fees on Admin, now count the fees held in launched tokens as well as in ETH and TOWELI. They asked the browser's network connection for the full launch history, which every free provider refuses, so they always warned "only base pairs were checked". They now read it from the site, as the launch list already does.
-- Pro Terminal on an iPad held upright (and any window 768 to about 940px wide): the page no longer scrolls sideways. The pools table was widening the whole page by up to 122px; it now scrolls inside its own card, as it always did on a laptop.
-- A shared link to the site now unfurls as the home page's own first picture, Bayla at the door, on X, Discord and Telegram. It used to be a text card. A page with its own picture keeps it. X keeps an old card for about a week per link.
-- Solana adds, removals, pool openings and swaps: taking your time on the review no longer shuts the wallet. It opens unless something you would sign for changed, and a new warning still stops it.
-- Solana LP: every pool on the venue is now listed under the finder as soon as the page opens (pair, fee tier, what it holds, price), with no token to search first. View opens that token's pools. When there are more pools than the list holds, it says so and the search finds the rest.
-- Launched token pages (/launch and /eth-curve): the maker's allocation and create-buy now ask other hosts for the launch receipt, and say "could not be read" only when none has it.
-- Swap (Ethereum): the venue's swap fee goes only to the venue's own Safe on the trade's chain. Ethereum was set to the Base Safe, which nobody controls there, so the Ethereum swap fee is off until that is fixed. No fee ever went to it.
-- Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. When GeckoTerminal is busy, the last copy shows with the time it was read.
-- Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
 
 ## Earlier
 
