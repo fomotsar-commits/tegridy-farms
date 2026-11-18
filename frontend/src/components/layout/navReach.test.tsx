@@ -64,6 +64,8 @@ const URL_ONLY: Record<string, string> = {
   '/yield': "off Earn's strip since 2026-11-11; the swap's TWAP and DCA panels still link it",
   '/copy-trading': "off Earn's strip since 2026-11-11",
   '/checkout': "off Earn's strip since 2026-11-11; a merchant's payment link opens it",
+  // New 2026-11-18. The menu is the owner's to arrange: no link is added for it until they say where.
+  '/city': 'new 2026-11-18, reached by its address until the owner says where its link goes',
 };
 
 /** Where a visitor can start: the four words, the drawer and the footer's own links. */

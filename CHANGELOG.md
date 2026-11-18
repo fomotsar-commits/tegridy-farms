@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-18
 
+- New page, /city: the island drawn as a city. Every room is a building with its pool beside it, filled to the dollars in its coin's market pool; a pool that was not read is dashed. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
 - NFT loans: WETH amounts are written from your side of the loan. What you pay, owe or put up is rounded up at the digits shown (the wrap and approve buttons, the offer you sign, what repaying costs, the venue's share of the interest, the wall's LOAN tag, the Lend card's line about who would buy the NFT), and what you receive or are owed is cut. The borrow tab's Largest figure shows four decimals, like the offer card under it.
 - Lock-ladder pools: the early-exit and emergency penalties and the minimum stake are rounded up at the digits shown, never down.
 - Solana: fees and costs are rounded up at the digits shown, never down: a sell's fee, the pool fee and the creator fee, a token's own transfer fee, what opening a pool costs, what a range position or a one-coin add puts in, and a review's network and priority fees. An amount smaller than the last digit shown reads "<0.0001", never a whole 0.0001. A review's one-time account deposits, and the fees a refused transaction cost, are printed to the lamport. The Pools page's rates card states the opening deposits as the opening form does.
