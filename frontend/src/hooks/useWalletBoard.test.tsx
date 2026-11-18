@@ -107,6 +107,15 @@ describe('useWalletBoard on Ethereum and Base', () => {
     expect(leg.rows!.map((r) => [r.title, ...r.facts!])).toEqual([['TOWELI stake', '50,000 TOWELI', 'unlocks 1 Jun 2031', '2.50×', 'earned 12 TOWELI']]);
   });
 
+  it('cuts the stake and its earned at the digits shown, never rounds them up', () => {
+    chain.toweli = {
+      isDeployed: true, isLoading: false, positionUnread: false, accrualInputsUnread: false, hasPosition: true,
+      stakedAmount: 1_284_500n * 10n ** 15n, lockEnd: Number(LOCK_END), boostBps: 25_000, pendingReward: 12_345_600n * 10n ** 12n, refetchAll: vi.fn(),
+    };
+    const { result } = renderHook(() => useWalletBoard());
+    expect(legOf(result.current.positions, 'toweli-stake').rows![0]!.facts).toEqual(['1,284 TOWELI', 'unlocks 1 Jun 2031', '2.50×', 'earned 12.34 TOWELI']);
+  });
+
   it('lists each Ethereum and Base lock from its own pool, with that pool’s earned on its first lock', () => {
     const base = chain.read;
     chain.read = (c) => {

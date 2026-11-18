@@ -149,6 +149,13 @@ describe('planLadder', () => {
     expect(p.claims[0]!.caution).toMatch(/holds/);
   });
 
+  it('the vault sentence never names more than the vault holds: 1,284.5 is 1,284, never 1,285', () => {
+    const owed = 2_000_000_000n;
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 1_284_500_000n, 0).claims[0]!.caution).toMatch(/holds 1,284 BAYLA now/);
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 999_999_999n, 0).claims[0]!.caution).toMatch(/holds 999\.99 BAYLA now/);
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 999_999n, 0).claims[0]!.caution).toMatch(/holds 0\.999 BAYLA now/);
+  });
+
   it('a partial read claims what it found and names the rest as not read', () => {
     const p = planLadder(bayla, lpool(), wallet([pos(0, 5n)], { truncated: true }), 1_000n, 0);
     expect(p.claims).toHaveLength(1);

@@ -10,6 +10,9 @@ The site's Changelog tab shows both files.
 ### 2026-11-17
 
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
+- Amounts you receive, are owed or hold are cut at the digits shown, never rounded up: Harvest's vault line, the wallet board's balance, stake and earned rows, the dashboard and its position alerts, the Ethereum swap's You receive and Min. Received, limit and TWAP orders, liquidity, staking, referrals, receipts, Premium's Your Balance and the Solana basket's coin figures.
+- Amounts you pay are rounded up at the digits shown, never down: the early-exit penalty and the rewards an exit gives up, mint and upload prices, DCA totals, the Solana and Ethereum baskets' totals, an NFT pool's Total Cost and Protocol Fee, Premium's prices, Total Cost and Approve, what a receipt says you paid, a CoW order's sell amount, the LP farm's minimum stake, and the Solana curve's You pay, You sell and a buy's trade fee.
+- Dashboard: with the TOWELI reward reserve empty, the claim button now says before you press that a claim pays 0 until it is refilled, and neither Towelie nor the position alerts tell you to claim.
 
 ### 2026-11-16
 

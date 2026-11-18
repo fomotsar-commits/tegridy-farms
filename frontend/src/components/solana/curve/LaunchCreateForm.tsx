@@ -863,7 +863,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
                 buyShareBps !== null ? ` (${sharePercent(buyQuote.value.tokensOut, g.tokenTotalSupply)} of supply)` : ''
               }`}
             />
-            <Row label="You pay" value={`${formatSol(buyQuote.value.lamportsIn)} SOL (fee ${formatSol(buyQuote.value.feeLamports)} SOL)`} />
+            <Row label="You pay" value={`${formatSol(buyQuote.value.lamportsIn, 4, { up: true })} SOL (fee ${formatSol(buyQuote.value.feeLamports, 4, { up: true })} SOL)`} />
             {buyShareBps !== null && buyShareBps > LARGE_OPENING_BUY_BPS && (
               <Notice tone="warn">
                 That is more than 5% of the supply. Buyers will see it, and a large creator stake makes people trust a
