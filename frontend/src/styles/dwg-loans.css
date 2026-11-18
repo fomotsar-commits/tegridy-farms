@@ -1,0 +1,521 @@
+/* L-01, the wall: /nft-finance. Scoped under .dwg[data-sheet=L]; see dwg.css.
+   The page is re-skinned WHERE IT STANDS: tests pin its DOM, so these rules hang on the real
+   elements through inert hooks (data-dwg, data-ui, data-picked, data-unread, data-run, the
+   dwg-* classes). Unlayered: a rule here beats any Tailwind utility. An inline style still
+   wins, so each `!important` below replaces one inline value and names it. No rule sets a
+   word: drawn words come from data-* or a counter, so the page's word count does not move. */
+
+/* ── 0. The sheet ── */
+/* One sheet size for the set: 1120px, as Earn's, P-01's and S-01's; the page's own column is unchanged. */
+.dwg[data-sheet='L'] .dwg-sheet { counter-reset: l01-band; max-width: 1120px; margin-inline: auto; }
+/* A DRAWN WORD NEVER JOINS A NAME. Generated content inside a heading, a tab or a button is part of
+   its accessible name (e2e/lending.spec.ts matches /^Lend$/ and /^NFT Lending$/). Every content
+   here that is not empty therefore carries an empty alternative: content: <drawn> / ''. A browser
+   without that syntax drops the declaration, and where a plain one stands before it, keeps that. */
+.dwg[data-sheet='L'] .dwg-word > span::after { content: attr(data-echo) / ''; }
+/* What the scope reaches in every section of the page (NFT AMM and Launchpad included). */
+.dwg[data-sheet='L'] .heading-luxury { letter-spacing: -0.035em; text-shadow: none; }
+.dwg[data-sheet='L'] .fine-print > div { font-size: 13px; line-height: 1.5; color: var(--dwg-soft); }
+/* The "?" beside a label, and its bubble: square, hairline, on top as before. */
+.dwg[data-sheet='L'] button[aria-label='More info'] { border-radius: 0; border-color: var(--dwg-line-2); background: transparent; color: var(--dwg-dim); font-family: var(--font-family-mono); font-size: 10px; text-shadow: none; }
+.dwg[data-sheet='L'] button[aria-label='More info']:hover, .dwg[data-sheet='L'] button[aria-label='More info'][aria-expanded='true'] { border-color: var(--dwg-ink); color: var(--dwg-ink); }
+/* inline: background rgba(10,16,40,0.95), border purple-25, blur, drop shadow */
+.dwg[data-sheet='L'] [role='tooltip'] { border-radius: 0; background: #05080f !important; border: 1px solid var(--dwg-line-3) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: 5px 5px 0 rgba(5, 8, 15, 0.7) !important; color: var(--dwg-ink); font-size: 12px; line-height: 1.5; text-shadow: none; }
+.dwg[data-sheet='L'] [role='tooltip'] > span { background: #05080f !important; border-color: var(--dwg-line-3) !important; }
+/* Colour by meaning, wherever the old palette spoke: low specificity, so a part's own rule wins. */
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield'], [data-dwg='notice']) [class*='text-white']) { color: var(--dwg-soft); text-shadow: none; }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) :is(.text-emerald-300, .text-emerald-400)) { color: var(--dwg-green); }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) :is(.text-amber-300, .text-yellow-300, .text-yellow-400)) { color: var(--dwg-warn); }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) :is(.text-red-300, .text-red-400)) { color: var(--dwg-bad); }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) :is(.text-purple-300, .text-purple-400)) { color: var(--dwg-spot); }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) .text-blue-400) { color: var(--dwg-ink); }
+:where(.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield']) .font-mono) { font-family: var(--font-family-mono); }
+/* A card's own scrim becomes the sheet's film: dark under the words, the picture showing on the right. inline: rgba(4,9,18,0.78) */
+.dwg[data-sheet='L'] :is([data-dwg='lending'], [data-dwg='shield'], [data-dwg='notice']) [data-card-art] > span:first-of-type { background: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.86) 52%, rgba(5, 8, 15, 0.6) 100%) !important; }
+
+/* ── 1. The hero: the word, its line, the wall as an object, a picture hung in the film ── */
+.dwg[data-sheet='L'] [data-dwg='hero'] { position: relative; isolation: isolate; overflow: hidden; margin: 0; padding: 14px var(--dwg-pad) 14px; text-align: left; }
+.dwg[data-sheet='L'] .l01-film { position: absolute; inset: 0; z-index: -2; background: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.9) 50%, rgba(5, 8, 15, 0.82) 100%); }
+.dwg[data-sheet='L'] [data-dwg='hero'] .dwg-word { margin-bottom: 6px; }
+.dwg[data-sheet='L'] .l01-window, .dwg[data-sheet='L'] .l01-key { display: none; }
+/* The model. On a phone it stands behind the heading and adds no height. */
+.dwg[data-sheet='L'] .l01-axo { position: absolute; z-index: -1; right: -18px; top: -6px; width: 58%; opacity: 0.36; filter: saturate(0.5); container-type: inline-size; -webkit-mask-image: linear-gradient(to bottom, #000 48%, transparent 92%); mask-image: linear-gradient(to bottom, #000 48%, transparent 92%); }
+.dwg[data-sheet='L'] .l01-axo-label { display: none; font-size: max(10px, 2.05cqw); letter-spacing: 0.08em; color: rgba(245, 228, 184, 0.88); }
+.dwg[data-sheet='L'] .l01-axo-label[data-plane='wall'] { transform: matrix(0.866, 0.5, 0, 1, 0, 0); }
+.dwg[data-sheet='L'] .l01-axo-label[data-plane='ground'] { transform: matrix(0.866, 0.5, -0.866, 0.5, 0, 0); font-size: max(10px, 2.3cqw); color: var(--dwg-ink); }
+.dwg[data-sheet='L'] .l01-axo-label[data-k='mark-b'] { font-size: max(10px, 1.75cqw); letter-spacing: 0.02em; }
+
+/* ── 2. The sheet index: NFT Lending / NFT AMM / Launchpad. The tablist keeps its own
+        classes (its fade is a mask on itself, its right padding is the fade's width under
+        30rem): nothing here touches padding-right under 30rem or mask-image at any width. ── */
+.dwg[data-sheet='L'] [data-dwg='index'] { width: auto; max-width: none; margin: 0; }
+.dwg[data-sheet='L'] [data-dwg='index'] > [role='tablist'] {
+  gap: 0; border-radius: 0; counter-reset: l01-ix;
+  padding-top: 0; padding-bottom: 0; padding-left: calc(var(--dwg-pad) - 14px);
+  background: var(--dwg-film) !important; /* inline: rgba(13,21,48,0.85) */
+  border: 0 !important; border-top: 1px solid var(--dwg-line-2) !important; /* inline: 1px solid rgba(255,255,255,0.20) */
+}
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab'] { counter-increment: l01-ix; min-height: 48px; padding: 7px 14px 8px; border-radius: 0; border-left: 1px solid var(--dwg-line); color: var(--dwg-soft); text-align: left; text-shadow: none; transition: background-color 0.2s ease, color 0.2s ease;
+  /* Under 30rem the label keeps the body face at 500: e2e/nft-finance-strip.spec.ts forces a narrower and a wider font on
+     these tabs and needs the row to move 20px each way. 13px at -0.015em moves it 29px each way (measured on the canvas). */
+  font-size: 13px; letter-spacing: -0.015em; }
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab']:first-child { border-left: 0; }
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab']:hover { background: rgba(245, 228, 184, 0.07); color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab'][aria-selected='true'] { color: var(--dwg-bg); }
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab'] > span { align-items: flex-start; line-height: 1.15; }
+/* the sheet's number in the set, from a counter: L-01, L-02, L-03 */
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab'] > span::before { content: 'L-' counter(l01-ix, decimal-leading-zero); content: 'L-' counter(l01-ix, decimal-leading-zero) / ''; margin-bottom: 4px; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='index'] [role='tab'][aria-selected='true'] > span::before { color: rgba(5, 8, 15, 0.66); }
+.dwg[data-sheet='L'] [data-dwg='index'] [data-dwg='pill'] { border-radius: 0; background: var(--dwg-spot); box-shadow: none; }
+.dwg[data-sheet='L'] [data-dwg='live'] { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--dwg-green); font-size: 10px; text-shadow: none; }
+.dwg[data-sheet='L'] [data-dwg='live']::before { content: ''; flex: none; width: 5px; height: 5px; background: currentColor; }
+.dwg[data-sheet='L'] [data-dwg='index'] [aria-selected='true'] [data-dwg='live'] { color: #0a4a22; }
+/* !important: the app's contrast floor forces text-white/50 with its own !important */
+.dwg[data-sheet='L'] [data-dwg='sub'] { margin-top: 3px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dwg-dim) !important; }
+.dwg[data-sheet='L'] [data-dwg='index'] [aria-selected='true'] [data-dwg='sub'] { color: rgba(5, 8, 15, 0.66) !important; }
+.dwg[data-sheet='L'] [data-dwg='index'] > [data-strip-arrow] { border-radius: 0; background: var(--dwg-bg); }
+.dwg[data-sheet='L'] [data-dwg='index'] > [data-strip-arrow] > span { border-radius: 0; border-color: var(--dwg-line-2); color: var(--dwg-ink); }
+
+/* ── 3. The connect note (no wallet only) ── */
+.dwg[data-sheet='L'] [data-dwg='notice'] {
+  max-width: none; margin: 0; border-radius: 0; padding: 12px var(--dwg-pad) 0; text-align: left;
+  background: var(--dwg-film) !important; /* inline: rgba(6,12,26,0.72) */
+  border: 0 !important; border-top: 1px solid var(--dwg-line-2) !important; /* inline: 1px solid rgba(245,228,184,0.12) */
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important; /* inline: blur(6px) */
+}
+.dwg[data-sheet='L'] [data-dwg='notice'] > p:first-of-type { display: flex; align-items: center; gap: 9px; margin: 0; font-family: var(--font-family-heading); font-weight: 900; font-size: 17px; line-height: 1.1; letter-spacing: -0.03em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='notice'] > p:first-of-type::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-dwg='notice'] > p:nth-of-type(2) { margin-top: 4px; font-size: 13.5px; line-height: 1.4; color: var(--dwg-soft); }
+
+/* ── 4. Band 01: NFT Lending, and the four wall labels ── */
+/* The open section's panel carries the film, so NFT AMM and Launchpad stand on the sheet too. */
+.dwg[data-sheet='L'] .dwg-sheet > [role='tabpanel'] { background: var(--dwg-film); border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='L'] .dwg-sheet > [role='tabpanel'] > :not([data-dwg='stack']) { padding: 22px var(--dwg-pad) 26px; }
+.dwg[data-sheet='L'] [data-dwg='stack'] > * { margin: 0; }
+.dwg[data-sheet='L'] [data-dwg='lending'] { position: relative; isolation: isolate; padding: 0 var(--dwg-pad) 8px; }
+.dwg[data-sheet='L'] [data-dwg='lending'] > * { margin: 0; }
+.dwg[data-sheet='L'] [data-dwg='head'] { counter-increment: l01-band; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; column-gap: 12px; padding: 22px 0 0; }
+.dwg[data-sheet='L'] [data-dwg='head']::before, .dwg[data-sheet='L'] [data-dwg='shield'] > h3::before { content: counter(l01-band, decimal-leading-zero); content: counter(l01-band, decimal-leading-zero) / ''; flex: none; width: 26px; font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink); transform: translateY(-3px); }
+.dwg[data-sheet='L'] [data-dwg='head'] > p { grid-column: 1 / -1; max-width: 46ch; margin: 8px 0 0; font-size: 14px; line-height: 1.45; color: var(--dwg-soft); }
+/* A wall label: a small plate fixed at its corners, its picture in a frame, a mono caption, a heavy figure. */
+.dwg[data-sheet='L'] [data-dwg='labels'] { gap: 10px; padding: 14px 0 22px; }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div { min-width: 0; border-radius: 0; background: rgba(5, 8, 15, 0.5); border: 1px solid var(--dwg-line-2) !important; /* inline: 1px solid CARD_BORDER */ }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div::after { content: ''; position: absolute; inset: 4px; pointer-events: none; --s: radial-gradient(circle, rgba(245, 228, 184, 0.7) 0 1px, transparent 1.4px);
+  background: var(--s) left top / 3px 3px no-repeat, var(--s) right top / 3px 3px no-repeat, var(--s) left bottom / 3px 3px no-repeat, var(--s) right bottom / 3px 3px no-repeat; }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:first-child { inset: 11px auto 11px 11px; width: 42px; border-radius: 0; background: #0b0f18; border: 1px solid var(--dwg-line-3); }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:first-child > img.object-cover { inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); filter: none; }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child { margin: 0 0 0 62px; padding: 10px 10px 10px 0; border-radius: 0;
+  background: none !important; border: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; /* inline: rgba(0,0,0,0.55), blur(2px), 1px solid rgba(255,255,255,0.08) */ }
+/* text-shadow: inline LABEL_STYLE on each of the three lines */
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p { text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:first-child { margin-bottom: 5px; gap: 6px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.1em; white-space: nowrap; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(2) { font-family: var(--font-family-heading); font-weight: 900; font-size: 26px; line-height: 1; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(3) { margin-top: 4px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; color: var(--dwg-dim); }
+/* A figure the page did not read: amber, in the caption's own face, never a number. */
+.dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(2)[data-unread] { padding: 7px 0 5px; font: 700 12px/1 var(--font-family-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dwg-warn); }
+
+/* ── 5. Band 02: Lend / Borrow / My Loans (dwg-tabs on the tablist, dwg-tab on each tab) ── */
+.dwg[data-sheet='L'] [data-dwg='verbs'] { position: relative; counter-increment: l01-band; gap: 0; margin-top: 32px; padding: 0; border-radius: 0;
+  background: rgba(5, 8, 15, 0.5) !important; border: 1px solid var(--dwg-line-2) !important; /* inline: rgba(0,0,0,0.85), 1px solid CARD_BORDER */ }
+.dwg[data-sheet='L'] [data-dwg='verbs']::before { content: counter(l01-band, decimal-leading-zero); content: counter(l01-band, decimal-leading-zero) / ''; position: absolute; left: -1px; top: -18px; width: 26px; background: var(--dwg-ink); color: var(--dwg-bg); font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; }
+/* the rule that opens the band, edge to edge of the sheet */
+.dwg[data-sheet='L'] [data-dwg='verbs']::after { content: ''; position: absolute; left: calc(-1px - var(--dwg-pad)); right: calc(-1px - var(--dwg-pad)); top: -33px; height: 1px; background: var(--dwg-line-2); }
+/* Under 48rem the strip stands 80px under its band's rule, its plaque between: at 32px it lay
+   under the TOWELI room's corner mascot as the page opened, so the mascot began hidden
+   (e2e/phone-layout.spec.ts scans a tab sliding under it). */
+@media (max-width: 47.99rem) {
+  .dwg[data-sheet='L'] [data-dwg='verbs'] { margin-top: 80px; }
+  .dwg[data-sheet='L'] [data-dwg='verbs']::before { top: -50px; }
+  .dwg[data-sheet='L'] [data-dwg='verbs']::after { top: -81px; }
+}
+.dwg[data-sheet='L'] [data-dwg='verbs'] > .dwg-tab { min-height: 48px; padding: 8px 10px 10px; border-radius: 0; font-size: 1rem; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='verbs'] > .dwg-tab[aria-selected='true'] { color: var(--dwg-bg); }
+.dwg[data-sheet='L'] [data-dwg='verbs'] > .dwg-tab::before { content: attr(data-n) / ''; position: relative; z-index: 1; margin-bottom: 6px; }
+/* inline: background var(--color-stan), a blue drop shadow */
+.dwg[data-sheet='L'] [data-dwg='verbs'] [data-dwg='pill'] { border-radius: 0; background: var(--dwg-ink) !important; box-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='pane'] { padding: 20px 0 6px; }
+.dwg[data-sheet='L'] [data-dwg='foot'] { margin: 14px calc(-1 * var(--dwg-pad)) 0; padding: 14px var(--dwg-pad) 0; border-top: 1px solid var(--dwg-line); }
+.dwg[data-sheet='L'] [data-dwg='foot'] > p { display: flex; align-items: baseline; gap: 9px; font-size: 14px; line-height: 1.45; color: var(--dwg-soft); text-shadow: none !important; /* inline LABEL_STYLE */ }
+.dwg[data-sheet='L'] [data-dwg='foot'] > p::before, .dwg[data-sheet='L'] [data-testid='lend-default-outcome']::before { content: ''; flex: none; width: 11px; height: 10px; background: var(--dwg-warn); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+/* ── 6. The desk: the Lend tab's form. Labels, fields, valve tags, the one action. ── */
+.dwg[data-sheet='L'] [data-dwg='lending'] label { margin-bottom: 7px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); text-shadow: none !important; /* inline LABEL_STYLE */ }
+/* inline on every box and chip: background CARD_BG or SELECTED_BG, border 1px solid CARD_BORDER */
+.dwg[data-sheet='L'] .dwg-field { background: rgba(5, 8, 15, 0.72) !important; border: 1px solid var(--dwg-line-2) !important; box-shadow: none; }
+.dwg[data-sheet='L'] .dwg-field:focus { border-color: var(--dwg-ink) !important; }
+.dwg[data-sheet='L'] .dwg-field::placeholder { color: rgba(245, 228, 184, 0.4); }
+.dwg[data-sheet='L'] .dwg-field[aria-invalid='true'] { border-color: var(--dwg-warn) !important; }
+.dwg[data-sheet='L'] :is([data-dwg='amount'], [data-dwg='rate']) { min-height: 58px; font-family: var(--font-family-heading); font-weight: 900; font-size: 26px; letter-spacing: -0.04em; }
+/* the box that moves the violet level */
+.dwg[data-sheet='L'] [data-dwg='amount'] { border-left: 3px solid var(--dwg-spot) !important; }
+.dwg[data-sheet='L'] .dwg-chip { justify-content: center; background: rgba(5, 8, 15, 0.6) !important; color: var(--dwg-ink); text-align: center; white-space: normal; line-height: 1.25; }
+.dwg[data-sheet='L'] .dwg-chip[aria-pressed='true'] { background: var(--dwg-spot) !important; color: var(--dwg-bg); }
+.dwg[data-sheet='L'] [data-dwg='lending'] [role='group'] > .dwg-chip { padding: 0 13px; }
+/* The one action. Tests read its class (btn-primary) and its inline opacity, nothing else. */
+.dwg[data-sheet='L'] [data-dwg='act'] { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; min-height: 54px; padding: 0 18px; border-radius: 0; text-align: left; cursor: pointer;
+  background: var(--dwg-green) !important; /* inline on the shield's button: var(--color-purple-80) */
+  color: #04130a; border: 1px solid var(--dwg-green); font: 800 12px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; transition: transform 0.2s var(--dwg-ease), box-shadow 0.2s ease; }
+.dwg[data-sheet='L'] [data-dwg='act']::after { content: ''; flex: none; width: 15px; height: 9px; background: currentColor; clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%); }
+.dwg[data-sheet='L'] [data-dwg='act']:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='act']:disabled { cursor: not-allowed; }
+/* A second button on a ticket: quiet. inline: a purple or red tint and border */
+.dwg[data-sheet='L'] [data-dwg='quiet'] { min-height: 44px; padding: 0 14px; border-radius: 0; cursor: pointer; background: transparent !important; border: 1px solid var(--dwg-line-3) !important; color: var(--dwg-ink); font: 700 11px/1.2 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; text-shadow: none; transition: background-color 0.2s ease, color 0.2s ease; }
+.dwg[data-sheet='L'] [data-dwg='quiet']:hover:not(:disabled) { background: var(--dwg-ink) !important; color: var(--dwg-bg); }
+/* In words what the offer does: a note with a green rule. inline: an emerald tint and border */
+.dwg[data-sheet='L'] [data-ui='tx-summary'] { border-radius: 0; padding: 10px 0 10px 14px; background: none !important; border: 0 !important; border-left: 2px solid var(--dwg-green) !important; font-size: 13px; line-height: 1.5; color: var(--dwg-soft); }
+.dwg[data-sheet='L'] [data-ui='tx-summary'] > [data-card-art] { display: none; }
+.dwg[data-sheet='L'] [data-ui='steps'] { gap: 0; margin: 0; }
+.dwg[data-sheet='L'] [data-ui='steps'] [data-step] { border-radius: 0; padding: 8px 9px; background: none; border: 1px solid var(--dwg-line); color: var(--dwg-dim) !important; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; }
+.dwg[data-sheet='L'] [data-ui='steps'] [data-step='now'] { border-color: var(--dwg-spot); color: var(--dwg-spot) !important; }
+.dwg[data-sheet='L'] [data-ui='steps'] [data-step='done'] { border-color: var(--dwg-green); color: var(--dwg-green) !important; }
+.dwg[data-sheet='L'] [data-ui='steps'] > div > svg { margin: 0 3px; color: var(--dwg-line-3) !important; }
+/* inline: an amber tint and border */
+.dwg[data-sheet='L'] [data-ui='risk'] { border-radius: 0; padding: 10px 0 2px 14px; background: none !important; border: 0 !important; border-left: 2px solid var(--dwg-warn) !important; font-size: 13px; line-height: 1.45; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-ui='risk'] > svg { display: none; }
+
+/* The collections, as hung frames: a wire, a frame, a mat, the picture, and its wall label. */
+.dwg[data-sheet='L'] [data-dwg='frames'] { gap: 10px; align-items: start; }
+.dwg[data-sheet='L'] [data-dwg='frame'] { position: relative; display: block; aspect-ratio: auto; overflow: visible; padding: 12px 0 0; border: 0; border-radius: 0; background: none; color: var(--dwg-ink); cursor: pointer; }
+.dwg[data-sheet='L'] [data-dwg='frame']::before { content: ''; position: absolute; left: 22%; right: 22%; top: 0; height: 12px; --w: rgba(245, 228, 184, 0.42);
+  background: linear-gradient(to top left, transparent calc(50% - 0.5px), var(--w) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)) left / 50% 100% no-repeat, linear-gradient(to top right, transparent calc(50% - 0.5px), var(--w) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)) right / 50% 100% no-repeat; }
+.dwg[data-sheet='L'] [data-dwg='frame']::after { content: ''; position: absolute; left: calc(50% - 2px); top: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='frame'] > img { position: relative; inset: auto; width: 100%; height: auto; aspect-ratio: 1; padding: 6px; background: #0c111b; border: 1px solid var(--dwg-line-3); transform-origin: 50% 0; transition: border-color 0.2s ease, transform 0.5s cubic-bezier(0.34, 1.4, 0.64, 1); }
+.dwg[data-sheet='L'] [data-dwg='frame']:hover > img { border-color: var(--dwg-ink); transform: rotate(-1.1deg); }
+.dwg[data-sheet='L'] [data-dwg='frame'][data-picked] > img { padding: 5px; border: 2px solid var(--dwg-spot); }
+.dwg[data-sheet='L'] [data-dwg='frame'] > div { position: static; display: block; width: fit-content; max-width: 100%; margin-top: 8px; padding: 6px 8px 5px; border: 1px solid var(--dwg-line-2); transition: background-color 0.2s ease, border-color 0.2s ease; }
+.dwg[data-sheet='L'] [data-dwg='frame'][data-picked] > div { background: var(--dwg-spot); border-color: var(--dwg-spot); }
+/* inline on both: color #22c55e, background rgba(0,0,0,0.85), a text shadow */
+.dwg[data-sheet='L'] [data-dwg='frame'] > div > span { display: block; padding: 0; border-radius: 0; color: var(--dwg-ink) !important; background: none !important; text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='frame'] > div > span:first-child { font-family: var(--font-family-heading); font-weight: 900; font-size: 12px; line-height: 1.05; letter-spacing: -0.02em; }
+.dwg[data-sheet='L'] [data-dwg='frame'] > div > span:last-child { margin-top: 4px; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim) !important; }
+.dwg[data-sheet='L'] [data-dwg='frame'][data-picked] > div > span { color: var(--dwg-bg) !important; }
+
+/* The market card: a schedule of the two levels the wall draws, and two counts. */
+.dwg[data-sheet='L'] [data-testid='lender-market'] { container: l01-market / inline-size; border-radius: 0; padding: 14px 14px 2px; background: rgba(5, 8, 15, 0.5) !important; border: 1px solid var(--dwg-line-2) !important; /* inline: CARD_BG, CARD_BORDER */ }
+.dwg[data-sheet='L'] [data-testid='lender-market'] > * { margin: 0; }
+.dwg[data-sheet='L'] [data-dwg='kicker'] { display: flex; align-items: center; gap: 8px; font: 500 11px/1.3 var(--font-family-mono); letter-spacing: 0.13em; text-transform: uppercase; color: var(--dwg-soft); text-shadow: none !important; /* inline LABEL_STYLE */ }
+.dwg[data-sheet='L'] [data-dwg='kicker']::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-dwg='schedule'] { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin-top: 12px; border-top: 1px solid var(--dwg-line-3); }
+/* inline on each tile: rgba(0,0,0,0.55), 1px solid rgba(255,255,255,0.08) */
+.dwg[data-sheet='L'] [data-dwg='schedule'] > div { min-width: 0; border-radius: 0; padding: 10px 8px 11px 10px; background: none !important; border: 0 !important; border-bottom: 1px solid var(--dwg-line) !important; border-left: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] [data-dwg='schedule'] > div:nth-child(odd) { padding-left: 0; border-left: 0 !important; }
+.dwg[data-sheet='L'] [data-dwg='schedule'] p { text-shadow: none !important; /* inline LABEL_STYLE */ }
+.dwg[data-sheet='L'] [data-dwg='schedule'] p:first-child { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='schedule'] p:last-child { margin-top: 5px; font-family: var(--font-family-heading); font-weight: 900; font-size: 19px; line-height: 1; letter-spacing: -0.04em; color: var(--dwg-ink); white-space: nowrap; }
+.dwg[data-sheet='L'] [data-dwg='schedule'] p[data-unread] { color: var(--dwg-warn); }
+/* the key to the wall's two read levels: the floor's mark is cream, the best bid's green */
+.dwg[data-sheet='L'] [data-dwg='schedule'] > div:nth-child(-n + 2) > p:first-child::before { content: ''; display: inline-block; width: 9px; height: 7px; margin-right: 6px; background: var(--dwg-ink); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.dwg[data-sheet='L'] [data-dwg='schedule'] > div:nth-child(2) > p:first-child::before { background: var(--dwg-green); }
+@container l01-market (min-width: 34rem) {
+  .dwg[data-sheet='L'] [data-dwg='schedule'] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .dwg[data-sheet='L'] [data-dwg='schedule'] > div:nth-child(odd) { padding-left: 10px; border-left: 1px solid var(--dwg-line) !important; }
+  .dwg[data-sheet='L'] [data-dwg='schedule'] > div:first-child { padding-left: 0; border-left: 0 !important; }
+}
+.dwg[data-sheet='L'] [data-testid='lender-exit-check'] { margin-top: 8px; font-size: 13px; line-height: 1.45; text-shadow: none !important; /* inline LABEL_STYLE */ }
+/* FloorBar's picture keeps every element it has: only its colours and its face change. */
+.dwg[data-sheet='L'] [data-testid='floor-bar'] { margin-top: 10px; }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] text, .dwg[data-sheet='L'] [data-testid='loan-timeline'] text { font-family: var(--font-family-mono); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > rect:nth-last-of-type(3) { fill: rgba(34, 197, 94, 0.36); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > rect:nth-last-of-type(2) { fill: rgba(240, 178, 107, 0.34); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > rect:nth-last-of-type(1) { fill: rgba(240, 138, 107, 0.36); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > g > line { stroke: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > g > text { fill: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > line:last-of-type { stroke: var(--dwg-spot); }
+.dwg[data-sheet='L'] [data-testid='floor-bar'] svg > circle { fill: var(--dwg-spot); stroke: var(--dwg-bg); }
+
+/* The loan's measured RUN: the interest card, and the timeline as its dimension. */
+.dwg[data-sheet='L'] [data-dwg='run'] > [data-card-art] > span:first-of-type { background: linear-gradient(90deg, rgba(5, 8, 15, 0.95) 0%, rgba(5, 8, 15, 0.9) 55%, rgba(5, 8, 15, 0.76) 100%) !important; /* inline: rgba(4,9,18,0.78) */ }
+.dwg[data-sheet='L'] [data-dwg='run'] { border-radius: 0; padding: 14px 14px 12px; background: rgba(5, 8, 15, 0.5) !important; border: 1px solid var(--dwg-line-2) !important; /* inline: an emerald tint and border */ }
+.dwg[data-sheet='L'] [data-dwg='run'] > p:nth-of-type(1) { margin: 0 0 6px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='run'] > p:nth-of-type(2) { font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(26px, 3.4vw, 34px); line-height: 1; letter-spacing: -0.045em; color: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-dwg='run'] > p:nth-of-type(3) { margin-top: 7px; font: 500 11px/1.4 var(--font-family-mono); letter-spacing: 0.02em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-testid='lend-default-outcome'] { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--dwg-warn); }
+.dwg[data-sheet='L'] [data-testid='lend-rate-rank'], .dwg[data-sheet='L'] [data-testid='lend-same-take-home'] { margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--dwg-soft); }
+/* inline: background rgba(0,0,0,0.55), border 1px solid rgba(255,255,255,0.10) */
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] { position: relative; border-radius: 0; margin-top: 12px; padding: 34px 0 0; background: none !important; border: 0 !important; border-top: 1px solid var(--dwg-line) !important; }
+/* The dimension over the run: the loan's whole life, end to end, its length from data-run. */
+.dwg[data-sheet='L'] [data-testid='loan-timeline']::before { content: ''; position: absolute; left: 12px; right: 12px; top: 12px; height: 9px; --c: rgba(245, 228, 184, 0.6);
+  background: linear-gradient(var(--c), var(--c)) center / 100% 1px no-repeat,
+    linear-gradient(to top right, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px)) left / 9px 9px no-repeat,
+    linear-gradient(to top right, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px)) right / 9px 9px no-repeat; }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'][data-run]::after { content: attr(data-run); content: attr(data-run) / ''; position: absolute; left: 50%; top: 9px; transform: translateX(-50%); padding: 0 9px; background: #070a12; font: 700 10px/15px var(--font-family-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline-headline'] { font-family: var(--font-family-mono); font-size: 15px; font-weight: 700; }
+.dwg[data-sheet='L'] [data-testid='loan-timeline-when'] { font: 500 10.5px/1.3 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline-line'] { font-size: 13px; line-height: 1.4; }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] stop { stop-color: var(--dwg-spot); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > line:first-of-type { stroke: var(--dwg-spot); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > line:nth-of-type(2) { stroke: var(--dwg-line-2); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > line:nth-last-of-type(2) { stroke: var(--dwg-bad); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > g > line { stroke: var(--dwg-warn); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > g > circle, .dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > g > text { fill: var(--dwg-warn); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > text:first-of-type { fill: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > text:last-of-type { fill: var(--dwg-bad); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] pattern > rect:first-child { fill: rgba(240, 138, 107, 0.1); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] pattern > rect:last-child { fill: rgba(240, 138, 107, 0.62); }
+.dwg[data-sheet='L'] [data-testid='loan-timeline'] svg > rect:not(:last-of-type) { fill: rgba(5, 8, 15, 0.68); }
+
+/* ── 7. THE WALL: the elevation (components/dwg/LoanWall.tsx). In the DOM it is the LAST
+        child of the Lend tab's result group: after the action on a phone. From 48rem the
+        result group is a column beside the terms and the wall is lifted to its head. ── */
+.dwg[data-sheet='L'] .l01-wall { position: relative; }
+.dwg[data-sheet='L'] .l01-wall-wrap { overflow: visible; }
+.dwg[data-sheet='L'] .l01-wall-fig { width: 100%; height: 100%; }
+.dwg[data-sheet='L'] .l01-loan { transition: transform 0.55s cubic-bezier(0.34, 1.4, 0.64, 1); }
+.dwg[data-sheet='L'] .l01-hang { animation: dwg-fill-in 0.7s var(--dwg-ease) both; }
+.dwg[data-sheet='L'] .l01-tag { transform: translateY(-50%); font-size: 10.5px; line-height: 1; letter-spacing: 0.05em; color: var(--dwg-dim); transition: top 0.55s cubic-bezier(0.34, 1.4, 0.64, 1); }
+.dwg[data-sheet='L'] .l01-tag[data-v]::after { content: attr(data-v); margin-left: 7px; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] .l01-tag[data-tone='ok']::after { color: var(--dwg-green); }
+.dwg[data-sheet='L'] .l01-tag[data-tone='warn'], .dwg[data-sheet='L'] .l01-tag[data-tone='warn']::after { color: var(--dwg-warn); }
+.dwg[data-sheet='L'] .l01-tag[data-tone='bad'] { color: var(--dwg-bad); }
+.dwg[data-sheet='L'] .l01-tag[data-stack]::before { display: block; margin-bottom: 3px; }
+.dwg[data-sheet='L'] .l01-tag[data-stack][data-v]::after { display: block; margin-left: 0; }
+.dwg[data-sheet='L'] .l01-tag[data-k='loan'] { margin-left: -4px; padding: 4px 6px 3px; background: var(--dwg-spot); color: rgba(5, 8, 15, 0.7); }
+.dwg[data-sheet='L'] .l01-tag[data-k='loan']::after { color: var(--dwg-bg); }
+.dwg[data-sheet='L'] .l01-tag[data-k='dim'] { font-weight: 600; color: var(--dwg-soft); }
+.dwg[data-sheet='L'] .l01-tag[data-align='right'] { transform: translate(-100%, -50%); font-size: 10px; font-weight: 600; letter-spacing: 0; }
+.dwg[data-sheet='L'] .l01-tag[data-on] { color: var(--dwg-spot); }
+.dwg[data-sheet='L'] .l01-plate { font-size: 10.5px; line-height: 1.2; letter-spacing: 0.08em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] .l01-plate::after { content: attr(data-v); display: block; margin-top: 4px; font-size: 10px; font-weight: 500; letter-spacing: 0; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] .l01-wall-stamp { position: absolute; transform: translate(-100%, 0) rotate(-4deg); transform-origin: 100% 0; background: rgba(5, 8, 15, 0.86); white-space: nowrap; }
+.dwg[data-sheet='L'] .l01-wall-stamp:not([data-tone='warn']) { color: var(--dwg-spot); }
+/* The view title under the drawing: its marker, a rule, and the one key to reading it. */
+.dwg[data-sheet='L'] .l01-vt { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; }
+.dwg[data-sheet='L'] .l01-vt .dwg-mark { width: 44px; height: 44px; }
+.dwg[data-sheet='L'] .l01-vt .dwg-mark::before { top: 7px; font-size: 12px; }
+.dwg[data-sheet='L'] .l01-vt .dwg-mark::after { bottom: 6px; margin: 0 6px; font-size: 10px; letter-spacing: 0; }
+.dwg[data-sheet='L'] .l01-vt-rule { flex: 0 0 28px; height: 1px; background: var(--dwg-line-3); }
+.dwg[data-sheet='L'] .l01-vt-key { font: 600 10.5px/1.35 var(--font-family-mono); letter-spacing: 0.13em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] .l01-vt-key[data-tone='warn'] { color: var(--dwg-warn); }
+
+/* ── 8. Tickets: an offer (Borrow), a loan (My Loans). Hard corners, a perforation, a run.
+        A loan card's root stays the nearest div.relative above "Loan #N": nothing is wrapped. ── */
+.dwg[data-sheet='L'] [data-dwg='tickets'], .dwg[data-sheet='L'] [data-dwg='loans-grid'] { gap: 14px; align-items: start; }
+.dwg[data-sheet='L'] [data-dwg='ticket'] { border-radius: 0; overflow: visible; background: rgba(5, 8, 15, 0.56) !important; border: 1px solid var(--dwg-line-2) !important; /* inline: CARD_BG, CARD_BORDER */ transition: border-color 0.2s ease; }
+.dwg[data-sheet='L'] [data-kind='offer']:hover { border-color: var(--dwg-line-3) !important; }
+.dwg[data-sheet='L'] [data-dwg='ticket'][data-kind='loan'], .dwg[data-sheet='L'] [data-dwg='face'] { padding: 14px 16px 16px; }
+.dwg[data-sheet='L'] [data-dwg='tag'] { padding: 4px 7px 3px; border-radius: 0; border-color: currentColor; background: none !important; /* inline on a status: its tint */ font: 700 10px/1 var(--font-family-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.dwg[data-sheet='L'] [data-dwg='no'] { font: 600 10.5px/1.2 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+/* what an offer takes: a valve tag in the sheet's ink */
+.dwg[data-sheet='L'] [data-kind='offer'] [data-dwg='tag'] { color: var(--dwg-spot); }
+.dwg[data-sheet='L'] [data-dwg='sum'] > p:first-child { font-family: var(--font-family-heading); font-weight: 900; font-size: 30px; line-height: 1; letter-spacing: -0.045em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='sum'] > p:last-child { margin-top: 5px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+/* the tear line: a dashed rule, and a notch punched out of each edge */
+.dwg[data-sheet='L'] [data-dwg='perf'] { position: relative; padding-top: 14px; border-top: 1px dashed var(--dwg-line-3); }
+.dwg[data-sheet='L'] [data-dwg='perf']::before, .dwg[data-sheet='L'] [data-dwg='perf']::after { content: ''; position: absolute; top: -8px; width: 15px; height: 15px; border-radius: 50%; background: #080b12; border: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='L'] [data-dwg='perf']::before { left: -24.5px; clip-path: inset(-1px -1px -1px 50%); }
+.dwg[data-sheet='L'] [data-dwg='perf']::after { right: -24.5px; clip-path: inset(-1px 50% -1px -1px); }
+.dwg[data-sheet='L'] [data-dwg='perf'] p:first-child { font-family: var(--font-family-heading); font-weight: 900; font-size: 17px; line-height: 1.1; letter-spacing: -0.03em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='perf'] [data-dwg='addr'] { font: 600 11.5px/1.5 var(--font-family-mono); letter-spacing: 0; }
+.dwg[data-sheet='L'] [data-dwg='perf'] p:last-child { margin-top: 4px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='body'] { padding: 14px 16px 16px; border-top: 1px solid var(--dwg-line); }
+/* inline on the two boxes of a loan: a purple or amber tint, an emerald tint */
+.dwg[data-sheet='L'] :is([data-dwg='clock'], [data-dwg='owed']) { border-radius: 0; padding: 12px 0 0; text-align: left; background: none !important; border: 0 !important; border-top: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] :is([data-dwg='clock'], [data-dwg='owed']) > p:first-child { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] :is([data-dwg='clock'], [data-dwg='owed']) > p:nth-child(2) { margin-top: 5px; font-family: var(--font-family-heading); font-weight: 900; font-size: 24px; line-height: 1; letter-spacing: -0.04em; }
+.dwg[data-sheet='L'] [data-dwg='clock'] > p:nth-child(2) { color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='clock'] > p:nth-child(3) { margin-top: 5px; font: 500 10.5px/1.3 var(--font-family-mono); color: var(--dwg-dim); }
+/* inline: an emerald tint and border */
+.dwg[data-sheet='L'] [data-dwg='highlights'] { border-radius: 0; padding: 10px 0; background: none !important; border: 0 !important; border-top: 1px solid var(--dwg-line-3) !important; border-bottom: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] [data-dwg='highlights'] > span { font: 600 11px/1.3 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='highlights'] > span:first-child { color: var(--dwg-dim); }
+/* inline on each: CARD_BG and CARD_BORDER, or black with a purple border */
+.dwg[data-sheet='L'] [data-dwg='totals'], .dwg[data-sheet='L'] [data-dwg='plate'] { border-radius: 0; padding: 14px 0 12px; text-align: left; background: none !important; border: 0 !important; border-top: 1px solid var(--dwg-line-3) !important; }
+.dwg[data-sheet='L'] [data-dwg='totals'] p:first-child { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim); text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='totals'] p:last-child { margin-top: 5px; font-family: var(--font-family-heading); font-weight: 900; font-size: 22px; line-height: 1; letter-spacing: -0.04em; color: var(--dwg-ink); text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='plate'] > p:first-of-type { font-size: 14px; line-height: 1.4; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='offers'] > p:first-child { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='offer-row'], .dwg[data-sheet='L'] [data-dwg='row'] { border-radius: 0; padding: 12px 0; background: none !important; border: 0 !important; border-bottom: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] [data-dwg='offer-row'] p:first-child { font: 700 13px/1.3 var(--font-family-mono); color: var(--dwg-ink); }
+/* inline: 1px solid CARD_BORDER on the empty card and on its glass panel */
+.dwg[data-sheet='L'] [data-dwg='empty'] { border-radius: 0; border: 1px solid var(--dwg-line-2) !important; }
+.dwg[data-sheet='L'] [data-dwg='empty'] > div { margin: 0; border-radius: 0; background: linear-gradient(90deg, rgba(5, 8, 15, 0.92), rgba(5, 8, 15, 0.6)) !important; border: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; text-align: left; }
+.dwg[data-sheet='L'] :is([data-testid='ask-for-loan'], [data-testid='borrower-requests']) { border-radius: 0; background: rgba(5, 8, 15, 0.5) !important; border: 1px solid var(--dwg-line-2) !important; }
+
+/* ── 9. Band 03: the liquidation shield. Its "Not automated" notice stays first, in a
+        revision cloud: the drafting mark for the part a reader must not pass over. ── */
+.dwg[data-sheet='L'] [data-dwg='shield'] { position: relative; isolation: isolate; counter-increment: l01-band; padding: 22px var(--dwg-pad) 20px; border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='L'] [data-dwg='shield'] > h3 { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+/* inline: background #000, border 1px solid var(--color-kenny) */
+.dwg[data-sheet='L'] [data-dwg='rev'] { border-radius: 0; padding: 8px 12px 0; background: rgba(5, 8, 15, 0.45) !important; border: 12px solid transparent !important;
+  border-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' fill='none' stroke='%23f0b26b' stroke-width='1.3'%3E%3Cpath d='M8 12A4 4 0 1 1 12 8M12 8A6 6 0 0 1 24 8M24 8A4 4 0 1 1 28 12M28 12A6 6 0 0 1 28 24M28 24A4 4 0 1 1 24 28M24 28A6 6 0 0 1 12 28M12 28A4 4 0 1 1 8 24M8 24A6 6 0 0 1 8 12'/%3E%3C/svg%3E") 12 / 12px round !important; }
+.dwg[data-sheet='L'] [data-dwg='rev'] > [data-card-art] { inset: 0; }
+/* the revision's number, in its triangle */
+.dwg[data-sheet='L'] [data-dwg='rev'][data-rev]::before { content: attr(data-rev); content: attr(data-rev) / ''; position: absolute; right: 6px; top: -19px; width: 28px; height: 25px; padding-top: 11px; text-align: center; font: 700 10px/1 var(--font-family-mono); color: var(--dwg-bg); background: var(--dwg-warn); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+/* inline: color var(--color-kenny) */
+.dwg[data-sheet='L'] [data-dwg='stamp'] { display: inline-block; padding: 5px 9px 4px; border: 1.5px solid currentColor; color: var(--dwg-warn) !important; font: 800 10px/1 var(--font-family-mono); letter-spacing: 0.2em; text-transform: uppercase; transform: rotate(-2deg); }
+.dwg[data-sheet='L'] [data-dwg='stamp'] + p { margin-top: 10px; font-size: 15px; line-height: 1.4; color: var(--dwg-ink); }
+/* inline: background #000, border 1px solid var(--color-purple-75); its colour says unread (amber) or idle, and stays */
+.dwg[data-sheet='L'] [data-dwg='line'] { border-radius: 0; padding: 12px 0 2px; font-size: 13.5px; line-height: 1.45; background: none !important; border: 0 !important; border-top: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] [data-dwg='shield'] [data-dwg='plate'] { padding: 12px 0 0; border-top: 1px solid var(--dwg-line) !important; }
+.dwg[data-sheet='L'] [data-dwg='shield'] [data-dwg='plate'] > p:first-of-type { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='shield'] [data-dwg='plate'] > p:nth-of-type(2) { margin-top: 6px; font-family: var(--font-family-heading); font-weight: 900; font-size: 20px; line-height: 1.1; letter-spacing: -0.035em; color: var(--dwg-ink); }
+/* A position: a ticket whose edge is its band. inline: rgba(0,0,0,0.6), 1px solid the band's colour */
+.dwg[data-sheet='L'] [data-kind='position'] { --l01-band: var(--dwg-green); padding: 14px 16px 16px; border-left: 3px solid var(--l01-band) !important; }
+.dwg[data-sheet='L'] [data-kind='position'][data-band='watch'] { --l01-band: var(--dwg-warn); }
+.dwg[data-sheet='L'] [data-kind='position']:is([data-band='urgent'], [data-band='defaulted']) { --l01-band: var(--dwg-bad); }
+.dwg[data-sheet='L'] [data-kind='position'] > div:first-of-type > p { font-family: var(--font-family-heading); font-weight: 900; font-size: 20px; line-height: 1.1; letter-spacing: -0.035em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-kind='position'] > div:first-of-type > p > span { font: 500 11px/1 var(--font-family-mono); letter-spacing: 0.02em; color: var(--dwg-dim) !important; }
+/* inline: the band's colour */
+.dwg[data-sheet='L'] [data-kind='position'] > div:first-of-type > span { padding: 4px 7px 3px; border: 1.5px solid currentColor; color: var(--l01-band) !important; font: 800 10px/1 var(--font-family-mono); letter-spacing: 0.16em; }
+.dwg[data-sheet='L'] [data-kind='position'] > p { font-size: 13px; line-height: 1.45; }
+/* inline: #0a0a0a, 1px solid var(--color-purple-75) */
+.dwg[data-sheet='L'] [data-dwg='prepared'] { border-radius: 0; padding: 12px 0 0; background: none !important; border: 0 !important; border-top: 1px dashed var(--dwg-line-3) !important; }
+.dwg[data-sheet='L'] [data-dwg='prepared'] > p:first-child { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim) !important; }
+.dwg[data-sheet='L'] [data-dwg='prepared'] dl > div { padding: 7px 0; border-bottom: 1px solid var(--dwg-line); }
+.dwg[data-sheet='L'] [data-dwg='prepared'] dt { font: 500 10px/1.5 var(--font-family-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim) !important; }
+.dwg[data-sheet='L'] [data-dwg='prepared'] dd { font: 600 12px/1.4 var(--font-family-mono); color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='prepared'] > p:not(:first-child) { font-size: 12.5px; line-height: 1.45; color: var(--dwg-soft) !important; }
+
+/* ── 10. The overview: three small figures, and the button that puts them away ── */
+.dwg[data-sheet='L'] [data-dwg='figs'] { counter-reset: l01-fig; overflow: hidden; margin: 0; background: var(--dwg-film); border-top: 1px solid var(--dwg-line-2); }
+.dwg[data-sheet='L'] [data-dwg='figs'] > div:first-child { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin: 0; padding: 18px var(--dwg-pad) 0; }
+/* inline: 1px solid an emerald or purple tint */
+.dwg[data-sheet='L'] [data-dwg='fig'] { counter-increment: l01-fig; display: flex; flex-direction: column; min-width: 0; overflow: visible; border-radius: 0; box-shadow: none; background: none; color: var(--dwg-ink); cursor: pointer; border: 0 !important; }
+.dwg[data-sheet='L'] [data-dwg='fig'] > div:first-child { position: relative; inset: auto; aspect-ratio: 16 / 8; overflow: hidden; border: 1px solid var(--dwg-line-2); transition: border-color 0.2s ease; }
+.dwg[data-sheet='L'] [data-dwg='fig']:hover > div:first-child, .dwg[data-sheet='L'] [data-dwg='fig'][data-current] > div:first-child { border-color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='fig'] > div:first-child > img.object-cover { filter: brightness(0.92); }
+/* inline: rgba(6,12,26,0.5), a text shadow */
+.dwg[data-sheet='L'] [data-dwg='fig'] > div:last-child { padding: 8px 0 0; background: none !important; text-shadow: none !important; }
+.dwg[data-sheet='L'] [data-dwg='fig'] > div:last-child::before { content: 'FIG. ' counter(l01-fig, decimal-leading-zero); content: 'FIG. ' counter(l01-fig, decimal-leading-zero) / ''; display: block; margin-bottom: 6px; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); }
+.dwg[data-sheet='L'] [data-dwg='fig'][data-current] > div:last-child::before { color: var(--dwg-green); }
+.dwg[data-sheet='L'] [data-dwg='fig-icon'] { display: none; }
+.dwg[data-sheet='L'] [data-dwg='fig'] h3 { gap: 8px; margin-bottom: 4px; font-family: var(--font-family-heading); font-weight: 900; font-size: 17px; line-height: 1.05; letter-spacing: -0.03em; color: var(--dwg-ink); }
+.dwg[data-sheet='L'] [data-dwg='fig'] h3 > span { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--dwg-green); font: 600 10px/1 var(--font-family-body); letter-spacing: 0.025em; }
+.dwg[data-sheet='L'] [data-dwg='fig'] h3 > span::before { content: ''; width: 5px; height: 5px; background: currentColor; }
+.dwg[data-sheet='L'] [data-dwg='fig'] [data-dwg='soon'] { color: var(--dwg-warn); }
+.dwg[data-sheet='L'] [data-dwg='fig'] p { font-size: 12.5px; line-height: 1.4; color: var(--dwg-soft); }
+.dwg[data-sheet='L'] [data-dwg='fig']:nth-child(3) { grid-column: 1 / -1; flex-direction: row; gap: 12px; }
+.dwg[data-sheet='L'] [data-dwg='fig']:nth-child(3) > div:first-child { flex: 0 0 calc(50% - 6px); }
+.dwg[data-sheet='L'] [data-dwg='figs'] > div:last-child { justify-content: flex-end; padding: 10px var(--dwg-pad) 14px; }
+.dwg[data-sheet='L'] [data-dwg='dismiss'] { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 0; background: transparent; border: 1px solid var(--dwg-line-2); color: var(--dwg-soft) !important; /* the app's floor on text-white/60 */ cursor: pointer; font: 700 10.5px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
+.dwg[data-sheet='L'] [data-dwg='dismiss']:hover { background: var(--dwg-ink); border-color: var(--dwg-ink); color: var(--dwg-bg) !important; }
+
+.dwg[data-sheet='L'] .l01-title > * { padding-inline: clamp(12px, 1.6vw, 18px); }
+.dwg[data-sheet='L'] .l01-title > :first-child { padding-left: var(--dwg-pad); }
+.dwg[data-sheet='L'] .l01-title .dwg-sheetno { margin-top: 5px; white-space: nowrap; }
+
+/* ── 30rem: the three sections fit their strip, so each takes a third of it ── */
+@media (min-width: 30rem) {
+  .dwg[data-sheet='L'] [data-dwg='index'] > [role='tablist'] { padding-right: calc(var(--dwg-pad) - 14px); }
+  .dwg[data-sheet='L'] [data-dwg='index'] [role='tab'] { flex: 1 1 0; min-width: 0; }
+}
+
+/* ── 48rem ── */
+@media (min-width: 48rem) {
+  .dwg[data-sheet='L'] [data-dwg='hero'] { --win-w: 132px; --win-h: 94px; --win-b: 30px; display: grid; grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr); grid-template-rows: auto auto 1fr; column-gap: 20px; padding: 18px var(--dwg-pad) 22px; overflow: visible; }
+  .dwg[data-sheet='L'] [data-dwg='hero'] > .dwg-word { grid-area: 1 / 1; margin: 6px 0 12px; }
+  .dwg[data-sheet='L'] [data-dwg='hero'] > .dwg-lede { grid-area: 2 / 1; max-width: 31ch; }
+  /* One opening in the film, cut square: the page's picture, undimmed, hung in a frame. */
+  .dwg[data-sheet='L'] .l01-film { -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) left var(--dwg-pad) bottom var(--win-b) / var(--win-w) var(--win-h) no-repeat; -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) left var(--dwg-pad) bottom var(--win-b) / var(--win-w) var(--win-h) no-repeat; mask-composite: exclude; }
+  .dwg[data-sheet='L'] .l01-window { display: block; position: absolute; left: var(--dwg-pad); bottom: var(--win-b); width: var(--win-w); height: var(--win-h); pointer-events: none; border: 1px solid var(--dwg-line-3); box-shadow: 0 0 0 6px #070a12, 0 0 0 7px var(--dwg-line-3); }
+  .dwg[data-sheet='L'] .l01-window::before { content: ''; position: absolute; left: 24%; right: 24%; bottom: calc(100% + 7px); height: 13px; --w: rgba(245, 228, 184, 0.5);
+    background: linear-gradient(to top left, transparent calc(50% - 0.5px), var(--w) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)) left / 50% 100% no-repeat, linear-gradient(to top right, transparent calc(50% - 0.5px), var(--w) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)) right / 50% 100% no-repeat; }
+  .dwg[data-sheet='L'] .l01-window::after { content: attr(data-t); position: absolute; left: calc(100% + 18px); top: 50%; transform: translateY(-50%); padding-left: 34px; white-space: nowrap; font: 500 10px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); background: linear-gradient(var(--dwg-line-3), var(--dwg-line-3)) left center / 26px 1px no-repeat; }
+  .dwg[data-sheet='L'] .l01-axo { position: relative; z-index: auto; right: auto; top: auto; grid-area: 1 / 2 / -1 / 3; justify-self: end; align-self: end; width: min(108%, 570px); margin: 30px -10px -6px 0; opacity: 1; filter: none; -webkit-mask-image: none; mask-image: none; }
+  .dwg[data-sheet='L'] .l01-axo-label { display: block; }
+  .dwg[data-sheet='L'] [data-dwg='index'] [role='tab'] { min-height: 58px; padding: 9px 16px 10px; font-size: 15px; font-weight: 600; }
+  .dwg[data-sheet='L'] [data-dwg='index'] > [role='tablist'] { padding-left: calc(var(--dwg-pad) - 16px); padding-right: calc(var(--dwg-pad) - 16px); }
+  .dwg[data-sheet='L'] [data-dwg='notice'] { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 26px; align-items: baseline; padding-top: 14px; }
+  .dwg[data-sheet='L'] [data-dwg='notice'] > p:nth-of-type(2) { margin: 0; }
+  .dwg[data-sheet='L'] [data-dwg='notice'] > details { grid-column: 1 / -1; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:first-child { width: 46px; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child { margin-left: 68px; padding: 12px 10px 12px 0; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(2) { font-size: 30px; }
+  .dwg[data-sheet='L'] [data-dwg='verbs'] > .dwg-tab { min-height: 56px; padding: 10px 14px 12px; font-size: clamp(1.15rem, 2.1vw, 1.5rem); }
+  .dwg[data-sheet='L'] [data-dwg='frames'] { grid-template-columns: repeat(3, minmax(0, 180px)); gap: 14px; }
+  .dwg[data-sheet='L'] [data-dwg='frames'][data-cols='4'] { grid-template-columns: repeat(4, minmax(0, 180px)); gap: 18px; }
+  .dwg[data-sheet='L'] [data-dwg='frame'] > img { padding: 8px; }
+  .dwg[data-sheet='L'] [data-dwg='frame'][data-picked] > img { padding: 7px; }
+  .dwg[data-sheet='L'] [data-dwg='frame'] > div > span:first-child { font-size: 15px; }
+  .dwg[data-sheet='L'] .dwg-field[data-dwg='count'] { width: 10rem; }
+  /* Terms on the left; on the right what they come to, with the wall at its head. In the DOM
+     the wall is the result's LAST child: on a phone it follows the action and pushes no control down. */
+  .dwg[data-sheet='L'] [data-dwg='desk'] { --gap: clamp(20px, 3vw, 44px); display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); column-gap: var(--gap); align-items: start;
+    background: repeating-linear-gradient(to bottom, var(--dwg-line-2) 0 7px, transparent 7px 13px) calc(47% + 0.03 * var(--gap)) 0 / 1px 100% no-repeat; }
+  .dwg[data-sheet='L'] [data-dwg='desk'] > * { min-width: 0; margin: 0; }
+  .dwg[data-sheet='L'] [data-dwg='result'] { display: flex; flex-direction: column; }
+  .dwg[data-sheet='L'] [data-dwg='result'] > .l01-wallslot { order: -1; margin-bottom: 1.25rem; }
+  /* No amount and rate typed: no run to draw. Its place is set out in dashes, as work not yet built:
+     the dimension with no length, the ground line, the deadline's mark. */
+  .dwg[data-sheet='L'] [data-dwg='result']:not(:has(> [data-dwg='run']))::before { content: ''; height: 118px; margin-bottom: 1.25rem; border: 1px dashed var(--dwg-line-2); --c: rgba(245, 228, 184, 0.3);
+    background: linear-gradient(var(--c), var(--c)) center top 26px / calc(100% - 40px) 1px no-repeat,
+      linear-gradient(to top right, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px)) left 16px top 22px / 9px 9px no-repeat,
+      linear-gradient(to top right, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px)) right 16px top 22px / 9px 9px no-repeat,
+      repeating-linear-gradient(90deg, var(--c) 0 6px, transparent 6px 11px) center bottom 30px / calc(100% - 40px) 1px no-repeat,
+      linear-gradient(rgba(240, 138, 107, 0.5), rgba(240, 138, 107, 0.5)) right 20px bottom 22px / 2px 44px no-repeat; }
+  .dwg[data-sheet='L'] [data-dwg='figs'] > div:first-child { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .dwg[data-sheet='L'] [data-dwg='fig']:nth-child(3) { grid-column: auto; flex-direction: column; gap: 0; }
+  .dwg[data-sheet='L'] [data-dwg='fig']:nth-child(3) > div:first-child { flex: none; }
+}
+
+/* ── 64rem: a band's head stands in a margin column; the model's key shows ── */
+@media (min-width: 64rem) {
+  .dwg[data-sheet='L'] [data-dwg='hero'] { --win-w: 196px; --win-h: 138px; --win-b: 36px; }
+  .dwg[data-sheet='L'] .l01-key { display: grid; position: absolute; right: var(--dwg-pad); top: 18px; gap: 5px; justify-items: end; }
+  .dwg[data-sheet='L'] .l01-key-cap { margin-bottom: 3px; font: 500 10px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); }
+  .dwg[data-sheet='L'] .l01-key-row { font: 700 10px/1.2 var(--font-family-mono); letter-spacing: 0.06em; color: var(--dwg-ink); white-space: nowrap; }
+  .dwg[data-sheet='L'] .l01-key-row::before { content: attr(data-t); }
+  .dwg[data-sheet='L'] .l01-key-row::after { content: attr(data-v); margin-left: 10px; font-weight: 500; letter-spacing: 0; color: var(--dwg-dim); }
+  .dwg[data-sheet='L'] [data-dwg='lending'] { display: grid; grid-template-columns: minmax(180px, 22%) minmax(0, 1fr); column-gap: clamp(20px, 3vw, 44px); }
+  .dwg[data-sheet='L'] [data-dwg='lending'] > * { grid-column: 1 / -1; min-width: 0; }
+  .dwg[data-sheet='L'] [data-dwg='lending'] > [data-dwg='head'] { grid-column: 1; display: block; padding: 22px 0 26px; }
+  .dwg[data-sheet='L'] [data-dwg='head']::before, .dwg[data-sheet='L'] [data-dwg='shield'] > h3::before { display: block; margin-bottom: 12px; transform: none; }
+  .dwg[data-sheet='L'] [data-dwg='lending'] > [data-dwg='labels'] { grid-column: 2; align-self: start; padding: 22px 0 26px; }
+  .dwg[data-sheet='L'] [data-dwg='shield'] { display: grid; grid-template-columns: minmax(180px, 22%) minmax(0, 1fr); column-gap: clamp(20px, 3vw, 44px); padding-top: 24px; }
+  .dwg[data-sheet='L'] [data-dwg='shield'] > * { grid-column: 2; min-width: 0; }
+  .dwg[data-sheet='L'] [data-dwg='shield'] > h3 { grid-column: 1; grid-row: 1 / span 12; display: block; margin: 0; }
+}
+
+/* ── under 48rem: a phone. The first screen is the heading, its line and the section strip. ── */
+@media (max-width: 47.99rem) {
+  .dwg[data-sheet='L'] [data-dwg='labels'] { gap: 8px; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:first-child { inset: 10px auto 10px 9px; width: 34px; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child { margin-left: 51px; padding-right: 6px; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:first-child { gap: 4px; letter-spacing: 0.05em; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(2) { font-size: 24px; }
+  .dwg[data-sheet='L'] [data-dwg='labels'] > div > div:last-child > p:nth-child(3) { letter-spacing: 0; }
+  .dwg[data-sheet='L'] [data-dwg='lending'] [role='group'] > .dwg-chip { padding: 0 11px; }
+  .dwg[data-sheet='L'] [data-dwg='frames'][data-cols='4'] { gap: 14px 12px; }
+  .dwg[data-sheet='L'] .l01-wallslot { margin-top: 6px; }
+}
+
+/* From 64rem the heading takes a margin column: until 80rem that leaves the four labels room for two across. */
+@media (min-width: 64rem) and (max-width: 79.99rem) {
+  .dwg[data-sheet='L'] [data-dwg='labels'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 96rem) {
+  .dwg[data-sheet='L'] [data-dwg='hero'] { --win-w: 230px; --win-h: 160px; }
+  .dwg[data-sheet='L'] .l01-axo { width: min(108%, 660px); }
+}
+@media (min-width: 120rem) {
+  .dwg[data-sheet='L'] [data-dwg='hero'] { --win-w: 280px; --win-h: 196px; }
+  .dwg[data-sheet='L'] .l01-axo { width: min(108%, 800px); }
+}
+@media (min-width: 160rem) {
+  .dwg[data-sheet='L'] [data-dwg='hero'] { --win-w: 320px; --win-h: 224px; }
+  .dwg[data-sheet='L'] .l01-axo { width: min(108%, 900px); }
+}
+
+@media (min-width: 80rem) {
+  .dwg[data-sheet='L'] .l01-title { grid-template-columns: auto 1.2fr 1fr 0.7fr 2.2fr; }
+}
+@media (max-width: 79.99rem) {
+  .dwg[data-sheet='L'] .l01-title { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); }
+  .dwg[data-sheet='L'] .l01-title > :last-child { grid-column: 2 / -1; }
+  .dwg[data-sheet='L'] .l01-title > :nth-child(n + 4) { border-top: 1px solid var(--dwg-line); }
+}
+@media (max-width: 47.99rem) {
+  .dwg[data-sheet='L'] .l01-title { grid-template-columns: auto minmax(0, 1fr); }
+  .dwg[data-sheet='L'] .l01-title > :last-child { grid-column: 1 / -1; border-left: 0; padding-left: var(--dwg-pad); }
+  .dwg[data-sheet='L'] .l01-title > :nth-child(n + 3) { border-top: 1px solid var(--dwg-line); }
+  .dwg[data-sheet='L'] .l01-title > :nth-child(3) { border-left: 0; padding-left: var(--dwg-pad); }
+  .dwg[data-sheet='L'] .l01-title > :last-child .dwg-tval { font-size: 11.5px; letter-spacing: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dwg[data-sheet='L'] .l01-loan, .dwg[data-sheet='L'] .l01-tag, .dwg[data-sheet='L'] [data-dwg='frame'] > img { transition: none; }
+  .dwg[data-sheet='L'] .l01-hang { animation: none; }
+  .dwg[data-sheet='L'] [data-dwg='frame']:hover > img { transform: none; }
+  .dwg[data-sheet='L'] [data-dwg='act']:hover:not(:disabled) { transform: none; }
+}

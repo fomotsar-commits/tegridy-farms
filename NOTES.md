@@ -15,6 +15,33 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-17: a build with none of a package's strings shows it is not shipped, and `npm explain` reads a lockfile
+
+**Believed:** to show a dependency never reaches the browser, search a production build for its
+strings, and any recent build from the same lockfile will do. And `npm explain <pkg>` reads the
+lockfile as `npm audit` does, so neither needs an install.
+
+**Measured** (triage of GHSA-fc5q-39xc-vjpf in picomatch, 2026-11-17; npm 11.6.2, Node 24.13):
+
+- The newest build on this PC from trunk's lockfile held none of picomatch's strings. It also held
+  none of WalletConnect's storage code, the only thing in `dependencies` that brings picomatch: it
+  was built without `VITE_WALLETCONNECT_PROJECT_ID`, so the chain under test had been compiled
+  away and the search could not have found anything. Of 37 builds here from that lockfile, 3 held
+  `WALLET_CONNECT_V2_INDEXED_DB`. Only those could answer.
+- `npm explain picomatch` in `frontend/` and in `indexer/`, with no `node_modules`, printed "No
+  dependencies found matching picomatch" and exited 1. Each lockfile has two copies. `npm audit
+  --json` in the same folders worked.
+- `npm audit` lists only the packages a lockfile names. In the indexer, vite 5.0.7 and rollup
+  4.60.1 each carry picomatch's code inside their own dist files; in the frontend, playwright-core
+  and rollup-plugin-visualizer do. No audit names any of them.
+
+**Do:** before reading "absent" from a build, pick a string from the package's nearest parent that
+must be there, and count the search only if that one is found. Read who brings a package from the
+lockfile's `packages` map, resolving each dependency name as Node does (the package's own
+`node_modules`, then each ancestor's), or run `npm explain` in an installed tree. To find the
+copies no audit lists, search the installed tree for a string from the flawed file:
+`grep -rl -F POSIX_REGEX_SOURCE node_modules`.
+
 ## 2026-11-16: a guard that reads a doc line by line has read its claims
 
 **Believed:** `frontend/src/lib/docsClaimHonesty.test.ts`, testing each line of every published

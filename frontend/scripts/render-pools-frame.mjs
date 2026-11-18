@@ -16,6 +16,14 @@ export const POOLS_HEADING = 'Liquidity pools.';
 export const DOOR_WAITING = 'Reading this pool from the chain…';
 /** The door is drawn only while LP_WRITES (lib/launcher/solana/lpWriteFlag.ts) is not 'off'. */
 export const LP_DOOR = true;
+/** The sheet's zone ruler, left to right (components/dwg/SheetRuler.tsx). */
+export const RULER_ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+// A trim mark at each corner of the sheet (styles/dwg.css .dwg-sheet::before).
+const TRIM = 'linear-gradient(rgba(245,228,184,0.45),rgba(245,228,184,0.45))';
+const TRIMS = ['left 0 top 10px/8px 1px', 'left 10px top 0/1px 8px', 'right 0 top 10px/8px 1px', 'right 10px top 0/1px 8px',
+  'left 0 bottom 10px/8px 1px', 'left 10px bottom 0/1px 8px', 'right 0 bottom 10px/8px 1px', 'right 10px bottom 0/1px 8px']
+  .map((at) => `${TRIM} ${at} no-repeat`).join(',');
 
 // The frame's own rules, inline: the app's stylesheets load after #root (vite.config.ts,
 // first-frame-stylesheets), so nothing of theirs has arrived when this is painted. Each value
@@ -29,13 +37,23 @@ export const FRAME_CSS =
   'html[data-pools-frame] .pools-frame{padding-top:calc(57px + 3.5rem + env(safe-area-inset-top,0px))}' +
   '.pf-root{position:relative;min-height:100vh}' +
   '.pf-bg{position:fixed;inset:0;z-index:0;background:#060c1a}' +
-  '.pf-col{position:relative;z-index:10;box-sizing:border-box;max-width:900px;margin:0 auto;padding:2rem 1rem 4rem}' +
-  '.pf-hero{margin:0 0 1.5rem}' +
-  ".pf-h1{margin:0 0 .75rem;color:#fff;font-family:'Archivo','Helvetica Neue',Arial,sans-serif;font-weight:900;font-size:1.875rem;line-height:1.2;letter-spacing:.01em;text-shadow:0 2px 8px rgba(0,0,0,1),0 0 16px rgba(0,0,0,0.7)}" +
-  '.pf-door{display:none;position:relative;box-sizing:border-box;overflow:hidden;isolation:isolate;margin:0 0 1.5rem;padding:1.25rem;border:1px solid rgba(255,255,255,0.12);border-radius:1rem;background:rgba(6,12,26,0.6)}' +
+  '.pf-col{position:relative;z-index:10;box-sizing:border-box;max-width:1120px;margin:0 auto;padding:2rem 1rem 4rem}' +
+  // Sheet P-01 (styles/dwg.css .dwg-sheet, .dwg-ruler; styles/dwg-pools.css the hero and the word).
+  '.pf-sheet{position:relative;isolation:isolate;border:1px solid rgba(255,255,255,0.15)}' +
+  `.pf-sheet::before{content:"";position:absolute;inset:-11px;z-index:2;pointer-events:none;background:${TRIMS}}` +
+  ".pf-ruler{display:none;box-sizing:border-box;height:15px;background:rgba(5,8,15,0.9);border-bottom:1px solid rgba(245,228,184,0.14);font:600 8px/15px 'JetBrains Mono','Courier Prime',monospace;letter-spacing:.1em;color:rgba(245,228,184,0.38)}" +
+  '.pf-ruler i{flex:1;text-align:center;border-left:1px solid rgba(245,228,184,0.14);font-style:normal}' +
+  '.pf-ruler i:first-child{border-left:0}' +
+  '.pf-ruler i::before{content:attr(data-z);content:attr(data-z) / ""}' +
+  '.pf-hero{position:relative;margin:0;padding:14px clamp(14px,2.6vw,40px) 16px}' +
+  ".pf-h1{position:relative;margin:0 0 .75rem;color:#f5e4b8;font-family:'Archivo','Helvetica Neue',Arial,sans-serif;font-weight:900;font-size:1.875rem;line-height:1.2;letter-spacing:-.03em;text-shadow:none}" +
+  '.pf-h1::after{content:attr(data-echo);content:attr(data-echo) / "";position:absolute;left:0;top:0;z-index:-1;width:100%;transform:translate(.05em,.05em);color:transparent;-webkit-text-stroke:1.5px #5ad1e6;pointer-events:none}' +
+  '.pf-door{display:none;position:relative;box-sizing:border-box;overflow:hidden;isolation:isolate;margin:0 0 1.5rem;padding:1.25rem;border:1px solid rgba(255,255,255,0.15);border-radius:0;background:rgba(5,8,15,0.9)}' +
   'html[data-pools-frame="door"] .pf-door{display:block}' +
   ".pf-door p{margin:0;color:rgba(255,255,255,0.7);font-family:'Inter',system-ui,sans-serif;font-weight:400;font-size:13px;line-height:1.5;text-shadow:0 1px 4px rgba(0,0,0,0.9),0 0 12px rgba(0,0,0,0.6)}" +
-  '@media (min-width:768px){.pf-col{padding-left:1.5rem;padding-right:1.5rem}.pf-h1{font-size:3rem;line-height:1}}';
+  '@media (min-width:768px){.pf-col{padding-left:1.5rem;padding-right:1.5rem}.pf-ruler{display:flex}' +
+  '.pf-hero{padding:18px clamp(14px,2.6vw,40px) 22px}' +
+  '.pf-h1{font-size:clamp(3.6rem,7.3vw,6.5rem);line-height:.86;letter-spacing:-.055em;width:min-content}}';
 
 /** The LP door's waiting card, hidden unless the address asks for an add. */
 const doorCard = () =>
@@ -43,12 +61,14 @@ const doorCard = () =>
 
 /** The pools page's first frame, between the markers the shell's own frame sits in. */
 export function poolsFrame() {
+  const ruler = RULER_ZONES.map((z) => `<i data-z="${z}"></i>`).join('');
   return (
     '<!-- first-frame --><div id="first-frame"><div class="pools-frame"><div class="pf-root">' +
     '<div class="pf-bg"></div>' +
     `<div class="pf-col">${LP_DOOR ? doorCard() : ''}` +
-    `<div class="pf-hero"><h1 class="pf-h1" elementtiming="first-frame-h1">${POOLS_HEADING}</h1></div>` +
-    '</div></div></div></div><!-- /first-frame -->'
+    `<div class="pf-sheet"><div class="pf-ruler" aria-hidden="true">${ruler}</div>` +
+    `<div class="pf-hero"><h1 class="pf-h1" data-echo="${POOLS_HEADING}" elementtiming="first-frame-h1">${POOLS_HEADING}</h1></div>` +
+    '</div></div></div></div></div><!-- /first-frame -->'
   );
 }
 

@@ -6,7 +6,7 @@ import { CHAIN_ID, WETH_ADDRESS } from '../../lib/constants';
 import { cowSwapAmounts, type ParsedCowSwapQuote } from '../../lib/cowSwap';
 import { COW_PARTNER_FEE_BPS } from '../../lib/cowProtocol';
 import { type TokenInfo } from '../../lib/tokenList';
-import { formatTokenAmountGrouped } from '../../lib/formatting';
+import { formatTokenAmountGrouped, localeUp } from '../../lib/formatting';
 import { VenueFeeLine } from './VenueFeeLine';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -200,7 +200,7 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
 }
 
 function CowSwapRow({ rec }: { rec: CowSwapRecord }) {
-  const sell = Number(formatUnits(BigInt(rec.sellAmount), rec.sellToken.decimals));
+  const sell = formatUnits(BigInt(rec.sellAmount), rec.sellToken.decimals);
   const filled = rec.status === 'fulfilled' || rec.status === 'traded';
   const dead = rec.status === 'cancelled' || rec.status === 'expired';
   const label = filled ? 'Filled' : rec.status === 'cancelled' ? 'Cancelled' : rec.status === 'expired' ? 'Expired' : 'Open';
@@ -208,7 +208,7 @@ function CowSwapRow({ rec }: { rec: CowSwapRecord }) {
   return (
     <div className="flex items-center justify-between py-1">
       <span className="text-white/80 text-[10px] font-mono truncate">
-        {sell.toLocaleString(undefined, { maximumFractionDigits: 4 })} {rec.sellToken.symbol} → {rec.buyToken.symbol}
+        {localeUp(sell, 4)} {rec.sellToken.symbol} → {rec.buyToken.symbol}
       </span>
       <span className="flex items-center gap-1.5 shrink-0">
         <span className={`text-[9px] ${color}`}>{label}</span>

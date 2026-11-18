@@ -7,6 +7,7 @@ import {
   matchCsvToFiles,
 } from '../../../lib/nftMetadata';
 import { arweaveUri } from '../../../lib/irysClient';
+import { toFixedUp } from '../../../lib/formatting';
 import { useIrysUpload } from '../../../hooks/useIrysUpload';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../../../lib/constants';
 import type { WizardState, WizardAction } from './wizardReducer';
@@ -165,7 +166,7 @@ export function Step4_FundUpload({
       <ArtCard pageId="wizard" idx={0} padding="p-4">
         <label className={LABEL}>Arweave upload cost</label>
         <p className="text-emerald-400 text-2xl font-semibold mt-1">
-          {phase === 'idle' ? 'Calculating…' : `~${Number(quoteEth).toFixed(5)} ETH`}
+          {phase === 'idle' ? 'Calculating…' : `~${toFixedUp(quoteEth, 5)} ETH`}
         </p>
         <p className="text-white/60 text-[11px] mt-1">
           Includes {FUNDING_BUFFER_BPS / 100}% buffer for surge pricing. Dust leftover stays

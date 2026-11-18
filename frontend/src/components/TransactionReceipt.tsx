@@ -8,7 +8,7 @@ import {
   type ReceiptData,
   type ReceiptType,
 } from '../hooks/useTransactionReceipt';
-import { formatTokenAmount } from '../lib/formatting';
+import { formatTokenAmount, formatTokenAmountUp } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { noteReplacement, receiptOutcome } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
@@ -119,7 +119,7 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
   switch (type) {
     case 'swap':
       if (data.fromAmount && data.fromToken && data.toAmount && data.toToken) {
-        rows.push({ label: 'From', value: `${formatTokenAmount(data.fromAmount, 6)} ${sanitize(data.fromToken)}` });
+        rows.push({ label: 'From', value: `${formatTokenAmountUp(data.fromAmount, 6)} ${sanitize(data.fromToken)}` });
         rows.push({ label: 'To', value: `${formatTokenAmount(data.toAmount, 6)} ${sanitize(data.toToken)}` });
       }
       if (data.rate) rows.push({ label: 'Rate', value: sanitize(data.rate) });
@@ -152,12 +152,12 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
     case 'approve':
       if (data.token) rows.push({ label: 'Token', value: sanitize(data.token) });
       if (data.spender) rows.push({ label: 'Spender', value: sanitize(data.spender) });
-      if (data.amount) rows.push({ label: 'Amount', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
+      if (data.amount) rows.push({ label: 'Amount', value: `${formatTokenAmountUp(data.amount, 4)} ${sanitize(data.token)}` });
       break;
 
     case 'liquidity_add':
-      if (data.tokenA && data.amountA) rows.push({ label: 'Token A', value: `${formatTokenAmount(data.amountA, 6)} ${sanitize(data.tokenA)}` });
-      if (data.tokenB && data.amountB) rows.push({ label: 'Token B', value: `${formatTokenAmount(data.amountB, 6)} ${sanitize(data.tokenB)}` });
+      if (data.tokenA && data.amountA) rows.push({ label: 'Token A', value: `${formatTokenAmountUp(data.amountA, 6)} ${sanitize(data.tokenA)}` });
+      if (data.tokenB && data.amountB) rows.push({ label: 'Token B', value: `${formatTokenAmountUp(data.amountB, 6)} ${sanitize(data.tokenB)}` });
       if (data.poolName) rows.push({ label: 'Pool', value: sanitize(data.poolName) });
       break;
 
@@ -170,7 +170,7 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
 
     case 'subscribe':
       if (data.tier) rows.push({ label: 'Tier', value: sanitize(data.tier) });
-      if (data.amount && data.token) rows.push({ label: 'Cost', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
+      if (data.amount && data.token) rows.push({ label: 'Cost', value: `${formatTokenAmountUp(data.amount, 4)} ${sanitize(data.token)}` });
       if (data.duration) rows.push({ label: 'Duration', value: sanitize(data.duration) });
       break;
 
@@ -546,7 +546,7 @@ function TransactionReceiptOverlay({
             <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <div className="flex items-center justify-center gap-2 md:gap-3 flex-wrap">
                 <span className="stat-value text-[14px] md:text-[16px] text-white">
-                  {formatTokenAmount(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
+                  {formatTokenAmountUp(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
                 </span>
                 <span className="text-white text-[14px] md:text-[16px]">{'\u{2192}'}</span>
                 <span className="stat-value text-[14px] md:text-[16px] text-white">
