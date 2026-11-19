@@ -152,6 +152,8 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/island',
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
+      // The island at night, rendered in 3D, every room's building wearing its art (owner, 2026-11-18).
+      { to: '/city',        label: 'City' },
       { to: '/gallery',     label: 'Gallery' },
       { to: '/community', label: 'Community' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
@@ -409,8 +411,9 @@ export function indexName(group: IndexGroup, item: NavItem): string {
  * (Earn's Yield Routing, Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
  */
 export const MENU_PARKED: ReadonlySet<string> = new Set([
-  // Under Island, everything but Lore.
+  // Under Island, everything but Lore. The city (2026-11-18) is a door in the island lobby, not a menu line.
   '/island',
+  '/city',
   '/gallery',
   '/community',
   '/tokenomics',
