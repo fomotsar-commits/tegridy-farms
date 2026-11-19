@@ -38,6 +38,8 @@ interface Walker {
   ph: number;
 }
 /** How fast people walk, in world units a second, and how often one sets off from a paying pool. */
+/** How much of the picture's width its border takes to fade into the night: less than the sea between the shore and the picture's edge (scene.test.ts). */
+export const EDGE_FADE = 0.025;
 const WALK_SPEED = 1.25;
 const WALK_EVERY = 2.4;
 const ZOOM_MIN = 0.2;
@@ -126,8 +128,29 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     if (!backdrop) return;
     const s = K() / backdrop.k;
     const [cx, cy] = P(RENDER_CENTER[0], RENDER_CENTER[1], RENDER_CENTER[2]);
+    const w = backdrop.width * s;
+    const h = backdrop.height * s;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(backdrop.img, cx - (backdrop.width / 2) * s, cy - (backdrop.height / 2) * s, backdrop.width * s, backdrop.height * s);
+    ctx.drawImage(backdrop.img, x, y, w, h);
+    // The picture's edge never shows. The sea runs off its sides, so at any zoom it would stop at a
+    // straight line; instead its border fades into the night (the render's own sky is the page's).
+    // The band is narrower than the sea round the island, so no beach is dimmed.
+    const band = EDGE_FADE * w;
+    for (const [gx0, gy0, gx1, gy1, rx, ry, rw, rh] of [
+      [x, 0, x + band, 0, x, y, band, h],
+      [x + w, 0, x + w - band, 0, x + w - band, y, band, h],
+      [0, y, 0, y + band, x, y, w, band],
+      [0, y + h, 0, y + h - band, x, y + h - band, w, band],
+    ] as const) {
+      const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+      g.addColorStop(0, BG);
+      g.addColorStop(0.45, alpha(BG, 0.3));
+      g.addColorStop(1, alpha(BG, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(rx, ry, rw, rh);
+    }
   }
   function drawSelection(b: Plot): void {
     const { x0: x, y0: y } = b;

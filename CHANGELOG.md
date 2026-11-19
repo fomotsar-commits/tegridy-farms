@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-19
+
+- The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
+
 ### 2026-11-18
 
 - New page, /city: the island at night, rendered in 3D. Every room is a building wrapped in its own art, with its pool beside it; tap one to see it close up, with its pool's dollars. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
