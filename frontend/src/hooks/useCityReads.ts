@@ -116,8 +116,12 @@ export interface CityReads {
   poolsReadAt: number | null;
   /** No wallet / its pools are being read / read. */
   wallet: 'none' | 'reading' | 'read';
+  /** Which wallets are connected, so the page can say whose pay it read. */
+  chains: WalletChain[];
   pay: WalletPay;
 }
+/** A connected wallet, by the name the site's Connect buttons give it. Base pay is read with the Ethereum one. */
+export type WalletChain = 'Ethereum' | 'Solana';
 
 export function useCityReads(): CityReads {
   const rooms = useMemo(() => cityRooms(), []);
@@ -139,6 +143,7 @@ export function useCityReads(): CityReads {
   const evmPlan: HarvestPlan | null = evm.address ? evm.plan : null;
   const wallet: CityReads['wallet'] = !evm.address && !solAddress ? 'none' : (evm.address && !evmPlan) || (solAddress && !solPlan) ? 'reading' : 'read';
   const pay = useMemo(() => walletPayOf([evmPlan, solPlan]), [evmPlan, solPlan]);
+  const chains = useMemo<WalletChain[]>(() => [...(evm.address ? ['Ethereum' as const] : []), ...(solAddress ? ['Solana' as const] : [])], [evm.address, solAddress]);
 
-  return { rooms, pools, poolsReadAt, wallet, pay };
+  return { rooms, pools, poolsReadAt, wallet, chains, pay };
 }

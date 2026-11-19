@@ -16,7 +16,7 @@ import { useOffScreenPause } from '../dwg/offScreen';
 export interface CityHandle {
   /** Zoom about the middle of the sheet by a factor. */
   zoomBy: (factor: number) => void;
-  /** Show the whole island. */
+  /** Show the whole island, out to its surf, on any screen. */
   fit: () => void;
   /** Bring a plot to the middle. */
   show: (plotId: string) => void;
@@ -28,9 +28,11 @@ interface Props {
   onSelect: (plotId: string) => void;
   /** The visitor stopped the motion. */
   paused: boolean;
+  /** A line laid over the foot of the drawing (what a press does), or null once the visitor has picked. */
+  hint: string | null;
 }
 
-export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ plan, data, selectedId, onSelect, paused }, ref) {
+export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ plan, data, selectedId, onSelect, paused, hint }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<Scene | null>(null);
   const offScreen = useOffScreenPause(canvasRef);
@@ -92,6 +94,7 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
     const onDown = (e: PointerEvent): void => {
+      canvas.style.cursor = '';
       down.set(e.pointerId, at(e));
       if (down.size === 1) moved = 0;
       else if (down.size === 2) {
@@ -100,9 +103,21 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
         moved = 99;
       }
     };
+    // A pointer that can hover, over a building: the hand says it can be pressed, and its plaque lifts.
+    const onHover = (e: PointerEvent): void => {
+      if (e.pointerType === 'touch' || down.size) return;
+      const p = at(e);
+      const plot = scene.hit(p.x, p.y);
+      scene.hover(plot);
+      canvas.style.cursor = plot ? 'pointer' : '';
+    };
+    const onLeave = (): void => {
+      scene.hover(null);
+      canvas.style.cursor = '';
+    };
     const onMove = (e: PointerEvent): void => {
       const prev = down.get(e.pointerId);
-      if (!prev) return;
+      if (!prev) return onHover(e);
       const p = at(e);
       down.set(e.pointerId, p);
       if (down.size === 1) {
@@ -139,6 +154,7 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('pointerleave', onUp);
+    canvas.addEventListener('pointerleave', onLeave);
     canvas.addEventListener('wheel', onWheel, { passive: false });
 
     let frame = 0;
@@ -164,6 +180,7 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('pointerleave', onUp);
+      canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('wheel', onWheel);
       sceneRef.current = null;
     };
@@ -175,6 +192,9 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
   useEffect(() => {
     sceneRef.current?.select(selectedId ? (plan.byId.get(selectedId) ?? null) : null);
   }, [selectedId, plan]);
+  useEffect(() => {
+    sceneRef.current?.setHint(hint);
+  }, [hint, plan]);
 
   useImperativeHandle(ref, () => ({
     zoomBy(factor) {
@@ -184,7 +204,7 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
       scene.zoomAt(w / 2, h / 2, scene.cam.z * factor);
     },
     fit() {
-      sceneRef.current?.fit();
+      sceneRef.current?.fit(true);
     },
     show(plotId) {
       const plot = plan.byId.get(plotId);
