@@ -63,6 +63,16 @@ describe('/city', () => {
     expect(card().getByRole('link').getAttribute('href')).toBe('/bayla');
   });
 
+  it("opens the picked building's close-up, its art at full size, and changes it with the pick", () => {
+    mount(base());
+    const shot = card().getByRole('img');
+    expect(shot.getAttribute('src')).toBe('/city/close/bayla.webp');
+    expect(shot.getAttribute('alt')).toMatch(/^Bayla, The Lighthouse, close up$/);
+    const list = within(screen.getByRole('navigation', { name: 'Every plot' }));
+    fireEvent.click(list.getByRole('button', { name: 'TREASURY' }));
+    expect(card().getByRole('img').getAttribute('src')).toBe('/city/close/treasury.webp');
+  });
+
   it('says a pool was not read rather than showing it empty, and gives its dollars only with where and when they were read', () => {
     mount(base());
     expect(card().getByText('Pool not read.')).toBeTruthy();

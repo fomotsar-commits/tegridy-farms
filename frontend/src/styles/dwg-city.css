@@ -17,6 +17,8 @@
 .c01-tools .dwg-chip { min-width: 44px; justify-content: center; }
 .c01-fine > div { max-width: 60ch; color: var(--dwg-soft); }
 .c01-card { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+/* A building's close-up: its art at full size. */
+.c01-shot { display: block; width: min(100%, 440px); height: auto; aspect-ratio: 4 / 5; margin-bottom: 6px; border: 1px solid var(--dwg-line-2); background: var(--dwg-bg); }
 .c01-card .dwg-fact { margin: 0; font-size: 12px; }
 .c01-addr { margin: 0; max-width: 100%; font: 500 11px/1.4 var(--font-family-mono); color: var(--dwg-soft); overflow-wrap: anywhere; }
 .c01-go { margin-top: 4px; }

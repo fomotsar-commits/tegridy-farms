@@ -10,14 +10,16 @@ import { rangePoolsVisible } from '../lib/solana/clmm/programId';
 import { fmtUsd } from '../lib/wallet/walletRows';
 import { PIECE_NAME, buildPlan, type CivicId, type Plot, type PoolRead } from '../lib/city/plan';
 import type { SceneData } from '../lib/city/scene';
+import { closeUpSrc } from '../lib/city/render';
 
 /**
  * Sheet C-01: the island drawn as a city (owner, 2026-11-17: "a visualized city ... showcasing
- * our ecosystem"). Every room is a building with its pool beside it; the streets are a city's
- * and the buildings are an island's (lib/city/pieces.ts).
+ * our ecosystem"). The island is one night picture made in Blender (scripts/city-render/), every
+ * room a building wrapped in its own art with its pool beside it; a press on one opens its close-up,
+ * where the art is full size (owner, 2026-11-18: "museum level", "i cant see the art").
  *
- * WHAT IS REAL ON IT. Each room's water stands at the dollars in its coin's market pool, and a
- * pool that was not read is dashed. With a wallet connected, a line of people walks from every
+ * WHAT IS REAL ON IT. A room's card gives its coin's market-pool dollars, or says they were not
+ * read; the water in the picture is a picture. With a wallet connected, a line of people walks from every
  * pool holding staking pay for it to the wallet's door. Trades, the venue's cut and pool fees are
  * NOT drawn yet: they need a trade feed the site does not have, and nothing here moves without
  * a read (hooks/useCityReads.ts).
@@ -53,6 +55,7 @@ function PlotCard({ plot, read, readAt }: { plot: Plot; read: PoolRead | undefin
   const chain = plot.chain && plot.chain in HARVEST_CHAIN_LABEL ? HARVEST_CHAIN_LABEL[plot.chain as HarvestChain] : null;
   return (
     <article className="c01-card" aria-live="polite" data-testid="city-card">
+      <img key={plot.id} className="c01-shot" src={closeUpSrc(plot.id)} alt={`${plot.name}, ${PIECE_NAME[plot.piece]}, close up`} width={1000} height={1250} decoding="async" />
       <span className="dwg-label dwg-t" data-t={PIECE_NAME[plot.piece]} aria-hidden="true" />
       <h2 className="dwg-name">{plot.name}</h2>
       {plot.kind === 'room' ? (
@@ -80,8 +83,8 @@ export default function CityPage() {
 
   const paying = useMemo(() => reads.pay.rooms.filter((id) => plan.byId.get(id)?.walk), [reads.pay.rooms, plan]);
   const data = useMemo<SceneData>(
-    () => ({ pools: reads.pools, paying: paying.map((roomId) => ({ roomId })), walletLit: reads.wallet !== 'none' }),
-    [reads.pools, paying, reads.wallet],
+    () => ({ paying: paying.map((roomId) => ({ roomId })), walletLit: reads.wallet !== 'none' }),
+    [paying, reads.wallet],
   );
   const plot = plan.byId.get(picked) ?? plan.plots[0]!;
 
@@ -114,7 +117,7 @@ export default function CityPage() {
               <button type="button" className="dwg-chip" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>Pause</button>
             </div>
             <FinePrint summary="How to read it" className="c01-fine">
-              <p>Water stands at the dollars in that coin’s market pool, read from GeckoTerminal. A dashed pool was not read.</p>
+              <p>Each room’s building wears its own art. Its card gives its pool’s dollars, read from GeckoTerminal, or says they were not read.</p>
               <p>People carrying baskets are staking pay, walking from a pool that holds some for the connected wallet to that wallet’s door.</p>
               <p>Trades, pool fees and the venue’s cut are not drawn yet.</p>
             </FinePrint>

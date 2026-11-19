@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { BUNGALOWS } from '../bungalows';
 import { cityRooms } from '../../hooks/useCityReads';
-import { Hr, NC, NR, PD, PW, SLOTS, SX, SY, VILLA_DECK, Vr, buildPlan, levelOf, walkAt, walkLength, type Room } from './plan';
+import { Hr, NC, NR, PD, PW, SLOTS, SX, SY, VILLA_DECK, Vr, buildPlan, walkAt, walkLength, type Room } from './plan';
 
 const rooms = cityRooms();
 const plan = buildPlan(rooms);
@@ -95,23 +95,6 @@ describe('the city plan', () => {
     }
     expect(wanted.size).toBeGreaterThan(0);
     expect(new Set(plan.zebras.map((z) => `${z.kind}${z.i}@${z.at.toFixed(2)}`))).toEqual(wanted);
-  });
-});
-
-describe('a pool level', () => {
-  it('rises with the dollars, never past the brim, and never below the bottom mark', () => {
-    let last = 0;
-    for (const usd of [1, 1_000, 30_000, 100_000, 380_000, 1_400_000, 5_000_000, 1e9]) {
-      const level = levelOf(usd);
-      expect(level).toBeGreaterThanOrEqual(last);
-      expect(level).toBeGreaterThanOrEqual(0.3);
-      expect(level).toBeLessThanOrEqual(0.95);
-      last = level;
-    }
-    expect(levelOf(1_400_000)).toBeGreaterThan(levelOf(100_000));
-  });
-  it('reads nonsense as the bottom mark, never as a number of its own', () => {
-    for (const usd of [0, -5, NaN, Infinity * 0]) expect(levelOf(usd)).toBe(0.3);
   });
 });
 

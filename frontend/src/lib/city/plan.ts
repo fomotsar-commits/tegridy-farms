@@ -120,7 +120,7 @@ export interface Room {
   accent: string;
 }
 
-/** How a pool is drawn: not read yet, read but with no dollar figure, or filled to its dollars. */
+/** What a read says of a room's market pool: not read yet, read but with no dollar figure, or its dollars. */
 export type PoolRead = { state: 'dry' } | { state: 'still' } | { state: 'level'; usd: number };
 
 export interface Pool {
@@ -130,7 +130,6 @@ export interface Pool {
   rw: number;
   rd: number;
   water: string;
-  read: PoolRead;
   lanes: boolean;
   jet: boolean;
   lilies: boolean;
@@ -232,15 +231,6 @@ const SHAPES: Record<PoolShape, () => Pt[]> = {
   fountain: () => ring(5.3, 3.05, 0.95, 0.95, 40, () => 1),
 };
 
-/**
- * How full a pool is drawn for its dollars, from 0.3 to 0.95 of its depth, on a log scale: about
- * $30K at the bottom mark and $2M at the brim. The same idea as the pools sheet's tank gauge.
- */
-export function levelOf(usd: number): number {
-  if (!(usd > 0)) return 0.3;
-  return 0.3 + 0.65 * Math.min(1, Math.max(0, (Math.log10(usd) - 4.5) / 1.8));
-}
-
 function makePool(pts: Pt[], water: string, o: { lanes?: boolean; jet?: boolean; lilies?: boolean }): Pool {
   const xs = pts.map((p) => p[0]);
   const ys = pts.map((p) => p[1]);
@@ -250,7 +240,7 @@ function makePool(pts: Pt[], water: string, o: { lanes?: boolean; jet?: boolean;
   const y1 = Math.max(...ys);
   return {
     pts, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rw: x1 - x0, rd: y1 - y0, water,
-    read: { state: 'dry' }, lanes: Boolean(o.lanes), jet: Boolean(o.jet), lilies: Boolean(o.lilies), seed: hash(x0 | 0, y0 | 0, 1),
+    lanes: Boolean(o.lanes), jet: Boolean(o.jet), lilies: Boolean(o.lilies), seed: hash(x0 | 0, y0 | 0, 1),
   };
 }
 

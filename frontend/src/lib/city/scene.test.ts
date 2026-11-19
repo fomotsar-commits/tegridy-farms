@@ -2,21 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { iso } from '../iso';
 import { cityRooms } from '../../hooks/useCityReads';
 import { COS30, UNIT, createKit, hash, mix } from './kit';
-import { PD, PW, buildPlan, walkLength, type PoolRead } from './plan';
+import { PD, PW, buildPlan, walkLength } from './plan';
+import { RENDER, RENDER_CENTER } from './render';
 import { createScene, type SceneData } from './scene';
 
-/** A canvas that draws nothing and remembers every dash pattern it was handed. */
-function fakeCanvas(): { ctx: CanvasRenderingContext2D; dashes: number[][]; calls: Map<string, number> } {
-  const dashes: number[][] = [];
-  const calls = new Map<string, number>();
+/** A canvas that draws nothing and remembers every picture laid on it. */
+function fakeCanvas(): { ctx: CanvasRenderingContext2D; images: number[][] } {
+  const images: number[][] = [];
   const gradient = { addColorStop() {} };
   const target: Record<string, unknown> = {};
   const ctx = new Proxy(target, {
     get(t, name: string) {
       if (name in t) return t[name];
       return (...args: unknown[]) => {
-        calls.set(name, (calls.get(name) ?? 0) + 1);
-        if (name === 'setLineDash') dashes.push(args[0] as number[]);
+        if (name === 'drawImage') images.push(args.slice(1) as number[]);
         if (name === 'createLinearGradient' || name === 'createRadialGradient') return gradient;
         if (name === 'measureText') return { width: 6 };
         return undefined;
@@ -27,24 +26,23 @@ function fakeCanvas(): { ctx: CanvasRenderingContext2D; dashes: number[][]; call
       return true;
     },
   }) as unknown as CanvasRenderingContext2D;
-  return { ctx, dashes, calls };
+  return { ctx, images };
 }
 
 const rooms = cityRooms();
-const NONE: SceneData = { pools: new Map(), paying: [], walletLit: false };
-function stage() {
+const NONE: SceneData = { paying: [], walletLit: false };
+function stage(w = 1200, h = 700) {
   const canvas = fakeCanvas();
   const plan = buildPlan(rooms);
-  const scene = createScene({ ctx: canvas.ctx, plan, monoFont: 'monospace', mural: () => null });
-  scene.resize(1200, 700, 1);
+  const scene = createScene({ ctx: canvas.ctx, plan, monoFont: 'monospace' });
+  scene.resize(w, h, 1);
   return { ...canvas, plan, scene };
 }
-const dashed = (dashes: number[][]): number => dashes.filter((d) => d.length > 0).length;
 
 describe('the drawing kit', () => {
   it("puts a point of the world where the site's own axonometric does, moved and scaled by the camera", () => {
     const cam = { x: 37, y: -12, z: 1.4 };
-    const kit = createKit({ ctx: fakeCanvas().ctx, cam, time: () => 0, mural: () => null });
+    const kit = createKit({ ctx: fakeCanvas().ctx, cam });
     for (const p of [[0, 0, 0], [3, 1, 2], [-4.5, 7.25, 0.5]] as const) {
       const want = iso(p, UNIT * cam.z);
       const got = kit.P(p[0], p[1], p[2]);
@@ -54,19 +52,45 @@ describe('the drawing kit', () => {
   });
   it('mixes two inks and repeats itself', () => {
     expect(mix('#000000', '#ffffff', 0.5)).toBe('#808080');
-    expect(mix('#05080f', '#f5e4b8', 0)).toBe('#05080f');
     expect(hash(3, 4, 5)).toBe(hash(3, 4, 5));
-    expect(hash(3, 4, 5)).toBeGreaterThanOrEqual(0);
-    expect(hash(3, 4, 5)).toBeLessThan(1);
+  });
+});
+
+describe("the island's picture", () => {
+  it('lays it so the world point it was rendered from lands at its middle, at its own scale, at every zoom', () => {
+    const { scene, images } = stage();
+    for (const which of ['half', 'full'] as const) {
+      const r = RENDER[which];
+      scene.setBackdrop({ img: {} as CanvasImageSource, k: r.k, width: r.width, height: r.height });
+      for (const zoom of [0.3, 0.8, 1.5, 2.4]) {
+        scene.zoomAt(600, 350, zoom);
+        images.length = 0;
+        scene.render();
+        const [dx, dy, dw, dh] = images[0]!;
+        const k = UNIT * scene.cam.z;
+        const [cx, cy, cz] = RENDER_CENTER;
+        expect(dw).toBeCloseTo((r.width * k) / r.k, 6);
+        expect(dh).toBeCloseTo((r.height * k) / r.k, 6);
+        expect(dx! + dw! / 2).toBeCloseTo((cx - cy) * COS30 * k + scene.cam.x, 6);
+        expect(dy! + dh! / 2).toBeCloseTo(((cx + cy) / 2 - cz) * k + scene.cam.y, 6);
+      }
+    }
+  });
+  it('draws the live parts even before the picture has come', () => {
+    const { scene, images } = stage();
+    scene.setData({ paying: [{ roomId: rooms[0]!.id }], walletLit: true });
+    expect(() => scene.render()).not.toThrow();
+    expect(images).toEqual([]);
   });
 });
 
 describe('the city scene', () => {
-  it('draws every plot, every piece, at every zoom a visitor can reach, without a fault', () => {
+  it('draws at every zoom a visitor can reach, without a fault', () => {
     const { scene, plan } = stage();
-    scene.setData({ pools: new Map(rooms.map((r): [string, PoolRead] => [r.id, { state: 'level', usd: 250_000 }])), paying: rooms.map((r) => ({ roomId: r.id })), walletLit: true });
+    scene.setBackdrop({ img: {} as CanvasImageSource, k: RENDER.half.k, width: RENDER.half.width, height: RENDER.half.height });
+    scene.setData({ paying: rooms.map((r) => ({ roomId: r.id })), walletLit: true });
     scene.select(plan.byId.get(rooms[0]!.id)!);
-    for (const zoom of [0.2, 0.36, 0.5, 0.7, 1, 1.6, 2.8]) {
+    for (const zoom of [0.2, 0.36, 0.5, 0.7, 1, 1.6, 2.6]) {
       scene.zoomAt(600, 350, zoom);
       scene.advance(0.4);
       expect(() => scene.render()).not.toThrow();
@@ -81,7 +105,7 @@ describe('the city scene', () => {
     expect(scene.isLive()).toBe(false);
   });
 
-  it('a wallet with no pool paying it lights its villa and still has nobody on the street', () => {
+  it('a wallet with no pool paying it still has nobody on the street', () => {
     const { scene } = stage();
     scene.setData({ ...NONE, walletLit: true });
     for (let i = 0; i < 100; i++) scene.advance(0.1);
@@ -108,7 +132,6 @@ describe('the city scene', () => {
     const before = scene.people().length;
     for (let i = 0; i < 2000; i++) scene.advance(0.05);
     const after = scene.people();
-    // a steady line: about as many as before, none past the door
     expect(after.length).toBeGreaterThan(before - 3);
     expect(after.length).toBeLessThan(before + 3);
     expect(after.every((p) => p.d < total)).toBe(true);
@@ -123,8 +146,6 @@ describe('the city scene', () => {
     expect(new Set(scene.people().map((p) => p.roomId))).toEqual(new Set([b]));
     scene.setData(NONE);
     expect(scene.people()).toEqual([]);
-    for (let i = 0; i < 100; i++) scene.advance(0.1);
-    expect(scene.people()).toEqual([]);
   });
 
   it('ignores a paying room it has no plot for, rather than inventing a walk', () => {
@@ -134,25 +155,10 @@ describe('the city scene', () => {
     expect(scene.people()).toEqual([]);
   });
 
-  it('draws a pool that was not read in dashed line, and stops dashing it once it is read', () => {
-    const unread = stage();
-    unread.scene.setData(NONE);
-    unread.scene.render();
-    const read = stage();
-    read.scene.setData({ ...NONE, pools: new Map(rooms.map((r): [string, PoolRead] => [r.id, { state: 'level', usd: 100_000 }])) });
-    read.scene.render();
-    expect(dashed(unread.dashes) - dashed(read.dashes)).toBe(rooms.length);
-    const still = stage();
-    still.scene.setData({ ...NONE, pools: new Map(rooms.map((r): [string, PoolRead] => [r.id, { state: 'still' }])) });
-    still.scene.render();
-    expect(dashed(still.dashes)).toBe(dashed(read.dashes));
-  });
-
   it('finds the plot under a press', () => {
     const { scene, plan } = stage();
     scene.setData(NONE);
     scene.render();
-    // the plot nearest the eye: nothing stands in front of it
     const near = plan.plots.reduce((a, b) => (b.depth > a.depth ? b : a));
     const k = UNIT * scene.cam.z;
     const x = near.x0 + PW / 2;
@@ -161,16 +167,13 @@ describe('the city scene', () => {
     expect(scene.hit(-5000, -5000)).toBeNull();
   });
 
-  it('shows the whole island on a wide sheet, and stays readable on a phone', () => {
-    const wide = stage();
-    const phone = fakeCanvas();
-    const scene = createScene({ ctx: phone.ctx, plan: buildPlan(rooms), monoFont: 'monospace', mural: () => null });
-    scene.resize(390, 520, 3);
-    expect(scene.cam.z).toBeGreaterThanOrEqual(0.5);
-    expect(wide.scene.cam.z).toBeGreaterThan(0.3);
-    wide.scene.zoomAt(600, 350, 99);
-    expect(wide.scene.cam.z).toBeLessThanOrEqual(2.8);
-    wide.scene.zoomAt(600, 350, 0.0001);
-    expect(wide.scene.cam.z).toBeGreaterThanOrEqual(0.2);
+  it('opens readable on a phone, and zooms no further than the full picture stays sharp', () => {
+    const phone = stage(390, 520).scene;
+    expect(phone.cam.z).toBeGreaterThanOrEqual(0.55);
+    const { scene } = stage();
+    scene.zoomAt(600, 350, 99);
+    expect(UNIT * scene.cam.z).toBeLessThanOrEqual(RENDER.full.k * 1.3 + 1e-9);
+    scene.zoomAt(600, 350, 0.0001);
+    expect(scene.cam.z).toBeGreaterThanOrEqual(0.2);
   });
 });

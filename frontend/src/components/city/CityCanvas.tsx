@@ -7,10 +7,10 @@
 // still scrolls under the pointer.
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { muralOf } from '../../lib/isoMural';
 import { reducedMotion } from '../../lib/heat/ticks';
 import { createScene, type Scene, type SceneData } from '../../lib/city/scene';
 import type { Plan } from '../../lib/city/plan';
+import { RENDER } from '../../lib/city/render';
 import { useOffScreenPause } from '../dwg/offScreen';
 
 export interface CityHandle {
@@ -44,22 +44,29 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    // Each room's own picture, for its walls: the one its house wears on Earn (lib/isoMural.ts).
-    const pictures = new Map<string, HTMLImageElement>();
     const monoFont = getComputedStyle(canvas).getPropertyValue('--font-family-mono').trim() || 'monospace';
-    const scene = createScene({ ctx, plan, monoFont, mural: (id) => pictures.get(id) ?? null });
+    const scene = createScene({ ctx, plan, monoFont });
     sceneRef.current = scene;
-    for (const plot of plan.plots) {
-      const src = plot.mural ? muralOf(plot.mural, 480)?.src : undefined;
-      if (!src) continue;
+    // The island's picture: the half-size one at once, the full one as soon as the half-size one
+    // would be soft on this screen, counting its device pixels (lib/city/render.ts).
+    let full: 'no' | 'loading' | 'in' = 'no';
+    const load = (which: 'half' | 'full'): void => {
+      const r = RENDER[which];
       const img = new Image();
       img.decoding = 'async';
       img.onload = () => {
-        pictures.set(plot.mural!, img);
-        scene.markDirty();
+        if (which === 'half' && full === 'in') return;
+        if (which === 'full') full = 'in';
+        scene.setBackdrop({ img, k: r.k, width: r.width, height: r.height });
       };
-      img.src = src;
-    }
+      img.src = r.src;
+    };
+    load('half');
+    const sharpen = (): void => {
+      if (full !== 'no' || scene.pixelsPerUnit() * Math.min(2, window.devicePixelRatio || 1) <= RENDER.half.k) return;
+      full = 'loading';
+      load('full');
+    };
 
     const size = (): void => {
       const r = canvas.getBoundingClientRect();
@@ -141,8 +148,9 @@ export const CityCanvas = forwardRef<CityHandle, Props>(function CityCanvas({ pl
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
       scene.flyStep(now);
+      sharpen();
       // Reduced motion, a pause, or off screen: the clock stops, and the sheet is redrawn only when something changed.
-      const moving = !still.current && !reducedMotion();
+      const moving = !still.current && !reducedMotion() && scene.isLive();
       if (moving) scene.advance(dt);
       if (moving || scene.isDirty()) scene.render();
     };

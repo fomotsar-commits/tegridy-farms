@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-18
 
-- New page, /city: the island drawn as a city. Every room is a building wrapped in its own art, with its pool beside it, filled to the dollars in its coin's market pool; a pool that was not read is dashed. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
+- New page, /city: the island at night, rendered in 3D. Every room is a building wrapped in its own art, with its pool beside it; tap one to see it close up, with its pool's dollars. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
 - Pools, your positions: a share in a pool of two island coins (BIG BRAIN/BAYLA, BRAINLET/SOY and the like) now shows what it earned, and Claim fees, with no press. A pool opened on this site used to read "changed this pool in more than one way at once" and show no figures; and only your first two shares worked out their earnings by themselves, so a pool listed below them needed a press first. Every share now works its earnings out by itself, one after another, top first.
 - NFT loans: WETH amounts are written from your side of the loan. What you pay, owe or put up is rounded up at the digits shown (the wrap and approve buttons, the offer you sign, what repaying costs, the venue's share of the interest, the wall's LOAN tag, the Lend card's line about who would buy the NFT), and what you receive or are owed is cut. The borrow tab's Largest figure shows four decimals, like the offer card under it.
 - Lock-ladder pools: the early-exit and emergency penalties and the minimum stake are rounded up at the digits shown, never down.
