@@ -694,11 +694,10 @@ describe('your positions', () => {
     expect(rows[1]!.textContent).toContain('Out of range (the price is below it): earning nothing until the price comes back into it.');
     expect(rows[1]!.textContent).toContain('could not be worked out just now; Collect pays them in full all the same');
     expect(card.textContent).toContain(`A position (${key(99).toBase58()}) could not be read just now`);
-    // Collect asks for a take-out of nothing; Close for the closing.
+    // Collect asks for a take-out of nothing, with no Review press (one press); Close for the closing.
     const claim = within(rows[0]!).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((claim as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(claim);
-    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Review: collect' }));
     await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0 });
   });
@@ -751,10 +750,33 @@ describe('your positions', () => {
     const collect = within(row).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(collect);
-    expect(within(row).getByText('Pays out what it has earned. The liquidity stays in.')).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole('button', { name: 'Review: collect' }));
     await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0, position: new PublicKey(w.position.address) });
+    // Refused before the wallet: Start over closes the panel (the positions are read again), and
+    // the row's Collect is the one press again.
+    expect(await within(row).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'not-sent');
+    fireEvent.click(within(row).getByRole('button', { name: 'Start over' }));
+    const again = await within(await screen.findByTestId('range-position')).findByRole('button', { name: 'Collect' });
+    await waitFor(() => expect((again as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(again);
+    await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(2));
+  });
+
+  it('Collect with no wallet that can sign yet opens its panel and waits: its one button says it opens the wallet', async () => {
+    // A wallet that is connected but cannot sign.
+    wallet.publicKey = ME;
+    wallet.signTransaction = undefined;
+    const rp = poolOn(tier(), { rewards: REWARD });
+    const api = fakeApi();
+    const w = positionOf({ n: 7, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 5n, fee1: 0n } }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }), api);
+    const row = await screen.findByTestId('range-position');
+    const collect = within(row).getByRole('button', { name: 'Collect' });
+    await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(collect);
+    expect(within(row).getByText('Pays out what it has earned. The liquidity stays in.')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Open my wallet to collect' })).toBeDisabled();
+    expect(api.prepareRangeRemove).not.toHaveBeenCalled();
   });
 
   it('a pool that runs no reward says so, never a bare 0', async () => {

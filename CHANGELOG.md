@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-19
 
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
+- Pools, your positions: Claim fees is one press. It test-runs the claim and opens your wallet when the test passes, with the claim's figures on screen beside it; it used to take Claim fees, then Review, then Sign in wallet. Collect on a range position works the same way. Remove liquidity, Close and every add still show a review first.
 
 ### 2026-11-18
 
