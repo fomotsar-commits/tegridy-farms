@@ -7,9 +7,13 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-18
+### 2026-11-19
 
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
+
+### 2026-11-18
+
+- New page, /city: the island at night, rendered in 3D. Every room is a building wrapped in its own art, with its pool beside it; tap one to see it close up, with its pool's dollars. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
 - Pools, your positions: a share in a pool of two island coins (BIG BRAIN/BAYLA, BRAINLET/SOY and the like) now shows what it earned, and Claim fees, with no press. A pool opened on this site used to read "changed this pool in more than one way at once" and show no figures; and only your first two shares worked out their earnings by themselves, so a pool listed below them needed a press first. Every share now works its earnings out by itself, one after another, top first.
 - NFT loans: WETH amounts are written from your side of the loan. What you pay, owe or put up is rounded up at the digits shown (the wrap and approve buttons, the offer you sign, what repaying costs, the venue's share of the interest, the wall's LOAN tag, the Lend card's line about who would buy the NFT), and what you receive or are owed is cut. The borrow tab's Largest figure shows four decimals, like the offer card under it.
 - Lock-ladder pools: the early-exit and emergency penalties and the minimum stake are rounded up at the digits shown, never down.
@@ -23,6 +27,7 @@ The site's Changelog tab shows both files.
 
 - Earn, the drawing of the island's houses: a press on a house, or on the ground just around it, now enters that house's bungalow, as its door on the front page does; it used to open the pool. On a phone the drawing has a row of its own under the title, whole and the width of the screen, where it used to sit behind the word Earn, cut off at the edge, with seven of its eleven houses out of reach. On a touch screen a tap no longer lifts a roof first, which on an iPhone or iPad could swallow the tap.
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
+- Solana and Phantom's warnings (Phantom support's answer of 2026-11-16): Claim all asks your wallet once per claim, and Buy all on the island order once per coin, never several on one approval. Every claim, stake and exit on a staking pool, and every DCA or limit order, is now test-run before your wallet is asked; when the test run fails or cannot finish, or your wallet lacks the SOL for the network fee and any account rent (it says how much), your wallet is not asked at all. Your wallet only signs, and this site sends.
 - Amounts you receive, are owed or hold are cut at the digits shown, never rounded up: Harvest's vault line, the wallet board's balance, stake and earned rows, the dashboard and its position alerts, the Ethereum swap's You receive and Min. Received, limit and TWAP orders, liquidity, staking, referrals, receipts, Premium's Your Balance and the Solana basket's coin figures.
 - Amounts you pay are rounded up at the digits shown, never down: the early-exit penalty and the rewards an exit gives up, mint and upload prices, DCA totals, the Solana and Ethereum baskets' totals, an NFT pool's Total Cost and Protocol Fee, Premium's prices, Total Cost and Approve, what a receipt says you paid, a CoW order's sell amount, the LP farm's minimum stake, and the Solana curve's You pay, You sell and a buy's trade fee.
 - Dashboard: with the TOWELI reward reserve empty, the claim button now says before you press that a claim pays 0 until it is refilled, and neither Towelie nor the position alerts tell you to claim.

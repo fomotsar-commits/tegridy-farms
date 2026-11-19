@@ -31,6 +31,7 @@ import './styles/dwg.css';
 import './styles/dwg-pools.css';
 import './styles/dwg-staking.css';
 import './styles/dwg-loans.css';
+import './styles/dwg-city.css';
 import App from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { installGlobalHandlers } from './lib/errorReporting';

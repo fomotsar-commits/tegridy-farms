@@ -21,7 +21,7 @@ const evm = vi.hoisted(() => ({
   switchTo: vi.fn(),
   refetch: vi.fn(),
 }));
-const sol = vi.hoisted(() => ({ read: vi.fn(), together: vi.fn() }));
+const sol = vi.hoisted(() => ({ read: vi.fn() }));
 
 vi.mock('../../hooks/useEvmHarvest', () => ({
   useEvmHarvest: () => ({ ...evm.state, send: evm.send, together: evm.together, switchTo: evm.switchTo, refetch: evm.refetch }),
@@ -29,8 +29,6 @@ vi.mock('../../hooks/useEvmHarvest', () => ({
 // The Solana half's reads and claims; loaded by the card only once a Solana address is there.
 vi.mock('../../lib/harvest/solana', () => ({
   readSolanaHarvest: sol.read,
-  sendClaimsTogether: sol.together,
-  signsAll: (s: { signAllTransactions?: unknown }) => (typeof s?.signAllTransactions === 'function' ? s : null),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
 // The pool reads Harvest shares with the dashboard's board (lib/wallet/heldReads.ts).
@@ -51,14 +49,13 @@ const ONE_BY_ONE = { ethereum: false, base: false };
 
 const solClaim = (key: string, send: SolanaClaim['send']): SolanaClaim => ({
   key, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: 'on 1,000 BAYLA staked',
-  amountRaw: 12_500_000n, decimals: 6, caution: null, send, build: vi.fn(), refused: vi.fn(),
+  amountRaw: 12_500_000n, decimals: 6, caution: null, send,
 });
 
 beforeEach(() => {
   evm.state = { address: null, chain: null, plan: null, batchable: ONE_BY_ONE };
   evm.send.mockReset();
   evm.together.mockReset().mockReturnValue(null);
-  sol.together.mockReset();
   evm.switchTo.mockReset();
   evm.refetch.mockReset();
   sol.read.mockReset();
@@ -408,31 +405,30 @@ describe('Harvest card', () => {
     expect((screen.getByRole('button', { name: 'Nothing to claim' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('a Solana wallet that signs several at once: one prompt for every Solana claim, and the claims’ own sends are never used', async () => {
+  // Phantom, ticket #467471 (2026-11-16): one approval per transaction. Until 11-17 a
+  // Solana wallet that signs several at once got every Solana claim on ONE prompt, and
+  // Phantom may block a request carrying two or more transactions outright.
+  it('a Solana wallet that could sign several at once is still asked once per claim, each claim its own send', async () => {
     const signer = { name: 'the top bar’s wallet', publicKey: 'PK', signAllTransactions: vi.fn() };
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
     sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send), solClaim('sf:2', send), solClaim('ladder:1', send)], held: [], unread: [] });
-    sol.together.mockImplementation(async (cs: SolanaClaim[], _w: unknown, settle: (k: string, r: ClaimResult) => void) => {
-      for (const c of cs) settle(c.key, { kind: 'claimed', tx: `SIG-${c.key}` });
-      return 'done';
-    });
     const owner = {};
     act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
     try {
       show();
+      expect(await screen.findByText('Your wallet asks 3 times.')).toBeTruthy();
       fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 3 claims' }));
       await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
-      expect(sol.together).toHaveBeenCalledTimes(1);
-      expect((sol.together.mock.calls[0]![0] as SolanaClaim[]).map((c) => c.key)).toEqual(['sf:1', 'sf:2', 'ladder:1']);
-      expect(sol.together.mock.calls[0]![1]).toBe(signer);
-      expect(send).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledTimes(3);
+      for (const call of send.mock.calls as unknown[][]) expect(call[0]).toBe(signer);
+      expect(signer.signAllTransactions).not.toHaveBeenCalled();
       expect(screen.getByRole('status').textContent).toBe('Done: 3 claimed.');
     } finally {
       act(() => setSolanaSurface(owner, null));
     }
   });
 
-  it('says how many times the wallet will ask before the press: once when it signs them together', async () => {
+  it('says how many times the wallet will ask before the press: once per Solana claim, whatever the wallet can do', async () => {
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
     sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send), solClaim('sf:2', send)], held: [], unread: [] });
     const owner = {};
@@ -440,8 +436,7 @@ describe('Harvest card', () => {
     try {
       show();
       await screen.findByRole('button', { name: 'Harvest all · 2 claims' });
-      expect(screen.getByText('Your wallet asks once.')).toBeTruthy();
-      // The same claims, with a wallet that signs one at a time.
+      expect(screen.getByText('Your wallet asks 2 times.')).toBeTruthy();
       act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: { signTransaction: vi.fn() } }, true));
       expect(screen.getByText('Your wallet asks 2 times.')).toBeTruthy();
     } finally {

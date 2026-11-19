@@ -102,6 +102,7 @@ describe('which word is lit', () => {
     // The island's own pages, which the drawer's Island row owned until 2026-10-18.
     ['/island', '', 'Island'],
     ['/gallery', '', 'Island'],
+    ['/city', '', 'Island'],
     ['/community', '', 'Island'],
     ['/tokenomics', '', 'Island'],
     ['/earn', '', 'Earn'],
