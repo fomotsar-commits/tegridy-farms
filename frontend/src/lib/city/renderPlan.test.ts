@@ -20,7 +20,8 @@ import { RENDER, RENDER_CENTER, RENDER_K, RENDER_SPAN } from './render';
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'city-render', 'plan.json');
 
 const r4 = (n: number): number => Math.round(n * 1e4) / 1e4;
-const pt = (p: readonly number[]): number[] => p.map(r4);
+/** A point as written to the file: a walk point's height is there only when the walk climbs. */
+const pt = (p: readonly (number | undefined)[]): number[] => p.flatMap((n) => (n === undefined ? [] : [r4(n)]));
 
 function renderPlan() {
   const plan = buildPlan(cityRooms());
