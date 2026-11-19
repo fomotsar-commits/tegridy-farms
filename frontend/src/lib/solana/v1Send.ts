@@ -1,6 +1,7 @@
 // A version 1 transaction (SIMD-0385) the site built itself, for a wallet that signs one:
-// the steps between "these instructions" and "these signed bytes may be sent", shared by
-// the BAYLA staking card (lib/ladder/write.ts) and Claim all (lib/harvest/solana.ts).
+// the steps between "these instructions" and "these signed bytes may be sent", used by
+// every write with no review screen (lib/solana/walletWrite.ts: the BAYLA ladder, the
+// lighthouse pools, each claim of Claim all).
 //
 // Phantom's answer on ticket #455104 (2026-11-05), and its recipe "Send a Solana v1
 // transaction": the compute and loaded-account-data limits in the message's config, a
@@ -43,51 +44,78 @@ const WALLET_ADDITIONS = new Set(['L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95',
 
 type SimConn = Pick<Connection, 'simulateTransaction'>;
 
-export type TestRun = { ok: boolean; err: unknown; logs: string[]; unitsConsumed?: number; loadedAccountsDataSize?: number };
+/**
+ * A test run's answer. `payerLamportsAfter`: the payer's SOL after the run, when it was
+ * asked for (the SOL check, lib/solana/walletWrite.ts) and the node reported it.
+ */
+export type TestRun = { ok: boolean; err: unknown; logs: string[]; unitsConsumed?: number; loadedAccountsDataSize?: number; payerLamportsAfter?: bigint };
+
+/** The payer's lamports in a run's `accounts` answer (asked for as one address, base64), or undefined. */
+function payerLamportsOf(accounts: unknown): bigint | undefined {
+  if (!Array.isArray(accounts) || accounts.length !== 1) return undefined;
+  const a = accounts[0] as { lamports?: unknown } | null;
+  // An account the run left with nothing comes back as null.
+  if (a === null) return 0n;
+  return typeof a?.lamports === 'number' && Number.isSafeInteger(a.lamports) ? BigInt(a.lamports) : undefined;
+}
 
 /**
- * A test run of version 1 bytes, signature checks off, the blockhash as given. web3.js 1.98
+ * A test run of the bytes, signature checks off, the blockhash as given. web3.js 1.98
  * cannot parse a version 1 message, so it gets the same stand-in the pool writes give it
  * (write/prepare.ts `asWire`): off anything with a `message` it reads only `serialize()`.
- * Throws when the node did not answer: that is no verdict.
+ * `payer`: also read the payer's SOL after the run. Throws when the node did not answer:
+ * that is no verdict, and the caller stops (Phantom, ticket #467471: never ask a wallet
+ * when the final test run "fails or cannot complete").
  */
-async function testRun(conn: SimConn, bytes: Uint8Array): Promise<TestRun> {
+export async function testRun(conn: SimConn, bytes: Uint8Array, payer?: PublicKey): Promise<TestRun> {
   const wire = { message: null, serialize: () => bytes } as unknown as VersionedTransaction;
-  const r = await conn.simulateTransaction(wire, { sigVerify: false, replaceRecentBlockhash: false, commitment: 'confirmed' });
+  const r = await conn.simulateTransaction(wire, {
+    sigVerify: false,
+    replaceRecentBlockhash: false,
+    commitment: 'confirmed',
+    ...(payer ? { accounts: { encoding: 'base64' as const, addresses: [payer.toBase58()] } } : {}),
+  });
   const v = r?.value as (typeof r.value & { loadedAccountsDataSize?: unknown }) | undefined;
   if (!v || typeof v !== 'object') throw new Error('the test run returned nothing');
+  const after = payer ? payerLamportsOf((v as { accounts?: unknown }).accounts) : undefined;
   return {
     ok: v.err === null || v.err === undefined,
     err: v.err ?? null,
     logs: Array.isArray(v.logs) ? v.logs : [],
     unitsConsumed: typeof v.unitsConsumed === 'number' ? v.unitsConsumed : undefined,
     loadedAccountsDataSize: typeof v.loadedAccountsDataSize === 'number' ? v.loadedAccountsDataSize : undefined,
+    ...(after !== undefined ? { payerLamportsAfter: after } : {}),
   };
 }
 
+/** A node behind the blockhash it just handed out: no verdict on the transaction. */
+export const laggedRun = (run: TestRun): boolean => run.err === 'BlockhashNotFound';
+
 /**
  * The unsigned bytes to put to the wallet, or why not. Pass 1 measures the units and the
- * bytes loaded at the ceiling; pass 2 test-runs the final bytes. `refusedRun`: a test run
- * refused it, so no wallet is asked; the caller says why in its own words. A run the node
- * did not answer is no verdict: the bytes go at what is known (the ceiling, untested), and
- * the first send's preflight is the network's own check, as it was before these writes
- * had test runs of their own.
+ * bytes loaded at the ceiling; pass 2 test-runs the final bytes and reads the payer's SOL
+ * after it (`finalRun`). `refusedRun`: a test run refused it, so no wallet is asked; the
+ * caller says why in its own words. `noAnswer`: a run the node did not answer, or a node
+ * behind its own blockhash, is no verdict, so no wallet is asked either (until 2026-11-17
+ * the bytes then went untested and the first send's preflight was the only check; Phantom's
+ * answer on ticket #467471 asks for a stop instead).
  */
 export async function prepareV1(
   conn: SimConn,
   owner: PublicKey,
   instructions: readonly TransactionInstruction[],
   lifetime: { blockhash: string; lastValidBlockHeight: number },
-): Promise<{ bytes: Uint8Array; tested: boolean } | { refusedRun: TestRun } | { tooLarge: true }> {
+): Promise<{ bytes: Uint8Array; finalRun: TestRun } | { refusedRun: TestRun } | { tooLarge: true } | { noAnswer: true }> {
   const build = (config: typeof CEILING) => assembleV1(owner, lifetime.blockhash, lifetime.lastValidBlockHeight, config, instructions);
-  const fits = (bytes: Uint8Array, tested: boolean) => (bytes.length > V1_TX_SIZE_LIMIT ? { tooLarge: true as const } : { bytes, tested });
   const sizingBytes = build(CEILING);
+  if (sizingBytes.length > V1_TX_SIZE_LIMIT) return { tooLarge: true };
   let sizing: TestRun;
   try {
     sizing = await testRun(conn, sizingBytes);
   } catch {
-    return fits(sizingBytes, false);
+    return { noAnswer: true };
   }
+  if (laggedRun(sizing)) return { noAnswer: true };
   if (!sizing.ok) return { refusedRun: sizing };
   const bytes = build({
     computeUnitLimit: v1ComputeLimit(sizing.unitsConsumed),
@@ -95,13 +123,15 @@ export async function prepareV1(
     priorityFeeLamports: 0n,
   });
   if (bytes.length > V1_TX_SIZE_LIMIT) return { tooLarge: true };
+  let finalRun: TestRun;
   try {
-    const final = await testRun(conn, bytes);
-    if (!final.ok) return { refusedRun: final };
+    finalRun = await testRun(conn, bytes, owner);
   } catch {
-    return { bytes, tested: false };
+    return { noAnswer: true };
   }
-  return { bytes, tested: true };
+  if (laggedRun(finalRun)) return { noAnswer: true };
+  if (!finalRun.ok) return { refusedRun: finalRun };
+  return { bytes, finalRun };
 }
 
 /** Our instructions, by program, accounts and data, in order: what a wallet may not change. */

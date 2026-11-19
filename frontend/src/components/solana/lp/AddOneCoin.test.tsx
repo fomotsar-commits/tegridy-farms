@@ -56,6 +56,13 @@ const wallet = vi.hoisted(() => ({
 }));
 const conn = vi.hoisted(() => ({ connection: { rpcEndpoint: 'fake' } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => conn }));
+// The final test run and SOL check before the wallet serialize the transaction, which web3
+// cannot do under jsdom (its Uint8Array is another realm's): here they pass, and they are
+// pinned for real under node (lib/solana/swap/walletSwapSend.test.ts, lib/solana/walletWrite.test.ts).
+vi.mock('../../../lib/solana/walletWrite', async (orig) => ({
+  ...(await orig<typeof import('../../../lib/solana/walletWrite')>()),
+  testBeforeWallet: async () => ({ ok: true, before: 1_000_000_000n, fee: 5_000n, run: { ok: true, err: null, logs: [] } }),
+}));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 // The sheet's green button connects a wallet when none is: the press is seen here.
 const connect = vi.hoisted(() => ({ open: vi.fn() }));
@@ -492,9 +499,13 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
   });
 
   describe('on a route whose transaction cannot take the site fee (BAYLA’s pump.fun route, the 6014 retry)', () => {
-    // An empty v0 transaction, as Jupiter's build hands one back (made under node: web3 cannot serialize under jsdom).
-    const NO_FEE_TX =
-      'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAAAQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcAAA==';
+    // An empty v0 transaction, as Jupiter's build hands one back (made under node: web3 cannot serialize under jsdom),
+    // paid by the connected wallet as Jupiter builds it for `user`: its fee payer, at byte 70, is OWNER.
+    const NO_FEE_TX = (() => {
+      const b = Uint8Array.from(atob('AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAAAQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcAAA=='), (c) => c.charCodeAt(0));
+      b.set(OWNER.toBytes(), 70);
+      return btoa(String.fromCharCode(...b));
+    })();
     const SIXTY_FOURTEEN: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
     beforeEach(() => {
       jup.carries = true;

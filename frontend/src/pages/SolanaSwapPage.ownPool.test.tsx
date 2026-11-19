@@ -198,6 +198,15 @@ vi.mock('../lib/solana/swap/walletSwapSend', async (importOriginal) => {
   const viaWallet: typeof real.sendWalletSwap = (d, tx, a) => real.sendWalletSwap({ ...d, sign: undefined }, tx, a);
   return { ...real, sendWalletSwap: viaWallet };
 });
+// Since 2026-11-17 the very bytes handed to the wallet are test-run, and its SOL read, before
+// it is asked (Phantom, ticket #467471: lib/solana/walletWrite.ts testBeforeWallet). That run
+// serializes Jupiter's transaction, which web3 cannot do under jsdom either, so here it stands
+// in as a run that passes with SOL to spare. It is pinned for real under node in
+// lib/solana/swap/walletSwapSend.test.ts and lib/solana/walletWrite.test.ts.
+vi.mock('../lib/solana/walletWrite', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/solana/walletWrite')>()),
+  testBeforeWallet: async () => ({ ok: true, before: 5_000_000_000n, fee: 5_000n, run: { ok: true, err: null, logs: [] } }),
+}));
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
