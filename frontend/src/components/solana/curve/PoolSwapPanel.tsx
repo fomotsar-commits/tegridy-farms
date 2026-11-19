@@ -98,8 +98,8 @@ export function PoolSwapPanel({
     return quoteOwnPool(p.snapshot, p.ammConfig, (side === 'buy' ? WSOL_MINT : mint).toBase58(), raw, nowSecs);
   }, [p, raw, side, mint]);
 
-  const tok = (v: bigint) => {
-    const f = formatTokenAmount(v, decimals);
+  const tok = (v: bigint, up = false) => {
+    const f = formatTokenAmount(v, decimals, 4, { up });
     return f.isBaseUnits ? `${f.text} (base units)` : f.text;
   };
   const out = (v: bigint) => (side === 'buy' ? tok(v) : `${formatSol(v)} SOL`);
@@ -192,9 +192,9 @@ export function PoolSwapPanel({
               <Row label="You receive at least" value={floor === null ? 'set a tolerance' : out(floor)} />
               <Row
                 label="Pool fee (inside what you pay)"
-                value={side === 'buy' ? `${formatSol(quote.result.tradeFee)} SOL` : tok(quote.result.tradeFee)}
+                value={side === 'buy' ? `${formatSol(quote.result.tradeFee, 4, { up: true })} SOL` : tok(quote.result.tradeFee, true)}
               />
-              <PoolCreatorFeeRow quote={quote} buying={side === 'buy'} sol={(v) => `${formatSol(v)} SOL`} tok={tok} />
+              <PoolCreatorFeeRow quote={quote} buying={side === 'buy'} sol={(v) => `${formatSol(v, 4, { up: true })} SOL`} tok={(v) => tok(v, true)} />
               <ImpactRows bps={fractionToBps(quote.priceImpact)} />
               {floor === 0n && (
                 <Notice tone="warn">

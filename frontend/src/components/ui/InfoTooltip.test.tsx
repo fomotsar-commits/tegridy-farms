@@ -120,6 +120,21 @@ describe('HowItWorks', () => {
 });
 
 describe('StepIndicator', () => {
+  // jsdom lays nothing out: the fit itself is measured in e2e/phone-layout.spec.ts. This pins
+  // what makes it hold in any row: a step and its pill may shrink, and the name truncates.
+  it('lets a step be narrower than its name, so a tight row cuts the name and never the page', () => {
+    const { container } = render(<StepIndicator steps={['Wrap ETH', 'Approve WETH', 'Sign Offer']} currentStep={1} />);
+    const pills = [...container.querySelectorAll('[data-step]')];
+    expect(pills.map((p) => p.getAttribute('data-step'))).toEqual(['done', 'now', 'next']);
+    for (const pill of pills) {
+      expect(pill.className.split(/\s+/)).toContain('min-w-0');
+      expect(pill.parentElement!.className.split(/\s+/)).toContain('min-w-0');
+      expect(pill.lastElementChild!.className.split(/\s+/)).toContain('truncate');
+    }
+    // The step's number keeps its width while the name gives way.
+    expect(pills[1]!.firstElementChild!.className.split(/\s+/)).toContain('flex-shrink-0');
+  });
+
   it('shows correct step states', () => {
     render(<StepIndicator steps={['Approve', 'Stake', 'Done']} currentStep={1} />);
     expect(screen.getByText('Approve')).toBeInTheDocument();

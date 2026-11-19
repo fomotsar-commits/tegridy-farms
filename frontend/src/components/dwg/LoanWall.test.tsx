@@ -47,6 +47,16 @@ describe('the wall on the Lend tab (L-01)', () => {
     expect(wall(over.container).getAttribute('data-zone')).toBe('over-floor');
   });
 
+  it('tags the loan with what the lender puts up, rounded up from the exact wei, to scale or not', () => {
+    // 0.03 WETH and one wei is a float of 0.03: only the exact wei carried to the tag rounds it up to 0.0301.
+    const loanTag = (c: HTMLElement) => c.querySelector('.l01-tag[data-k="loan"]')!.getAttribute('data-v');
+    const scaled = render(<LoanWall collection={col} market={market()} loading={false} principalWei={parseEther('0.03') + 1n} shares={[]} />);
+    expect(loanTag(scaled.container)).toBe('0.0301');
+    scaled.unmount();
+    const nts = render(<LoanWall collection={col} market={market({ floor: null })} loading={false} principalWei={parseEther('0.030049')} shares={[]} />);
+    expect(loanTag(nts.container)).toBe('0.0301');
+  });
+
   it('names the picked collection whole on its wall label: name, ticker and the whole address', () => {
     const picked = COLLECTIONS[1]!;
     const { container } = render(<LoanWall collection={picked.address} market={market()} loading={false} principalWei={null} shares={[]} />);

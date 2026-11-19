@@ -265,7 +265,7 @@ function AddInner({
           problemText = `This needs up to ${coinExact(problem.need, coin)} and your wallet has ${coinExact(have, coin)}.`;
           if (have > 0n) fix = { label: `Use ${coinExact(have, coin)}`, run: () => setDriving('quote', have) };
         } else {
-          problemText = `This needs up to ${tok(problem.need)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'quote' ? coin.symbol : 'token'} amount, or use the most both balances allow.`;
+          problemText = `This needs up to ${tokensAbout(problem.need, decimals, true)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'quote' ? coin.symbol : 'token'} amount, or use the most both balances allow.`;
           const most = problem.mostBoth;
           if (most !== null && most > 0n) fix = { label: 'Use the most both balances allow', run: () => setDriving(typed.side, most) };
         }
@@ -478,7 +478,7 @@ function AddInner({
               {tokenFee && (
                 <Row
                   label="The token’s own transfer fee"
-                  value={`about ${tok(tokOf(plan).fee)} of those (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool gets the rest`}
+                  value={`about ${tokensAbout(tokOf(plan).fee, decimals, true)} of those (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool gets the rest`}
                   mono={false}
                 />
               )}
