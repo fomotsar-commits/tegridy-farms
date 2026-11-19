@@ -131,6 +131,17 @@ export interface Beam {
 }
 /** A picture ready to be laid on a wall. `null` until it has loaded, or if it never does. */
 export type Mural = (id: string) => HTMLImageElement | null;
+/**
+ * One picture laid round a whole building: it covers the building from `z0` to `z1`, and `run`
+ * round, the near walls of its widest storey end to end. Each wall shows its own part of it.
+ */
+export interface MuralWrap {
+  /** The room whose picture it is. */
+  id: string;
+  z0: number;
+  z1: number;
+  run: number;
+}
 
 export interface KitEnv {
   ctx: CanvasRenderingContext2D;
@@ -269,6 +280,34 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     ctx.stroke();
   }
   /**
+   * How far a building's pictures are lifted toward full light, 0 to 1. A picked building shows
+   * its picture as a house on Earn does when pointed at: undimmed.
+   */
+  let lift = 0;
+  const dimmed = (d: number): number => d * (1 - 0.85 * lift);
+  function setLift(t: number): void {
+    lift = Math.max(0, Math.min(1, t));
+  }
+  /**
+   * Part of a picture laid on one wall: the source rectangle (sx, sy, sw, sh) sheared onto the
+   * wall's face, never squeezed when the rectangle has the wall's own proportions. `bleed` carries
+   * the picture a little past the wall's right edge, so the next strip of a round wall leaves no seam.
+   */
+  function pictureOn(f: Wall, img: HTMLImageElement, sx: number, sy: number, sw: number, sh: number, bleed = 0): void {
+    if (!(sw > 0) || !(sh > 0)) return;
+    const TL = fp(f, 0, 1);
+    const TR = fp(f, 1 + bleed, 1);
+    const BL = fp(f, 0, 0);
+    const BR = fp(f, 1 + bleed, 0);
+    const w = sw * (1 + bleed);
+    ctx.save();
+    path([TL, TR, BR, BL]);
+    ctx.clip();
+    ctx.transform((TR[0] - TL[0]) / w, (TR[1] - TL[1]) / w, (BL[0] - TL[0]) / sh, (BL[1] - TL[1]) / sh, TL[0], TL[1]);
+    ctx.drawImage(img, sx, sy, w, sh, 0, 0, w, sh);
+    ctx.restore();
+  }
+  /**
    * A room's own picture on one wall: the slice from `s0` to `s1` of its width, sheared onto the
    * wall and never squeezed, then dimmed. Earn's houses wear the same picture the same way
    * (components/farm/IsoBungalow.tsx): one picture wrapped round the two near walls.
@@ -276,10 +315,6 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
   function muralOn(f: Wall, id: string, s0: number, s1: number, dim: number): void {
     const img = mural(id);
     if (!img) return;
-    const TL = fp(f, 0, 1);
-    const TR = fp(f, 1, 1);
-    const BL = fp(f, 0, 0);
-    const BR = fp(f, 1, 0);
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
     const sw = (s1 - s0) * iw;
@@ -287,13 +322,76 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     let sy = 0;
     if (sh > ih) sh = ih;
     else sy = (ih - sh) * 0.3;
-    ctx.save();
-    path([TL, TR, BR, BL]);
-    ctx.clip();
-    ctx.transform((TR[0] - TL[0]) / sw, (TR[1] - TL[1]) / sw, (BL[0] - TL[0]) / sh, (BL[1] - TL[1]) / sh, TL[0], TL[1]);
-    ctx.drawImage(img, s0 * iw, sy, sw, sh, 0, 0, sw, sh);
-    ctx.restore();
-    fillP([TL, TR, BR, BL], `rgba(5,8,15,${dim})`);
+    pictureOn(f, img, s0 * iw, sy, sw, sh);
+    fillP(fq(f, 0, 0, 1, 1), `rgba(5,8,15,${dimmed(dim)})`);
+  }
+  /**
+   * Where a building's picture sits on it: one picture covers the building from `z0` to `z1` and
+   * `run` round (its widest storey's near walls, end to end), cropped like object-fit: cover and
+   * never squeezed. Every wall then shows the part of the picture in front of it.
+   */
+  function cropOf(img: HTMLImageElement, wrap: MuralWrap): { k: number; ox: number; oy: number } {
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const k = Math.min(iw / wrap.run, ih / (wrap.z1 - wrap.z0));
+    return { k, ox: (iw - wrap.run * k) / 2, oy: (ih - (wrap.z1 - wrap.z0) * k) * 0.3 };
+  }
+  /** One storey's near walls, left to right on the sheet, each showing its own part of the building's picture. */
+  function wrapWalls(walls: readonly Wall[], wrap: MuralWrap, dims: readonly number[]): void {
+    const img = mural(wrap.id);
+    if (!img) return;
+    const { k, ox, oy } = cropOf(img, wrap);
+    let at = (wrap.run - walls.reduce((sum, f) => sum + f.len, 0)) / 2;
+    walls.forEach((f, i) => {
+      pictureOn(f, img, ox + at * k, oy + (wrap.z1 - (f.o[2] + f.h)) * k, f.len * k, f.h * k);
+      fillP(fq(f, 0, 0, 1, 1), `rgba(5,8,15,${dimmed(dims[i] ?? 0.4)})`);
+      at += f.len;
+    });
+  }
+  /**
+   * The building's picture round a drum, from `z0` up `h`: its near half shows the part of the
+   * picture that faces you, laid in narrow strips, lit on the left as the drum itself is. `tint`
+   * washes it with a colour, so a banded tower keeps its bands.
+   */
+  function wrapDrum(cx: number, cy: number, r: number, z0: number, h: number, wrap: MuralWrap | undefined, strips = 16, tint?: string): void {
+    if (!wrap) return;
+    const img = mural(wrap.id);
+    if (!img) return;
+    const { k, ox, oy } = cropOf(img, wrap);
+    const arc = Math.PI * r;
+    const at = (wrap.run - arc) / 2;
+    const step = arc / strips;
+    // left of the sheet is the bearing 3/4 of a half turn; right is a quarter turn back
+    const bearing = (i: number): number => 0.75 * Math.PI - (i / strips) * Math.PI;
+    for (let i = 0; i < strips; i++) {
+      const a0 = bearing(i);
+      const a1 = bearing(i + 1);
+      const f: Wall = { o: [cx + r * Math.cos(a0), cy + r * Math.sin(a0), z0], a: [r * (Math.cos(a1) - Math.cos(a0)), r * (Math.sin(a1) - Math.sin(a0))], h, len: step };
+      pictureOn(f, img, ox + (at + i * step) * k, oy + (wrap.z1 - (z0 + h)) * k, step * k, h * k, i < strips - 1 ? 0.2 : 0);
+    }
+    // one shade over the whole near face, so the strips read as one curved wall
+    const [ax, ay] = P(cx, cy, z0);
+    const [bx, by] = P(cx, cy, z0 + h);
+    const rx = r * 1.2247 * K();
+    const ry = r * 0.7071 * K();
+    ctx.beginPath();
+    ctx.moveTo(ax - rx, ay);
+    ctx.ellipse(ax, ay, rx, ry, 0, Math.PI, 0, true);
+    ctx.lineTo(bx + rx, by);
+    ctx.ellipse(bx, by, rx, ry, 0, 0, Math.PI, false);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(ax - rx, 0, ax + rx, 0);
+    g.addColorStop(0, `rgba(5,8,15,${dimmed(0.2)})`);
+    g.addColorStop(1, `rgba(5,8,15,${dimmed(0.56)})`);
+    ctx.fillStyle = g;
+    ctx.fill();
+    if (tint) {
+      ctx.fillStyle = tint;
+      ctx.fill();
+    }
+    ctx.strokeStyle = ink(0.5);
+    ctx.lineWidth = LW();
+    ctx.stroke();
   }
   interface HutOpts {
     /** Where the picture turns the corner, as a part of its width. */
@@ -301,14 +399,17 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     /** The roof slab's colour. */
     t?: string;
     upright?: boolean;
+    /** This block is one storey of a building wrapped in one picture. */
+    wrap?: MuralWrap;
   }
   /** A boarded block in a room's colour. `muralId` wraps that room's picture round its two near walls. */
   function hutBox(x: number, y: number, w: number, d: number, h: number, z0: number, acc: string, muralId?: string | null, o: HutOpts = {}): BoxFaces {
     const f = box(x, y, w, d, h, z0, { l: wallL(acc), r: wallR(acc), t: o.t ?? WOOD_D });
-    if (muralId) {
+    if (o.wrap) wrapWalls([f.L, f.R], o.wrap, [0.24, 0.46]);
+    else if (muralId) {
       const sp = o.split ?? 0.6;
-      muralOn(f.L, muralId, 0, sp, 0.3);
-      muralOn(f.R, muralId, sp, 1, 0.52);
+      muralOn(f.L, muralId, 0, sp, 0.24);
+      muralOn(f.R, muralId, sp, 1, 0.46);
     }
     boards(f.L, o.upright);
     boards(f.R, o.upright);
@@ -317,7 +418,7 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     return f;
   }
   /** A straight-sided block turned to any angle. Returns its two near walls, the left one first. */
-  function rbox(cx: number, cy: number, w: number, d: number, ang: number, z0: number, h: number, acc: string, muralId?: string | null): Wall[] {
+  function rbox(cx: number, cy: number, w: number, d: number, ang: number, z0: number, h: number, acc: string, wrap?: MuralWrap): Wall[] {
     const c = Math.cos(ang);
     const s = Math.sin(ang);
     const corners: Pt[] = ([[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]] as const).map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
@@ -343,10 +444,7 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     for (const f of walls) face(fq(f, 0, 0, 1, 1), mix(wallR(acc), wallL(acc), Math.round(Math.max(0, f.lit) * 4) / 4), 0);
     face(corners.map((p) => P(p[0], p[1], z0 + h)), WOOD_D, 0.5);
     walls.sort((a, b) => a.across - b.across);
-    if (muralId && walls.length === 2) {
-      muralOn(walls[0]!, muralId, 0, 0.6, 0.3);
-      muralOn(walls[1]!, muralId, 0.6, 1, 0.52);
-    }
+    if (wrap) wrapWalls(walls, wrap, walls.map((f) => 0.46 - Math.max(0, f.lit) * 0.22));
     for (const f of walls) {
       boards(f);
       outline(f);
@@ -807,7 +905,7 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
     seg(P(end[0], y0, end[1]), P(end[0], y1, end[1]), ink(0.6), LW() * 1.3);
   }
   /** A bamboo gridshell dome. You see through it to its far side. */
-  function gridDome(cx: number, cy: number, r: number, z: number, s: number, col: string, members = 13): void {
+  function gridDome(cx: number, cy: number, r: number, z: number, s: number, col: string, members = 13, part: 'back' | 'front' | 'all' = 'all'): void {
     const [ax, ay] = P(cx, cy, z);
     const k = K();
     const rx = r * 1.2247 * k;
@@ -821,13 +919,15 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
       ctx.moveTo(ax - rx, ay);
       ctx.ellipse(ax, ay, rx, hy, 0, Math.PI, 0, false);
     };
-    silhouette();
-    ctx.ellipse(ax, ay, rx, ry, 0, 0, Math.PI, false);
-    ctx.closePath();
-    ctx.fillStyle = g;
-    ctx.fill();
+    if (part !== 'front') {
+      silhouette();
+      ctx.ellipse(ax, ay, rx, ry, 0, 0, Math.PI, false);
+      ctx.closePath();
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
     if (cam.z > 0.3) {
-      for (const near of [false, true]) {
+      for (const near of part === 'all' ? [false, true] : [part === 'front']) {
         for (const turn of [1, -1]) {
           for (let j = 0; j < members; j++) {
             let prev: Pt | null = null;
@@ -847,6 +947,7 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
         }
       }
     }
+    if (part === 'back') return;
     silhouette();
     ctx.strokeStyle = ink(0.4);
     ctx.lineWidth = LW();
@@ -952,7 +1053,7 @@ export function createKit({ ctx, cam, time, mural }: KitEnv) {
   return {
     ctx, cam, time, K, LW, P, P3of, lerp,
     path, fillP, face, seg, line, dot, glow, beams, flushGlows,
-    fp, fq, quad, outline, box, stoneBox, hutBox, rbox, win, shut, panes, door, ladder,
+    fp, fq, quad, outline, box, stoneBox, hutBox, rbox, wrapWalls, wrapDrum, setLift, win, shut, panes, door, ladder,
     fringe, roofP, hip, butterfly,
     cyl, drum, cone, ellipseG, thatchCone, tiltCone,
     post, deck, stilts, rail, steps, torch, flag, stones, palm,

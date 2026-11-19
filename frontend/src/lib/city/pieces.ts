@@ -2,15 +2,17 @@
 // timber, shell), and each plot ONE idea: a saddle of thatch, a bamboo gridshell, a lattice
 // hourglass. Never a generic hut, never a city tower (owner, 2026-11-18).
 //
-// Every room's building wears that room's own picture on its two near walls, as its house does
-// on Earn, and carries the lock ladder. Each piece sets `plot.top`, its roof, so the scene knows
+// Every room's building is wrapped in that room's own picture, the one its house wears on Earn:
+// every block, every storey and every round wall shows its own part of the one picture, so it
+// reads as one building wearing its art (owner, 2026-11-18). It also carries the lock ladder.
+// Each piece sets `plot.top`, its roof, so the scene knows
 // where to hang its plaque. Nothing here reads anything: what moves is ornament (a lamp's sweep,
 // a roof on its ropes), and anything that would state a figure waits for lib/city/scene.ts.
 
 import type { P3, Pt } from '../iso';
 import {
   AQUA, BAMBOO, BG, BRASS, GLASS, GLOW, HOT, INK, RED, SLATE, SLATE_E, SPOT, STONE, STONE_D, STONE_L, TAU, THATCH, THATCHED, TIN, VIOLET, WOOD, WOOD_D, WOOD_L, ZP,
-  alpha, bil, hash, ink, mix, shellOf, type Kit,
+  alpha, bil, hash, ink, mix, shellOf, type Kit, type MuralWrap,
 } from './kit';
 import { PD, PW, VILLA_DECK, type PieceId, type Plot } from './plan';
 
@@ -26,11 +28,13 @@ export interface PieceEnv {
 export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) => void> {
   const {
     ctx, cam, time, K, LW, P, P3of, lerp, path, face, seg, dot, glow, beams,
-    fp, fq, quad, outline, box, stoneBox, hutBox, rbox, win, shut, panes, door, ladder, hip, butterfly,
+    fp, fq, quad, outline, box, stoneBox, hutBox, rbox, wrapDrum, win, shut, panes, door, ladder, hip, butterfly,
     cyl, drum, ellipseG, tiltCone, post, deck, stilts, rail, steps, torch, flag, palm,
     hypar, umbrella, sweepX, gridDome, hyperboloid, helixOn, petal,
   } = kit;
   const lit = (seed: number, p = 0.7): boolean => hash(seed, 5, 2) < p;
+  /** One picture round a room's whole building, from `z0` to `z1` and `run` round its widest storey. */
+  const wrapOf = (b: Plot, z0: number, z1: number, run: number): MuralWrap | undefined => (b.mural ? { id: b.mural, z0, z1, run } : undefined);
   const water = (b: Plot): string => b.pool?.water ?? AQUA;
 
   /** The keeper's white van, parked. */
@@ -220,18 +224,20 @@ export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) =
     slouch(b) {
       const { X, Y, acc } = b;
       const k = K();
-      const s1 = rbox(X + 1.3, Y + 1.5, 2.3, 1.9, 0, ZP, 1.0, acc, b.mural);
-      quad(s1[0]!, 0.4, 0, 0.56, 0.72, BG, 0.8);
+      // one picture round all three slabs, each showing the part of it at its own height
+      const art = wrapOf(b, ZP, ZP + 2.34, 4.2);
+      const s1 = rbox(X + 1.3, Y + 1.5, 2.3, 1.9, 0, ZP, 1.0, acc, art);
+      quad(s1[0]!, 0.42, 0, 0.56, 0.68, BG, 0.8);
       glow(fp(s1[0]!, 0.48, 0), 1.4, GLOW, 0.3);
       ladder(X + 0.3, Y + 2.47, 0.9);
-      const s2 = rbox(X + 1.65, Y + 1.4, 2.6, 1.45, -0.24, ZP + 1.0, 0.72, acc);
-      quad(s2[0]!, 0.07, 0.3, 0.93, 0.7, GLOW, 0.5);
-      quad(s2[1]!, 0.12, 0.3, 0.88, 0.7, GLASS, 0.5);
+      const s2 = rbox(X + 1.65, Y + 1.4, 2.6, 1.45, -0.24, ZP + 1.0, 0.72, acc, art);
+      quad(s2[0]!, 0.07, 0.42, 0.93, 0.6, GLOW, 0.5);
+      quad(s2[1]!, 0.12, 0.42, 0.88, 0.6, GLASS, 0.5);
       seg(P(X + 3.45, Y + 2.5, ZP), P(X + 3.0, Y + 1.9, ZP + 1.72), STONE_L, Math.max(1.2, 0.06 * k));
-      const s3 = rbox(X + 1.95, Y + 1.3, 3.0, 1.1, -0.52, ZP + 1.72, 0.62, acc);
-      quad(s3[0]!, 0.06, 0.28, 0.94, 0.72, GLOW, 0.5);
-      quad(s3[1]!, 0.15, 0.28, 0.85, 0.72, GLOW, 0.5);
-      if (cam.z > 0.5) for (const s of [s2, s3]) for (let i = 1; i < 8; i++) seg(fp(s[0]!, 0.07 + (0.86 * i) / 8, 0.29), fp(s[0]!, 0.07 + (0.86 * i) / 8, 0.71), 'rgba(5,8,15,.8)', 1);
+      const s3 = rbox(X + 1.95, Y + 1.3, 3.0, 1.1, -0.52, ZP + 1.72, 0.62, acc, art);
+      quad(s3[0]!, 0.06, 0.4, 0.94, 0.6, GLOW, 0.5);
+      quad(s3[1]!, 0.15, 0.4, 0.85, 0.6, GLOW, 0.5);
+      if (cam.z > 0.5) for (const s of [s2, s3]) for (let i = 1; i < 8; i++) seg(fp(s[0]!, 0.07 + (0.86 * i) / 8, 0.42), fp(s[0]!, 0.07 + (0.86 * i) / 8, 0.6), 'rgba(5,8,15,.8)', 1);
       glow(fp(s3[0]!, 0.5, 0.5), 2.2, GLOW, 0.22);
       const aerial = P(X + 2.2, Y + 1.1, ZP + 2.34);
       seg(aerial, [aerial[0], aerial[1] - 0.9 * k], ink(0.7), 1);
@@ -250,10 +256,12 @@ export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) =
       glow(P(X + 1.6, Y + 1.45, ZP + 0.6), 2.2, GLOW, 0.3);
       post(X + 2.65, Y + 2.4, ZP, z1, 0.05, STONE_L);
       seg(P(X + 0.2, Y + 3.0, ZP), P(X + 1.3, Y + 2.62, z1), ink(0.7), Math.max(1, 0.05 * k));
-      hutBox(X + 0.3, Y + 0.25, 2.6, 2.4, 0.95, z1, acc, b.mural, { t: STONE });
+      // one picture round both storeys; the seam of light cuts across it
+      const art = wrapOf(b, z1, z1 + 1.99, 5.0);
+      hutBox(X + 0.3, Y + 0.25, 2.6, 2.4, 0.95, z1, acc, null, { t: STONE, wrap: art });
       box(X + 0.4, Y + 0.35, 2.4, 2.2, 0.09, z1 + 0.95, { l: HOT, r: GLOW, t: GLOW }, 0.2);
       glow(P(X + 1.6, Y + 2.55, z1 + 1.0), 2.4, GLOW, 0.3);
-      const up = hutBox(X + 0.3, Y + 0.25, 2.6, 2.4, 0.95, z1 + 1.04, acc, null, { t: STONE });
+      const up = hutBox(X + 0.3, Y + 0.25, 2.6, 2.4, 0.95, z1 + 1.04, acc, null, { t: STONE, wrap: art });
       quad(up.L, 0.62, 0.28, 0.86, 0.72, GLOW, 0.6);
       quad(up.R, 0.4, 0.28, 0.6, 0.72, GLASS, 0.6);
       ladder(X + 0.42, Y + 2.67, 0.9, z1);
@@ -261,14 +269,20 @@ export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) =
       b.top = ZP + 3.4;
     },
 
-    /* DRB. The Gridshell: a dome woven from bamboo. No walls, no columns, a fire in the middle, its far side showing through. */
+    /* DRB. The Gridshell: a dome woven from bamboo, no columns, its far side showing through. Inside it a round room wrapped in DRB's picture, with a fire on its roof. */
     gridshell(b) {
       const { X, Y, cx, cy, acc } = b;
       const k = K();
+      const floor = ZP + 0.14;
+      const room = 1.02;
+      const roomTop = floor + 0.8;
       cyl(cx, cy, 1.6, ZP, 0.14, STONE, STONE_D, { top: mix(BG, acc, 0.22) });
-      cyl(cx, cy, 0.22, ZP + 0.14, 0.2, HOT, GLOW, { top: HOT, edge: 0.3 });
-      glow(P(cx, cy, ZP + 0.5), 2.6, '#ffb347', 0.4);
-      gridDome(cx, cy, 1.52, ZP + 0.14, 0.98, BAMBOO);
+      gridDome(cx, cy, 1.52, floor, 0.98, BAMBOO, 13, 'back');
+      drum(cx, cy, room, floor, roomTop - floor, acc, { top: STONE_D });
+      wrapDrum(cx, cy, room, floor, roomTop - floor, wrapOf(b, floor, roomTop, Math.PI * room));
+      cyl(cx, cy, 0.22, roomTop, 0.2, HOT, GLOW, { top: HOT, edge: 0.3 });
+      glow(P(cx, cy, roomTop + 0.3), 2.6, '#ffb347', 0.4);
+      gridDome(cx, cy, 1.52, floor, 0.98, BAMBOO, 13, 'front');
       const eye = P(cx, cy, ZP + 0.14 + 1.52 * 0.98);
       ctx.beginPath();
       ctx.ellipse(eye[0], eye[1] + 0.05 * k, 0.3 * k, 0.16 * k, 0, 0, TAU);
@@ -369,10 +383,13 @@ export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) =
       const z1 = z0 + H;
       const rAt = (zz: number): number => 0.74 - (Math.max(0, Math.min(H, zz - z0)) / H) * 0.3;
       cyl(cx, cy, 1.3, ZP, 0.32, STONE, STONE_D, { top: STONE_L });
+      // the whole tower wrapped in BAYLA's picture; the cream bands keep a cream wash, so it still reads banded
+      const art = wrapOf(b, z0, z1, Math.PI * rAt(z0));
       for (let i = 0; i < 6; i++) {
         const za = z0 + (H * i) / 6;
         if (i % 2) cyl(cx, cy, rAt(za), za, H / 6, mix(BG, INK, 0.62), mix(BG, INK, 0.3), { noTop: true, rings: true });
         else drum(cx, cy, rAt(za), za, H / 6, acc, { noTop: true });
+        wrapDrum(cx, cy, rAt(za), za, H / 6, art, 16, i % 2 ? 'rgba(245,228,184,.2)' : undefined);
       }
       const turns = 2.25;
       const a0 = 0.5;
@@ -556,15 +573,17 @@ export function makePieces(kit: Kit, env: PieceEnv): Record<PieceId, (b: Plot) =
       const k = K();
       const cx = X + 1.6;
       const cy = Y + 1.5;
-      const s1 = rbox(cx - 0.05, cy + 0.15, 1.05, 0.95, 0.12, ZP, 0.9, acc);
-      quad(s1[0]!, 0.3, 0, 0.7, 0.78, BG, 0.8);
+      // one picture down all three blocks, the biggest on top showing the top of it
+      const art = wrapOf(b, ZP, ZP + 2.95, 4.4);
+      const s1 = rbox(cx - 0.05, cy + 0.15, 1.05, 0.95, 0.12, ZP, 0.9, acc, art);
+      quad(s1[0]!, 0.38, 0, 0.62, 0.7, BG, 0.8);
       glow(fp(s1[0]!, 0.5, 0), 1.3, GLOW, 0.3);
       ladder(cx - 0.5, cy + 0.66, 0.8);
-      const s2 = rbox(cx + 0.1, cy + 0.02, 1.6, 1.4, -0.2, ZP + 0.9, 0.85, acc);
-      quad(s2[0]!, 0.3, 0.28, 0.7, 0.74, lit(33) ? GLOW : GLASS, 0.6);
-      quad(s2[1]!, 0.3, 0.28, 0.7, 0.74, GLASS, 0.6);
+      const s2 = rbox(cx + 0.1, cy + 0.02, 1.6, 1.4, -0.2, ZP + 0.9, 0.85, acc, art);
+      quad(s2[0]!, 0.4, 0.32, 0.6, 0.68, lit(33) ? GLOW : GLASS, 0.6);
+      quad(s2[1]!, 0.4, 0.32, 0.6, 0.68, GLASS, 0.6);
       for (const [gx, gy, tx, ty] of [[X - 0.1, Y + 2.75, X + 0.75, Y + 2.2], [X + 3.25, Y + 2.3, X + 2.6, Y + 1.9]] as const) seg(P(gx, gy, ZP), P(tx, ty, ZP + 1.75), STONE_L, Math.max(1.1, 0.055 * k));
-      rbox(cx - 0.05, cy - 0.05, 2.35, 2.05, 0.15, ZP + 1.75, 1.2, acc, b.mural);
+      rbox(cx - 0.05, cy - 0.05, 2.35, 2.05, 0.15, ZP + 1.75, 1.2, acc, art);
       const zt = ZP + 2.95;
       const foot = P(cx + 0.35, cy + 0.3, zt);
       seg(foot, P(cx + 0.35, cy + 0.3, zt + 0.35), ink(0.7), 1);

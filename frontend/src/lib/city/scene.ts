@@ -457,7 +457,10 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     }
   }
   function drawBuilding(b: Plot): void {
+    // the picked building's picture is shown undimmed, as a house on Earn is when pointed at
+    kit.setLift(selected === b ? 1 : 0);
     pieces[b.piece](b);
+    kit.setLift(0);
     hits.push({
       plot: b,
       hull: convexHull([
