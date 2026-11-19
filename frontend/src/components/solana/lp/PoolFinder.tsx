@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -447,13 +447,18 @@ export function PoolFinder({
     },
     [lookUp, task, canAdd],
   );
-  // Create and Add: the tokens and the address box come onto the screen under the three
-  // buttons (on a phone they start at its foot). Remove: the section goes to the positions.
-  // With a token already answered on the page (a ?mint= link, which is how a wallet app's
-  // own browser arrives, or an earlier lookup), Create and Add go straight to its form:
-  // the answer is on the page (or on its way), so nothing is read again. The card says
+  // Create and Add: the tokens and the address box come onto the screen, only as far as they
+  // are not on it yet, so the pressed button stays under the pointer. Remove: the section goes
+  // to the positions. With a token already answered on the page (a ?mint= link, or an earlier
+  // lookup), Create and Add go straight to its form, and nothing is read again. The card says
   // which token that is before the press, by where its address is, never by its name.
-  const tasksRef = useRef<HTMLDivElement>(null);
+  const nextRef = useRef<HTMLFormElement>(null);
+  // Measured after the press's own line is drawn above the tokens, not before it: measured
+  // before, the line pushed Find pools under a phone's bottom bar.
+  const [bringNext, setBringNext] = useState(0);
+  useLayoutEffect(() => {
+    if (bringNext) nextRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [bringNext]);
   const answered = state.status === 'idle' ? null : state.mint;
   const choose = useCallback(
     (t: LpTask) => {
@@ -466,7 +471,10 @@ export function PoolFinder({
         wishes.current += 1;
         setUnfound(null);
         setWish({ task: t, mint: answered, n: wishes.current });
-      } else tasksRef.current?.scrollIntoView?.({ block: 'start' });
+      } else {
+        // The address box sits under the tokens, so with it on the screen the tokens are too.
+        setBringNext((n) => n + 1);
+      }
     },
     [onRemove, answered, canAdd],
   );
@@ -498,7 +506,7 @@ export function PoolFinder({
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
         {tasks.length > 0 && (
-          <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2">
+          <div data-testid="lp-tasks" className="space-y-2">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
               {tasks.map((t, k) => (
                 <button
@@ -548,6 +556,7 @@ export function PoolFinder({
           </div>
         )}
         <form
+          ref={nextRef}
           onSubmit={(e) => {
             e.preventDefault();
             submit();

@@ -168,7 +168,7 @@ describe('the whole review', () => {
     const { container } = render(<TxReview prepared={prepared} decimals={null} display={(s) => s} />);
     const t = (container.textContent ?? '').replace(/\s+/g, ' ');
     expect(t).toContain('Review your swap');
-    expect(t).toMatch(/One-time deposit for your new token account \(it stays in that account\) ?0\.002 SOL/);
+    expect(t).toMatch(/One-time deposit for your new token account \(it stays in that account\) ?0\.00207408 SOL/);
     expect(t).toMatch(/Test run: your SOL changes by ?-0\.102 SOL/);
     expect(t).toMatch(/Test run: your tokens change by ?\+9,802\.9604/);
   });

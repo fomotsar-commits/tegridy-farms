@@ -632,6 +632,18 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
   });
 
+  // 40,117,440 lamports: what the five accounts keep at today's rent. The opening form and its
+  // disclosure round that cost up to 0.0402 SOL; the rates card says it the same way.
+  it('the deposits that never come back read 0.0402 SOL in the opening line and in the tier’s detail', async () => {
+    const split = splitFeeTiers();
+    if (split.kind !== 'ok') throw new Error('the recording did not read');
+    mount(readers({ feeTiers: vi.fn(async () => ({ ...split, openingDeposits: 40_117_440n })) }), '/pools');
+    const rates = await card();
+    expect(within(rates).getByTestId('lp-open-cost').textContent).toBe("Open a pool: 0.15 SOL + 0.0402 SOL setup + the share's name record, not refunded.");
+    const detail = within(rates).getAllByTestId('fee-tier-detail').find((d) => d.dataset.index === '1')!;
+    expect(detail).toHaveTextContent('0.15 SOL fee, plus about 0.0402 SOL of account deposits that are never refunded');
+  });
+
   it('each number is the tier’s as read: another tier 1, other numbers and other sentences', async () => {
     const other = recordedFeeTiers();
     if (other.kind !== 'ok') throw new Error('the recording did not read');

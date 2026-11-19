@@ -24,6 +24,7 @@ describe('the island lobby doors', () => {
     );
     const artOf = (name: RegExp) =>
       screen.getByRole('link', { name }).querySelector('[data-art]')?.getAttribute('data-art');
+    expect(artOf(/^City/), 'a slot of its own, never one a retired door held (2 or 4)').toBe('island:6');
     expect(artOf(/^Gallery/)).toBe('island:1');
     expect(screen.queryByRole('link', { name: /^Marketplace/ }), 'no door to the marketplace').toBeNull();
     expect(artOf(/^Community/)).toBe('island:3');

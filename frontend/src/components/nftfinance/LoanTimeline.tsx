@@ -10,7 +10,7 @@
 // from Gondi's own arithmetic (lib/gondi/loanMath.ts).
 import { useId, useState } from 'react';
 import { dayOf, lifeFraction, reminderMarks, scrubStep } from '../../lib/gondi/timeline';
-import { fmtWeth, formatDue, formatDuration } from './nftLendingShared';
+import { fmtWeth, fmtWethUp, formatDue, formatDuration } from './nftLendingShared';
 import { useDrawWidth } from '../../hooks/useDrawWidth';
 import { fitCentred, monoWidth } from '../../lib/markLabels';
 
@@ -68,7 +68,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
 
   const headline =
     side === 'borrower'
-      ? `Repay ${fmtWeth(cost.total, 6)} WETH`
+      ? `Repay ${fmtWethUp(cost.total, 6)} WETH`
       : `You keep ${fmtWeth(interestKept > 0n ? interestKept : 0n, 6)} WETH`;
   const when = `${exact ? '' : 'about '}${formatDue(at)}`;
   const valueText = `Day ${day} of ${of}, ${when}: ${headline}`;
@@ -177,8 +177,8 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
             ? `Repay before this moment. From then, the lender can take ${nft}.`
             : `Not repaid by now: you own ${nft}, and no interest.`
           : side === 'borrower'
-          ? `${fmtWeth(cost.interest, 6)} WETH of that is interest. Drag to try another day.`
-          : `The venue keeps ${fmtWeth(cost.toVenue, 6)} WETH of the interest. Drag to try another day.`}
+          ? `${fmtWethUp(cost.interest, 6)} WETH of that is interest. Drag to try another day.`
+          : `The venue keeps ${fmtWethUp(cost.toVenue, 6)} WETH of the interest. Drag to try another day.`}
       </p>
     </div>
   );
