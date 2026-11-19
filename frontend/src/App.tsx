@@ -58,6 +58,8 @@ const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
 // The Island lobby: cards, not tabs. See IslandPage.tsx for why.
 const IslandPage = lazy(() => import('./pages/IslandPage'));
+// The island drawn as a city, on one canvas: its own chunk, fetched only by a visitor to /city.
+const CityPage = lazy(() => import('./pages/CityPage'));
 // Docs for the keyed /api/v1 layer, rendered from api/_lib/apiTiers.js and
 // /api/v1?route=status, so it cannot claim what is not configured.
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
@@ -350,6 +352,7 @@ function AnimatedRoutes() {
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
         <Route path="island" element={<Suspense fallback={<PageSkeleton />}><IslandPage /></Suspense>} />
+        <Route path="city" element={<Suspense fallback={<PageSkeleton />}><CityPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
         <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
