@@ -41,6 +41,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  fmtWethUp,
   formatDue,
   formatDuration,
   nowSeconds,
@@ -170,7 +171,7 @@ function LoanTotals({
   const tiles = unread
     ? [{ label: 'Totals', value: 'Unavailable' }]
     : [
-        ...(owe > 0n ? [{ label: 'You owe now', value: `${fmtWeth(owe)} WETH` }] : []),
+        ...(owe > 0n ? [{ label: 'You owe now', value: `${fmtWethUp(owe)} WETH` }] : []),
         ...(owed > 0n ? [{ label: 'Owed to you now', value: `${fmtWeth(owed)} WETH` }] : []),
         ...(nextDue !== null ? [{ label: 'Next due', value: formatDue(nextDue) }] : []),
       ];
@@ -328,7 +329,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       loanDueIcs({
         loanId: row.loanId,
         title: `Repay loan #${row.loanId} or lose ${nft}`,
-        description: `Loan #${row.loanId}: about ${fmtWeth(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
+        description: `Loan #${row.loanId}: about ${fmtWethUp(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
         dueSeconds: Number(end),
         nowSeconds: Number(nowSeconds()),
       }),
@@ -365,7 +366,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       </div>
 
       <div data-dwg="sum">
-        <p className="text-white text-xl font-semibold">{fmtWeth(loan.principalAmount)} WETH</p>
+        <p className="text-white text-xl font-semibold">{(isBorrower ? fmtWethUp : fmtWeth)(loan.principalAmount)} WETH</p>
         <p className="text-white/70 text-[11px]">Loan amount</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-dwg="perf">
@@ -431,12 +432,12 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
         <div className="rounded-lg p-2 text-center" data-dwg="owed" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
           <p className="text-white/70 text-[11px]">{isBorrower ? 'To repay now' : 'Owed to you now'}</p>
           <p className="text-emerald-400 text-[13px] font-semibold">
-            {fmtWeth(isBorrower ? owedNow.total : owedNow.toLenders, 6)} WETH
+            {(isBorrower ? fmtWethUp : fmtWeth)(isBorrower ? owedNow.total : owedNow.toLenders, 6)} WETH
           </p>
           <FinePrint summary="Where it goes">
             <p>
-              {fmtWeth(loan.principalAmount, 6)} WETH back to the lender, plus {fmtWeth(owedNow.interest, 6)} WETH interest so far. The venue keeps{' '}
-              {bpsToPercent(Number(loan.protocolFee))}% of the interest ({fmtWeth(owedNow.toVenue, 6)} WETH); the lender gets the rest.
+              {(isBorrower ? fmtWethUp : fmtWeth)(loan.principalAmount, 6)} WETH back to the lender, plus {(isBorrower ? fmtWethUp : fmtWeth)(owedNow.interest, 6)} WETH interest so far. The venue keeps{' '}
+              {bpsToPercent(Number(loan.protocolFee))}% of the interest ({fmtWethUp(owedNow.toVenue, 6)} WETH); the lender gets the rest.
             </p>
           </FinePrint>
         </div>
@@ -460,7 +461,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
           {busy
             ? 'Confirm in Wallet...'
             : repayStep === 'wrap'
-            ? `Wrap ${fmtWeth(wethShort!)} ETH to WETH`
+            ? `Wrap ${fmtWethUp(wethShort!)} ETH to WETH`
             : repayStep === 'approve'
             ? 'Approve WETH to repay'
             : repayStep === 'repay'
@@ -572,7 +573,7 @@ function MyOfferRow({ row }: { row: BookOffer }) {
     <div className="rounded-xl p-3 flex items-center justify-between gap-3" data-dwg="offer-row" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <div className="min-w-0">
         <p className="text-white text-[13px] font-semibold">
-          {fmtWeth(BigInt(o.principalAmount))} WETH · {bpsToPercent(Number(o.aprBps))}% · {formatDuration(Number(o.duration))}
+          {fmtWethUp(BigInt(o.principalAmount))} WETH · {bpsToPercent(Number(o.aprBps))}% · {formatDuration(Number(o.duration))}
         </p>
         <p className="text-white/70 text-[11px] truncate">{isWholeCollectionOffer(o) ? `${symbol} · any NFT` : `${symbol} #${o.nftCollateralTokenId}`}</p>
         <p className="text-white/70 text-[11px] truncate">{taken}open until {formatDue(BigInt(o.expirationTime))}</p>

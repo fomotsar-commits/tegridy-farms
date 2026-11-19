@@ -22,7 +22,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWholeNumberCut, formatWei } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWholeNumberCut, formatWei, toFixedUp } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -84,6 +84,10 @@ const VALID_DASH_TABS: DashTab[] = ['overview', 'positions', 'loans', 'rewards']
 // dashboard:15-25 are the notice and status cards, 26-29 the four projection tiles
 // (the horizons below; idx wraps if a horizon is added).
 const PROJECTION_ART_SLOTS = 4;
+// The empty-reserve warning under each Claim button sits on the stat strip's dark plate with
+// the page's amber warning border, so it reads over light art and wraps inside a phone.
+const RESERVE_EMPTY_PLATE = { background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(245,158,11,0.25)' } as const;
+const RESERVE_EMPTY_CLASS = 'text-amber-200 text-[12px] leading-snug mt-2 px-3 py-2 rounded-lg w-fit max-w-full';
 function dashTabFromQuery(v: string | null): DashTab | null {
   if (!v) return null;
   return (VALID_DASH_TABS as string[]).includes(v) ? (v as DashTab) : null;
@@ -460,7 +464,7 @@ function ToweliDashboard() {
                   <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>–</span>
                 ) : s.isPrice ? (
                   <FlashValue value={s.numVal}>
-                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
+                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} nearest className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
                   </FlashValue>
                 ) : (
                   <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
@@ -605,7 +609,7 @@ function ToweliDashboard() {
                     : `Claim Rewards (${formatTokenAmount(pos.pendingFormatted, 2)} TOWELI)`}
                 </button>
                 {pool.isDry && (
-                  <p id="claim-reserve-empty-positions" className="text-white/70 text-[11px] mt-2" data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
+                  <p id="claim-reserve-empty-positions" className={RESERVE_EMPTY_CLASS} style={RESERVE_EMPTY_PLATE} data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
                 )}
               </m.div>
             )}
@@ -897,7 +901,7 @@ function ToweliDashboard() {
                     : `Claim Staking Rewards (${formatTokenAmount(pos.pendingFormatted, 2)} TOWELI)`}
                 </button>
                 {pool.isDry && (
-                  <p id="claim-reserve-empty-rewards" className="text-white/70 text-[11px] mt-2" data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
+                  <p id="claim-reserve-empty-rewards" className={RESERVE_EMPTY_CLASS} style={RESERVE_EMPTY_PLATE} data-testid="claim-reserve-empty">{RESERVE_EMPTY_COPY}</p>
                 )}
               </m.div>
             )}
@@ -1290,9 +1294,9 @@ function OutstandingLoans({ loans, unreadCount }: {
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Borrowing</p>
               <p className="stat-value text-[18px] text-white">{borrower.length}</p>
-              {/* F140: bound decimals via formatWei and label as "principal" — the
-                  figure is loan principal only (accrued interest not summed here). */}
-              <p className="text-[10px] text-white/55 font-mono">{formatWei(owed, 18, 4)} ETH principal</p>
+              {/* Labelled "principal": loan principal only (accrued interest is not summed
+                  here). The borrower owes it back, so it is rounded up, as on the loan card. */}
+              <p className="text-[10px] text-white/55 font-mono">{toFixedUp(formatEther(owed), 4)} ETH principal</p>
             </div>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Lending</p>
@@ -1342,7 +1346,7 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
     ? 'Overdue'
     : days > 0 ? `${days}d ${hours}h` : remaining < 3600 ? `${minutes}m` : `${hours}h`;
   const isUrgent = !isOverdue && remaining < 86400;
-  const roleLabel = loan.role === 'borrower' ? 'You owe' : 'You lent';
+  const roleLabel = loan.role === 'borrower' ? 'You borrowed' : 'You lent';
   const roleColor = loan.role === 'borrower' ? 'text-white' : 'text-success';
   const roleBadgeClass = loan.role === 'borrower'
     ? 'bg-orange-500/15 text-orange-200 border-orange-500/35'
@@ -1356,7 +1360,7 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
           <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${roleBadgeClass}`}>{loan.role}</span>
           <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
           <span className="text-white/60 text-[11px]">·</span>
-          <span className={`stat-value text-[13px] ${roleColor}`}>{roleLabel} {formatWei(loan.principal, 18, 4)} ETH</span>
+          <span className={`stat-value text-[13px] ${roleColor}`}>{roleLabel} {loan.role === 'borrower' ? toFixedUp(formatEther(loan.principal), 4) : formatWei(loan.principal, 18, 4)} ETH</span>
           <span className="text-white/60 text-[11px]">@ {(Number(loan.aprBps) / 100).toFixed(2)}% APR</span>
         </div>
         <p className="text-white/70 text-[11px]">Token #{loan.tokenId.toString()}</p>

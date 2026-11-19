@@ -45,8 +45,8 @@ export const explorerOf =
 /** A bound or a share count, to its last digit: rounding "at most" or "you get" would misstate it. */
 export const solExact = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;
 export const unitsExact = (raw: bigint, decimals: number) => formatTokenAmount(raw, decimals, decimals).text;
-/** An amount said "about": four decimals is plenty for a preview the review restates exactly. */
-export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
+/** An amount said "about": four decimals is plenty for a preview the review restates exactly. `up` for one paid or taken out. */
+export const solAbout = (lamports: bigint, up = false) => `${formatSol(lamports, 4, { up })} SOL`;
 /**
  * An amount of SOL that something NEEDS, to four decimals, rounded UP. Cut down, a need
  * of 0.00393516 SOL read "about 0.0039 SOL" beside a wallet that "has 0.00392 SOL": it
@@ -54,14 +54,14 @@ export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
  * reads as less than it is. What a wallet HAS stays exact.
  */
 export const solAboutUp = (lamports: bigint) => solAbout(((lamports + 99_999n) / 100_000n) * 100_000n);
-export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, 4).text} tokens`;
+export const tokensAbout = (raw: bigint, decimals: number, up = false) => `${formatTokenAmount(raw, decimals, 4, { up }).text} tokens`;
 /**
  * An amount of the pool's pairing coin (quotes.ts), in that coin's own decimals and with
  * its symbol: "250 USDC". SOL is `solExact` / `solAbout`, to the character, so a SOL
  * pool's words never change. The same forms as the review screen's (TxFlowView.tsx).
  */
 export const coinExact = (raw: bigint, quote: QuoteCoin) => (quote.native ? solExact(raw) : `${formatTokenAmount(raw, quote.decimals, quote.decimals).text} ${quote.symbol}`);
-export const coinAbout = (raw: bigint, quote: QuoteCoin) => (quote.native ? solAbout(raw) : `${formatTokenAmount(raw, quote.decimals, 4).text} ${quote.symbol}`);
+export const coinAbout = (raw: bigint, quote: QuoteCoin, up = false) => (quote.native ? solAbout(raw, up) : `${formatTokenAmount(raw, quote.decimals, 4, { up }).text} ${quote.symbol}`);
 
 /**
  * A wallet that cannot fund the action at all is told so before it types anything

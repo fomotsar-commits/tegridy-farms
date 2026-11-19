@@ -15,6 +15,125 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
+
+**Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
+them shrink: `min-width: 0` on each, and the label's own `truncate` does the rest.
+
+**Measured** (the Lend form's three steps, "Wrap ETH", "Approve WETH", "Sign Offer"; Chromium on a
+production build, 2026-11-18): each step was `flex: 1 1 0%` with the default `min-width: auto`, so
+none could be narrower than its name. The three names need 368px. A 390px phone gives the row
+328px, and the last step ended 9px past the screen. With `min-width: 0` added, the phone fitted.
+At 834px wide the row is 379px: the names had fitted there before with 11px to spare, and now
+"Approve WETH" was cut short, because equal shares of 379px ignore that one name is longer. Sized
+by content (`flex: 1 1 auto`) under a container query on the row's own width, with `min-width: 0`
+kept as the last guard, no name was cut at any of twelve widths from 360px to 1280px.
+
+**Do:** treat `min-width: 0` on equal flex items as a change to how the row is shared out, not
+only as a way out of an overflow. Where labels differ in length, size the items by their content
+in the narrow case. Decide "narrow" by the row's own width (`container-type: inline-size` and
+`@container`), not the screen's: this row is narrowest on a phone and again on a tablet, where its
+column is one of two. A rule inside `@container` cannot style the container itself, so a gap for
+the row goes on its children. Measure at tablet widths as well as phone widths before calling it
+fixed.
+
+## 2026-11-18: rounding a cost up can print it at twenty times its size, and an estimate rounded up can pass its own cap
+
+**Believed:** an amount the visitor pays is safe to round up at the digits shown, because the
+figure can then only read above the real amount, never below it.
+
+**Measured** (the amounts change, PR #1293; the site's own formatters, run from node and from
+tests):
+
+- A fee under the last digit shown. 50,000 lamports (0.00005 SOL) rounded up at four decimals
+  printed "0.0001 SOL", twice the fee. The 1% fee on a 0.001 SOL test buy read ten times its size,
+  and 5,000 lamports, the network's base fee, printed "0.0001 SOL", twenty times its size.
+- An estimate beside its own bound. Adding 0.7 tokens to a pool of 10 SOL and 1,000 tokens at 1%
+  slippage, "You put in about" rounded up to 0.007 SOL, above the row "At most 0.0069993 SOL",
+  which is the exact cap the transaction carries. The test written for it failed with `expected
+  7000000 to be less than or equal to 6999300`.
+
+**Do:** round up only from one unit of the last digit shown. Under that, print the "<0.0001" form:
+it is true of the amount and closer to it. Where an exact bound is printed beside an estimate,
+cut the estimate. The bound is the promise.
+
+## 2026-11-18: a row's printed text can be an input, so changing its digits changed when the wallet opens
+
+**Believed:** how many digits a row prints is display only, and cannot change what the page does.
+
+**Measured** (same change; `compare()` in `frontend/src/components/solana/curve/useTxFlow.ts`, run
+with the real formatters): a Solana review older than 30 seconds is rebuilt when Sign is pressed.
+The wallet opens without showing the review again only if the fee lines read the same as before,
+or the lamports match exactly. With the priority fee printed to the lamport, a move from 12,000 to
+12,100 lamports, while the SOL moved shifted by 50 lamports, gave "1 line reads differently:
+Priority fee: 0.0000121 SOL" and the wallet stayed shut. Printed at four decimals, as trunk does,
+both lines read "<0.0001 SOL" and the wallet opened. No test covered this until one was written
+and seen failing against the lamport form.
+
+**Do:** before changing how a row is written, search for whatever reads rendered text back: a
+comparison of two renders, a copy or an export, a screen reader's copy of the figure, a browser
+test that pins the string. Treat each one as a caller of the formatter.
+
+## 2026-11-18: a float difference rounded up reads one digit high, and a large amount rounded to nearest through a float changes its digits
+
+**Believed:** `Number(x).toFixed(n)` is good enough for a figure on screen, and the result of a
+subtraction can be rounded up as it stands.
+
+**Measured** (node 24.13):
+
+- `1.1 - 0.28` is `0.8200000000000001`. Rounded up at four decimals as it stands, it reads 0.8201
+  where the real difference is 0.82. Read through 15 significant digits first
+  (`toPrecision(15)`, which gives `0.820000000000000`), it rounds up to 0.82.
+- `Number('12345678901234.5678').toFixed(4)` is `12345678901234.5684`. A pool reserve of a
+  large-supply coin, rounded to nearest through a float, prints digits it never had. Cut from the
+  digit string, the same reserve printed `.5678`.
+
+**Do:** cut and round up on the digit string or on the raw integer. If a number is all there is,
+read it through 15 significant digits before rounding it up. Keep float rounding to nearest for
+prices and rates, whose size is modest.
+
+## 2026-11-18: tests each seen failing first still left one changed line in six unguarded, and a reverted line can fail a test for the wrong reason
+
+**Believed:** when every new test has been seen failing on the old code, every changed line is
+guarded: put any one of them back and some test fails.
+
+**Measured** (PR #1293, 2026-11-17): each of the 115 changed source lines was put back to trunk's
+form, one at a time, and the tests were run. 91 reverts failed a test and 24 did not. Of the 24, 20
+were real gaps: sibling call sites of a helper whose own behaviour was tested, a line that only
+sets a style, a line reached only by a coin with more than 6 decimals. 3 sat on a page that no
+test renders, and 1 was a type annotation. Two more things came out of the run:
+
+- One revert was counted as caught because its test failed with a ReferenceError: the old line
+  called a helper the change had removed. The test pinned nothing about the figure, and the figure
+  could not differ either way (compare the 2026-10-04 entry on lines that do nothing).
+- `vitest related <file>`, for a file that half the panels import, ran past 9 minutes for one
+  line. The file's own tests plus the tests the change had touched took about 47 seconds a line.
+
+**Do:** when a change repeats one edit across many call sites, revert each changed line by itself
+against a bounded set of tests, and write a test for every line nothing notices. Read why a
+revert failed before counting it. A script of about 130 lines does it: for each changed line in
+`git diff -U0 HEAD`, write the old line back, run the tests, restore the file and compare its
+sha256. It reads the working tree against HEAD, so it must run before the commit.
+
+## 2026-11-18: most conflicts an open pull request shows against a branch are already there against trunk
+
+**Believed:** when `git merge-tree` reports a conflict between my branch and an open pull request,
+my change caused it.
+
+**Measured** (2026-11-18; the heads of the 42 open pull requests that are not dependency bumps,
+each merged in memory with my commit and, separately, with trunk's head): 18 conflicted with my
+commit, and 17 of those 18 conflicted with trunk alone, most of them in CHANGELOG.md. Comparing
+the two lists file by file, my change added a conflict in three pull requests: a changelog
+heading, one loans file, and one panel where two of my new lines sat inside another draft's hunks.
+Moving those two lines by one statement each made that panel merge cleanly.
+
+**Do:** run the simulation twice, once from the branch and once from trunk's head, and count only
+the files the first list has and the second lacks. The command is `git merge-tree --write-tree
+--name-only --no-messages <mine> <their head>`: exit 0 is clean, exit 1 lists the files. Before
+committing, a throwaway commit made from a second index answers the same question
+(`GIT_INDEX_FILE=<tmp> git read-tree HEAD`, `git add -A`, `git write-tree`, `git commit-tree`),
+early enough to move a line out of a sibling's way before the tests run.
+
 ## 2026-11-17: a build with none of a package's strings shows it is not shipped, and `npm explain` reads a lockfile
 
 **Believed:** to show a dependency never reaches the browser, search a production build for its
@@ -55,6 +174,21 @@ Importing `lib/chains/registry` instead, as `swapVenue.ts` does, made all three 
 
 **Do:** code that needs only chain records imports `lib/chains/registry`. Keep the index for code
 that also wants the wagmi chains and transports.
+
+## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
+
+**Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on
+POP) jumps only when the path changes, since a page's own `?mint=` push keeps the same key.
+
+**Measured** (memetics.finance/pools, Playwright, iPhone 14 and 1440x900, a scroll listener on the
+window): it keeps the same key only after a PUSH arrival. Opened from its address (a POP, key null),
+the first token pick (a PUSH on the same path) is a new key, and the window went to 0 before the
+answer scrolled it to 732 then 1873. A REPLACE after a PUSH on one page flips the key the same way.
+
+**Do:** key the jump on the arrival at a new path (`frontend/src/hooks/useNewPageKey.ts`), so a move
+that changes only the query never jumps whatever its type. Separately, a `scrollIntoView` run in a
+click handler measures the layout before that click's own re-render: run it in a layout effect when
+the click also draws something above the target.
 
 ## 2026-11-15: a timer set for the time left can fire while `Date.now()` still shows time left
 

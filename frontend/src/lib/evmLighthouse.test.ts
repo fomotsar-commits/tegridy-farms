@@ -5,7 +5,7 @@
 //  - a failed read rendered as 0 is indistinguishable from a real zero.
 
 import { describe, it, expect } from 'vitest';
-import { deriveEvmLighthouse, fmtRaw, fmtRunway, type EvmLighthouseReads } from './evmLighthouse';
+import { deriveEvmLighthouse, fmtRaw, fmtRawUp, fmtRunway, type EvmLighthouseReads } from './evmLighthouse';
 
 const NOW = 1_756_500_000n;
 
@@ -80,5 +80,56 @@ describe('formatters', () => {
     expect(fmtRunway(null)).toBe('—');
     expect(fmtRunway(0n)).toBe('ended');
     expect(fmtRunway(90_000n)).toBe('1d 1h');
+  });
+});
+
+// What the visitor pays, loses or must stake at least: rounded up at the last digit shown,
+// then written exactly as fmtRaw writes it (trailing zeros trimmed, whole part grouped).
+describe('fmtRawUp', () => {
+  const E18 = 10n ** 18n;
+
+  it('0.100049 and 0.10005 at 4 digits: fmtRaw cuts both to 0.1, fmtRawUp prints 0.1001', () => {
+    expect(fmtRaw(100_049_000_000_000_000n, 18, 4)).toBe('0.1');
+    expect(fmtRawUp(100_049_000_000_000_000n, 18, 4)).toBe('0.1001');
+    expect(fmtRaw(100_050_000_000_000_000n, 18, 4)).toBe('0.1');
+    expect(fmtRawUp(100_050_000_000_000_000n, 18, 4)).toBe('0.1001');
+  });
+
+  it('a 20-day penalty on 1,000 tokens (13.698...) prints 13.7, never 13.69', () => {
+    const quote = (1_000n * E18 * 20n) / 1460n;
+    expect(fmtRaw(quote, 18)).toBe('13.69');
+    expect(fmtRawUp(quote, 18)).toBe('13.7');
+  });
+
+  it('one raw unit over a boundary moves past it, at 2 digits and at whole tokens', () => {
+    expect(fmtRawUp(E18 + 1n, 18)).toBe('1.01');
+    expect(fmtRawUp(E18 + 1n, 18, 0)).toBe('2');
+    expect(fmtRaw(E18 + 1n, 18, 0)).toBe('1');
+  });
+
+  it('exact values, zero, null and a negative read exactly as fmtRaw', () => {
+    for (const raw of [0n, E18, 1_500_000_000_000_000_000n, 250n * E18, 100n * E18]) expect(fmtRawUp(raw, 18)).toBe(fmtRaw(raw, 18));
+    for (const raw of [0n, E18, 250n * E18, 100n * E18]) expect(fmtRawUp(raw, 18, 0)).toBe(fmtRaw(raw, 18, 0));
+    expect(fmtRawUp(1_500_000_000_000_000_000n, 18, 0)).toBe('2');
+    expect(fmtRawUp(null, 18)).toBe(fmtRaw(null, 18));
+    expect(fmtRawUp(-1_500_000_000_000_000_001n, 18)).toBe(fmtRaw(-1_500_000_000_000_000_001n, 18));
+  });
+
+  it('keeps the grouping fmtRaw gives', () => {
+    expect(fmtRawUp(1_234_561_000_000_000_000_000n, 18)).toBe(`${(1234).toLocaleString()}.57`);
+  });
+
+  it('over a seeded sweep: never below the amount, and less than one shown digit above it', () => {
+    let seed = 0x9e3779b9n;
+    const next = () => (seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n));
+    for (let k = 0; k < 3000; k++) {
+      const decimals = [6, 9, 18][Number(next() % 3n)]!;
+      const maxFrac = [0, 2, 4][Number(next() % 3n)]!;
+      const raw = next() % (999n * 10n ** BigInt(decimals));
+      const [w, f = ''] = fmtRawUp(raw, decimals, maxFrac).split('.');
+      const back = BigInt(w!) * 10n ** BigInt(decimals) + BigInt((f + '0'.repeat(decimals)).slice(0, decimals) || '0');
+      const unit = 10n ** BigInt(Math.max(0, decimals - maxFrac));
+      expect(back >= raw && back - raw < unit).toBe(true);
+    }
   });
 });

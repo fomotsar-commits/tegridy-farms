@@ -67,19 +67,16 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
 /** When a partly unread Solana read is asked again: twice, never more, so a dead RPC is not hammered. */
 const HARVEST_RETRY_MS: readonly number[] = [20_000, 60_000];
 
-/** The Solana wallet signs several transactions on one prompt (the Buy-all order's test, lib/harvest/solana.ts signsAll). */
-const signsAll = (signer: object | null | undefined) =>
-  typeof (signer as { signAllTransactions?: unknown } | null | undefined)?.signAllTransactions === 'function';
-
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
  * from every island pool, instead of opening each pool and claiming there.
  *
  * It reads every pool for the wallets connected (Solana: each lighthouse pool and the
  * lock ladder; Ethereum and Base: each lighthouse pool), lists what each can claim in its
- * own coin, and sends one claim per pool position, each its own transaction. A wallet
- * that can sign a chain's claims together is asked once for them (owner, 2026-10-29);
- * any other once per claim. A pool that could not be read is listed as not read, never
+ * own coin, and sends one claim per pool position, each its own transaction. An EVM
+ * wallet that can batch a chain's claims is asked once for them (owner, 2026-10-29); a
+ * Solana wallet is asked once per claim (Phantom, ticket #467471, 2026-11-16: one
+ * transaction per approval). A pool that could not be read is listed as not read, never
  * as nothing to claim; rewards a pool cannot pay yet are listed and left alone.
  *
  * With no wallet connected it draws nothing: there is nothing of the visitor's to show,
@@ -124,7 +121,8 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   // What the stake behind the claims earns a day, where a pool's reader could state it.
   const earning: HarvestEarning[] = [...(solPlan?.earning ?? []), ...(evmPlan?.earning ?? [])];
   const running = run !== null && !run.done;
-  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? signsAll(surface?.signer) : evm.batchable[chain]);
+  // Solana: one wallet approval per claim, always (Phantom, ticket #467471).
+  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? false : evm.batchable[chain]);
   const asks = promptCount(claims, evm.chain, canTogether);
 
   if (!solAddress && !evm.address) return null;
@@ -138,15 +136,8 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     setRun({ rows, done: false });
     const onState = (key: string, state: ClaimState) =>
       setRun((r) => (r ? { ...r, rows: r.rows.map((x) => (x.claim.key === key ? { ...x, state } : x)) } : r));
-    const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null => {
-      if (chain !== 'solana') return evm.together(chain) as SendTogether<HarvestClaim> | null;
-      if (!signer || !signsAll(signer)) return null;
-      return async (cs, settle) => {
-        const m = await import('../../lib/harvest/solana');
-        const wallet = m.signsAll(signer);
-        return wallet ? m.sendClaimsTogether(cs as SolanaClaim[], wallet, settle) : 'one-by-one';
-      };
-    };
+    const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null =>
+      chain === 'solana' ? null : (evm.together(chain) as SendTogether<HarvestClaim> | null);
     const states = await runHarvest(claims, evm.chain, {
       together,
       send: (c): Promise<ClaimResult> => {

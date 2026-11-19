@@ -42,7 +42,7 @@ export function LoanWall({ collection, market, loading, principalWei, shares }: 
   const uid = `wall${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const col = COLLECTIONS.find((c) => sameAddress(c.address, collection)) ?? COLLECTIONS[0]!;
   const principal = principalWei !== null && principalWei > 0n ? Number(formatEther(principalWei)) : null;
-  const f = wallFacts({ market, loading, principal, shares });
+  const f = wallFacts({ market, loading, principal, exact: principalWei !== null ? formatEther(principalWei) : null, shares });
   const d = wallElevation(W, f, col);
   const scaled = f.mode === 'scaled';
   const { x0, x1, wallW, scaleH, yHead, yRail, yS, y0, yG, sx, sw } = d;
