@@ -309,8 +309,13 @@ describe('formatSol: cut by default, { up: true } rounds up', () => {
       const cut = formatSol(raw);
       if (cut.startsWith('<')) expect(raw > 0n && raw < 100_000n).toBe(true);
       else expectCut(cut, real, 4);
-      expectUp(formatSol(raw, 4, { up: true }), real, 4);
-      expectUp(formatSol(raw, 2, { up: true, fixed: true }), real, 2);
+      // Under one unit of the last digit, rounded up says "<" that unit: true, and closer than the unit.
+      const up = formatSol(raw, 4, { up: true });
+      if (raw > 0n && raw < 100_000n) expect(up).toBe('<0.0001');
+      else expectUp(up, real, 4);
+      const up2 = formatSol(raw, 2, { up: true, fixed: true });
+      if (raw > 0n && raw < 10_000_000n) expect(up2).toBe('<0.01');
+      else expectUp(up2, real, 2);
     }
   });
 
@@ -318,7 +323,7 @@ describe('formatSol: cut by default, { up: true } rounds up', () => {
     expect(formatSol(1_234_567_891n)).toBe('1.2345');
     expect(formatSol(1_234_567_891n, 4, { up: true })).toBe('1.2346');
     expect(formatSol(1_000_000_000n, 4, { up: true })).toBe('1');
-    expect(formatSol(1n, 4, { up: true })).toBe('0.0001');
+    expect(formatSol(1n, 4, { up: true })).toBe('<0.0001');
     expect(formatSol(1n)).toBe('<0.0001');
     expect(formatSol(999_950_001n, 4, { up: true, fixed: true })).toBe('1.0000');
   });
@@ -331,6 +336,7 @@ describe('curve formatTokenAmount: cut by default, { up: true } rounds up', () =
       for (const digits of [0, 2, 4, 6]) {
         const up = curveTokenAmount(raw, decimals, digits, { up: true }).text.replace(/,/g, '');
         if (digits >= decimals) expect(up).toBe(curveTokenAmount(raw, decimals, digits).text.replace(/,/g, ''));
+        else if (raw > 0n && raw < 10n ** BigInt(decimals - digits)) expect(up).toBe(digits > 0 ? `<0.${'0'.repeat(digits - 1)}1` : '<1');
         else expectUp(up, real, digits);
       }
     }
@@ -339,7 +345,7 @@ describe('curve formatTokenAmount: cut by default, { up: true } rounds up', () =
   it('the named cases', () => {
     expect(curveTokenAmount(1_234_567_891n, 6).text).toBe('1,234.5678');
     expect(curveTokenAmount(1_234_567_891n, 6, 4, { up: true }).text).toBe('1,234.5679');
-    expect(curveTokenAmount(1n, 6, 4, { up: true }).text).toBe('0.0001');
+    expect(curveTokenAmount(1n, 6, 4, { up: true }).text).toBe('<0.0001');
     expect(curveTokenAmount(1n, 6).text).toBe('<0.0001');
     expect(curveTokenAmount(999_999_999_901n, 6, 4, { up: true }).text).toBe('1,000,000');
     expect(curveTokenAmount(7n, null, 4, { up: true })).toEqual({ text: '7', isBaseUnits: true });

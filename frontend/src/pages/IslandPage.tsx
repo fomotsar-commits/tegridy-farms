@@ -48,6 +48,7 @@ const ArrivalFilm = lazy(() =>
 
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
+  '/city': 'The whole island at night, every building wearing its art.',
   '/gallery': 'Every piece, and the artists behind them.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
@@ -60,7 +61,7 @@ const BLURB: Record<string, string> = {
  * inherited its art. idx 2 was the Marketplace door, which left the nav with the
  * home and the metadata on 2026-10-24. A door with no entry reuses a registered surface.
  */
-const DOOR_ART: Record<string, number> = { '/gallery': 1, '/community': 3, '/tokenomics': 5 };
+const DOOR_ART: Record<string, number> = { '/city': 6, '/gallery': 1, '/community': 3, '/tokenomics': 5 };
 const DOOR_ART_SLOTS = Object.values(DOOR_ART);
 
 export default function IslandPage() {

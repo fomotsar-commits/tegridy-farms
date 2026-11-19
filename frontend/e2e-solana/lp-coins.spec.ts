@@ -32,7 +32,7 @@ import { BAYLA_COIN, SOL_COIN, USDC_COIN, coinAbout, coinExact, type Coin } from
 import { COIN_SOL_PRICE, CREATE_POOL_FEE_RECEIVER, closeTokenAccount, createClassicToken, createPairPool, freshPricedToken, type JupiterStub } from './fixtures/lp';
 import {
   actor, closeAll, connect, esc, openAdd, openPools, openRemove, poolCard, positionRow, press, reviewDeposit, reviewRows, sidesOf, signConfirmed, signedSol,
-  signedTok, SOL, solExact, tok, units, waitPoolOpenByWallClock, withdrawPlan, type Actor, type Prices,
+  signedTok, solExact, tok, units, waitPoolOpenByWallClock, withdrawPlan, type Actor, type Prices,
 } from './fixtures/lpPage';
 import { gapCostOf, lossAtMarketUp, marketIn, matchAtMarket, priceOf } from './fixtures/market';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
@@ -505,7 +505,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
       expect(rows['The SOL arrives']).toBeUndefined();
       expect(rows['The tokens arrive in']).toBe(baylaAccount(owner).toBase58());
       expect(rows['The USDC arrives in']).toBe(missing ? `${usdcAcc.toBase58()} (opened for you; its deposit of ${solExact(r165)} stays in that account)` : usdcAcc.toBase58());
-      expect(rows['One-time deposit for your new USDC account (it stays in that account)']).toBe(missing ? SOL(r165) : undefined);
+      expect(rows['One-time deposit for your new USDC account (it stays in that account)']).toBe(missing ? solExact(r165) : undefined);
       expect(rows['Test run: your USDC changes by']).toMatch(/^\+/);
       expect(rows['Test run: your wrapped SOL changes by']).toBeUndefined();
       if (missing) await expect(ui.review(p)).toContainText('This is all of your share in this pool.');

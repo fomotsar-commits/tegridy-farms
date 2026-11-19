@@ -1,6 +1,7 @@
 // Shared look and helpers for the NFT lending tab (NFTLendingSection.tsx, NFTLendingLoans.tsx).
 import { formatEther, parseEther, type Address } from 'viem';
 import { ART } from '../../lib/artConfig';
+import { toFixedCut, toFixedUp } from '../../lib/formatting';
 import { GONDI_LOAN_ADDRESS, LENDING_COLLECTIONS, ZERO_ADDRESS, sameAddress } from '../../lib/gondi/loanOffer.js';
 
 /** Gondi's loan contract is deployed and the site points at it. */
@@ -49,8 +50,14 @@ export function bpsToPercent(bps: number): string {
   return (bps / 100).toFixed(2);
 }
 
+/** WETH the viewer receives, is owed or holds: exactly `digits` decimals, cut, never above it. */
 export function fmtWeth(wei: bigint, digits = 4): string {
-  return parseFloat(formatEther(wei)).toFixed(digits);
+  return toFixedCut(formatEther(wei), digits);
+}
+
+/** WETH the viewer pays, owes or puts up: `fmtWeth`'s shape, rounded up, never below it. */
+export function fmtWethUp(wei: bigint, digits = 4): string {
+  return toFixedUp(formatEther(wei), digits);
 }
 
 /** A typed amount as wei, or null when it is not a positive number. */

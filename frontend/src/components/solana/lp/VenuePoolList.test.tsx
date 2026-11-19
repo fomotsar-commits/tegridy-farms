@@ -355,7 +355,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(within(row).getByTestId('lp-arb-gap')).toHaveTextContent('5.3% dearer here');
     expect(within(row).getByText(C)).toBeInTheDocument();
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
-    expect(value('Pay')).toBe('21.046 CORN ($19.99)');
+    expect(value('Pay')).toBe('21.0461 CORN ($19.99)');
     expect(value('Get')).toBe('≈ 0.2041 SOL ($20.41)');
     // Jupiter sells the 21.04 CORN that $19.99 buys at its listed price; sold here, they bring back $0.42 more.
     expect(value('Profit')).toBe('up to $0.42 round trip, at Jupiter’s live quote');
@@ -363,7 +363,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     // After the trade the pool's price sits the fee away from Jupiter's 0.0095 (0.0095 / 0.99 = 0.009596), less a
     // hair: the LPs' part of the fee stays in the token side's reserve, as the pool's own row will then show it.
     expect(value('After')).toMatch(/^1 CORN = 0\.009594 SOL/);
-    const swap = within(row).getByRole('link', { name: 'Swap: sell 21.046 CORN for SOL' });
+    const swap = within(row).getByRole('link', { name: 'Swap: sell 21.0461 CORN for SOL' });
     // The link carries the exact sized amount, to the base unit; the row prints it to four places.
     expect(swap).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=21\\.046\\d*$`)));
     expect(swap).toHaveClass('btn-primary');
@@ -396,11 +396,11 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     mount(readers({ marketPrices, legQuote, listPools: listPools(withFee) }));
     const row = await screen.findByTestId('lp-arb-row');
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
-    expect(value('Pay')).toBe('16.0377 CORN ($15.24)');
+    expect(value('Pay')).toBe('16.0378 CORN ($15.24)');
     // Bought on Jupiter, the tokens pay the token's fee again on their way into the pool: less than the $0.24 above.
     expect(value('Profit')).toMatch(/^up to \$0\.\d\d round trip, at Jupiter’s live quote$/);
     expect(value('Fee')).toBe('$0.13 to LPs · $0.02 to the venue · the token keeps back $0.15');
-    expect(within(row).getByRole('link', { name: 'Swap: sell 16.0377 CORN for SOL' })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=16\\.0377\\d*$`)));
+    expect(within(row).getByRole('link', { name: 'Swap: sell 16.0378 CORN for SOL' })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=16\\.0377\\d*$`)));
     expect(screen.getByTestId('lp-arb')).toHaveTextContent('a token whose transfer fee could not be read gets no figure');
   });
 
