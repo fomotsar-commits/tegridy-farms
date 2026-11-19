@@ -650,8 +650,9 @@ describe('Claim fees', () => {
     });
     mount(withLedger(v, ledgerRead(v)), { api });
     const row = await screen.findByTestId('lp-position');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
     await act(async () => {
-      fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+      fireEvent.click(press);
     });
     const panel = await screen.findByTestId('lp-claim-panel');
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
@@ -721,8 +722,9 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
     await act(async () => {
-      fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+      fireEvent.click(press);
     });
     const panel = await screen.findByTestId('lp-claim-panel');
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
@@ -743,12 +745,15 @@ describe('Claim fees', () => {
     const v = view();
     const p = position(v, { lpAmount: HELD });
     const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    // The blockhash runs out only when the test says so: a fixed delay raced the note's effect.
+    let runOut!: () => void;
+    const ranOut = new Promise<void>((r) => { runOut = r; });
     const api = fakeLpApi({
       prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })),
       // Sent first (the flow draws 'sent' and the claim is noted), then its blockhash runs out.
       submitPrepared: vi.fn(async (...args: unknown[]): Promise<TxOutcome> => {
         (args[3] as { onSent?: (signature: string, lastValidBlockHeight: number) => void } | undefined)?.onSent?.(SIG, 1_000);
-        await new Promise((r) => setTimeout(r, 30));
+        await ranOut;
         return { status: 'expired', signature: SIG, message: 'gone' };
       }),
     });
@@ -760,11 +765,13 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
     await act(async () => {
-      fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+      fireEvent.click(press);
     });
     const panel = await screen.findByTestId('lp-claim-panel');
     await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(true));
+    await act(async () => { runOut(); });
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'expired');
     await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(false));
     // Nothing is running now: the row's Claim fees is pressable again.
@@ -788,8 +795,9 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
     await act(async () => {
-      fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+      fireEvent.click(press);
     });
     const panel = await screen.findByTestId('lp-claim-panel');
     await waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(1));
