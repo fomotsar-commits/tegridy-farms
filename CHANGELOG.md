@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-19
+
+- Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
+
 ### 2026-11-18
 
 - New page, /city: the island at night, rendered in 3D. Every room is a building wrapped in its own art, with its pool beside it; tap one to see it close up, with its pool's dollars. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
