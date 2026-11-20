@@ -195,7 +195,9 @@ export async function prepareJupiterSwap(
       priorityLevel: a.priority,
       noPlatformFee: true,
     });
-  } catch {
+  } catch (e) {
+    // The check's refusal of the rebuild is said in its own words, as the first build's is.
+    if (e instanceof NotTheTradeShown) throw e;
     return { ...blocked, unchecked: true };
   }
   let sim2: SwapSimulation;

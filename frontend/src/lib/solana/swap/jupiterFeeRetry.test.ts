@@ -254,6 +254,20 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
     expect(r).toMatchObject({ status: 'blocked', unchecked: true });
     expect(d.simulateSwap).toHaveBeenCalledTimes(1);
   });
+
+  it('the check refusing the no-fee rebuild is thrown in its own words, as for the first build: never "not checked"', async () => {
+    const refused = new JupiterTxRefused('the swap sells from an account that is not your account of the coin shown');
+    const first = deps({ buildSwapTransaction: vi.fn(async () => { throw refused; }) });
+    await expect(prepareJupiterSwap(first, ARGS)).rejects.toBe(refused);
+    const d = deps({
+      buildSwapTransaction: vi.fn(async (p: { noPlatformFee?: boolean }) => {
+        if (p.noPlatformFee) throw refused;
+        return 'TX_FEE';
+      }),
+    });
+    await expect(prepareJupiterSwap(d, ARGS)).rejects.toBe(refused);
+    expect(d.simulateSwap).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and not worse', () => {
