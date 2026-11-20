@@ -70,7 +70,17 @@ export interface V3PositionView {
 }
 
 export type PositionsRead =
-  | { ok: true; positions: V3PositionView[]; /** Positions in pools of coins the site does not list. */ unlisted: number; /** Positions past POSITIONS_SHOWN. */ more: number }
+  | {
+      ok: true;
+      /** Newest first. */
+      positions: V3PositionView[];
+      /** Positions in pools of coins the site does not list. */
+      unlisted: number;
+      /** Emptied positions (no liquidity, nothing owed): the NFT is kept, there is nothing in it. */
+      closed: number;
+      /** Positions past POSITIONS_SHOWN. */
+      more: number;
+    }
   | { ok: false };
 
 const ok = (r: ReadResult | undefined): r is { status: 'success'; result: unknown } => r?.status === 'success';
@@ -84,7 +94,7 @@ export async function readPositions(reader: HyperEvmReader, venue: HyperEvmVenue
     if (!ok(count)) return { ok: false };
     const n = Number(count.result as bigint);
     const shown = Math.min(n, POSITIONS_SHOWN);
-    if (shown === 0) return { ok: true, positions: [], unlisted: 0, more: 0 };
+    if (shown === 0) return { ok: true, positions: [], unlisted: 0, closed: 0, more: 0 };
     const ids = await reader.multicall({
       allowFailure: true,
       contracts: Array.from({ length: shown }, (_, i) => ({ address: venue.positionManager, abi: POSITION_MANAGER_ABI, functionName: 'tokenOfOwnerByIndex', args: [owner, BigInt(i)] })),
@@ -126,10 +136,13 @@ export async function readPositions(reader: HyperEvmReader, venue: HyperEvmVenue
         amount0: BigInt(position.amount0.quotient.toString()),
         amount1: BigInt(position.amount1.quotient.toString()),
         owed0, owed1,
-        inRange: pool.tick >= tickLower && pool.tick < tickUpper,
+        // A position with no liquidity earns nothing, wherever the price is.
+        inRange: liquidity > 0n && pool.tick >= tickLower && pool.tick < tickUpper,
       };
     }));
-    return { ok: true, positions, unlisted, more: n - shown };
+    const isClosed = (p: V3PositionView) => p.liquidity === 0n && p.owed0 === 0n && p.owed1 === 0n;
+    const open = positions.filter((p) => !isClosed(p)).sort((a, b) => (a.tokenId < b.tokenId ? 1 : a.tokenId > b.tokenId ? -1 : 0));
+    return { ok: true, positions: open, unlisted, closed: positions.length - open.length, more: n - shown };
   } catch {
     return { ok: false };
   }
@@ -178,16 +191,26 @@ function typedPrice(base: Token, quote: Token, text: string): Price<Token, Token
   return new Price(base, quote, denominator, numerator);
 }
 
+/**
+ * A price as the SDK writes it (six significant digits), or in short form past a million
+ * million either way: a near-empty pool's price can sit at an extreme tick, and forty digits
+ * would break the line.
+ */
+function priceText(sdkText: string): string {
+  const n = Number(sdkText);
+  return Number.isFinite(n) && n !== 0 && (n >= 1e12 || n < 1e-12) ? n.toExponential(3) : sdkText;
+}
+
 /** A tick's price, token1 per token0, for the range lines. */
 export function tickPriceText(pool: V3Pool, tick: number): string {
   if (tick <= nearestUsableTick(TickMath.MIN_TICK, pool.tickSpacing)) return '0';
   if (tick >= nearestUsableTick(TickMath.MAX_TICK, pool.tickSpacing)) return '∞';
-  return tickToPrice(sdkToken(pool.token0), sdkToken(pool.token1), tick).toSignificant(6);
+  return priceText(tickToPrice(sdkToken(pool.token0), sdkToken(pool.token1), tick).toSignificant(6));
 }
 
 /** The pool's price now, token1 per token0. */
 export function poolPriceText(pool: V3Pool): string {
-  return sdkPool(pool).token0Price.toSignificant(6);
+  return priceText(sdkPool(pool).token0Price.toSignificant(6));
 }
 
 /**

@@ -42,6 +42,14 @@ describe('ranges', () => {
     expect(Number(poolPriceText(POOL))).toBeCloseTo(40, 3);
   });
 
+  it('a price at an extreme tick is written short, never as forty digits', () => {
+    expect(tickPriceText(POOL, 880000)).toMatch(/^\d\.\d+e\+\d+$/);
+    expect(tickPriceText(POOL, -880000)).toMatch(/^\d\.\d+e-\d+$/);
+    expect(tickPriceText(POOL, 880000).length).toBeLessThan(12);
+    // An ordinary price keeps the SDK's six digits (the tick's own price, a hair under 40).
+    expect(Number(tickPriceText(POOL, POOL.tick))).toBeCloseTo(40, 1);
+  });
+
   it('every price: the widest ticks the tick spacing allows', () => {
     expect(rangeTicks(POOL, 'full')).toEqual({ tickLower: -887220, tickUpper: 887220 });
     expect(tickPriceText(POOL, -887220)).toBe('0');
@@ -162,6 +170,30 @@ describe('reading a wallet\'s positions', () => {
     expect(r.positions).toHaveLength(1);
     expect(r.positions[0]).toMatchObject({ tokenId: 100n, owed0: 3n, owed1: 4n, inRange: true });
     expect(r.positions[0]!.amount0).toBeGreaterThan(0n);
+  });
+
+  it('a closed position (no liquidity, nothing owed) is counted, not listed; the newest comes first', async () => {
+    const ticks = rangeTicks(POOL, 'wide')!;
+    const liq: Record<string, bigint> = { '10': 10n ** 15n, '11': 0n, '12': 0n, '13': 10n ** 15n };
+    const owed: Record<string, bigint> = { '10': 0n, '11': 0n, '12': 5n, '13': 0n };
+    const reader: HyperEvmReader = {
+      multicall: async ({ contracts }) => contracts.map((c: ReadCall) => {
+        if (c.functionName === 'balanceOf') return { status: 'success' as const, result: 4n };
+        if (c.functionName === 'tokenOfOwnerByIndex') return { status: 'success' as const, result: 10n + (c.args![1] as bigint) };
+        const id = String(c.args![0]);
+        return { status: 'success' as const, result: [0n, '0x0', WHYPE, USDT0.address, 3000, ticks.tickLower, ticks.tickUpper, liq[id]!, 0n, 0n, 0n, 0n] };
+      }),
+      simulateContract: async (c) => {
+        const id = String((c.args![0] as { tokenId: bigint }).tokenId);
+        return { result: [owed[id]!, 0n] };
+      },
+    };
+    const r = await readPositions(reader, VENUE, WALLET, [POOL]);
+    if (!r.ok) throw new Error('unread');
+    // #11 is closed; #12 has no liquidity but fees still to collect, so it stays, and is not "in range".
+    expect(r.positions.map((x) => x.tokenId)).toEqual([13n, 12n, 10n]);
+    expect(r.closed).toBe(1);
+    expect(r.positions.find((x) => x.tokenId === 12n)!.inRange).toBe(false);
   });
 
   it('fees that cannot be read stay unread, never zero', async () => {

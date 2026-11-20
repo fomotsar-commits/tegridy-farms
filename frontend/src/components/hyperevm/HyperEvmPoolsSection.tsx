@@ -111,10 +111,11 @@ function PositionsCard(p: {
         {!p.connected && <p className="text-white/75 text-[12px]">Connect a wallet to see your positions.</p>}
         {p.connected && p.read === null && <p role="status" className="text-white/70 text-[12px]">Reading your positions…</p>}
         {p.read && !p.read.ok && <p role="status" className="text-amber-300/90 text-[12px]">Your positions could not be read just now.</p>}
-        {p.read?.ok && p.read.positions.length === 0 && <p className="text-white/75 text-[12px]">No positions in our pools.</p>}
+        {p.read?.ok && p.read.positions.length === 0 && <p className="text-white/75 text-[12px]">No open positions in our pools.</p>}
         {p.read?.ok && p.read.positions.map((pos) => <PositionRow key={pos.tokenId.toString()} venue={p.venue} position={pos} send={p.send} onAdd={() => p.onAdd(pos)} onDone={p.onDone} />)}
-        {p.read?.ok && (p.read.unlisted > 0 || p.read.more > 0) && (
+        {p.read?.ok && (p.read.unlisted > 0 || p.read.closed > 0 || p.read.more > 0) && (
           <p className="text-white/70 text-[11px]">
+            {p.read.closed > 0 && `${p.read.closed} emptied, not shown. `}
             {p.read.unlisted > 0 && `${p.read.unlisted} more in pools of coins this site does not list. `}
             {p.read.more > 0 && `${p.read.more} more not shown.`}
           </p>
@@ -155,7 +156,7 @@ function PositionRow({ venue, position: pos, send, onAdd, onDone }: { venue: Hyp
     <div className="rounded-xl bg-black/50 p-3 space-y-1.5 text-[12px]" data-testid="hyperevm-position">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-white font-semibold text-[14px]">{pairName(pos.pool)} <span className="text-white/70 font-normal">{feeTierText(pos.pool.fee)} · #{pos.tokenId.toString()}</span></span>
-        <span className={pos.inRange ? 'text-emerald-300' : 'text-amber-300/90'}>{pos.inRange ? 'In range: earning' : 'Out of range: not earning'}</span>
+        <span className={pos.inRange ? 'text-emerald-300' : 'text-amber-300/90'}>{pos.liquidity === 0n ? 'Emptied: fees left to collect' : pos.inRange ? 'In range: earning' : 'Out of range: not earning'}</span>
       </div>
       <Line label="Range" value={`${tickPriceText(pos.pool, pos.tickLower)} to ${tickPriceText(pos.pool, pos.tickUpper)} ${t1.symbol} per ${t0.symbol}`} />
       <Line label="Holds" value={`${amountText(pos.amount0, t0.decimals)} ${t0.symbol} + ${amountText(pos.amount1, t1.decimals)} ${t1.symbol}`} />
