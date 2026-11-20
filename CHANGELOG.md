@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-20
 
-- Solana swaps and limit orders through Jupiter: a transaction that is not the trade on screen is no longer sent. That means one for another amount, coin or slippage, one that sells from an account other than yours of the coin you sell, one whose test run takes more than the amount shown or a coin you are not selling, and a limit order with a fee, a slippage or an expiry you did not choose. The page says "Not sent" and why.
+- Solana swaps, limit orders and recurring buys through Jupiter: a transaction that is not the trade on screen is no longer sent. That means one for another amount, coin or slippage, one that sells from an account other than yours of the coin you sell, one whose test run takes more than the amount shown or a coin you are not selling, and a limit order or recurring buy with a fee, a slippage, an expiry, a price limit or a start time you did not choose. The page says "Not sent" and why.
 
 ### 2026-11-19
 
