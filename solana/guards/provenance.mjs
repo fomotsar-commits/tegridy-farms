@@ -100,7 +100,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: 'e601b76158932028985dcd4e841bd415a4c91c3d05753db4cb9a71cec4e4ed9a',
+    deltaSha256: '20c9ed209304a153fc0e79d882071a1e6488caa5aec90916d73ecf9075b626c2',
     patched: [
       'src/lib.rs',
       'src/error.rs',
@@ -150,6 +150,10 @@ export const REPIN_MAY_TOUCH = [
   'frontend/src/lib/solana/clmm/ix.ts',
   'frontend/src/lib/solana/clmm/ix.test.ts',
   'frontend/src/lib/solana/clmm/__fixtures__/program-vectors.json',
+  // The daily fee sweep, whose test holds its account list equal to cp-swap's SweepFees: a patch
+  // that changes the sweep moves the job in the same pull request.
+  'frontend/scripts/venue-sweep.mjs',
+  'frontend/scripts/venue-sweep.test.mjs',
   '.github/workflows/solana-ci.yml',
 ];
 

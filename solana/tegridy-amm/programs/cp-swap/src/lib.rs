@@ -67,16 +67,16 @@ solana_security_txt::security_txt! {
 //     this file), so a stolen keeper key is switched off without waiting on the admin's
 //     proposal and its lock. Only a wallet's key may be named keeper (update_config.rs param 9,
 //     states/config.rs `may_name_keeper`), and every change of keeper or guard is logged.
-//   - 2026-11-15, the sweep: anyone may move a pool's whole protocol share to the protocol
-//     owner's own token accounts and its whole fund share to the fund owner's (`sweep_fees`,
-//     the third instruction this fork adds, at the bottom of this file). The program derives
-//     every destination itself, so the caller chooses nothing; the hand collects are untouched.
+//   - 2026-11-15, the sweep: anyone may move one owner's whole share of a pool to that owner's
+//     own token accounts, each owner's in a call of its own (`sweep_fees`, the third instruction
+//     this fork adds, at the bottom of this file). The program derives every destination itself,
+//     so the caller chooses only the owner; the hand collects are untouched.
 // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
 // swap/curve/fee arithmetic is byte-identical to the audited upstream; since 2026-11-11 the
 // swaps hand it rates of 0 when a tier's keeper signs. The per-swap
 // PROTOCOL fee is NOT here: it accrues per `amm_config.protocol_fee_rate` and is
 // collected by `amm_config.protocol_owner` (which create_config sets = the admin caller),
-// or swept to that owner's own token accounts by anyone (`sweep_fees`).
+// or, while that owner is the admin, swept to its own token accounts by anyone (`sweep_fees`).
 //
 // (Two header paragraphs deleted 2026-08-24: one claimed the non-devnet authority
 // constants were fail-closed all-1s sentinels — false, the real values below are
@@ -462,18 +462,20 @@ pub mod raydium_cp_swap {
         Ok(())
     }
 
-    /// Move a pool's whole protocol share to the protocol owner's own token accounts and its
-    /// whole fund share to the fund owner's, in one call anyone may make. The program derives
-    /// each destination from the pool's fee tier (that owner's associated token account for the
-    /// coin) and refuses any other (6018 `NotFeeOwnersAccount`). Nothing else moves, and the
-    /// pool's price does not: the curve never counts the shares set aside.
+    /// Move one owner's whole share of a pool to that owner's own token accounts, in a call
+    /// anyone may make: the protocol owner's, or with `fund` the fund owner's. The program
+    /// derives both destinations from the pool's fee tier and refuses any other (6018
+    /// `NotFeeOwnersAccount`). A protocol owner other than the admin is never swept to (6019
+    /// `ProtocolOwnerNotAdmin`). Nothing else moves, and the price does not: the curve never
+    /// counts the shares set aside.
     ///
     /// # Arguments
     ///
     /// * `ctx`- The context of accounts
+    /// * `fund` - false sweeps the protocol owner's share, true the fund owner's
     ///
-    pub fn sweep_fees(ctx: Context<SweepFees>) -> Result<()> {
-        sweep_pool_fees(ctx)
+    pub fn sweep_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()> {
+        sweep_pool_fees(ctx, fund)
     }
 }
 
@@ -494,33 +496,13 @@ pub struct ResignKeeper<'info> {
 }
 
 // ─── TEGRIDY FORK ADDITION (2026-11-15): sweep_fees ───────────────────────────
-// The third instruction this fork adds. Every swap sets aside the protocol's and the fund's
-// shares of its fee inside the pool's own vaults (`protocol_fees_token_*` and
-// `fund_fees_token_*`, states/pool.rs), and upstream lets only their owners collect them, by
-// hand, to any account they choose. On mainnet the protocol owner is the Squads vault (2 of 2,
-// 48-hour lock), so the venue's share sat in every pool until someone proposed a collect. The
-// owner's ruling of 2026-11-15: every fee of the venue lands in the treasury by itself, and
-// the island's share in the island's own wallet.
-//
-// WHO MAY CALL IT: anyone, who pays the network fee and signs nothing else. That is safe
-// because the caller chooses nothing. The pool's own fee tier names both owners; each
-// destination must be that owner's associated token account for that coin, under the token
-// program that owns the coin, derived here; and it must still belong to that owner (a classic
-// token account's owner can be handed over, and a handed-over one is refused). Anything else:
-// 6018 `NotFeeOwnersAccount`. As the hand collects since 2026-11-15 (audit CPS-09): no
-// destination may be held by `authority`, which holds every pool's vaults, even if a tier
-// names it as an owner (6008 `InvalidVault`).
-// WHAT IT MOVES: the four amounts set aside, each to its owner, and the four counts to zero.
-// Nothing else: the creator fee, the curve's tokens, the lp supply and the tier are untouched.
-// The price does not move, since the curve reads the vaults less every share set aside
-// (pool.rs `vault_amount_without_fee`). An amount of 0 moves nothing (utils/token.rs). The
-// hand collects, `collect_protocol_fee` and `collect_fund_fee`, are unchanged.
-// THE DESTINATIONS MUST ALREADY EXIST: the caller first creates any that do not, with the
-// associated token account program's CreateIdempotent, which anyone may pay for. This program
-// creates no account.
-// STACK: the tier and every token account are boxed, the pool is an `AccountLoader`, and the
-// transfers run in their own frame (`sweep_pool_fees`).
+// Anyone may move one fee owner's whole share of a pool to that owner's own token accounts. The
+// call names one owner's two accounts only, so one owner's accounts never stop the other's. The
+// protocol share moves only while its owner is the admin: otherwise it is collected by hand, as
+// upstream. The destinations must exist (the caller creates them). What each check refuses:
+// TEGRIDY_FORK.md, "The fee sweep".
 #[derive(Accounts)]
+#[instruction(fund: bool)]
 pub struct SweepFees<'info> {
     /// CHECK: pool vault and lp mint authority
     #[account(
@@ -536,7 +518,10 @@ pub struct SweepFees<'info> {
     pub pool_state: AccountLoader<'info, PoolState>,
 
     /// The pool's fee tier: it names the protocol owner and the fund owner
-    #[account(address = pool_state.load()?.amm_config)]
+    #[account(
+        address = pool_state.load()?.amm_config,
+        constraint = fund || amm_config.protocol_owner == crate::admin::ID @ ErrorCode::ProtocolOwnerNotAdmin
+    )]
     pub amm_config: Box<Account<'info, AmmConfig>>,
 
     /// The pool's vault of token_0
@@ -561,41 +546,24 @@ pub struct SweepFees<'info> {
     #[account(address = token_1_vault.mint)]
     pub vault_1_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// The protocol owner's own token_0 account
+    /// The owner's own token_0 account: its associated account under the coin's own token
+    /// program, still its own, and never one `authority` holds (audit CPS-09)
     #[account(
         mut,
-        address = owners_account(&amm_config.protocol_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_0_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
+        address = owners_account(&fee_owner(&amm_config, fund), &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
+        constraint = owner_token_0_account.owner == fee_owner(&amm_config, fund) @ ErrorCode::NotFeeOwnersAccount,
+        constraint = owner_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
-    pub protocol_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// The protocol owner's own token_1 account
+    /// The owner's own token_1 account, by the same rules
     #[account(
         mut,
-        address = owners_account(&amm_config.protocol_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_1_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
+        address = owners_account(&fee_owner(&amm_config, fund), &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
+        constraint = owner_token_1_account.owner == fee_owner(&amm_config, fund) @ ErrorCode::NotFeeOwnersAccount,
+        constraint = owner_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
-    pub protocol_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    /// The fund owner's own token_0 account
-    #[account(
-        mut,
-        address = owners_account(&amm_config.fund_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_0_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
-    )]
-    pub fund_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    /// The fund owner's own token_1 account
-    #[account(
-        mut,
-        address = owners_account(&amm_config.fund_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_1_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
-    )]
-    pub fund_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// The SPL program to perform token transfers
     pub token_program: Program<'info, Token>,
@@ -623,31 +591,43 @@ fn token_program_of<'info>(
     }
 }
 
+/// The owner whose share a sweep moves: the fund owner with `fund`, else the protocol owner.
+fn fee_owner(amm_config: &AmmConfig, fund: bool) -> Pubkey {
+    if fund {
+        amm_config.fund_owner
+    } else {
+        amm_config.protocol_owner
+    }
+}
+
+/// Its own frame, with every account above boxed: an SBF frame holds 4 KB.
 #[inline(never)]
-fn sweep_pool_fees(ctx: Context<SweepFees>) -> Result<()> {
-    let (protocol_0, protocol_1, fund_0, fund_1, auth_bump) = {
-        let mut pool_state = ctx.accounts.pool_state.load_mut()?;
-        let set_aside = (
-            pool_state.protocol_fees_token_0,
-            pool_state.protocol_fees_token_1,
-            pool_state.fund_fees_token_0,
-            pool_state.fund_fees_token_1,
-            pool_state.auth_bump,
-        );
-        pool_state.protocol_fees_token_0 = 0;
-        pool_state.protocol_fees_token_1 = 0;
-        pool_state.fund_fees_token_0 = 0;
-        pool_state.fund_fees_token_1 = 0;
-        pool_state.recent_epoch = Clock::get()?.epoch;
-        set_aside
-    };
+fn sweep_pool_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()> {
     let a = &ctx.accounts;
+    let (owed, auth_bump) = {
+        let p = a.pool_state.load()?;
+        let owed = if fund {
+            [p.fund_fees_token_0, p.fund_fees_token_1]
+        } else {
+            [p.protocol_fees_token_0, p.protocol_fees_token_1]
+        };
+        (owed, p.auth_bump)
+    };
+    {
+        let mut p = a.pool_state.load_mut()?;
+        if fund {
+            p.fund_fees_token_0 = 0;
+            p.fund_fees_token_1 = 0;
+        } else {
+            p.protocol_fees_token_0 = 0;
+            p.protocol_fees_token_1 = 0;
+        }
+        p.recent_epoch = Clock::get()?.epoch;
+    }
     let seeds: &[&[&[u8]]] = &[&[crate::AUTH_SEED.as_bytes(), &[auth_bump]]];
     for (vault, mint, to, amount) in [
-        (&a.token_0_vault, &a.vault_0_mint, &a.protocol_token_0_account, protocol_0),
-        (&a.token_1_vault, &a.vault_1_mint, &a.protocol_token_1_account, protocol_1),
-        (&a.token_0_vault, &a.vault_0_mint, &a.fund_token_0_account, fund_0),
-        (&a.token_1_vault, &a.vault_1_mint, &a.fund_token_1_account, fund_1),
+        (&a.token_0_vault, &a.vault_0_mint, &a.owner_token_0_account, owed[0]),
+        (&a.token_1_vault, &a.vault_1_mint, &a.owner_token_1_account, owed[1]),
     ] {
         let mint_info = mint.to_account_info();
         transfer_from_pool_vault_to_user(
@@ -663,12 +643,10 @@ fn sweep_pool_fees(ctx: Context<SweepFees>) -> Result<()> {
     }
     emit!(FeesSwept {
         pool_state: a.pool_state.key(),
-        protocol_owner: a.amm_config.protocol_owner,
-        fund_owner: a.amm_config.fund_owner,
-        protocol_fees_token_0: protocol_0,
-        protocol_fees_token_1: protocol_1,
-        fund_fees_token_0: fund_0,
-        fund_fees_token_1: fund_1,
+        fund,
+        owner: fee_owner(&a.amm_config, fund),
+        token_0_amount: owed[0],
+        token_1_amount: owed[1],
     });
     Ok(())
 }

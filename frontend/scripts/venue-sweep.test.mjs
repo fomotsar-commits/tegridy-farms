@@ -4,7 +4,7 @@
 // @solana/spl-token, which the job itself never loads. Node's environment, not jsdom: there
 // web3.js's own curve check and its serializer break (see scripts/bayla-ladder-ops.test.mjs).
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -209,48 +209,50 @@ describe("venue-sweep: the instruction", () => {
     expect(() => decodePool("P", Buffer.alloc(10).toString("base64"))).toThrow(/637/);
   });
 
-  it("sweep_fees carries Anchor's tag and the 13 accounts of SweepFees, in order, each destination the owner's own account", () => {
+  it("sweep_fees carries Anchor's tag, the side, and the 11 accounts of SweepFees in order: each owner's sweep names only that owner's own accounts", () => {
     const pool = decodePool("PooL1111111111111111111111111111111111111111".slice(0, 44), poolBytes({ ammConfig: key(), vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM }));
     pool.address = key();
-    const tier = { protocolOwner: VAULT, fundOwner: WORKSHOP };
-    const ix = sweepFeesIx({ programId: VENUE_PROGRAM, pool, tier });
-    expect(Buffer.from(ix.data)).toEqual(createHash("sha256").update("global:sweep_fees").digest().subarray(0, 8));
-    expect(Buffer.from(SWEEP_FEES_TAG).length).toBe(8);
+    const tag = createHash("sha256").update("global:sweep_fees").digest().subarray(0, 8);
+    expect(Buffer.from(SWEEP_FEES_TAG)).toEqual(tag);
     const [authority] = PublicKey.findProgramAddressSync([Buffer.from("vault_and_lp_mint_auth_seed")], new PublicKey(VENUE_PROGRAM));
     const ata = (owner, mint, program) => getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(owner), true, program).toBase58();
-    expect(ix.keys.map((k) => [k.pubkey, k.isSigner, k.isWritable])).toEqual([
-      [authority.toBase58(), false, false],
-      [pool.address, false, true],
-      [pool.ammConfig, false, false],
-      [pool.vault0, false, true],
-      [pool.vault1, false, true],
-      [SOL_MINT, false, false],
-      [BAYLA, false, false],
-      [ata(VAULT, SOL_MINT, TOKEN_PROGRAM_ID), false, true],
-      [ata(VAULT, BAYLA, TOKEN_2022_PROGRAM_ID), false, true],
-      [ata(WORKSHOP, SOL_MINT, TOKEN_PROGRAM_ID), false, true],
-      [ata(WORKSHOP, BAYLA, TOKEN_2022_PROGRAM_ID), false, true],
-      [TOKEN_PROGRAM, false, false],
-      [TOKEN_2022_PROGRAM, false, false],
-    ]);
-    expect(ix.keys[7].pubkey).toBe("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
-    expect(ix.keys[8].pubkey).toBe("4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy");
+    for (const [owner, fund] of [
+      [VAULT, false],
+      [WORKSHOP, true],
+    ]) {
+      const ix = sweepFeesIx({ programId: VENUE_PROGRAM, pool, owner, fund });
+      // Anchor's borsh: the tag, then the side as one byte (0 the protocol owner's share, 1 the fund owner's).
+      expect(Buffer.from(ix.data)).toEqual(Buffer.concat([tag, Buffer.from([fund ? 1 : 0])]));
+      expect(ix.keys.map((k) => [k.pubkey, k.isSigner, k.isWritable])).toEqual([
+        [authority.toBase58(), false, false],
+        [pool.address, false, true],
+        [pool.ammConfig, false, false],
+        [pool.vault0, false, true],
+        [pool.vault1, false, true],
+        [SOL_MINT, false, false],
+        [BAYLA, false, false],
+        [ata(owner, SOL_MINT, TOKEN_PROGRAM_ID), false, true],
+        [ata(owner, BAYLA, TOKEN_2022_PROGRAM_ID), false, true],
+        [TOKEN_PROGRAM, false, false],
+        [TOKEN_2022_PROGRAM, false, false],
+      ]);
+    }
+    const venue = sweepFeesIx({ programId: VENUE_PROGRAM, pool, owner: VAULT, fund: false });
+    expect(venue.keys[7].pubkey).toBe("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
+    expect(venue.keys[8].pubkey).toBe("4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy");
   });
 
-  it("names the accounts in the order the program's SweepFees declares them", () => {
+  it("names the accounts in the order the program's SweepFees declares them, and passes the side the program reads", () => {
     const lib = join(here, "../../solana/tegridy-amm/programs/cp-swap/src/lib.rs");
-    const order = ["authority", "pool_state", "amm_config", "token_0_vault", "token_1_vault", "vault_0_mint", "vault_1_mint", "protocol_token_0_account", "protocol_token_1_account", "fund_token_0_account", "fund_token_1_account", "token_program", "token_program_2022"];
-    const src = existsSync(lib) ? readFileSync(lib, "utf8") : "";
+    const order = ["authority", "pool_state", "amm_config", "token_0_vault", "token_1_vault", "vault_0_mint", "vault_1_mint", "owner_token_0_account", "owner_token_1_account", "token_program", "token_program_2022"];
+    const src = readFileSync(lib, "utf8");
     const at = src.indexOf("pub struct SweepFees<'info>");
-    if (at < 0) {
-      // Before the program change that adds sweep_fees merges, the struct is not in this tree.
-      // The order above is copied from that change; once it merges, this test reads it instead.
-      expect(order.length).toBe(13);
-      return;
-    }
+    expect(at).toBeGreaterThan(0);
     const body = src.slice(at, src.indexOf("\n}\n", at));
     const fields = [...body.matchAll(/^\s*pub (\w+): /gm)].map((m) => m[1]);
     expect(fields).toEqual(order);
+    expect(src.slice(at - 40, at)).toContain("#[instruction(fund: bool)]");
+    expect(src).toContain("pub fn sweep_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()>");
   });
 
   it("worthSweeping prices SOL and dollar coins only, and falls back to 0.007 SOL when SOL has no price", () => {
@@ -292,24 +294,33 @@ describe("venue-sweep: the instruction", () => {
   });
 });
 
-/** A fake chain: the pools and tiers given, the accounts that exist, and what each call returns. */
-function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT }, simErr = null, statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
+/**
+ * A fake chain: the pools and tiers given, the accounts that exist, and what each call returns.
+ * `simErr(tx)` answers each simulation from the transaction itself (web3.js's reading of it).
+ */
+function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT }, simErr = () => null, statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
   const calls = [];
   let s = 0;
+  let sent = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
     if (method === "getProgramAccounts") return pools.map(([pubkey, data]) => ({ pubkey, account: { data: [data, "base64"] } }));
     if (method === "getMultipleAccounts")
       return { value: params[0].map((k) => (mints[k] ? { data: [mints[k], "base64"] } : tiers[k] ? { data: [tiers[k], "base64"] } : existing.has(k) ? { data: ["", "base64"] } : null)) };
     if (method === "getLatestBlockhash") return { value: { blockhash: "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi", lastValidBlockHeight: 1000 } };
-    if (method === "simulateTransaction") return { value: { err: simErr, logs: [], unitsConsumed: 61234 } };
-    if (method === "sendTransaction") return "SiG";
+    if (method === "simulateTransaction") return { value: { err: simErr(Transaction.from(Buffer.from(params[0], "base64"))), logs: [], unitsConsumed: 61234 } };
+    if (method === "sendTransaction") return `SiG${++sent}`;
     if (method === "getSignatureStatuses") return { value: [statuses[Math.min(s++, statuses.length - 1)]] };
     if (method === "getBlockHeight") return 10;
     throw new Error(`unexpected ${method}`);
   };
-  return { call, calls };
+  /** Each transaction simulated, as web3.js reads it. */
+  const simulated = () => calls.filter((c) => c.method === "simulateTransaction").map((c) => Transaction.from(Buffer.from(c.params[0], "base64")));
+  return { call, calls, simulated };
 }
+/** The side a sweep_fees instruction names (its data's last byte): "venue" or "island". */
+const sideOf = (ix) => (ix.data[8] === 1 ? "island" : "venue");
+const sweepsIn = (tx) => tx.instructions.filter((i) => i.programId.toBase58() === VENUE_PROGRAM);
 const noPrice = async () => ({ json: async () => ({}) });
 const quiet = () => {};
 
@@ -322,25 +333,68 @@ describe("venue-sweep: a run", () => {
   const empty = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM })];
   const tiers = { [tierKey]: tierBytes(VAULT, WORKSHOP) };
   const payer = key();
+  const workshopAccounts = [associatedTokenAddress(WORKSHOP, SOL_MINT, TOKEN_PROGRAM), associatedTokenAddress(WORKSHOP, BAYLA, TOKEN_2022_PROGRAM)];
+  const vaultAccounts = [associatedTokenAddress(VAULT, SOL_MINT, TOKEN_PROGRAM), associatedTokenAddress(VAULT, BAYLA, TOKEN_2022_PROGRAM)];
 
-  it("a dry run simulates the one pool above the floor, creates the island's missing accounts first, and sends nothing", async () => {
-    const existing = new Set([associatedTokenAddress(VAULT, SOL_MINT, TOKEN_PROGRAM), associatedTokenAddress(VAULT, BAYLA, TOKEN_2022_PROGRAM)]);
-    const chain = fakeChain({ pools: [big, dust, empty], tiers, existing });
+  it("a dry run simulates the venue's share and the island's in two transactions, opens only the vault's missing accounts, and sends nothing", async () => {
+    const chain = fakeChain({ pools: [big, dust, empty], tiers, existing: new Set(workshopAccounts) });
     const res = await run({ ...parseArgs(["--payer", payer]) }, { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
     expect(res.ok).toBe(true);
     const row = res.pools.find((r) => r.pool === big[0]);
-    expect(row.note).toMatch(/simulated clean/);
-    expect(row.created).toBe(2); // the Workshop's wSOL and BAYLA accounts; the vault's exist
+    expect(row.venue.result).toMatch(/simulated clean/);
+    expect(row.island.result).toMatch(/simulated clean/);
+    expect(row.created).toBe(2); // the vault's wSOL and BAYLA accounts; the Workshop's exist
     expect(res.pools.find((r) => r.pool === dust[0]).note).toMatch(/under the/);
     expect(res.pools.find((r) => r.pool === empty[0]).note).toBe("nothing set aside");
-    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
-    const sim = chain.calls.find((c) => c.method === "simulateTransaction");
-    const tx = Transaction.from(Buffer.from(sim.params[0], "base64"));
-    expect(tx.instructions.map((i) => i.programId.toBase58())).toEqual([ATA_PROGRAM, ATA_PROGRAM, VENUE_PROGRAM]);
-    expect(tx.instructions[0].keys[2].pubkey.toBase58()).toBe(WORKSHOP);
-    expect(sim.params[1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: true });
+    const [venueTx, islandTx] = chain.simulated();
+    expect(venueTx.instructions.map((i) => i.programId.toBase58())).toEqual([ATA_PROGRAM, ATA_PROGRAM, VENUE_PROGRAM]);
+    expect(venueTx.instructions.slice(0, 2).map((i) => [i.keys[1].pubkey.toBase58(), i.keys[2].pubkey.toBase58()])).toEqual(vaultAccounts.map((a) => [a, VAULT]));
+    expect(sweepsIn(venueTx).map(sideOf)).toEqual(["venue"]);
+    expect(sweepsIn(venueTx)[0].keys.slice(7, 9).map((k) => k.pubkey.toBase58())).toEqual(vaultAccounts);
+    expect(islandTx.instructions.map((i) => i.programId.toBase58())).toEqual([VENUE_PROGRAM]);
+    expect(sweepsIn(islandTx).map(sideOf)).toEqual(["island"]);
+    expect(sweepsIn(islandTx)[0].keys.slice(7, 9).map((k) => k.pubkey.toBase58())).toEqual(workshopAccounts);
+    expect(chain.calls.find((c) => c.method === "simulateTransaction").params[1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: true });
     expect(summary(res, { live: false })).toContain(big[0]);
   });
+
+  it("the job never opens the Workshop's accounts: the island's share waits until it holds both, the summary names the missing one, and the venue's is still swept", async () => {
+    const chain = fakeChain({ pools: [big], tiers, existing: new Set([...vaultAccounts, workshopAccounts[0]]) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const txs = chain.simulated();
+    for (const tx of txs) {
+      for (const ix of tx.instructions.filter((i) => i.programId.toBase58() === ATA_PROGRAM)) expect(ix.keys[2].pubkey.toBase58()).not.toBe(WORKSHOP);
+    }
+    expect(txs.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"]]);
+    expect(res.ok).toBe(true);
+    const [row] = res.pools;
+    expect(row.venue.result).toMatch(/simulated clean/);
+    expect(row.created).toBe(0);
+    expect(row.island.result).toMatch(new RegExp(`waits: the Workshop has no account yet for ${BAYLA}`));
+    expect(row.missing).toEqual([{ mint: BAYLA, address: workshopAccounts[1] }]);
+    expect(summary(res, { live: false })).toContain(`${BAYLA} (\`${workshopAccounts[1]}\`)`);
+  });
+
+  for (const [refused, still] of [
+    ["venue", "island"],
+    ["island", "venue"],
+  ]) {
+    it(`a refusal of the ${refused}'s sweep does not stop the ${still}'s: each is its own transaction, and the run fails`, async () => {
+      const chain = fakeChain({
+        pools: [big],
+        tiers,
+        existing: new Set([...vaultAccounts, ...workshopAccounts]),
+        simErr: (tx) => (sweepsIn(tx).some((ix) => sideOf(ix) === refused) ? { InstructionError: [0, { Custom: 6018 }] } : null),
+      });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+      expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      expect(res.ok).toBe(false);
+      expect(res.pools[0][refused].result).toMatch(/the simulation refused it/);
+      expect(res.pools[0][still].result).toMatch(/simulated clean/);
+    });
+  }
 
   it("a pool holding a coin with a transfer fee is held back and named, never simulated or sent; the run still passes", async () => {
     const groyper = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: GROYPER, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [51_216_483n, 7_000_000_000n], fund: [23_051_592n, 3_683_000_000n] })];
@@ -361,15 +415,22 @@ describe("venue-sweep: a run", () => {
   });
 
   it("before the program is upgraded, the simulation's 'no such instruction' is said and is not a failure", async () => {
-    // No owner's account exists yet, so four CreateIdempotent come first and the sweep is the fifth.
-    const chain = fakeChain({ pools: [big], tiers, simErr: { InstructionError: [4, { Custom: 101 }] } });
+    // The vault's accounts do not exist yet, so two CreateIdempotent come first and its sweep is the third.
+    const chain = fakeChain({
+      pools: [big],
+      tiers,
+      existing: new Set(workshopAccounts),
+      simErr: (tx) => ({ InstructionError: [tx.instructions.length - 1, { Custom: 101 }] }),
+    });
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(chain.simulated().map((tx) => tx.instructions.length)).toEqual([3, 1]);
     expect(res).toMatchObject({ ok: true, notUpgraded: true });
-    expect(res.pools[0].note).toMatch(/not upgraded/);
+    expect(res.pools[0].venue.result).toMatch(/not upgraded/);
+    expect(res.pools[0].island.result).toMatch(/not upgraded/);
   });
 
   it("any other refusal is a failure, and nothing is sent", async () => {
-    const chain = fakeChain({ pools: [big], tiers, simErr: { InstructionError: [2, { Custom: 6018 }] } });
+    const chain = fakeChain({ pools: [big], tiers, simErr: () => ({ InstructionError: [2, { Custom: 6018 }] }) });
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
     expect(res.ok).toBe(false);
     expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
@@ -384,18 +445,22 @@ describe("venue-sweep: a run", () => {
     expect(chain.calls.some((c) => c.method === "simulateTransaction")).toBe(false);
   });
 
-  it("a live run signs with the sweeper's key, sends, and waits until the chain confirms it", async () => {
+  it("a live run signs with the sweeper's key, sends each owner's sweep on its own, and waits until the chain confirms each", async () => {
     const kp = Keypair.generate();
-    const chain = fakeChain({ pools: [big], tiers, existing: new Set(Object.values(destinations(decodePool(big[0], big[1]), { protocolOwner: VAULT, fundOwner: WORKSHOP }))) });
+    const chain = fakeChain({ pools: [big], tiers, existing: new Set([...vaultAccounts, ...workshopAccounts]) });
     const env = { VENUE_SWEEPER_KEYPAIR: JSON.stringify([...kp.secretKey]) };
     const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env, log: quiet, wait: async () => {} });
+    const sent = chain.calls.filter((c) => c.method === "sendTransaction").map((c) => Transaction.from(Buffer.from(c.params[0], "base64")));
+    expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
     expect(res.ok).toBe(true);
-    expect(res.pools[0]).toMatchObject({ swept: true, signature: "SiG", created: 0 });
-    const sent = chain.calls.find((c) => c.method === "sendTransaction");
-    const tx = Transaction.from(Buffer.from(sent.params[0], "base64"));
-    expect(tx.verifySignatures()).toBe(true);
-    expect(tx.feePayer.toBase58()).toBe(kp.publicKey.toBase58());
-    expect(tx.instructions.map((i) => i.programId.toBase58())).toEqual([VENUE_PROGRAM]);
+    expect(res.pools[0]).toMatchObject({ created: 0, venue: { swept: true, signature: "SiG1" }, island: { swept: true, signature: "SiG2" } });
+    for (const tx of sent) {
+      expect(tx.verifySignatures()).toBe(true);
+      expect(tx.feePayer.toBase58()).toBe(kp.publicKey.toBase58());
+      expect(tx.instructions.map((i) => i.programId.toBase58())).toEqual([VENUE_PROGRAM]);
+    }
+    const p = decodePool(big[0], big[1]);
+    expect([...destinations(p, VAULT), ...destinations(p, WORKSHOP)]).toEqual([...vaultAccounts, ...workshopAccounts]);
   });
 
   it("a live run needs the key, and a dry run needs a payer", async () => {

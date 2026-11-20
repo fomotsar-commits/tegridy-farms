@@ -125,18 +125,16 @@ pub struct KeeperChanged {
     pub resigned: bool,
 }
 
-/// memetics.finance, 2026-11-15: logged by lib.rs `sweep_fees`, which moves a pool's whole
-/// protocol share to the protocol owner's own token accounts and its whole fund share to the
-/// fund owner's. The amounts are what the pool had set aside, in each token's base units.
+/// memetics.finance, 2026-11-15: logged by lib.rs `sweep_fees` for one owner's share of a pool:
+/// the fund owner's when `fund`, else the protocol owner's. In each token's base units, what
+/// moved to the owner's own account.
 #[event]
 pub struct FeesSwept {
     pub pool_state: Pubkey,
-    pub protocol_owner: Pubkey,
-    pub fund_owner: Pubkey,
-    pub protocol_fees_token_0: u64,
-    pub protocol_fees_token_1: u64,
-    pub fund_fees_token_0: u64,
-    pub fund_fees_token_1: u64,
+    pub fund: bool,
+    pub owner: Pubkey,
+    pub token_0_amount: u64,
+    pub token_1_amount: u64,
 }
 
 #[cfg(test)]

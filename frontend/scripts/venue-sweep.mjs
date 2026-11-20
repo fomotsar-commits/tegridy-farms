@@ -1,13 +1,10 @@
 #!/usr/bin/env node
-// Daily, by .github/workflows/venue-sweep.yml: sweep every own pool's set-aside fee shares to
-// their owners with the pool program's `sweep_fees` (solana/tegridy-amm lib.rs, 2026-11-15).
-// The venue's share (10.4% of each trade fee) goes to the Squads vault's own token accounts and
-// the island's (5.6%) to the Workshop's. The PROGRAM derives and enforces every destination: this
-// job cannot send a coin anywhere else. It pays the network fee and, once per new coin, the rent
-// of an owner's token account (the associated token account program's CreateIdempotent).
-// HELD BACK: a pool holding a Token-2022 coin with a transfer fee (GROYPER takes 3% of every
-// move) is not swept, since the coin would keep that much of both shares; the summary names it
-// and the owner decides. A coin whose fee setting cannot be read is held back too, and fails the run.
+// Daily, by .github/workflows/venue-sweep.yml: the pool program's `sweep_fees` (lib.rs), which picks
+// every destination itself, moves the venue's share (10.4% of each trade fee) to the vault's own
+// token accounts and the island's (5.6%) to the Workshop's, each in a transaction of its own. This
+// job pays the network fees and opens only the vault's missing accounts; the island's share waits
+// until the Workshop holds both of the pool's accounts (the summary names them). A pool with a coin
+// that takes a transfer fee is left to hand collects; one whose fee cannot be read fails the run.
 //
 //   node frontend/scripts/venue-sweep.mjs --payer <address>   dry run: reads and simulates as that
 //                                                             payer, sends nothing, needs no key
@@ -75,20 +72,15 @@ export function decodeTier(address, base64) {
   return { address, protocolOwner: pk(d, 44), fundOwner: pk(d, 76) };
 }
 
-/** The four destinations of a pool's sweep, as the program derives them. */
-export function destinations(pool, tier) {
-  return {
-    protocol0: associatedTokenAddress(tier.protocolOwner, pool.mint0, pool.program0),
-    protocol1: associatedTokenAddress(tier.protocolOwner, pool.mint1, pool.program1),
-    fund0: associatedTokenAddress(tier.fundOwner, pool.mint0, pool.program0),
-    fund1: associatedTokenAddress(tier.fundOwner, pool.mint1, pool.program1),
-  };
+/** `owner`'s two destinations in a pool's sweep, as the program derives them. */
+export function destinations(pool, owner) {
+  return [associatedTokenAddress(owner, pool.mint0, pool.program0), associatedTokenAddress(owner, pool.mint1, pool.program1)];
 }
 
-/** The sweep_fees instruction, its accounts in the order of `SweepFees` in lib.rs. */
-export function sweepFeesIx({ programId, pool, tier }) {
+/** sweep_fees of `owner`'s share (the fund owner's when `fund`), its accounts in the order of `SweepFees` in lib.rs. */
+export function sweepFeesIx({ programId, pool, owner, fund }) {
   const authority = findProgramAddress([AUTH_SEED], programId).address;
-  const to = destinations(pool, tier);
+  const [to0, to1] = destinations(pool, owner);
   const w = (pubkey) => ({ pubkey, isSigner: false, isWritable: true });
   const r = (pubkey) => ({ pubkey, isSigner: false, isWritable: false });
   return {
@@ -101,14 +93,12 @@ export function sweepFeesIx({ programId, pool, tier }) {
       w(pool.vault1),
       r(pool.mint0),
       r(pool.mint1),
-      w(to.protocol0),
-      w(to.protocol1),
-      w(to.fund0),
-      w(to.fund1),
+      w(to0),
+      w(to1),
       r(TOKEN_PROGRAM),
       r(TOKEN_2022_PROGRAM),
     ],
-    data: Buffer.from(SWEEP_FEES_TAG),
+    data: Buffer.concat([SWEEP_FEES_TAG, Buffer.from([fund ? 1 : 0])]),
   };
 }
 
@@ -244,12 +234,40 @@ export async function run(opts, deps) {
   const solUsd = await solPrice(fetchImpl);
   log(`${pools.length} pools on ${opts.program}; SOL ${solUsd == null ? "price unread" : `$${solUsd}`}; payer ${payer}; ${opts.live ? "LIVE" : "dry run"}`);
 
+  /** Simulates one transaction and, in a live run, sends it and waits for the chain: what came of it. */
+  const sendOne = async (ixs) => {
+    const { blockhash, lastValidBlockHeight } = (await call("getLatestBlockhash", [{ commitment: "confirmed" }])).value;
+    const compiled = compileLegacy({ payer, instructions: ixs, recentBlockhash: blockhash });
+    const wire = signer ? signTransaction(compiled, signer) : Buffer.concat([Buffer.from([1]), Buffer.alloc(64), compiled.message]);
+    const sim = (
+      await call("simulateTransaction", [wire.toString("base64"), { encoding: "base64", sigVerify: !!signer, replaceRecentBlockhash: !signer, commitment: "confirmed" }])
+    ).value;
+    if (sim.err) {
+      if (customError(sim.err, ixs.length - 1) === NO_SUCH_INSTRUCTION) {
+        return { ok: true, notUpgraded: true, result: "the pool program has no sweep yet (not upgraded): nothing sent" };
+      }
+      return { ok: false, result: `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join(" | ")}` };
+    }
+    if (!opts.live) return { ok: true, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it` };
+    const sig = await call("sendTransaction", [wire.toString("base64"), { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
+    let landed = null;
+    for (let i = 0; i < 40 && landed === null; i++) {
+      await wait(1500);
+      const st = (await call("getSignatureStatuses", [[sig]])).value[0];
+      if (st?.err) landed = false;
+      else if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") landed = true;
+      else if ((await call("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) break;
+    }
+    if (landed) return { ok: true, swept: true, signature: sig, result: "swept" };
+    return { ok: false, signature: sig, result: landed === false ? "sent, and it failed on chain" : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again" };
+  };
+
   const results = [];
   let ok = true;
   let notUpgraded = false;
   for (const pool of pools) {
     const tier = tiers.get(pool.ammConfig);
-    const row = { pool: pool.address, swept: false };
+    const row = { pool: pool.address };
     results.push(row);
     if (!tier) {
       row.note = `its fee tier ${pool.ammConfig} could not be read`;
@@ -280,76 +298,54 @@ export async function run(opts, deps) {
       row.note = `under the $${opts.minUsd} floor: waits`;
       continue;
     }
-    const to = destinations(pool, tier);
-    const owners = [
-      [tier.protocolOwner, pool.mint0, pool.program0, to.protocol0],
-      [tier.protocolOwner, pool.mint1, pool.program1, to.protocol1],
-      [tier.fundOwner, pool.mint0, pool.program0, to.fund0],
-      [tier.fundOwner, pool.mint1, pool.program1, to.fund1],
+    const coins = [
+      [pool.mint0, pool.program0],
+      [pool.mint1, pool.program1],
     ];
-    const exists = (await call("getMultipleAccounts", [owners.map((o) => o[3]), { encoding: "base64", commitment: "confirmed" }])).value;
-    const seen = new Set();
-    const ixs = [];
-    owners.forEach(([owner, mint, tokenProgram, address], i) => {
-      if (exists[i] || seen.has(address)) return;
-      seen.add(address);
-      ixs.push(createIdempotentIx({ payer, owner, mint, tokenProgram }));
-    });
-    ixs.push(sweepFeesIx({ programId: opts.program, pool, tier }));
-    row.created = ixs.length - 1;
-    row.venue = `${fmt(pool.protocol[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.protocol[1], pool.decimals1)} of ${pool.mint1}`;
-    row.island = `${fmt(pool.fund[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.fund[1], pool.decimals1)} of ${pool.mint1}`;
-
-    const { blockhash, lastValidBlockHeight } = (await call("getLatestBlockhash", [{ commitment: "confirmed" }])).value;
-    const compiled = compileLegacy({ payer, instructions: ixs, recentBlockhash: blockhash });
-    const wire = signer ? signTransaction(compiled, signer) : Buffer.concat([Buffer.from([1]), Buffer.alloc(64), compiled.message]);
-    const sim = (
-      await call("simulateTransaction", [wire.toString("base64"), { encoding: "base64", sigVerify: !!signer, replaceRecentBlockhash: !signer, commitment: "confirmed" }])
-    ).value;
-    if (sim.err) {
-      if (customError(sim.err, ixs.length - 1) === NO_SUCH_INSTRUCTION) {
-        row.note = "the pool program has no sweep yet (not upgraded): nothing sent";
-        notUpgraded = true;
-        continue;
-      }
-      row.note = `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join(" | ")}`;
-      ok = false;
-      continue;
-    }
-    if (!opts.live) {
-      row.note = `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it`;
-      continue;
-    }
-    const sig = await call("sendTransaction", [wire.toString("base64"), { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
-    row.signature = sig;
-    let landed = null;
-    for (let i = 0; i < 40 && landed === null; i++) {
-      await wait(1500);
-      const st = (await call("getSignatureStatuses", [[sig]])).value[0];
-      if (st?.err) landed = false;
-      else if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") landed = true;
-      else if ((await call("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) break;
-    }
-    if (landed) {
-      row.swept = true;
-      row.note = "swept";
+    const vaultTo = destinations(pool, tier.protocolOwner);
+    const workshopTo = destinations(pool, tier.fundOwner);
+    const exists = (await call("getMultipleAccounts", [[...vaultTo, ...workshopTo], { encoding: "base64", commitment: "confirmed" }])).value;
+    row.venue = { share: `${fmt(pool.protocol[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.protocol[1], pool.decimals1)} of ${pool.mint1}` };
+    row.island = { share: `${fmt(pool.fund[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.fund[1], pool.decimals1)} of ${pool.mint1}` };
+    // The vault's missing accounts are opened here: they and their rent stay the venue's.
+    const opens = coins.filter((_, i) => !exists[i]).map(([mint, tokenProgram]) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram }));
+    row.created = opens.length;
+    Object.assign(row.venue, await sendOne([...opens, sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })]));
+    // The Workshop's are never opened here: its share waits until the island holds both.
+    const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !exists[2 + i]);
+    if (lacking.length) {
+      row.missing = lacking;
+      Object.assign(row.island, { ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` });
     } else {
-      row.note = landed === false ? "sent, and it failed on chain" : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again";
-      ok = false;
+      Object.assign(row.island, await sendOne([sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })]));
+    }
+    for (const side of [row.venue, row.island]) {
+      if (!side.ok) ok = false;
+      if (side.notUpgraded) notUpgraded = true;
     }
   }
   return { ok, notUpgraded, pools: results };
 }
 
 export function summary(res, opts) {
-  const lines = [`### Venue sweep (${opts.live ? "live" : "dry run"})`, "", "| Pool | Result | Venue's share | Island's share | Transaction |", "|---|---|---|---|---|"];
+  const lines = [
+    `### Venue sweep (${opts.live ? "live" : "dry run"})`,
+    "",
+    "| Pool | Result | Venue's share | Its sweep | Island's share | Its sweep |",
+    "|---|---|---|---|---|---|",
+  ];
+  const side = (s) => (s ? `${s.result ?? ""}${s.signature ? ` \`${s.signature}\`` : ""}` : "");
   for (const r of res.pools) {
     if (r.note === "nothing set aside" || r.note?.startsWith("under the")) continue;
-    lines.push(`| \`${r.pool}\` | ${r.note ?? ""} | ${r.venue ?? ""} | ${r.island ?? ""} | ${r.signature ? `\`${r.signature}\`` : ""} |`);
+    lines.push(`| \`${r.pool}\` | ${r.note ?? ""} | ${r.venue?.share ?? ""} | ${side(r.venue)} | ${r.island?.share ?? ""} | ${side(r.island)} |`);
   }
   const waiting = res.pools.filter((r) => r.note?.startsWith("under the")).length;
   const empty = res.pools.filter((r) => r.note === "nothing set aside").length;
   lines.push("", `${empty} pools have nothing set aside; ${waiting} are under the floor and wait.`);
+  const missing = [...new Map(res.pools.flatMap((r) => r.missing ?? []).map((m) => [m.address, m])).values()];
+  if (missing.length) {
+    lines.push("", `The Workshop has no token account yet for these coins, so the island's share of their pools waits until it opens them: ${missing.map((m) => `${m.mint} (\`${m.address}\`)`).join(", ")}.`);
+  }
   return lines.join("\n");
 }
 
