@@ -7,9 +7,11 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-19
+### 2026-11-20
 
 - Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
+
+### 2026-11-19
 
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
 - The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
