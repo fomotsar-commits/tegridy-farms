@@ -1362,7 +1362,7 @@ describe("bayla-ladder", () => {
         await rejectsWith(
           degrade(early).rpc(),
           "InvalidParameter",
-          `a notice at ${early} would charge every position with no stamp`
+          `a notice start of ${early} would charge weight set before any real notice`
         );
       }
       await degrade(noticeStart).rpc();

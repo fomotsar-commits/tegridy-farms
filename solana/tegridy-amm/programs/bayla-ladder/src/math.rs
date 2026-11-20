@@ -453,8 +453,8 @@ pub fn penalty_waived(degraded: bool, weight_set_at: i64, notice_start: i64) -> 
     degraded && weight_set_at <= notice_start
 }
 
-/// Whether a `declare_degraded` notice has begun: before `now`, and above 0, because a
-/// stamp of 0 means "no stamp" and a notice at or below it would charge those positions.
+/// Whether a `declare_degraded` notice has begun: before `now`, and above 0. At 0 (an unset
+/// value) all weight set after the upgrade would pay; below it, unstamped weight too.
 pub fn notice_has_begun(notice_start: i64, now: i64) -> bool {
     0 < notice_start && notice_start < now
 }
@@ -958,7 +958,8 @@ mod tests {
         // Not begun yet: weight bought while the proposal waits would leave free.
         assert!(!notice_has_begun(now, now));
         assert!(!notice_has_begun(now + DAY, now));
-        // At or below 0, a position with no stamp (0) would pay the penalty.
+        // At 0, all weight set after the upgrade would pay; below 0, unstamped weight too.
+        assert!(!penalty_waived(true, 1, 0));
         assert!(!penalty_waived(true, 0, -1));
         assert!(!notice_has_begun(0, now));
         assert!(!notice_has_begun(-1, now));
