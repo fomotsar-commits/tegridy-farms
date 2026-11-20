@@ -44,4 +44,18 @@ pub enum ErrorCode {
     /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
     #[msg("This pool's swaps must be sent directly, not called by another program")]
     SwapNotDirect,
+    /// memetics.finance, 2026-11-14: `resign_keeper` signed by someone who is not the tier's
+    /// keeper, or called by another program (lib.rs). After SwapNotDirect, so every code above
+    /// keeps its number.
+    #[msg("Only this fee tier's keeper can resign as its keeper, sending it directly")]
+    NotKeeper,
+    /// memetics.finance, 2026-11-14: update_config.rs param 9 named a key that is not a
+    /// wallet's (states/config.rs `may_name_keeper`).
+    #[msg("A keeper must be a wallet, not a program's address")]
+    KeeperNotAWallet,
+    /// memetics.finance, 2026-11-15: lib.rs `sweep_fees` was handed a destination that is not
+    /// the fee owner's own associated token account for that coin, or one its owner gave away.
+    /// After KeeperNotAWallet, so every code above keeps its number.
+    #[msg("A swept fee goes only to its owner's own token account")]
+    NotFeeOwnersAccount,
 }
