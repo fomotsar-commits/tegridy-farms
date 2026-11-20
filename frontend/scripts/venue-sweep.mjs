@@ -14,8 +14,8 @@
 // pool program; any other is a test chain, where the mainnet owner check does not apply),
 // --min-usd <n> (default 0.5: a pool whose priced shares are worth less waits for a later day).
 // Exit 0 when every pool above the floor was swept or simulated clean (or the program has no
-// sweep yet), 1 when anything failed. Plain Node, no package: the key never shares a process with
-// third-party code (venue-volume.yml's rule).
+// sweep yet, or only the first one), 1 when anything failed. Plain Node, no package: the key
+// never shares a process with third-party code (venue-volume.yml's rule).
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -41,6 +41,12 @@ const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 export const SWEEP_FEES_TAG = createHash("sha256").update("global:sweep_fees").digest().subarray(0, 8);
 /** Anchor's "instruction not found" (InstructionFallbackNotFound): the program has no sweep yet. */
 const NO_SUCH_INSTRUCTION = 101;
+/**
+ * The first sweep (2026-11-15: both owners in one call, four destinations) reads this sweep's token
+ * program, its tenth account, as the fund owner's token-0 account: Anchor's AccountOwnedByWrongProgram,
+ * logged against that account's name, which this sweep does not have.
+ */
+const FIRST_SWEEP = { error: 3007, log: "caused by account: fund_token_0_account." };
 
 const pk = (d, o) => base58(d.subarray(o, o + 32));
 const u64 = (d, o) => d.readBigUInt64LE(o);
@@ -243,8 +249,12 @@ export async function run(opts, deps) {
       await call("simulateTransaction", [wire.toString("base64"), { encoding: "base64", sigVerify: !!signer, replaceRecentBlockhash: !signer, commitment: "confirmed" }])
     ).value;
     if (sim.err) {
-      if (customError(sim.err, ixs.length - 1) === NO_SUCH_INSTRUCTION) {
+      const code = customError(sim.err, ixs.length - 1);
+      if (code === NO_SUCH_INSTRUCTION) {
         return { ok: true, notUpgraded: true, result: "the pool program has no sweep yet (not upgraded): nothing sent" };
+      }
+      if (code === FIRST_SWEEP.error && (sim.logs ?? []).some((l) => l.includes(FIRST_SWEEP.log))) {
+        return { ok: true, notUpgraded: true, result: "the pool program has only the first sweep, both owners in one call (not upgraded): nothing sent" };
       }
       return { ok: false, result: `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join(" | ")}` };
     }
@@ -307,13 +317,19 @@ export async function run(opts, deps) {
     const exists = (await call("getMultipleAccounts", [[...vaultTo, ...workshopTo], { encoding: "base64", commitment: "confirmed" }])).value;
     row.venue = { share: `${fmt(pool.protocol[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.protocol[1], pool.decimals1)} of ${pool.mint1}` };
     row.island = { share: `${fmt(pool.fund[0], pool.decimals0)} of ${pool.mint0} + ${fmt(pool.fund[1], pool.decimals1)} of ${pool.mint1}` };
+    // A side with nothing set aside sends nothing and opens nothing.
+    const owed = (share) => share.some((x) => x > 0n);
+    const nothing = { ok: true, result: "nothing set aside" };
     // The vault's missing accounts are opened here: they and their rent stay the venue's.
-    const opens = coins.filter((_, i) => !exists[i]).map(([mint, tokenProgram]) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram }));
+    const opens = owed(pool.protocol) ? coins.filter((_, i) => !exists[i]).map(([mint, tokenProgram]) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram })) : [];
     row.created = opens.length;
-    Object.assign(row.venue, await sendOne([...opens, sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })]));
+    if (!owed(pool.protocol)) Object.assign(row.venue, nothing);
+    else Object.assign(row.venue, await sendOne([...opens, sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })]));
     // The Workshop's are never opened here: its share waits until the island holds both.
     const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !exists[2 + i]);
-    if (lacking.length) {
+    if (!owed(pool.fund)) {
+      Object.assign(row.island, nothing);
+    } else if (lacking.length) {
       row.missing = lacking;
       Object.assign(row.island, { ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` });
     } else {
