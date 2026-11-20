@@ -102,6 +102,15 @@ names one, is the one exception: see "The keeper's fee".
 > the transaction are recorded in `MAINNET_RUNBOOK.md`, section 4b. Neither the fee rules nor the
 > guard has been audited.
 
+> **Upgraded again: mainnet runs the build with the keeper's fee.** The Squads vault's proposal
+> #35 upgraded the program to the build made from this source at the merge of pull request
+> #1198 (`c24947dfb`; sha256 `9f0150e3…`, 715,224 bytes). The build before it, `01fe923b…`, is
+> the roll-back build now. The vault's proposal #34, approved in the same sitting, names the
+> venue's price robot `9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz` keeper of both tiers: from
+> then on its own swaps there pay no trade fee and no creator fee, and everyone else pays as
+> before. The day, the slot and the transaction are recorded in `MAINNET_RUNBOOK.md`, section
+> 4b. The keeper's fee has not been audited.
+
 ---
 
 ## The entire code diff from upstream

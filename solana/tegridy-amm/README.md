@@ -6,11 +6,12 @@ A constant-product AMM for Solana. **This is a fork of
 files, the program's own name and contact text (the `security_txt!` block in `lib.rs` and
 one `Cargo.toml` line), since 2026-10-06 one added instruction (`create_lp_metadata`, in
 `lib.rs`), since 2026-10-19 one added refusal (a public `initialize` on fee tier 0, in
-`instructions/initialize.rs`), since 2026-11-03 the fee rules and the coin check, and since
-2026-11-10 the swap guard (`TEGRIDY_FORK.md` has a section for each, with the files), enforced
-automatically by the `diff-guard` job in `.github/workflows/solana-ci.yml`. All swap, curve and
-fee math is byte-identical to upstream: the guard refuses a swap before any of it runs, or
-leaves it alone.
+`instructions/initialize.rs`), since 2026-11-03 the fee rules and the coin check, since
+2026-11-10 the swap guard, and since 2026-11-11 the keeper's fee (`TEGRIDY_FORK.md` has a
+section for each, with the files), enforced automatically by the `diff-guard` job in
+`.github/workflows/solana-ci.yml`. All swap, curve and fee math is byte-identical to upstream:
+the guard refuses a swap before any of it runs, or leaves it alone, and the keeper's fee hands
+that same maths rates of 0 when a tier's keeper signs the swap.
 
 The added instruction gives a pool's lp token a name record, so wallets stop listing it as an
 unknown token. Only the program can ask Metaplex for that record, because the lp mint's

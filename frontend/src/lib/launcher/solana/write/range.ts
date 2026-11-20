@@ -439,7 +439,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
       const warnings: string[] = [];
       if (check.state === 'disagrees') {
         const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
-        const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, pair.quote.decimals, 6).text} ${pair.quote.symbol}`;
+        const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, pair.quote.decimals, 6, { up: true }).text} ${pair.quote.symbol}`;
         warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
       } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
       else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));

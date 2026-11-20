@@ -1,0 +1,203 @@
+/* The drawing set (owner, 2026-11-15): one sheet per page, set out as an architect's drawing.
+   P-01 Pools, S-01 Staking, L-01 Loans; each has its own file beside this one. Extends the
+   editorial look (lib/editorial.ts) with one spot ink per sheet. Unlayered, so a rule here beats
+   a Tailwind utility; an inline style still wins. Every word drawn from a data-* attribute or a
+   pseudo-element is no part of a page's words (e2e/word-budget.spec.ts). Imported by main.tsx:
+   a stylesheet that arrives with a lazy chunk fails the build (scripts/check-dist-graph.mjs).
+   Such words are drawing, so their alternative text is empty (`content: x / ""`): no accessible
+   name or screen reader says them. The plain declaration before each is for an engine without it. */
+
+.dwg {
+  --dwg-bg: #05080f;
+  --dwg-ink: #f5e4b8;
+  --dwg-green: #22c55e;
+  --dwg-spot: #5ad1e6;
+  --dwg-spot-deep: #114b5f;
+  --dwg-warn: #f0b26b;
+  --dwg-bad: #f08a6b;
+  --dwg-film: rgba(5, 8, 15, 0.9);
+  --dwg-line: rgba(245, 228, 184, 0.14);
+  --dwg-line-2: rgba(245, 228, 184, 0.3);
+  --dwg-line-3: rgba(245, 228, 184, 0.6);
+  --dwg-dim: rgba(245, 228, 184, 0.62);
+  --dwg-soft: rgba(245, 228, 184, 0.82);
+  --dwg-pad: clamp(14px, 2.6vw, 40px);
+  --dwg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color: var(--dwg-ink);
+  text-shadow: none;
+}
+.dwg[data-sheet='S'] { --dwg-spot: #e3b341; --dwg-spot-deep: #5a4312; }
+.dwg[data-sheet='L'] { --dwg-spot: #b79cff; --dwg-spot-deep: #3a2a70; }
+
+/* ── The sheet: frame, trim marks, zone ruler, grain. The sheet itself is clear: each band lays
+      its own film over the page's picture, so an opening cut in a film shows the picture. ── */
+.dwg-sheet { position: relative; isolation: isolate; border: 1px solid rgba(255, 255, 255, 0.15); }
+.dwg-sheet::before {
+  content: ''; position: absolute; inset: -11px; z-index: 2; pointer-events: none;
+  --c: rgba(245, 228, 184, 0.45);
+  background:
+    linear-gradient(var(--c), var(--c)) left 0 top 10px / 8px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) left 10px top 0 / 1px 8px no-repeat,
+    linear-gradient(var(--c), var(--c)) right 0 top 10px / 8px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) right 10px top 0 / 1px 8px no-repeat,
+    linear-gradient(var(--c), var(--c)) left 0 bottom 10px / 8px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) left 10px bottom 0 / 1px 8px no-repeat,
+    linear-gradient(var(--c), var(--c)) right 0 bottom 10px / 8px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) right 10px bottom 0 / 1px 8px no-repeat;
+}
+.dwg-grain::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.08; mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+/* The zone ruler along a sheet's top edge: letters from data-z. Decoration, from 48rem. */
+.dwg-ruler { display: none; height: 15px; background: var(--dwg-film); border-bottom: 1px solid var(--dwg-line); font: 600 8px/15px var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.38); }
+.dwg-ruler i { flex: 1; text-align: center; border-left: 1px solid var(--dwg-line); font-style: normal; }
+.dwg-ruler i:first-child { border-left: 0; }
+.dwg-ruler i::before { content: attr(data-z); content: attr(data-z) / ""; }
+@media (min-width: 48rem) { .dwg-ruler { display: flex; } }
+/* Words that are drawing, not copy: drawn from data-t. */
+.dwg-t::before { content: attr(data-t); content: attr(data-t) / ""; }
+
+/* ── Type ── */
+.dwg-cap { display: flex; align-items: center; gap: 8px; margin: 0; font: 500 11px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg-cap::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg-cap[data-ink='spot']::before { background: var(--dwg-spot); }
+.dwg-cap[data-bare]::before { content: none; }
+/* The sheet's word: one text node, its outlined echo a step down and right in the spot ink. */
+.dwg-word { margin: 0 0 0.75rem; font-family: var(--font-family-heading); font-weight: 900; font-size: 1.875rem; line-height: 1.2; letter-spacing: -0.03em; color: var(--dwg-ink); text-shadow: none; }
+.dwg-word > span { position: relative; display: block; width: inherit; }
+.dwg-word > span::after { content: attr(data-echo); content: attr(data-echo) / ""; position: absolute; left: 0; top: 0; z-index: -1; width: 100%; transform: translate(0.05em, 0.05em); color: transparent; -webkit-text-stroke: 1.5px var(--dwg-spot); pointer-events: none; }
+.dwg-word[data-rise] > span { animation: dwg-rise 0.9s var(--dwg-ease) both; }
+@keyframes dwg-rise { from { opacity: 0; transform: translateY(0.35em); } to { opacity: 1; transform: none; } }
+@media (min-width: 48rem) {
+  .dwg-word { font-size: clamp(3.6rem, 7.3vw, 6.5rem); line-height: 0.86; letter-spacing: -0.055em; }
+  .dwg-word[data-break] { width: min-content; }
+}
+.dwg-lede { margin: 0; max-width: 46ch; font-size: 15px; line-height: 1.4; color: var(--dwg-soft); }
+.dwg-h2 { margin: 0; font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.5rem, 3.2vw, 2.25rem); line-height: 0.95; letter-spacing: -0.035em; color: var(--dwg-ink); text-shadow: none; }
+.dwg-num { font-family: var(--font-family-heading); font-weight: 900; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; line-height: 1; }
+.dwg-mono { font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; }
+
+/* ── A band: one part of the sheet, flush to its neighbours. Its plaque number comes from data-n
+      on its head; from 64rem the head stands in a margin column, as keynotes do on a drawing. ── */
+.dwg-band { position: relative; isolation: isolate; background: var(--dwg-film); border-top: 1px solid var(--dwg-line-2); padding: 22px var(--dwg-pad) 26px; }
+.dwg-band-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.dwg-band-head[data-n]::before { content: attr(data-n); content: attr(data-n) / ""; flex: none; width: 26px; font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink); transform: translateY(-3px); }
+@media (min-width: 64rem) {
+  .dwg-band[data-split] { display: grid; grid-template-columns: minmax(180px, 22%) minmax(0, 1fr); column-gap: clamp(20px, 3vw, 44px); }
+  .dwg-band[data-split] > .dwg-band-head { display: block; margin: 0; }
+  .dwg-band[data-split] > .dwg-band-head[data-n]::before { display: block; margin-bottom: 12px; transform: none; }
+}
+/* A film to lay over a band's picture where a card's own scrim is not used: darker under the words. */
+.dwg-film { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(90deg, rgba(5, 8, 15, 0.93) 0%, rgba(5, 8, 15, 0.84) 55%, rgba(5, 8, 15, 0.62) 100%); }
+
+/* ── A dimension line: a measured length with a slash tick at each end. ── */
+.dwg-dimline { position: relative; height: 1px; background: var(--dwg-line-3); }
+.dwg-dimline::before, .dwg-dimline::after { content: ''; position: absolute; top: -4px; width: 1px; height: 9px; background: var(--dwg-line-3); transform: rotate(35deg); }
+.dwg-dimline::before { left: 0; }
+.dwg-dimline::after { right: 0; }
+
+/* ── Controls. Colours that change on hover are rules here, never inline. ── */
+.dwg :focus-visible { outline: 2px solid var(--dwg-green); outline-offset: 2px; }
+/* A press whose area is padding taken back by a negative margin keeps its ring on its words (index.css `.ring-on-words`). */
+.dwg .ring-on-words:focus-visible { outline: none; }
+.dwg .ring-on-words:focus-visible .ring-words { outline: 2px solid var(--dwg-green); outline-offset: 1px; }
+/* Index tabs: the sheet's verbs. A letter or number from data-n, a heavy word. */
+.dwg-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border: 1px solid var(--dwg-line-2); }
+.dwg-tab { position: relative; min-height: 56px; padding: 10px 14px 12px; text-align: left; background: transparent; color: var(--dwg-ink); border: 0; border-left: 1px solid var(--dwg-line-2); border-radius: 0; cursor: pointer; font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1rem, 2.1vw, 1.5rem); letter-spacing: -0.03em; line-height: 1; text-shadow: none; transition: background-color 0.2s ease, color 0.2s ease; }
+.dwg-tab:first-child { border-left: 0; }
+.dwg-tab[data-n]::before { content: attr(data-n); content: attr(data-n) / ""; display: block; margin-bottom: 8px; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim); }
+.dwg-tab:hover { background: rgba(245, 228, 184, 0.07); }
+.dwg-tab[aria-pressed='true'], .dwg-tab[aria-selected='true'] { background: var(--dwg-ink); color: var(--dwg-bg); }
+.dwg-tab[aria-pressed='true']::before, .dwg-tab[aria-selected='true']::before { color: rgba(5, 8, 15, 0.6); }
+/* A chip: a valve tag. */
+.dwg-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; background: rgba(5, 8, 15, 0.6); color: var(--dwg-ink); border: 1px solid var(--dwg-line-2); border-radius: 0; cursor: pointer; font: 700 12px/1 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; text-shadow: none; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease; }
+.dwg-chip:hover { border-color: var(--dwg-ink); }
+.dwg-chip[aria-pressed='true'], .dwg-chip[aria-selected='true'], .dwg-chip[aria-checked='true'] { background: var(--dwg-spot); border-color: var(--dwg-spot); color: var(--dwg-bg); }
+/* The one action: a green block that lifts off the sheet. Its arrow is drawn (no arrow glyph is in the fonts). */
+.dwg-btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 48px; padding: 0 18px; background: var(--dwg-green); color: #04130a; border: 1px solid var(--dwg-green); border-radius: 0; cursor: pointer; font: 800 12px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; transition: transform 0.2s var(--dwg-ease), box-shadow 0.2s ease, background-color 0.2s ease; }
+.dwg-btn::after { content: ''; flex: none; width: 15px; height: 9px; background: currentColor; clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%); }
+.dwg-btn:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--dwg-ink); }
+.dwg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dwg-btn[data-quiet] { background: transparent; color: var(--dwg-ink); border-color: var(--dwg-line-3); }
+.dwg-btn[data-quiet]:hover:not(:disabled) { box-shadow: 4px 4px 0 var(--dwg-spot); }
+.dwg-btn[data-bare]::after { content: none; }
+.dwg-field { width: 100%; min-height: 48px; padding: 0 14px; background: rgba(5, 8, 15, 0.72); color: var(--dwg-ink); border: 1px solid var(--dwg-line-2); border-radius: 0; font: 500 16px/1 var(--font-family-mono); text-shadow: none; }
+.dwg-field::placeholder { color: rgba(245, 228, 184, 0.4); }
+.dwg-field:focus { border-color: var(--dwg-ink); }
+.dwg-label { display: block; margin-bottom: 6px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim); }
+/* Small print keeps its native <details> (ui/FinePrint.tsx); the sheet sets its summary in mono caps. */
+.dwg .fine-print > summary { font-family: var(--font-family-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg .fine-print > summary:hover { color: var(--dwg-ink); }
+
+/* ── Schedule rows (as Earn's pool index): number from data-n, heavy name, mono facts. ── */
+.dwg-rows { border-top: 1px solid var(--dwg-line-3); }
+.dwg-row { position: relative; display: grid; align-items: center; column-gap: 14px; padding: 12px 0 12px 12px; border-bottom: 1px solid var(--dwg-line); }
+.dwg-row::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--dwg-spot); transform: scaleY(0.36); transform-origin: 50% 100%; transition: transform 0.2s ease-out; }
+.dwg-row:hover::before, .dwg-row:focus-within::before, .dwg-row[data-hot]::before { transform: none; }
+.dwg-idx { font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.45); }
+.dwg-idx::before { content: attr(data-n); content: attr(data-n) / ""; }
+.dwg-name { font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.15rem, 2.4vw, 1.75rem); letter-spacing: -0.035em; line-height: 1; color: var(--dwg-ink); }
+.dwg-fact { font: 500 11px/1.3 var(--font-family-mono); letter-spacing: 0.06em; color: var(--dwg-dim); }
+.dwg-fact b { font-weight: 700; color: var(--dwg-ink); }
+.dwg-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 12px; background: transparent; border: 1px solid var(--dwg-line-2); border-radius: 0; color: var(--dwg-ink); text-decoration: none; cursor: pointer; font: 700 10.5px/1 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease; }
+.dwg-link:hover { background: var(--dwg-ink); color: var(--dwg-bg); border-color: var(--dwg-ink); }
+
+/* ── Marks ── */
+/* A rubber stamp: its words from data-t. */
+.dwg-stamp { display: inline-block; padding: 5px 9px 4px; border: 1.5px solid currentColor; color: var(--dwg-spot); font: 800 10px/1 var(--font-family-mono); letter-spacing: 0.2em; text-transform: uppercase; transform: rotate(-4deg); opacity: 0.92; }
+.dwg-stamp::before { content: attr(data-t); content: attr(data-t) / ""; }
+.dwg-stamp[data-tone='bad'] { color: var(--dwg-bad); }
+.dwg-stamp[data-tone='warn'] { color: var(--dwg-warn); }
+.dwg-stamp[data-tone='ok'] { color: var(--dwg-green); }
+/* A section marker: the circle a drawing names a detail with. Its letters from data-a and data-b. */
+.dwg-mark { position: relative; flex: none; width: 30px; height: 30px; border: 1px solid var(--dwg-line-3); border-radius: 50%; }
+.dwg-mark::before, .dwg-mark::after { position: absolute; left: 0; right: 0; text-align: center; font-family: var(--font-family-mono); font-weight: 700; color: var(--dwg-ink); }
+.dwg-mark::before { content: attr(data-a); content: attr(data-a) / ""; top: 4px; font-size: 9.5px; }
+.dwg-mark::after { content: attr(data-b); content: attr(data-b) / ""; bottom: 4px; margin: 0 5px; padding-top: 2px; border-top: 1px solid var(--dwg-line-3); font-size: 6.5px; letter-spacing: 0.04em; }
+/* Material hatches, for a cut face or a tone. */
+.dwg-hatch { background-image: repeating-linear-gradient(135deg, rgba(245, 228, 184, 0.22) 0 1px, transparent 1px 6px); }
+.dwg-hatch-spot { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--dwg-spot) 55%, transparent) 0 1px, transparent 1px 5px); }
+.dwg-dots { background-image: radial-gradient(rgba(245, 228, 184, 0.28) 0.8px, transparent 1px); background-size: 7px 7px; }
+
+/* ── The title block: the sheet's foot, as a drawing's. Cells of caption over value; a cell's
+      words may be drawn from data-cap / data-val so they are no part of the page's words. ── */
+.dwg-title { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--dwg-film); border-top: 1px solid var(--dwg-line-3); }
+.dwg-title > * { min-width: 0; padding: 12px var(--dwg-pad) 14px; border-left: 1px solid var(--dwg-line-2); }
+.dwg-title > *:first-child { border-left: 0; }
+.dwg-tcap { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dwg-dim); }
+.dwg-tcap[data-cap]::before { content: attr(data-cap); content: attr(data-cap) / ""; }
+.dwg-tval { margin-top: 6px; font: 700 13px/1.2 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-ink); overflow-wrap: anywhere; }
+.dwg-tval[data-val]::before { content: attr(data-val); content: attr(data-val) / ""; }
+.dwg-sheetno { font-family: var(--font-family-heading); font-weight: 900; font-size: 34px; letter-spacing: -0.04em; line-height: 0.9; color: var(--dwg-ink); }
+.dwg-sheetno::before { content: attr(data-no); content: attr(data-no) / ""; }
+
+/* ── Drawn figures (inline SVG, aria-hidden, no <text>: labels are spans laid over them). ── */
+.dwg-fig { display: block; width: 100%; height: auto; overflow: visible; }
+.dwg-figwrap { position: relative; }
+.dwg-figlabel { position: absolute; left: 0; top: 0; transform-origin: 0 0; white-space: nowrap; pointer-events: none; font-family: var(--font-family-mono); font-weight: 700; letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.8); }
+.dwg-figlabel::before { content: attr(data-t); content: attr(data-t) / ""; }
+.dwg-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: dwg-draw 1.1s var(--dwg-ease) forwards; }
+@keyframes dwg-draw { to { stroke-dashoffset: 0; } }
+.dwg-fill-in { animation: dwg-fill-in 0.9s var(--dwg-ease) both; }
+@keyframes dwg-fill-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dwg-ripple { animation: dwg-ripple 5.5s linear infinite; }
+@keyframes dwg-ripple { to { stroke-dashoffset: -28; } }
+.dwg [data-dwg-paused] .dwg-ripple { animation-play-state: paused; }
+
+/* ── Shared scope rules: what any sheet restyles where it stands. ── */
+/* A card's picture under the sheet: the global rule dims it to 0.45; a sheet shows more of it. */
+.dwg .absolute.inset-0 > img.object-cover:not(.art-bright) { filter: brightness(0.62); }
+/* The app's buttons inside a sheet wear the sheet's block; the base .btn-* rules are not edited. */
+.dwg .btn-primary { background: var(--dwg-green); color: #04130a; border: 1px solid var(--dwg-green); border-radius: 0; box-shadow: none; font-family: var(--font-family-mono); font-weight: 800; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; transition: transform 0.2s var(--dwg-ease), box-shadow 0.2s ease; }
+.dwg .btn-primary:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--dwg-ink); }
+.dwg .btn-primary:disabled { opacity: 0.45; }
+.dwg .btn-secondary { background: transparent; color: var(--dwg-ink); border: 1px solid var(--dwg-line-3); border-radius: 0; box-shadow: none; font-family: var(--font-family-mono); font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; text-shadow: none; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease; }
+.dwg .btn-secondary:hover:not(:disabled) { background: var(--dwg-ink); color: var(--dwg-bg); border-color: var(--dwg-ink); box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dwg *, .dwg *::before, .dwg *::after { animation-delay: 0s !important; transition-delay: 0s !important; }
+  .dwg-draw { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+  .dwg-ripple { animation: none; }
+  .dwg-btn:hover:not(:disabled), .dwg .btn-primary:hover:not(:disabled) { transform: none; }
+}

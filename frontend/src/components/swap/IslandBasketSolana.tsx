@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { PublicKey, VersionedTransaction, type Transaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { toFixedUp } from '../../lib/formatting';
 import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
 import { MIN_USD_PER_COIN, SOL_BASKET, coinsInOrder, dollarsEach, minOrderUsd, shortAmount, splitOrder, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
-import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, sendSigned, signatureOf, solLegRoute, stampBlockhash, BASKET_COPY, PoolNotNamedError, type PreparedSolLeg } from '../../lib/solana/swap/islandBasketSol';
+import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError, type PreparedSolLeg } from '../../lib/solana/swap/islandBasketSol';
 import { freshDecision, within } from '../../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
-import { signThrowCopy } from '../../lib/solana/walletThrow';
 import { sendWalletSwap } from '../../lib/solana/swap/walletSwapSend';
 import { HELD_NOT_SENT, LOST_ANSWER_TITLE } from '../../lib/solana/swap/walletCopy';
-import { jupiterLastValidAtMost } from '../../lib/solana/swap/jupiterNote';
-import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../../lib/solana/blockhashWindow';
 import { noteKey, readPendingTrades, swapPendingScope } from '../solana/curve/pendingTrade';
 import type { PendingTradesState } from '../solana/curve/usePendingTrades';
 import type { PreparedTx, SwapOpenGate, TxSigner, VenueSwapApi } from '../solana/curve/ports';
+import { useCurveSigner } from '../solana/curve/useCurveSigner';
+import { txVersionOf } from '../../lib/launcher/solana/write/txVersion';
 import { recordActivity } from '../../lib/solanaActivity';
 import { setLastBuy } from '../../lib/heat/lastBuy';
 import { bungalowByAddress } from '../../lib/bungalows';
@@ -145,7 +145,10 @@ export function IslandBasketSolana(p: {
 }) {
   const gap = p.quoteGapMs ?? QUOTE_GAP_MS;
   const { connection } = useConnection();
-  const { publicKey, sendTransaction, signTransaction, signAllTransactions } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
+  // The connected wallet as the write layer's signer: version 1 for a wallet that signs it.
+  const signerState = useCurveSigner();
+  const txSigner = signerState.kind === 'ready' ? signerState.signer : null;
   const [open, setOpen] = useState(false);
   const [usd, setUsd] = useState('10');
   // USD prices by mint (PRICE_IDS), the last read that answered.
@@ -294,9 +297,6 @@ export function IslandBasketSolana(p: {
     return () => clearInterval(iv);
   }, [open, running, anyUnread]);
 
-  // Not one prompt per coin: one for the whole order, when the wallet can sign several at once.
-  const oneApproval = signAllTransactions !== undefined;
-
   /**
    * One coin, checked and built the way the swap builds a trade: quoted again, held to the
    * figure shown, compared with our pools, test-run. Null, with the row saying why, when
@@ -350,6 +350,8 @@ export function IslandBasketSolana(p: {
         amountIn: leg.amountIn,
         slippageBps: BigInt(p.slippageBps),
         aggregator: route.aggregator,
+        // Version 1 for a wallet that signs it, as the swap's own review builds it.
+        txVersion: txVersionOf(txSigner),
       });
     } catch {
       setLeg(i, { kind: 'not-sent', why: 'Our pool’s swap for it could not be built just now, so nothing was sent for it.' });
@@ -360,12 +362,6 @@ export function IslandBasketSolana(p: {
       return null;
     }
     const s = built.prepared.summary;
-    // Built legacy on purpose (no `txVersion`): one approval for every coin goes through the
-    // adapter's signAllTransactions, which takes web3.js objects, never version 1 bytes.
-    if (built.prepared.wire.version !== 'legacy') {
-      setLeg(i, { kind: 'not-sent', why: 'Our pool’s swap for it was built in a format this order cannot sign, so nothing was sent for it.' });
-      return null;
-    }
     return { i, leg, via: 'own', prepared: built.prepared, words: s.kind === 'venue-swap' ? words(s.quoted.outAmount) : leg.coin.symbol };
   }
 
@@ -382,32 +378,6 @@ export function IslandBasketSolana(p: {
     setLeg(b.i, { kind: 'unknown' });
     surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost: `buying again buys ${b.leg.coin.symbol} a second time.` });
     recordActivity(user, { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${b.words} (island order)` });
-  }
-
-  /**
-   * The note that holds Buy for this wallet until the chain answers for a Jupiter coin: the
-   * swap's own. Its reads start now, before the wallet is asked; the returned function
-   * writes it once there is a signature, with the blockhash the SIGNED transaction carries.
-   * A wallet may swap in its own (Phantom does, 2026-11-15): the proof read on the one
-   * handed to it then proves nothing about the one sent, and is not used, so the hold
-   * cannot end while the swap can still land (walletSwapSend.ts).
-   */
-  function jupiterNote(tx: VersionedTransaction, scope: string) {
-    const lastValid: { at: number | null } = { at: null };
-    const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
-    const handed = recentBlockhashOf(tx);
-    const proof: { bh: NoteBlockhash | null } = { bh: null };
-    const bhRead = blockhashSeen(connection, handed).then((b) => (proof.bh = b));
-    return (signature: string, carried: string | null) => {
-      const sentAt = Date.now();
-      const bh = () => (carried !== null && carried === handed ? proof.bh : null);
-      const write = () => p.pending.hold({ kind: 'jupiter-swap', signature, lastValidBlockHeight: lastValid.at, blockhash: bh(), sentAt }, scope);
-      write();
-      const had = { at: lastValid.at, bh: bh() };
-      void Promise.all([heightRead, bhRead]).then(() => {
-        if ((had.at === null && lastValid.at !== null) || (had.bh === null && bh() !== null)) write();
-      });
-    };
   }
 
   /** A watched coin's ending, said on its row. A sent coin the chain did not answer for stops the coins after it. */
@@ -475,7 +445,7 @@ export function IslandBasketSolana(p: {
         onSent: () => setLeg(b.i, { kind: 'busy', text: 'Confirming…' }),
       },
       b.tx,
-      { words: `${b.words} for ${sol(b.leg.amountIn).toFixed(4)} SOL`, slippageBps: p.slippageBps, timeoutMs: CONFIRM_TIMEOUT_MS },
+      { words: `${b.words} for ${toFixedUp(fromBaseUnits(b.leg.amountIn.toString(), 9), 4)} SOL`, slippageBps: p.slippageBps, timeoutMs: CONFIRM_TIMEOUT_MS },
     );
     if (end.kind === 'not-sent') {
       setLeg(b.i, { kind: 'not-sent', why: end.message });
@@ -491,85 +461,6 @@ export function IslandBasketSolana(p: {
     return settleJupiter(b, end.signature, end.outcome, user, scope);
   }
 
-  /**
-   * Every built coin, one wallet prompt. All on one fresh blockhash first, so none runs
-   * out while the wallet is open; nothing is awaited between the last read of this wallet's
-   * notes and the prompt. Once signed, each is sent and watched on its own: a coin already
-   * bought stays bought whatever another one does.
-   */
-  async function signAndSendAll(batch: Built[], signAll: NonNullable<typeof signAllTransactions>, owner: PublicKey, own: OwnSwap | null, scope: string): Promise<number> {
-    const user = owner.toBase58();
-    const legacyOf = (p: PreparedTx): Transaction => {
-      if (p.wire.version !== 'legacy') throw new Error('an own leg is built legacy (buildLeg)');
-      return p.wire.tx;
-    };
-    const txOf = (b: Built): Transaction | VersionedTransaction => (b.via === 'jupiter' ? b.tx : legacyOf(b.prepared));
-    const fresh = await connection.getLatestBlockhash('confirmed').catch(() => null);
-    if (fresh) {
-      stampBlockhash(batch.map(txOf), fresh.blockhash);
-      for (const b of batch) if (b.via === 'own') b.prepared = { ...b.prepared, blockhash: fresh.blockhash, lastValidBlockHeight: fresh.lastValidBlockHeight };
-    }
-    const notes = new Map(batch.flatMap((b) => (b.via === 'jupiter' ? [[b.i, jupiterNote(b.tx, scope)] as const] : [])));
-    if (p.pending.holdsNow(scope)) {
-      for (const b of batch) setLeg(b.i, { kind: 'not-sent', why: HELD_NOT_SENT });
-      setNotice({ tone: 'warn', text: HELD_NOT_SENT });
-      return 0;
-    }
-    for (const b of batch) setLeg(b.i, { kind: 'busy', text: 'At your wallet…' });
-    setNotice({ tone: 'busy', text: batch.length > 1 ? `One approval in your wallet buys all ${batch.length}.` : 'Approve it in your wallet.' });
-    let signed: (Transaction | VersionedTransaction)[];
-    try {
-      signed = await signAll(batch.map(txOf));
-    } catch (e) {
-      // Signing alone: whatever the wallet says, nothing left the page.
-      const why = signThrowCopy(e);
-      for (const b of batch) setLeg(b.i, { kind: 'not-sent', why });
-      setNotice(null);
-      return 0;
-    }
-    setNotice(null);
-    // Settled one by one: a coin whose bookkeeping throws takes no other coin's answer with it.
-    const results = await Promise.allSettled(
-      batch.map(async (b, k): Promise<Sent> => {
-        const got = signed[k];
-        if (b.via === 'own') {
-          if (!own || !got) {
-            setLeg(b.i, { kind: 'not-sent', why: 'Your wallet did not sign it, so nothing was sent for it.' });
-            return 'next';
-          }
-          // The write layer's send, handed what the wallet already signed: every check it makes still runs.
-          return sendOwn(b, { publicKey: owner, signTransaction: async <T extends Transaction>() => got as T }, own, user);
-        }
-        let tx: VersionedTransaction;
-        let sig: string | null;
-        try {
-          // Read back from its bytes: a wallet bundling its own web3.js returns a lookalike class.
-          tx = VersionedTransaction.deserialize(got!.serialize());
-          sig = signatureOf(tx);
-          if (!tx.message.staticAccountKeys[0]?.equals(owner)) sig = null;
-        } catch {
-          sig = null;
-          tx = b.tx;
-        }
-        if (!sig) {
-          setLeg(b.i, { kind: 'not-sent', why: 'Your wallet did not sign it, so nothing was sent for it.' });
-          return 'next';
-        }
-        // The note exists before the first byte leaves: from here it may land even if the page goes.
-        notes.get(b.i)?.(sig, recentBlockhashOf(tx));
-        setLeg(b.i, { kind: 'busy', text: 'Confirming…' });
-        const r = await sendSigned(connection, tx.serialize(), sig, CONFIRM_TIMEOUT_MS);
-        if (r.kind === 'not-sent') {
-          p.pending.release(sig, scope);
-          setLeg(b.i, { kind: 'not-sent', why: r.why });
-          return 'next';
-        }
-        return settleJupiter(b, sig, r.outcome, user, scope);
-      }),
-    );
-    return results.filter((r) => r.status === 'fulfilled' && r.value === 'bought').length;
-  }
-
   async function buy() {
     if (!publicKey || !legs || !shares || !ready || running) return;
     const owner = publicKey;
@@ -577,26 +468,21 @@ export function IslandBasketSolana(p: {
     const scope = swapPendingScope(user);
     const before = states;
     const own = ownAt.current;
-    const signAll = signAllTransactions ?? null;
     setRunning(true);
     setNotice(null);
     setFrozen({ usd, split: splitKey, shares });
     stopAfter.current = false;
     let bought = 0;
     try {
-      // With one approval, every coin is built first and signed together; otherwise each
-      // is sent as soon as it is built, so no blockhash waits on the others.
-      const batch: Built[] = [];
+      // Each coin is sent as soon as it is built, on its own wallet approval, so no
+      // blockhash waits on the others. Never several on one approval: Phantom asked for one
+      // transaction per approval (ticket #467471), and may block a request carrying two or
+      // more outright as impossible to simulate reliably.
       for (let i = 0; i < legs.length; i++) {
         if (!buyable(before[i])) continue;
         if (stopAfter.current) break;
         const b = await buildLeg(i, legs[i]!, ready[i]!, owner, own);
         if (!b) continue;
-        if (signAll) {
-          batch.push(b);
-          setLeg(i, { kind: 'busy', text: 'Ready' });
-          continue;
-        }
         // A swap this wallet sent, in any tab, that the chain has not answered for holds the
         // rest. From this read to the wallet's prompt nothing is awaited.
         if (p.pending.holdsNow(scope)) {
@@ -607,7 +493,7 @@ export function IslandBasketSolana(p: {
         setLeg(i, { kind: 'busy', text: 'At your wallet…' });
         let r: Sent;
         if (b.via === 'jupiter') r = await sendJupiterAlone(b, user, scope);
-        else if (own && signTransaction) r = await sendOwn(b, { publicKey: owner, signTransaction }, own, user);
+        else if (own && txSigner) r = await sendOwn(b, txSigner, own, user);
         else {
           setLeg(i, { kind: 'not-sent', why: 'This wallet cannot sign a transaction for this page to send, so nothing was sent for it.' });
           r = 'next';
@@ -615,7 +501,6 @@ export function IslandBasketSolana(p: {
         if (r === 'bought') bought++;
         if (r === 'stop') break;
       }
-      if (signAll && batch.length > 0) bought += await signAndSendAll(batch, signAll, owner, own, scope);
     } finally {
       setRunning(false);
       if (bought > 0) toast.success(`Bought ${bought} of ${legs.length} island coins`);
@@ -664,7 +549,7 @@ export function IslandBasketSolana(p: {
     ? `Site fee: ${(SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2)}% of each coin bought through Jupiter goes to the venue. A coin bought in our own pool pays its pool fee instead, inside its quote.`
     : 'No site fee is taken here. A coin bought in our own pool pays its pool fee, inside its quote.';
   const perCoin = Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
-  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${sol(total).toFixed(4)} SOL` : null;
+  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${toFixedUp(fromBaseUnits(total.toString(), 9), 4)} SOL` : null;
   const left = legs ? legs.filter((_, i) => buyable(states[i])).length : n;
   const started = Object.keys(states).length > 0;
   // A coin whose Jupiter price could not be read: the order waits for it, whatever our pools quote.
@@ -709,8 +594,7 @@ export function IslandBasketSolana(p: {
         split={{ pcts: split ?? SOL_BASKET.map(() => 100 / all), dollars: coinDollars, even: !split, onPct: basketSplit.setPct, onEven: basketSplit.reset }}
         cta={<BasketCta label={label} disabled={disabled} onClick={() => void buy()} />}
         after={
-          // With one approval every coin is already signed: there is no coin to stop after.
-          running && !oneApproval ? (
+          running ? (
             <button type="button" onClick={() => { stopAfter.current = true; }} className="text-white/70 text-[11px] underline underline-offset-2 min-h-[36px]">
               Stop after this coin
             </button>
@@ -719,7 +603,7 @@ export function IslandBasketSolana(p: {
         finePrint={
           <>
             <p>Each coin is bought through one pool, read on chain: PumpSwap for BAYLA, BOBO, SOY and BRAINLET, Raydium for RIZZ, or our own pool for that coin when it pays at least as much (the swap’s rule). Jupiter is asked for the coin’s pool only, and an answer through any other pool is refused. Old launch pools that migrated are never touched.</p>
-            <p>Each coin is its own transaction, built and test-run before your wallet is asked. Most wallets are asked once for the whole order; a wallet that cannot sign several at once is asked once per coin. A coin already bought stays bought if another one does not go through. If one is sent but not confirmed, Buy waits, so nothing is bought twice.</p>
+            <p>Each coin is its own transaction, built and test-run before your wallet is asked, and your wallet is asked once per coin. A coin already bought stays bought if another one does not go through. If one is sent but not confirmed, Buy waits, so nothing is bought twice.</p>
             <p>Slippage is your swap setting ({(p.slippageBps / 100).toFixed(2)}%). The amount is split at SOL’s price from Jupiter. At least {usdText(MIN_USD_PER_COIN)} a coin. A coin you do not hold yet opens an account for about 0.002 SOL, which you get back if you close it.</p>
           </>
         }

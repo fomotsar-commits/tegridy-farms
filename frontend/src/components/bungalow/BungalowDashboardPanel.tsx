@@ -23,7 +23,7 @@ import {
 } from '../../lib/bungalowStaking';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
-import { shortenAddress } from '../../lib/formatting';
+import { localeCut, shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
@@ -380,7 +380,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   </div>
                   <p className="text-[10px] uppercase tracking-wider mb-1 text-white/60">In your wallet</p>
                   <p className="stat-value text-3xl text-white mb-1 leading-tight">
-                    {balanceLoading ? '…' : human !== null ? Number(human).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '–'}
+                    {balanceLoading ? '…' : human !== null ? localeCut(human, 2) : '\u2013'}
                     <span className="text-[14px] text-white/60 ml-2">{bungalow.symbol}</span>
                   </p>
                   {usdValue !== null && (

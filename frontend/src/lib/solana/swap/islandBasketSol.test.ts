@@ -187,7 +187,7 @@ describe('sendSigned', () => {
 
   it('sends the signed bytes through the network’s own check first, then watches them to the chain’s answer', async () => {
     const c = conn({});
-    await expect(sendSigned(c as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    await expect(sendSigned(c as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed', slot: 9 });
     expect(c.sendRawTransaction).toHaveBeenCalledWith(raw, expect.objectContaining({ skipPreflight: false }));
   });
 
@@ -206,7 +206,7 @@ describe('sendSigned', () => {
 
   it('any other error at the first send may have come after it was passed on: it is watched, never called not sent', async () => {
     const dropped = conn({ first: async () => { throw new Error('fetch failed'); } });
-    await expect(sendSigned(dropped as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    await expect(sendSigned(dropped as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed', slot: 9 });
     expect(dropped.getSignatureStatuses).toHaveBeenCalled();
   });
 });

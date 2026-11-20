@@ -43,10 +43,15 @@ const TX_B64 = (() => {
   return btoa(String.fromCharCode(...new VersionedTransaction(msg).serialize()));
 })();
 
-/** Reads only the page's own send makes (a wallet that signs alone): these tests' wallet sends itself. */
+/**
+ * The reads before the wallet: the final test run (it passes) and the SOL (plenty). The
+ * fresh blockhash and the page's own send are not made here: these tests' wallet sends itself.
+ */
 const NOT_READ = {
   getLatestBlockhashAndContext: vi.fn(async () => Promise.reject(new Error('not read here'))),
   sendRawTransaction: vi.fn(async () => Promise.reject(new Error('not sent here'))),
+  getBalance: vi.fn(async () => 1_000_000_000),
+  simulateTransaction: vi.fn(async () => ({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 900_000_000, data: ['', 'base64'] }] } }) as never),
 };
 
 const OK: SwapSimulation = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
@@ -105,6 +110,8 @@ describe('sendJupiterLeg', () => {
       getLatestBlockhashAndContext: vi.fn(async () => ({ context: { slot: 500 }, value: { blockhash: new PublicKey(new Uint8Array(32).fill(9)).toBase58(), lastValidBlockHeight: 1_150 } })),
       getBlockHeight: vi.fn(async () => 1_000),
       isBlockhashValid: vi.fn(async () => ({ context: { slot: 600 }, value: true })),
+      getBalance: NOT_READ.getBalance,
+      simulateTransaction: NOT_READ.simulateTransaction,
       sendRawTransaction,
       getSignatureStatuses: vi.fn(async () => ({ context: { slot: 1 }, value: [{ slot: 9, confirmations: 1, err: null, confirmationStatus: 'confirmed' as const }] })),
     };

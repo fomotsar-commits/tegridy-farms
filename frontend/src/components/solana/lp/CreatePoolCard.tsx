@@ -34,7 +34,7 @@ function costLine(fee: bigint, feeTiers: FeeTierRead | null, nameRecord: bigint 
   const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
   const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
   if (deposits !== null && typeof nameRecord === 'bigint') {
-    return `${venue} about ${solAbout(deposits + nameRecord)} you do not get back: account setup and the pool share's name record.`;
+    return `${venue} about ${solAbout(deposits + nameRecord, true)} you do not get back: account setup and the pool share's name record.`;
   }
   const reading = feeTiers === null || (nameRecord === undefined && deposits !== null);
   return `${venue} account setup and the pool share's name record, which you do not get back (${reading ? 'reading the amount…' : 'amount not read'}).`;
