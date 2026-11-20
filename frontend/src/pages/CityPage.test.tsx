@@ -19,7 +19,7 @@ import { cityRooms } from '../hooks/useCityReads';
 
 const rooms = cityRooms();
 const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
-const base = (over: Partial<CityReads> = {}): CityReads => ({ rooms, pools: new Map<string, PoolRead>(), poolsReadAt: null, wallet: 'none', pay: { rooms: [], unread: 0 }, ...over });
+const base = (over: Partial<CityReads> = {}): CityReads => ({ rooms, pools: new Map<string, PoolRead>(), poolsReadAt: null, wallet: 'none', chains: [], pay: { rooms: [], unread: 0 }, ...over });
 const mount = (r: CityReads) => {
   reads.current = r;
   return render(<MemoryRouter><CityPage /></MemoryRouter>);
@@ -43,7 +43,7 @@ describe('/city', () => {
   });
 
   it('never says Tegridy: it is a venue page, and the venue has no coin', () => {
-    const { container } = mount(base({ wallet: 'read', pay: { rooms: ['bayla'], unread: 2 } }));
+    const { container } = mount(base({ wallet: 'read', chains: ['Ethereum'], pay: { rooms: ['bayla'], unread: 2 } }));
     expect(container.textContent).not.toMatch(/tegridy/i);
   });
 
@@ -53,6 +53,15 @@ describe('/city', () => {
     const names = list.getAllByRole('button').map((b) => b.textContent);
     expect(names).toHaveLength(20);
     for (const r of rooms) expect(names).toContain(r.symbol);
+    expect(screen.getByRole('heading', { name: 'Every plot' })).toBeTruthy();
+  });
+
+  // Review, 2026-11-19: two chips read "OPEN LOT", and nothing told them apart.
+  it('names every plot in the list once: the two open lots are numbered', () => {
+    mount(base());
+    const names = within(screen.getByRole('navigation', { name: 'Every plot' })).getAllByRole('button').map((b) => b.textContent);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(['OPEN LOT 1', 'OPEN LOT 2']));
   });
 
   it("shows a room with its ticker, its chain, its coin's whole address and its own door", () => {
@@ -73,6 +82,33 @@ describe('/city', () => {
     expect(card().getByRole('img').getAttribute('src')).toBe('/city/close/treasury.webp');
   });
 
+  // Review, 2026-11-19: every pick blanked the close-up to an empty black frame until it loaded.
+  it('keeps the last close-up showing under the next until the next has come', () => {
+    const { container } = mount(base());
+    fireEvent.load(card().getByRole('img'));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Every plot' })).getByRole('button', { name: 'TREASURY' }));
+    const under = () => container.querySelector('img[aria-hidden="true"][src="/city/close/bayla.webp"]');
+    expect(under()).not.toBeNull();
+    const next = card().getByRole('img');
+    expect(next.hasAttribute('data-in')).toBe(false);
+    fireEvent.load(next);
+    expect(under()).toBeNull();
+    expect(card().getByRole('img').hasAttribute('data-in')).toBe(true);
+  });
+
+  // Review, 2026-11-19: a press on the drawing changed nothing a visitor could see; the card sat a screen below.
+  it('names a picked plot over the drawing, and brings its card into view on a press', () => {
+    mount(base({ pools: new Map<string, PoolRead>([['pepe', { state: 'level', usd: 24_869_966 }]]), poolsReadAt: 1_800_000_000 }));
+    expect(screen.queryByTestId('city-peek'), 'nothing is picked by the visitor yet').toBeNull();
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Every plot' })).getByRole('button', { name: 'PEPE' }));
+    const peek = screen.getByTestId('city-peek');
+    expect(peek.textContent).toBe('PEPE$24,869,966Close up');
+    intoView.mockClear();
+    fireEvent.click(peek);
+    expect(intoView).toHaveBeenCalledTimes(1);
+    expect(intoView.mock.instances[0]).toBe(screen.getByRole('region', { name: 'The plot you picked' }));
+  });
+
   it('says a pool was not read rather than showing it empty, and gives its dollars only with where and when they were read', () => {
     mount(base());
     expect(card().getByText('Pool not read.')).toBeTruthy();
@@ -81,7 +117,7 @@ describe('/city', () => {
     expect(card().getByText('Pool read, with no dollar figure.')).toBeTruthy();
     document.body.innerHTML = '';
     mount(base({ pools: new Map<string, PoolRead>([['bayla', { state: 'level', usd: 520_000 }]]), poolsReadAt: 1_800_000_000 }));
-    expect(card().getByText(/^\$520,000 in its market pool, GeckoTerminal at \d\d:\d\d\.$/)).toBeTruthy();
+    expect(card().getByText(/^\$520,000 in its market pool, GeckoTerminal at \d\d:\d\d UTC\.$/)).toBeTruthy();
   });
 
   it('shows the plot a visitor picks from the list', () => {
@@ -112,31 +148,42 @@ describe('/city', () => {
   });
 
   it('names each pool holding pay for the wallet, and sends the claim to Earn', () => {
-    mount(base({ wallet: 'read', pay: { rooms: ['bayla'], unread: 0 } }));
+    mount(base({ wallet: 'read', chains: ['Solana'], pay: { rooms: ['bayla'], unread: 0 } }));
     const pools = within(wallet().getByRole('list', { name: 'Pools holding pay for you' }));
     expect(pools.getAllByRole('button').map((b) => b.textContent)).toEqual([bayla.symbol]);
     expect(wallet().getByRole('link', { name: 'Claim on Earn' }).getAttribute('href')).toBe('/earn');
   });
 
-  it('says so when no pay is waiting', () => {
-    mount(base({ wallet: 'read' }));
-    expect(wallet().getByText('No staking pay is waiting for this wallet.')).toBeTruthy();
+  // Review, 2026-11-19: "this wallet" with an Ethereum wallet connected, while the pay sat on a Solana one not connected.
+  it('says whose wallet holds no pay, and which wallet was not read', () => {
+    mount(base({ wallet: 'read', chains: ['Ethereum'] }));
+    expect(wallet().getByText('No staking pay is waiting for your Ethereum wallet.')).toBeTruthy();
+    expect(wallet().getByText('No Solana wallet is connected.')).toBeTruthy();
+    document.body.innerHTML = '';
+    mount(base({ wallet: 'read', chains: ['Solana'] }));
+    expect(wallet().getByText('No staking pay is waiting for your Solana wallet.')).toBeTruthy();
+    expect(wallet().getByText('No Ethereum wallet is connected.')).toBeTruthy();
+    document.body.innerHTML = '';
+    mount(base({ wallet: 'read', chains: ['Ethereum', 'Solana'] }));
+    expect(wallet().getByText('No staking pay is waiting for your Ethereum or Solana wallet.')).toBeTruthy();
+    expect(wallet().queryByText(/is connected/)).toBeNull();
   });
 
   it('never says no pay is waiting while a pool is unread', () => {
-    mount(base({ wallet: 'read', pay: { rooms: [], unread: 1 } }));
+    mount(base({ wallet: 'read', chains: ['Ethereum'], pay: { rooms: [], unread: 1 } }));
     expect(wallet().getByText('One pool was not read.')).toBeTruthy();
     expect(wallet().queryByText(/No staking pay/)).toBeNull();
     document.body.innerHTML = '';
-    mount(base({ wallet: 'read', pay: { rooms: ['bayla'], unread: 3 } }));
+    mount(base({ wallet: 'read', chains: ['Ethereum'], pay: { rooms: ['bayla'], unread: 3 } }));
     expect(wallet().getByText('3 pools were not read.')).toBeTruthy();
   });
 
-  it('lets a visitor stop the motion', () => {
+  // Review, 2026-11-19: pressed, it turned pink and still said Pause.
+  it('lets a visitor stop the motion, and start it again: the button says what it will do', () => {
     mount(base());
-    const pause = screen.getByRole('button', { name: 'Pause' });
-    expect(pause.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(pause);
-    expect(pause.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
   });
 });
