@@ -182,20 +182,28 @@ export async function fetchPairAverage(a: string, b: string, signal?: AbortSigna
   return value;
 }
 
-async function readPairAverage(a: string, b: string, signal: AbortSignal | undefined, nowMs: () => number): Promise<PairAverage> {
-  let pool: PairPool | null = null;
+/**
+ * The pair's top pool, from the page of pools of the coin less likely to be a quote coin
+ * first, then the other's. 'unread' when a search could not run: that is not "no pool".
+ */
+async function readPairPool(a: string, b: string, signal: AbortSignal | undefined): Promise<PairPool | 'none' | 'unread'> {
   let missed = false;
   for (const mint of sayAs(a, b)) {
     try {
       const found = findPairPool(await readJson(geckoEdgeUrl(`/networks/solana/tokens/${mint}/pools`, { page: 1 }), signal), a, b);
       if (found === 'unread') missed = true;
-      else if (found) { pool = found; break; }
+      else if (found) return found;
     } catch (err) {
       if (signal?.aborted) throw err;
       missed = true;
     }
   }
-  if (!pool) return { kind: missed ? 'unread' : 'none' };
+  return missed ? 'unread' : 'none';
+}
+
+async function readPairAverage(a: string, b: string, signal: AbortSignal | undefined, nowMs: () => number): Promise<PairAverage> {
+  const pool = await readPairPool(a, b, signal);
+  if (pool === 'none' || pool === 'unread') return { kind: pool };
   if (pool.trades24h === null || pool.volumeUsd24h === null) return { kind: 'unread' };
   if (pool.trades24h < MIN_TRADES_24H || pool.volumeUsd24h < MIN_VOLUME_USD_24H) return { kind: 'thin' };
   let raw: unknown;
@@ -213,6 +221,56 @@ async function readPairAverage(a: string, b: string, signal: AbortSignal | undef
   const avg = volumeWeighted(candles.rows, nowMs() / 1000);
   if (typeof avg !== 'number') return { kind: avg };
   return orientAverage(candles, avg, a, b);
+}
+
+/** Hourly candles read for the shape of a pair's day: the last 7 days. */
+export const PROFILE_HOURS = 168;
+/** Fewer traded hours than this in those 7 days and the day has no shape worth following. */
+export const MIN_PROFILE_TRADED_HOURS = 24;
+
+/**
+ * How much the pair trades in each hour of the day (UTC, 0 to 23), averaged over hourly
+ * candle rows [ts, open, high, low, close, volume] of the last 7 days. Only the shape is
+ * used (a VWAP order sizes its slices by it), so the volume's coin does not matter. Null
+ * when fewer than MIN_PROFILE_TRADED_HOURS hours traded; 'unread' on any malformed row.
+ */
+export function hourlyProfile(rows: unknown[], nowSec: number): number[] | null | 'unread' {
+  const from = nowSec - PROFILE_HOURS * 3_600;
+  const sums = new Array<number>(24).fill(0);
+  let traded = 0;
+  for (const row of rows) {
+    if (!Array.isArray(row)) return 'unread';
+    const ts = finite(row[0]);
+    const vol = finite(row[5]);
+    if (ts === null || vol === null || vol < 0) return 'unread';
+    if (ts < from || ts > nowSec || vol === 0) continue;
+    sums[new Date(ts * 1_000).getUTCHours()]! += vol;
+    traded++;
+  }
+  return traded < MIN_PROFILE_TRADED_HOURS ? null : sums.map((s) => s / 7);
+}
+
+/**
+ * The pair's day, hour by hour (hourlyProfile), from the hourly candles of its top pool.
+ * Null whenever it cannot be read or has no shape: a VWAP order then cuts even slices.
+ */
+export async function fetchPairVolumeProfile(a: string, b: string, signal?: AbortSignal, nowMs: () => number = Date.now): Promise<number[] | null> {
+  if (a === b) return null;
+  try {
+    const pool = await readPairPool(a, b, signal);
+    if (pool === 'none' || pool === 'unread') return null;
+    const raw = await readJson(
+      geckoEdgeUrl(`/networks/solana/pools/${pool.address}/ohlcv/hour`, { aggregate: 1, limit: PROFILE_HOURS, currency: 'token' }),
+      signal,
+    );
+    const candles = readCandles(raw);
+    if (!candles) return null;
+    const profile = hourlyProfile(candles.rows, nowMs() / 1_000);
+    return Array.isArray(profile) ? profile : null;
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    return null;
+  }
 }
 
 /** For tests: forget every cached answer. */
