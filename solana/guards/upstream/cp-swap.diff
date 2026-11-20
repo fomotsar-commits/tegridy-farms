@@ -2,7 +2,7 @@
 6a7,12
 > use crate::error::ErrorCode;
 > use crate::states::{
->     AmmConfig, FeesSwept, KeeperChanged, PoolState, MAX_FEE_RATE_NUMERATOR,
+>     AmmConfig, FeesSwept, KeeperChanged, PoolState, MAX_CREATE_POOL_FEE, MAX_FEE_RATE_NUMERATOR,
 >     MAX_PROTOCOL_AND_FUND_FEE_RATE,
 > };
 > use crate::utils::token::transfer_from_pool_vault_to_user;
@@ -151,18 +151,20 @@
 >         // (split_creator_fee divides by the two rates' sum), so it is refused.
 >         assert!(trade_fee_rate > 0);
 >         assert!(trade_fee_rate + creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-70c173
+70c173,174
 <         assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >         assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-93a197,202
+>         assert!(create_pool_fee <= MAX_CREATE_POOL_FEE);
+93a198,203
 >     /// * memetics.finance, 2026-11-10: `param` 8 sets the tier's swap guard to `value` (0 off,
 >     ///   1 on, anything else is refused); `param` 9 sets the tier's keeper to the first
 >     ///   remaining account (the System Program's address clears it). Since 2026-11-11 the
 >     ///   keeper also swaps on the tier free of the trade and creator fees. Since 2026-11-14 a
 >     ///   keeper must be a wallet's key (a program's address is refused, 6017
 >     ///   `KeeperNotAWallet`), and params 8 and 9 log `SwapGuardChanged` and `KeeperChanged`
-298a408,796
+297a408,878
+>     }
 > 
 >     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
 >     /// the caller pays. It takes no arguments: the name, the symbol and the link are fixed
@@ -192,13 +194,21 @@
 > 
 >     /// The tier's keeper gives the role up, signing alone: the tier is left with no keeper
 >     /// (the all-zero key), as the admin's `update_amm_config` param 9 would leave it, but at
->     /// once, with no proposal and no lock. Anyone else is refused (6016 `NotKeeper`).
+>     /// once, with no proposal and no lock. Anyone else is refused (6016 `NotKeeper`), and so is
+>     /// a resignation another program calls, even with the keeper's signature.
 >     ///
 >     /// # Arguments
 >     ///
 >     /// * `ctx`- The context of accounts
 >     ///
 >     pub fn resign_keeper(ctx: Context<ResignKeeper>) -> Result<()> {
+>         // memetics.finance, 2026-11-15: sent directly, the swap guard's own test, so no program
+>         // the keeper hands its signature to can end the role.
+>         require!(
+>             anchor_lang::solana_program::instruction::get_stack_height()
+>                 <= anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT,
+>             ErrorCode::NotKeeper
+>         );
 >         let amm_config = &mut ctx.accounts.amm_config;
 >         let old_keeper = amm_config.keeper;
 >         amm_config.keeper = Pubkey::default();
@@ -227,18 +237,11 @@
 > }
 > 
 > // ─── TEGRIDY FORK ADDITION (2026-11-14): resign_keeper ────────────────────────
-> // The second instruction this fork adds. A tier's keeper (update_config.rs param 9) swaps on
-> // that tier free of the trade and creator fees and passes the swap guard, and it signs from a
-> // computer that runs unattended. Only the admin names or clears it, and on mainnet every admin
-> // action is a Squads proposal behind a 48-hour lock: a stolen keeper key would trade free, and
-> // sandwich every visitor's swap at no cost, for at least those 48 hours.
-> //
-> // This lets the keeper's own key end it at once. WHO MAY CALL IT: the tier's keeper only, as
-> // the signer; the constraint below reads the keeper from the tier itself. With no keeper named
-> // (the all-zero key) nobody can, since `is_keeper` names nobody then. What it changes: that one
-> // field of that one tier, to the all-zero key. Nothing else: the guard stays as it was, no
-> // account is created or closed, no lamport or token moves. A thief holding the key can call it
-> // too, which only ends the thief's own advantage; nobody can name a keeper but the admin.
+> // The second instruction this fork adds: a tier's keeper (update_config.rs param 9) ends its
+> // own role at once, where the admin's change waits on a 48-hour proposal. WHO MAY CALL IT: the
+> // keeper the tier names, as the signer, in an instruction of the transaction itself (the
+> // handler reads the stack height as the swap guard does). It sets that one tier's keeper to the
+> // all-zero key; no account is created or closed, no lamport or token moves.
 > #[derive(Accounts)]
 > pub struct ResignKeeper<'info> {
 >     /// The tier's keeper, the only signer
@@ -552,15 +555,96 @@
 >         None,
 >     )?;
 >     Ok(())
+> }
+> 
+> #[cfg(test)]
+> mod resign_keeper_test {
+>     use super::*;
+>     // Off chain, anchor-lang's get_stack_height asks solana-sysvar's stubs; anchor-spl's path is
+>     // the one this crate already has to them.
+>     use anchor_spl::associated_token::spl_associated_token_account::solana_program::program_stubs::{
+>         set_syscall_stubs, SyscallStubs,
+>     };
+>     use std::cell::Cell;
+> 
+>     std::thread_local!(static STACK_HEIGHT: Cell<u64> = Cell::new(1));
+> 
+>     /// The runtime's stack height as this test's thread sets it: 1 for an instruction of the
+>     /// transaction itself, 2 or more for one another program calls.
+>     struct StackHeight;
+>     impl SyscallStubs for StackHeight {
+>         fn sol_get_stack_height(&self) -> u64 {
+>             STACK_HEIGHT.with(Cell::get)
+>         }
+>     }
+> 
+>     fn account(key: Pubkey, is_signer: bool, data: Vec<u8>) -> &'static AccountInfo<'static> {
+>         Box::leak(Box::new(AccountInfo::new(
+>             Box::leak(Box::new(key)),
+>             is_signer,
+>             true,
+>             Box::leak(Box::new(1_000_000u64)),
+>             Box::leak(data.into_boxed_slice()),
+>             Box::leak(Box::new(crate::id())),
+>             false,
+>             0,
+>         )))
+>     }
+> 
+>     /// The tier's own keeper sends `resign_keeper` at `stack_height`: what the program answers,
+>     /// the keeper, and the tier's keeper afterwards.
+>     fn resign_at(stack_height: u64) -> (Result<()>, Pubkey, Pubkey) {
+>         set_syscall_stubs(Box::new(StackHeight));
+>         STACK_HEIGHT.with(|h| h.set(stack_height));
+>         let keeper = Pubkey::new_unique();
+>         let mut data = Vec::new();
+>         AmmConfig {
+>             swap_guard: 1,
+>             keeper,
+>             ..Default::default()
+>         }
+>         .try_serialize(&mut data)
+>         .unwrap();
+>         let mut accounts = ResignKeeper {
+>             keeper: Signer::try_from(account(keeper, true, Vec::new())).unwrap(),
+>             amm_config: Account::try_from(account(Pubkey::new_unique(), false, data)).unwrap(),
+>         };
+>         let answer = raydium_cp_swap::resign_keeper(Context::new(
+>             &crate::id(),
+>             &mut accounts,
+>             &[],
+>             ResignKeeperBumps {},
+>         ));
+>         (answer, keeper, accounts.amm_config.keeper)
+>     }
+> 
+>     #[test]
+>     fn the_keeper_resigns_in_an_instruction_of_the_transaction_itself() {
+>         let (answer, _, after) = resign_at(1);
+>         answer.unwrap();
+>         assert_eq!(after, Pubkey::default());
+>     }
+> 
+>     #[test]
+>     fn a_resignation_another_program_calls_is_refused_even_with_the_keepers_signature() {
+>         for height in [2, 3, 5] {
+>             let (answer, keeper, after) = resign_at(height);
+>             assert!(
+>                 matches!(answer, Err(e) if format!("{e:?}").contains("NotKeeper")),
+>                 "at stack height {height}"
+>             );
+>             assert_eq!(after, keeper, "the tier keeps its keeper");
+>         }
 === src/error.rs ===
-42a43,59
+42a43,60
 >     /// memetics.finance: the tier's swap guard is on and another program called the swap
 >     /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
 >     #[msg("This pool's swaps must be sent directly, not called by another program")]
 >     SwapNotDirect,
 >     /// memetics.finance, 2026-11-14: `resign_keeper` signed by someone who is not the tier's
->     /// keeper (lib.rs). After SwapNotDirect, so every code above keeps its number.
->     #[msg("Only this fee tier's keeper can resign as its keeper")]
+>     /// keeper, or called by another program (lib.rs). After SwapNotDirect, so every code above
+>     /// keeps its number.
+>     #[msg("Only this fee tier's keeper can resign as its keeper, sending it directly")]
 >     NotKeeper,
 >     /// memetics.finance, 2026-11-14: update_config.rs param 9 named a key that is not a
 >     /// wallet's (states/config.rs `may_name_keeper`).
@@ -578,6 +662,29 @@
 ---
 >     /// Only fund_owner can collect fee now
 >     #[account(constraint = (owner.key() == amm_config.fund_owner) @ ErrorCode::InvalidOwner)]
+57a58,59
+>     // memetics.finance, 2026-11-15: neither receiver may be held by `authority`, which holds
+>     // every pool's vaults: a fee paid into a vault would become that pool's LPs' (InvalidVault).
+59c61
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+63c65
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+=== src/instructions/admin/collect_protocol_fee.rs ===
+58a59,60
+>     // memetics.finance, 2026-11-15: neither receiver may be held by `authority`, which holds
+>     // every pool's vaults: a fee paid into a vault would become that pool's LPs' (InvalidVault).
+60c62
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault)]
+64c66
+<     #[account(mut)]
+---
+>     #[account(mut, constraint = recipient_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault)]
 === src/instructions/admin/create_support_mint_associated.rs ===
 6a7,10
 > // TEGRIDY FORK CHANGE (2026-07-10): upstream this alternate authority for the
@@ -604,7 +711,15 @@
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 === src/instructions/admin/update_config.rs ===
-34a35,41
+32c32,36
+<         Some(5) => amm_config.create_pool_fee = value,
+---
+>         Some(5) => {
+>             // memetics.finance: at most 1 SOL, as in create_amm_config (lib.rs).
+>             assert!(value <= MAX_CREATE_POOL_FEE);
+>             amm_config.create_pool_fee = value
+>         }
+34a39,45
 >         // memetics.finance: the tier's swap guard, off (0) or on (1), and the one signer it
 >         // lets through (states/config.rs). The System Program's address, all zeros, is nobody.
 >         Some(8) => set_swap_guard(amm_config, value)?,
@@ -612,7 +727,7 @@
 >             let keeper = ctx.remaining_accounts.iter().next().ok_or(ErrorCode::InvalidInput)?;
 >             set_keeper(amm_config, *keeper.key)?;
 >         }
-40a48,75
+40a52,79
 > fn set_swap_guard(amm_config: &mut Account<AmmConfig>, swap_guard: u64) -> Result<()> {
 >     require!(swap_guard <= 1, ErrorCode::InvalidInput);
 >     amm_config.swap_guard = swap_guard;
@@ -641,29 +756,29 @@
 >     Ok(())
 > }
 > 
-43c78
+43c82
 <     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-48c83,85
+48c87,89
 <     assert!(trade_fee_rate + amm_config.creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     // memetics.finance: never 0, as in create_amm_config (lib.rs).
 >     assert!(trade_fee_rate > 0);
 >     assert!(trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-54c91
+54c95
 <     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-59c96
+59c100
 <     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-75a113,115
+75a117,119
 >     // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
 >     // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
 >     require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
-84a125,331
+84a129,426
 > }
 > 
 > /// A fee tier as the update helpers take it.
@@ -762,6 +877,97 @@
 >         update_fund_fee_rate(&mut c, 96_000);
 >         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
 >         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+>     }
+> }
+> 
+> /// An account the admin's instructions take beside the tier: a signer, or a program.
+> #[cfg(test)]
+> fn test_account(key: Pubkey, is_signer: bool, executable: bool) -> &'static AccountInfo<'static> {
+>     Box::leak(Box::new(AccountInfo::new(
+>         Box::leak(Box::new(key)),
+>         is_signer,
+>         true,
+>         Box::leak(Box::new(1_000_000_000u64)),
+>         Box::leak(Vec::new().into_boxed_slice()),
+>         Box::leak(Box::new(anchor_lang::system_program::ID)),
+>         executable,
+>         0,
+>     )))
+> }
+> 
+> // The opening-fee ceiling through both instructions that write the fee, as the admin sends them.
+> #[cfg(test)]
+> mod opening_fee_ceiling_test {
+>     use super::*;
+>     use crate::instructions::{CreateAmmConfig, CreateAmmConfigBumps};
+> 
+>     const ONE_SOL: u64 = 1_000_000_000;
+> 
+>     /// `create_amm_config` for a tier of the 1% shape that charges `fee` to open a pool.
+>     fn create_with(fee: u64) -> u64 {
+>         let mut accounts = CreateAmmConfig {
+>             owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+>             amm_config: test_tier(AmmConfig::default()),
+>             system_program: Program::try_from(test_account(
+>                 anchor_lang::system_program::ID,
+>                 false,
+>                 true,
+>             ))
+>             .unwrap(),
+>         };
+>         let bumps = CreateAmmConfigBumps { amm_config: 255 };
+>         crate::raydium_cp_swap::create_amm_config(
+>             Context::new(&crate::id(), &mut accounts, &[], bumps),
+>             1,
+>             10_000,
+>             104_000,
+>             56_000,
+>             fee,
+>             0,
+>         )
+>         .unwrap();
+>         accounts.amm_config.create_pool_fee
+>     }
+> 
+>     /// `update_amm_config` param 5 setting `fee` on a tier that charges 0.15 SOL, as the 1% one does.
+>     fn update_to(fee: u64) -> u64 {
+>         let mut accounts = UpdateAmmConfig {
+>             owner: Signer::try_from(test_account(crate::admin::ID, true, false)).unwrap(),
+>             amm_config: test_tier(AmmConfig {
+>                 create_pool_fee: 150_000_000,
+>                 ..Default::default()
+>             }),
+>         };
+>         update_amm_config(
+>             Context::new(&crate::id(), &mut accounts, &[], UpdateAmmConfigBumps {}),
+>             5,
+>             fee,
+>         )
+>         .unwrap();
+>         accounts.amm_config.create_pool_fee
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "create_pool_fee <= MAX_CREATE_POOL_FEE")]
+>     fn a_new_tier_charging_more_than_1_sol_to_open_a_pool_is_refused() {
+>         create_with(ONE_SOL + 1);
+>     }
+> 
+>     #[test]
+>     #[should_panic(expected = "value <= MAX_CREATE_POOL_FEE")]
+>     fn raising_a_tiers_opening_fee_above_1_sol_is_refused() {
+>         update_to(ONE_SOL + 1);
+>     }
+> 
+>     // Controls: 1 SOL itself, and both live tiers' fees (read on mainnet 2026-11-15: 0 on the
+>     // launch tier, 0.15 SOL on the 1% tier), through both instructions.
+>     #[test]
+>     fn one_sol_itself_and_both_live_tiers_fees_are_accepted() {
+>         assert_eq!(MAX_CREATE_POOL_FEE, ONE_SOL);
+>         for fee in [ONE_SOL, 150_000_000, 0] {
+>             assert_eq!(create_with(fee), fee);
+>             assert_eq!(update_to(fee), fee);
+>         }
 >     }
 > }
 > 
@@ -942,7 +1148,7 @@
 === src/states/config.rs ===
 1a2
 > use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
-4a6,12
+4a6,15
 > /// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
 > pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 > 
@@ -950,7 +1156,10 @@
 > /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 > pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 > 
-28a37,48
+> /// memetics.finance, 2026-11-15: a tier charges at most 1 SOL (in lamports) to open a pool.
+> pub const MAX_CREATE_POOL_FEE: u64 = 1_000_000_000;
+> 
+28a40,51
 >     /// memetics.finance: the swap guard. 0, a swap on this tier runs wherever it is called
 >     /// from, as upstream. 1, a swap must be an instruction of the transaction itself: one that
 >     /// another program calls is refused (`refuses_swap`). On 2026-11-10 every arbitrage bot in
@@ -963,11 +1172,11 @@
 >     /// 2026-11-14 only a wallet's key may be named, and the keeper may give the role up at once
 >     /// (`resign_keeper`).
 >     pub keeper: Pubkey,
-30c50
+30c53
 <     pub padding: [u64; 15],
 ---
 >     pub padding: [u64; 10],
-34c54,373
+34c57,376
 <     pub const LEN: usize = 8 + 1 + 1 + 2 + 4 * 8 + 32 * 2 + 8 + 8 * 15;
 ---
 >     // The same 236 bytes as upstream: the guard and the keeper take 40 of its 120 of padding.
