@@ -1,0 +1,27 @@
+[package]
+name = "vwap-order"
+version = "0.1.0"
+description = "A big trade split into timed slices through the venue's own swap pools, from a per-order escrow"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vwap_order"
+
+[features]
+no-entrypoint = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+# Binds the devnet copy of the pool program instead of the mainnet one.
+devnet = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+# The versions solana/tegridy-amm ships cp-swap and bayla-ladder with.
+anchor-lang = "0.32.1"
+anchor-spl = { version = "0.32.1", default-features = false, features = ["token", "token_2022"] }
+
+[dev-dependencies]
+solana-sha256-hasher = "2.3.0"

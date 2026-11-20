@@ -1,0 +1,21 @@
+[package]
+name = "vwap-order-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "TEST ONLY. The order program and the venue's real swap program, run together in LiteSVM."
+
+# Its own workspace and lock, as tegridy-amm's cpi-caller is: the simulator pulls crates the
+# program's own lock must never hold (Solana 2.3.0 builds the program with cargo 1.84).
+[workspace]
+
+[dependencies]
+vwap-order = { path = "../programs/vwap-order", features = ["no-entrypoint"] }
+anchor-lang = "=0.32.1"
+anchor-spl = { version = "=0.32.1", default-features = false, features = ["token", "token_2022", "associated_token"] }
+litesvm = "0.7.1"
+solana-account = "2.2"
+solana-keypair = "2.2"
+solana-signer = "2.2"
+solana-transaction = "2.2"
+solana-sha256-hasher = "2.3"
