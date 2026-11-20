@@ -31,6 +31,12 @@ the target on screen, drops touchend, mousedown and click within 25 px of the pr
 Measured with it: the same double tap pressed nothing; a tap on a token 38 px away 150 ms after
 the press, and the same spot 800 ms after, each picked the token.
 
+**But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
+the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On
+#1301's first CI run three specs failed with a press that did nothing ("Pair with SOL" stayed on
+USDC; Review: remove liquidity never enabled). A mouse counts its own clicks (`detail` is 2 on a
+double click's second), so a mouse is held only at `detail >= 2`; touch keeps the spot and time.
+
 ## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
 
 **Believed:** a row that runs past its box because its children cannot shrink is fixed by letting

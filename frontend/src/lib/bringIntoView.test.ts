@@ -10,15 +10,16 @@ let pressed: Mock<(e: Event) => void>;
 const finger = { clientX: 75, clientY: 439 };
 
 /** A press at `at` that moves `target` up the screen by `by` px, as a phone's jump does. */
-function pressThatMoves(at = finger, by = 255) {
-  document.body.dispatchEvent(new PointerEvent('pointerdown', { ...at, bubbles: true }));
+function pressThatMoves(at = finger, by = 255, pointerType = 'touch') {
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { ...at, pointerType, bubbles: true }));
   target.scrollIntoView = () => { top -= by; };
   bringIntoView(target, { block: 'nearest' });
 }
-/** A tap on the button now under the finger: whether it was pressed. */
-function tapAt(at = finger, type: 'click' | 'mousedown' = 'click') {
+/** A tap (its pointerdown, then `type`) on the button now under the finger: whether it was pressed. */
+function tapAt(at = finger, type: 'click' | 'mousedown' = 'click', pointerType = 'touch', detail = 1) {
   const button = document.querySelector('button')!;
-  const e = new MouseEvent(type, { ...at, bubbles: true, cancelable: true, detail: 1 });
+  button.dispatchEvent(new PointerEvent('pointerdown', { ...at, pointerType, bubbles: true }));
+  const e = new MouseEvent(type, { ...at, bubbles: true, cancelable: true, detail });
   button.dispatchEvent(e);
   return { pressed: pressed.mock.calls.length > 0, blocked: e.defaultPrevented };
 }
@@ -49,6 +50,16 @@ describe('a move the page makes holds a second tap on the same spot', () => {
     const touch = new TouchEvent('touchend', { bubbles: true, cancelable: true, changedTouches: [{ clientX: 75, clientY: 439 } as Touch] });
     document.querySelector('button')!.dispatchEvent(touch);
     expect(touch.defaultPrevented).toBe(true);
+  });
+
+  // e2e-solana's press() puts every target in the middle of the screen and clicks it with a mouse,
+  // so two presses in a row land on one spot: held, a press after a move did nothing (#1301's CI).
+  it('a mouse is held only on a double click: one fast click on the same spot still presses', () => {
+    pressThatMoves(finger, 255, 'mouse');
+    expect(tapAt(finger, 'mousedown', 'mouse', 1).blocked).toBe(false);
+    expect(tapAt(finger, 'click', 'mouse', 1)).toEqual({ pressed: true, blocked: false });
+    expect(tapAt(finger, 'mousedown', 'mouse', 2).blocked).toBe(true);
+    expect(tapAt(finger, 'click', 'mouse', 2).blocked).toBe(true);
   });
 
   it('only for half a second: after that the same spot presses what is under it', () => {
