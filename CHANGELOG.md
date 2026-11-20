@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-20
 
 - Solana swap: a new VWAP tab. Pick a total, a time (1 hour to 1 day), how many slices, and a price limit against the pair's 24h average traded price (0.5%, 1% or 3%). The page buys or sells one slice at a time, bigger slices in the hours the pair usually trades most, and a slice whose price is past your limit waits and tries again each minute; what it does not spend goes with the next slice. Each slice is an ordinary Instant swap through Jupiter that your wallet approves, with the usual platform fee, so the money stays in your wallet and the page must stay open. Stop ends it at any time; a slice approved after Stop, or more than 45 seconds after it was asked, is not sent.
+- The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19
 
