@@ -23,7 +23,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KIT = path.resolve(HERE, '..');
 const UNISWAP_CONTRACTS_PIN = 'a677c0d4b5fb6e3357cf6d0f0315bcb135a1e1ee';
 const WHYPE = '0x5555555555555555555555555555555555555555';
-const POOL_INIT_CODE_HASH = '0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54';
 
 // Uniswap's own HyperEVM (999) deployment, from Uniswap/contracts @ the pin, deployments/json/999.json.
 // Our contracts must match these byte for byte, apart from the addresses each one has baked in.
@@ -80,11 +79,30 @@ const chainDir = (chain) => {
 };
 // --file overrides where the deployment record lives (a rehearsal must never write deployments/999.json).
 const deploymentsPath = (chain) => (opt('file') ? path.resolve(opt('file')) : path.join(KIT, 'deployments', `${chain}.json`));
-const readDeployments = (chain) =>
-  fs.existsSync(deploymentsPath(chain)) ? JSON.parse(fs.readFileSync(deploymentsPath(chain), 'utf8')) : {};
+// Read once, no separate "does it exist" check: a check-then-read can see two different files.
+function readJsonOr(p, fallback) {
+  let text;
+  try {
+    text = fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return fallback;
+    throw e;
+  }
+  return JSON.parse(text);
+}
+// Write the whole file to a temporary name, then rename it over the old one, so a reader never
+// sees half a file and nothing else can be swapped in between.
+function writeJson(p, value) {
+  const tmp = `${p}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', { flag: 'wx' });
+  fs.renameSync(tmp, p);
+}
+const readDeployments = (chain) => readJsonOr(deploymentsPath(chain), {});
 
 let rpcId = 1;
-async function rpc(url, method, params, tries = 4) {
+const sleep = (ms) => new Promise((s) => setTimeout(s, ms));
+// The public HyperEVM RPC rate-limits (-32005 "rate limited"): back off up to ~1 minute before giving up.
+async function rpc(url, method, params, tries = 8) {
   for (let t = 1; ; t++) {
     try {
       const r = await fetch(url, {
@@ -97,7 +115,7 @@ async function rpc(url, method, params, tries = 4) {
       return j.result;
     } catch (e) {
       if (t >= tries || /execution reverted/.test(String(e))) throw e;
-      await new Promise((s) => setTimeout(s, 600 * t));
+      await sleep(Math.min(500 * 2 ** (t - 1), 16_000));
     }
   }
 }
@@ -120,7 +138,8 @@ async function task() {
   if ((await rpc(url, 'eth_chainId', [])) !== '0x' + Number(chain).toString(16)) die(`--rpc is not chain ${chain}`);
   if ((await code(url, WHYPE)).length < 4) die(`no wrapped HYPE at ${WHYPE} on this chain`);
 
-  const template = run === 'A' ? 'task-A-unsupported-protocol.json' : run === 'B' ? 'task-B-v3-and-router.json' : die('--run must be A or B');
+  if (run !== 'A' && run !== 'B') die('--run must be A or B');
+  const template = run === 'A' ? 'task-A-unsupported-protocol.json' : 'task-B-v3-and-router.json';
   let text = fs.readFileSync(path.join(KIT, 'tasks', template), 'utf8');
   if (run === 'B') {
     const admin = need('admin-safe');
@@ -166,6 +185,7 @@ function record() {
   const deployer = b.transactions[0]?.transaction?.from;
   if (run === 'A') {
     if (creates.length !== 1) die(`run A should create exactly 1 contract, found ${creates.length}`);
+    if (creates[0].contractName) die(`run A's contract is named ${creates[0].contractName}: this is not a Deploy-all broadcast`);
     d.UnsupportedProtocol = creates[0].contractAddress;
   } else if (run === 'B') {
     if (creates.length !== RUN_B_CREATES.length) die(`run B should create ${RUN_B_CREATES.length} contracts, found ${creates.length}`);
@@ -183,7 +203,7 @@ function record() {
   d.deployers = Array.from(new Set([...(d.deployers || []), deployer].filter(Boolean)));
   d.chainId = Number(chain);
   fs.mkdirSync(path.dirname(deploymentsPath(chain)), { recursive: true });
-  fs.writeFileSync(deploymentsPath(chain), JSON.stringify(d, null, 2) + '\n');
+  writeJson(deploymentsPath(chain), d);
   console.log(`✅ ${deploymentsPath(chain)}`);
   for (const [k, v] of Object.entries(d)) console.log(`   ${k.padEnd(44)} ${Array.isArray(v) ? v.join(', ') : v}`);
 }
@@ -375,16 +395,27 @@ async function feeJob() {
   const f = d.UniswapV3Factory, a = d.V3OpenFeeAdapter;
   if (!isAddr(f || '') || !isAddr(a || '')) die(`deployments/${chain}.json lacks the factory or the adapter`);
   const statePath = deploymentsPath(chain).replace(/\.json$/, '.fee-job-state.json');
-  const st = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : { lastBlock: Number(need('from-block')) - 1, pools: [] };
+  const saved = readJsonOr(statePath, null);
+  const st = saved ?? { lastBlock: Number(need('from-block')) - 1, pools: [] };
+  if (!Number.isSafeInteger(st.lastBlock) || !Array.isArray(st.pools) || !st.pools.every(isAddr)) die(`${statePath} is not a fee-job state file`);
+  // The saved state is only the factory's own pool list and the last block scanned, each checked.
+  const save = (s) => writeJson(statePath, { lastBlock: s.lastBlock, pools: Array.from(new Set(s.pools.map((p) => p.toLowerCase()))) });
   const head = Number(BigInt(await rpc(url, 'eth_blockNumber', [])));
+  let chunks = 0;
   for (let from = st.lastBlock + 1; from <= head; from += span) {
     const to = Math.min(head, from + span - 1);
     const logs = await rpc(url, 'eth_getLogs', [{ address: f, topics: [POOL_CREATED], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
-    for (const l of logs) st.pools.push(asAddr(word(l.data, 1)));
+    for (const l of logs) {
+      const pool = asAddr(word(l.data, 1));
+      if (!isAddr(pool)) die(`a PoolCreated log carries no pool address: ${l.data}`);
+      st.pools.push(pool);
+    }
     st.lastBlock = to;
+    if (++chunks % 50 === 0) save(st); // a long first scan that dies keeps what it read
+    await sleep(150); // pace the scan under the public RPC's limit
   }
   st.pools = Array.from(new Set(st.pools.map((p) => p.toLowerCase())));
-  fs.writeFileSync(statePath, JSON.stringify(st, null, 2) + '\n');
+  save(st);
   if (!eq2(await callAddr(url, f, SEL.owner), a)) die('the factory is not owned by the adapter yet: nothing can be switched on');
 
   const toTrigger = [], toCollect = [];

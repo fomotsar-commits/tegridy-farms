@@ -42,11 +42,14 @@ function zeroImmutables(buf, refs) {
   return out;
 }
 
-if (!fs.existsSync(ART)) {
+let artText;
+try {
+  artText = fs.readFileSync(ART, 'utf8');
+} catch {
   console.error(`missing ${ART}: run \`forge build\` in contracts/hyperevm first`);
   process.exit(2);
 }
-const art = JSON.parse(fs.readFileSync(ART, 'utf8'));
+const art = JSON.parse(artText);
 const refs = art.deployedBytecode.immutableReferences || {};
 const ours = Buffer.from(art.deployedBytecode.object.replace(/^0x/, ''), 'hex');
 
