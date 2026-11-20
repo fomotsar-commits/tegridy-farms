@@ -7,10 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-19
+### 2026-11-20
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
 - Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.
+
+### 2026-11-19
+
+- The city, rendered again: each building's close-up is now taken at eye height, its art facing you. The island at night has pools that read as water, lamps that light the street, a lagoon that deepens from the shore, and a different garden corner at each bungalow.
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
 - The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
