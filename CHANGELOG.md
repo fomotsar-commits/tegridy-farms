@@ -9,6 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-19
 
+- Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
+
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
 
 ### 2026-11-18

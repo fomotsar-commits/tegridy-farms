@@ -23,6 +23,7 @@ import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -419,7 +420,7 @@ export function PoolFinder({
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
     asked.current = false;
-    answerRef.current?.scrollIntoView?.({ block: 'start' });
+    bringIntoView(answerRef.current, { block: 'start' });
   }, [state.status, mint, nonce]);
 
   const submit = useCallback(() => {
@@ -457,7 +458,7 @@ export function PoolFinder({
   // before, the line pushed Find pools under a phone's bottom bar.
   const [bringNext, setBringNext] = useState(0);
   useLayoutEffect(() => {
-    if (bringNext) nextRef.current?.scrollIntoView?.({ block: 'nearest' });
+    if (bringNext) bringIntoView(nextRef.current, { block: 'nearest' });
   }, [bringNext]);
   const answered = state.status === 'idle' ? null : state.mint;
   const choose = useCallback(

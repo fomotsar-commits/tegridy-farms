@@ -27,6 +27,7 @@ import { browserLpReaders, type LpReaders } from './readers';
 import type { LpDoorAnchor } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
 import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 /**
  * The Solana LP section on /pools (owner, 2026-10-14:
@@ -134,7 +135,7 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     const el = positionsRef.current;
     if (!el) return;
     el.focus({ preventScroll: true });
-    el.scrollIntoView?.({ block: 'start' });
+    bringIntoView(el, { block: 'start' });
   }, []);
   // The other way round: Add more liquidity on a position goes to the finder. The
   // positions list does not look pools up or open Add forms; the finder does both, so the
@@ -194,7 +195,7 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     const el = allPoolsRef.current;
     if (!el) return;
     el.focus({ preventScroll: true });
-    el.scrollIntoView?.({ block: 'start' });
+    bringIntoView(el, { block: 'start' });
   }, []);
   const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} />;
   const finder = (

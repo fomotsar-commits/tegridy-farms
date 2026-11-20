@@ -17,6 +17,7 @@ import { PoolField } from '../components/dwg/PoolField';
 import { SheetRuler } from '../components/dwg/SheetRuler';
 import { lpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import { poolsFrameOnScreen, poolsFrameReplaced } from '../lib/poolsFrame';
+import { bringIntoView } from '../lib/bringIntoView';
 
 // The actions, positions, rates and routes. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -74,7 +75,7 @@ export default function PoolsPage() {
   const statusCard = useRef<HTMLElement>(null);
   const wasOpen = useRef(venueIsOpen);
   useLayoutEffect(() => {
-    if (wasOpen.current && !venueIsOpen) statusCard.current?.scrollIntoView?.({ block: 'nearest' });
+    if (wasOpen.current && !venueIsOpen) bringIntoView(statusCard.current, { block: 'nearest' });
     wasOpen.current = venueIsOpen;
   }, [venueIsOpen]);
 

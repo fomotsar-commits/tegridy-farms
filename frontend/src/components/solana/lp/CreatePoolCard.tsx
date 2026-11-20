@@ -18,6 +18,7 @@ import { MONEY_NOTE } from './LpDisclosures';
 import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
 import { coinAbout, solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
@@ -190,7 +191,7 @@ function CreateCard({
     // A token that already has a pool to add to is not taken straight into the open-a-pool
     // form either: the card comes onto the screen with both choices (add to that pool, or
     // open another), so the pool it points to is seen before a second one is opened.
-    if (offer !== 'offer' || pointsTo || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
+    if (offer !== 'offer' || pointsTo || open || busy) bringIntoView(sectionRef.current?.querySelector('h4') ?? sectionRef.current, { block: 'start' });
     else openPanel('create', key, openButton.current, headingRef.current);
     onActed?.(openNow);
   }, [openNow, settled, offer, pointsTo, open, busy, openPanel, key, onActed]);
