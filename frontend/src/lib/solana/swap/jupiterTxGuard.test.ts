@@ -412,6 +412,15 @@ describe('a tampered recurring buy is refused', () => {
     const b64 = edit(RECURRING_CREATE.tx, (v) => { ix(v).accountKeyIndexes[5] = ix(v).accountKeyIndexes[0]; });
     expect(jupiterTxRefusal(b64, recurringExpect())).toMatch(/funded from an account that is not yours/);
   });
+  it('a lowest or highest price, a start time, or anything after them is refused: the site asks for none', () => {
+    // The real buy, with every field after its schedule (min out, max out, start time) replaced by `tail`.
+    const withTail = (tail: number[]) => edit(RECURRING_CREATE.tx, (v) => { const j = ix(v); j.data = Uint8Array.from([...j.data.subarray(0, 40), ...tail]); });
+    const some = (n: bigint) => { const b = new Uint8Array(9); b[0] = 1; putU64(b, 1, n); return [...b]; };
+    expect(withTail([0, 0, 0])).toBe(RECURRING_CREATE.tx);
+    for (const tail of [[...some(1n), 0, 0], [0, ...some(10n ** 15n), 0], [0, 0, ...some(1_800_000_000n)], [0, 0, 0, 0], [0, 0], []]) {
+      expect(jupiterTxRefusal(withTail(tail), recurringExpect())).toMatch(/carries terms this site did not ask for/);
+    }
+  });
 });
 
 describe('cancels', () => {

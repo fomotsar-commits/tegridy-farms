@@ -215,6 +215,9 @@ type At = (ix: { accountKeyIndexes: number[] }, n: number) => string | null;
 /** The value after slippage that every real order carries (Some(0)); the published IDL does not list it. */
 const ORDER_SEVENTH = [1, 0, 0, 0, 0, 0, 0, 0, 0];
 
+/** A recurring buy's fields after its schedule, as the site asks for it: no lowest or highest price, no start time. */
+const RECURRING_TAIL = [0, 0, 0];
+
 /**
  * A limit order's fields after its two amounts, as the live program reads them: the expiry the
  * visitor chose (or none), no fee, a slippage of none or 0, the seventh value as real orders
@@ -302,6 +305,7 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       if (u64(data, 16) !== total || u64(data, 24) !== perCycle) return 'the recurring buy has different amounts than shown';
       const freq = data.length >= 40 ? new DataView(data.buffer, data.byteOffset + 32, 8).getBigInt64(0, true) : null;
       if (freq !== BigInt(expect.intervalSeconds)) return 'the recurring buy runs on a different schedule than shown';
+      if (data.length !== 40 + RECURRING_TAIL.length || RECURRING_TAIL.some((b, k) => data[40 + k] !== b)) return 'the recurring buy carries terms this site did not ask for';
       return null;
     }
     case 'recurring-cancel': {
