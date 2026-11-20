@@ -25,6 +25,11 @@ def grade(src, vignette=0.22):
     return Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8))
 
 
+def sharpen(img, amount=55):
+    """A light unsharp mask, so the island holds its edges at full zoom (the review: soft at max zoom)."""
+    return img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=amount, threshold=2))
+
+
 def save(img, dst, quality=84):
     if dst.lower().endswith('.webp'):
         img.save(dst, quality=quality, method=6)

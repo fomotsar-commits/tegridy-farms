@@ -4,7 +4,7 @@
 # not at the default Windows path. Each frame is built from plan.json; see README.md.
 import os, subprocess, sys, json, time
 from PIL import Image
-from grade import grade, save
+from grade import grade, save, sharpen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -38,13 +38,14 @@ if do_island:
     img = grade(raw)
     want = (plan['render']['width'], plan['render']['height'])
     assert img.size == want, (img.size, want)
-    save(img, os.path.join(PUB, 'island.webp'), 82)
-    save(img.resize((want[0] // 2, want[1] // 2), Image.LANCZOS), os.path.join(PUB, 'island-half.webp'), 80)
+    # sharper, and kept finer: the full island is only fetched once a visitor zooms in on it
+    save(sharpen(img), os.path.join(PUB, 'island.webp'), 90)
+    save(sharpen(img.resize((want[0] // 2, want[1] // 2), Image.LANCZOS), 35), os.path.join(PUB, 'island-half.webp'), 82)
     print('island written', flush=True)
 
 for pid in ids:
     raw = os.path.join(OUT, f'close-{pid}-raw.png')
-    blender(f'close:{pid}', raw, 1.0, 40)
-    save(grade(raw, vignette=0.3), os.path.join(PUB, 'close', f'{pid}.webp'), 82)
+    blender(f'close:{pid}', raw, 1.0, 48)
+    save(grade(raw, vignette=0.3), os.path.join(PUB, 'close', f'{pid}.webp'), 86)
     print('close-up written', pid, flush=True)
 print('ALL DONE', flush=True)
