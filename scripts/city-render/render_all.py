@@ -4,7 +4,7 @@
 # not at the default Windows path. Each frame is built from plan.json; see README.md.
 import os, subprocess, sys, json, time
 from PIL import Image
-from grade import grade, save
+from grade import grade, save, sharpen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -16,9 +16,9 @@ os.makedirs(OUT, exist_ok=True)
 plan = json.load(open(os.path.join(HERE, 'plan.json'), encoding='utf-8'))
 
 
-def blender(mode, raw, scale, samples):
+def blender(script, mode, raw, scale, samples):
     t = time.time()
-    log = subprocess.run([BLENDER, '-b', '--factory-startup', '--python', os.path.join(HERE, 'island.py'), '--', mode, raw, str(scale), str(samples)],
+    log = subprocess.run([BLENDER, '-b', '--factory-startup', '--python', os.path.join(HERE, script), '--', mode, raw, str(scale), str(samples)],
                          capture_output=True, text=True)
     if 'WROTE' not in log.stdout:
         sys.stderr.write(log.stdout[-3000:] + log.stderr[-3000:])
@@ -34,17 +34,18 @@ if not args or 'close' in args:
 
 if do_island:
     raw = os.path.join(OUT, 'island-raw.png')
-    blender('island', raw, 1.0, 64)
+    blender('island.py', 'island', raw, 1.0, 64)
     img = grade(raw)
     want = (plan['render']['width'], plan['render']['height'])
     assert img.size == want, (img.size, want)
-    save(img, os.path.join(PUB, 'island.webp'), 82)
-    save(img.resize((want[0] // 2, want[1] // 2), Image.LANCZOS), os.path.join(PUB, 'island-half.webp'), 80)
+    # sharper, and kept finer: the full island is only fetched once a visitor zooms in on it
+    save(sharpen(img), os.path.join(PUB, 'island.webp'), 90)
+    save(sharpen(img.resize((want[0] // 2, want[1] // 2), Image.LANCZOS), 35), os.path.join(PUB, 'island-half.webp'), 82)
     print('island written', flush=True)
 
 for pid in ids:
     raw = os.path.join(OUT, f'close-{pid}-raw.png')
-    blender(f'close:{pid}', raw, 1.0, 40)
-    save(grade(raw, vignette=0.3), os.path.join(PUB, 'close', f'{pid}.webp'), 82)
+    blender('maquette.py', pid, raw, 1.0, 200)
+    save(grade(raw, vignette=0.3), os.path.join(PUB, 'close', f'{pid}.webp'), 86)
     print('close-up written', pid, flush=True)
 print('ALL DONE', flush=True)

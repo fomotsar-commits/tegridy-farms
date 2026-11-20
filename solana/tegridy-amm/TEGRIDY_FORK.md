@@ -93,6 +93,21 @@ names one, is the one exception: see "The keeper's fee".
 > the source before this and does not carry it: it needs a cp-swap upgrade of its own after
 > that one. `diff-guard` was re-pinned for it.
 
+> **2026-11-14: the keeper can resign, in source.** A fee tier's keeper can give the role up
+> itself, at once, signing alone, so a stolen keeper key is switched off without waiting on a
+> vault proposal and its 48-hour lock. Only a wallet's key may be named keeper, and every change
+> of keeper or swap guard is logged. See "The keeper resigns" below. It needs a cp-swap upgrade
+> of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it. `diff-guard`
+> was re-pinned for it.
+
+> **2026-11-15: the fee sweep, in source.** Anyone may move a pool's whole protocol share to the
+> protocol owner's own token accounts and its whole fund share to the fund owner's
+> (`sweep_fees`, a third added instruction). The program derives every destination itself, so
+> the caller chooses nothing, and the hand collects are unchanged. With it, the venue's cut lands
+> in the vault and the island's in the Workshop without a vault proposal each time (owner ruling
+> 2026-11-15). See "The fee sweep" below. It ships in the same upgrade as the keeper's
+> resignation. `diff-guard` was re-pinned for it.
+
 > **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
 > vault's proposal #32 upgraded the program to the build made from this source at the merge of
 > pull request #1177 (sha256 `01fe923b…`, 714,776 bytes). The build before it, `1e55bcdc…`, is
@@ -127,7 +142,19 @@ Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 settings in `update_config.rs`, one error in `error.rs`; see "The swap guard" below),
 **plus the keeper's fee** of 2026-11-11 (the rates `swap_base_input.rs` and
 `swap_base_output.rs` hand to the fee arithmetic, chosen by `swap_fee_rates` in
-`states/config.rs`; see "The keeper's fee" below).
+`states/config.rs`; see "The keeper's fee" below), **plus the keeper's resignation** of
+2026-11-14 (a second added instruction, `resign_keeper`, in `lib.rs`, sent directly since
+2026-11-15, see "The Solana audit's checks" below; the wallet check on
+naming a keeper and two logged events in `states/config.rs` and `update_config.rs`; two errors
+in `error.rs`; one dependency, `solana-curve25519`, already compiled into the program through
+anchor-spl; see "The keeper resigns" below), **plus a ceiling on a tier's pool-opening fee**
+of 2026-11-15 (`MAX_CREATE_POOL_FEE` in `states/config.rs`, checked by `create_amm_config` in
+`lib.rs` and by `update_config.rs` param 5), **plus a check on whom a fee collection pays**
+of the same day (`collect_protocol_fee.rs` and `collect_fund_fee.rs`; both in "The Solana
+audit's checks" below), **plus the fee sweep** of 2026-11-15 (a third added instruction,
+`sweep_fees`, in `lib.rs`; one logged event in `states/config.rs`; one error in `error.rs`; no
+new dependency: the associated-token-account derivation comes from anchor-spl, which the
+program already builds with; see "The fee sweep" below).
 **No other code**: all swap, curve, and fee math is byte-identical to upstream (the guard
 refuses a swap before any of it runs, or leaves it alone; for the keeper, the same arithmetic
 is handed a rate of 0), and no other upstream instruction is changed. After the fork,
@@ -531,7 +558,8 @@ transaction for rounding dust, where anyone else pays about 2% for the round tri
 should take these pools' spot price or their observations as a price feed.
 
 **Name only the robot's own wallet, never a program's address.** Param 9 takes any address
-and checks nothing about it. A program-derived address that a shared program signs with (an
+and checks nothing about it (on the builds up to `9f0150e3…`; since 2026-11-14 the source
+refuses a program's address: see "The keeper resigns"). A program-derived address that a shared program signs with (an
 aggregator's routing authority, say) would make every swap through that program free and let
 it through the guard. Before the proposal, check that the key is an ordinary wallet's (on the
 ed25519 curve, as no program-derived address is) and that it is the robot's. The robot signs
@@ -564,6 +592,101 @@ nothing changes there.
 | the keeper file against the same build with the exemption undone | the two keeper-free tests fail; the controls pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 11 patched |
 
+### The keeper resigns (2026-11-14)
+
+The contract audit of 2026-11-14 found that the keeper above is a hot key that only a vault
+proposal can clear: a stolen key would trade free, and wrap every visitor's swap between two
+free trades of its own, for at least the 48 hours of the lock. It also found that param 9
+named any address and logged nothing.
+
+| Rule | Where | Before |
+|---|---|---|
+| The tier's keeper can give the role up itself, signing alone: `resign_keeper` sets the tier's keeper to the all-zero key, as the vault's param 9 would, but at once, with no proposal and no lock. One transaction can carry one instruction per tier it keeps. | `resign_keeper` and `ResignKeeper` in `lib.rs`, the second instruction this fork adds | only the vault cleared it, behind the lock |
+| Nobody else can resign it: not a stranger, not the vault; not twice; not on a tier with no keeper (6016 `NotKeeper`). It changes that one field of that one tier: the guard, the other tiers, every lamport and token stay as they were. A thief with the key can resign too, which only ends the thief's own advantage; naming a keeper stays the vault's alone. | the `is_keeper` constraint on `ResignKeeper` | |
+| The vault names only a wallet's key: a key on the ed25519 curve, as no program-derived address is (6017 `KeeperNotAWallet`). The all-zero key still clears it. On chain the check is the runtime's own curve syscall, through `solana-curve25519`, a crate the program already compiled through anchor-spl's Token-2022 code; solana-pubkey's own `is_on_curve` panics on chain, so it cannot be used. | `may_name_keeper` in `states/config.rs`, called by `set_keeper` in `update_config.rs` | any address |
+| Every change of keeper or guard is logged: `KeeperChanged` (the tier, the keeper before and after, and whether the keeper itself resigned) and `SwapGuardChanged` (the tier and its new setting). | `states/config.rs`, emitted in `update_config.rs` and `resign_keeper` | nothing was logged |
+
+**What the robot does with it.** Nothing, day to day. If its key may have leaked, it signs one
+`resign_keeper` per tier it keeps, in one transaction. Its swaps then pay the fee like
+anyone's, and the guard refuses them from inside another program, until the vault names a new
+keeper.
+
+**What it changes on chain, once upgraded.** Nothing for anyone but a keeper. The account is
+the same 236 bytes. Every number of the errors and every event before is kept. It needs a
+cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it.
+
+**How it was proved, 2026-11-14.** The same way as the swap guard's (Agave 3.1.11, Anchor
+0.32.1, the test wallet as admin, throwaway program ids, one validator holding each build).
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): `may_name_keeper` agrees with solana-pubkey's own `is_on_curve` on 1,000 keys, both kinds; refuses 64 program-derived addresses, the program's own vault signer and the mainnet vault; `set_keeper` names a wallet, clears it, and refuses a program's address leaving the tier as it was | 44 of 44 with the 39 before |
+| the same with `may_name_keeper` made to say yes to anything | the two refusal tests fail |
+| `tests/cp-swap-keeper-resign.test.ts` on a local validator: the vault's guard and keeper changes are logged with the keeper before and after; while named, the keeper swaps free and is let through the guard; a program's address is refused with 6017 and nothing changes; a stranger and the vault are refused with 6016; the keeper resigns alone, as the only signer and the fee payer, and the tier logs who resigned with the guard still on; then its swaps pay the fee and the guard refuses them from inside a program; its other tier is untouched; it cannot resign twice and nobody can resign a tier with no keeper; it gives up both tiers in one transaction of its own; the vault clearing a keeper is logged as the vault's | 10 of 10 |
+| `tests/cp-swap-fee-rules.test.ts`, `tests/cp-swap-swap-guard.test.ts` and `tests/cp-swap-keeper-fee.test.ts` against the same build | 8 of 8, 9 of 9 and 8 of 8 |
+| the resignation file against trunk's build (no `resign_keeper`, param 9 unchecked, no events) | 7 fail; the 3 controls pass |
+| the resignation file against the build with `resign_keeper`'s keeper check removed (anyone may resign) | 3 fail: a stranger resigns the keeper, so the keeper's own resignation then logs the wrong keeper, and a tier with no keeper can be "resigned"; the 7 others pass |
+| `node solana/guards/provenance.mjs cp-swap` after the re-pin, and `key-guard.mjs` over every copy | upstream plus the reviewed patch: 37 files compared, 11 patched; no outside key |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte |
+
+### The Solana audit's checks (2026-11-15)
+
+Findings of the Solana audit of 2026-11-15, in the same build as the resignation. Each is a
+refusal: the account layouts, every error number and every event stay as they were.
+
+| Rule | Where | Before |
+|---|---|---|
+| Only a resignation sent directly counts (CPS-13). The keeper signs routes other programs build, so a program handed its signature could otherwise end the role. `resign_keeper` refuses one that another program calls, even with the keeper's signature, by the swap guard's own test: the instruction's stack height. Refused with 6016 `NotKeeper`, whose message now says so. A wallet resigning directly is unaffected, and a keeper is always a wallet. | `resign_keeper` in `lib.rs` | any program the keeper's signature was handed to could resign it |
+| A tier charges at most 1 SOL to open a pool (CPS-08), beside the two fee ceilings of 2026-11-03. Both live tiers sit far below it: 0 on the launch tier and 0.15 SOL on the 1% tier (read on mainnet 2026-11-15, slot 469,818,879). It does not protect graduations, which stop at a launch-tier fee above about 0.02 SOL (see the threat model). | `MAX_CREATE_POOL_FEE` in `states/config.rs`, checked by `create_amm_config` (`lib.rs`) and `update_config.rs` param 5 | any amount, set by a vault proposal |
+| A protocol or fund fee collection never pays into a token account owned by the pool program's vault authority (`AUTH_SEED`) (CPS-09). That authority owns both vaults of every pool, and a fee paid into a vault becomes that pool's LPs' money, not the venue's or the island's. Refused with 6008 `InvalidVault`, upstream's own error, naming the receiver. | both receivers of `collect_protocol_fee.rs` and of `collect_fund_fee.rs`; the fee sweep's four (below) | any token account the collector named |
+
+`collect_creator_fee` needs no such check: it pays only the creator's own associated token
+accounts, which the program derives and checks, and no pool's vault is an associated account.
+
+**How it was proved, 2026-11-16.** On one PC (WSL: cargo 1.94, cargo-build-sbf 3.1.11, Anchor
+0.32.1); the two chain files run in CI's migration-rehearsal job.
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): the resignation at stack height 1, and refused at 2, 3 and 5 with the tier keeping its keeper (`lib.rs`, the height set through solana-sysvar's syscall stubs); the opening fee through both instructions' own entry points, 1 SOL plus one lamport refused, 1 SOL, 0.15 SOL and 0 accepted (`update_config.rs`) | 49 of 49 with the 44 before |
+| the same with each check undone, one at a time: the stack-height check removed, or made to refuse height 1 too; either ceiling check removed, or made strict; the ceiling one lamport higher | each one fails the test that pins it (8 of 8); with all three fixes undone, exactly the 3 new refusal tests fail |
+| `tests/cp-swap-keeper-resign.test.ts`: the keeper's resignation sent through `tests/cpi-caller` with its signature is refused with 6016 and the keeper stays named; its own direct resignation still goes through. `tests/cp-swap-fee-rules.test.ts`: each collection into either vault of the pool, or into a token account the vault authority owns, is refused by the check on that receiver, all eight tried before the verdict; every fee is still owed; each collector, paid into its own accounts, gets exactly what was owed | in CI on the pull request |
+| `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` over every copy, `provenance.mjs --pr-files` | 37 files compared, 12 patched; no outside key; the re-pin rule holds |
+| the mainnet binary, `cargo build-sbf -- --locked` | 723,808 bytes, sha256 `5c717f6b…`: it fits the program's 725,176 bytes of room (1,368 to spare). The same tool gives the previous build `ef001114…` (721,488 bytes), CI's hash for it, byte for byte |
+
+### The fee sweep (2026-11-15)
+
+Every swap sets aside the protocol's and the fund's shares of its fee inside the pool's own
+vaults, and upstream lets only their owners collect them, by hand. On mainnet the protocol owner
+is the Squads vault (2 of 2, 48-hour lock), so the venue's share had never been collected: $11.60
+waited in 28 pools on 2026-11-15, and the island's $5.87. The owner's ruling that day: every fee
+of the venue lands in the treasury by itself.
+
+| Rule | Where | Before |
+|---|---|---|
+| Anyone may call `sweep_fees` on a pool, paying only the network fee. It moves the pool's whole protocol share (both tokens) to the protocol owner and its whole fund share to the fund owner, and the four counts to zero. An amount of 0 moves nothing; a sweep with nothing set aside still succeeds. | `sweep_fees`, `SweepFees` and `sweep_pool_fees` in `lib.rs`, the third instruction this fork adds | only the owners, by hand (`collect_protocol_fee`, `collect_fund_fee`), to accounts they choose |
+| The caller chooses nothing. The pool's own fee tier names both owners; each destination must be that owner's associated token account for the coin, under the token program that owns the coin, derived in the program; and it must still belong to that owner (a classic token account's owner can be handed over, and a handed-over one is refused). Anything else: 6018 `NotFeeOwnersAccount`. As the hand collects (audit CPS-09, above), no destination may be held by the pool program's vault authority, even if a tier names it as an owner: 6008 `InvalidVault`. | the `address` and `constraint` lines on the four destination accounts of `SweepFees` | |
+| Nothing else moves: not the creator fee, the curve's tokens, the lp supply or the tier, and the price does not move, since the curve reads the vaults less every share set aside (`pool.rs` `vault_amount_without_fee`). Destinations that do not exist yet are created first by the caller (the associated token account program's CreateIdempotent); this program creates no account. | `sweep_pool_fees` in `lib.rs`; `utils/token.rs` skips an amount of 0 | |
+| Every sweep is logged: `FeesSwept` (the pool, both owners and the four amounts). | `states/config.rs`, emitted in `sweep_pool_fees` | |
+
+**What it changes on chain, once upgraded.** Nothing for any swap, deposit or withdrawal. The
+hand collects keep working exactly as before. The accounts are the same sizes; every error and
+event number before is kept.
+
+**Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`, its own pull request) with a
+wallet that holds only gas money, so neither the vault nor the island has to sign anything.
+
+**How it was proved, 2026-11-20**, on the build that also carries the resignation and the audit's
+checks (WSL: Solana 2.3.0, Anchor 0.32.1, the test wallet as admin, throwaway program ids).
+
+| run | result |
+|---|---|
+| `tests/cp-swap-sweep-fees.test.ts` on a local validator: a stranger's sweep pays each owner exactly its counts and zeroes them, the curve and the creator fee do not move, and `FeesSwept` logs it; an empty sweep succeeds; seven wrong destinations are refused with 6018 and nothing moves; a handed-over account is refused and paid again once taken back; the destinations follow a new protocol owner; a tier naming the vault authority as the venue's owner, and one naming it as the island's (tier 73: the fund owner is named once only), are refused with 6008 and nothing moves; a Token-2022 coin goes to its Token-2022 account; a stranger still cannot `collect_protocol_fee` | 9 of 9, with the fee rules 9, swap guard 9, keeper fee 8 and resignation 11 on the same build: 46 of 46 |
+| the sweep file against seven copies, each with one rule broken: the venue's still-owns check removed; the venue's share sent to the island's account; one count left unzeroed; the address check on the island's second coin removed; the venue's and the island's amounts crossed; the vault-authority check made vacuous on the venue's side; the same on the island's side | each fails (1, 6, 3, 1, 3, 1 and 1 tests); the last two fail exactly the two vault-authority tests |
+| the daily job (`frontend/scripts/venue-sweep.mjs --live`, its own pull request) against this build, two pools with real trades, one holding a coin that keeps 3% of every transfer | it created the owners' accounts, paid each exactly what was set aside and zeroed the counts; it held the 3% coin's pool back untouched; a second run found nothing left |
+| `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` as CI calls it | 37 files compared, 12 patched; no outside key |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,816 bytes, sha256 `987bdb2e…`. The program has 725,176 bytes of room on mainnet (read 2026-11-20, last deployed at slot 470,581,826), so the upgrade needs the account grown by at least 21,640 bytes first: 0.1099 SOL of rent at 5,080 lamports a byte |
+
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)
@@ -571,7 +694,9 @@ nothing changes there.
 The per-swap **protocol fee is config-driven**, not hardcoded:
 - Fee **math**: `curve/fees.rs` — `protocol_fee = floor_div(amount, protocol_fee_rate, 1_000_000)` (audited upstream, untouched).
 - Fee **rate**: `amm_config.protocol_fee_rate`, set at `create_config` and changeable by the admin (`update_config` param 1); since 2026-11-03, in source, held within the 20% ceiling.
-- Fee **recipient**: `collect_protocol_fee` requires `owner == amm_config.protocol_owner`.
+- Fee **recipient**: `collect_protocol_fee` requires `owner == amm_config.protocol_owner`;
+  since 2026-11-15, in source, anyone may also sweep it to that owner's own token accounts
+  (`sweep_fees`, above).
 
 So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`** (via
 `create_config`, admin-only). Note: `create_config` sets **`protocol_owner = fund_owner = the
@@ -616,7 +741,7 @@ math, checked arithmetic, oracle, fee calc. Risk here ≈ the risk Raydium CPMM 
 production. We do not modify it.
 
 **New surface introduced by the fork (the whole audit focus):**
-- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient; since 2026-11-03, in source, `collect_protocol_fee` only, every fee rate it sets is held under the ceilings of "The fee rules and the coin check", and it hands a tier's fund fee over only once) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
+- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient but, since 2026-11-15 in source, an account the pool program's vault authority owns; since 2026-11-03, in source, `collect_protocol_fee` only, every fee rate it sets is held under the ceilings of "The fee rules and the coin check", and it hands a tier's fund fee over only once) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5; at most 1 SOL since 2026-11-15, in source) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
 - **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** the Squads vault PDA (not the multisig account) or a burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
 - **`create_lp_metadata`** (added 2026-10-06; in the binary on mainnet since the re-upgrade of `MAINNET_RUNBOOK.md` section 4b, and from the first upgrade until the roll-back of 2026-10-24). Anyone may call it, and it signs a Metaplex call as `AUTH_SEED`, the address that owns every pool vault. The caller picks the record slot and the program does not check it. Why the vaults are still out of reach, and what is left exposed, is in "The one thing a reviewer must hold it to" above. Its editor role outlives `admin::ID`, and any pool anyone opens can take the house name: both are in that section too.
