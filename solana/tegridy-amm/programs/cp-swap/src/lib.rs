@@ -507,7 +507,9 @@ pub struct ResignKeeper<'info> {
 // destination must be that owner's associated token account for that coin, under the token
 // program that owns the coin, derived here; and it must still belong to that owner (a classic
 // token account's owner can be handed over, and a handed-over one is refused). Anything else:
-// 6018 `NotFeeOwnersAccount`.
+// 6018 `NotFeeOwnersAccount`. As the hand collects since 2026-11-15 (audit CPS-09): no
+// destination may be held by `authority`, which holds every pool's vaults, even if a tier
+// names it as an owner (6008 `InvalidVault`).
 // WHAT IT MOVES: the four amounts set aside, each to its owner, and the four counts to zero.
 // Nothing else: the creator fee, the curve's tokens, the lp supply and the tier are untouched.
 // The price does not move, since the curve reads the vaults less every share set aside
@@ -563,7 +565,8 @@ pub struct SweepFees<'info> {
     #[account(
         mut,
         address = owners_account(&amm_config.protocol_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_0_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount
+        constraint = protocol_token_0_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
+        constraint = protocol_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
     pub protocol_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -571,7 +574,8 @@ pub struct SweepFees<'info> {
     #[account(
         mut,
         address = owners_account(&amm_config.protocol_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = protocol_token_1_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount
+        constraint = protocol_token_1_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
+        constraint = protocol_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
     pub protocol_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -579,7 +583,8 @@ pub struct SweepFees<'info> {
     #[account(
         mut,
         address = owners_account(&amm_config.fund_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_0_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount
+        constraint = fund_token_0_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
+        constraint = fund_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
     pub fund_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -587,7 +592,8 @@ pub struct SweepFees<'info> {
     #[account(
         mut,
         address = owners_account(&amm_config.fund_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = fund_token_1_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount
+        constraint = fund_token_1_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
+        constraint = fund_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
     )]
     pub fund_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 

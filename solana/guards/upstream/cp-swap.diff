@@ -163,7 +163,7 @@
 >     ///   keeper also swaps on the tier free of the trade and creator fees. Since 2026-11-14 a
 >     ///   keeper must be a wallet's key (a program's address is refused, 6017
 >     ///   `KeeperNotAWallet`), and params 8 and 9 log `SwapGuardChanged` and `KeeperChanged`
-297a408,878
+297a408,884
 >     }
 > 
 >     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
@@ -266,7 +266,9 @@
 > // destination must be that owner's associated token account for that coin, under the token
 > // program that owns the coin, derived here; and it must still belong to that owner (a classic
 > // token account's owner can be handed over, and a handed-over one is refused). Anything else:
-> // 6018 `NotFeeOwnersAccount`.
+> // 6018 `NotFeeOwnersAccount`. As the hand collects since 2026-11-15 (audit CPS-09): no
+> // destination may be held by `authority`, which holds every pool's vaults, even if a tier
+> // names it as an owner (6008 `InvalidVault`).
 > // WHAT IT MOVES: the four amounts set aside, each to its owner, and the four counts to zero.
 > // Nothing else: the creator fee, the curve's tokens, the lp supply and the tier are untouched.
 > // The price does not move, since the curve reads the vaults less every share set aside
@@ -322,7 +324,8 @@
 >     #[account(
 >         mut,
 >         address = owners_account(&amm_config.protocol_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
->         constraint = protocol_token_0_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount
+>         constraint = protocol_token_0_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
+>         constraint = protocol_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
 >     )]
 >     pub protocol_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 > 
@@ -330,7 +333,8 @@
 >     #[account(
 >         mut,
 >         address = owners_account(&amm_config.protocol_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
->         constraint = protocol_token_1_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount
+>         constraint = protocol_token_1_account.owner == amm_config.protocol_owner @ ErrorCode::NotFeeOwnersAccount,
+>         constraint = protocol_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
 >     )]
 >     pub protocol_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 > 
@@ -338,7 +342,8 @@
 >     #[account(
 >         mut,
 >         address = owners_account(&amm_config.fund_owner, &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
->         constraint = fund_token_0_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount
+>         constraint = fund_token_0_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
+>         constraint = fund_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
 >     )]
 >     pub fund_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 > 
@@ -346,7 +351,8 @@
 >     #[account(
 >         mut,
 >         address = owners_account(&amm_config.fund_owner, &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
->         constraint = fund_token_1_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount
+>         constraint = fund_token_1_account.owner == amm_config.fund_owner @ ErrorCode::NotFeeOwnersAccount,
+>         constraint = fund_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
 >     )]
 >     pub fund_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 > 

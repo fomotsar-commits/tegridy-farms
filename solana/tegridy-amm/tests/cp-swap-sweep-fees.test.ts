@@ -1,7 +1,7 @@
 /**
  * cp-swap's sweep of 2026-11-15 on a local validator. solana-ci.yml's migration-rehearsal job runs
  * it after the keeper's files, on the same deployed cp-swap (this wallet its admin). It opens its
- * own tiers (71 and 72), so it needs no other file.
+ * own tiers (71, 72 and 73), so it needs no other file.
  *
  * The rule (programs/cp-swap/src/lib.rs `sweep_fees`):
  *  - Anyone may call it, paying only the network fee. It moves ALL of a pool's protocol share to
@@ -14,6 +14,9 @@
  *    holds, one the owner handed over. A refused sweep moves nothing.
  *  - The destinations follow the tier: when the admin names a new protocol owner, the sweep pays
  *    the new one and refuses the old one.
+ *  - No destination may be held by the vault authority, which holds every pool's vaults, even
+ *    when the tier names it as an owner (6008 InvalidVault; the hand collects' check since the
+ *    audit of 2026-11-15, CPS-09): a sweep there would strand the share for good.
  *  - A coin of the Token-2022 program is swept to its owner's Token-2022 account.
  *  - With nothing set aside it moves nothing and still succeeds.
  *  - The hand collect is unchanged: a stranger still cannot call collect_protocol_fee.
@@ -26,6 +29,7 @@ import {
   AuthorityType,
   createAccount,
   createAssociatedTokenAccount,
+  createAssociatedTokenAccountIdempotent,
   createMint,
   getAccount,
   getAssociatedTokenAddressSync,
@@ -67,6 +71,9 @@ const failure = (e: unknown) => `${String(e)}\n${((e as { logs?: string[] }).log
 /** Refused with 6018 NotFeeOwnersAccount: by name when the simulation refuses it, by number when the network does. */
 const refusedNotOwners = (err: string, what?: string) =>
   assert.match(err, /NotFeeOwnersAccount|"Custom":6018\b|custom program error: 0x1782\b/, what);
+/** Refused with 6008 InvalidVault, by name or by number. */
+const refusedInvalidVault = (err: string, what?: string) =>
+  assert.match(err, /InvalidVault|"Custom":6008\b|custom program error: 0x1778\b/, what);
 
 /** Anchor's event discriminator: sha256("event:<Name>")[..8]. */
 const eventTag = (name: string) => createHash("sha256").update(`event:${name}`).digest().subarray(0, 8);
@@ -241,7 +248,12 @@ describe("cp-swap sweep_fees", () => {
       .rpc();
 
   /** A 1% tier at `index` and a public pool of `mints` on it, open for swaps. */
-  const openPool = async (index: number, mints: [PublicKey, PublicKey], programs: [PublicKey, PublicKey]): Promise<Pool> => {
+  const openPool = async (
+    index: number,
+    mints: [PublicKey, PublicKey],
+    programs: [PublicKey, PublicKey],
+    fundOwner: PublicKey = island.publicKey
+  ): Promise<Pool> => {
     const tier = tierAt(index);
     await cpSwap.methods
       .createAmmConfig(index, new BN(TRADE_FEE.toString()), new BN(PROTOCOL_SHARE.toString()), new BN(FUND_SHARE.toString()), new BN(0), new BN(0))
@@ -288,7 +300,7 @@ describe("cp-swap sweep_fees", () => {
     }
     // The venue and the island own the tier's two shares, as the vault and the Workshop do on mainnet.
     await setOwner(p, 3, venue.publicKey);
-    await setOwner(p, 4, island.publicKey);
+    await setOwner(p, 4, fundOwner);
     return p;
   };
 
@@ -420,6 +432,60 @@ describe("cp-swap sweep_fees", () => {
     } finally {
       // Always set back: a failure above must not leave the tier paying venue2 for the tests after.
       await setOwner(classic, 3, venue.publicKey);
+    }
+  });
+
+  it("a tier that names the vault authority as an owner is refused: nothing is swept into an account the pools' vault holder holds", async () => {
+    // The authority's own associated accounts: off the curve, so made with allowOwnerOffCurve.
+    const authAta = (i: 0 | 1) =>
+      getAssociatedTokenAddressSync(classic.mints[i], authority, true, classic.programs[i], ASSOCIATED_TOKEN_PROGRAM_ID);
+    for (const i of [0, 1] as const) {
+      await createAssociatedTokenAccountIdempotent(conn, wallet, classic.mints[i], authority, { commitment: "confirmed" }, classic.programs[i], ASSOCIATED_TOKEN_PROGRAM_ID, true);
+    }
+    await setOwner(classic, 3, authority);
+    try {
+      await trade(classic);
+      const before = await state(classic);
+      const heldBefore = [
+        (await getAccount(conn, authAta(0), "confirmed", classic.programs[0])).amount,
+        (await getAccount(conn, authAta(1), "confirmed", classic.programs[1])).amount,
+      ];
+      const r = await send(
+        [await sweepIx(classic, venue.publicKey, island.publicKey, { protocolToken0Account: authAta(0), protocolToken1Account: authAta(1) })],
+        stranger
+      );
+      refusedInvalidVault(r.err, "the authority's own accounts as the venue's");
+      assert.deepEqual(await state(classic), before, "the refused sweep moved nothing");
+      for (const i of [0, 1] as const) {
+        assert.equal((await getAccount(conn, authAta(i), "confirmed", classic.programs[i])).amount, heldBefore[i], `the authority's token ${i} account got nothing`);
+      }
+    } finally {
+      // Always set back: a failure above must not leave the tier naming the authority for the tests after.
+      await setOwner(classic, 3, venue.publicKey);
+    }
+  });
+
+  it("the same for the island's side: a tier whose fund owner is the vault authority is refused", async () => {
+    // The fund owner is named once only (update_config param 4), so this tier (73) names the authority from the start.
+    const p = await openPool(73, classic.mints, classic.programs, authority);
+    const authAta = (i: 0 | 1) => getAssociatedTokenAddressSync(p.mints[i], authority, true, p.programs[i], ASSOCIATED_TOKEN_PROGRAM_ID);
+    for (const i of [0, 1] as const) {
+      await createAssociatedTokenAccountIdempotent(conn, wallet, p.mints[i], authority, { commitment: "confirmed" }, p.programs[i], ASSOCIATED_TOKEN_PROGRAM_ID, true);
+    }
+    await trade(p);
+    const before = await state(p);
+    const heldBefore = [
+      (await getAccount(conn, authAta(0), "confirmed", p.programs[0])).amount,
+      (await getAccount(conn, authAta(1), "confirmed", p.programs[1])).amount,
+    ];
+    const r = await send(
+      [await sweepIx(p, venue.publicKey, island.publicKey, { fundToken0Account: authAta(0), fundToken1Account: authAta(1) })],
+      stranger
+    );
+    refusedInvalidVault(r.err, "the authority's own accounts as the island's");
+    assert.deepEqual(await state(p), before, "the refused sweep moved nothing");
+    for (const i of [0, 1] as const) {
+      assert.equal((await getAccount(conn, authAta(i), "confirmed", p.programs[i])).amount, heldBefore[i], `the authority's token ${i} account got nothing`);
     }
   });
 

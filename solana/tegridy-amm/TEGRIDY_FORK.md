@@ -638,7 +638,7 @@ refusal: the account layouts, every error number and every event stay as they we
 |---|---|---|
 | Only a resignation sent directly counts (CPS-13). The keeper signs routes other programs build, so a program handed its signature could otherwise end the role. `resign_keeper` refuses one that another program calls, even with the keeper's signature, by the swap guard's own test: the instruction's stack height. Refused with 6016 `NotKeeper`, whose message now says so. A wallet resigning directly is unaffected, and a keeper is always a wallet. | `resign_keeper` in `lib.rs` | any program the keeper's signature was handed to could resign it |
 | A tier charges at most 1 SOL to open a pool (CPS-08), beside the two fee ceilings of 2026-11-03. Both live tiers sit far below it: 0 on the launch tier and 0.15 SOL on the 1% tier (read on mainnet 2026-11-15, slot 469,818,879). It does not protect graduations, which stop at a launch-tier fee above about 0.02 SOL (see the threat model). | `MAX_CREATE_POOL_FEE` in `states/config.rs`, checked by `create_amm_config` (`lib.rs`) and `update_config.rs` param 5 | any amount, set by a vault proposal |
-| A protocol or fund fee collection never pays into a token account owned by the pool program's vault authority (`AUTH_SEED`) (CPS-09). That authority owns both vaults of every pool, and a fee paid into a vault becomes that pool's LPs' money, not the venue's or the island's. Refused with 6008 `InvalidVault`, upstream's own error, naming the receiver. | both receivers of `collect_protocol_fee.rs` and of `collect_fund_fee.rs` | any token account the collector named |
+| A protocol or fund fee collection never pays into a token account owned by the pool program's vault authority (`AUTH_SEED`) (CPS-09). That authority owns both vaults of every pool, and a fee paid into a vault becomes that pool's LPs' money, not the venue's or the island's. Refused with 6008 `InvalidVault`, upstream's own error, naming the receiver. | both receivers of `collect_protocol_fee.rs` and of `collect_fund_fee.rs`; the fee sweep's four (below) | any token account the collector named |
 
 `collect_creator_fee` needs no such check: it pays only the creator's own associated token
 accounts, which the program derives and checks, and no pool's vault is an associated account.
@@ -665,7 +665,7 @@ of the venue lands in the treasury by itself.
 | Rule | Where | Before |
 |---|---|---|
 | Anyone may call `sweep_fees` on a pool, paying only the network fee. It moves the pool's whole protocol share (both tokens) to the protocol owner and its whole fund share to the fund owner, and the four counts to zero. An amount of 0 moves nothing; a sweep with nothing set aside still succeeds. | `sweep_fees`, `SweepFees` and `sweep_pool_fees` in `lib.rs`, the third instruction this fork adds | only the owners, by hand (`collect_protocol_fee`, `collect_fund_fee`), to accounts they choose |
-| The caller chooses nothing. The pool's own fee tier names both owners; each destination must be that owner's associated token account for the coin, under the token program that owns the coin, derived in the program; and it must still belong to that owner (a classic token account's owner can be handed over, and a handed-over one is refused). Anything else: 6018 `NotFeeOwnersAccount`. | the `address` and `constraint` lines on the four destination accounts of `SweepFees` | |
+| The caller chooses nothing. The pool's own fee tier names both owners; each destination must be that owner's associated token account for the coin, under the token program that owns the coin, derived in the program; and it must still belong to that owner (a classic token account's owner can be handed over, and a handed-over one is refused). Anything else: 6018 `NotFeeOwnersAccount`. As the hand collects (audit CPS-09, above), no destination may be held by the pool program's vault authority, even if a tier names it as an owner: 6008 `InvalidVault`. | the `address` and `constraint` lines on the four destination accounts of `SweepFees` | |
 | Nothing else moves: not the creator fee, the curve's tokens, the lp supply or the tier, and the price does not move, since the curve reads the vaults less every share set aside (`pool.rs` `vault_amount_without_fee`). Destinations that do not exist yet are created first by the caller (the associated token account program's CreateIdempotent); this program creates no account. | `sweep_pool_fees` in `lib.rs`; `utils/token.rs` skips an amount of 0 | |
 | Every sweep is logged: `FeesSwept` (the pool, both owners and the four amounts). | `states/config.rs`, emitted in `sweep_pool_fees` | |
 
@@ -675,6 +675,17 @@ event number before is kept.
 
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`, its own pull request) with a
 wallet that holds only gas money, so neither the vault nor the island has to sign anything.
+
+**How it was proved, 2026-11-20**, on the build that also carries the resignation and the audit's
+checks (WSL: Solana 2.3.0, Anchor 0.32.1, the test wallet as admin, throwaway program ids).
+
+| run | result |
+|---|---|
+| `tests/cp-swap-sweep-fees.test.ts` on a local validator: a stranger's sweep pays each owner exactly its counts and zeroes them, the curve and the creator fee do not move, and `FeesSwept` logs it; an empty sweep succeeds; seven wrong destinations are refused with 6018 and nothing moves; a handed-over account is refused and paid again once taken back; the destinations follow a new protocol owner; a tier naming the vault authority as the venue's owner, and one naming it as the island's (tier 73: the fund owner is named once only), are refused with 6008 and nothing moves; a Token-2022 coin goes to its Token-2022 account; a stranger still cannot `collect_protocol_fee` | 9 of 9, with the fee rules 9, swap guard 9, keeper fee 8 and resignation 11 on the same build: 46 of 46 |
+| the sweep file against seven copies, each with one rule broken: the venue's still-owns check removed; the venue's share sent to the island's account; one count left unzeroed; the address check on the island's second coin removed; the venue's and the island's amounts crossed; the vault-authority check made vacuous on the venue's side; the same on the island's side | each fails (1, 6, 3, 1, 3, 1 and 1 tests); the last two fail exactly the two vault-authority tests |
+| the daily job (`frontend/scripts/venue-sweep.mjs --live`, its own pull request) against this build, two pools with real trades, one holding a coin that keeps 3% of every transfer | it created the owners' accounts, paid each exactly what was set aside and zeroed the counts; it held the 3% coin's pool back untouched; a second run found nothing left |
+| `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` as CI calls it | 37 files compared, 12 patched; no outside key |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,816 bytes, sha256 `987bdb2e…`. The program has 725,176 bytes of room on mainnet (read 2026-11-20, last deployed at slot 470,581,826), so the upgrade needs the account grown by at least 21,640 bytes first: 0.1099 SOL of rent at 5,080 lamports a byte |
 
 ---
 
