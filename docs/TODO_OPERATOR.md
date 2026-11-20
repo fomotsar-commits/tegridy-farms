@@ -37,61 +37,69 @@ order. Each says what to do, what you should see and why.
 
 **Venue money may be leaving now in one place: the GROYPER/SOL pool (step g, first decision).**
 
-### a. Tonight: proposals #35 and #34 (from 2026-11-16 05:13 UTC, 22:13 your time on 11-15)
+### a. Done: proposals #35 and #34 have executed
 
-Both members approved both on 2026-11-14. Read on chain 2026-11-15 at 10:49 UTC: still approved
-by both keys, no cancel votes.
+Read on chain at finalized slot 471,605,748 (2026-11-20 04:37 UTC): the pool program was last
+deployed at slot 470,581,826 (#35, the build `9f0150e3…` of 715,224 bytes), and both fee settings,
+`CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy` and `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`,
+read swap guard on and keeper `9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz` (#34). Pull request
+#1213 moved the site's and the registry's pins and merged on 2026-11-17. The 2026-11-14 robot entry
+below is done on chain.
 
-**On chain #35 is the upgrade and #34 is the keeper, the other way round from the paper.** Before
-every press, read back the page's "Ready to execute ... proposal #N" line against the step (law 24).
-Squads keeps two accounts per proposal, and a page may show either, so both are here in full.
+For the record, their Squads accounts: #35 transaction
+`437mxChpQn1mWUNeu3LtqKCLp8Huq5nVSebaF4pGHGBo`, proposal
+`5f3D1cA8FvcvVrXmND77QLocHqTsHy6LpbBz8uHy1kAC`; #34 transaction
+`9DvNSamLD4Bp8efjhz1NKVjHt2zctLnqDesJhF6eu23m`, proposal
+`D1wD5jmHTaaNAJwZ6T1Hr1xwyLZm1FkaouV7X9tRDL99`.
 
-| | What it does | Squads accounts | Executable from (UTC) |
-|---|---|---|---|
-| #35 | Upgrades the pool program to `9f0150e3…` (715,224 bytes) | transaction `437mxChpQn1mWUNeu3LtqKCLp8Huq5nVSebaF4pGHGBo`, proposal `5f3D1cA8FvcvVrXmND77QLocHqTsHy6LpbBz8uHy1kAC` | 2026-11-16 05:13:35 |
-| #34 | Names the price robot `9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz` keeper on both fee settings | transaction `9DvNSamLD4Bp8efjhz1NKVjHt2zctLnqDesJhF6eu23m`, proposal `D1wD5jmHTaaNAJwZ6T1Hr1xwyLZm1FkaouV7X9tRDL99` | 2026-11-16 05:13:59 |
+**How the money moved.** #35 gave its 3.634176121 SOL upload deposit back to the paying wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, the wallet that paid it: not venue income. The
+robot is now keeper on both fee settings, so its own swaps in our pools may skip the trade and
+creator fees: on those trades the LPs, the vault, the island and coin creators earn nothing, and the
+robot's profit stays in the robot's wallet, not the vault. Everyone else pays as before.
 
-**How the money moves.** When #35 runs, 3.634176121 SOL of upload deposit goes back to the paying
-wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, the wallet that paid it: not venue income.
-Once both have run, the robot pays no fee on its own swaps, so the LPs, the vault, the island and
-coin creators earn nothing on those trades, and the robot's profit stays in the robot's wallet, not
-the vault. Everyone else pays as before.
+**What is still open from them.** The keeper cannot resign until the upgrade in pull request #1248
+executes (merge on your word, then its own vault proposal and 48 hours). Until then, if the robot's
+key ever leaks, it trades fee-free past the swap guard until a vault proposal un-names it, 48 hours
+or more. The robot's own checks are pull request #1278 (merge, then an admin restart). Cancel #18
+(step d) before #1248's upgrade is proposed: never run an upgrade while an older upgrade proposal
+can still execute.
 
-**If you hold #34.** The order the reviewers recommend is #35, then the upgrade that lets the keeper
-resign (pull request #1248, three days away or more), then #34. Or run #34 now, knowing that until
-that build is on chain a stolen robot key trades fee-free past the swap guard until the vault
-un-names it, 48 hours or more. Either order of #34 and #35 ends in the same state. **A held #34
-stays approved and armed:** either key alone can run it at any time from 05:13:59 UTC, and it never
-expires. If it is not going to run, cancel it (both keys vote Cancel). Never run the #1248 upgrade
-while an older upgrade proposal can still execute.
-
-**If an execute fails with "Program was deployed in this block already",** send it again. A failed
-execute does not spend the proposal; it costs the member 5,000 lamports.
-
-**After #35 executes,** pull request #1213 moves the pins: the registry row's size (715,224 bytes)
-and hash, and the e2e pins. Until it merges, the daily registry job and `e2e-solana` are red. It
-has conflicts today; a session readies it and asks you to merge.
+**For every proposal from here on:** before every press, read back the page's "Ready to execute
+... proposal #N" line against the step (law 24). Squads keeps two accounts per proposal, and a page
+may show either, so each step gives both in full. If an execute fails with "Program was deployed in
+this block already", send it again: a failed execute does not spend the proposal, and it costs the
+member 5,000 lamports.
 
 ### b. Top up, before anything else
 
-The two vault member wallets are nearly empty: `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
-holds 0.002151332 SOL and `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` 0.00159573 SOL (read
-2026-11-15). That covers approving, cancelling and executing (5,000 lamports each). It does not
-cover a new proposal, which costs its proposer 0.0032 to 0.0061 SOL of rent, so today neither key
-can propose anything, a pause included.
+Read on chain 2026-11-20 04:37 UTC. A new proposal costs its proposer 0.0032 to 0.0061 SOL of
+rent; approving, cancelling and executing cost 5,000 lamports each.
 
-- Send 0.02 SOL to each member wallet. The 2026-11-14 entry below already sends 0.02 SOL to member
-  A, `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`: send that once, not twice. This adds member B,
-  `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`, so either key can propose.
-- The 2026-11-14 entry's other amounts stand: 7.00 SOL to the paying wallet and 0.01 SOL to the
-  vault. The vault holds 0.01273992 SOL of plain SOL and the range operation account costs it
-  0.01857756 SOL, so it needs at least 0.0065 SOL more; the 0.01 covers that.
+- **Member A, `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, still needs 0.02 SOL.** It holds
+  0.001991332 SOL, too little to propose anything, a pause included. This is the 0.02 SOL the
+  2026-11-14 range entry below already sends: send it once, not twice.
+- Member B, `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`, has been topped up (0.224270222 SOL)
+  and needs nothing.
+- **The paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs about 3.31 SOL, not the
+  2026-11-14 entry's 7.00.** It holds 3.692374149 SOL (#35's deposit came back), and the range
+  upload parks about 6.99 SOL plus a little for fees. 3.31 SOL brings it to 7.00 SOL; the 6.99
+  comes back when the range upgrade executes. Sending the full 7.00 also works: the extra stays in
+  that wallet.
+- The vault still needs the 2026-11-14 entry's 0.01 SOL. It holds 0.01273992 SOL of plain SOL and
+  the range operation account costs it 0.01857756 SOL, so it needs at least 0.0065 SOL more.
 
-You should see each member wallet above 0.02 SOL before you sit down to propose anything.
+You should see member A above 0.02 SOL and the paying wallet at about 7.00 SOL before you sit down
+to propose anything.
 
 ### c. The range upgrade sitting: additions (the pack stays as it is)
 
-The 2026-11-14 entry below and its paper still hold. Add these:
+The 2026-11-14 entry below and its paper still hold. Read on chain 2026-11-20 04:37 UTC: the range
+program is still the 2026-11-04 build (last deployed at slot 465,140,737), its operation account
+does not exist, and the multisig's last proposal is #35, so the paper's #36 and #37 are still the
+next two numbers. Once merged, site pull request #1268 keeps range-pool opening on the site waiting
+until the fix build is on chain, and registry pull request #1267 watches each program's build. Add
+these:
 
 1. **List the range program's accounts three times:** before sitting 1, again right before you
    execute #36, and after. The repo has no read-only command for this; a session can run it (every
@@ -140,19 +148,20 @@ every limit-order fill (your decision of 2026-11-15), so a fill pays the vault 9
 
 ### d. Old proposals: #30, #18 and #3
 
-Your rule of 2026-11-04: every approved, not yet executed proposal is one you mean to run. Today
-there are five: #3, #18, #30, #34 and #35.
+Your rule of 2026-11-04: every approved, not yet executed proposal is one you mean to run. On
+2026-11-20 04:37 UTC there are three: #3, #18 and #30 (#34 and #35 have executed).
 
 - **#30 makes the vault the multisig's rent collector.** Approved since 2026-11-04; either key alone
   can run it. Run it on purpose, or cancel it. Running it loses nothing: 0.131 SOL of rent locked in
   finished proposal records becomes reclaimable to the vault, and from then on anyone can close a
   finished record, its rent going to the vault. Two registry rows expect #19's two records to exist,
   so close those two in the same sitting (any wallet can send the close; a session prepares it), and
-  then a session sets the two rows to "absent". The audit simulated #30 on 2026-11-15: it made no
-  other proposal stale, and #34 and #35 stayed runnable (the 2026-11-04 entry below says otherwise;
-  the simulation is newer). Keep the 2026-11-14 paper's rule anyway: not between its steps 10 and
+  then a session sets the two rows to "absent" (once registry pull request #1267 has merged, the
+  rows need no change). The audit simulated #30 on 2026-11-15: it made no other proposal stale (the
+  2026-11-04 entry below says otherwise; the simulation is newer). Keep the 2026-11-14 paper's rule anyway: not between its steps 10 and
   11. To cancel instead, both keys vote Cancel, and the 0.131 SOL stays locked.
-- **#18 can do nothing** (its buffer is gone). Cancel it with both keys. Never press Execute on it.
+- **#18 can do nothing** (its buffer is gone). Cancel it with both keys, before #1248's upgrade is
+  proposed. Never press Execute on it.
 - **#3 is dead:** a stale settings change that can never run. Nothing to do; it stays listed.
 
 ### e. The ladder: sweep now, refill in December
@@ -180,7 +189,10 @@ there are five: #3, #18, #30, #34 and #35.
 3. **Until the ladder's fix ships, queue a "degraded" flag only when no reward window is running.**
    A flag queued while rewards are paying can be used during its 48-hour notice to take reward share
    from stakers who stay. After a four-year refill a window is always running, so decide that fix
-   (LDR-01) before the December refill. Sweep before any flag is queued.
+   (LDR-01) before the December refill. Sweep before any flag is queued. The fix is pull request
+   #1276: merge on your word, then its own upgrade (a vault proposal, 48 hours), and only after that
+   executes any flag, as its "To go live" says. Pull request #1275 lets the ladder's bytes be checked
+   before that upgrade.
 
 ### f. Never close the vault's wrapped-SOL account
 
@@ -209,9 +221,28 @@ transfer, then unwrap the copy.
    keyless host, which is slower and which Jupiter is retiring. Only if that host is gone too do
    Jupiter swaps stop, and then the venue misses its 0.5% on them. A larger
    plan is the only fix that works. Your earlier word, "stay on free now", is in the 2026-10-24
-   entry below.
+   entry below. Pull request #1274, the site's check of Jupiter transactions, does not change this.
 4. **A rule on trunk.** Nothing on `mvp-launch` requires a pull request or a passing check today. A
-   ruleset that requires both changes how merges work, so it is your call.
+   ruleset that requires both changes how merges work, so it is your call. Pull requests #1277 (the
+   build workflows), #1273 and #1275 (the guards) add checks such a rule would hold merges to.
+
+### h. The audit's fix pull requests
+
+Each stays unmerged until you say so. The four marked "upgrade" change a program: after the merge,
+each also needs its own vault proposal, 2-of-2 and 48 hours, and its own "To go live".
+
+| Pull request | What it fixes | After the merge |
+|---|---|---|
+| #1248 | swap pools: the keeper can resign | upgrade (step a) |
+| #1271 | range pools: the second round | upgrade (step c2) |
+| #1272 | the launcher | upgrade, before the launcher is unpaused |
+| #1276 | the ladder | upgrade (step e) |
+| #1277 | the build workflows | nothing on chain |
+| #1273, #1275 | the guards | nothing on chain |
+| #1274 | the site's check of Jupiter transactions | nothing on chain |
+| #1268 | the site's range and launch guards | nothing on chain |
+| #1278 | the price robot | an admin restart of the robot |
+| #1267 | the registry's daily chain check | nothing on chain |
 
 ## 🔴 2026-11-14: the robot's zero fee, sitting 2 (from 2026-11-16 05:14 UTC)
 
