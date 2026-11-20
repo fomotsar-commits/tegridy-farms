@@ -9,6 +9,7 @@
 //
 // The prices are the market card's own read (lib/gondi/lenderPitch.ts). The bar adds none.
 import { barAmount, barMax, barStep, barZone } from '../../lib/gondi/floorBar';
+import { toFixedUp } from '../../lib/formatting';
 import { monoWidth, placeLabels, type MarkLabel } from '../../lib/markLabels';
 import { useDrawWidth } from '../../hooks/useDrawWidth';
 
@@ -24,6 +25,8 @@ export function FloorBar(p: {
   symbol: string;
   /** WETH lent per loan, as a number; null while nothing valid is typed. */
   principal: number | null;
+  /** The same amount as an exact decimal (formatEther): the screen reader's figure rounds it up. The bar draws `principal`. */
+  exact?: string | null;
   floor: number | null;
   /** The best open bid for any NFT of the collection; null when there is none or it is unread. */
   bestBid: number | null;
@@ -46,10 +49,10 @@ export function FloorBar(p: {
   const [floorLabel, bidLabel] = placeLabels(marks, W, 3);
   const valueText =
     zone === 'covered'
-      ? `${barAmount(p.principal)} WETH: at or under the best bid`
+      ? `${toFixedUp(p.exact ?? p.principal, 4)} WETH: at or under the best bid`
       : zone === 'under-floor'
-      ? `${barAmount(p.principal)} WETH: over the best bid, under the floor`
-      : `${barAmount(p.principal)} WETH: over the floor`;
+      ? `${toFixedUp(p.exact ?? p.principal, 4)} WETH: over the best bid, under the floor`
+      : `${toFixedUp(p.exact ?? p.principal, 4)} WETH: over the floor`;
 
   return (
     <div ref={box} className="relative" data-testid="floor-bar" data-zone={zone} style={{ touchAction: 'pan-y' }}>

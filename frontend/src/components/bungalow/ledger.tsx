@@ -81,6 +81,7 @@ export function Fact({
       style={{ fontVariantNumeric: 'tabular-nums' }}
     >
       <span
+        data-tone={tone}
         style={{ color: tone === 'good' ? '#4ade80' : tone === 'muted' ? 'rgba(255,255,255,0.85)' : '#ffffff', fontWeight: 600, fontSize: inline ? 15 : 'clamp(18px, calc(2.2cqi + 10px), 24px)', lineHeight: 1.15 }}
       >
         {value}
@@ -99,7 +100,7 @@ export function Fact({
   );
   if (inline) {
     return (
-      <div className="flex items-baseline gap-2.5 min-w-0" aria-describedby={describedBy}>
+      <div className="flex items-baseline gap-2.5 min-w-0" data-fact="inline" aria-describedby={describedBy}>
         {labelEl}
         {valueEl}
       </div>
@@ -110,6 +111,7 @@ export function Fact({
       variants={staggerItem}
       className={`${FACT_LAYOUT[at].cell} ${span2 ? FACT_LAYOUT[at].span2 : ''} ${className} min-w-0`}
       style={{ background: CELL_BG }}
+      data-fact="row"
       aria-describedby={describedBy}
     >
       {labelEl}

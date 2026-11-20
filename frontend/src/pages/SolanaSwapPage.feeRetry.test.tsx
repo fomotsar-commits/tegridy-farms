@@ -51,6 +51,7 @@ const h = vi.hoisted(() => ({
   simulateSwap: vi.fn(),
   sendTransaction: vi.fn(),
   getSignatureStatuses: vi.fn(),
+  testBeforeWallet: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
@@ -96,6 +97,16 @@ vi.mock('../lib/solana/confirm', async (orig) => {
     },
   };
 });
+// The final test run and the SOL read before the wallet (Phantom, ticket #467471:
+// lib/solana/walletWrite.ts testBeforeWallet), stood in here: it test-runs tx.serialize(),
+// and web3.js cannot SERIALIZE under jsdom (above), so the real one would read every press
+// as a test run that could not finish. It is pinned for real under node in
+// lib/solana/swap/walletSwapSend.test.ts and lib/solana/walletWrite.test.ts; here it is seen
+// to run on the transaction the wallet is then handed, before the wallet is asked.
+vi.mock('../lib/solana/walletWrite', async (orig) => ({
+  ...(await orig<typeof import('../lib/solana/walletWrite')>()),
+  testBeforeWallet: (...a: unknown[]) => h.testBeforeWallet(...a),
+}));
 // One stable wallet and connection: the page's effects key on their identity.
 const connection = {
   getBalance: async () => 5_000_000_000,
@@ -138,6 +149,8 @@ beforeEach(() => {
   h.sendTransaction.mockReset();
   h.getSignatureStatuses.mockReset();
   h.getSignatureStatuses.mockImplementation(async () => ({ value: [{ err: null, confirmationStatus: 'confirmed' }] }));
+  // The final test run passes, and 5 SOL covers the 0.1 SOL it took and the fee.
+  h.testBeforeWallet.mockReset().mockResolvedValue({ ok: true, before: 5_000_000_000n, fee: 5_000n, run: { ok: true, err: null, logs: [], payerLamportsAfter: 4_899_000_000n } });
   // Reset, not only cleared: a one-time answer a failed test never used must not reach the next.
   h.getQuote.mockReset();
   h.buildSwapTransaction.mockReset();
@@ -184,6 +197,12 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
 
     // The wallet got the no-fee rebuild, never the transaction that failed.
     expect(signedMarker()).toBe(2);
+    // The final test run before the wallet ran on that same rebuild, and before the wallet was asked.
+    expect(h.testBeforeWallet).toHaveBeenCalledTimes(1);
+    const tested = h.testBeforeWallet.mock.calls[0]![2] as VersionedTransaction;
+    expect(tested).toBe(h.sendTransaction.mock.calls[0]![0]);
+    expect(tested.message.staticAccountKeys[0]!.equals(USER)).toBe(true);
+    expect(h.testBeforeWallet.mock.invocationCallOrder[0]!).toBeLessThan(h.sendTransaction.mock.invocationCallOrder[0]!);
     // Both were simulated, the rebuild last.
     expect(h.simulateSwap.mock.calls.map((c) => c[0])).toEqual([TX_FEE, TX_NO_FEE]);
     // Exactly one no-fee re-quote.
@@ -514,5 +533,22 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     expect(reads).toBe(2);
     expect(h.toast.error).not.toHaveBeenCalled();
     expect(h.toast.warning).not.toHaveBeenCalled();
+  });
+});
+
+// Phantom, ticket #467471: a final test run that refuses the swap, or cannot finish, stops it
+// before the wallet is asked (lib/solana/swap/walletSwapSend.ts).
+describe('SolanaSwapPage: the final test run before the wallet', () => {
+  it('one that refuses the swap ends the press on "Not sent" in its words, and the wallet is never opened', async () => {
+    h.simulateSwap.mockResolvedValue(OK);
+    const reason = 'It did not pass its test run just now (Program log: refused). Your wallet was not asked. Nothing was sent.';
+    h.testBeforeWallet.mockResolvedValue({ ok: false, end: { kind: 'not-sent', stage: 'test', reason, logs: [] } });
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not sent', { description: reason }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.toast.warning).not.toHaveBeenCalled();
+    expect(lastReceipt()).toBeNull();
+    // Nothing was sent: the form stands as it was.
+    expect(screen.getByLabelText('Amount of SOL to pay')).toHaveValue('0.1');
   });
 });

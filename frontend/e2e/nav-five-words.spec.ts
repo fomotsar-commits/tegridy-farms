@@ -79,7 +79,7 @@ for (const size of SIZES) {
         await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
       // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
-      for (const [word, name] of [['Earn', 'NFT Loans'], ['Island', 'Lore'], ['Island', 'Launch'], ['Island', 'Marketplace']] as const) {
+      for (const [word, name] of [['Earn', 'NFT Loans'], ['Island', 'City'], ['Island', 'Lore'], ['Island', 'Launch'], ['Island', 'Marketplace']] as const) {
         await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
       for (const name of ['Charting', 'Copy Trading', 'Gallery']) await expect(index.getByRole('link', { name, exact: true }), name).toHaveCount(0);

@@ -152,6 +152,8 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/island',
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
+      // The island at night, rendered in 3D, every room's building wearing its art (owner, 2026-11-18).
+      { to: '/city',        label: 'City' },
       { to: '/gallery',     label: 'Gallery' },
       { to: '/community', label: 'Community' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
@@ -409,7 +411,8 @@ export function indexName(group: IndexGroup, item: NavItem): string {
  * (Earn's Yield Routing, Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
  */
 export const MENU_PARKED: ReadonlySet<string> = new Set([
-  // Under Island, everything but Lore.
+  // Under Island, everything but Lore and the city (owner, 2026-11-19: "theres no city tab in the
+  // remote under island"), which is also a door in the island lobby.
   '/island',
   '/gallery',
   '/community',
@@ -456,7 +459,7 @@ function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] 
  * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
  * /vesting stay out: their rails are undeployed (navConfig.test.ts). Owner, 2026-11-10: the
  * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, then Marketplace
- * (2026-11-12), and Dashboard once a wallet connects (NavDrawer.tsx); Launch and Check leave the
+ * (2026-11-12), the city before them (2026-11-19), and Dashboard once a wallet connects (NavDrawer.tsx); Launch and Check leave the
  * menu as groups. Their pictures,
  * `nav-drawer:7` and `:2`, stay in the studio for when they come back.
  */

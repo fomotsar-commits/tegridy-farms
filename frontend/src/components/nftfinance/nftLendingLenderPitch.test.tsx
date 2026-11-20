@@ -119,6 +119,37 @@ describe('idea 4: who buys it', () => {
     );
   });
 
+  // What the lender puts up, and what selling short loses, round up at four decimals in the
+  // sentence's own short form (0.25, never 0.2500). The best bid beside them is a price.
+  it('the amount lent and the loss round up: 0.12341 reads 0.1235, and 0.32341 is 0.0435 over a 0.28 bid', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    fillLend('0.12341');
+    expect(screen.getByTestId('lender-exit-check').textContent).toBe(
+      'A buyer already bids 0.28 WETH, at or above your 0.1235. 59% under the floor.',
+    );
+    fillLend('0.32341');
+    expect(screen.getByTestId('lender-exit-check').textContent).toBe(
+      'Your 0.3235 WETH is 0.0435 over the best bid: unrepaid, selling today loses that. 8% over the floor.',
+    );
+  });
+
+  // 1.1 - 0.28 is 0.8200000000000001 as a float: rounding that up as it stands reads 0.8201.
+  it('the loss is the real difference: 1.1 WETH over a 0.28 bid is 0.82 over, never 0.8201', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());
+    fillLend('1.1');
+    expect(screen.getByTestId('lender-exit-check').textContent).toMatch(/^Your 1\.1 WETH is 0\.82 over the best bid: /);
+  });
+
+  it('the floor bar reads a screen reader the exact amount rounded up: one wei over 0.03 is 0.0301', async () => {
+    renderWithProviders(<NFTLendingSection />);
+    await waitFor(() => expect(within(tile('Floor')).getByText('0.3 ETH')).toBeTruthy());
+    fillLend('0.030000000000000001');
+    expect(within(card()).getByRole('slider').getAttribute('aria-valuetext')).toBe('0.0301 WETH: at or under the best bid');
+    expect(screen.getByTestId('lender-exit-check').textContent).toMatch(/at or above your 0\.0301\./);
+  });
+
   it('far over the floor: the percent reads with thousands separators (owner 2026-11-12 saw "1114877%")', async () => {
     renderWithProviders(<NFTLendingSection />);
     await waitFor(() => expect(within(tile('Best bid')).getByText('0.28 WETH')).toBeTruthy());

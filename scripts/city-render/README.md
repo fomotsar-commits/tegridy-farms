@@ -1,0 +1,38 @@
+# The city's render
+
+`/city` shows the island as one night picture made in Blender, with the live parts (people
+walking a wallet's staking pay, plaques, the picked plot) drawn over it by the page. Tapping a
+building opens its close-up. This folder makes those pictures.
+
+## What is here
+
+- `plan.json`: the island's layout, written from the site's own plan (`frontend/src/lib/city/plan.ts`)
+  by `frontend/src/lib/city/renderPlan.test.ts`. That test fails if this file and the plan disagree,
+  so a render can never stand its buildings somewhere the page's plaques and presses are not.
+- `kit.py`: materials and parts (each room's picture as a lit print, thatch, tin, bamboo, palms,
+  lamps, the art wrap). Everything takes the site's coordinates; Blender's world is the site's with
+  y turned over, because the site's axonometric is a mirror of a real camera's view.
+- `buildings.py`: the twenty buildings, one idea each, every room's wrapped in its own picture.
+- `island.py`: builds the island from `plan.json` and renders one frame.
+- `grade.py`: a soft glow round the brightest lights and a light vignette.
+- `render_all.py`: renders the island and every close-up and writes them to `frontend/public/city/`.
+
+## Render again
+
+After a change to the plan (a room joins, a plot moves):
+
+```
+cd frontend
+CITY_PLAN_WRITE=1 npx vitest run src/lib/city/renderPlan.test.ts
+cd ../scripts/city-render
+python render_all.py
+```
+
+Blender 5.0 runs headless (`-b`), so nothing needs to be open. Set `BLENDER` to its exe if it is not
+at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs Pillow and NumPy.
+The island takes a few minutes; each close-up about a minute.
+
+One plot alone, to work on a building: `blender -b --factory-startup --python island.py -- plate:<plotId> out/plate.png 0.6 16`.
+
+If a building's height changes, change its number in `PIECE_TOP` (`frontend/src/lib/city/render.ts`):
+its plaque hangs there, and a press reaches up to it.

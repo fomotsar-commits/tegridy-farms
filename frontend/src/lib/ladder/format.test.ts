@@ -5,7 +5,7 @@
 // under-staked by 1000x in every dot-grouping locale, with the wallet showing the
 // right number throughout.
 import { describe, it, expect } from 'vitest';
-import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from './format';
+import { fmtRaw, fmtRawUp, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from './format';
 
 describe('fmtRaw is for eyes', () => {
   it('groups and trims trailing zeros', () => {
@@ -37,6 +37,57 @@ describe('fmtRaw is for eyes', () => {
     // 1.999999 at maxFrac 2 shows 1.99, not 2.00 — a display that rounds up reads as
     // more money than the account holds.
     expect(fmtRaw(1_999_999n, 6, 2)).toBe('1.99');
+  });
+});
+
+// A penalty, a cost or a minimum stake is the other side: never printed below itself.
+describe('fmtRawUp rounds up what the visitor pays, loses or must stake at least', () => {
+  it('0.100049 and 0.10005 at 4 digits: fmtRaw cuts both to 0.1000, fmtRawUp prints 0.1001', () => {
+    expect(fmtRaw(100_049n, 6, 4)).toBe('0.1000');
+    expect(fmtRawUp(100_049n, 6, 4)).toBe('0.1001');
+    expect(fmtRaw(100_050n, 6, 4)).toBe('0.1000');
+    expect(fmtRawUp(100_050n, 6, 4)).toBe('0.1001');
+  });
+
+  it('the seven-day hatch on 500 BAYLA (2.39726) costs 2.4; a 100.005 minimum reads 100.01', () => {
+    expect(fmtRaw(2_397_260n, 6)).toBe('2.39');
+    expect(fmtRawUp(2_397_260n, 6)).toBe('2.4');
+    expect(fmtRaw(100_005_000n, 6)).toBe('100.00');
+    expect(fmtRawUp(100_005_000n, 6)).toBe('100.01');
+  });
+
+  it('one raw unit over a boundary moves past it, at 2 digits and at whole tokens', () => {
+    expect(fmtRawUp(1_000_001n, 6)).toBe('1.01');
+    expect(fmtRawUp(1_000_001n, 6, 0)).toBe('2');
+    expect(fmtRawUp(1_999_999n, 6, 2)).toBe('2');
+  });
+
+  it('exact values, zero, an unread amount and a negative read exactly as fmtRaw', () => {
+    for (const raw of [0n, 1_000_000n, 1_500_000n, 100_000_000n, 375_000_000n]) expect(fmtRawUp(raw, 6)).toBe(fmtRaw(raw, 6));
+    expect(fmtRawUp(null, 6)).toBe(fmtRaw(null, 6));
+    expect(fmtRawUp(undefined, 6)).toBe(fmtRaw(undefined, 6));
+    expect(fmtRawUp(-2_397_260n, 6)).toBe(fmtRaw(-2_397_260n, 6));
+    expect(fmtRawUp(4_200n, 0)).toBe(fmtRaw(4_200n, 0));
+  });
+
+  it('groups like fmtRaw, and keeps every digit past Number.MAX_SAFE_INTEGER', () => {
+    expect(fmtRawUp(1_234_561_000n, 6)).toBe(`${(1234).toLocaleString()}.57`);
+    const huge = (1n << 70n) * 1_000_000n + 1n;
+    expect(fmtRawUp(huge, 6)).toBe(`${(1n << 70n).toString()}.01`);
+  });
+
+  it('over a seeded sweep: never below the amount, and less than one shown digit above it', () => {
+    let seed = 0x85ebca6bn;
+    const next = () => (seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n));
+    for (let k = 0; k < 3000; k++) {
+      const decimals = [6, 9, 18][Number(next() % 3n)]!;
+      const maxFrac = [0, 2, 4][Number(next() % 3n)]!;
+      const raw = next() % (999n * 10n ** BigInt(decimals));
+      const [w, f = ''] = fmtRawUp(raw, decimals, maxFrac).split('.');
+      const back = BigInt(w!) * 10n ** BigInt(decimals) + BigInt((f + '0'.repeat(decimals)).slice(0, decimals) || '0');
+      const unit = 10n ** BigInt(Math.max(0, decimals - maxFrac));
+      expect(back >= raw && back - raw < unit).toBe(true);
+    }
   });
 });
 

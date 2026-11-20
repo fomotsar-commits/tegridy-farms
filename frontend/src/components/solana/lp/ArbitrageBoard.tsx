@@ -195,7 +195,7 @@ function OpportunityRow({ o, profitUsd }: { o: Opportunity; profitUsd: number })
   const tokenDecimals = tokenDecimalsOf(view);
   const label = pairLabel(view, safety);
   const buy = arb.side === 'buy';
-  const pay = buy ? quoteText(arb.amountIn, view.quote) : tokenText(arb.amountIn, tokenDecimals, unit.many);
+  const pay = buy ? quoteText(arb.amountIn, view.quote, true) : tokenText(arb.amountIn, tokenDecimals, unit.many, true);
   const get = buy ? tokenText(arb.outAmount, tokenDecimals, unit.many) : quoteText(arb.outAmount, view.quote);
   // The same rounding as the card's Difference row, so the board and the card say one figure.
   const gap = `${(Math.abs(arb.gap) * 100).toFixed(1)}% ${arb.gap >= 0 ? 'dearer' : 'cheaper'} here`;
