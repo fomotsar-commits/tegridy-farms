@@ -205,9 +205,9 @@
     {
       "id": "price-keeper-wallet",
       "address": "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz",
-      "role": "The price keeper's wallet: the robot that trades the venue's pools back toward the market price. Vault proposal #34 names it the keeper of both swap-pool fee tiers (cp-swap-amm-config-restart and cp-swap-amm-config-public-restart). A tier's keeper may swap past the swap guard, and once the pool program runs the build with the keeper's fee (proposal #35) it pays no trade fee and no creator fee on that tier, so its trades earn nothing for liquidity providers, the vault, the island's Workshop or a coin's creator, and its profit stays in this wallet. solanaFields lets each tier's keeper be this wallet or nobody, and nothing else.",
+      "role": "The price keeper's wallet: the robot that trades the venue's pools back toward the market price. Vault proposal #34 named it the keeper of both swap-pool fee tiers (cp-swap-amm-config-restart and cp-swap-amm-config-public-restart). A tier's keeper may swap past the swap guard, and since the pool program runs the build with the keeper's fee (proposal #35) it pays no trade fee and no creator fee on that tier, so its trades earn nothing for liquidity providers, the vault, the island's Workshop or a coin's creator, and its profit stays in this wallet. solanaFields lets each tier's keeper be this wallet or nobody, and nothing else.",
       "custody": "single key, operator-held: it signs the price keeper's trades. Not a Squads key.",
-      "status": "live, system-owned; its balance moves with every trade it makes. Read on mainnet-beta 2026-11-15: the keeper of neither tier yet (both read the all-zero key). Proposal #34, approved 2 of 2, can run from 2026-11-16T05:13:59Z. It paid the rent of squads-vault-usdt-ata on 2026-11-02.",
+      "status": "live, system-owned; its balance moves with every trade it makes, so none is written here. Read on mainnet-beta 2026-11-20 (finalized slot 471,608,946): the keeper of both tiers, each with the swap guard on. It paid the rent of squads-vault-usdt-ata on 2026-11-02.",
       "expect": {
         "type": "wallet"
       }
@@ -272,7 +272,7 @@
       "address": "5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz",
       "role": "One of the two members of squads-multisig (2 of 2): every vault proposal needs its approval. It executed proposals #19 and #21, and vault proposal #4 (executed 2026-08-13) sent it the rent of the two programs closed that day.",
       "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
-      "status": "live, system-owned. Read on mainnet-beta 2026-11-15: 2,151,332 lamports. An approval, a cancel vote or an execute costs 5,000 lamports; making a new proposal costs its maker the rent of two Squads records, which is more than it holds.",
+      "status": "live, system-owned. No balance is written here, because every vote moves it. The rule: an approval, a cancel vote or an execute costs 5,000 lamports, and making a new proposal also costs its maker the rent of two Squads records. The chain check fails if this wallet is emptied.",
       "expect": {
         "type": "wallet"
       }
@@ -282,7 +282,7 @@
       "address": "6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY",
       "role": "The other member of squads-multisig (2 of 2): every vault proposal needs its approval too. It created proposals #19, #21 and #30.",
       "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
-      "status": "live, system-owned. Read on mainnet-beta 2026-11-15: 1,595,730 lamports. The same costs as squads-member-a: enough to approve and execute, not to make a new proposal.",
+      "status": "live, system-owned. No balance is written here, for the same reason and under the same rule as squads-member-a. The chain check fails if this wallet is emptied.",
       "expect": {
         "type": "wallet"
       }
@@ -356,7 +356,7 @@
       "address": "4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy",
       "role": "The Squads vault's $BAYLA account: ATA(bayla-mint, squads-vault) under TOKEN-2022, bump 255, derived and matched. A refill of the BAYLA ladder's rewards (notify_reward) is paid from this account, so the BAYLA must be here before that vault proposal runs.",
       "custody": "owned by the Squads vault",
-      "status": "live, Token-2022, balance 0. Read on mainnet-beta 2026-11-15: no delegate, no close authority, not frozen.",
+      "status": "live, Token-2022. Read on mainnet-beta 2026-11-15: no delegate, no close authority, not frozen. No balance is written here: a refill puts BAYLA in and notify_reward takes it out.",
       "expect": {
         "type": "token-account"
       }
@@ -489,7 +489,7 @@
       "address": "FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw",
       "role": "ProgramData account for bayla-ladder — PDA of the BPF upgradeable loader, seeds [program id]. Holds the deployed bytecode and the upgrade authority. THIS is the account that answers 'is the ladder live', because `solana program close` deletes it and leaves the program stub executable-flagged.",
       "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the vault of the Squads multisig (threshold 2; time_lock 0 at this read, 172,800 s since Squads #14 on 2026-10-19). Read at finalized slot 455,314,128 (2026-10-10): option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. HISTORY: from the deploy on 2026-09-20 until 2026-09-30 it was `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (bayla-ladder-deployer), a single operator-held key, and this row carried a red mark saying the handover had not happened; that was the read at finalized slot 448,901,426. The deployer handed it over itself with the loader's SetAuthority at slot 451,986,389 (2026-09-30T14:05:22Z). A Squads vault cannot hand it on by accident: any further change needs two of the multisig's members.",
-      "status": "LIVE. Read on mainnet-beta 2026-11-15: 532,389 bytes (the 45-byte header and the 532,344-byte build bayla-ladder-program names), 2,705,186,360 lamports of rent, last deployed slot 464,957,900 (vault proposal #25, 2026-11-03). Before that upgrade it was 515,397 bytes holding the 515,352-byte first build, last deployed slot 448,851,661. `expect.holdsProgram` makes the daily chain read hash the program, so an upgrade to any other build turns the job red. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
+      "status": "LIVE. Read on mainnet-beta 2026-11-15: 532,389 bytes (the 45-byte header and the 532,344-byte build bayla-ladder-program names), last deployed slot 464,957,900 (vault proposal #25, 2026-11-03). Before that upgrade it was 515,397 bytes holding the 515,352-byte first build, last deployed slot 448,851,661. `expect.holdsProgram` makes the daily chain read hash the program, so an upgrade to any other build turns the job red. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
       "expect": {
         "type": "program-owned",
         "holdsProgram": {
@@ -687,7 +687,7 @@
       "address": "5MsddzsfUWfEWixTynrss4MMjnD3dneFFkdm4XpCqMWG",
       "role": "ProgramData account for tegridy-clmm: PDA of the BPF upgradeable loader, seeds [range-clmm-program], derived and matched. Holds the deployed bytecode and the upgrade authority, and answers 'is the range program live': closing a program deletes this account and leaves the stub executable-flagged.",
       "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (squads-multisig: 2 of 2, time lock 172,800 s). The deployer handed it over in the next transaction: the loader's SetAuthority at slot 459,538,353 (2026-10-21T07:01:37Z, transaction 4N7tBZzhJhb8hqefgPie1VjsHSZ5oEtqz2dFVB66XGbRN61cSUzkg2uB29b6YxijDQRHuX9GN6QGakVYVD7zFz7f), logged 'New authority Some(GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd)'. Read at finalized slot 459,709,863: option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. solanaFields asserts it on every chain read.",
-      "status": "LIVE. Read on mainnet-beta 2026-11-15: 1,533,021 bytes (the 45-byte header and room for 1,532,976 bytes of program), 7,788,396,920 lamports of rent, last deployed slot 465,140,737 (vault proposal #22, 2026-11-04). It holds the 1,527,072-byte build range-clmm-program names, followed by zeros. Before that upgrade it was 1,522,781 bytes holding the 1,522,736-byte first build, last deployed slot 459,538,347. `expect.holdsProgram` makes the daily chain read hash the program. `expect.stagedProgram` also accepts the fix build trunk carries (1,375,384 bytes, sha256 d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56), so the job stays green between that upgrade and the release that names it, and still fails on any other bytes; that release moves holdsProgram to it and drops stagedProgram. `expect.type: program-owned` fails the moment this account is closed.",
+      "status": "LIVE. Read on mainnet-beta 2026-11-15: 1,533,021 bytes (the 45-byte header and room for 1,532,976 bytes of program), last deployed slot 465,140,737 (vault proposal #22, 2026-11-04). It holds the 1,527,072-byte build range-clmm-program names, followed by zeros. Before that upgrade it was 1,522,781 bytes holding the 1,522,736-byte first build, last deployed slot 459,538,347. `expect.holdsProgram` makes the daily chain read hash the program. `expect.stagedProgram` also accepts the fix build trunk carries (1,375,384 bytes, sha256 d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56), so the job stays green between that upgrade and the release that names it, and still fails on any other bytes; that release moves holdsProgram to it and drops stagedProgram. `expect.type: program-owned` fails the moment this account is closed.",
       "expect": {
         "type": "program-owned",
         "holdsProgram": {
@@ -1235,9 +1235,9 @@
     {
       "id": "unlisted-pool-kwif-sol-signer",
       "address": "H3ruuiAi2Z4kq51YaRjKFUDDh3wHwNLQF64QeDnA88Gp",
-      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier (CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy), opened 2026-10-28T21:44:20Z at a signer address by 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF. Token 0 wrapped SOL, token 1 KWIF (6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt); share mint DWX8b2FH4ZcTTY1Zhz8KmZwHRX96hWtS48hQTR8pwuHF. The venue's KWIF/SOL pool is venue-pool-kwif-sol. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier (CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy), opened 2026-10-28T21:44:20Z at a signer address by 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF. Token 0 wrapped SOL, token 1 KWIF (6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt); share mint DWX8b2FH4ZcTTY1Zhz8KmZwHRX96hWtS48hQTR8pwuHF. The venue's KWIF/SOL pool is venue-pool-kwif-sol. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 5 lamports and 2,138 KWIF units left for LPs, and 135,200 lamports of fees owed to the vault and 72,800 to the island. A deposit into it is made at that leftover price.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
       "expect": {
         "type": "program-owned"
       }
@@ -1245,9 +1245,9 @@
     {
       "id": "unlisted-pool-tbb-bayla",
       "address": "6511GLnToAGtwVREnLXVJ5rgat4cm2Uvgvyoj5oaLoLD",
-      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-05T23:59:21Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump), token 1 bayla-mint; share mint AqxvRhura3RjbqRyCiJeudzb1nHF7W6tHxNScK9V7r42. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-05T23:59:21Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump), token 1 bayla-mint; share mint AqxvRhura3RjbqRyCiJeudzb1nHF7W6tHxNScK9V7r42. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 137 TBB units and 74 BAYLA units left, nothing owed. A deposit into it is made at that leftover price.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
       "expect": {
         "type": "program-owned"
       }
@@ -1255,9 +1255,9 @@
     {
       "id": "unlisted-pool-tbb-sol",
       "address": "6tNCdzjDAEKamjZQmKwdb5sm8yzyqa8FxCKidNbPz5AA",
-      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, opened 2026-11-06T00:15:47Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump); share mint CThuDRJN5NbnoMycTqgyXySpSsTvecRvToUZBeYRbLzx. It sits at the SOL/TBB pair's standard address on that tier, while the venue's SOL/TBB pool, venue-pool-tbb-sol, sits at a signer address: anything that derives the pool from the pair instead of reading this registry lands here. The site lists only venue-pool rows.",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, opened 2026-11-06T00:15:47Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump); share mint CThuDRJN5NbnoMycTqgyXySpSsTvecRvToUZBeYRbLzx. It sits at the SOL/TBB pair's standard address on that tier, while the venue's SOL/TBB pool, venue-pool-tbb-sol, sits at a signer address: anything that derives the pool from the pair instead of reading this registry lands here. The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 18 lamports and 567 TBB units left for LPs, and 15,376 lamports and 1,430,760 TBB units of fees owed to the vault. A deposit into it is made at that leftover price.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
       "expect": {
         "type": "program-owned"
       }
@@ -1265,9 +1265,9 @@
     {
       "id": "unlisted-pool-9x9mkbh-sol",
       "address": "AvYPHmnArhEH8JK5PNjRuhjTjQATEo3pSpe1CfBMVavw",
-      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-12T21:36:31Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 9x9MKbh5pq8fsTAH6fpSi17UuBgGNAVJPwMYTyXLTRiX, a coin this registry has no other row for; share mint 3eG67ht6g9zruDcvXznEus3jqR89zM2CMFyECGB4Mi3e. Registered so the registry names every pool on the venue's program; the site lists only venue-pool rows.",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-12T21:36:31Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 9x9MKbh5pq8fsTAH6fpSi17UuBgGNAVJPwMYTyXLTRiX, a coin this registry has no other row for; share mint 3eG67ht6g9zruDcvXznEus3jqR89zM2CMFyECGB4Mi3e. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening. Read on mainnet-beta 2026-11-15: 1 lamport and 33,682 coin units left for LPs, and 11,123 lamports of fees owed to the vault. A deposit into it is made at that leftover price.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
       "expect": {
         "type": "program-owned"
       }
