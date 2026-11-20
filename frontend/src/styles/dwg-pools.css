@@ -1,0 +1,458 @@
+/* P-01, the waterworks: /pools (Add / Remove). Scoped under .dwg-sheet[data-sheet=P]; see dwg.css.
+   The page's elements are restyled where they stand: tests pin their shape (design maps, PINS).
+   An inline style wins over any rule, so a rule that must replace one is !important and names it.
+   scripts/render-pools-frame.mjs mirrors the sheet's frame, ruler, hero and word for the first frame.
+   A drawn letter, number or echo has an empty alternative text (`/ ""`, see dwg.css): no name says it. */
+
+.dwg-sheet[data-sheet='P'] {
+  /* No container-type here or on a band: its style containment scopes the band counter (every plaque read 01).
+     The sheet's inner width, from 48rem: the column (1120px at most, 1.5rem padding a side) less its border. */
+  --p01-width: calc(min(100vw, 1120px) - 3rem - 2px);
+  /* components/dwg/tankFarm.ts FIELD_ASPECT. */
+  --p01-aspect: 1.6;
+  --p01-veil: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.86) 55%, rgba(5, 8, 15, 0.68) 100%);
+  counter-reset: band;
+}
+/* The LP door above the sheet: the sheet's tokens, so what opens in it reads as the sheet does. */
+section[data-dwg='door'] {
+  --dwg-bg: #05080f;
+  --dwg-ink: #f5e4b8;
+  --dwg-green: #22c55e;
+  --dwg-spot: #5ad1e6;
+  --dwg-warn: #f0b26b;
+  --dwg-bad: #f08a6b;
+  --dwg-line: rgba(245, 228, 184, 0.14);
+  --dwg-line-2: rgba(245, 228, 184, 0.3);
+  --dwg-line-3: rgba(245, 228, 184, 0.6);
+  --dwg-dim: rgba(245, 228, 184, 0.62);
+  --dwg-soft: rgba(245, 228, 184, 0.82);
+  --p01-veil: linear-gradient(90deg, rgba(5, 8, 15, 0.94) 0%, rgba(5, 8, 15, 0.86) 55%, rgba(5, 8, 15, 0.68) 100%);
+  /* A flat hairline panel. Replaces CARD_STYLE (curve/uiFormat.ts), which is inline. */
+  border-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: rgba(5, 8, 15, 0.9) !important;
+}
+
+/* ── The hero: the word and its one line, top left, on a film with one opening (FIG. 01). ── */
+.dwg-sheet[data-sheet='P'] [data-dwg='hero'] {
+  position: relative;
+  /* The mb-6 utility's 1.5rem: the sheet's parts stand flush. */
+  margin: 0;
+  padding: 14px var(--dwg-pad) 16px;
+  pointer-events: none;
+}
+.dwg-sheet[data-sheet='P'] [data-dwg='hero'] > h1,
+.dwg-sheet[data-sheet='P'] [data-dwg='hero'] > p { pointer-events: auto; }
+.dwg-sheet[data-sheet='P'] [data-dwg='hero']::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.08; mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.dwg-sheet[data-sheet='P'] .p01-film { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--dwg-film); }
+.dwg-sheet[data-sheet='P'] .p01-ring { display: none; }
+/* The word: one text node, its echo drawn from data-echo on the heading itself, so it wraps as the words do. */
+.dwg-sheet[data-sheet='P'] .dwg-word[data-echo] { position: relative; }
+.dwg-sheet[data-sheet='P'] .dwg-word[data-echo]::after {
+  content: attr(data-echo); content: attr(data-echo) / ""; position: absolute; left: 0; top: 0; z-index: -1; width: 100%;
+  transform: translate(0.05em, 0.05em); color: transparent; -webkit-text-stroke: 1.5px var(--dwg-spot); pointer-events: none;
+}
+.dwg-sheet[data-sheet='P'] .dwg-word[data-rise] { animation: dwg-rise 0.9s var(--dwg-ease) both; }
+/* The one line: as .dwg-lede. Its held height (min-h-[1lh]) follows this line height. */
+.dwg-sheet[data-sheet='P'] [data-dwg='hero'] > p { max-width: 46ch; font-size: 15px; line-height: 1.4; color: var(--dwg-soft); }
+@media (min-width: 48rem) {
+  .dwg-sheet[data-sheet='P'] [data-dwg='hero'] {
+    padding: 18px var(--dwg-pad) 22px;
+    /* As tall as the drawing beside it: 58% of the sheet's width, at its shape. */
+    min-height: calc(var(--p01-width) * 0.58 / var(--p01-aspect));
+    --win-r: clamp(24px, 3.2vw, 62px);
+    --win-x: calc(var(--dwg-pad) + var(--win-r) + 8px);
+    --win-y: calc(100% - var(--win-r) - 24px);
+  }
+  .dwg-sheet[data-sheet='P'] [data-dwg='hero'] > p { max-width: min(46ch, 40%); }
+  .dwg-sheet[data-sheet='P'] .p01-film {
+    -webkit-mask-image: radial-gradient(circle at var(--win-x) var(--win-y), transparent calc(var(--win-r) - 1px), #000 var(--win-r));
+    mask-image: radial-gradient(circle at var(--win-x) var(--win-y), transparent calc(var(--win-r) - 1px), #000 var(--win-r));
+  }
+  .dwg-sheet[data-sheet='P'] .p01-ring {
+    display: block; position: absolute; left: var(--win-x); top: var(--win-y);
+    width: calc(var(--win-r) * 2 + 14px); height: calc(var(--win-r) * 2 + 14px); margin: calc(var(--win-r) * -1 - 7px) 0 0 calc(var(--win-r) * -1 - 7px);
+    border: 1px solid var(--dwg-line-3); border-radius: 50%; pointer-events: none;
+  }
+  .dwg-sheet[data-sheet='P'] .p01-ring::before { content: ''; position: absolute; inset: 6px; border: 1px dashed rgba(245, 228, 184, 0.4); border-radius: 50%; }
+  .dwg-sheet[data-sheet='P'] .p01-ring::after {
+    content: attr(data-t); content: attr(data-t) / ""; position: absolute; left: 100%; top: 50%; margin-left: 10px; padding-left: 34px; white-space: nowrap;
+    font: 500 9.5px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim);
+    background: linear-gradient(var(--dwg-line-3), var(--dwg-line-3)) left center / 26px 1px no-repeat;
+  }
+}
+
+/* ── The drawing: the tank farm (components/dwg/PoolField.tsx). Behind the word on a phone, adding
+      no height; from 48rem in the hero's right 58%, as tall as the hero is made. ── */
+.dwg-sheet[data-sheet='P'] .p01-field {
+  position: absolute; top: 0; right: 0; width: 70%; aspect-ratio: var(--p01-aspect);
+  container-type: inline-size; opacity: 0.55; pointer-events: none;
+  /* It fades from its top right corner toward the word and the lede, which lie over it on a phone. */
+  -webkit-mask-image: radial-gradient(135% 105% at 100% 0%, #000 38%, transparent 88%);
+  mask-image: radial-gradient(135% 105% at 100% 0%, #000 38%, transparent 88%);
+}
+@media (min-width: 48rem) {
+  .dwg-sheet[data-sheet='P'] .p01-field { top: 15px; width: 58%; opacity: 1; pointer-events: auto; -webkit-mask-image: none; mask-image: none; }
+}
+.dwg-sheet[data-sheet='P'] .p01-farm { width: 100%; height: 100%; overflow: hidden; }
+.dwg-sheet[data-sheet='P'] .p01-ground line { stroke: rgba(245, 228, 184, 0.07); stroke-width: 0.6; }
+.dwg-sheet[data-sheet='P'] .p01-main line { stroke: var(--dwg-spot); stroke-opacity: 0.55; stroke-width: 1.2; stroke-dasharray: 7 7; }
+.dwg-sheet[data-sheet='P'] .p01-main ellipse { fill: var(--dwg-bg); stroke: var(--dwg-spot); stroke-opacity: 0.7; }
+.dwg-sheet[data-sheet='P'] .p01-face,
+.dwg-sheet[data-sheet='P'] .p01-rim { stroke: rgba(245, 228, 184, 0.5); stroke-width: 0.7; stroke-linejoin: round; }
+.dwg-sheet[data-sheet='P'] .p01-rim { fill: none; }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-dry] .p01-face { stroke-dasharray: 3 3; }
+.dwg-sheet[data-sheet='P'] .p01-dryline { fill: none; stroke: rgba(245, 228, 184, 0.35); stroke-width: 0.7; stroke-dasharray: 2 3; }
+/* Still water: the pool holds coins, its dollars not read. Hatched, one height, a dashed surface. */
+.dwg-sheet[data-sheet='P'] .p01-still { stroke: color-mix(in srgb, var(--dwg-spot) 60%, transparent); stroke-width: 0.7; stroke-dasharray: 2 3; animation: p01-water 1.4s var(--dwg-ease) both; }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-hot] .p01-still { stroke: var(--dwg-ink); stroke-dasharray: none; }
+.dwg-sheet[data-sheet='P'] .p01-ripple { stroke-width: 0.9; stroke-dasharray: 9 19; opacity: 0.75; }
+.dwg-sheet[data-sheet='P'] .p01-water { animation: p01-water 1.4s var(--dwg-ease) both; transition: fill 0.2s ease; }
+@keyframes p01-water { from { opacity: 0; } to { opacity: 1; } }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-press] { cursor: pointer; }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-hot] .p01-face,
+.dwg-sheet[data-sheet='P'] .p01-tank[data-hot] .p01-rim { stroke: var(--dwg-ink); stroke-width: 1.3; }
+.dwg-sheet[data-sheet='P'] .p01-tank[data-hot] .p01-water { fill: color-mix(in srgb, var(--dwg-spot) 82%, var(--dwg-bg)); }
+/* A tank's name, on its front wall: sheared by the wall's matrix (lib/iso.ts wallMatrix), sized in the drawing's units. */
+.dwg-sheet[data-sheet='P'] .p01-tag {
+  position: absolute; width: 0; height: 0; pointer-events: none;
+  transform: matrix(0.866, 0.5, 0, 1, 0, 0); transform-origin: 0 0;
+  --u: calc(100cqw / var(--vbw));
+}
+.dwg-sheet[data-sheet='P'] .p01-tag::before {
+  content: attr(data-t); content: attr(data-t) / ""; position: absolute; left: calc(7 * var(--u)); top: calc((34 - var(--fs)) / 2 * var(--u));
+  font: 700 calc(var(--fs) * var(--u)) / 1 var(--font-family-mono); letter-spacing: 0.1em; white-space: nowrap;
+  color: rgba(245, 228, 184, 0.8); text-shadow: none;
+}
+.dwg-sheet[data-sheet='P'] .p01-tag[data-hot]::before { color: var(--dwg-ink); }
+/* The staff gauge's key: the scale the water is read against. From 48rem, in the field's lower
+   right corner, which no farm reaches (the far tanks fill the upper right once many pools are
+   listed). Faint until a tank stands on the scale. */
+.dwg-sheet[data-sheet='P'] .p01-key { display: none; }
+@media (min-width: 48rem) {
+  .dwg-sheet[data-sheet='P'] .p01-key { display: block; position: absolute; bottom: 6px; right: var(--dwg-pad); width: 96px; height: 110px; pointer-events: none; transition: opacity 0.6s ease; }
+  .dwg-sheet[data-sheet='P'] .p01-field:not([data-priced]) .p01-key { opacity: 0.38; }
+  .dwg-sheet[data-sheet='P'] .p01-key-cap::before {
+    content: attr(data-t); content: attr(data-t) / ""; position: absolute; top: 0; right: 0; white-space: nowrap;
+    font: 500 9.5px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim);
+  }
+  .dwg-sheet[data-sheet='P'] .p01-key-staff {
+    position: absolute; top: 22px; bottom: 8px; right: 0; width: 10px; border: 1px solid var(--dwg-line-3);
+    background: repeating-linear-gradient(to bottom, transparent 0 calc(100% / 9 - 1px), rgba(245, 228, 184, 0.4) calc(100% / 9 - 1px) calc(100% / 9)) left top / 4px 100% no-repeat;
+  }
+  .dwg-sheet[data-sheet='P'] .p01-key-mark { position: absolute; right: 100%; width: 7px; height: 0; border-top: 1px solid var(--dwg-line-3); }
+  .dwg-sheet[data-sheet='P'] .p01-key-mark::before {
+    content: attr(data-t); content: attr(data-t) / ""; position: absolute; right: 12px; top: 0; transform: translateY(-50%); white-space: nowrap;
+    font: 600 10.5px/1 var(--font-family-mono); color: var(--dwg-ink);
+  }
+}
+
+/* ── Bands: every card of the sheet (curve/ui Card, a pool's card, Open a pool, the page's own three).
+      No box, a rule on top, flush to the next; its picture under a film that lets the right side show. ── */
+.dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band'], [data-testid='lp-pool'], [data-testid='lp-create']) {
+  margin: 0;
+  border-radius: 0;
+  /* Replaces CARD_STYLE (curve/uiFormat.ts), the page's CARD and the status card's tones, all inline. */
+  border: 0 !important;
+  border-top: 1px solid var(--dwg-line-2) !important;
+  background: var(--dwg-film) !important;
+  padding: 22px var(--dwg-pad) 26px;
+  color: var(--dwg-ink);
+  text-shadow: none;
+}
+.dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band'], [data-testid='lp-pool'], [data-testid='lp-create']):not(.position-glow) { box-shadow: none; }
+.dwg-sheet[data-sheet='P'] [data-ui-card].position-glow { border-top-color: var(--dwg-green) !important; box-shadow: inset 3px 0 0 var(--dwg-green); }
+/* The card's picture: CardArt's own scrim becomes the sheet's film (replaces its inline rgba(4,9,18,0.78)). */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-card-art] > span:first-of-type { background: var(--p01-veil) !important; }
+section[data-dwg='door'] .absolute.inset-0 > img.object-cover:not(.art-bright) { filter: brightness(0.62); }
+/* A band's name: the sheet's heading type, its plaque number counted on the sheet (no markup). */
+.dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band']) > h2 {
+  margin: 0 0 14px;
+  font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.5rem, 3.2vw, 2.25rem);
+  line-height: 0.95; letter-spacing: -0.035em; color: var(--dwg-ink);
+  /* Replaces SHADOW (curve/uiFormat.ts), inline on a Card's heading. */
+  text-shadow: none !important;
+}
+.dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band']) > h2::before {
+  counter-increment: band; content: counter(band, decimal-leading-zero); content: counter(band, decimal-leading-zero) / "";
+  display: inline-block; position: relative; top: -0.22em; width: 26px; margin-right: 12px;
+  font: 700 10px/17px var(--font-family-mono); letter-spacing: 0.04em; text-align: center; color: var(--dwg-bg); background: var(--dwg-ink);
+}
+.dwg-sheet[data-sheet='P'] :is([data-testid='lp-pool'], [data-testid='lp-create']) > h3 {
+  font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.25rem, 2.6vw, 1.75rem);
+  line-height: 1; letter-spacing: -0.035em; color: var(--dwg-ink);
+  /* Replaces SHADOW (curve/uiFormat.ts), inline. */
+  text-shadow: none !important;
+}
+/* A band's words: 13px in soft cream (the card's own are 11px white, raised by the contrast floor's !important). */
+.dwg-sheet[data-sheet='P'] [data-ui-card] > div { font-size: 13px; color: var(--dwg-soft) !important; }
+@media (min-width: 64rem) {
+  .dwg-sheet[data-sheet='P'] [data-ui-card] {
+    display: grid; grid-template-columns: minmax(180px, 22%) minmax(0, 1fr); column-gap: clamp(20px, 3vw, 44px); align-items: start;
+  }
+  .dwg-sheet[data-sheet='P'] [data-dwg='band'] {
+    display: grid; grid-template-columns: minmax(180px, 22%) minmax(0, 1fr); column-gap: clamp(20px, 3vw, 44px); align-content: start;
+  }
+  /* Not CardArt: a placed absolute child of a grid takes its cell, not the band, as its box. */
+  .dwg-sheet[data-sheet='P'] [data-dwg='band'] > :not([data-card-art], h2) { grid-column: 2; }
+  .dwg-sheet[data-sheet='P'] [data-dwg='band'] > h2 { grid-column: 1; grid-row: 1 / span 6; }
+  .dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band']) > h2 { margin: 0; }
+  .dwg-sheet[data-sheet='P'] :is([data-ui-card], [data-dwg='band']) > h2::before { display: block; top: 0; margin: 0 0 12px; }
+}
+
+/* ── Words and marks inside the sheet (and the door): cream for white, the sheet's tones for the notices'. ── */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-white, .text-white\/90, .text-white\/85) { color: var(--dwg-ink); }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-white\/80, .text-white\/75, .text-white\/70) { color: var(--dwg-soft); }
+/* index.css raises text-white/40 to /65 with !important (its contrast floor): the sheet's dim cream must too. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-white\/65, .text-white\/60, .text-white\/55, .text-white\/50, .text-white\/45, .text-white\/40) { color: var(--dwg-dim) !important; }
+.dwg-sheet[data-sheet='P'] [data-ui-card] > div :is(.text-white\/65, .text-white\/60, .text-white\/55, .text-white\/50, .text-white\/45, .text-white\/40) { color: var(--dwg-dim) !important; }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-amber-300\/90, .text-amber-300, .text-amber-200) { color: var(--dwg-warn); }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-rose-300\/90, .text-rose-300, .text-rose-200\/90) { color: var(--dwg-bad); }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.text-emerald-300\/90, .text-emerald-300) { color: var(--dwg-green); }
+/* Hard corners everywhere on the sheet; a picture's box inherits the card's (CardArt rounded-[inherit]). */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full) { border-radius: 0; }
+/* A Row: label in mono caps, value in cream; still two sibling spans. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-ui-row] { padding: 6px 0; border-bottom: 1px solid var(--dwg-line); color: var(--dwg-ink); }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-ui-row] > span:first-child {
+  font: 500 10.5px/1.6 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dwg-dim);
+}
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-ui-row] > span:last-child { color: var(--dwg-ink); }
+/* A field: its label in mono caps, its box a hard-cornered well. Inputs stay 16px. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-ui-field] > span:first-child,
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) fieldset > legend {
+  font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim);
+  /* Replaces SHADOW (curve/uiFormat.ts), inline. */
+  text-shadow: none !important;
+}
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) input:not([type='range'], [type='checkbox'], [type='radio']) {
+  min-height: 48px; border-radius: 0; background: rgba(5, 8, 15, 0.72); color: var(--dwg-ink);
+  font-family: var(--font-family-mono); font-size: 16px; text-shadow: none;
+  /* Replaces inputStyle (curve/uiFormat.ts), inline. */
+  border: 1px solid var(--dwg-line-2) !important;
+}
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) input:not([type='range'], [type='checkbox'], [type='radio']):focus { border-color: var(--dwg-ink) !important; }
+/* A pressed-or-not choice (a token, a tolerance, a share to take out): a valve tag, pressed in the spot ink. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) button[aria-pressed]:not(.btn-primary, .btn-secondary) {
+  border-radius: 0; color: var(--dwg-ink); text-shadow: none;
+  font: 700 12px/1 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase;
+  /* Replaces the toggles' inline rgba(0,0,0,0.45) and white border. */
+  background: rgba(5, 8, 15, 0.6) !important;
+  border: 1px solid var(--dwg-line-2) !important;
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) button[aria-pressed='false']:not(.btn-primary, .btn-secondary):hover { border-color: var(--dwg-ink) !important; }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) button[aria-pressed='true']:not(.btn-primary, .btn-secondary) {
+  color: var(--dwg-bg);
+  /* Replaces the pressed toggles' inline green or var(--color-stan). */
+  background: var(--dwg-spot) !important;
+  border-color: var(--dwg-spot) !important;
+}
+/* The app's two buttons, in the door as on the sheet (dwg.css restyles them inside a .dwg). */
+section[data-dwg='door'] .btn-primary { background: var(--dwg-green); color: #04130a; border: 1px solid var(--dwg-green); border-radius: 0; box-shadow: none; font-family: var(--font-family-mono); font-weight: 800; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; text-shadow: none; }
+section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--dwg-ink); border: 1px solid var(--dwg-line-3); border-radius: 0; box-shadow: none; font-family: var(--font-family-mono); font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; text-shadow: none; }
+/* A form's box (PanelFrame): a hairline well. Replaces its inline rgba(0,0,0,0.35) and white border. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-dwg='panel'] { border-radius: 0; background: rgba(5, 8, 15, 0.62) !important; border: 1px solid var(--dwg-line-2) !important; }
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-dwg='panel'] > h4,
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-dwg='panel'] > div > h4 {
+  font-family: var(--font-family-heading); font-weight: 900; font-size: 1.125rem; letter-spacing: -0.03em; color: var(--dwg-ink);
+  /* Replaces SHADOW (curve/uiFormat.ts), inline. */
+  text-shadow: none !important;
+}
+/* A pool card's parts: a mono caption under a cream rule. Replaces the inline DIVIDER. */
+.dwg-sheet[data-sheet='P'] [data-dwg='part'] { border-top: 1px solid var(--dwg-line) !important; }
+.dwg-sheet[data-sheet='P'] [data-dwg='part'] > h4 { font: 600 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim) !important; }
+.dwg-sheet[data-sheet='P'] :is([data-testid='lp-pool-more'], [data-testid='lp-positions-set-aside']) { border: 1px solid var(--dwg-line) !important; }
+
+/* ── The section's column: flush bands on a film; the earn line is the sheet's kicker. ── */
+.dwg-sheet[data-sheet='P'] [data-dwg='slot'] { margin: 0; background: var(--dwg-film); }
+.dwg-sheet[data-sheet='P'] [data-dwg='slot'] > p { padding: 16px var(--dwg-pad); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-section'] { gap: 0; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-earn-line'] {
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px var(--dwg-pad) 14px;
+  font: 500 11px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim);
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-earn-line']::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--dwg-green); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] > * { margin-block: 0; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] > :is(p:not(.sr-only), [data-testid='lp-wish-unfound']) { padding: 12px var(--dwg-pad); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-pools'] > * { margin-block: 0; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-pools'] > :not(ul, [data-ui-card], div:has(> ul)) { padding: 12px var(--dwg-pad); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-pools'] ul > li { margin: 0; }
+
+/* ── Start here: the three verbs as index tabs (letters from data-n), the pressed one cream. ── */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; border: 1px solid var(--dwg-line-2);
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button {
+  position: relative; display: flex; align-items: baseline; gap: 8px; min-height: 56px; margin: 0; padding: 10px 12px 12px; text-align: left;
+  background: transparent; color: var(--dwg-ink); border: 0; border-left: 1px solid var(--dwg-line-2); border-radius: 0; box-shadow: none; transform: none;
+  font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1rem, 2.1vw, 1.5rem); letter-spacing: -0.03em; line-height: 1;
+  text-transform: none; text-shadow: none; transition: background-color 0.2s ease, color 0.2s ease;
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button:first-child { border-left: 0; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button[data-n]::before {
+  content: attr(data-n); content: attr(data-n) / ""; flex: none; font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.14em; color: var(--dwg-dim);
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button:hover { background: rgba(245, 228, 184, 0.07); color: var(--dwg-ink); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button[aria-pressed='true'] { background: var(--dwg-ink); color: var(--dwg-bg); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button[aria-pressed='true']::before { color: rgba(5, 8, 15, 0.6); }
+@media (min-width: 48rem) {
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button { display: block; padding: 10px 14px 12px; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [role='group'] > button[data-n]::before { display: block; margin: 0 0 8px; }
+}
+/* Every press of the app's two kinds a finger wide, at every width (index.css gives 44px only under 768px). */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) :is(.btn-primary, .btn-secondary) { min-height: 44px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-tasks'] > [data-testid='lp-task-line'] { margin-top: 10px; font-size: 13px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-site-tokens'] { margin-top: 18px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-site-tokens'] > p,
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] form > p:first-child {
+  margin: 0 0 8px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dwg-dim);
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] form { margin-top: 18px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] form .btn-primary[type='submit'] { display: inline-flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 48px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-finder'] form .btn-primary[type='submit']::after {
+  content: ''; flex: none; width: 15px; height: 9px; background: currentColor;
+  clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%);
+}
+
+/* ── All pools: schedule rows. An index from a counter, the pair heavy, its facts in mono, a level gauge
+      only where dollars were read, then Add, Swap and View. The rising edge lights for the hot pool. ── */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools'] ul:has(> [data-testid='lp-all-pools-row']) { counter-reset: pool; border-top: 1px solid var(--dwg-line-3); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] {
+  counter-increment: pool;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 14px; row-gap: 10px;
+  margin: 0; padding: 14px 0 14px 12px; border-radius: 0;
+  /* Replaces the row's inline box: rgba(0,0,0,0.35) on a white border. */
+  border: 0 !important;
+  border-bottom: 1px solid var(--dwg-line) !important;
+  background: linear-gradient(var(--dwg-spot), var(--dwg-spot)) left bottom / 3px 36% no-repeat !important;
+  transition: background-size 0.2s ease-out;
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row']:is(:hover, :focus-within, [data-hot]) { background-size: 3px 100% !important; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row']::before {
+  content: counter(pool, decimal-leading-zero); content: counter(pool, decimal-leading-zero) / ""; grid-column: 1; grid-row: 1; align-self: start; padding-top: 0.55em;
+  font: 600 10px/1 var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.45);
+}
+/* Under 48rem the facts take the row's whole width, the index run in on the pair's own line; the
+   buttons stand below, the gauge in what is left beside them. A column for the index or the gauge
+   took the width two coin names need to share a line: 28 pools, about 900px more page on a phone. */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type { grid-column: 1 / -1; grid-row: 1; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child { text-indent: 26px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 1; grid-row: 2; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { grid-column: 2; grid-row: 2; justify-self: end; width: min(64px, 100%); }
+@media (max-width: 22.49rem) {
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { display: none; }
+}
+/* From 48rem: the index, the facts, and one column for the gauge over the three buttons, as wide
+   as they are. Beside them it took 118px from the facts, whose lines broke: the list ran a tenth longer.
+   The facts span both rows whether or not a gauge was drawn, so no rule here asks :has(). */
+@media (min-width: 48rem) {
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] { grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type { grid-column: 2; grid-row: 1 / span 2; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child { text-indent: 0; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > .p01-gauge { grid-column: 3; grid-row: 1; justify-self: stretch; align-self: end; width: auto; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:last-child { grid-column: 3; grid-row: 2; align-self: start; }
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child > p:first-child,
+.dwg-sheet[data-sheet='P'] :is([data-testid='lp-arb-row'] > div:first-child > p:first-child, [data-testid='lp-every-position-pool'] > p:first-child) {
+  font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(1.15rem, 2.4vw, 1.75rem); letter-spacing: -0.035em; line-height: 1.05; color: var(--dwg-ink);
+}
+/* The pair, then its dollars beside it; on a line of their own only where the two do not fit
+   (the ml-auto utility pushed them to the row's far right). */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > div:first-child { justify-content: flex-start; column-gap: 14px; row-gap: 3px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-worth'] { margin: 0; font: 700 13px/1.3 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-ink); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-row'] > div:first-of-type > p { font: 500 11px/1.45 var(--font-family-mono); letter-spacing: 0.04em; color: var(--dwg-dim); }
+/* PriceFlip makes its 44px press area from 28px of padding on a 16px line. A row's facts above are
+   11px on 1.45, a 15.95px line, which left every row's price 43.94px tall. */
+:is(.dwg-sheet[data-sheet='P'], section[data-dwg='door']) [data-testid='lp-price-flip'] { min-height: 44px; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'] {
+  border-radius: 0; background: transparent; border-color: currentColor;
+  /* 11px: a warning is drawn no smaller than the tag it replaces. */
+  font: 700 11px/1.4 var(--font-family-mono); letter-spacing: 0.12em; text-transform: uppercase;
+}
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'].text-rose-300 { color: var(--dwg-bad); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-all-pools-tag'].text-amber-300 { color: var(--dwg-warn); }
+/* The row's level gauge: the pool's tank, read against the same staff (components/dwg/tankFarm.ts waterLevel). */
+.dwg-sheet[data-sheet='P'] .p01-gauge { position: relative; display: block; height: 34px; pointer-events: none; border-left: 1px solid var(--dwg-line-3); border-bottom: 1px solid var(--dwg-line-3); }
+.dwg-sheet[data-sheet='P'] .p01-gauge > i { position: absolute; left: 6px; right: 0; bottom: 0; background: color-mix(in srgb, var(--dwg-spot) 70%, var(--dwg-bg)); }
+.dwg-sheet[data-sheet='P'] .p01-gauge > i::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--dwg-ink); }
+/* Arbitrage and Every position: the same schedule rows, without the box. Replaces their inline box. */
+.dwg-sheet[data-sheet='P'] :is([data-testid='lp-arb-row'], [data-testid='lp-every-position-pool']) {
+  margin: 0; padding: 14px 0 14px 12px; border-radius: 0;
+  border: 0 !important;
+  border-bottom: 1px solid var(--dwg-line) !important;
+  background: linear-gradient(var(--dwg-spot), var(--dwg-spot)) left bottom / 3px 36% no-repeat !important;
+}
+.dwg-sheet[data-sheet='P'] :is([data-testid='lp-arb'], [data-testid='lp-every-position']) ul:has(> :is([data-testid='lp-arb-row'], [data-testid='lp-every-position-pool'])) { border-top: 1px solid var(--dwg-line-3); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-arb-gap'] { font: 700 11px/1.3 var(--font-family-mono); letter-spacing: 0.06em; color: var(--dwg-bad); }
+
+/* ── Rates: the table's figures heavy (the pool's share green), its manifold beside it in a wide band. ── */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-rate-table'] thead tr { font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-rate-table'] th[scope='col'] { padding: 0 4px 8px; border-bottom: 1px solid var(--dwg-line-3); font-weight: 500; }
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] {
+  /* Replaces the row's inline top rule. */
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--dwg-line);
+}
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] > th { padding: 12px 8px 12px 0; font: 400 14px/1.25 var(--font-family-body); color: var(--dwg-ink); }
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] > td { padding: 12px 4px; vertical-align: baseline; }
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] .stat-value {
+  display: inline; padding: 0; border-radius: 0; background: none; text-shadow: none; color: var(--dwg-ink);
+  font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(18px, 4.6vw, 26px); letter-spacing: -0.045em; line-height: 1;
+}
+/* Replaces the pool's share's inline #4ade80 with the sheet's green. */
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] > td:nth-of-type(2) .stat-value { color: var(--dwg-green) !important; }
+.dwg-sheet[data-sheet='P'] [data-testid='fee-tier'] .stat-value + span { margin-top: 4px; font: 500 10px/1.2 var(--font-family-mono); letter-spacing: 0.08em; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-open-cost'] { font: 500 11px/1.5 var(--font-family-mono); letter-spacing: 0.04em; }
+.dwg-sheet[data-sheet='P'] .p01-manifold { position: relative; max-width: 520px; margin-bottom: 10px; }
+.dwg-sheet[data-sheet='P'] .p01-manifold .p01-pipe-in { stroke: var(--dwg-ink); stroke-opacity: 0.9; }
+.dwg-sheet[data-sheet='P'] .p01-manifold .p01-pipe-pool { fill: none; stroke: var(--dwg-green); stroke-opacity: 0.92; }
+.dwg-sheet[data-sheet='P'] .p01-manifold .p01-pipe-venue { fill: none; stroke: var(--dwg-spot); stroke-opacity: 0.95; }
+.dwg-sheet[data-sheet='P'] .p01-manifold .p01-flow { fill: none; stroke: var(--dwg-bg); stroke-width: 1; stroke-dasharray: 2 9; }
+.dwg-sheet[data-sheet='P'] .p01-manifold .p01-valve { fill: var(--dwg-bg); stroke: var(--dwg-ink); stroke-width: 1; }
+.dwg-sheet[data-sheet='P'] .p01-mcap { position: absolute; transform: translateY(-100%); white-space: nowrap; pointer-events: none; font: 500 9px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); }
+.dwg-sheet[data-sheet='P'] .p01-mcap[data-end] { transform: translate(-100%, -100%); }
+.dwg-sheet[data-sheet='P'] .p01-mcap::before { content: attr(data-t); content: attr(data-t) / ""; }
+/* A band 52rem wide: the sheet's inner width, so a 55.25rem screen (52rem + the column's padding and border). */
+@media (min-width: 55.25rem) {
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-rates'] > div:has(> .p01-manifold) {
+    display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); column-gap: clamp(18px, 2.4vw, 36px); row-gap: 10px; align-items: center;
+  }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-rates'] > div:has(> .p01-manifold) > * { grid-column: 1 / -1; margin: 0; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-rates'] > div:has(> .p01-manifold) > .p01-manifold { grid-column: 1; grid-row: 1; }
+  .dwg-sheet[data-sheet='P'] [data-testid='lp-rates'] > div:has(> .p01-manifold) > table { grid-column: 2; grid-row: 1; }
+}
+
+/* ── Swap routes: two schedule rows. ── */
+.dwg-sheet[data-sheet='P'] [data-testid='lp-route-rules'] { border-top: 1px solid var(--dwg-line-3); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-route-rules'] > li { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--dwg-line); }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-route-rules'] > li > span:first-child { font-family: var(--font-family-heading); font-weight: 900; font-size: 1.15rem; letter-spacing: -0.03em; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-route-rules'] > li > span:last-child { font: 500 11px/1.4 var(--font-family-mono); letter-spacing: 0.06em; }
+.dwg-sheet[data-sheet='P'] [data-testid='lp-route-fee'] { font: 500 11px/1.4 var(--font-family-mono); letter-spacing: 0.06em; }
+
+/* ── The page's own three bands. The venue's status: a live mark, green or amber, before its eyebrow. ── */
+.dwg-sheet[data-sheet='P'] [data-tone] > div:first-of-type > p {
+  font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.16em;
+}
+.dwg-sheet[data-sheet='P'] section[aria-label='The program'] > p:first-of-type {
+  font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.16em;
+  /* Replaces the eyebrow's inline var(--color-kyle). */
+  color: var(--dwg-dim) !important;
+}
+.dwg-sheet[data-sheet='P'] [data-tone] > div:first-of-type > p { display: inline-flex; align-items: center; gap: 8px; }
+.dwg-sheet[data-sheet='P'] [data-tone] > div:first-of-type > p::before { content: ''; flex: none; width: 7px; height: 7px; }
+.dwg-sheet[data-sheet='P'] [data-tone='live'] > div:first-of-type > p::before { background: var(--dwg-green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
+.dwg-sheet[data-sheet='P'] [data-tone='warn'] > div:first-of-type > p::before { background: var(--dwg-warn); }
+.dwg-sheet[data-sheet='P'] [data-tone] > div:last-of-type > span {
+  /* The address chips as valve tags. Replaces their inline black box and green border. */
+  background: rgba(5, 8, 15, 0.6) !important;
+  border: 1px solid var(--dwg-line-2) !important;
+}
+.dwg-sheet[data-sheet='P'] [data-tone] > div:last-of-type > span > :is(span, button) {
+  font-family: var(--font-family-mono);
+  /* Replaces the inline var(--color-kyle) on the chip's label and copy press. */
+  color: var(--dwg-ink) !important;
+}
+.dwg-sheet[data-sheet='P'] [data-tone] > div:last-of-type > span > span:first-child { color: var(--dwg-dim) !important; }

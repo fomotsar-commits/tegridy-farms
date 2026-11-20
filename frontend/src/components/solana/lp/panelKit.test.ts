@@ -1,12 +1,50 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { tokenText } from '../../../lib/solana/lp/format';
+import { quoteText, solText, tokenText } from '../../../lib/solana/lp/format';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import { explorerAddressUrl } from '../../../lib/launcher/solana/write/config';
 import type { SolanaCluster } from '../../../lib/launcher/solana/write/types';
 import { cannotFundText, coinAbout, coinExact, explorerOf, priceGapLossText, solAbout, solAboutUp, solExact, tokensAbout, unitsExact } from './panelKit';
 import type { LpWrites } from './useLpWrites';
+
+// What you put in, pay or need is rounded up at the fourth decimal; what you have or get is cut.
+describe('"about" with `up`: an amount paid or needed never reads below itself', () => {
+  it('SOL: 0.100000001 reads 0.1 cut and 0.1001 up; dust reads "<0.0001" either way, which is true of it', () => {
+    expect(solAbout(100_000_001n)).toBe('0.1 SOL');
+    expect(solAbout(100_000_001n, true)).toBe('0.1001 SOL');
+    expect(solAbout(5_000n)).toBe('<0.0001 SOL');
+    expect(solAbout(5_000n, true)).toBe('<0.0001 SOL');
+    expect(solText(100_000_001n)).toBe('0.1 SOL');
+    expect(solText(100_000_001n, true)).toBe('0.1001 SOL');
+  });
+
+  it('tokens and a pairing coin round up the same way, and exact amounts are unchanged', () => {
+    expect(tokensAbout(10_000_001n, 6)).toBe('10 tokens');
+    expect(tokensAbout(10_000_001n, 6, true)).toBe('10.0001 tokens');
+    expect(tokensAbout(10_000_000n, 6, true)).toBe('10 tokens');
+    expect(tokenText(1_234_567_891n, 6, 'CORN')).toBe('1,234.5678 CORN');
+    expect(tokenText(1_234_567_891n, 6, 'CORN', true)).toBe('1,234.5679 CORN');
+    for (const coin of [USDC_QUOTE, BAYLA_QUOTE]) {
+      expect(coinAbout(250_123_401n, coin)).toBe(`250.1234 ${coin.symbol}`);
+      expect(coinAbout(250_123_401n, coin, true)).toBe(`250.1235 ${coin.symbol}`);
+      expect(quoteText(250_123_401n, coin, true)).toBe(`250.1235 ${coin.symbol}`);
+      expect(coinAbout(250_000_000n, coin, true)).toBe(`250 ${coin.symbol}`);
+    }
+    expect(coinAbout(100_000_001n, SOL_QUOTE, true)).toBe('0.1001 SOL');
+    expect(quoteText(100_000_001n, SOL_QUOTE, true)).toBe('0.1001 SOL');
+  });
+
+  it('solAbout(x, true) says what solAboutUp says from 0.0001 SOL up; under it, "<0.0001" where a need reads 0.0001', () => {
+    for (const raw of [100_000n, 100_001n, 393_516n, 3_935_160n, 1_234_567_890n]) {
+      expect(solAbout(raw, true), `${raw}`).toBe(solAboutUp(raw));
+    }
+    for (const raw of [1n, 5_000n, 99_999n]) {
+      expect(solAbout(raw, true), `${raw}`).toBe('<0.0001 SOL');
+      expect(solAboutUp(raw), `${raw}`).toBe('0.0001 SOL');
+    }
+  });
+});
 
 describe('the "about" amounts on the liquidity panels', () => {
   it('never say a real amount is 0, on the token side as on the SOL side', () => {

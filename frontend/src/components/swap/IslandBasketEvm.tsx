@@ -5,6 +5,7 @@ import { useAccount, useBalance, usePublicClient, useSendTransaction } from 'wag
 import { useTOWELIPriceOptional } from '../../contexts/PriceContext';
 import { swapVenueOn } from '../../lib/chains/swapVenue';
 import { getTxUrl } from '../../lib/explorer';
+import { toFixedUp } from '../../lib/formatting';
 import { coinsInOrder, dollarsEach, evmBasketFor, MIN_USD_PER_COIN, minOrderUsd, minOut, shortAmount, splitOrder, usdText, usdToBaseUnits } from '../../lib/islandBasket';
 import { buildEvmOrder, quoteEvmLegs, routeEvmLeg, type EvmLegQuote, type EvmLegRoute, type QuoteClient } from '../../lib/evm/islandBasketEvm';
 import { universalRouterOn } from '../../lib/evm/universalRouter';
@@ -190,7 +191,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
       const have = balance?.value ?? null;
       if (have !== null && perGas !== null && have < spend + gas * perGas) {
         setStatuses({});
-        setNotice({ tone: 'err', text: `Not enough ETH: this order needs about ${Number(formatUnits(spend + gas * perGas, 18)).toFixed(5)} ETH with the network fee.` });
+        setNotice({ tone: 'err', text: `Not enough ETH: this order needs about ${toFixedUp(formatUnits(spend + gas * perGas, 18), 5)} ETH with the network fee.` });
         return;
       }
       mark(all, { tone: 'muted', text: 'Waiting' });
@@ -264,7 +265,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
       : 'No site fee: every coin goes through Uniswap, so the venue earns nothing on this order. Uniswap’s pool fee is inside each quote.';
 
   const perCoin = Number.isFinite(dollars) && dollars > 0 && n > 0 ? dollars / n : 0;
-  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${Number(formatUnits(total, 18)).toFixed(5)} ETH` : null;
+  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${toFixedUp(formatUnits(total, 18), 5)} ETH` : null;
   const unread = routes?.some((r) => r.via === 'none') ?? false;
   const insufficient = total !== null && balance !== undefined && balance.value < total;
 

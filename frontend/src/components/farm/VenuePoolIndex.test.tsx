@@ -78,10 +78,14 @@ describe('VenuePoolIndex', () => {
     expect(row.hasAttribute('data-current')).toBe(true);
     expect(document.querySelectorAll('tr[data-current]')).toHaveLength(1);
     const other = screen.getAllByRole('row').slice(1).find((r) => r !== row)!;
-    fireEvent.mouseEnter(other);
+    // A finger only presses: lighting the house above on a tap is a hover iOS would answer by
+    // dropping the row's click.
+    fireEvent.pointerEnter(other, { pointerType: 'touch' });
+    expect(onActive).not.toHaveBeenCalled();
+    fireEvent.pointerEnter(other, { pointerType: 'mouse' });
     expect(onActive).toHaveBeenCalledTimes(1);
     expect(onActive.mock.calls[0]![0]).not.toBe(room.id);
-    fireEvent.mouseLeave(screen.getByRole('table'));
+    fireEvent.pointerLeave(screen.getByRole('table'), { pointerType: 'mouse' });
     expect(onActive).toHaveBeenLastCalledWith(null);
   });
 

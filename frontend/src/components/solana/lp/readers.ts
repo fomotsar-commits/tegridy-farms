@@ -79,8 +79,8 @@ export interface LpReaders {
   /**
    * History, behind the budget gate (ledger.ts, poolPast.ts): a position's ledger from its
    * share account's last 20 transactions, and one page of a pool's transactions, classified.
-   * The ledger is read by itself for the first two positions and on a press for the rest
-   * (YourPositions.tsx); the pool's past on a press only (PoolCard.tsx). Optional: a reader
+   * The ledger is read by itself for every placed position, one at a time, and again on a
+   * press (YourPositions.tsx); the pool's past on a press only (PoolCard.tsx). Optional: a reader
    * without them shows no history block, and every existing fake still fits.
    */
   ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;

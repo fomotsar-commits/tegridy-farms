@@ -13,6 +13,9 @@ const PAYOUT_EVENTS = parseAbi([
 export const NOTHING_PAID_COPY =
   'Nothing was paid: the staking reward reserve is empty. Your rewards stay owed until it is refilled.';
 
+/** Shown before a claim while the reward reserve is empty: the staking card and both dashboard claim buttons. */
+export const RESERVE_EMPTY_COPY = 'Reserve empty: nothing accrues, and a claim pays 0 until it is refilled.';
+
 /**
  * What a confirmed TegridyStaking claim (getReward or claimUnsettled) actually PAID,
  * read off its own receipt.
