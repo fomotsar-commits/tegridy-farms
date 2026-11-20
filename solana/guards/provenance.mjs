@@ -100,11 +100,12 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '8305d18944c8e7be301b0fcc35d8f1f5389fea45da8ef632863097693a84b629',
+    deltaSha256: 'e601b76158932028985dcd4e841bd415a4c91c3d05753db4cb9a71cec4e4ed9a',
     patched: [
       'src/lib.rs',
       'src/error.rs',
       'src/instructions/admin/collect_fund_fee.rs',
+      'src/instructions/admin/collect_protocol_fee.rs',
       'src/instructions/admin/create_support_mint_associated.rs',
       'src/instructions/admin/update_config.rs',
       'src/instructions/initialize.rs',

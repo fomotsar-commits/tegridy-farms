@@ -11,6 +11,7 @@ The site's Changelog tab shows both files.
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
 - Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.
+- The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19
 
