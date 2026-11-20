@@ -44,8 +44,8 @@ describe('trySlice', () => {
     const r = await trySlice(d, ORDER, ONE_SOL, onSent);
     expect(r).toMatchObject({ kind: 'sent', signature: SIG, outcome: 'confirmed', quotedOut: AT_AVERAGE });
     expect(d.prepare).toHaveBeenCalledWith(expect.anything(), ONE_SOL.toString());
-    expect(d.send).toHaveBeenCalledWith('B64', `≈${AT_AVERAGE} BAYLA with ${ONE_SOL} SOL`, onSent);
-    expect(onSent).toHaveBeenCalledWith(SIG);
+    expect(d.send).toHaveBeenCalledWith('B64', `≈${AT_AVERAGE} BAYLA with ${ONE_SOL} SOL`, expect.any(Function));
+    expect(onSent).toHaveBeenCalledWith(SIG, AT_AVERAGE);
   });
 
   it('no average: waits, and Jupiter is not even asked', async () => {

@@ -129,6 +129,8 @@ import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
+import { VwapOrderTab } from '../components/solana/vwap/VwapOrderTab';
+import { useVwapRunner } from '../components/solana/vwap/useVwapRunner';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
 import { markLanded } from '../lib/landed';
@@ -1539,7 +1541,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   const quoteSeenAt = useRef(new WeakMap<JupiterQuote, number>());
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
-  const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
+  const [mode, setMode] = useState<'swap' | 'limit' | 'dca' | 'vwap'>('swap');
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
@@ -1816,6 +1818,25 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
   const { hold: holdNote, release: releaseNote, holdsNow } = venueSwap.pending;
+  // A VWAP order of this wallet runs from here, whichever tab of the form is open (not on
+  // the home card). Its slices are Jupiter swaps under this wallet's swap notes, so a slice
+  // and the Instant swap hold each other (components/solana/vwap/useVwapRunner.ts).
+  const vwapScope = publicKey ? swapPendingScope(publicKey.toBase58()) : null;
+  const vwapWhere = useVwapRunner({
+    enabled: !home,
+    priority: speed,
+    notes: {
+      holdsNow: () => vwapScope === null || holdsNow(vwapScope),
+      hold: (n) => { if (vwapScope) holdNote({ kind: 'jupiter-swap', ...n }, vwapScope); },
+      stillHeld: (n) => vwapScope !== null && readPendingTrades(vwapScope).some((x) => noteKey(x) === noteKey(n)),
+      release: (s) => { if (vwapScope) releaseNote(s, vwapScope); },
+    },
+    onLanded: (sig, o, paid) => {
+      const done = CASH_MINTS.has(o.buy.mint) && !CASH_MINTS.has(o.pay.mint) ? 'Sold' : 'Bought';
+      raiseSwapReceipt(connection, sig, { wallet: o.wallet, done, pay: o.pay, buy: o.buy, sent: paid, route: { kind: 'site', feeOwner: SOLANA_FEE_ACCOUNT || null } });
+      recordActivity(o.wallet, { sig, ts: Date.now(), kind: 'swap', summary: `VWAP slice: ${amountText(paid, o.pay.decimals)} ${o.pay.symbol} → ${o.buy.symbol}` });
+    },
+  });
   // A note that stands up while a review is open (another tab sent from this wallet) closes
   // it: the hold card takes its place. Not under a Sign already pressed: the send path
   // reads the notes again before the wallet (useVenueSwap).
@@ -2951,7 +2972,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           {/* Mode tabs: not on the home's card, which is an instant swap only. */}
           {!home && (
           <div className="flex gap-1 mb-4">
-            {(['swap', 'limit', 'dca'] as const).map((mTab) => (
+            {(['swap', 'limit', 'dca', 'vwap'] as const).map((mTab) => (
               <button
                 key={mTab}
                 type="button"
@@ -2964,7 +2985,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                   border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
                 }}
               >
-                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : 'DCA'}
+                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : mTab === 'dca' ? 'DCA' : 'VWAP'}
               </button>
             ))}
           </div>
@@ -3297,6 +3318,25 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </p>
             </fieldset>
             </>
+          ) : mode === 'vwap' ? (
+            <VwapOrderTab
+              payToken={payToken}
+              buyToken={buyToken}
+              payBalance={payBalance.raw}
+              feePct={feePct}
+              feeMintSymbol={feeMintSymbol}
+              warnings={shieldWarnings.map((w, i) => (
+                <p key={`vsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
+                  <span aria-hidden="true">⚠</span><span>{w.message}</span>
+                </p>
+              ))}
+              needsAck={needsAck}
+              ack={ack}
+              setAck={onAck}
+              onPickPay={() => setPicker('pay')}
+              onPickBuy={() => setPicker('buy')}
+              where={vwapWhere}
+            />
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (

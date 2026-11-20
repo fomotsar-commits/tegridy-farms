@@ -35,7 +35,8 @@ const REFUSED_ON_CHAIN = 'The network refused this slice. Only the network fee w
 
 export const SLICE_NOT_TEST_RUN = 'The test run of Jupiter’s transaction for this slice could not run just now, so nothing was sent. It tries again in a minute.';
 
-export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 'bandBps'>, amount: bigint, onSent: (signature: string) => void): Promise<SliceTry> {
+/** `onSent`: a signature exists and its note is written, with the out amount of the quote it was built from. */
+export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 'bandBps'>, amount: bigint, onSent: (signature: string, quotedOut: string) => void): Promise<SliceTry> {
   let avg: PairAverage;
   try {
     avg = await d.average();
@@ -76,7 +77,7 @@ export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 
   const built = sliceVerdict(avg, o, amount, builtOut);
   if (!built.go) return { kind: 'wait', why: built.why, vsAveragePct: built.vsAveragePct };
 
-  const end = await d.send(prepared.swapTransaction, d.words(amount, builtOut), onSent);
+  const end = await d.send(prepared.swapTransaction, d.words(amount, builtOut), (signature) => onSent(signature, builtOut.toString()));
   if (end.kind === 'not-sent') return { kind: 'not-sent', why: end.message, declined: end.declined, vsAveragePct: built.vsAveragePct };
   if (end.kind === 'lost') return { kind: 'lost', why: end.message };
   return { kind: 'sent', signature: end.signature, outcome: end.outcome, quotedOut: builtOut.toString(), vsAveragePct: built.vsAveragePct };
