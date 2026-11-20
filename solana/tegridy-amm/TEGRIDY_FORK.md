@@ -682,7 +682,8 @@ rent stays in the account, which is the owner's.
 
 **What it changes on chain, once upgraded.** Nothing for any swap, deposit or withdrawal. The
 hand collects keep working exactly as before. The accounts are the same sizes; every error and
-event number before is kept, and 6019 is new.
+event number before is kept, and 6019 is new. `FeesSwept` changes shape from the first form's
+(both owners, four amounts) to one per owner's sweep; nothing in the repo reads it.
 
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`) with a wallet that holds only
 gas money, so neither the vault nor the island has to sign anything. It sends the venue's sweep
@@ -691,16 +692,20 @@ rent stays the venue's), and sweeps the island's share only where the Workshop a
 of that pool's accounts: its summary names the missing ones, and the island opens them itself. It
 leaves a pool with a coin that takes a transfer fee to the owners' hand collects.
 
-**How it was proved, 2026-11-20**, on the build that also carries the resignation and the audit's
-checks (WSL: Solana 2.3.0, Anchor 0.32.1, the test wallet as admin, throwaway program ids).
+**How it was proved, 2026-11-20**, for one owner per call (the first form's proofs are in pull
+request #1282), on the build that also carries the resignation and the audit's checks (WSL:
+Solana 2.3.0, Anchor 0.32.1, the test wallet as admin, throwaway program ids).
 
 | run | result |
 |---|---|
-| `tests/cp-swap-sweep-fees.test.ts` on a local validator: a stranger's sweep pays each owner exactly its counts and zeroes them, the curve and the creator fee do not move, and `FeesSwept` logs it; an empty sweep succeeds; seven wrong destinations are refused with 6018 and nothing moves; a handed-over account is refused and paid again once taken back; the destinations follow a new protocol owner; a tier naming the vault authority as the venue's owner, and one naming it as the island's (tier 73: the fund owner is named once only), are refused with 6008 and nothing moves; a Token-2022 coin goes to its Token-2022 account; a stranger still cannot `collect_protocol_fee` | 9 of 9, with the fee rules 9, swap guard 9, keeper fee 8 and resignation 11 on the same build: 46 of 46 |
-| the sweep file against seven copies, each with one rule broken: the venue's still-owns check removed; the venue's share sent to the island's account; one count left unzeroed; the address check on the island's second coin removed; the venue's and the island's amounts crossed; the vault-authority check made vacuous on the venue's side; the same on the island's side | each fails (1, 6, 3, 1, 3, 1 and 1 tests); the last two fail exactly the two vault-authority tests |
-| the daily job (`frontend/scripts/venue-sweep.mjs --live`, its own pull request) against this build, two pools with real trades, one holding a coin that keeps 3% of every transfer | it created the owners' accounts, paid each exactly what was set aside and zeroed the counts; it held the 3% coin's pool back untouched; a second run found nothing left |
-| `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` as CI calls it | 37 files compared, 12 patched; no outside key |
-| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,816 bytes, sha256 `987bdb2e…`. The program has 725,176 bytes of room on mainnet (read 2026-11-20, last deployed at slot 470,581,826), so the upgrade needs the account grown by at least 21,640 bytes first: 0.1099 SOL of rent at 5,080 lamports a byte |
+| `tests/cp-swap-sweep-fees.test.ts` on a local validator: each owner's sweep, by a stranger, pays that owner exactly its counts and zeroes them while the other share stays set aside, the curve and the creator fee do not move, and `FeesSwept` logs it; an empty sweep succeeds; for each owner and each coin, four wrong destinations and a handed-over account are refused with 6018 and nothing moves; a handed-over account stops only its owner's sweep, both ways round; a protocol owner that is not the admin is refused with 6019 while the island's sweep and the admin's hand collect still work; a fund owner that is the vault authority is refused with 6008; Token-2022 and classic coins each go to their own program's account, on both sides; a 3% coin stays counted while the other coin moves; another pool's tier or vault is refused | 13 of 13, with the fee rules 9, swap guard 9, keeper fee 8 and resignation 11 on the same build: 50 of 50 |
+| the same file against trunk's program (the first form, through an adapter for its one call) | 7 of 13 fail, each a rule added here; the other 6 hold checks the first form already had |
+| the sweep file against 29 copies, each with one check broken and built on its own: each destination's address check and still-owns check per coin; the vault-authority check; each owner's share paid to the other, read from the other's counts or zeroing them; the 6019 rule removed, or put on the island too; the transfer-fee rule removed, its count zeroed anyway, or every Token-2022 coin left; the tier and each vault binding removed; the token program's choice made classic or Token-2022 always, for the destinations and for the transfers; four ways of mislogging the event; one count left unzeroed; the amounts crossed | 27 fail at least one test. The two that do not (the vault-authority check made vacuous on one coin alone) change nothing: the address and owner checks make both destinations the same owner's, so the other coin's check refuses the same tiers; made vacuous on both, it fails |
+| the first commit's build, without the transfer-fee rule | its 12 tests pass |
+| the daily job against this build, two pools with real trades, one holding a coin that keeps 3% of every transfer | run 1 swept the venue's share into the admin's own accounts, which it opened, and left the island's waiting (its accounts missing, not opened by the job); after the island opened its own, run 2 swept the island's share only; the 3% coin's pool was left untouched; the job's payer signed two transactions in all |
+| the same job against trunk's program and against a build with no sweep | nothing sent, each case named, the run green; the payer's balance unchanged |
+| `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` as CI calls it, `provenance.mjs --pr-files` | 37 files compared, 12 patched; no outside key; the re-pin rule holds |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,280 bytes, sha256 `c6f4b43c…`. The first upgrade leaves the program 746,816 bytes of room (`987bdb2e…`, the first form, built the same way, byte for byte as CI), so this one needs no enlarge. The launcher's build does not move (`028701a0…`) |
 
 ---
 
