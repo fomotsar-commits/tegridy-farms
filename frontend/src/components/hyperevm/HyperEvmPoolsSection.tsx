@@ -74,7 +74,7 @@ function Pools({ venue }: { venue: HyperEvmVenue }) {
 
       {adding && <AddCard key={`${adding.pool.address}:${adding.position?.tokenId ?? 'new'}`} venue={venue} pool={adding.pool} position={adding.position} send={send} onClose={() => setAdding(null)} onDone={after} />}
 
-      <PositionsCard venue={venue} read={positions} connected={send.isConnected} send={send} onAdd={(position) => setAdding({ pool: position.pool, position })} onDone={after} />
+      <PositionsCard venue={venue} read={state.status === 'unread' ? { ok: false } : positions} connected={send.isConnected} send={send} onAdd={(position) => setAdding({ pool: position.pool, position })} onDone={after} />
     </div>
   );
 }
