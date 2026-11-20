@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-20
+
+- Harvest now claims your pool fees too. On Solana, wherever Pools would offer Claim fees on your share of an island coin's pool (BAYLA, BOBO, SOY, BRAINLET or RIZZ), that claim joins the staking claims under Harvest all, one wallet approval each. It gives back just the shares the fees added, so what you put in stays in the pool. Its row shows both coins it pays and says "about", because the split moves with the pool's price, and it is added to no total.
+
 ### 2026-11-19
 
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
