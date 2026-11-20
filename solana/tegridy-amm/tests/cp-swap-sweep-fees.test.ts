@@ -2,7 +2,7 @@
  * cp-swap's sweep (programs/cp-swap/src/lib.rs `sweep_fees`) on a local validator. solana-ci.yml's
  * migration-rehearsal job runs it after the keeper's files, on the same deployed cp-swap (this
  * wallet its admin, and the venue here: the protocol owner on mainnet is the admin). It opens its
- * own tiers (71 to 73), so it needs no other file. The rules: TEGRIDY_FORK.md, "The fee sweep";
+ * own tiers (71 to 74), so it needs no other file. The rules: TEGRIDY_FORK.md, "The fee sweep";
  * each test's title says the one it holds.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -13,9 +13,13 @@ import {
   createAccount,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountIdempotent,
+  createInitializeMintInstruction,
+  createInitializeTransferFeeConfigInstruction,
   createMint,
+  ExtensionType,
   getAccount,
   getAssociatedTokenAddressSync,
+  getMintLen,
   mintTo,
   NATIVE_MINT,
   setAuthority,
@@ -49,6 +53,8 @@ const PROTOCOL_SHARE = 104_000n;
 const FUND_SHARE = 56_000n;
 /** One swap: exactly 1 token in (6 decimals). */
 const ONE_IN = 1_000_000n;
+/** GROYPER's transfer fee on mainnet, for the taxed coin here. */
+const TAX_BPS = 300;
 
 const failure = (e: unknown) => `${String(e)}\n${((e as { logs?: string[] }).logs ?? []).join("\n")}`;
 /** A refusal by name when the simulation refuses it, or by number when the network does. */
@@ -62,7 +68,7 @@ const refusedVault = refusedWith("ConstraintRaw", 2003);
 
 /** Anchor's event discriminator: sha256("event:<Name>")[..8]. */
 const eventTag = (name: string) => createHash("sha256").update(`event:${name}`).digest().subarray(0, 8);
-type Swept = { pool: string; fund: boolean; owner: string; moved: [bigint, bigint] };
+type Swept = { pool: string; fund: boolean; owner: string; moved: [bigint, bigint]; left: [bigint, bigint] };
 /** The FeesSwept events a transaction logged, decoded by hand from its "Program data:" lines. */
 function swept(logs: string[]): Swept[] {
   const out: Swept[] = [];
@@ -71,12 +77,13 @@ function swept(logs: string[]): Swept[] {
     if (!m) continue;
     const b = Buffer.from(m[1], "base64");
     if (!b.subarray(0, 8).equals(eventTag("FeesSwept"))) continue;
-    assert.equal(b.length, 8 + 32 + 1 + 32 + 8 * 2, "FeesSwept is a pool, a side, an owner and two amounts");
+    assert.equal(b.length, 8 + 32 + 1 + 32 + 8 * 4, "FeesSwept is a pool, a side, an owner and four amounts");
     out.push({
       pool: new PublicKey(b.subarray(8, 40)).toBase58(),
       fund: b[40] === 1,
       owner: new PublicKey(b.subarray(41, 73)).toBase58(),
       moved: [b.readBigUInt64LE(73), b.readBigUInt64LE(81)],
+      left: [b.readBigUInt64LE(89), b.readBigUInt64LE(97)],
     });
   }
   return out;
@@ -120,10 +127,12 @@ describe("cp-swap sweep_fees", () => {
     observationState: PublicKey;
   };
   /** Tier 71: two classic coins. 72: a classic and a Token-2022 coin. 73: tier 71's coins, the
-   * vault authority its fund owner. */
+   * vault authority its fund owner. 74: a classic coin and a Token-2022 coin with a 3% transfer fee. */
   let classic: Pool;
   let t22: Pool;
   let authFund: Pool;
+  let taxed: Pool;
+  let taxedMint: PublicKey;
 
   const n = (b: BN) => BigInt(b.toString());
   /** The four shares the pool has set aside, its creator fee, and its two vaults. */
@@ -316,10 +325,25 @@ describe("cp-swap sweep_fees", () => {
     const a = await createMint(conn, wallet, wallet.publicKey, null, 6);
     const b = await createMint(conn, wallet, wallet.publicKey, null, 6);
     const c = await createMint(conn, wallet, wallet.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+    // A Token-2022 coin that keeps 3% of every transfer, as GROYPER does on mainnet.
+    const d = Keypair.generate();
+    const len = getMintLen([ExtensionType.TransferFeeConfig]);
+    const made = await send(
+      [
+        SystemProgram.createAccount({ fromPubkey: wallet.publicKey, newAccountPubkey: d.publicKey, space: len, lamports: await conn.getMinimumBalanceForRentExemption(len), programId: TOKEN_2022_PROGRAM_ID }),
+        createInitializeTransferFeeConfigInstruction(d.publicKey, wallet.publicKey, wallet.publicKey, TAX_BPS, 10n ** 15n, TOKEN_2022_PROGRAM_ID),
+        createInitializeMintInstruction(d.publicKey, 6, wallet.publicKey, null, TOKEN_2022_PROGRAM_ID),
+      ],
+      wallet,
+      [d]
+    );
+    assert.equal(made.err, "", "the taxed coin is made");
+    taxedMint = d.publicKey;
     const coins: [PublicKey, PublicKey][] = [
       [a, TOKEN_PROGRAM_ID],
       [b, TOKEN_PROGRAM_ID],
       [c, TOKEN_2022_PROGRAM_ID],
+      [taxedMint, TOKEN_2022_PROGRAM_ID],
     ];
     for (const [m, prog] of coins) {
       for (const who of [wallet.publicKey, stranger.publicKey, island.publicKey, venue2.publicKey]) {
@@ -335,6 +359,8 @@ describe("cp-swap sweep_fees", () => {
     t22 = await openPool(72, tm, tp);
     // The fund owner is named once only (update_config param 4), so this tier names the authority from the start.
     authFund = await openPool(73, cm, cp, authority);
+    const [xm, xp] = sorted([a, TOKEN_PROGRAM_ID], [taxedMint, TOKEN_2022_PROGRAM_ID]);
+    taxed = await openPool(74, xm, xp);
   });
 
   for (const [who, fund, owner, other] of owners) {
@@ -365,6 +391,7 @@ describe("cp-swap sweep_fees", () => {
         fund,
         owner: owner.publicKey.toBase58(),
         moved: [share(before, fund)[0], share(before, fund)[1]],
+        left: [0n, 0n],
       });
     });
   }
@@ -529,6 +556,32 @@ describe("cp-swap sweep_fees", () => {
       const heldAfter = await held(owner.publicKey, t22);
       for (const i of [0, 1]) assert.equal(heldAfter[i] - heldBefore[i], share(before, fund)[i], `${who}'s token ${i}`);
       assert.deepEqual(share(await state(t22), fund), [0n, 0n]);
+    }
+  });
+
+  it("a coin that takes a transfer fee keeps its share counted in the pool, and the other coin still moves, on both sides", async () => {
+    await trade(taxed);
+    const t = taxed.mints[0].equals(taxedMint) ? 0 : 1;
+    const u = 1 - t;
+    for (const [who, fund, owner] of owners) {
+      const before = await state(taxed);
+      const heldBefore = await held(owner.publicKey, taxed);
+      const r = await send([await sweepIx(taxed, fund, owner.publicKey)], stranger);
+      assert.equal(r.err, "", `${who}'s sweep`);
+      const after = await state(taxed);
+      const heldAfter = await held(owner.publicKey, taxed);
+      assert.equal(share(after, fund)[t], share(before, fund)[t], `${who}'s share of the taxed coin stays counted`);
+      assert.equal(heldAfter[t], heldBefore[t], `${who} is paid none of the taxed coin`);
+      assert.equal(after.vault[t], before.vault[t], "the taxed coin's vault paid nothing");
+      assert.equal(heldAfter[u] - heldBefore[u], share(before, fund)[u], `all of ${who}'s other coin`);
+      assert.equal(share(after, fund)[u], 0n);
+      const ev = swept(await logsOf(r.sig));
+      assert.equal(ev.length, 1, "one FeesSwept");
+      const moved: [bigint, bigint] = [0n, 0n];
+      const left: [bigint, bigint] = [0n, 0n];
+      moved[u] = share(before, fund)[u];
+      left[t] = share(before, fund)[t];
+      assert.deepEqual(ev[0], { pool: taxed.pool.toBase58(), fund, owner: owner.publicKey.toBase58(), moved, left }, "it logs what stays");
     }
   });
 

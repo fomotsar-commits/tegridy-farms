@@ -290,7 +290,7 @@ export async function run(opts, deps) {
         row.note = `held back: the transfer fee of ${taxed} could not be read`;
         ok = false;
       } else {
-        row.note = `held back: ${taxed} takes ${bps / 100}% of every transfer, so a sweep would hand that much of both shares of it to the coin; the owner decides`;
+        row.note = `held back: ${taxed} takes ${bps / 100}% of every transfer, so the pool program leaves its shares in the pool for the owners to collect by hand; this job leaves the whole pool to them`;
       }
       continue;
     }

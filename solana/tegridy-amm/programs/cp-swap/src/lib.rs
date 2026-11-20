@@ -9,7 +9,7 @@ use crate::states::{
     AmmConfig, FeesSwept, KeeperChanged, PoolState, MAX_CREATE_POOL_FEE, MAX_FEE_RATE_NUMERATOR,
     MAX_PROTOCOL_AND_FUND_FEE_RATE,
 };
-use crate::utils::token::transfer_from_pool_vault_to_user;
+use crate::utils::token::{get_transfer_fee, transfer_from_pool_vault_to_user};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use anchor_spl::metadata::{
@@ -466,8 +466,8 @@ pub mod raydium_cp_swap {
     /// anyone may make: the protocol owner's, or with `fund` the fund owner's. The program
     /// derives both destinations from the pool's fee tier and refuses any other (6018
     /// `NotFeeOwnersAccount`). A protocol owner other than the admin is never swept to (6019
-    /// `ProtocolOwnerNotAdmin`). Nothing else moves, and the price does not: the curve never
-    /// counts the shares set aside.
+    /// `ProtocolOwnerNotAdmin`), and a coin that takes a transfer fee stays in the pool. Nothing
+    /// else moves, and the price does not: the curve never counts the shares set aside.
     ///
     /// # Arguments
     ///
@@ -498,9 +498,9 @@ pub struct ResignKeeper<'info> {
 // ─── TEGRIDY FORK ADDITION (2026-11-15): sweep_fees ───────────────────────────
 // Anyone may move one fee owner's whole share of a pool to that owner's own token accounts. The
 // call names one owner's two accounts only, so one owner's accounts never stop the other's. The
-// protocol share moves only while its owner is the admin: otherwise it is collected by hand, as
-// upstream. The destinations must exist (the caller creates them). What each check refuses:
-// TEGRIDY_FORK.md, "The fee sweep".
+// protocol share moves only while its owner is the admin, and a coin that takes a transfer fee
+// stays counted: both are then collected by hand, as upstream. The destinations must exist (the
+// caller creates them). What each check refuses: TEGRIDY_FORK.md, "The fee sweep".
 #[derive(Accounts)]
 #[instruction(fund: bool)]
 pub struct SweepFees<'info> {
@@ -613,21 +613,29 @@ fn sweep_pool_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()> {
         };
         (owed, p.auth_bump)
     };
+    // A coin that takes a transfer fee now on its share stays counted, all of it: only its
+    // owner's hand collect moves it, at a time the owner chooses.
+    let mut left = [0u64; 2];
+    for (i, mint) in [&a.vault_0_mint, &a.vault_1_mint].into_iter().enumerate() {
+        if get_transfer_fee(&mint.to_account_info(), owed[i])? > 0 {
+            left[i] = owed[i];
+        }
+    }
     {
         let mut p = a.pool_state.load_mut()?;
         if fund {
-            p.fund_fees_token_0 = 0;
-            p.fund_fees_token_1 = 0;
+            p.fund_fees_token_0 = left[0];
+            p.fund_fees_token_1 = left[1];
         } else {
-            p.protocol_fees_token_0 = 0;
-            p.protocol_fees_token_1 = 0;
+            p.protocol_fees_token_0 = left[0];
+            p.protocol_fees_token_1 = left[1];
         }
         p.recent_epoch = Clock::get()?.epoch;
     }
     let seeds: &[&[&[u8]]] = &[&[crate::AUTH_SEED.as_bytes(), &[auth_bump]]];
     for (vault, mint, to, amount) in [
-        (&a.token_0_vault, &a.vault_0_mint, &a.owner_token_0_account, owed[0]),
-        (&a.token_1_vault, &a.vault_1_mint, &a.owner_token_1_account, owed[1]),
+        (&a.token_0_vault, &a.vault_0_mint, &a.owner_token_0_account, owed[0] - left[0]),
+        (&a.token_1_vault, &a.vault_1_mint, &a.owner_token_1_account, owed[1] - left[1]),
     ] {
         let mint_info = mint.to_account_info();
         transfer_from_pool_vault_to_user(
@@ -645,8 +653,10 @@ fn sweep_pool_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()> {
         pool_state: a.pool_state.key(),
         fund,
         owner: fee_owner(&a.amm_config, fund),
-        token_0_amount: owed[0],
-        token_1_amount: owed[1],
+        token_0_amount: owed[0] - left[0],
+        token_1_amount: owed[1] - left[1],
+        token_0_left: left[0],
+        token_1_left: left[1],
     });
     Ok(())
 }
