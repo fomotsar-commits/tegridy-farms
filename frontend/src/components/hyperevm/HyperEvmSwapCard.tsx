@@ -3,7 +3,7 @@ import { encodeFunctionData, erc20Abi } from 'viem';
 import { useSignTypedData } from 'wagmi';
 import { HYPEREVM_TOKENS, WHYPE, hyperEvmAddressUrl, hyperEvmVenue, type HyperEvmToken, type HyperEvmVenue } from '../../lib/chains/hyperEvm';
 import { PERMIT2, PERMIT2_ALLOWANCE_ABI, PERMIT_SINGLE_TYPES, permit2Domain, type PermitSingle } from '../../lib/evm/universalRouter';
-import { amountText, bpsText, parseAmount } from '../../lib/hyperevm/format';
+import { amountText, bpsText, parseAmount, withDeadline } from '../../lib/hyperevm/format';
 import { feeSplitText, feeTierText } from '../../lib/hyperevm/pools';
 import { buildSwapTx, minReceived, priceImpactBps, quoteSwap, type QuoteResult } from '../../lib/hyperevm/swap';
 import { CardArt } from '../ui/CardArt';
@@ -51,7 +51,7 @@ function SwapForm({ venue, lead }: { venue: HyperEvmVenue; lead?: ReactNode }) {
     let live = true;
     setQuote({ ok: false, why: 'loading' });
     const t = setTimeout(() => {
-      void quoteSwap(asReader(client), venue, pools, from, to, amountIn).then((q) => live && setQuote(q));
+      void withDeadline(quoteSwap(asReader(client), venue, pools, from, to, amountIn), { ok: false as const, why: 'unread' as const }).then((q) => live && setQuote(q));
     }, 350);
     return () => {
       live = false;

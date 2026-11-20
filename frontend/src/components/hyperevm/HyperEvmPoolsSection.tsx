@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { encodeFunctionData, erc20Abi } from 'viem';
 import { WHYPE, hyperEvmAddressUrl, hyperEvmVenue, type HyperEvmToken, type HyperEvmVenue } from '../../lib/chains/hyperEvm';
-import { amountText, bpsText, parseAmount } from '../../lib/hyperevm/format';
+import { amountText, bpsText, parseAmount, withDeadline } from '../../lib/hyperevm/format';
 import { feeSplitText, feeTierText, type V3Pool } from '../../lib/hyperevm/pools';
 import {
   PRESET_PCT, addTx, collectTx, pairedAmount, poolPriceText, rangeTicks, readPositions, removeTx, tickPriceText,
@@ -43,7 +43,7 @@ function Pools({ venue }: { venue: HyperEvmVenue }) {
       return;
     }
     let live = true;
-    void readPositions(asReader(client), venue, send.address, pools).then((r) => live && setPositions(r));
+    void withDeadline(readPositions(asReader(client), venue, send.address, pools), { ok: false as const }).then((r) => live && setPositions(r));
     return () => {
       live = false;
     };

@@ -38,3 +38,17 @@ export function parseAmount(text: string, decimals: number): bigint | null {
 export function bpsText(bps: number | bigint): string {
   return `${(Number(bps) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 }
+
+/** How long a HyperEVM read may take before the screen says it could not be read (a public RPC can stall). */
+export const READ_DEADLINE_MS = 20_000;
+
+/** `p`, or `fallback` once `ms` have passed: a stalled read ends as unread, never as "reading" for good. */
+export function withDeadline<T>(p: Promise<T>, fallback: T, ms: number = READ_DEADLINE_MS): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      () => { clearTimeout(t); resolve(fallback); },
+    );
+  });
+}

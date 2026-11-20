@@ -26,3 +26,12 @@ describe('HyperEVM amounts', () => {
     expect(bpsText(30n)).toBe('0.3%');
   });
 });
+
+describe('a read with a deadline', () => {
+  it('is the answer when it comes in time, the fallback when it stalls or throws', async () => {
+    const { withDeadline } = await import('./format');
+    expect(await withDeadline(Promise.resolve('read'), 'unread', 50)).toBe('read');
+    expect(await withDeadline(new Promise<string>(() => {}), 'unread', 20)).toBe('unread');
+    expect(await withDeadline(Promise.reject(new Error('rpc down')), 'unread', 50)).toBe('unread');
+  });
+});

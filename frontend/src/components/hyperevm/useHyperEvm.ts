@@ -3,6 +3,7 @@ import { erc20Abi } from 'viem';
 import { useAccount, useChainId, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi';
 import { HYPEREVM_CHAIN_ID, type HyperEvmToken, type HyperEvmVenue } from '../../lib/chains/hyperEvm';
 import { readPools, type HyperEvmReader, type V3Pool } from '../../lib/hyperevm/pools';
+import { withDeadline } from '../../lib/hyperevm/format';
 import { isUserRejection, extractErrorMessage, waitForReceiptOutcome } from '../../lib/txErrors';
 
 /** The chain-999 client the HyperEVM screens read through (null only while HyperEVM is hidden). */
@@ -24,7 +25,7 @@ export function usePools(venue: HyperEvmVenue) {
   useEffect(() => {
     if (!client) return;
     let live = true;
-    void readPools(asReader(client), venue).then((r) => {
+    void withDeadline(readPools(asReader(client), venue), { ok: false as const }).then((r) => {
       if (!live) return;
       // A failed re-read keeps the last good list on screen rather than blanking it.
       setState((prev) => (r.ok ? { status: 'ready', pools: r.pools } : prev.status === 'ready' ? prev : { status: 'unread' }));
