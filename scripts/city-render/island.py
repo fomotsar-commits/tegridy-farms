@@ -3,11 +3,10 @@
 #   blender -b --factory-startup --python island.py -- <mode> <out.png> [scale] [samples]
 #
 #   mode  island         the whole island from the site's axonometric, framed as plan.json says
-#         close:<plotId> that plot's building close up, its art at full size
 #         plate:<plotId> a quick look at one plot alone (for working on a building)
 #   scale  multiplies the island frame's pixel size (1 = plan.json's width x height)
 #
-# Then grade.py adds the glow and writes webp. See README.md.
+# Then grade.py adds the glow and writes webp. A building's close-up is maquette.py's. See README.md.
 import bpy, json, math, os, sys
 from mathutils import Vector
 
@@ -69,10 +68,70 @@ def sea():
 coast = {k: [tuple(p) for p in v] for k, v in plan['coast'].items()}
 cx0, cy0 = G['ISLAND_CX'], G['ISLAND_CY']
 rects('sea', [((cx0 - 160, cy0 - 160), (cx0 + 160, cy0 + 160), -0.32)], sea())
-lagoon = kit.mat('lagoon', (0.008, 0.04, 0.05), rough=0.08, emit=(0.02, 0.16, 0.18), strength=0.07)
-ring_between('lagoon', coast['1.26'], coast['1.03'], -0.31, -0.31, lagoon)
-tube('reef', [(x, y, -0.3) for (x, y) in coast['1.12']] + [coast['1.12'][0] + (-0.3,)], 0.03, kit.mat('reef', (0.2, 0.5, 0.5), emit=(0.25, 0.75, 0.75), strength=0.8))
-tube('foam', [(x, y, -0.27) for (x, y) in coast['1.03']] + [coast['1.03'][0] + (-0.27,)], 0.05, kit.mat('foam', (0.9, 0.95, 1.0), emit=(0.85, 0.92, 1.0), strength=1.2))
+
+
+def shallows():
+    """The lagoon: turquoise over the sand at the shore, deepening to night at the reef (it read as one flat teal band)."""
+    m = bpy.data.materials.new('shallows')
+    m.use_nodes = True
+    nt = m.node_tree
+    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    at = nt.nodes.new('ShaderNodeAttribute')
+    at.attribute_name = 'shore'
+    ramp = nt.nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.interpolation = 'EASE'
+    ramp.color_ramp.elements[0].color = (0.002, 0.012, 0.022, 1)
+    ramp.color_ramp.elements[1].color = (0.02, 0.15, 0.16, 1)
+    nt.links.new(at.outputs['Fac'], ramp.inputs['Fac'])
+    nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
+    key = 'Emission Color' if 'Emission Color' in b.inputs else 'Emission'
+    nt.links.new(ramp.outputs['Color'], b.inputs[key])
+    b.inputs['Emission Strength'].default_value = 0.14
+    b.inputs['Roughness'].default_value = 0.05
+    nz = nt.nodes.new('ShaderNodeTexNoise')
+    nz.inputs['Scale'].default_value = 1.3
+    nz.inputs['Detail'].default_value = 6.0
+    bp = nt.nodes.new('ShaderNodeBump')
+    bp.inputs['Strength'].default_value = 0.12
+    nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
+    nt.links.new(bp.outputs['Normal'], b.inputs['Normal'])
+    return m
+
+
+def broken(name, colour, strength, scale):
+    """A line of light broken as surf is: lit where a noise rises over its middle, water between (they read as drawn lines)."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    nz = nt.nodes.new('ShaderNodeTexNoise')
+    nz.inputs['Scale'].default_value = scale
+    nz.inputs['Detail'].default_value = 3.0
+    nt.links.new(tc.outputs['Object'], nz.inputs['Vector'])
+    ramp = nt.nodes.new('ShaderNodeMapRange')
+    ramp.inputs['From Min'].default_value = 0.36
+    ramp.inputs['From Max'].default_value = 0.72
+    nt.links.new(nz.outputs['Fac'], ramp.inputs['Value'])
+    mul = nt.nodes.new('ShaderNodeMath')
+    mul.operation = 'MULTIPLY'
+    mul.inputs[1].default_value = strength
+    nt.links.new(ramp.outputs['Result'], mul.inputs[0])
+    b.inputs['Base Color'].default_value = (0.01, 0.05, 0.06, 1)
+    key = 'Emission Color' if 'Emission Color' in b.inputs else 'Emission'
+    b.inputs[key].default_value = (*colour, 1)
+    nt.links.new(mul.outputs['Value'], b.inputs['Emission Strength'])
+    b.inputs['Roughness'].default_value = 0.3
+    return m
+
+
+# the lagoon runs right up to the sand (it stopped short, and the dark sea showed as a black band)
+lagoon = ring_between('lagoon', coast['1.26'], coast['1'], -0.31, -0.31, shallows())
+_shore = lagoon.data.attributes.new('shore', 'FLOAT', 'POINT')
+for _i in range(len(lagoon.data.vertices)):
+    _shore.data[_i].value = 0.0 if _i < len(coast['1.26']) else 1.0
+# one soft line of surf off the beach, rising and falling along it; no reef line (both read as drawn contours)
+tube('foam', [(x, y, -0.28) for (x, y) in coast['1.03']] + [coast['1.03'][0] + (-0.28,)], 0.06, broken('foam', (0.85, 0.93, 1.0), 1.0, 0.7))
 ring_between('beach', coast['1'], coast['0.95'], -0.3, 0.0, kit.sand())
 slab_from('land', coast['0.95'], -0.3, 0.0, kit.lawn())
 # the island's own growth: shrubs everywhere the town is not, thicker toward the shore
@@ -181,6 +240,9 @@ def pool(p):
         return
     slab_from('water', pts, ZP - 0.02, ZP + 0.035, kit.water(col))
     (tube('coping', [(x, y, ZP + 0.06) for (x, y) in pts] + [pts[0] + (ZP + 0.06,)], 0.07, kit.stone()))
+    # the pool's own light spills its colour over the coping and the lawn round it, as a lit pool does at night
+    # set just under the surface, so the water never mirrors it as a white spot
+    light('POINT', 'pool glow', (pl['cx'], pl['cy'], ZP - 0.05), 18 + 6 * pl['rw'] * pl['rd'], kit.lin(kit.hexrgb(col)), shadow=False, soft=0.6)
     if pl['lanes']:
         x0, x1 = pl['cx'] - pl['rw'] / 2, pl['cx'] + pl['rw'] / 2
         y0 = pl['cy'] - pl['rd'] / 2
@@ -189,7 +251,7 @@ def pool(p):
             for j in range(int(pl['rw'] / 0.16)):
                 xx = x0 + 0.08 + j * 0.16
                 sphere('float', xx, yy, ZP + 0.07, 0.035, kit.mat('float red', (0.8, 0.12, 0.08), rough=0.4) if (j // 3) % 2 else kit.mat('float white', (0.9, 0.9, 0.88), rough=0.4), seg=6)
-        sphere('buoy', x0 + pl['rw'] * 0.55, pl['cy'] + 0.5, ZP + 0.1, 0.12, kit.glow((1.0, 0.75, 0.2), 6.0, 'buoy'), seg=12)
+        sphere('buoy', x0 + pl['rw'] * 0.55, pl['cy'] + 0.5, ZP + 0.1, 0.12, kit.glow((1.0, 0.75, 0.2), 2.5, 'buoy'), seg=12)
     if pl['jet']:
         tube('jet', [(pl['cx'], pl['cy'], ZP + 0.05), (pl['cx'], pl['cy'], ZP + 1.3)], 0.04, kit.glow((1.0, 0.85, 0.5), 8.0, 'jet'))
         for i in range(10):
@@ -211,7 +273,7 @@ for p in plots:
     if p['garden']:
         stones(p['garden'])
     if p['kind'] == 'room':
-        patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'])
+        patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
     A = art.get(p['mural']) if p['mural'] else None
     tops[p['id']] = buildings.BUILDERS[p['piece']](p, A)
     print('built', p['id'], p['piece'])
@@ -238,8 +300,20 @@ world = bpy.data.worlds.new('night')
 scene.world = world
 world.use_nodes = True
 bg = next(n for n in world.node_tree.nodes if n.type == 'BACKGROUND')
-bg.inputs['Color'].default_value = (*kit.lin(kit.BG), 1)
 bg.inputs['Strength'].default_value = 1.0
+# the night: the sheet's own dark overhead, a little lighter and bluer at the horizon
+_wt = world.node_tree
+_tc = _wt.nodes.new('ShaderNodeTexCoord')
+_sep = _wt.nodes.new('ShaderNodeSeparateXYZ')
+_wt.links.new(_tc.outputs['Generated'], _sep.inputs['Vector'])
+_sky = _wt.nodes.new('ShaderNodeValToRGB')
+_sky.color_ramp.interpolation = 'EASE'
+_sky.color_ramp.elements[0].position = 0.0
+_sky.color_ramp.elements[0].color = (0.018, 0.034, 0.06, 1)
+_sky.color_ramp.elements[1].position = 0.35
+_sky.color_ramp.elements[1].color = (*kit.lin(kit.BG), 1)
+_wt.links.new(_sep.outputs['Z'], _sky.inputs['Fac'])
+_wt.links.new(_sky.outputs['Color'], bg.inputs['Color'])
 
 # ---------- camera ----------
 cam = bpy.data.cameras.new('cam')
@@ -260,18 +334,11 @@ if MODE == 'island':
 else:
     pid = MODE.split(':', 1)[1]
     p = next(q for q in plan['plots'] if q['id'] == pid)
-    top = tops.get(pid, 4.0)
     cam.sensor_fit = 'VERTICAL'
-    if MODE.startswith('close:'):
-        cam.ortho_scale = max(7.0, top * 1.05 + 4.2)
-        look = V(p['X'] + 1.7, p['Y'] + 1.5, top * 0.48)
-        scene.render.resolution_x = round(1000 * SCALE)
-        scene.render.resolution_y = round(1250 * SCALE)
-    else:
-        cam.ortho_scale = 12.5
-        look = V(p['x0'] + PW / 2, p['y0'] + PD / 2, 2.2)
-        scene.render.resolution_x = round(900 * SCALE)
-        scene.render.resolution_y = round(900 * SCALE)
+    cam.ortho_scale = 12.5
+    look = V(p['x0'] + PW / 2, p['y0'] + PD / 2, 2.2)
+    scene.render.resolution_x = round(900 * SCALE)
+    scene.render.resolution_y = round(900 * SCALE)
 co.location = look + forward_back * 200
 scene.camera = co
 

@@ -5,7 +5,7 @@
 import math, random
 import bpy, bmesh
 from mathutils import Vector
-from kit import (V, box, cyl, sphere, tube, mesh, bilinear, rects, slab_from, wrap_art, wrap_drum, walls_art, light, ladder, put, inked,
+from kit import (AMBER, V, box, cyl, sphere, tube, mesh, bilinear, rects, slab_from, wrap_art, wrap_drum, walls_art, light, ladder, put, inked,
                  mat, glow, glass, dark_glass, cream, brass, basalt, stone, thatch, tin, wood, bamboo, shell, painted, terrazzo, paving,
                  hexrgb, lin, WARM, CREAM)
 
@@ -21,7 +21,9 @@ def _art_block(name, x, y, z, w, d, h, A, top=None, rot=0.0):
 
 def _door(x, y, z, w, h, lit=False, face='L'):
     """A door on a wall's face: 'L' faces the sheet's lower left (site +y), 'R' the lower right (site +x)."""
-    m = glow(WARM, 6.0, 'door glow') if lit else mat('door', (0.03, 0.03, 0.035), rough=0.4)
+    # warm amber, not white: a lit room seen through a door (at 6 it burned out to a blank panel)
+    # its own glow on a dark base, so a portrait's key light cannot wash it to white either
+    m = mat('door glow', (0.05, 0.03, 0.015), rough=0.3, emit=AMBER, strength=1.6) if lit else mat('door', (0.03, 0.03, 0.035), rough=0.4)
     if face == 'L':
         box('door', x, y - 0.02, z, w, 0.05, h, m)
     else:
@@ -29,7 +31,7 @@ def _door(x, y, z, w, h, lit=False, face='L'):
 
 
 def _window(x, y, z, w, h, face='L', lit=True):
-    m = glow(WARM, 5.0, 'window glow') if lit else dark_glass()
+    m = mat('window glow', (0.05, 0.03, 0.015), rough=0.3, emit=AMBER, strength=1.5) if lit else dark_glass()
     if face == 'L':
         box('window', x, y - 0.015, z, w, 0.04, h, m)
     else:
