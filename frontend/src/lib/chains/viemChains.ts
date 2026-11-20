@@ -7,10 +7,13 @@
 
 import { fallback, http } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
+// By name: zoraTestnet and wanchainTestnet also use chain id 999.
+import { hyperEvm } from 'viem/chains';
 import { defineChain, type Chain } from 'viem';
 import type { Transport } from 'viem';
 import { fetchWholeBody } from '../fetchWholeBody';
 import { CONFIGURED_CHAIN_IDS } from './registry';
+import { HYPEREVM_CHAIN_ID, HYPEREVM_RPCS, hyperEvmLive } from './hyperEvm';
 
 /**
  * Robinhood Chain (4663) — Arbitrum Orbit, ETH gas, Blockscout explorer. Not in
@@ -43,6 +46,7 @@ const VIEM_CHAINS: Record<number, Chain> = {
   [mainnet.id]: { ...mainnet, rpcUrls: { ...mainnet.rpcUrls, default: { http: [MAINNET_RPC] } } },
   [base.id]: base,
   [robinhoodChain.id]: robinhoodChain,
+  [hyperEvm.id]: hyperEvm,
 };
 
 // viem's ranker pings net_listening every 4s at every endpoint. mainnet.base.org (403) and
@@ -98,7 +102,18 @@ const TRANSPORTS: Record<number, Transport> = {
     ],
     { rank: RANK_OPTIONS },
   ),
+  // The public endpoint -32601s net_listening, as Robinhood's does; drpc answers both.
+  [hyperEvm.id]: fallback(HYPEREVM_RPCS.map(rpc), { rank: RANK_OPTIONS }),
 };
+
+/**
+ * The chain ids wagmi serves: the registry's, then HyperEVM once its venue is deployed
+ * (chains/hyperEvm.ts). Until then no wallet is offered chain 999 and no read reaches it.
+ */
+export function wagmiChainIds(hyperEvmOn: boolean = hyperEvmLive()): readonly number[] {
+  return hyperEvmOn ? [...CONFIGURED_CHAIN_IDS, HYPEREVM_CHAIN_ID] : CONFIGURED_CHAIN_IDS;
+}
+const SERVED_IDS = wagmiChainIds();
 
 /**
  * The chains wagmi serves, in registry order — derived, not restated. A registry
@@ -106,7 +121,7 @@ const TRANSPORTS: Record<number, Transport> = {
  * module load, where CI sees it, rather than at first wallet connect.
  */
 export const WAGMI_CHAINS: readonly [Chain, ...Chain[]] = (() => {
-  const chains = CONFIGURED_CHAIN_IDS.map((id) => {
+  const chains = SERVED_IDS.map((id) => {
     const chain = VIEM_CHAINS[id];
     if (!chain) throw new Error(`chains/viemChains.ts has no viem Chain for configured chain ${id}`);
     if (!TRANSPORTS[id]) throw new Error(`chains/viemChains.ts has no transport for configured chain ${id}`);
@@ -116,7 +131,7 @@ export const WAGMI_CHAINS: readonly [Chain, ...Chain[]] = (() => {
   return chains as unknown as readonly [Chain, ...Chain[]];
 })();
 
-export const WAGMI_TRANSPORTS: Record<number, Transport> = CONFIGURED_CHAIN_IDS.reduce(
+export const WAGMI_TRANSPORTS: Record<number, Transport> = SERVED_IDS.reduce(
   (acc, id) => {
     acc[id] = TRANSPORTS[id]!; // presence proven by the WAGMI_CHAINS IIFE above
     return acc;

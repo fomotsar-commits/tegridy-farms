@@ -7,8 +7,9 @@ import { SWAP_SECTION } from '../lib/navConfig';
 const TradePage = lazy(() => import('./TradePage'));
 const SolanaSwapPage = lazy(() => import('./SolanaSwapPage'));
 const CardanoSwapPage = lazy(() => import('./CardanoSwapPage'));
+const HyperEvmSwapPage = lazy(() => import('./HyperEvmSwapPage'));
 
-const PANELS: Record<string, typeof TradePage> = { '/swap': TradePage, '/solana': SolanaSwapPage, '/cardano': CardanoSwapPage };
+const PANELS: Record<string, typeof TradePage> = { '/swap': TradePage, '/solana': SolanaSwapPage, '/cardano': CardanoSwapPage, '/hyperevm': HyperEvmSwapPage };
 
 /**
  * The Swap section: Ethereum, Solana, and Cardano once opened. ONE switcher between them, the ChainSwitch in

@@ -5,6 +5,7 @@ import { liquidityVenueOn } from './chains/liquidityVenue';
 import { curveLauncherOn } from './launcher/curve';
 // Plain text only: whether the Cardano swap or pools are shown, without loading any Cardano code.
 import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
+import { HYPEREVM_CHAIN_ID, HYPEREVM_NAME, hyperEvmLive } from './chains/hyperEvm';
 
 /**
  * The four networks the venue runs on, and which tab of Swap, Pools and Launch serves which
@@ -15,7 +16,7 @@ import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
  * Every "serves" below is read from the registry the page itself reads, never typed: a chain
  * whose launcher or router is not deployed drops out of the drop-down with it.
  */
-export type VenueChain = 'ethereum' | 'base' | 'robinhood' | 'solana' | 'cardano';
+export type VenueChain = 'ethereum' | 'base' | 'robinhood' | 'hyperevm' | 'solana' | 'cardano';
 
 export interface VenueChainInfo {
   id: VenueChain;
@@ -34,6 +35,8 @@ export const VENUE_CHAINS: readonly VenueChainInfo[] = [
   { id: 'solana', name: 'Solana', short: 'Solana', evmChainId: null },
   { id: 'base', name: 'Base', short: 'Base', evmChainId: 8453 },
   { id: 'robinhood', name: 'Robinhood Chain', short: 'Robinhood', evmChainId: 4663 },
+  // Our own Uniswap V3 pools: listed only once every address is deployed (lib/chains/hyperEvm.ts).
+  ...(hyperEvmLive() ? [{ id: 'hyperevm' as const, name: HYPEREVM_NAME, short: HYPEREVM_NAME, evmChainId: HYPEREVM_CHAIN_ID }] : []),
   ETHEREUM,
   // Cardano (owner, 2026-10-24: "cardano integrated in every aspect") is listed only once its
   // swap or its pools are shown (lib/cardano/flags.ts), so until then no drop-down carries a greyed row for it.
@@ -90,6 +93,10 @@ export function tabChains(to: string): TabChains {
     case '/cardano':
     case '/cardano-pools':
       return ['cardano'];
+    // Our own Uniswap V3 pools on HyperEVM: the swap, and the pools with your positions.
+    case '/hyperevm':
+    case '/hyperevm-pools':
+      return ['hyperevm'];
     default:
       return 'any';
   }
