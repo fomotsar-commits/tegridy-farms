@@ -13,7 +13,13 @@ building opens its close-up. This folder makes those pictures.
   lamps, the art wrap). Everything takes the site's coordinates; Blender's world is the site's with
   y turned over, because the site's axonometric is a mirror of a real camera's view.
 - `buildings.py`: the twenty buildings, one idea each, every room's wrapped in its own picture.
-- `island.py`: builds the island from `plan.json` and renders one frame.
+- `island.py`: builds the island from `plan.json` and renders one frame. A close-up is a portrait:
+  a 35 mm camera at eye height, from the corner the building's art wraps round, with a warm key light
+  on the art and a cool rim light behind. Whatever stands between that camera and the building (a
+  neighbour, a palm, a lamp, its own garden corner) is left out of that frame; what stands behind it
+  stays, softly out of focus. The drawing set's cream line is drawn on the island only.
+- Each room's garden corner is one of four, by its id: a parasol over loungers, a fire pit with log
+  stools, a daybed under a canopy in its pool's colour, or a hammock.
 - `grade.py`: a soft glow round the brightest lights and a light vignette.
 - `render_all.py`: renders the island and every close-up and writes them to `frontend/public/city/`.
 
@@ -30,7 +36,8 @@ python render_all.py
 
 Blender 5.0 runs headless (`-b`), so nothing needs to be open. Set `BLENDER` to its exe if it is not
 at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs Pillow and NumPy.
-The island takes a few minutes; each close-up about a minute.
+The island takes a few minutes; each close-up one to three minutes. Write test frames to an absolute
+path: Blender reads a relative one from its own working folder.
 
 One plot alone, to work on a building: `blender -b --factory-startup --python island.py -- plate:<plotId> out/plate.png 0.6 16`.
 

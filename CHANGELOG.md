@@ -7,9 +7,13 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-19
+### 2026-11-20
 
 - Solana swap: a new VWAP tab. Pick a total, a time (1 hour to 1 day), how many slices, and a price limit against the pair's 24h average traded price (0.5%, 1% or 3%). The page buys or sells one slice at a time, bigger slices in the hours the pair usually trades most, and a slice whose price is past your limit waits and tries again each minute; what it does not spend goes with the next slice. Each slice is an ordinary Instant swap through Jupiter that your wallet approves, with the usual platform fee, so the money stays in your wallet and the page must stay open. Stop ends it at any time; a slice approved after Stop, or more than 45 seconds after it was asked, is not sent.
+
+### 2026-11-19
+
+- The city, rendered again: each building's close-up is now taken at eye height, its art facing you. The island at night has pools that read as water, lamps that light the street, a lagoon that deepens from the shore, and a different garden corner at each bungalow.
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
 - The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
