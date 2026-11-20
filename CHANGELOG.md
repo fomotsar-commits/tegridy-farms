@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-20
+
+- The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
+
 ### 2026-11-19
 
 - The city, rendered again: each building's close-up is now taken at eye height, its art facing you. The island at night has pools that read as water, lamps that light the street, a lagoon that deepens from the shore, and a different garden corner at each bungalow.

@@ -13,11 +13,17 @@ building opens its close-up. This folder makes those pictures.
   lamps, the art wrap). Everything takes the site's coordinates; Blender's world is the site's with
   y turned over, because the site's axonometric is a mirror of a real camera's view.
 - `buildings.py`: the twenty buildings, one idea each, every room's wrapped in its own picture.
-- `island.py`: builds the island from `plan.json` and renders one frame. A close-up is a portrait:
-  a 35 mm camera at eye height, from the corner the building's art wraps round, with a warm key light
-  on the art and a cool rim light behind. Whatever stands between that camera and the building (a
-  neighbour, a palm, a lamp, its own garden corner) is left out of that frame; what stands behind it
-  stays, softly out of focus. The drawing set's cream line is drawn on the island only.
+- `island.py`: builds the island from `plan.json` and renders it at night, with the drawing set's
+  cream line on the architecture.
+- `maquette.py`: a building's close-up, as an architect's model. It builds the plot with the
+  island's own builders, then swaps every material for a model maker's (basswood, white card, cork,
+  walnut, brass, gloss resin pools in each community's colour), lays the room's art as glazed tile
+  (each tile takes the picture's colour under its centre), sets the plot on a cut block and a black
+  plinth with three white figures for scale, and shoots it in Cycles at eye level: a 50 mm lens
+  framed to the building's own size, from the corner its art wraps round, under a warm gallery spot,
+  a cool rim light, and a blue-hour wall behind. Whatever stands between the camera and the
+  building (a palm, a lamp, its garden corner) is left out. Colour is kept for the art and the
+  money; the rest is pale model stock.
 - Each room's garden corner is one of four, by its id: a parasol over loungers, a fire pit with log
   stools, a daybed under a canopy in its pool's colour, or a hammock.
 - `grade.py`: a soft glow round the brightest lights and a light vignette.
@@ -36,10 +42,12 @@ python render_all.py
 
 Blender 5.0 runs headless (`-b`), so nothing needs to be open. Set `BLENDER` to its exe if it is not
 at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs Pillow and NumPy.
-The island takes a few minutes; each close-up one to three minutes. Write test frames to an absolute
-path: Blender reads a relative one from its own working folder.
+The island takes a few minutes; each close-up one to two minutes (Cycles, on the CPU of an 18-thread
+PC). Write test frames to an absolute path: Blender reads a relative one from its own working folder.
 
-One plot alone, to work on a building: `blender -b --factory-startup --python island.py -- plate:<plotId> out/plate.png 0.6 16`.
+One close-up again: `python render_all.py <plotId>`. A quick look at one (a third of the size, few
+samples): `blender -b --factory-startup --python maquette.py -- <plotId> <absolute out.png> 0.35 24`.
+One plot alone on the island, to work on a building: `blender -b --factory-startup --python island.py -- plate:<plotId> out/plate.png 0.6 16`.
 
 If a building's height changes, change its number in `PIECE_TOP` (`frontend/src/lib/city/render.ts`):
 its plaque hangs there, and a press reaches up to it.
