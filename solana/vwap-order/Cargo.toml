@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["programs/vwap-order"]
+
+# Its own workspace and lock, so nothing here can move a crate the live programs in
+# solana/tegridy-amm build with. The lock started as a copy of theirs.
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
