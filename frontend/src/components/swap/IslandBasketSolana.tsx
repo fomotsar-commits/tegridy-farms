@@ -322,7 +322,7 @@ export function IslandBasketSolana(p: {
         {
           getQuote: pinnedGetQuote(quoteForPress, leg.coin),
           buildSwapTransaction: pressBuild,
-          simulateSwap: (b64) => simulateSwap(b64),
+          simulateSwap: (b64, shown) => simulateSwap(b64, shown),
           swapCarriesPlatformFee,
           ownPools,
         },

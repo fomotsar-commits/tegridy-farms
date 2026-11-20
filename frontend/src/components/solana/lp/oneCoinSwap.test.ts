@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
+import { OTHER_TRADE_COPY } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { JupiterTxRefused } from '../../../lib/solana/swap/jupiterTxGuard';
 import { priceChangeOf, readStepTwo, saveStepTwo, sendJupiterLeg, stepOneLanded, type JupiterLegDeps } from './oneCoinSwap';
 
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -169,8 +171,9 @@ describe('sendJupiterLeg', () => {
 
   it('a review shown on a no-fee quote is not called "price moved" for the site fee alone', async () => {
     // Shown: no fee, 10,050. Fresh, fee-bearing: 10,000, about 0.5% under it, past a 0.10% slippage.
-    const shown = quote({ outAmount: '10050000000', platformFee: null });
-    const { d } = deps({ simulateSwap: vi.fn(async () => OK) });
+    const shown = quote({ outAmount: '10050000000', platformFee: null, slippageBps: 10 });
+    // Jupiter's fresh quote echoes the slippage asked for, as every real answer does.
+    const { d } = deps({ getQuote: vi.fn(async () => quote({ slippageBps: 10 })), simulateSwap: vi.fn(async () => OK) });
     const end = await sendJupiterLeg(d, { ...ARGS, shown, slippageBps: 10 });
     expect(end.kind === 'not-sent' && end.title).not.toBe('Price moved');
     // The fee can be taken now: that pays less than the review said, so it is shown again, not sent.
@@ -214,6 +217,29 @@ describe('sendJupiterLeg', () => {
     const { d } = deps({ getQuote: vi.fn(async () => quote({ outAmount: '9800000000' })) });
     const end = await sendJupiterLeg(d, ARGS);
     expect(end).toMatchObject({ kind: 'not-sent', title: 'Price moved', replan: true });
+    expect(d.send).not.toHaveBeenCalled();
+  });
+
+  it('a fresh quote for another trade ends "Not sent" in its own words: nothing built, no test run, the wallet not asked (XCHL-02)', async () => {
+    // It pays under the review's floor: read before it was held, it said "Price moved".
+    const { d } = deps({ getQuote: vi.fn(async () => quote({ inAmount: '99900000000', outAmount: '1' })) });
+    const end = await sendJupiterLeg(d, ARGS);
+    expect(end).toEqual({ kind: 'not-sent', title: 'Not sent', message: OTHER_TRADE_COPY });
+    expect(d.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(d.simulateSwap).not.toHaveBeenCalled();
+    expect(d.send).not.toHaveBeenCalled();
+    // On a pair with no site fee our pool would take it on its figure: never asked, never "Route changed".
+    const other = deps({ getQuote: vi.fn(async () => quote({ inAmount: '99900000000' })), swapCarriesPlatformFee: vi.fn(() => false), ownPoolWins: vi.fn(async () => true) });
+    expect(await sendJupiterLeg(other.d, ARGS)).toEqual({ kind: 'not-sent', title: 'Not sent', message: OTHER_TRADE_COPY });
+    expect(other.d.ownPoolWins).not.toHaveBeenCalled();
+    expect(other.d.send).not.toHaveBeenCalled();
+  });
+
+  it('a transaction the check refuses is said in the check’s own words, never as one that could not be fetched', async () => {
+    const refused = new JupiterTxRefused('the swap sells a different amount than shown');
+    const { d } = deps({ buildSwapTransaction: vi.fn(async () => Promise.reject(refused)) });
+    const end = await sendJupiterLeg(d, ARGS);
+    expect(end).toEqual({ kind: 'not-sent', title: 'Not sent', message: refused.message });
     expect(d.send).not.toHaveBeenCalled();
   });
 });

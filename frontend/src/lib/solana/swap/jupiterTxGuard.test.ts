@@ -5,9 +5,13 @@
 import { describe, it, expect } from 'vitest';
 import { base58 } from '@scure/base';
 import { Message, PublicKey, VersionedTransaction } from '@solana/web3.js';
-import { JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, jupiterTxRefusal, type JupiterTxExpectation } from './jupiterTxGuard';
+import { NATIVE_MINT, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
-  LIVE_USER, RECURRING_CREATE, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
+  JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, ROUTE_RENT_CAP_LAMPORTS, balanceRefusal, jupiterTxRefusal, type JupiterTxExpectation,
+} from './jupiterTxGuard';
+import {
+  LIVE_USER, RECURRING_CREATE, RUN_SHARED_SOL_BAYLA, RUN_SOL_BAYLA, SWAP_SHARED_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SOL_USDC, SWAP_USDC_SOL, TRIGGER_CREATE,
+  TRIGGER_CREATE_EXPIRING,
 } from './__fixtures__/jupiterLive';
 
 // SECURITY REGRESSION — what a Jupiter-built Solana transaction may contain.
@@ -33,17 +37,21 @@ const recurringExpect = (over = {}): JupiterTxExpectation =>
 interface Ix { programIdIndex: number; accountKeyIndexes: number[]; data: Uint8Array }
 interface View { keys: string[]; ixs: Ix[]; header: { numRequiredSignatures: number } }
 
-/** Re-encode a transaction after `f` edits its instructions (v0 and legacy alike). */
+/** Re-encode a transaction after `f` edits its instructions, or swaps a key in place (v0 and legacy alike). */
 function edit(b64: string, f: (v: View) => void): string {
   const tx = VersionedTransaction.deserialize(Buffer.from(b64, 'base64'));
   const m = tx.message;
   if (m instanceof Message) {
     const ixs: Ix[] = m.instructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accounts], data: base58.decode(i.data) }));
-    f({ keys: m.accountKeys.map((k) => k.toBase58()), ixs, header: m.header });
+    const v = { keys: m.accountKeys.map((k) => k.toBase58()), ixs, header: m.header };
+    f(v);
+    m.accountKeys = v.keys.map((k) => new PublicKey(k));
     m.instructions = ixs.map((i) => ({ programIdIndex: i.programIdIndex, accounts: i.accountKeyIndexes, data: base58.encode(i.data) }));
   } else {
     const ixs = m.compiledInstructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accountKeyIndexes], data: Uint8Array.from(i.data) }));
-    f({ keys: m.staticAccountKeys.map((k) => k.toBase58()), ixs, header: m.header });
+    const v = { keys: m.staticAccountKeys.map((k) => k.toBase58()), ixs, header: m.header };
+    f(v);
+    m.staticAccountKeys = v.keys.map((k) => new PublicKey(k));
     m.compiledInstructions = ixs;
   }
   return Buffer.from(new VersionedTransaction(m).serialize()).toString('base64');
@@ -52,6 +60,12 @@ const find = (v: View, program: string, nth = 0): Ix => v.ixs.filter((i) => v.ke
 const keyIndex = (v: View, key: string): number => v.keys.indexOf(key);
 const putU64 = (d: Uint8Array, at: number, n: bigint) => new DataView(d.buffer, d.byteOffset).setBigUint64(at, n, true);
 const putU16 = (d: Uint8Array, at: number, n: number) => new DataView(d.buffer, d.byteOffset).setUint16(at, n, true);
+/** System `transfer` of `lamports` from key `from` to key `to`: the wrap Jupiter puts before a swap that sells SOL. */
+const transfer = (v: View, from: string, to: string, lamports: bigint): Ix => {
+  const data = new Uint8Array(12); data[0] = 2; putU64(data, 4, lamports);
+  return { programIdIndex: keyIndex(v, SYSTEM), accountKeyIndexes: [keyIndex(v, from), keyIndex(v, to)], data };
+};
+const WSOL_ATA = getAssociatedTokenAddressSync(NATIVE_MINT, new PublicKey(LIVE_USER), true).toBase58();
 
 describe('the live Jupiter transactions pass', () => {
   for (const [name, fx] of Object.entries({ SWAP_SOL_USDC, SWAP_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SHARED_SOL_BAYLA })) {
@@ -196,6 +210,134 @@ describe('a tampered swap is refused', () => {
   });
 });
 
+describe('the swap sells only from the user’s own account of the coin sold (XCHL-01)', () => {
+  // route_v2 names the account it sells from at 1 and pays into at 2; the shared form at 2 and 5.
+  const captures = { SWAP_SOL_USDC, SWAP_USDC_SOL, SWAP_SOL_BAYLA, SWAP_SHARED_USDC_SOL, SWAP_SHARED_SOL_BAYLA };
+  for (const [name, fx] of Object.entries(captures)) {
+    const shared = name.startsWith('SWAP_SHARED');
+    it(`${name}: the user’s account of another coin (here the coin bought) as the source is refused`, () => {
+      const b64 = edit(fx.tx, (v) => { const j = find(v, JUPITER_SWAP_PROGRAM); j.accountKeyIndexes[shared ? 2 : 1] = j.accountKeyIndexes[shared ? 5 : 2]!; });
+      expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/sells from an account that is not your account of the coin shown/);
+    });
+    it(`${name}: a source loaded from a lookup table is refused`, () => {
+      const b64 = edit(fx.tx, (v) => { find(v, JUPITER_SWAP_PROGRAM).accountKeyIndexes[shared ? 2 : 1] = v.keys.length; });
+      expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/sells from an account that is not your account of the coin shown/);
+    });
+  }
+});
+
+describe('the test run holds the payer’s balances to the trade shown (XCHL-01, second fence)', () => {
+  type Row = { accountIndex: number; mint: string; owner: string; uiTokenAmount: { amount: string } };
+  type Run = { fee: number; preBalances: number[]; postBalances: number[]; preTokenBalances: Row[]; postTokenBalances: Row[] };
+  const SOL = SWAP_SOL_BAYLA.quote.inputMint;
+  const USDC = SWAP_SOL_USDC.quote.outputMint;
+  const SOLD = { user: LIVE_USER, inputMint: SOL, inAmount: SWAP_SOL_BAYLA.quote.inAmount };
+  const copy = (r: Run): Run => JSON.parse(JSON.stringify(r));
+  /** The run with account `i` holding `before`, then `after`, of `mint` for `owner`. */
+  const holding = (r: Run, i: number, mint: string, before: string, after: string, owner = LIVE_USER): Run => {
+    const c = copy(r);
+    c.preTokenBalances.push({ accountIndex: i, mint, owner, uiTokenAmount: { amount: before } });
+    c.postTokenBalances.push({ accountIndex: i, mint, owner, uiTokenAmount: { amount: after } });
+    return c;
+  };
+
+  it('the real runs pass: route_v2 with the rent of the record its exchange opens, and the shared form', () => {
+    expect(balanceRefusal(RUN_SOL_BAYLA, SOLD)).toBeNull();
+    expect(balanceRefusal(RUN_SHARED_SOL_BAYLA, SOLD)).toBeNull();
+  });
+
+  it('one lamport past the amount sold, the network fee and that rent is refused', () => {
+    const r = copy(RUN_SOL_BAYLA);
+    r.postBalances[0] -= 1;
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('a coin the payer is not selling, taken from an account loaded from the lookup table, is refused', () => {
+    // Index 13 is a writable account loaded from the transaction's lookup table: the transaction check cannot read it.
+    expect(balanceRefusal(holding(RUN_SOL_BAYLA, 13, USDC, '10000000000', '0'), SOLD)).toMatch(/takes a coin you are not selling/);
+    expect(balanceRefusal(holding(RUN_SOL_BAYLA, 13, USDC, '10000000000', '10000000000'), SOLD)).toBeNull();
+  });
+
+  it('of the coin sold, exactly the amount shown passes and one unit more is refused', () => {
+    const usdcSale = { user: LIVE_USER, inputMint: USDC, inAmount: '5000000' };
+    const base: Run = { fee: 5000, preBalances: [1_000_000_000, 2_039_280], postBalances: [999_995_000, 2_039_280], preTokenBalances: [], postTokenBalances: [] };
+    expect(balanceRefusal(holding(base, 1, USDC, '9000000', '4000000'), usdcSale)).toBeNull();
+    expect(balanceRefusal(holding(base, 1, USDC, '9000000', '3999999'), usdcSale)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('the payer’s new account of the coin bought, handed to another owner, is refused: its rent is not an exchange’s record', () => {
+    const r = copy(RUN_SOL_BAYLA);
+    r.postTokenBalances.find((b) => b.accountIndex === 3)!.owner = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('rent for accounts the route opens is room up to 0.005 SOL in one run, never past it', () => {
+    const sale = { user: LIVE_USER, inputMint: SOL, inAmount: '1000' };
+    // `was`: what the account held before the run, when someone sent its address SOL first.
+    const opens = (rent: bigint, was = 0): Run => ({
+      fee: 5000, preBalances: [10_000_000_000, was], postBalances: [10_000_000_000 - 5000 - 1000 - (Number(rent) - was), Number(rent)], preTokenBalances: [], postTokenBalances: [],
+    });
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS), sale)).toBeNull();
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n), sale)).toMatch(/takes more than the amount shown/);
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS, 890_880), sale)).toBeNull();
+    expect(balanceRefusal(opens(ROUTE_RENT_CAP_LAMPORTS + 1n, 890_880), sale)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('the exchange’s record of the wallet, sent SOL by someone first, is topped up from the payer: that is room too', () => {
+    // The chain leaves no less than 890,880 lamports at an empty address, so that is where the record starts.
+    const r = copy(RUN_SOL_BAYLA);
+    r.preBalances[4] = 890_880;
+    r.postBalances[0] += 890_880;
+    expect(balanceRefusal(r, SOLD)).toBeNull();
+    r.postBalances[0] -= 1;
+    expect(balanceRefusal(r, SOLD)).toMatch(/takes more than the amount shown/);
+  });
+
+  it('another account past 2^53 lamports (a large pool vault) is no reason to refuse; the payer’s own past it is no verdict', () => {
+    const huge = 2 ** 53 + 2;
+    const pool = copy(RUN_SOL_BAYLA);
+    pool.preBalances[15] = huge;
+    pool.postBalances[15] = huge;
+    expect(balanceRefusal(pool, SOLD)).toBeNull();
+    const payer = copy(RUN_SOL_BAYLA);
+    payer.postBalances[0] = huge;
+    expect(() => balanceRefusal(payer, SOLD)).toThrow(/balance could not be read/);
+  });
+
+  it('a run that gave no balances, or balances it cannot read, is no verdict: it throws', () => {
+    const { preBalances: _p, ...noLamports } = RUN_SOL_BAYLA;
+    expect(() => balanceRefusal(noLamports, SOLD)).toThrow(/gave no balances/);
+    expect(() => balanceRefusal({ ...RUN_SOL_BAYLA, fee: null }, SOLD)).toThrow();
+    expect(() => balanceRefusal({ ...RUN_SOL_BAYLA, postTokenBalances: [{ accountIndex: 3, mint: SOL }] }, SOLD)).toThrow(/token balance could not be read/);
+  });
+});
+
+describe('SOL is wrapped only when SOL is the coin sold (XCHL-01)', () => {
+  it('a swap that sells USDC refuses a wrap, even one no larger than the amount sold', () => {
+    const fx = SWAP_USDC_SOL;
+    const b64 = edit(fx.tx, (v) => {
+      // A key the check never reads (Jupiter's event authority) becomes the System program, so a wrap can be added.
+      v.keys[keyIndex(v, 'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf')] = SYSTEM;
+      v.ixs.unshift(transfer(v, LIVE_USER, WSOL_ATA, BigInt(fx.quote.inAmount)));
+    });
+    expect(jupiterTxRefusal(b64, swapExpect(fx))).toMatch(/wraps more SOL than the trade sells/);
+  });
+
+  it('a limit order funded with USDC refuses a wrap of its amount', () => {
+    const b64 = edit(TRIGGER_CREATE.tx, (v) => { v.ixs.push(transfer(v, LIVE_USER, WSOL_ATA, BigInt(TRIGGER_CREATE.makingAmount))); });
+    expect(jupiterTxRefusal(b64, triggerExpect())).toMatch(/wraps more SOL than the trade sells/);
+  });
+
+  it('a recurring buy funded with USDC refuses a wrap of its deposit', () => {
+    const b64 = edit(RECURRING_CREATE.tx, (v) => {
+      // The order's own deposit account (unread by the check) becomes the user's wrapped-SOL account.
+      v.keys[find(v, JUPITER_RECURRING_PROGRAM).accountKeyIndexes[6]!] = WSOL_ATA;
+      v.ixs.push(transfer(v, LIVE_USER, WSOL_ATA, BigInt(RECURRING_CREATE.inAmount)));
+    });
+    expect(jupiterTxRefusal(b64, recurringExpect())).toMatch(/wraps more SOL than the trade sells/);
+  });
+});
+
 describe('a tampered limit order is refused', () => {
   const ix = (v: View) => find(v, JUPITER_TRIGGER_PROGRAM);
   it('different amounts than shown', () => {
@@ -211,6 +353,52 @@ describe('a tampered limit order is refused', () => {
   });
 });
 
+describe('a limit order’s fields after its two amounts are read (XCHL-05)', () => {
+  const ix = (v: View) => find(v, JUPITER_TRIGGER_PROGRAM);
+  /** The real order, with every field after the amounts replaced by `tail`. */
+  const withTail = (tail: number[]) => edit(TRIGGER_CREATE.tx, (v) => { const j = ix(v); j.data = Uint8Array.from([...j.data.subarray(0, 32), ...tail]); });
+  const some16 = (n: number) => [1, n & 0xff, n >> 8];
+  const NO_EXPIRY = [0];
+  const NO_FEE = [0];
+  const SLIPPAGE_0 = some16(0);
+  const SEVENTH = [1, 0, 0, 0, 0, 0, 0, 0, 0];
+
+  it('the real orders pass: no expiry, and a 7-day expiry held to the one asked for', () => {
+    expect(withTail([...NO_EXPIRY, ...NO_FEE, ...SLIPPAGE_0, ...SEVENTH])).toBe(TRIGGER_CREATE.tx);
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect({ ...TRIGGER_CREATE_EXPIRING }))).toBeNull();
+  });
+
+  it('an expiry other than the one asked for is refused, and so is one where none was asked, or none where one was', () => {
+    const at = TRIGGER_CREATE_EXPIRING.expiredAt;
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect({ ...TRIGGER_CREATE_EXPIRING, expiredAt: at + 1 }))).toMatch(/expires at a different time/);
+    expect(jupiterTxRefusal(TRIGGER_CREATE_EXPIRING.tx, triggerExpect())).toMatch(/expires at a different time/);
+    expect(jupiterTxRefusal(TRIGGER_CREATE.tx, triggerExpect({ expiredAt: at }))).toMatch(/expires at a different time/);
+  });
+
+  it.each([1, 10, 81, 9_999])('a fee of %s basis points is refused', (bps) => {
+    expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...some16(bps), ...SLIPPAGE_0, ...SEVENTH]), triggerExpect())).toMatch(/carries a fee/);
+  });
+
+  it('a slippage of none passes; any other than 0 is refused', () => {
+    expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...NO_FEE, 0, ...SEVENTH]), triggerExpect())).toBeNull();
+    for (const bps of [1, 100, 10_000, 65_535]) {
+      expect(jupiterTxRefusal(withTail([...NO_EXPIRY, ...NO_FEE, ...some16(bps), ...SEVENTH]), triggerExpect())).toMatch(/worse price than shown/);
+    }
+  });
+
+  it('a referral account in its slot is refused (unset is the program’s own id)', () => {
+    const b64 = edit(TRIGGER_CREATE.tx, (v) => { ix(v).accountKeyIndexes[6] = ix(v).accountKeyIndexes[4]!; });
+    expect(jupiterTxRefusal(b64, triggerExpect())).toMatch(/names a referral account/);
+  });
+
+  it('a seventh value other than real orders carry, or none, or anything after it, is refused', () => {
+    const head = [...NO_EXPIRY, ...NO_FEE, ...SLIPPAGE_0];
+    for (const tail of [[0], [1, 1, 0, 0, 0, 0, 0, 0, 0], [], [...SEVENTH, 0]]) {
+      expect(jupiterTxRefusal(withTail([...head, ...tail]), triggerExpect())).toMatch(/carries a value this site does not read/);
+    }
+  });
+});
+
 describe('a tampered recurring buy is refused', () => {
   const ix = (v: View) => find(v, JUPITER_RECURRING_PROGRAM);
   it('a larger deposit than shown', () => {
@@ -223,6 +411,15 @@ describe('a tampered recurring buy is refused', () => {
   it('funded from an account that is not the user’s', () => {
     const b64 = edit(RECURRING_CREATE.tx, (v) => { ix(v).accountKeyIndexes[5] = ix(v).accountKeyIndexes[0]; });
     expect(jupiterTxRefusal(b64, recurringExpect())).toMatch(/funded from an account that is not yours/);
+  });
+  it('a lowest or highest price, a start time, or anything after them is refused: the site asks for none', () => {
+    // The real buy, with every field after its schedule (min out, max out, start time) replaced by `tail`.
+    const withTail = (tail: number[]) => edit(RECURRING_CREATE.tx, (v) => { const j = ix(v); j.data = Uint8Array.from([...j.data.subarray(0, 40), ...tail]); });
+    const some = (n: bigint) => { const b = new Uint8Array(9); b[0] = 1; putU64(b, 1, n); return [...b]; };
+    expect(withTail([0, 0, 0])).toBe(RECURRING_CREATE.tx);
+    for (const tail of [[...some(1n), 0, 0], [0, ...some(10n ** 15n), 0], [0, 0, ...some(1_800_000_000n)], [0, 0, 0, 0], [0, 0], []]) {
+      expect(jupiterTxRefusal(withTail(tail), recurringExpect())).toMatch(/carries terms this site did not ask for/);
+    }
   });
 });
 

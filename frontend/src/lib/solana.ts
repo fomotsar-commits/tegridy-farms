@@ -35,13 +35,14 @@ export function solanaRpcEndpoint(): string {
   return `${origin}${SOLANA_RPC_PROXY_PATH}`;
 }
 
-// The platform fee accrues to a Tegridy-owned Solana associated token account
-// (ATA), ideally owned by a Squads multisig. OPERATOR: set the base58 pubkey of
-// that fee account in Vercel env as VITE_SOLANA_FEE_ACCOUNT. The Solana swap
-// surface stays gated until it's a non-empty value, then auto-un-gates —
-// mirroring isDeployed() for EVM contracts in constants.ts.
+/** The venue's vault (Squads vault 0, the registry's squads-vault): the only Solana fee owner. */
+export const SOLANA_FEE_OWNER = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+
+// The platform fee is paid to the fee owner's own token accounts. VITE_SOLANA_FEE_ACCOUNT must
+// name the vault: any other value, like none, takes no fee and the swap runs without one, as
+// lib/fees/swapFee.ts holds the Ethereum fee to its treasury Safe (scripts/verify-env.mjs says so).
 export const SOLANA_FEE_ACCOUNT =
-  (import.meta.env.VITE_SOLANA_FEE_ACCOUNT as string | undefined)?.trim() ?? '';
+  (import.meta.env.VITE_SOLANA_FEE_ACCOUNT as string | undefined)?.trim() === SOLANA_FEE_OWNER ? SOLANA_FEE_OWNER : '';
 
 // Platform fee in basis points (100 = 1.0%). Keep <= 100: above ~1% the quote
 // degrades vs free direct Jupiter and users bounce. Disclosed in the UI.

@@ -21,7 +21,7 @@ import {
   USDT_MINT,
 } from './solana';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
-import { JupiterTxRefused, jupiterTxRefusal, type JupiterTxExpectation } from './solana/swap/jupiterTxGuard';
+import { JupiterTxRefused, balanceRefusal, jupiterTxRefusal, type JupiterTxExpectation, type TradeShown } from './solana/swap/jupiterTxGuard';
 
 /** Every transaction Jupiter returns is read against the trade on screen before any caller can sign it. */
 function checked(b64: string, expect: JupiterTxExpectation): string {
@@ -488,11 +488,11 @@ export interface SwapSimulation {
 }
 
 /**
- * Pre-sign simulation of a built swap tx via our RPC proxy. Catches reverting
- * swaps (honeypots, freeze, slippage, insufficient balance) BEFORE the user
- * signs — saving gas. Best-effort: callers should FAIL OPEN if this throws.
+ * The test run of a built swap, through our RPC proxy, before the wallet sees it: a swap that
+ * would revert is not ok, and one that runs must move the payer's balances only as `shown`
+ * (balanceRefusal), or JupiterTxRefused is thrown. Any other throw is no verdict: not sent.
  */
-export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<SwapSimulation> {
+export async function simulateSwap(b64Tx: string, shown: TradeShown, signal?: AbortSignal): Promise<SwapSimulation> {
   const res = await fetch(SOLANA_RPC_PROXY_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -505,10 +505,14 @@ export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise
     signal,
   });
   if (!res.ok) throw new Error(`Simulation failed (${res.status})`);
-  const json = (await res.json()) as { result?: { value?: { err?: unknown; logs?: string[] } } };
+  const json = (await res.json()) as { result?: { value?: { err?: unknown; logs?: string[] } & Parameters<typeof balanceRefusal>[0] } };
   const value = json.result?.value;
   if (!value) throw new Error('No simulation result');
-  if (value.err === null || value.err === undefined) return { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  if (value.err === null || value.err === undefined) {
+    const why = balanceRefusal(value, shown);
+    if (why) throw new JupiterTxRefused(why);
+    return { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  }
   return {
     ok: false,
     reason: parseSimError(value.err, value.logs),
@@ -570,6 +574,8 @@ export async function createTriggerOrder(params: {
     outputMint: params.outputMint,
     makingAmount: params.makingAmount,
     takingAmount: params.takingAmount,
+    // Held to the expiry asked for above, and to none when none was asked.
+    ...(params.expiredAt ? { expiredAt: params.expiredAt } : {}),
     maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
   });
 }

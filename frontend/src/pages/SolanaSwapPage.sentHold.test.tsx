@@ -107,7 +107,8 @@ import {
   LOST_NO_SIGNATURE,
   nothingSentCopy,
 } from '../lib/solana/swap/walletCopy';
-import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, OTHER_TRADE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { JupiterTxRefused } from '../lib/solana/swap/jupiterTxGuard';
 import { JUPITER_WINDOW_BLOCKS } from '../lib/solana/swap/jupiterNote';
 import { notSignedCopy } from '../lib/solana/walletThrow';
 import { WRITE_COPY } from '../lib/solana/walletWrite';
@@ -119,7 +120,7 @@ const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const quote = {
   inputMint: SOL_MINT, outputMint: USDC_MINT, inAmount: '500000000', outAmount: '75000000',
-  otherAmountThreshold: '74625000', slippageBps: 50, priceImpactPct: '0', routePlan: [],
+  otherAmountThreshold: '74625000', swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0', routePlan: [],
 };
 const notYet = { context: { slot: 9 }, value: [null] };
 const HEIGHT = 1_000;
@@ -290,6 +291,8 @@ describe('the hold, wherever the note came from', () => {
 describe('a press that ends before a signature says what happened', () => {
   it('the price could not be fetched at the press: nothing was sent, and the form is as it was', async () => {
     const buy = await readyToBuy();
+    // The quote on screen is over 10 s old, so the press asks Jupiter again.
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
     jup.getQuote.mockRejectedValue(new Error('Quote unavailable (502)'));
     fireEvent.click(buy);
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: nothingSentCopy('Jupiter’s price', 'Quote unavailable (502)') }));
@@ -304,6 +307,33 @@ describe('a press that ends before a signature says what happened', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: nothingSentCopy('Jupiter’s transaction for this trade', 'Could not build swap (502)') }));
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
     expect(amountBox().value).toBe('0.5');
+  });
+
+  it('Jupiter answers the press for another trade: "Not sent" in its own words, nothing built or test-run, no other route offered (XCHL-02)', async () => {
+    const buy = await readyToBuy();
+    // The quote on screen is over 10 s old, so the press asks again, and the answer sells 200 times
+    // more and pays under the floor: read before it was held, it said "Price moved" and went on screen.
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    const shownReceive = screen.getByTestId('solana-receive').textContent;
+    jup.getQuote.mockResolvedValue({ ...quote, inAmount: '99900000000', outAmount: '1' });
+    fireEvent.click(buy);
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: OTHER_TRADE_COPY }));
+    expect(toast.error).not.toHaveBeenCalledWith('Price moved', expect.anything());
+    expect(screen.getByTestId('solana-receive').textContent).toBe(shownReceive);
+    expect(jup.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(jup.simulateSwap).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalledWith('Swap would fail', expect.anything());
+    expect(toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(amountBox().value).toBe('0.5');
+  });
+
+  it('a transaction the check refuses is said in the check’s own words, never as one that could not be fetched', async () => {
+    const refused = new JupiterTxRefused('the swap sells a different amount than shown');
+    jup.buildSwapTransaction.mockRejectedValue(refused);
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: refused.message }));
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
   });
 
   it('the wallet’s answer did not come back: "sent or not, we cannot tell", never "Swap failed"', async () => {

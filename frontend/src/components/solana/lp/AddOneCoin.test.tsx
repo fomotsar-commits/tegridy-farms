@@ -83,7 +83,7 @@ vi.mock('../../../lib/jupiter', async (orig) => {
     ...real,
     getQuote: (p: never) => jup.getQuote(p),
     buildSwapTransaction: (p: Parameters<typeof real.buildSwapTransaction>[0]) => (jup.build ?? real.buildSwapTransaction)(p),
-    simulateSwap: (b64: string) => (jup.simulate ?? real.simulateSwap)(b64),
+    simulateSwap: (b64: string, shown: Parameters<typeof real.simulateSwap>[1]) => (jup.simulate ? jup.simulate(b64) : real.simulateSwap(b64, shown)),
     swapCarriesPlatformFee: () => jup.carries,
   };
 });

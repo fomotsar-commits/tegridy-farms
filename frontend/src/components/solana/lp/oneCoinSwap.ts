@@ -1,7 +1,8 @@
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
 import { fromBaseUnits, NoRouteError, quoteHasPlatformFee, type JupiterQuote, type PriorityLevel } from '../../../lib/jupiter';
 import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
-import { NOT_TEST_RUN_COPY, prepareJupiterSwap, refusalWhy, refusedSaid, type FeeRetryDeps } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, prepareJupiterSwap, quoteHeld, refusalWhy, refusedSaid, type FeeRetryDeps } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { NotTheTradeShown } from '../../../lib/solana/swap/jupiterTxGuard';
 import { OWN_ROUTE_COPY } from '../../../lib/solana/swap/ownPoolRoute';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, nothingSentCopy } from '../../../lib/solana/swap/walletCopy';
 import { sendWalletSwap, type WalletSwapDeps } from '../../../lib/solana/swap/walletSwapSend';
@@ -76,10 +77,10 @@ export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Prom
   const routeChanged: JupiterLegEnd = { kind: 'not-sent', title: 'Route changed', message: OWN_ROUTE_COPY.ownNowWins, replan: true };
   let fresh: JupiterQuote;
   try {
-    fresh = await d.getQuote({ inputMint: a.inputMint, outputMint: a.outputMint, amount: a.amount, slippageBps: a.slippageBps });
+    fresh = await quoteHeld(d.getQuote, { inputMint: a.inputMint, outputMint: a.outputMint, amount: a.amount, slippageBps: a.slippageBps });
   } catch (e) {
     if (e instanceof NoRouteError) return { kind: 'not-sent', title: 'No route', message: 'Jupiter has no route for this swap just now. Nothing was sent.', replan: true };
-    return { kind: 'not-sent', title: 'Not sent', message: nothingSentCopy('Jupiter’s price', thrownWords(e)) };
+    return { kind: 'not-sent', title: 'Not sent', message: e instanceof NotTheTradeShown ? e.message : nothingSentCopy('Jupiter’s price', thrownWords(e)) };
   }
   const carriesFee = d.swapCarriesPlatformFee(a.inputMint, a.outputMint);
   // The review showed a no-fee quote: a fee-bearing `fresh` sits under it by the fee alone,
@@ -109,7 +110,7 @@ export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Prom
       priority: a.priority,
     });
   } catch (e) {
-    return { kind: 'not-sent', title: 'Not sent', message: nothingSentCopy('Jupiter’s transaction for this swap', thrownWords(e)) };
+    return { kind: 'not-sent', title: 'Not sent', message: e instanceof NotTheTradeShown ? e.message : nothingSentCopy('Jupiter’s transaction for this swap', thrownWords(e)) };
   }
   if (prepared.status === 'blocked') {
     // A test run that could not run is no verdict (law 8); the second in a row is ours to say (D2).

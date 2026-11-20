@@ -211,7 +211,7 @@ vi.mock('../lib/solana/walletWrite', async (importOriginal) => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
-import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, OTHER_TRADE_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { readPendingTrades, savePendingTrade, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { CHECK_KEEPS_FAILING, DECLINED_IN_WALLET, HELD_NOT_SENT, HOLD_DISMISS_MEANS, OWN_POOL_REVIEW_OFFER } from '../lib/solana/swap/walletCopy';
 import { clearReceipt, lastReceipt } from '../lib/receipt';
@@ -647,6 +647,36 @@ describe('Jupiter could not be asked at the press, and our pool fell under its l
     expect(h.sendTransaction).not.toHaveBeenCalled();
     await waitFor(backOnTheForm);
     expect(amountBox().value).toBe('0.1');
+  });
+});
+
+describe('Jupiter answers the press for another trade than the one on the form (XCHL-02)', () => {
+  // Jupiter's answer sells 999 SOL, not the 0.1 typed. Its figure is never read as the trade's.
+  const otherTrade = (out: string): JupiterQuote => ({ ...jupiterQuote(out), inAmount: '999000000000' });
+
+  it('Jupiter was shown: "Not sent" in its own words, never "Route changed" to our pool on its figure', async () => {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    shownQuoteIsOld();
+    h.getQuote.mockImplementation(async () => otherTrade('980000'));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not sent', { description: OTHER_TRADE_COPY }));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('our pool was shown: its figure never says "Jupiter now pays more"; the pool is held to the last quote shown', async () => {
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    h.getQuote.mockImplementation(async () => otherTrade('2000000'));
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'quoted', out: 1_000_000n, when: 'earlier' });
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
   });
 });
 

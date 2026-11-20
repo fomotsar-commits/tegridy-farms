@@ -51,7 +51,7 @@ const GATES = [
     vars: ['VITE_SOLANA_FEE_ACCOUNT'],
     severity: 'revenue',
     darkens: 'Solana swaps',
-    effect: 'no fee is charged on Solana swaps. NOTE: this does NOT hide the surface — isSolanaSwapLive() returns true unconditionally and deliberately, because a missing fee recipient is a reason to charge nothing, not a reason to send traffic to jup.ag.',
+    effect: 'no fee is charged on Solana swaps. NOTE: this does NOT hide the surface: isSolanaSwapLive() returns true unconditionally and deliberately, because a missing fee recipient is a reason to charge nothing, not a reason to send traffic to jup.ag. The value must be the vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (lib/solana.ts SOLANA_FEE_OWNER): any other address also leaves the fee OFF.',
   },
   {
     vars: ['VITE_YIELD_FEED_URL'],
@@ -216,6 +216,22 @@ if (isSet('VITE_SWAP_FEE_RECIPIENT')) {
   console.log('');
 }
 
+// The Solana fee owner is refused unless it is the vault (lib/solana.ts SOLANA_FEE_OWNER), so a
+// SET value can still leave the Solana fee OFF. Never echo the raw value.
+const SOLANA_FEE_OWNER = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+let solanaFeeOwnerBad = false;
+if (isSet('VITE_SOLANA_FEE_ACCOUNT')) {
+  console.log('   VITE_SOLANA_FEE_ACCOUNT (must be the vault)');
+  if (env.VITE_SOLANA_FEE_ACCOUNT.trim() === SOLANA_FEE_OWNER) {
+    console.log('        set, and matches the vault.');
+  } else {
+    solanaFeeOwnerBad = true;
+    console.log('!!      SET TO AN ADDRESS THE CODE REFUSES (value not printed).');
+    console.log(`        The Solana swap fee is OFF until it is ${SOLANA_FEE_OWNER}.`);
+  }
+  console.log('');
+}
+
 const revenueDark = dark.filter((d) => d.severity === 'revenue');
 const featureDark = dark.filter((d) => d.severity === 'features');
 const disclosureDark = dark.filter((d) => d.severity === 'disclosure');
@@ -225,7 +241,7 @@ if (sealedGates.length > 0) {
   console.log(`   ${sealedGates.length} gate(s) SEALED — set, but this check cannot read them, so it is`);
   console.log('   reporting nothing about them either way. Not a finding. Not an all-clear.');
 }
-if (dark.length === 0 && !baylaBad && !swapFeeRecipientBad) {
+if (dark.length === 0 && !baylaBad && !swapFeeRecipientBad && !solanaFeeOwnerBad) {
   console.log(
     sealedGates.length > 0
       ? 'Nothing readable is dark. The sealed gates above are the only unknowns.'
@@ -248,10 +264,13 @@ if (dark.length === 0 && !baylaBad && !swapFeeRecipientBad) {
   if (swapFeeRecipientBad) {
     console.log('!! VITE_SWAP_FEE_RECIPIENT is set to an address the code refuses, so the swap fee is OFF.');
   }
+  if (solanaFeeOwnerBad) {
+    console.log('!! VITE_SOLANA_FEE_ACCOUNT is set to an address the code refuses, so the Solana swap fee is OFF.');
+  }
   console.log('\nNone of these are code bugs. Each is one value on the deploy environment.');
 }
 console.log('─'.repeat(72) + '\n');
 
-if (strictAll && (dark.length > 0 || baylaBad || swapFeeRecipientBad)) process.exit(1);
-if (strict && (revenueDark.length > 0 || baylaBad || swapFeeRecipientBad)) process.exit(1);
+if (strictAll && (dark.length > 0 || baylaBad || swapFeeRecipientBad || solanaFeeOwnerBad)) process.exit(1);
+if (strict && (revenueDark.length > 0 || baylaBad || swapFeeRecipientBad || solanaFeeOwnerBad)) process.exit(1);
 process.exit(0);

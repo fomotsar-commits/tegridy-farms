@@ -105,7 +105,8 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
-import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
+import { prepareJupiterSwap, quoteHeld, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
+import { NotTheTradeShown } from '../lib/solana/swap/jupiterTxGuard';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { tokenFromChain } from '../lib/solana/swap/chainToken';
@@ -2054,9 +2055,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
             aggregatorOut: async () => {
               let fresh: JupiterQuote;
               try {
-                fresh = await pressQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
+                fresh = await quoteHeld(pressQuote, { inputMint, outputMint, amount: baseAmount, slippageBps: bps });
               } catch (e) {
                 // "No route" is Jupiter's own answer: there is no other venue to hold the pool to.
+                // Any other throw, an answer for another trade too, holds it to the last quote shown.
                 if (e instanceof NoRouteError) return null;
                 throw e;
               }
@@ -2215,7 +2217,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       // Re-quote right before building so the on-chain min-out + routing match
       // the live market (the displayed quote may be seconds-to-minutes stale),
       // unless the quote clicked is seconds old and is the one this press would ask
-      // for: the same trade, at this slippage, fee-bearing as the pair is.
+      // for: the same trade, at this slippage, fee-bearing as the pair is. An answer
+      // for another trade ends the press before any of its figures is read.
       const shownIsFresh =
         shownAt !== undefined &&
         Date.now() - shownAt < SHOWN_QUOTE_FRESH_MS &&
@@ -2228,7 +2231,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         quoteHasPlatformFee(shown) === carriesFee;
       const fresh = shownIsFresh
         ? shown
-        : await pressQuote({
+        : await quoteHeld(pressQuote, {
             inputMint: payToken.mint,
             outputMint: buyToken.mint,
             amount: baseAmount,
@@ -2448,9 +2451,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         // After the signature: its note stands until the chain answers.
         surfaceUnconfirmedTx(toast, { hash: signed, explorerUrl: `https://solscan.io/tx/${signed}`, repeatCost: 'swapping again buys a second time.' });
       } else {
-        // Stopped on a read before the wallet: nothing was sent, nothing failed, the form stands.
+        // Stopped before the wallet: nothing was sent, the form stands. Jupiter's answer that is
+        // not the trade on screen is said in its own words, never as a read that failed.
         toast.error('Not sent', {
-          description: nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),
+          description: err instanceof NotTheTradeShown ? err.message : nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),
         });
       }
     } finally {

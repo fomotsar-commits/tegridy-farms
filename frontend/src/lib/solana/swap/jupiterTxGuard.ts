@@ -1,22 +1,9 @@
-// Jupiter builds these transactions and the wallet signs them. Until this check the
-// site handed Jupiter's bytes to the wallet unread: a hostile or tampered answer
-// (Jupiter itself, our /api/jupiter proxy, a bad deploy) could add a token Approve or
-// SetAuthority, an extra transfer, a swap paying into someone else's account, a
-// different fee account for the venue's cut, or a durable nonce that lets the signed
-// transaction be replayed later — and only the wallet's own preview stood in the way.
-//
-// This reads every instruction and refuses anything that is not the trade the user
-// asked for. The rules come from what Jupiter actually builds: seven unsigned
-// transactions captured 2026-10-25 from its public API (route_v2 and
-// shared_accounts_route_v2 swaps with SOL, USDC and a Token-2022 coin on either side,
-// a limit order, a recurring buy) — jupiterTxGuard.test.ts holds them, and each
-// passes. Instruction layouts are Jupiter's own on-chain IDLs.
-//
-// Allowed, in short: ComputeBudget within the disclosed priority-fee cap; wrapping
-// SOL into the user's OWN wrapped-SOL account; creating the user's own token
-// accounts; closing token accounts back to the user; exactly one instruction of the
-// one Jupiter program the flow uses, whose amounts, mints, signer and destination are
-// the ones on screen. One signer: the user. Nothing else.
+// Every transaction Jupiter builds is read here before a wallet sees it, and refused unless it is
+// the trade on screen: one signer, the visitor; compute budget within the disclosed cap; SOL wrapped
+// only when SOL is sold, into the visitor's own account; token accounts created for, or closed back
+// to, the visitor; one instruction of the flow's Jupiter program (layouts from its on-chain IDLs)
+// selling from the visitor's own account of the coin sold, with the amounts, coins and destination
+// shown. balanceRefusal then holds the swap's test run to the same trade. The real captures pass.
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
@@ -54,7 +41,17 @@ export type JupiterTxExpectation =
     feeAccount: string | null;
     maxPriorityLamports: number;
   }
-  | { kind: 'trigger-create'; user: string; inputMint: string; outputMint: string; makingAmount: string; takingAmount: string; maxPriorityLamports: number }
+  | {
+    kind: 'trigger-create';
+    user: string;
+    inputMint: string;
+    outputMint: string;
+    makingAmount: string;
+    takingAmount: string;
+    /** The expiry the visitor chose, in Unix seconds; absent when the order never expires. */
+    expiredAt?: number;
+    maxPriorityLamports: number;
+  }
   | { kind: 'trigger-cancel'; user: string; order: string; maxPriorityLamports: number }
   | {
     kind: 'recurring-create';
@@ -76,8 +73,16 @@ const FLOW_PROGRAM: Record<JupiterTxExpectation['kind'], string> = {
   'recurring-cancel': JUPITER_RECURRING_PROGRAM,
 };
 
+/** Jupiter's answer is not the trade on screen. Nothing is signed, and every caller says it in these words. */
+export class NotTheTradeShown extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotTheTradeShown';
+  }
+}
+
 /** Thrown by the Jupiter client when a transaction fails this check. Nothing is signed. */
-export class JupiterTxRefused extends Error {
+export class JupiterTxRefused extends NotTheTradeShown {
   readonly reason: string;
   constructor(reason: string) {
     super(`Jupiter built a transaction this site will not sign: ${reason}. Nothing was signed.`);
@@ -132,9 +137,11 @@ function refusalOf(b64: string, expect: JupiterTxExpectation): string | null {
   };
   const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, new PublicKey(user), true, TOKEN_PROGRAM_ID).toBase58();
   const flowProgram = FLOW_PROGRAM[expect.kind];
-  const wrapCap = expect.kind === 'swap' ? big(expect.quote.inAmount)
-    : expect.kind === 'trigger-create' ? big(expect.makingAmount)
-    : expect.kind === 'recurring-create' ? big(expect.inAmount)
+  // SOL is wrapped only when SOL is the coin sold, and never more than is sold.
+  const solSold = (mint: string, amount: string) => (mint === NATIVE_MINT.toBase58() ? big(amount) : 0n);
+  const wrapCap = expect.kind === 'swap' ? solSold(expect.quote.inputMint, expect.quote.inAmount)
+    : expect.kind === 'trigger-create' ? solSold(expect.inputMint, expect.makingAmount)
+    : expect.kind === 'recurring-create' ? solSold(expect.inputMint, expect.inAmount)
     : 0n;
 
   let cuLimit: bigint | null = null;
@@ -205,23 +212,52 @@ function refusalOf(b64: string, expect: JupiterTxExpectation): string | null {
 
 type At = (ix: { accountKeyIndexes: number[] }, n: number) => string | null;
 
+/** The value after slippage that every real order carries (Some(0)); the published IDL does not list it. */
+const ORDER_SEVENTH = [1, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/** A recurring buy's fields after its schedule, as the site asks for it: no lowest or highest price, no start time. */
+const RECURRING_TAIL = [0, 0, 0];
+
+/**
+ * A limit order's fields after its two amounts, as the live program reads them: the expiry the
+ * visitor chose (or none), no fee, a slippage of none or 0, the seventh value as real orders
+ * carry it, and nothing after. Built any looser, a hostile answer could fill the order below
+ * its price or pay a fee out of it; any tighter, it would refuse every real order.
+ */
+function orderTailRefusal(data: Uint8Array, expiredAt: number | undefined): string | null {
+  let p = 32;
+  if (expiredAt === undefined ? data[p] !== 0 : data[p] !== 1 || data.length < p + 9 || new DataView(data.buffer, data.byteOffset + p + 1, 8).getBigInt64(0, true) !== BigInt(expiredAt)) {
+    return 'the order expires at a different time than shown';
+  }
+  p += expiredAt === undefined ? 1 : 9;
+  if (data[p] !== 0) return 'the order carries a fee';
+  p += 1;
+  if (data[p] === 1 && u16(data, p + 1) === 0) p += 3;
+  else if (data[p] === 0) p += 1;
+  else return 'the order accepts a worse price than shown';
+  if (data.length !== p + ORDER_SEVENTH.length || ORDER_SEVENTH.some((b, k) => data[p + k] !== b)) return 'the order carries a value this site does not read';
+  return null;
+}
+
 function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: number[] }, at: At, data: Uint8Array): string | null {
   const disc = hex8(data);
   const user = expect.user;
   switch (expect.kind) {
     case 'swap': {
-      // route_v2: 0 user_transfer_authority, 2 user_destination_token_account,
-      // 7 destination_token_account (the program id when unused), args after the
-      // discriminator. shared_accounts_route_v2: 1 authority, 5 destination, and a
-      // one-byte id first. The venue's fee account is the first account after the
-      // named ones (10, or 12), as every captured fee-bearing swap shows.
+      // route_v2: 0 user_transfer_authority, 1 user_source_token_account,
+      // 2 user_destination_token_account, 7 destination_token_account (the program id
+      // when unused), args after the discriminator. shared_accounts_route_v2: 1 authority,
+      // 2 source, 5 destination, and a one-byte id first. The venue's fee account is the
+      // first account after the named ones (10, or 12), as every captured fee-bearing swap shows.
       const shared = disc === SHARED_ACCOUNTS_ROUTE_V2;
       if (!shared && disc !== ROUTE_V2) return 'it is a kind of Jupiter swap this site does not sign';
       const o = shared ? 9 : 8;
       const authority = at(ix, shared ? 1 : 0);
+      const source = at(ix, shared ? 2 : 1);
       const destination = at(ix, shared ? 5 : 2);
       const override = shared ? null : at(ix, 7);
       if (authority !== user) return 'the swap is authorised by another wallet';
+      if (!source || !usersAta(user, expect.quote.inputMint).has(source)) return 'the swap sells from an account that is not your account of the coin shown';
       if (!destination || !usersAta(user, expect.quote.outputMint).has(destination)) return 'the swap pays into an account that is not yours';
       if (!shared && override !== JUPITER_SWAP_PROGRAM && override !== destination) return 'the swap redirects what you receive';
       const inAmount = u64(data, o);
@@ -247,7 +283,8 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       const from = at(ix, 4);
       if (!from || !usersAta(user, expect.inputMint).has(from)) return 'the order is funded from an account that is not yours';
       if (u64(data, 16) !== big(expect.makingAmount) || u64(data, 24) !== big(expect.takingAmount)) return 'the order has different amounts than shown';
-      return null;
+      if (at(ix, 6) !== JUPITER_TRIGGER_PROGRAM) return 'the order names a referral account';
+      return orderTailRefusal(data, expect.expiredAt);
     }
     case 'trigger-cancel': {
       if (disc !== CANCEL_ORDER && disc !== CANCEL_DUST_ORDER) return 'it is not a limit-order cancel';
@@ -268,6 +305,7 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       if (u64(data, 16) !== total || u64(data, 24) !== perCycle) return 'the recurring buy has different amounts than shown';
       const freq = data.length >= 40 ? new DataView(data.buffer, data.byteOffset + 32, 8).getBigInt64(0, true) : null;
       if (freq !== BigInt(expect.intervalSeconds)) return 'the recurring buy runs on a different schedule than shown';
+      if (data.length !== 40 + RECURRING_TAIL.length || RECURRING_TAIL.some((b, k) => data[40 + k] !== b)) return 'the recurring buy carries terms this site did not ask for';
       return null;
     }
     case 'recurring-cancel': {
@@ -286,4 +324,84 @@ function flowRefusal(expect: JupiterTxExpectation, ix: { accountKeyIndexes: numb
       return null;
     }
   }
+}
+
+/** The trade on screen as its test run is held to it: whose wallet, the coin sold, how much. */
+export interface TradeShown { user: string; inputMint: string; inAmount: string }
+
+/**
+ * Rent a route pays into accounts that hold no coin (an exchange's own record of a wallet:
+ * 1,346,200 lamports for PumpSwap's, read 2026-11-16), opened or topped up: each ends with at
+ * most this, and all of them get at most this in one run.
+ */
+export const ROUTE_RENT_CAP_LAMPORTS = 5_000_000n;
+
+type TokenRow = { accountIndex?: unknown; mint?: unknown; owner?: unknown; uiTokenAmount?: { amount?: unknown } };
+
+/**
+ * Why a test run that passed must not reach the wallet, from the payer's balances before and after
+ * it (every account it loads, a lookup table's too), or null. Only the coin sold may end lower, by
+ * no more than shown; SOL (the wallet and every token account it owns) also pays the network fee and
+ * ROUTE_RENT_CAP_LAMPORTS at most. A coin's transfer fee needs no room: it is taken from what arrives.
+ * Throws when the run gave no balances: no verdict. It trusts the site's RPC to answer honestly.
+ */
+export function balanceRefusal(
+  run: { fee?: unknown; preBalances?: unknown; postBalances?: unknown; preTokenBalances?: unknown; postTokenBalances?: unknown },
+  shown: TradeShown,
+): string | null {
+  const list = (v: unknown): unknown[] => {
+    if (!Array.isArray(v) || v.length === 0) throw new Error('the test run gave no balances');
+    return v;
+  };
+  // Read only where summed: a pool account past 2^53 lamports is no reason to refuse a swap.
+  const lamport = (n: unknown): bigint => {
+    if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new Error('a balance could not be read');
+    return BigInt(n);
+  };
+  const pre = list(run.preBalances);
+  const post = list(run.postBalances);
+  const fee = lamport(run.fee);
+  const sold = big(shown.inAmount);
+  if (pre.length !== post.length || sold === null) throw new Error('the test run could not be read');
+  const native = NATIVE_MINT.toBase58();
+  // Every token account, the payer's (its wallet is account 0), and what they hold of each coin but SOL.
+  const held = (rows: unknown) => {
+    if (!Array.isArray(rows)) throw new Error('the test run gave no token balances');
+    const tokens = new Set<number>();
+    const accounts = new Set<number>([0]);
+    const coins = new Map<string, bigint>();
+    for (const r of rows as TokenRow[]) {
+      const amount = typeof r?.uiTokenAmount?.amount === 'string' ? big(r.uiTokenAmount.amount) : null;
+      const i = r?.accountIndex;
+      if (typeof r?.owner !== 'string' || typeof r.mint !== 'string' || typeof i !== 'number' || !Number.isInteger(i) || i < 1 || i >= pre.length || amount === null) {
+        throw new Error('a token balance could not be read');
+      }
+      tokens.add(i);
+      if (r.owner !== shown.user) continue;
+      accounts.add(i);
+      if (r.mint !== native) coins.set(r.mint, (coins.get(r.mint) ?? 0n) + amount);
+    }
+    return { tokens, accounts, coins };
+  };
+  const before = held(run.preTokenBalances);
+  const after = held(run.postTokenBalances);
+  for (const mint of new Set([...before.coins.keys(), ...after.coins.keys()])) {
+    const drop = (before.coins.get(mint) ?? 0n) - (after.coins.get(mint) ?? 0n);
+    if (drop <= 0n) continue;
+    if (mint !== shown.inputMint) return 'its test run takes a coin you are not selling';
+    if (drop > sold) return 'its test run takes more than the amount shown';
+  }
+  // What the run adds counts, not only what an empty account gets: someone may send an exchange's
+  // record address SOL first (the chain leaves no less than 890,880 lamports at an empty address).
+  let opened = 0n;
+  const cap = Number(ROUTE_RENT_CAP_LAMPORTS);
+  for (let i = 1; i < pre.length; i += 1) {
+    const [was, now] = [pre[i], post[i]];
+    if (typeof was === 'number' && typeof now === 'number' && was < now && now <= cap && !after.tokens.has(i)) opened += lamport(now) - lamport(was);
+  }
+  const rent = opened < ROUTE_RENT_CAP_LAMPORTS ? opened : ROUTE_RENT_CAP_LAMPORTS;
+  const sum = (balances: unknown[], at: Set<number>) => [...at].reduce((s, i) => s + lamport(balances[i]), 0n);
+  const spent = sum(pre, before.accounts) - sum(post, after.accounts);
+  if (spent > fee + rent + (shown.inputMint === native ? sold : 0n)) return 'its test run takes more than the amount shown';
+  return null;
 }

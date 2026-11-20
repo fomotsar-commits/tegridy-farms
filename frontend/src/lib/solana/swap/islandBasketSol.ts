@@ -1,9 +1,10 @@
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
-import { NoRouteError, type JupiterQuote, type PriorityLevel, type SwapSimulation } from '../../jupiter';
+import { NoRouteError, type JupiterQuote, type PriorityLevel } from '../../jupiter';
 import type { AggregatorSeen } from '../../launcher/solana/write/types';
 import { SEND_COPY } from '../sendSigned';
 import { minOut, type SolBasketCoin } from '../../islandBasket';
-import { prepareJupiterSwap, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, quoteHeld, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { NotTheTradeShown } from './jupiterTxGuard';
 import { freshDecision } from './ownPoolRoute';
 import type { VenuePoolCandidate } from './venuePools';
 
@@ -96,7 +97,7 @@ export interface SolLegDeps {
   /** Already pinned to the coin (pinnedGetQuote). */
   getQuote: FeeRetryDeps['getQuote'];
   buildSwapTransaction: FeeRetryDeps['buildSwapTransaction'];
-  simulateSwap(b64: string): Promise<SwapSimulation>;
+  simulateSwap: FeeRetryDeps['simulateSwap'];
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
   /** Our pools for this coin, read again now and quoted for `amountIn`. Null: the read did not answer. */
   ownPools(): Promise<VenuePoolCandidate[] | null>;
@@ -140,11 +141,11 @@ export async function prepareSolLeg(
 
   let fresh: JupiterQuote;
   try {
-    fresh = await deps.getQuote({ inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps });
+    fresh = await quoteHeld(deps.getQuote, { inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps });
   } catch (e) {
     if (e instanceof PoolNotNamedError) return { kind: 'not-sent', why: BASKET_COPY.poolNotNamed };
     if (e instanceof NoRouteError) return { kind: 'not-sent', why: BASKET_COPY.noRoute };
-    return { kind: 'not-sent', why: 'Jupiter’s price could not be read just now, so nothing was sent for it.' };
+    return { kind: 'not-sent', why: e instanceof NotTheTradeShown ? e.message : 'Jupiter’s price could not be read just now, so nothing was sent for it.' };
   }
   let freshOut: bigint;
   let shownOut: bigint;
@@ -167,8 +168,8 @@ export async function prepareSolLeg(
       { getQuote: deps.getQuote, buildSwapTransaction: deps.buildSwapTransaction, simulateSwap: deps.simulateSwap, swapCarriesPlatformFee: deps.swapCarriesPlatformFee },
       { fresh, shown: a.shown, inputMint: a.inputMint, outputMint: a.coin.mint, amount, slippageBps: a.slippageBps, user: a.user, priority: a.priority },
     );
-  } catch {
-    return { kind: 'not-sent', why: 'Jupiter’s transaction for it could not be built just now, so nothing was sent for it.' };
+  } catch (e) {
+    return { kind: 'not-sent', why: e instanceof NotTheTradeShown ? e.message : 'Jupiter’s transaction for it could not be built just now, so nothing was sent for it.' };
   }
   if (prepared.status === 'blocked') return { kind: 'not-sent', why: prepared.unchecked ? NOT_TEST_RUN_COPY : refusedSaid(prepared, a.slippageBps) };
   if (prepared.status === 'moved') return { kind: 'not-sent', why: BASKET_COPY.moved };

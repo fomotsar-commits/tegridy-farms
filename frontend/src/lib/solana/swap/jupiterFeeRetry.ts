@@ -28,6 +28,10 @@ import {
   type SwapRefusalCause,
   type SwapSimulation,
 } from '../../jupiter';
+import { NotTheTradeShown, type TradeShown } from './jupiterTxGuard';
+
+/** Said when Jupiter's quote is not the trade asked for: nothing is built, so it never reads as a test run. */
+export const OTHER_TRADE_COPY = 'Jupiter answered for a different trade than the one on screen. Nothing was sent.';
 
 /** Said before signing and in the result whenever the retry is the trade that goes out. */
 export const NO_SITE_FEE_ROUTE_COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
@@ -75,7 +79,8 @@ export interface FeeRetryDeps {
     priorityLevel?: PriorityLevel;
     noPlatformFee?: boolean;
   }): Promise<string>;
-  simulateSwap(b64Tx: string): Promise<SwapSimulation>;
+  /** Throws JupiterTxRefused when the run moves the payer's balances other than as `shown`. */
+  simulateSwap(b64Tx: string, shown: TradeShown): Promise<SwapSimulation>;
   /** Was the first build fee-bearing? (lib/jupiter.ts swapCarriesPlatformFee.) */
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
 }
@@ -100,6 +105,17 @@ function parseAmount(raw: unknown): bigint | null {
 /** The cause a refused test run gave, as a field only when it gave one. */
 const caused = (sim: SwapSimulation): { cause?: SwapRefusalCause } => (sim.cause ? { cause: sim.cause } : {});
 
+/** Is Jupiter's quote, by its own fields, the trade asked for? */
+const sameTrade = (q: JupiterQuote, a: { inputMint: string; outputMint: string; amount: string; slippageBps: number }): boolean =>
+  q.inputMint === a.inputMint && q.outputMint === a.outputMint && q.inAmount === a.amount && q.swapMode === 'ExactIn' && q.slippageBps === a.slippageBps;
+
+/** Jupiter's quote for `p`, held to it before any of its figures is read: an answer for another trade throws. */
+export async function quoteHeld(getQuote: FeeRetryDeps['getQuote'], p: Parameters<FeeRetryDeps['getQuote']>[0]): Promise<JupiterQuote> {
+  const q = await getQuote(p);
+  if (!sameTrade(q, p)) throw new NotTheTradeShown(OTHER_TRADE_COPY);
+  return q;
+}
+
 export async function prepareJupiterSwap(
   deps: FeeRetryDeps,
   a: {
@@ -116,13 +132,19 @@ export async function prepareJupiterSwap(
     priority?: PriorityLevel;
   },
 ): Promise<PreparedJupiterSwap> {
+  // The check of Jupiter's transaction reads its terms from this quote, so the quote is held
+  // to what was asked first. Thrown: it is no test run, and no other route stands in for it.
+  if (!sameTrade(a.fresh, a)) throw new NotTheTradeShown(OTHER_TRADE_COPY);
   const first = await deps.buildSwapTransaction({ quote: a.fresh, userPublicKey: a.user, priorityLevel: a.priority });
+  const shown: TradeShown = { user: a.user, inputMint: a.inputMint, inAmount: a.amount };
 
   let sim: SwapSimulation;
   try {
-    sim = await deps.simulateSwap(first);
-  } catch {
-    // Not checked is not "would run": nothing goes to the wallet, and a press checks again.
+    sim = await deps.simulateSwap(first, shown);
+  } catch (e) {
+    // A run that moved more than shown is refused. Not checked is not "would run": nothing goes
+    // to the wallet, and a press checks again.
+    if (e instanceof NotTheTradeShown) throw e;
     return { status: 'blocked', reason: null, retried: false, unchecked: true };
   }
   if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
@@ -150,16 +172,7 @@ export async function prepareJupiterSwap(
     return { ...blocked, unchecked: true };
   }
   // The SAME trade, and really fee-free, by Jupiter's own fields.
-  if (
-    retried.inputMint !== a.inputMint ||
-    retried.outputMint !== a.outputMint ||
-    retried.inAmount !== a.amount ||
-    retried.swapMode !== 'ExactIn' ||
-    retried.slippageBps !== a.slippageBps ||
-    quoteHasPlatformFee(retried)
-  ) {
-    return blocked;
-  }
+  if (!sameTrade(retried, a) || quoteHasPlatformFee(retried)) return blocked;
   // Dropping a 0.5% fee pays the trader slightly MORE. If the re-quote instead
   // pays less than the better of (what they clicked, the fee-bearing fresh
   // quote) by more than their own slippage, the market moved: show it, do not
@@ -182,14 +195,17 @@ export async function prepareJupiterSwap(
       priorityLevel: a.priority,
       noPlatformFee: true,
     });
-  } catch {
+  } catch (e) {
+    // The check's refusal of the rebuild is said in its own words, as the first build's is.
+    if (e instanceof NotTheTradeShown) throw e;
     return { ...blocked, unchecked: true };
   }
   let sim2: SwapSimulation;
   try {
-    sim2 = await deps.simulateSwap(second);
-  } catch {
-    // The retry is never sent unsimulated.
+    sim2 = await deps.simulateSwap(second, shown);
+  } catch (e) {
+    // The retry is never sent unsimulated, nor when its run moved more than shown.
+    if (e instanceof NotTheTradeShown) throw e;
     return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
   if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, ...caused(sim2) };

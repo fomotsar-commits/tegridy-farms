@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-20
+
+- Solana swaps, limit orders and recurring buys through Jupiter: a transaction that is not the trade on screen is no longer sent. That means one for another amount, coin or slippage, one that sells from an account other than yours of the coin you sell, one whose test run takes more than the amount shown or a coin you are not selling, and a limit order or recurring buy with a fee, a slippage, an expiry, a price limit or a start time you did not choose. The page says "Not sent" and why.
+
 ### 2026-11-19
 
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
