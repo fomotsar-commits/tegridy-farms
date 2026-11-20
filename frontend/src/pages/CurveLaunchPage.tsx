@@ -404,12 +404,12 @@ function BuyQuoteRows({
     <div className="space-y-1.5 pt-1">
       {quote.capped && (
         <p className="text-amber-300/90">
-          Capped at the graduation line. You will spend {formatSol(quote.lamportsIn)} SOL, not the amount entered. The
+          Capped at the graduation line. You will spend {formatSol(quote.lamportsIn, 4, { up: true })} SOL, not the amount entered. The
           remainder is never taken and never leaves your wallet.
         </p>
       )}
-      <Row label="You pay" value={`${formatSol(quote.lamportsIn)} SOL`} />
-      <Row label="…of which fee" value={`${formatSol(quote.feeLamports)} SOL`} />
+      <Row label="You pay" value={`${formatSol(quote.lamportsIn, 4, { up: true })} SOL`} />
+      <Row label="…of which fee" value={`${formatSol(quote.feeLamports, 4, { up: true })} SOL`} />
       <Row label={`You receive${out.isBaseUnits ? ' (base units)' : ''}`} value={out.text} />
       <Row label="Minimum received" value={floor === null ? 'not computable at that tolerance' : floor.text} />
       <p className="text-white/35 text-[10px] leading-relaxed">
@@ -436,7 +436,7 @@ function SellQuoteRows({
   return (
     <div className="space-y-1.5 pt-1">
       <Row label="You receive" value={`${formatSol(quote.lamportsOut)} SOL`} />
-      <Row label="Fee" value={`${formatSol(quote.feeLamports)} SOL`} />
+      <Row label="Fee" value={`${formatSol(quote.feeLamports, 4, { up: true })} SOL`} />
       <Row
         label="Minimum received"
         value={floor === null ? 'not computable at that tolerance' : `${formatSol(floor)} SOL`}

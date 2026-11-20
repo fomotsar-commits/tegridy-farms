@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { decimalText, toFixedNearest } from '../lib/formatting';
 
 interface AnimatedCounterProps {
   value: number;
@@ -8,6 +9,8 @@ interface AnimatedCounterProps {
   duration?: number;
   className?: string;
   style?: React.CSSProperties;
+  /** A price, rate or multiplier: rounded to the nearest digit shown, not cut. */
+  nearest?: boolean;
 }
 
 /** Ease-out cubic: decelerates towards the end */
@@ -43,14 +46,12 @@ function animatedDecimals(target: number, decimals: number): number {
  * produces the same decimal count and the only width change left is the integer
  * part growing — which is real information, not jitter.
  */
-function formatAnimatedNumber(num: number, decimals: number): string {
+function formatAnimatedNumber(num: number, decimals: number, nearest: boolean): string {
   if (!isFinite(num) || isNaN(num)) return '0';
-
-  // Format with fixed decimals then add commas to integer part
-  const fixed = num.toFixed(decimals);
-  const [intPart, decPart] = fixed.split('.') as [string, string | undefined];
-  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return decPart !== undefined ? `${withCommas}.${decPart}` : withCommas;
+  if (nearest) return toFixedNearest(num, decimals, true);
+  // Cut at `decimals`, never rounded up: the counter draws balances and claimable
+  // rewards, which must never read above what is there.
+  return decimalText(num, { places: decimals, group: true }) ?? '0';
 }
 
 export const AnimatedCounter = React.memo(function AnimatedCounter({
@@ -61,6 +62,7 @@ export const AnimatedCounter = React.memo(function AnimatedCounter({
   duration = 1000,
   className,
   style,
+  nearest = false,
 }: AnimatedCounterProps) {
   const [displayValue, setDisplayValue] = useState(value);
   const previousValue = useRef(value);
@@ -108,7 +110,7 @@ export const AnimatedCounter = React.memo(function AnimatedCounter({
 
   return (
     <span className={className} style={style}>
-      {prefix}{formatAnimatedNumber(displayValue, animatedDecimals(value, decimals))}{suffix}
+      {prefix}{formatAnimatedNumber(displayValue, animatedDecimals(value, decimals), nearest)}{suffix}
     </span>
   );
 });

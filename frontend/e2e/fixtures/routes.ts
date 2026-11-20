@@ -623,6 +623,16 @@ export const ROUTES: readonly RouteSpec[] = [
     // a real violation fails loudly instead of hiding behind a pre-declared pin.
     knownViolations: [],
   },
+  {
+    path: '/city',
+    voice: 'venue',
+    owner: 'pages/CityPage.tsx',
+    gate: null,
+    why:
+      'The island drawn as a city on one canvas (2026-11-18). Read-only: no form and nothing to sign. ' +
+      'The canvas is aria-hidden; every plot it shows is a button in the list under it.',
+    knownViolations: [],
+  },
   { path: '/gallery', voice: 'venue', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/tokenomics',

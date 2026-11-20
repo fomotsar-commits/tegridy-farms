@@ -215,4 +215,9 @@ describe('runSummary', () => {
     expect(runSummary([{ kind: 'claimed', tx: 'a' }, { kind: 'claimed', tx: 'b' }, { kind: 'not-sent' }, { kind: 'unconfirmed', reason: 'x' }]))
       .toBe('2 claimed · 1 not confirmed · 1 not sent');
   });
+
+  it('a claim refused on chain is counted as refused, the word its row says', () => {
+    expect(runSummary([{ kind: 'claimed', tx: 'a' }, { kind: 'reverted', reason: 'x', tx: 'b' }, { kind: 'declined' }]))
+      .toBe('1 claimed · 1 refused · 1 cancelled');
+  });
 });

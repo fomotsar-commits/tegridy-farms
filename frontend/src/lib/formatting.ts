@@ -29,9 +29,118 @@ export function formatNumber(value: number, decimals = 2): string {
   return `${sign}${v.toFixed(decimals)}`;
 }
 
-export function formatTokenAmount(value: string | number, decimals = 4): string {
+/** An amount written out exactly: its sign, whole digits and fraction digits. */
+interface Decimal {
+  neg: boolean;
+  whole: string;
+  frac: string;
+}
+
+// A plain decimal, written so the match has one way to split it (CodeQL js/polynomial-redos).
+const DECIMAL = /^\s*([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d{1,4}))?\s*$/;
+
+/**
+ * `value` as an exact decimal, times 10^shift. A decimal string is read digit for digit. A number
+ * is read through 15 significant digits, every digit a double holds, so 0.29 stays 0.29 and
+ * 0.1 + 0.2 reads 0.3 (from 1e15 up, every whole digit it has). Null when not a finite number.
+ */
+function decimalOf(value: string | number, shift = 0): Decimal | null {
   const num = typeof value === 'string' ? parseFloat(value) : value;
-  if (!isFinite(num) || isNaN(num)) return '–';
+  if (!Number.isFinite(num)) return null;
+  const plain = typeof value === 'string' && value.length <= 400 && DECIMAL.test(value);
+  const m = DECIMAL.exec(plain ? (value as string) : Math.abs(num) >= 1e15 ? String(num) : num.toPrecision(15));
+  if (!m) return null;
+  const digits = (m[2] ?? '') + (m[3] ?? m[4] ?? '');
+  const point = (m[2] ?? '').length + Number(m[5] ?? 0) + shift;
+  let whole = point <= 0 ? '0' : digits.slice(0, point).padEnd(point, '0');
+  const frac = point <= 0 ? '0'.repeat(-point) + digits : digits.slice(point);
+  whole = whole.replace(/^0+(?=\d)/, '');
+  return { neg: m[1] === '-' && /[1-9]/.test(digits), whole, frac };
+}
+
+/** True when |d| is under 10^-places. */
+function under(d: Decimal, places: number): boolean {
+  return d.whole === '0' && /^0*$/.test(d.frac.slice(0, places));
+}
+
+/** `d` at `places` decimals: cut toward zero, or with `up` rounded away from zero. */
+function roundAt(d: Decimal, places: number, up: boolean): Decimal {
+  const kept = d.frac.slice(0, places).padEnd(places, '0');
+  if (!up || !/[1-9]/.test(d.frac.slice(places))) return { neg: d.neg, whole: d.whole, frac: kept };
+  const next = (BigInt(d.whole + kept) + 1n).toString().padStart(places + 1, '0');
+  return { neg: d.neg, whole: next.slice(0, next.length - places), frac: next.slice(next.length - places) };
+}
+
+function textOf(d: Decimal, group: boolean, trim: boolean): string {
+  const frac = trim ? d.frac.replace(/0+$/, '') : d.frac;
+  const whole = group ? d.whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : d.whole;
+  return `${d.neg ? '-' : ''}${whole}${frac ? `.${frac}` : ''}`;
+}
+
+/** An amount under 0.000001 as toExponential(2) writes it ("1.23e-7"), cut or rounded up. */
+function expText(d: Decimal, up: boolean): string {
+  const first = d.frac.search(/[1-9]/);
+  let mantissa = BigInt(d.frac.slice(first, first + 3).padEnd(3, '0'));
+  let exp = -(first + 1);
+  if (up && /[1-9]/.test(d.frac.slice(first + 3))) mantissa += 1n;
+  if (mantissa === 1000n) {
+    mantissa = 100n;
+    exp += 1;
+  }
+  const m = mantissa.toString();
+  return `${d.neg ? '-' : ''}${m[0]}.${m.slice(1)}e${exp}`;
+}
+
+/**
+ * How an amount is written. What a visitor receives, is owed or holds is CUT at the last digit
+ * shown, so it is never printed above itself; what a visitor pays is rounded `up`, so it is never
+ * printed below. `sig` counts significant digits for an amount under 1; `shift` is a power of ten
+ * applied first (-6 writes millions); `trim` drops trailing zeros.
+ */
+export interface DecimalShape {
+  places?: number;
+  sig?: number;
+  up?: boolean;
+  group?: boolean;
+  trim?: boolean;
+  shift?: number;
+}
+
+/** `value` written to `shape`, exactly; null when it is not a finite number. */
+export function decimalText(value: string | number, shape: DecimalShape): string | null {
+  const d = decimalOf(value, shape.shift ?? 0);
+  if (!d) return null;
+  let places = shape.places ?? 0;
+  if (shape.sig !== undefined) {
+    const first = d.frac.search(/[1-9]/);
+    places = d.whole !== '0' || first < 0 ? 0 : first + shape.sig;
+  }
+  return textOf(roundAt(d, places, shape.up === true), shape.group === true, shape.trim === true);
+}
+
+function tokenAmountText(value: string | number, decimals: number, up: boolean, group: boolean): string {
+  const d = decimalOf(value);
+  if (!d) return '\u2013';
+  if (!/[1-9]/.test(d.whole + d.frac)) return (0).toFixed(decimals);
+  if (!d.neg && under(d, 6)) return expText(d, up);
+  if (!d.neg && under(d, 4)) return textOf(roundAt(d, 8, up), false, false);
+  return textOf(roundAt(d, decimals, up), group, false);
+}
+
+/** An amount received, owed or held, cut at `decimals`; dust under 0.0001 keeps more digits. */
+export function formatTokenAmount(value: string | number, decimals = 4): string {
+  return tokenAmountText(value, decimals, false, false);
+}
+
+/** An amount the visitor pays, as `formatTokenAmount` writes it but rounded up. */
+export function formatTokenAmountUp(value: string | number, decimals = 4): string {
+  return tokenAmountText(value, decimals, true, false);
+}
+
+/** A price, rate or multiplier, in `formatTokenAmount`'s shape but rounded to the nearest digit shown. */
+export function formatTokenAmountNearest(value: string | number, decimals = 4): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (!isFinite(num) || isNaN(num)) return '\u2013';
   if (num === 0) return (0).toFixed(decimals);
   if (num > 0 && num < 0.000001) return num.toExponential(2);
   if (num > 0 && num < 0.0001) return num.toFixed(8);
@@ -42,38 +151,58 @@ export function formatTokenAmount(value: string | number, decimals = 4): string 
  * F207: like `formatTokenAmount` but groups the integer part with thousands
  * separators so a 75M-TOWELI receive reads `75,000,000.0000` instead of the
  * unreadable `75000000.0000`. Keeps the tiny/scientific branches identical so
- * dust still renders distinctly. Additive — `formatTokenAmount` is unchanged
- * for the many callers that don't want grouping.
+ * dust still renders distinctly. Cut, like `formatTokenAmount`.
  */
 export function formatTokenAmountGrouped(value: string | number, decimals = 4): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  if (!isFinite(num) || isNaN(num)) return '–';
-  if (num === 0) return (0).toFixed(decimals);
-  if (num > 0 && num < 0.000001) return num.toExponential(2);
-  if (num > 0 && num < 0.0001) return num.toFixed(8);
-  // Group only the integer part; preserve the fixed fractional display.
-  return num.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+  return tokenAmountText(value, decimals, false, true);
+}
+
+/** An amount the visitor pays, as `formatTokenAmountGrouped` writes it but rounded up. */
+export function formatTokenAmountGroupedUp(value: string | number, decimals = 4): string {
+  return tokenAmountText(value, decimals, true, true);
 }
 
 /**
  * F207: floor-aware balance formatting. A 0.00004-ETH balance rendered through
  * `Number(x).toFixed(4)` collapses to a misleading `0.0000`; this shows
  * `<0.0001` for any non-zero value below the display floor so dust reads as
- * present-but-tiny rather than empty. Groups large balances for readability.
+ * present-but-tiny rather than empty. Groups large balances, and cuts at `decimals`: never above the balance.
  */
 export function formatBalance(value: string | number, decimals = 4): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  if (!isFinite(num) || isNaN(num)) return '0';
-  if (num === 0) return (0).toFixed(decimals);
-  const floor = Math.pow(10, -decimals);
-  if (num > 0 && num < floor) return `<${floor.toFixed(decimals)}`;
-  return num.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+  const d = decimalOf(value);
+  if (!d) return '0';
+  if (!/[1-9]/.test(d.whole + d.frac)) return (0).toFixed(decimals);
+  if (!d.neg && under(d, decimals)) return `<${Math.pow(10, -decimals).toFixed(decimals)}`;
+  return textOf(roundAt(d, decimals, false), true, false);
+}
+
+/** `Number(value).toFixed(places)` with the last digit cut instead of rounded. */
+export function toFixedCut(value: string | number, places: number): string {
+  return decimalText(value, { places }) ?? Number(value).toFixed(places);
+}
+
+/** `Number(value).toFixed(places)` with the last digit rounded up: for an amount paid. */
+export function toFixedUp(value: string | number, places: number): string {
+  return decimalText(value, { places, up: true }) ?? Number(value).toFixed(places);
+}
+
+/** `Number(value).toFixed(places)`, rounded to the nearest: for a price, rate or multiplier; `group` adds commas. */
+export function toFixedNearest(value: string | number, places: number, group = false): string {
+  const fixed = Number(value).toFixed(places);
+  if (!group) return fixed;
+  const [whole, frac] = fixed.split('.') as [string, string | undefined];
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac !== undefined ? `${grouped}.${frac}` : grouped;
+}
+
+/** `Number(value).toLocaleString(undefined, { maximumFractionDigits })`, its last digit cut. */
+export function localeCut(value: string | number, maximumFractionDigits = 3): string {
+  return Number(decimalText(value, { places: maximumFractionDigits }) ?? value).toLocaleString(undefined, { maximumFractionDigits });
+}
+
+/** As `localeCut`, the last digit rounded up: for an amount paid. */
+export function localeUp(value: string | number, maximumFractionDigits = 3): string {
+  return Number(decimalText(value, { places: maximumFractionDigits, up: true }) ?? value).toLocaleString(undefined, { maximumFractionDigits });
 }
 
 export function formatPercent(value: number): string {
@@ -128,6 +257,11 @@ export function sanitizeDecimalInput(raw: string): string {
 export function formatWholeNumber(value: number): string {
   if (!isFinite(value) || isNaN(value)) return '–';
   return Math.round(value).toLocaleString('en-US');
+}
+
+/** `formatWholeNumber` for an amount the visitor holds or receives: cut, never rounded up. */
+export function formatWholeNumberCut(value: number): string {
+  return decimalText(value, { places: 0, group: true }) ?? '\u2013';
 }
 
 /**

@@ -392,12 +392,12 @@ describe('the site model', () => {
     for (const g of houses(container)) expect(g.querySelector('[data-inside]')).not.toBeNull();
   });
 
-  it('the shapes that take the pointer are the house, its chimney and its cap, and they do not move when a roof lifts', () => {
+  it('the shapes that take the pointer are the plot, the house, its chimney and its cap, and they do not move when a roof lifts', () => {
     const outlines = (root: HTMLElement) => Array.from(root.querySelectorAll('[data-hit]')).map((p) => p.getAttribute('points'));
     const still = render(<IsoIsland rows={rows} />);
     const before = outlines(still.container);
     for (const g of houses(still.container)) {
-      expect(Array.from(g.querySelectorAll('[data-hit]')).map((p) => p.getAttribute('data-hit'))).toEqual(['', 'chimney', 'cap']);
+      expect(Array.from(g.querySelectorAll('[data-hit]')).map((p) => p.getAttribute('data-hit'))).toEqual(['plot', '', 'chimney', 'cap']);
       for (const hit of g.querySelectorAll('[data-hit]')) expect(hit.getAttribute('pointer-events')).toBe('all');
       // Everything drawn lets the pointer through to them.
       expect(g.querySelector(':scope > g')?.getAttribute('pointer-events')).toBe('none');
@@ -405,22 +405,36 @@ describe('the site model', () => {
     still.unmount();
     const lifted = render(<IsoIsland rows={rows} active={ladderRow.id} />);
     expect(outlines(lifted.container)).toEqual(before);
-    expect(before).toHaveLength(rows.length * 3);
+    expect(before).toHaveLength(rows.length * 4);
   });
 
-  it('pointing at a house tells the list, and a press on it or its chimney opens its pool', () => {
+  it('a mouse pointing at a house tells the list, and a press on it, its chimney or its plot opens it', () => {
     const onActive = vi.fn();
     const onOpen = vi.fn();
     const { container, getByTestId } = render(<IsoIsland rows={rows} onActive={onActive} onOpen={onOpen} />);
     const target = house(container, ladderRow.id);
-    fireEvent.mouseEnter(target);
+    fireEvent.pointerEnter(target, { pointerType: 'mouse' });
     expect(onActive).toHaveBeenLastCalledWith(ladderRow.id);
     fireEvent.click(target.querySelector('[data-hit=""]')!);
     fireEvent.click(target.querySelector('[data-hit="chimney"]')!);
-    expect(onOpen).toHaveBeenCalledTimes(2);
+    fireEvent.click(target.querySelector('[data-hit="plot"]')!);
+    expect(onOpen).toHaveBeenCalledTimes(3);
     expect(onOpen).toHaveBeenLastCalledWith(ladderRow.id);
-    fireEvent.mouseLeave(getByTestId('earn-site-model'));
+    fireEvent.pointerLeave(getByTestId('earn-site-model'), { pointerType: 'mouse' });
     expect(onActive).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a finger never lights a house, so its tap is a press and not a hover iOS would swallow', () => {
+    const onActive = vi.fn();
+    const onOpen = vi.fn();
+    const { container, getByTestId } = render(<IsoIsland rows={rows} onActive={onActive} onOpen={onOpen} />);
+    const target = house(container, ladderRow.id);
+    fireEvent.pointerEnter(target, { pointerType: 'touch' });
+    fireEvent.click(target.querySelector('[data-hit=""]')!);
+    fireEvent.pointerLeave(getByTestId('earn-site-model'), { pointerType: 'touch' });
+    expect(onActive).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen).toHaveBeenCalledWith(ladderRow.id);
   });
 
   it('left alone it lights each house in turn without lifting a roof', () => {

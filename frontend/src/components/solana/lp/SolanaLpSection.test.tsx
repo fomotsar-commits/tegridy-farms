@@ -538,6 +538,10 @@ describe('the order of the section', () => {
       'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
       'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
       'It can switch the swap guard on or off for a fee tier',
+      // Since the keeper-fee upgrade: the vault can name a tier's keeper, who swaps there free.
+      'name a fee tier’s keeper',
+      'A fee tier’s named keeper pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers nothing.',
+      'On both fee tiers open today the vault names the venue’s own price robot, wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz. Everyone else pays as before.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
       'you could not take your money out of that pool until it switched removing back on',
@@ -626,6 +630,18 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
+  });
+
+  // 40,117,440 lamports: what the five accounts keep at today's rent. The opening form and its
+  // disclosure round that cost up to 0.0402 SOL; the rates card says it the same way.
+  it('the deposits that never come back read 0.0402 SOL in the opening line and in the tier’s detail', async () => {
+    const split = splitFeeTiers();
+    if (split.kind !== 'ok') throw new Error('the recording did not read');
+    mount(readers({ feeTiers: vi.fn(async () => ({ ...split, openingDeposits: 40_117_440n })) }), '/pools');
+    const rates = await card();
+    expect(within(rates).getByTestId('lp-open-cost').textContent).toBe("Open a pool: 0.15 SOL + 0.0402 SOL setup + the share's name record, not refunded.");
+    const detail = within(rates).getAllByTestId('fee-tier-detail').find((d) => d.dataset.index === '1')!;
+    expect(detail).toHaveTextContent('0.15 SOL fee, plus about 0.0402 SOL of account deposits that are never refunded');
   });
 
   it('each number is the tier’s as read: another tier 1, other numbers and other sentences', async () => {
