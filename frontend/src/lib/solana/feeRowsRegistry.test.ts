@@ -109,6 +109,7 @@ describe('the fee owner is the vault, pinned in code (XCHL-04)', () => {
   it('the vault, with spaces around it as a dashboard may keep it, is taken', async () => {
     vi.resetModules();
     vi.stubEnv('VITE_SOLANA_FEE_ACCOUNT', ` ${entry('squads-vault').address} `);
+    vi.stubEnv('VITE_SOLANA_PLATFORM_FEE_BPS', '50');
     const solana = await import('../solana');
     expect(solana.SOLANA_FEE_ACCOUNT).toBe(entry('squads-vault').address);
     expect(solana.isSolanaFeeConfigured()).toBe(true);
