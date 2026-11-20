@@ -122,7 +122,7 @@ describe('account layouts', () => {
       ['rewardPerWeightStored', U128], ['rewardsEmitted', U128], ['rewardsPaid', U128],
       ['rewardFundedCumulative', U128], ['penaltyCollectedCumulative', U128],
       ['orphanedPenalty', U64], ['degraded', U8], ['rpwResidue', U128],
-      ['emittedResidue', U128], ['_reserved', 88],
+      ['emittedResidue', U128], ['degradedNoticeStart', I64], ['_reserved', 80],
     ]));
   });
 
@@ -130,7 +130,7 @@ describe('account layouts', () => {
     expect(POSITION_L).toEqual(sizesToOffsets([
       ['bump', U8], ['pool', K], ['owner', K], ['nonce', U32], ['amount', U64],
       ['weight', U128], ['lockEnd', I64], ['rewardPerWeightPaid', U128],
-      ['rewardsOwed', U128], ['_reserved', 64],
+      ['rewardsOwed', U128], ['weightSetAt', I64], ['_reserved', 56],
     ]));
   });
 
@@ -784,7 +784,7 @@ describe('the CLI against the COMMITTED IDL', () => {
     })));
 
     it('declare_degraded', () => matches('declare_degraded', ixDeclareDegraded({
-      programId: PROGRAM, authority: OWNER, pool,
+      programId: PROGRAM, authority: OWNER, pool, noticeStart: 1_700_000_000,
     })));
   });
 
@@ -832,6 +832,13 @@ describe('admin instruction args carry the value, not just the width', () => {
   it('execute_cap_raise names NO signer - anyone may run it once the timelock is over', () => {
     const ix = ixExecuteCapRaise({ programId: PROGRAM, pool });
     expect(ix.keys.some((k) => k.isSigner)).toBe(false);
+  });
+
+  it('declare_degraded encodes the notice start as i64 little-endian, and has no default', () => {
+    const ix = ixDeclareDegraded({ programId: PROGRAM, authority: OWNER, pool, noticeStart: 1_700_000_000 });
+    expect(ix.data.length).toBe(16);
+    expect(ix.data.readBigInt64LE(8)).toBe(1_700_000_000n);
+    expect(() => ixDeclareDegraded({ programId: PROGRAM, authority: OWNER, pool })).toThrow();
   });
 
   it('accept_authority is signed by the PENDING key, not the current authority', () => {
@@ -911,8 +918,18 @@ describe('the admin pre-checks refuse exactly what the program refuses', () => {
   });
 
   it('degraded is one-way', () => {
-    expect(declareDegradedProblem(base)).toBeNull();
-    expect(declareDegradedProblem({ ...base, degraded: true })).toMatch(/AlreadyDegraded/);
+    expect(declareDegradedProblem(base, 1_000, 2_000)).toBeNull();
+    expect(declareDegradedProblem({ ...base, degraded: true }, 1_000, 2_000)).toMatch(/AlreadyDegraded/);
+  });
+
+  it('the notice start must be above 0 and before the chain clock', () => {
+    // lib.rs `declare_degraded` through math.rs `notice_has_begun`: 0 < notice_start < now.
+    expect(declareDegradedProblem(base, 1, 2_000)).toBeNull();
+    expect(declareDegradedProblem(base, 1_999, 2_000)).toBeNull();
+    expect(declareDegradedProblem(base, 2_000, 2_000)).toMatch(/InvalidParameter/);
+    expect(declareDegradedProblem(base, 2_001, 2_000)).toMatch(/InvalidParameter/);
+    expect(declareDegradedProblem(base, 0, 2_000)).toMatch(/InvalidParameter/);
+    expect(declareDegradedProblem(base, -1, 2_000)).toMatch(/InvalidParameter/);
   });
 });
 
@@ -937,6 +954,24 @@ describe('declare-degraded needs a second word before it will broadcast', () => 
   it('a truthy-but-not-true value does NOT count', () => {
     // `--confirm-permanent yes` parses "yes" as the flag's value. Only a bare flag is true.
     expect(confirmPermanentProblem(true, argv('--confirm-permanent', 'yes', '--broadcast'))).toMatch(/--confirm-permanent/);
+  });
+
+  it('the usage names --notice-start and says what it is', () => {
+    const line = USAGE.split('\n').find((l) => l.trimStart().startsWith('declare-degraded'));
+    expect(line).toMatch(/--notice-start <unix secs>/);
+    expect(USAGE).toContain('--notice-start: when the vault proposal was made, in unix seconds');
+  });
+
+  // main() is not exported, so its wiring is pinned at the source: the value is required,
+  // checked against the chain clock, and that same value is what the builder sends.
+  it('the command takes --notice-start with no default, checks it at chain time and sends it', () => {
+    const src = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
+    const start = src.indexOf("case 'declare-degraded': {");
+    expect(start, 're-anchor this test').toBeGreaterThan(0);
+    const body = src.slice(start, src.indexOf('\n    }\n', start));
+    expect(body).toContain("const noticeStart = intArg(args, 'noticeStart', { max: Number.MAX_SAFE_INTEGER });");
+    expect(body).toContain('declareDegradedProblem(p, noticeStart, snap.now)');
+    expect(body).toContain('ixDeclareDegraded({ programId, authority: authority.publicKey, pool: poolKey, noticeStart })');
   });
 });
 
