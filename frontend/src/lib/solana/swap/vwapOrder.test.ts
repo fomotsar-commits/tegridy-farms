@@ -23,7 +23,9 @@ import {
 } from './vwapOrder';
 
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
-const WALLET = '6VHowW4p7ZJfNC3LuU9C4LkpnTJmtTBwvKBjUcV1Nqm6';
+// Synthetic keys (32 bytes of 3s and of 4s), not anyone's wallet.
+const WALLET = 'CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8';
+const OTHER = 'GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq';
 const SIG = '5LJAXrtqJJXfsfDQvWPkvfD1xQF6E3RR21RPt1R6YwaCmk65QtTaahhebRYr4qaxQ4DmpWLwVvcDdWfyBd6ugQrw';
 const SOL = { mint: SOL_MINT, symbol: 'SOL', decimals: 9 };
 const BAY = { mint: BAYLA, symbol: 'BAYLA', decimals: 6 };
@@ -189,7 +191,7 @@ describe('the record in this browser', () => {
     const o = withSlice(order(), 0, { state: 'unconfirmed', sig: SIG, sentAt: T0 + 1 });
     expect(writeOrder(o)).toBe(true);
     expect(readOrder(WALLET)).toEqual(o);
-    expect(readOrder('Upmhw8i6uXCUFRNPHUqK1hZDtVR8Kc6e8nE38DVUA9AE')).toBeNull();
+    expect(readOrder(OTHER)).toBeNull();
   });
 
   it('a record that is not exactly an order is never run', () => {
@@ -203,7 +205,7 @@ describe('the record in this browser', () => {
       (o) => { o.bandBps = 5_000; },
       (o) => { (o.pay as Record<string, unknown>).mint = 'not-a-mint'; },
       (o) => { o.buy = o.pay; },
-      (o) => { o.wallet = 'Upmhw8i6uXCUFRNPHUqK1hZDtVR8Kc6e8nE38DVUA9AE'; },
+      (o) => { o.wallet = OTHER; },
     ];
     expect(parseOrder(good, WALLET)).not.toBeNull();
     for (const spoil of bad) {

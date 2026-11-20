@@ -12,7 +12,8 @@ import { LATE_SIGN_MS, RETRY_MS, planOrder, type VwapOrder } from './vwapOrder';
 import { DECLINED_COPY, LATE_COPY, UNCONFIRMED_COPY, WITHDRAWN_COPY, needsRunner, runOrder, sendSlice, type RunEnv } from './vwapRun';
 
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
-const WALLET = '6VHowW4p7ZJfNC3LuU9C4LkpnTJmtTBwvKBjUcV1Nqm6';
+// Synthetic keys (32 bytes of 3s and of 4s), not anyone's wallet.
+const WALLET = 'CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8';
 const SIG = '5LJAXrtqJJXfsfDQvWPkvfD1xQF6E3RR21RPt1R6YwaCmk65QtTaahhebRYr4qaxQ4DmpWLwVvcDdWfyBd6ugQrw';
 const T0 = Date.UTC(2026, 10, 19);
 const HOUR = 3_600_000;
