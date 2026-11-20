@@ -453,6 +453,12 @@ pub fn penalty_waived(degraded: bool, weight_set_at: i64, notice_start: i64) -> 
     degraded && weight_set_at <= notice_start
 }
 
+/// Whether a `declare_degraded` notice has begun: before `now`, and above 0, because a
+/// stamp of 0 means "no stamp" and a notice at or below it would charge those positions.
+pub fn notice_has_begun(notice_start: i64, now: i64) -> bool {
+    0 < notice_start && notice_start < now
+}
+
 /// Synthetix `notifyRewardAmount` rate: a reload after the window ends starts fresh;
 /// a reload inside it folds the unspent remainder into the new window.
 pub fn new_reward_rate(amount: u64, now: i64, period_finish: i64, old_rate: u128) -> u128 {
@@ -942,6 +948,21 @@ mod tests {
         // Never outside a degraded pool, however old the position.
         assert!(!penalty_waived(false, 0, notice));
         assert!(!penalty_waived(false, notice - DAY, notice));
+    }
+
+    #[test]
+    fn a_notice_must_have_begun_and_be_above_0() {
+        let now = 1_800_000_000i64;
+        assert!(notice_has_begun(1, now));
+        assert!(notice_has_begun(now - 1, now));
+        // Not begun yet: weight bought while the proposal waits would leave free.
+        assert!(!notice_has_begun(now, now));
+        assert!(!notice_has_begun(now + DAY, now));
+        // At or below 0, a position with no stamp (0) would pay the penalty.
+        assert!(!penalty_waived(true, 0, -1));
+        assert!(!notice_has_begun(0, now));
+        assert!(!notice_has_begun(-1, now));
+        assert!(!notice_has_begun(i64::MIN, now));
     }
 
     #[test]

@@ -1040,14 +1040,14 @@ pub mod bayla_ladder {
     }
 
     /// ONE-WAY. `notice_start`: when the proposal to call this was made (unix seconds, in
-    /// the past). After this, `stake`, `extend_lock` and fresh reward tokens are refused,
-    /// and both early doors are free for a position whose weight was set at or before
-    /// `notice_start`; weight set later pays the normal penalty.
+    /// the past and above 0). After this, `stake`, `extend_lock` and fresh reward tokens are
+    /// refused, and both early doors are free for a position whose weight was set at or
+    /// before `notice_start`; weight set later pays the normal penalty.
     pub fn declare_degraded(ctx: Context<AuthorityOnly>, notice_start: i64) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         require!(!pool.degraded, LadderError::AlreadyDegraded);
         require!(
-            notice_start < Clock::get()?.unix_timestamp,
+            notice_has_begun(notice_start, Clock::get()?.unix_timestamp),
             LadderError::InvalidParameter
         );
         pool.degraded = true;
@@ -1912,6 +1912,29 @@ mod layout_tests {
         }
         assert_eq!(program.matches("position.weight = ").count(), 2, "a new weight writer");
         assert_eq!(program.matches("weight_set_at = ").count(), 2, "a new stamp writer");
+    }
+
+    /// `declare_degraded` refuses a notice that has not begun, and stores the one it was
+    /// given. Without the store, weight set at any time after the upgrade pays; without the
+    /// check, weight bought while the proposal waits leaves free.
+    #[test]
+    fn declare_degraded_checks_its_notice_and_stores_it() {
+        let src = include_str!("lib.rs");
+        let program = &src[..src.find("mod layout_tests").expect("re-anchor this test")];
+        let start = program.find("pub fn declare_degraded(").expect("re-anchor this test");
+        let body = &program[start..start + program[start..].find("\n    }").unwrap()];
+        let at = |needle: &str| {
+            body.find(needle)
+                .unwrap_or_else(|| panic!("declare_degraded lost `{needle}`:\n{body}"))
+        };
+        let check = at("notice_has_begun(notice_start, Clock::get()?.unix_timestamp)");
+        assert!(body[..check].trim_end().ends_with("require!("), "the check must refuse:\n{body}");
+        assert!(check < at("LadderError::InvalidParameter"), "with InvalidParameter:\n{body}");
+        assert!(
+            body.contains("pool.degraded_notice_start = notice_start;"),
+            "declare_degraded must store its notice:\n{body}"
+        );
+        assert_eq!(program.matches("degraded_notice_start = ").count(), 1, "a new notice writer");
     }
 
     /// The stamps are carved from padding, so no live account moves: every field that

@@ -1358,6 +1358,13 @@ describe("bayla-ladder", () => {
         "InvalidParameter",
         "a notice that has not begun yet is no notice"
       );
+      for (const early of [0, -1]) {
+        await rejectsWith(
+          degrade(early).rpc(),
+          "InvalidParameter",
+          `a notice at ${early} would charge every position with no stamp`
+        );
+      }
       await degrade(noticeStart).rpc();
       const flagged = await program.account.pool.fetch(ctx2.pool);
       assert.isTrue(flagged.degraded);
