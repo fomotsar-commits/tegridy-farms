@@ -155,6 +155,9 @@ export const REPIN_MAY_TOUCH = [
   'frontend/scripts/venue-sweep.mjs',
   'frontend/scripts/venue-sweep.test.mjs',
   '.github/workflows/solana-ci.yml',
+  // The mainnet build hashes solana-ci compares, once that file exists: a patch that changes a
+  // program changes its build's line in the same pull request.
+  '.github/scripts/solana-mainnet-builds.sha256',
 ];
 
 /** Line endings aside: the copies carry CRLF in places, and upstream does not. */
