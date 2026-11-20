@@ -9,7 +9,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Keypair, Message, PublicKey, Transaction } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { getAssociatedTokenAddressSync, getTransferFeeConfig, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackMint } from "@solana/spl-token";
 import {
   ATA_PROGRAM,
   TOKEN_2022_PROGRAM,
@@ -37,12 +37,25 @@ import {
   run,
   summary,
   sweepFeesIx,
+  transferFeeBps,
   worthSweeping,
 } from "./venue-sweep.mjs";
 import { SOL_MINT, USDC_MINT, VENUE_PROGRAM } from "./lib/venue-volume-chain.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+const GROYPER = "7QAn5wqkBcGuvfLLC16iLvX8fPyqXrzkMqnzHLS9NNna";
+/** The two mint accounts as mainnet holds them, read 2026-11-20 (getMultipleAccounts, base64). */
+const GROYPER_MINT =
+  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbkKHQXyNAwAGAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARIAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF8ViRILr6mI0IFU5wFrI4seef1/od1F51MLaPRWO4JvAQBsAEAtXK96l8U0l2WOVhsmI9Djj1NA8git1QpO9FQLCssuQC1cr3qXxTSXZY5WGyYj0OOPU0DyCK3VCk70VAsKyy782J1UBAAAAAgEAAAAAAAAAIDGpH6NAwAsAQgEAAAAAAAAAIDGpH6NAwAsARMAowAHg6gVJiEPlKDo6E0ghwA7OkJg0pznnaz+IaTqdx+mKF8ViRILr6mI0IFU5wFrI4seef1/od1F51MLaPRWO4JvBwAAAEdyb3lwZXIHAAAAR1JPWVBFUkUAAABodHRwczovL2dhdGV3YXkuaXJ5cy54eXovQ29jV1lhWFk2RXpHTmo2dVRzTmpFdWdiM1RleUdUcDVGeE1ac3dZaVM4cmQAAAAA";
+const BAYLA_MINT =
+  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAc9L1Xc1+AwAGAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARIAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGOXqlJul9FDfGHf+VZIG9qUaE+1xnVBhGM+WDQx51D/EwCqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5eqUm6X0UN8Yd/5Vkgb2pRoT7XGdUGEYz5YNDHnUP8FAAAAQkFZTEEFAAAAQkFZTEFQAAAAaHR0cHM6Ly9pcGZzLmlvL2lwZnMvYmFma3JlaWZ6Y2xjZDJjdHJ4bnBzYnJvdGd5YXp2NW03YmRqcGtham1heDQ3c2p3N2lwN3RneGV2dTQAAAAA";
+/** What spl-token itself reads as the higher of a mint's two transfer-fee settings. */
+const splTokenBps = (mint, b64) => {
+  const m = unpackMint(new PublicKey(mint), { data: Buffer.from(b64, "base64"), owner: TOKEN_2022_PROGRAM_ID, lamports: 1, executable: false }, TOKEN_2022_PROGRAM_ID);
+  const c = getTransferFeeConfig(m);
+  return c ? Math.max(c.olderTransferFee.transferFeeBasisPoints, c.newerTransferFee.transferFeeBasisPoints) : 0;
+};
 
 describe("solana-signer, against @solana/web3.js", () => {
   it("isOnCurve agrees on 300 random strings and 200 wallets' keys", () => {
@@ -248,6 +261,23 @@ describe("venue-sweep: the instruction", () => {
     expect(worthSweeping({ mint0: USDC_MINT, mint1: BAYLA, decimals0: 6, decimals1: 6, protocol: [400_000n, 0n], fund: [100_000n, 0n] }, null, 0.5)).toBe(true);
   });
 
+  it("reads a coin's transfer fee as spl-token does: GROYPER's 3% on mainnet, BAYLA none, a classic mint none", () => {
+    expect(transferFeeBps(Buffer.from(GROYPER_MINT, "base64"))).toBe(300);
+    expect(splTokenBps(GROYPER, GROYPER_MINT)).toBe(300);
+    expect(transferFeeBps(Buffer.from(BAYLA_MINT, "base64"))).toBe(0);
+    expect(splTokenBps(BAYLA, BAYLA_MINT)).toBe(0);
+    expect(transferFeeBps(Buffer.alloc(82))).toBe(0);
+    // Only the scheduled setting charges: the higher of the two still counts.
+    const d = Buffer.from(GROYPER_MINT, "base64");
+    const at = d.indexOf(Buffer.from([1, 0, 108, 0]), 166) + 4;
+    d.writeUInt16LE(0, at + 88);
+    d.writeUInt16LE(50, at + 106);
+    expect(transferFeeBps(d)).toBe(50);
+    expect(splTokenBps(GROYPER, d.toString("base64"))).toBe(50);
+    // A fee entry cut short is unreadable, not "no fee".
+    expect(transferFeeBps(Buffer.from(GROYPER_MINT, "base64").subarray(0, at + 50))).toBe(null);
+  });
+
   it("reads Anchor's 'no such instruction' from a simulation's error", () => {
     expect(customError({ InstructionError: [2, { Custom: 101 }] }, 2)).toBe(101);
     expect(customError({ InstructionError: [1, { Custom: 101 }] }, 2)).toBe(null);
@@ -263,13 +293,14 @@ describe("venue-sweep: the instruction", () => {
 });
 
 /** A fake chain: the pools and tiers given, the accounts that exist, and what each call returns. */
-function fakeChain({ pools, tiers, existing = new Set(), simErr = null, statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
+function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT }, simErr = null, statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
   const calls = [];
   let s = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
     if (method === "getProgramAccounts") return pools.map(([pubkey, data]) => ({ pubkey, account: { data: [data, "base64"] } }));
-    if (method === "getMultipleAccounts") return { value: params[0].map((k) => (tiers[k] ? { data: [tiers[k], "base64"] } : existing.has(k) ? { data: ["", "base64"] } : null)) };
+    if (method === "getMultipleAccounts")
+      return { value: params[0].map((k) => (mints[k] ? { data: [mints[k], "base64"] } : tiers[k] ? { data: [tiers[k], "base64"] } : existing.has(k) ? { data: ["", "base64"] } : null)) };
     if (method === "getLatestBlockhash") return { value: { blockhash: "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi", lastValidBlockHeight: 1000 } };
     if (method === "simulateTransaction") return { value: { err: simErr, logs: [], unitsConsumed: 61234 } };
     if (method === "sendTransaction") return "SiG";
@@ -309,6 +340,24 @@ describe("venue-sweep: a run", () => {
     expect(tx.instructions[0].keys[2].pubkey.toBase58()).toBe(WORKSHOP);
     expect(sim.params[1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: true });
     expect(summary(res, { live: false })).toContain(big[0]);
+  });
+
+  it("a pool holding a coin with a transfer fee is held back and named, never simulated or sent; the run still passes", async () => {
+    const groyper = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: GROYPER, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [51_216_483n, 7_000_000_000n], fund: [23_051_592n, 3_683_000_000n] })];
+    const chain = fakeChain({ pools: [groyper], tiers });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.ok).toBe(true);
+    expect(res.pools[0].note).toMatch(new RegExp(`held back: ${GROYPER} takes 3% of every transfer`));
+    expect(chain.calls.some((c) => c.method === "simulateTransaction" || c.method === "sendTransaction")).toBe(false);
+    expect(summary(res, { live: false })).toContain(groyper[0]);
+  });
+
+  it("a coin whose transfer fee cannot be read is held back too, and fails the run", async () => {
+    const chain = fakeChain({ pools: [big], tiers, mints: {} });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.ok).toBe(false);
+    expect(res.pools[0].note).toMatch(new RegExp(`held back: the transfer fee of ${BAYLA} could not be read`));
+    expect(chain.calls.some((c) => c.method === "simulateTransaction")).toBe(false);
   });
 
   it("before the program is upgraded, the simulation's 'no such instruction' is said and is not a failure", async () => {

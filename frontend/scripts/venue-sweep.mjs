@@ -5,6 +5,9 @@
 // the island's (5.6%) to the Workshop's. The PROGRAM derives and enforces every destination: this
 // job cannot send a coin anywhere else. It pays the network fee and, once per new coin, the rent
 // of an owner's token account (the associated token account program's CreateIdempotent).
+// HELD BACK: a pool holding a Token-2022 coin with a transfer fee (GROYPER takes 3% of every
+// move) is not swept, since the coin would keep that much of both shares; the summary names it
+// and the owner decides. A coin whose fee setting cannot be read is held back too, and fails the run.
 //
 //   node frontend/scripts/venue-sweep.mjs --payer <address>   dry run: reads and simulates as that
 //                                                             payer, sends nothing, needs no key
@@ -129,6 +132,51 @@ export function pricedShares(pool, solUsd) {
   return usd;
 }
 
+/**
+ * A Token-2022 mint's transfer fee in basis points: the higher of its two settings (the one in
+ * force now and the one scheduled), 0 with no TransferFeeConfig extension. Layout (spl-token-2022):
+ * the 82-byte mint, padding to 165, the account type (1 = mint) at 165, then type/length/value
+ * entries from 166; TransferFeeConfig is type 1, 108 bytes: two authorities (64), the withheld
+ * amount (8), then two TransferFee of epoch (8), maximum (8) and basis points (2).
+ */
+export function transferFeeBps(d) {
+  if (d.length <= 166 || d[165] !== 1) return 0;
+  for (let off = 166; off + 4 <= d.length; ) {
+    const type = d.readUInt16LE(off);
+    const len = d.readUInt16LE(off + 2);
+    if (type === 0) break;
+    if (type === 1) {
+      if (len < 108 || off + 4 + len > d.length) return null;
+      const v = d.subarray(off + 4, off + 4 + len);
+      return Math.max(v.readUInt16LE(88), v.readUInt16LE(106));
+    }
+    off += 4 + len;
+  }
+  return 0;
+}
+
+/** The pools' Token-2022 coins that take a fee on transfer: mint -> basis points, or null when unreadable. */
+export async function transferFeeCoins(call, pools) {
+  const mints = [
+    ...new Set(
+      pools.flatMap((p) => [
+        [p.mint0, p.program0],
+        [p.mint1, p.program1],
+      ]).filter(([, prog]) => prog === TOKEN_2022_PROGRAM).map(([m]) => m)
+    ),
+  ];
+  const out = new Map();
+  for (let i = 0; i < mints.length; i += 100) {
+    const chunk = mints.slice(i, i + 100);
+    const infos = (await call("getMultipleAccounts", [chunk, { encoding: "base64", commitment: "confirmed" }])).value;
+    chunk.forEach((m, j) => {
+      const bps = infos[j]?.data?.[0] ? transferFeeBps(Buffer.from(infos[j].data[0], "base64")) : null;
+      if (bps !== 0) out.set(m, bps);
+    });
+  }
+  return out;
+}
+
 /** Is the pool worth a transaction today? With no SOL price, 0.007 SOL of shares stands in for $0.50. */
 export function worthSweeping(pool, solUsd, minUsd) {
   const usd = pricedShares(pool, solUsd);
@@ -192,6 +240,7 @@ export async function run(opts, deps) {
   const tierKeys = [...new Set(pools.map((p) => p.ammConfig))];
   const tierInfos = tierKeys.length ? (await call("getMultipleAccounts", [tierKeys, { encoding: "base64", commitment: "confirmed" }])).value : [];
   const tiers = new Map(tierKeys.map((k, i) => [k, tierInfos[i] ? decodeTier(k, tierInfos[i].data[0]) : null]));
+  const feeCoins = await transferFeeCoins(call, pools);
   const solUsd = await solPrice(fetchImpl);
   log(`${pools.length} pools on ${opts.program}; SOL ${solUsd == null ? "price unread" : `$${solUsd}`}; payer ${payer}; ${opts.live ? "LIVE" : "dry run"}`);
 
@@ -214,6 +263,17 @@ export async function run(opts, deps) {
     }
     if (pool.protocol.every((x) => x === 0n) && pool.fund.every((x) => x === 0n)) {
       row.note = "nothing set aside";
+      continue;
+    }
+    const taxed = [pool.mint0, pool.mint1].find((m) => feeCoins.has(m));
+    if (taxed) {
+      const bps = feeCoins.get(taxed);
+      if (bps === null) {
+        row.note = `held back: the transfer fee of ${taxed} could not be read`;
+        ok = false;
+      } else {
+        row.note = `held back: ${taxed} takes ${bps / 100}% of every transfer, so a sweep would hand that much of both shares of it to the coin; the owner decides`;
+      }
       continue;
     }
     if (!worthSweeping(pool, solUsd, opts.minUsd)) {
