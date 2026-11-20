@@ -55,7 +55,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
   if (status === null) {
     return (
-      <section ref={ref} className={frame} style={CARD}>
+      <section ref={ref} className={frame} style={CARD} data-dwg="band" data-tone="reading">
         <CardArt pageId="venue-amm" idx={0} />
         <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
       </section>
@@ -66,7 +66,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   // Refresh), so a re-read that changes the state keeps the pressed Refresh and its focus.
   if (status.kind === 'live') {
     return (
-      <section ref={ref} className={frame} style={green} aria-label="Venue status">
+      <section ref={ref} className={frame} style={green} aria-label="Venue status" data-dwg="band" data-tone="live">
         <CardArt pageId="venue-amm" idx={0} />
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
@@ -138,7 +138,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   })();
 
   return (
-    <section ref={ref} className={frame} style={amber} aria-label="Venue status">
+    <section ref={ref} className={frame} style={amber} aria-label="Venue status" data-dwg="band" data-tone="warn">
       <CardArt pageId="venue-amm" idx={0} />
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
