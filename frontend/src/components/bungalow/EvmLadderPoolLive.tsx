@@ -9,7 +9,7 @@ import {
   deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, penaltyPct, penaltyShare, lockRemaining, MIN_STAKE_RAW,
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
-import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
+import { fmtRaw, fmtRawUp, fmtRunway } from '../../lib/evmLighthouse';
 import { noteReplacement, receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { LOCK_DURATIONS } from '../../lib/copy';
@@ -227,7 +227,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
   const stakeClosed = depositsFrozen || rewardsEnded || paysNothing || periodFinishRaw === null || big(3) === null;
 
   return (
-    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} data-ladder-card="evm" style={{ border: '1px solid var(--color-purple-75)' }}>
       <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="evm-ladder-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
@@ -259,7 +259,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4" data-s01="stats">
               <Stat label="Reward vault" value={`${fmtRaw(view.vaultRaw, decimals)} ${bungalow.symbol}`} title="The contract's own rewardSurplus(): its balance minus every staker's principal. This is what it can actually pay." />
               <Stat label="Total staked" value={`${fmtRaw(big(0), decimals)} ${bungalow.symbol}`} />
               <Stat label="Pool pays (all stakers)" value={view.payingNowRawPerSec === null ? '—' : `${fmtRaw(view.payingNowRawPerSec * 86_400n, decimals)}/day`} title="Pool-wide, shared across every staker by lock weight — not your personal rate." />
@@ -319,9 +319,9 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                 connect a wallet to even SEE is a ladder nobody climbs. Only the
                 amount field and the buttons below need a wallet. */}
             <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-3 gap-2 mb-3" data-s01="rungs">
               {RUNGS.map((r, i) => (
-                <button key={r.length} type="button" onClick={() => setRung(i)}
+                <button key={r.length} type="button" onClick={() => setRung(i)} data-rung={i === rung ? 'on' : 'off'}
                   className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
                   style={{
                     background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
@@ -359,7 +359,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
               </button>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="grid grid-cols-2 gap-3 mb-4" data-s01="stats">
                   <Stat label="Your principal" value={`${fmtRaw(myPrincipalRaw, decimals)} ${bungalow.symbol}`} />
                   <Stat label="Claimable" value={`${fmtRaw(earnedRaw, decimals)} ${bungalow.symbol}`} />
                 </div>
@@ -380,7 +380,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                       className="text-amber-300/90"
                       title="Smaller positions are refused because their lock weight would be small enough to distort every staker's share."
                     >
-                      {' · '}minimum {fmtRaw(MIN_STAKE_RAW, decimals)} {bungalow.symbol}
+                      {' · '}minimum {fmtRawUp(MIN_STAKE_RAW, decimals)} {bungalow.symbol}
                     </span>
                   )}
                   {amountRaw !== null && amountRaw > 0n && (
@@ -423,7 +423,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                     <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || belowMin || (walletRaw !== null && amountRaw > walletRaw)}
                       className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('stake', () => writeContractAsync({ ...poolC, functionName: 'stake', args: [amountRaw ?? 0n, chosen.secs] }))}>
-                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.length}`}
+                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRawUp(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.length}`}
                     </button>
                   )}
                   <button type="button" disabled={busy !== null || earnedRaw === null || earnedRaw === 0n} className="btn-secondary px-5 py-2 text-[13px] disabled:opacity-50"
@@ -473,10 +473,10 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                                 title={fee === null
                                   ? 'The penalty could not be read just now. The pool charges it either way, and it stays in the pool for the stakers who waited.'
                                   : flatBps !== null
-                                    ? `Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`
-                                    : `Leaving now costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}): the time left on your lock over four years, capped at ${capWord}. It stays in the pool for the stakers who waited.`}
+                                    ? `Leaving early costs ${fmtRawUp(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`
+                                    : `Leaving now costs ${fmtRawUp(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}): the time left on your lock over four years, capped at ${capWord}. It stays in the pool for the stakers who waited.`}
                                 onClick={() => send('e' + p.id, () => writeContractAsync({ ...poolC, functionName: 'earlyExit', args: [p.id] }))}>
-                                {fee === null ? 'Exit early' : `Exit early (−${fmtRaw(fee, decimals)})`}
+                                {fee === null ? 'Exit early' : `Exit early (−${fmtRawUp(fee, decimals)})`}
                               </button>
                             )}
                             {/* AUDIT (2026-09-01): this used to promise "Principal
@@ -491,14 +491,14 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
                                 only the matured case claims to be free. */}
                             <button type="button" disabled={busy !== null} className="text-[11px] text-white/45 hover:text-white underline underline-offset-2"
                               title={open
-                                ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken.'
+                                ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available: this is the last resort if rewards are ever broken.'
                                 : fee === null
                                   ? 'Still locked, so this costs the same penalty as exiting early (it could not be read just now), AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.'
                                   : flatBps !== null
-                                    ? `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`
-                                    : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.`}
+                                    ? `Still locked, so this costs the same ${fmtRawUp(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.`
+                                    : `Still locked, so this costs the same ${fmtRawUp(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.`}
                               onClick={() => send('x' + p.id, () => writeContractAsync({ ...poolC, functionName: 'emergencyWithdraw', args: [p.id] }))}>
-                              {open || fee === null ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
+                              {open || fee === null ? 'emergency' : `emergency (−${fmtRawUp(fee, decimals)})`}
                             </button>
                           </div>
                         );
@@ -539,7 +539,7 @@ export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & 
 
 function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }} title={title}>
+    <div className="rounded-xl px-3 py-2.5" data-stat="" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }} title={title}>
       <p className="text-[10px] uppercase tracking-wider text-white/50 mb-1">{label}</p>
       <p className="text-white text-[14px] tabular-nums">{value}</p>
     </div>

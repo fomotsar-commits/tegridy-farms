@@ -1,0 +1,50 @@
+/* Sheet C-01, the city (pages/CityPage.tsx): the island drawn on one canvas. Extends styles/dwg.css;
+   the spot ink is hibiscus. Imported by main.tsx, as every sheet's file is. */
+
+.dwg[data-sheet='C'] { --dwg-spot: #ff6fa3; --dwg-spot-deep: #5a1f38; }
+.dwg[data-sheet='C'] .c01-sheet { background: var(--dwg-bg); }
+.c01-hero { position: relative; isolation: isolate; padding: 22px var(--dwg-pad) 18px; }
+.c01-hero .dwg-cap { margin-bottom: 12px; }
+
+/* The drawing, its tools and the picked plot's card. Narrow: one column, the card under the tools.
+   Wide: the card stands beside the drawing, so a press shows its result where it was made. */
+.c01-view { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'stage' 'tools' 'pick'; }
+.c01-view > .c01-stage { grid-area: stage; }
+.c01-view > .c01-toolbar { grid-area: tools; }
+.c01-view > .c01-pick { grid-area: pick; }
+@media (min-width: 72rem) {
+  .c01-view { grid-template-columns: minmax(0, 1fr) clamp(300px, 27%, 380px); grid-template-rows: auto 1fr; grid-template-areas: 'stage pick' 'tools pick'; }
+  .c01-view > .c01-pick[data-split] { display: block; padding: 18px 20px 22px; border-left: 1px solid var(--dwg-line-2); }
+  .c01-view > .c01-pick > .dwg-band-head { display: none; }
+  .c01-view > .c01-pick .c01-frame { width: 100%; }
+  .c01-view .c01-peek { display: none; }
+}
+
+/* The drawing. One finger scrolls the page past it; a sideways drag or two fingers move the island. */
+.c01-stage { position: relative; height: clamp(380px, 68vh, 760px); border-top: 1px solid var(--dwg-line-2); background: var(--dwg-bg); overflow: hidden; }
+.c01-canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; cursor: grab; }
+.c01-canvas:active { cursor: grabbing; }
+
+/* Narrower than the card's own column: the picked plot named over the foot of the drawing. A press brings the card into view. */
+.c01-peek { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 6px 14px 6px 6px; background: rgba(5, 8, 15, 0.9); border: 1px solid var(--dwg-line-2); color: var(--dwg-ink); font: 700 12px/1.2 var(--font-family-mono); letter-spacing: 0.1em; text-transform: uppercase; text-align: left; cursor: pointer; }
+.c01-peek:hover, .c01-peek:focus-visible { border-color: var(--dwg-ink); }
+.c01-peek img { flex: none; width: 44px; height: 55px; object-fit: cover; border: 1px solid var(--dwg-line-2); background: var(--dwg-bg); }
+.c01-peek-usd { color: var(--dwg-soft); letter-spacing: 0.04em; }
+.c01-peek-go { margin-left: auto; color: var(--dwg-spot); }
+
+.c01-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding-top: 12px; padding-bottom: 12px; }
+.c01-tools, .c01-plots { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* A press area is never narrower than it is tall: the zoom signs are one character wide. */
+.c01-tools .dwg-chip { min-width: 44px; justify-content: center; }
+.c01-fine > div { max-width: 60ch; color: var(--dwg-soft); }
+.c01-card { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+/* A building's close-up: its art at full size. The last one shows under the next until it has come. */
+.c01-frame { position: relative; width: min(100%, 440px); aspect-ratio: 4 / 5; margin-bottom: 6px; border: 1px solid var(--dwg-line-2); background: var(--dwg-bg); overflow: hidden; }
+.c01-frame > .c01-shot { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.c01-frame > .c01-next { opacity: 0; transition: opacity 0.25s ease; }
+.c01-frame > .c01-next[data-in] { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .c01-frame > .c01-shot { transition: none; } }
+.c01-card .dwg-fact { margin: 0; font-size: 12px; }
+.c01-addr { margin: 0; max-width: 100%; font: 500 11px/1.4 var(--font-family-mono); color: var(--dwg-soft); overflow-wrap: anywhere; }
+.c01-go { margin-top: 4px; }
+.c01-sq { flex: none; width: 10px; height: 10px; }

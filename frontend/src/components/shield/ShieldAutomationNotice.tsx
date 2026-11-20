@@ -16,12 +16,14 @@ export function ShieldAutomationNotice() {
 
   return (
     <section
+      data-dwg="rev"
+      data-rev="1"
       className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-kenny)' }}
       aria-label="How this shield works"
     >
       <CardArt pageId="shield" idx={1} />
-      <p className="text-[12px] font-semibold" style={{ color: 'var(--color-kenny)' }}>
+      <p className="text-[12px] font-semibold" data-dwg="stamp" style={{ color: 'var(--color-kenny)' }}>
         {state.statusLabel}
       </p>
       <p className="mt-1 text-white text-[13px] leading-snug">{state.statusDetail}</p>

@@ -5,7 +5,7 @@
 // never from ledger.ts: the steps stand in the comments beside each number.
 import { describe, it, expect } from 'vitest';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
-import { IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_WITHDRAW } from '../cpswap/program';
+import { IX_CREATE_LP_METADATA, IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_WITHDRAW } from '../cpswap/program';
 import { FORECAST_WORDS } from './format';
 import { isqrt } from './liquidityMath';
 import type { PoolView } from './poolFinder';
@@ -76,6 +76,8 @@ interface CpSpec {
   noBalances?: boolean;
   err?: unknown;
   inner?: TxIxSpec[];
+  /** Top-level steps after the cp-swap one, as this site's opening sends `create_lp_metadata`. */
+  after?: TxIxSpec[];
   extraBalances?: Balance[];
 }
 
@@ -101,8 +103,9 @@ function cpRaw(view: PoolView, o: CpSpec): unknown {
   const args = o.kind === 'opening' ? [o.move.coin, o.move.token, 0n] : [o.lpArg ?? o.move.lp, 1n << 62n, 1n << 62n];
   const lpDelta = o.lpDelta ?? (o.kind === 'withdrawal' ? -o.move.lp : o.move.lp);
   const innerIxs = o.inner ?? [];
+  const after = o.after ?? [];
   const extra = o.extraBalances ?? [];
-  const keys = [...new Set([signer, ...accounts, o.owner, o.lpAccount, pool, PROG, ...innerIxs.flatMap((ix) => [ix.program, ...ix.accounts]), ...extra.map((b) => b.account)])];
+  const keys = [...new Set([signer, ...accounts, o.owner, o.lpAccount, pool, PROG, ...[...innerIxs, ...after].flatMap((ix) => [ix.program, ...ix.accounts]), ...extra.map((b) => b.account)])];
   const opened = o.kind === 'opening';
   const [base0, base1] = [7_000_000_000_000n, 9_000_000_000_000n];
   const balances: Balance[] = o.noBalances ? [] : [
@@ -114,7 +117,7 @@ function cpRaw(view: PoolView, o: CpSpec): unknown {
   ];
   return txJson({
     keys,
-    instructions: [{ program: PROG, accounts, data: ixData(disc, ...args) }],
+    instructions: [{ program: PROG, accounts, data: ixData(disc, ...args) }, ...after],
     inner: innerIxs.length ? [{ index: 0, instructions: innerIxs }] : undefined,
     balances,
     err: o.err,
@@ -393,6 +396,26 @@ describe('classifyLedgerTx: the entry rule', () => {
     expect(classify(cpTx(view, { kind: 'deposit', owner, lpAccount, move, err: { InstructionError: [0, { Custom: 6001 }] } })).kind).toBe('failed');
     expect(classify(null)).toEqual({ kind: 'unread', signature: sig('null'), blockTime: 1_791_066_624, detail: 'the node has no record of it' });
     expect(classify(cpTx(view, { kind: 'deposit', owner, lpAccount, move, noBalances: true }))).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/balance/) });
+  });
+
+  it('this site’s opening, `initialize` then `create_lp_metadata` naming the pool (as the BIG BRAIN/BAYLA opening of 2026-11-15 sent them), is an opening: the name record moves nothing', () => {
+    const p = view.snapshot.pool;
+    // lib.rs CreateLpMetadata: payer, authority, pool_state, lp_mint, metadata, update_authority, metadata program, system, rent. No arguments.
+    const nameRecord: TxIxSpec = { program: PROG, accounts: [owner, k(), view.address, p.lpMint, k(), k(), 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s', '11111111111111111111111111111111', 'SysvarRent111111111111111111111111111111111'], data: Uint8Array.from(IX_CREATE_LP_METADATA) };
+    const opening = { kind: 'opening' as const, owner, lpAccount, move: { coin: 1_000_000_000n, token: 5_000_000_000n, lp: 2_236_067_877n, lpBefore: 0n } };
+    expect(classify(cpTx(view, { ...opening, after: [nameRecord] }))).toMatchObject({ kind: 'opening', lp: 2_236_067_877n, token: 5_000_000_000n, coin: 1_000_000_000n, lpBefore: 0n });
+    // The name record does not hide a real second step: with a swap beside them, still mixed.
+    const swap: TxIxSpec = { program: PROG, accounts: [owner, k(), p.ammConfig, view.address, k(), k(), p.token0Vault, p.token1Vault], data: ixData(IX_SWAP_BASE_INPUT, 1_000_000_000n, 1n) };
+    expect(classify(cpTx(view, { ...opening, after: [nameRecord, swap] })).kind).toBe('mixed');
+    // A name record sent on its own, later, is no entry of the share's.
+    const alone = txJson({
+      keys: [owner, lpAccount, view.address, PROG, ...nameRecord.accounts],
+      instructions: [nameRecord],
+      balances: [{ account: lpAccount, mint: p.lpMint, owner, pre: 2_236_067_877n, post: 2_236_067_877n }],
+      slot: 100,
+      blockTime: 1_791_066_624,
+    });
+    expect(classify(parseTx(sig('name'), alone)).kind).toBe('other');
   });
 
   it('8.8: two cp-swap steps naming the pool are mixed, whatever the signs say', () => {

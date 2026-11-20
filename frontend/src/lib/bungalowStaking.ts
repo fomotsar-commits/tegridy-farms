@@ -1,8 +1,9 @@
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
-import type { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import type { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { solanaRpcEndpoint } from './solana';
 import { confirmedSlotOf, slotOrNull } from './ladder/writeFence';
 import { readSendThrow } from './solana/walletThrow';
+import { sendOneWrite } from './solana/walletWrite';
 
 /**
  * Bungalow staking adapter — the venue's thin seam over the Streamflow
@@ -1001,27 +1002,51 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 /* ──────────────────────────────── writes ────────────────────────────────── */
 
 /**
- * The wallet as the SDK is handed it, noting when it has signed: the SDK signs, then
- * test-runs and sends, in one call (client.execute), and reads only `publicKey` and
- * `signTransaction` of it (@streamflow/common signTransaction, prepareTransaction).
+ * Every write here: the SDK only BUILDS the instructions (its prepare*Instructions, which
+ * read nothing of the wallet but its key), and lib/solana/walletWrite.ts tests them, checks
+ * the SOL, has the wallet sign this one transaction, and sends it with preflight on.
+ *
+ * Until 2026-11-17 the SDK's own `execute` had the wallet sign FIRST and test-ran after, so
+ * a claim the reward program can no longer pay (6000, below) reached the wallet, and
+ * Phantom's own test run of it failed and warned (Phantom, ticket #467471).
  */
-function watchSigning(invoker: SignerWalletAdapter): { invoker: SignerWalletAdapter; signed: () => boolean } {
-  let signed = false;
-  const watched = {
-    get publicKey() {
-      return invoker.publicKey;
-    },
-    signTransaction: ((tx) =>
-      invoker.signTransaction(tx).then((s) => {
-        signed = true;
-        return s;
-      })) as SignerWalletAdapter['signTransaction'],
-  };
-  return { invoker: watched as unknown as SignerWalletAdapter, signed: () => signed };
-}
+let writeConn: Connection | null = null;
 
-/** After the wallet signed, the only stops that sent nothing more: the SDK's test run refused it, or the chain did. */
-const REFUSED_AFTER_SIGNING = /failed to simulate transaction|^Raw transaction \S+ failed/;
+/** Not enough SOL, in a test run's or a send's words. */
+const SOL_SHORT = /insufficient (lamports|funds)|InsufficientFundsFor(Fee|Rent)|Attempt to debit an account but found no record/i;
+const SOL_SHORT_COPY = 'Not enough SOL in this wallet for the network fee and account rent. Nothing moved, and your wallet was not asked.';
+
+async function sendStaking(
+  invoker: SignerWalletAdapter,
+  ixs: readonly TransactionInstruction[],
+  fallback: string,
+): Promise<Result<{ txId: string }> | Failure> {
+  const owner = invoker.publicKey;
+  if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
+  const { Connection: Conn } = await import('@solana/web3.js');
+  const conn = (writeConn ??= new Conn(solanaRpcEndpoint(), 'confirmed'));
+  // A refusal said from the program's own log line (writeFailure): a 6000 there is permanent.
+  const refusal = (logs: readonly string[], err: unknown, said: string): Failure => {
+    if (!failedProgram({ logs }) && SOL_SHORT.test(`${logs.join('\n')}\n${JSON.stringify(err ?? null)}`)) return { ok: false, reason: SOL_SHORT_COPY };
+    return writeFailure(Object.assign(new Error(said), { logs: [...logs] }), fallback);
+  };
+  const end = await sendOneWrite(conn, invoker, owner, ixs, {
+    refused: (run, where) => refusal(run.logs, run.err, where === 'test' ? 'its test run refused it' : 'the network refused it before sending it').reason,
+  });
+  if (end.kind === 'not-sent') {
+    if (end.stage === 'test') return refusal(end.logs ?? [], end.run?.err ?? null, 'its test run refused it');
+    if (end.stage === 'network') return refusal(end.logs ?? [], null, 'the network refused it before sending it');
+    return { ok: false, reason: end.reason };
+  }
+  if (end.outcome === 'confirmed') return { ok: true, txId: end.signature };
+  if (end.outcome === 'reverted') {
+    return { ok: false, reason: `This landed on chain and reverted. Nothing moved, apart from the network fee. Signature: ${end.signature}` };
+  }
+  return {
+    ok: false,
+    reason: `Outcome unknown: the transaction was sent and may still land. Check your wallet or Solscan before retrying. Signature: ${end.signature}`,
+  };
+}
 
 /** The runtime's own line for a program that failed with a custom error. A program's printing starts "Program log:", so it cannot write this. */
 const RUNTIME_FAILED = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed: custom program error: 0x([0-9a-fA-F]{1,8})$/;
@@ -1058,13 +1083,13 @@ export function failedProgram(err: unknown): { program: string; code: number } |
   return null;
 }
 
-function writeFailure(err: unknown, fallback: string, walletSigned = false): Failure {
+function writeFailure(err: unknown, fallback: string): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   // The wallet's throw, read as every Solana write reads it (lib/solana/walletThrow.ts):
   // a cancel by code 4001 or by words, or a wallet that never signed, with its reason.
-  // Not once the wallet signed or a signature exists: what threw then is the send.
+  // Not once a signature exists: what threw then is the send.
   const signed = (err as { signature?: unknown } | null)?.signature;
-  const t = walletSigned || (typeof signed === 'string' && signed !== '') ? null : readSendThrow(err);
+  const t = typeof signed === 'string' && signed !== '' ? null : readSendThrow(err);
   if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
   // What failed is read from the runtime's own log line first (failedProgram). The
   // words are read only when no logs came back: the SDK's message carries its last
@@ -1155,13 +1180,6 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
       reason: `Outcome unknown: the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
     };
   }
-  // Signed, then stopped anywhere else: the send may have gone out, so never "nothing moved".
-  if (walletSigned && !REFUSED_AFTER_SIGNING.test(msg)) {
-    return {
-      ok: false,
-      reason: `Sent or not, we cannot tell. Your wallet signed it, then the send stopped (${msg ? msg.slice(0, 140) : 'no reason was given'}). Check your wallet's activity before you try again.`,
-    };
-  }
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
 }
 
@@ -1170,8 +1188,8 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
  * idempotent create of the staker's ATA for the stake-mint PDA (the receipt
  * token the pool mints). PROVEN NECESSARY on devnet: without it, Stake dies
  * with AccountNotInitialized on the `to` account for every first-time
- * staker (rehearsal tx 4B8hFc…KJRu). Everything rides ONE transaction via
- * the SDK's own execute() (bundling + compute budget are theirs).
+ * staker (rehearsal tx 4B8hFc…KJRu). Everything rides ONE transaction
+ * (sendStaking).
  */
 export async function stake(args: {
   invoker: SignerWalletAdapter;
@@ -1180,7 +1198,7 @@ export async function stake(args: {
   durationSecs: number;
   entries: StakeEntryView[];
 }): Promise<Result<{ txId: string }> | Failure> {
-  const wallet = watchSigning(args.invoker);
+  const fallback = 'The stake did not go through. Nothing moved.';
   try {
     const nonce = nextVacantNonce(args.entries);
     if (nonce === null) return { ok: false, reason: 'All 256 stake slots are in use for this wallet.' };
@@ -1192,7 +1210,8 @@ export async function stake(args: {
       import('@solana/web3.js'),
       import('@solana/spl-token'),
     ]);
-    const ext = { invoker: wallet.invoker };
+    // Building reads only the wallet's key (the SDK's prepare*Instructions).
+    const ext = { invoker: args.invoker };
     const stakeMintPda = staking.deriveStakeMintPDA(
       client.getCurrentProgramId('stakePoolProgram' as any),
       new web3.PublicKey(args.pool.address),
@@ -1236,23 +1255,22 @@ export async function stake(args: {
       );
       rewardIxs.push(...(prep?.ixs ?? []));
     }
-    const res: any = await client.execute([ataIx, ...(stakePrep?.ixs ?? []), ...rewardIxs], ext);
-    return { ok: true, txId: String(res?.txId ?? res?.signature ?? '') };
+    return await sendStaking(args.invoker, [ataIx, ...(stakePrep?.ixs ?? []), ...rewardIxs], fallback);
   } catch (err) {
-    return writeFailure(err, 'The stake did not go through. Nothing moved.', wallet.signed());
+    return writeFailure(err, fallback);
   }
 }
 
-/** Unstake + claim + close entries via the SDK's grouped flow. */
+/** Unstake + claim + close entries: the SDK's grouped flow, built by it and sent by sendStaking. */
 export async function unstakeAndClaim(args: {
   invoker: SignerWalletAdapter;
   pool: PoolView;
   entryNonce: number;
 }): Promise<Result<{ txId: string }> | Failure> {
-  const wallet = watchSigning(args.invoker);
+  const fallback = 'The unstake did not go through. Your stake is untouched.';
   try {
     const client = await makeClient();
-    const res: any = await client.unstakeAndClaim(
+    const { ixs } = await client.prepareUnstakeAndClaimInstructions(
       {
         stakePool: args.pool.address as any,
         stakePoolMint: args.pool.mint as any,
@@ -1265,11 +1283,11 @@ export async function unstakeAndClaim(args: {
           tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
-      { invoker: wallet.invoker },
+      { invoker: args.invoker },
     );
-    return { ok: true, txId: String(res?.txId ?? '') };
+    return await sendStaking(args.invoker, ixs, fallback);
   } catch (err) {
-    return writeFailure(err, 'The unstake did not go through. Your stake is untouched.', wallet.signed());
+    return writeFailure(err, fallback);
   }
 }
 
@@ -1319,8 +1337,7 @@ export async function unstakeAndCloseForfeitingRewards(args: {
    */
   entry: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>;
 }): Promise<Result<{ txId: string }> | Failure> {
-  // The close's own wallet watch: each claim before it reads its own (claimRewards).
-  let closing: ReturnType<typeof watchSigning> | null = null;
+  const fallback = 'The rescue unstake did not go through. Your stake is untouched.';
   try {
     // CLAIM WHAT CAN STILL BE PAID, THEN CLOSE.
     //
@@ -1351,7 +1368,9 @@ export async function unstakeAndCloseForfeitingRewards(args: {
         // that used to sit there matched a position holding 13,712 claimable
         // BAYLA, so trusting it meant closing the entry and destroying it.
         // Instead every pool with something pending is ATTEMPTED, and the
-        // program's own answer decides what happens next:
+        // program's own answer decides what happens next. Since 2026-11-17 that
+        // answer comes from the claim's test run, before the wallet is asked, so a
+        // claim that cannot pay never reaches the wallet (sendStaking):
         //
         //   permanent (6000)  → proven unpayable. There is nothing to save, so
         //                       carry on and let the rescue free the principal.
@@ -1371,11 +1390,10 @@ export async function unstakeAndCloseForfeitingRewards(args: {
       }
     }
     if (switched()) return stopped;
-    closing = watchSigning(args.invoker);
     const client = await makeClient();
     // Same argument shape as unstakeAndClaim — the SDK aliases
     // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
-    const res: any = await client.unstakeAndClose(
+    const { ixs } = await client.prepareUnstakeAndCloseInstructions(
       {
         stakePool: args.pool.address as any,
         stakePoolMint: args.pool.mint as any,
@@ -1388,48 +1406,34 @@ export async function unstakeAndCloseForfeitingRewards(args: {
           tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
-      { invoker: closing.invoker },
+      { invoker: args.invoker },
     );
-    return { ok: true, txId: String(res?.txId ?? '') };
+    return await sendStaking(args.invoker, ixs, fallback);
   } catch (err) {
-    return writeFailure(err, 'The rescue unstake did not go through. Your stake is untouched.', closing?.signed() ?? false);
+    return writeFailure(err, fallback);
   }
 }
 
-/** Claim rewards from one reward pool for one stake entry. */
+/**
+ * Claim rewards from one reward pool for one stake entry: one transaction, one wallet
+ * approval (the pool card's Claim, and each claim of Harvest's Claim all).
+ */
 export async function claimRewards(args: {
   invoker: SignerWalletAdapter;
   pool: PoolView;
   rewardPool: RewardPoolView;
   entryNonce: number;
 }): Promise<Result<{ txId: string }> | Failure> {
-  const wallet = watchSigning(args.invoker);
-  try {
-    const client = await makeClient();
-    const res: any = await client.claimRewards(
-      {
-        stakePool: args.pool.address as any,
-        stakePoolMint: args.pool.mint as any,
-        rewardPoolNonce: args.rewardPool.nonce,
-        depositNonce: args.entryNonce,
-        rewardMint: args.rewardPool.mint as any,
-        rewardPoolType: args.rewardPool.kind,
-        tokenProgramId: args.pool.tokenProgram as any,
-      },
-      { invoker: wallet.invoker },
-    );
-    return { ok: true, txId: String(res?.txId ?? '') };
-  } catch (err) {
-    return writeFailure(err, CLAIM_FAILED, wallet.signed());
-  }
+  const claimant = args.invoker.publicKey;
+  if (!claimant) return { ok: false, reason: 'Connect a wallet first.' };
+  const built = await claimRewardsInstructions({ claimant, pool: args.pool, rewardPool: args.rewardPool, entryNonce: args.entryNonce });
+  if (!built.ok) return built;
+  return sendStaking(args.invoker, built.ixs, CLAIM_FAILED);
 }
 
 const CLAIM_FAILED = 'The claim did not go through. Your rewards are untouched.';
 
-/**
- * The instructions `claimRewards` sends, from the SDK's own prepare path, unsent: for
- * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
- */
+/** The instructions `claimRewards` sends, from the SDK's own prepare path, unsent. */
 export async function claimRewardsInstructions(args: {
   claimant: PublicKey;
   pool: PoolView;
@@ -1455,11 +1459,6 @@ export async function claimRewardsInstructions(args: {
   } catch (err) {
     return { ok: false, reason: `${CLAIM_FAILED} (${(err instanceof Error ? err.message : String(err ?? '')).slice(0, 140)})` };
   }
-}
-
-/** A claim its test run refused, said as `claimRewards` says the same refusal (6012, 6000, 6013). */
-export function claimRefusal(logs: readonly string[]): string {
-  return writeFailure(Object.assign(new Error('its test run refused it'), { logs: [...logs] }), CLAIM_FAILED).reason;
 }
 
 /**

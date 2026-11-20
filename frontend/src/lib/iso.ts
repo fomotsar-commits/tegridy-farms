@@ -1,7 +1,7 @@
 // An axonometric drawing, as an architect sets one out: every length keeps its scale on all
 // three axes, so a height can be compared with another by eye. Earn's two figures are drawn
 // with it: the island's pools as a site model (components/farm/IsoIsland.tsx) and a harvest as
-// a stack of plates (components/farm/HarvestStack.tsx).
+// a building, one storey per claim (components/farm/HarvestGranary.tsx).
 //
 // Pure: points in, points out. The world's x runs down-screen to the right, its y down-screen
 // to the left, and z is up. One unit is `u` pixels along either ground axis.

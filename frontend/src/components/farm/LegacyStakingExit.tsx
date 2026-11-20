@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import type { Address } from 'viem';
 import { formatEther } from 'viem';
+import { localeCut } from '../../lib/formatting';
 import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
@@ -206,7 +207,7 @@ export function LegacyStakingExit() {
       <div className="flex flex-col gap-3">
         {positions.map((p) => {
           const busy = (isPending || isConfirming) && activeIdx === p.idx;
-          const amountLabel = `${Number(formatEther(p.amount)).toLocaleString()} TOWELI`;
+          const amountLabel = `${localeCut(formatEther(p.amount))} TOWELI`;
           return (
             <div
               key={p.contractAddr}
