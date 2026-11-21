@@ -1020,20 +1020,17 @@ describe("venue-sweep: a run", () => {
     expect(res.ok).toBe(true);
   });
 
-  // ── Each destination is checked before its side is sent (the owner's ruling, 2026-11-21) ──
+  // ── Each destination is checked before its side is sent, by the program's two rules (the owner's ruling, 2026-11-21) ──
   const usdcPool = dollarPool(USDC_MINT);
   const usdtPool = dollarPool(USDT_MINT);
+  const CLEAN = "simulated clean (61234 compute units); a live run would send it";
+  const NAME = { [SOL_MINT]: "SOL", [BAYLA]: "BAYLA", [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" };
+  // A delegate or a close authority: the program refuses that side (6020), so it is held back.
   for (const c of [
     { side: "venue", owner: VAULT, coin: SOL_MINT, flag: "delegate", says: "has a delegate", red: true },
     { side: "venue", owner: VAULT, coin: BAYLA, flag: "closeAuthority", says: "has a close authority", red: true },
-    { side: "venue", owner: VAULT, coin: USDC_MINT, flag: "frozen", says: "is frozen", red: true },
-    { side: "venue", owner: VAULT, coin: USDT_MINT, flag: "frozen", says: "is frozen", red: true },
-    { side: "venue", owner: VAULT, coin: BAYLA, flag: "frozen", says: "is frozen", red: false },
     { side: "island", owner: WORKSHOP, coin: SOL_MINT, flag: "delegate", says: "has a delegate", red: false },
     { side: "island", owner: WORKSHOP, coin: BAYLA, flag: "closeAuthority", says: "has a close authority", red: false },
-    { side: "island", owner: WORKSHOP, coin: BAYLA, flag: "frozen", says: "is frozen", red: false },
-    { side: "island", owner: WORKSHOP, coin: USDC_MINT, flag: "frozen", says: "is frozen", red: false },
-    { side: "island", owner: WORKSHOP, coin: USDT_MINT, flag: "frozen", says: "is frozen", red: false },
   ]) {
     const name = { [SOL_MINT]: "SOL", [BAYLA]: "BAYLA", [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" }[c.coin];
     it(`the ${c.side}'s side is held back when its ${name} account ${c.says}: ${c.red ? "the run fails" : "it is named, and the run passes"}; the other side still goes`, async () => {
@@ -1053,18 +1050,55 @@ describe("venue-sweep: a run", () => {
       expect(summary(res, { live: false })).toContain(address);
     });
   }
+  // A freeze: the program leaves that coin in the pool and still moves the other one.
+  for (const c of [
+    { side: "venue", owner: VAULT, coin: USDC_MINT, moves: `0.03 of ${SOL_MINT}`, left: `2 of ${USDC_MINT}`, red: true },
+    { side: "venue", owner: VAULT, coin: USDT_MINT, moves: `0.03 of ${SOL_MINT}`, left: `2 of ${USDT_MINT}`, red: true },
+    { side: "venue", owner: VAULT, coin: BAYLA, moves: `0.051216483 of ${SOL_MINT}`, left: `7,000 of ${BAYLA}`, red: false },
+    { side: "island", owner: WORKSHOP, coin: BAYLA, moves: `0.023051592 of ${SOL_MINT}`, left: `3,683 of ${BAYLA}`, red: false },
+    { side: "island", owner: WORKSHOP, coin: USDC_MINT, moves: `0.015 of ${SOL_MINT}`, left: `1 of ${USDC_MINT}`, red: false },
+    { side: "island", owner: WORKSHOP, coin: USDT_MINT, moves: `0.015 of ${SOL_MINT}`, left: `1 of ${USDT_MINT}`, red: false },
+  ]) {
+    const name = NAME[c.coin];
+    it(`the ${c.side}'s ${name} account frozen leaves its ${name} in the pool, named, and its side sweeps the other coin: ${c.red ? "the run fails" : "the run passes"}; the other side sweeps both`, async () => {
+      const pool = c.coin === USDC_MINT ? usdcPool : c.coin === USDT_MINT ? usdtPool : big;
+      const coins = pool === big ? SOL_BAYLA : DOLLAR_SOL(c.coin);
+      const flags = { [c.coin]: { frozen: true } };
+      const accounts = { ...accountsOf(VAULT, coins, c.owner === VAULT ? flags : {}), ...accountsOf(WORKSHOP, coins, c.owner === WORKSHOP ? flags : {}) };
+      const chain = fakeChain({ pools: [pool], tiers, accounts });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+      const other = c.side === "venue" ? "island" : "venue";
+      const address = associatedTokenAddress(c.owner, c.coin, c.coin === BAYLA ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM);
+      expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      expect(res.pools[0][c.side]).toMatchObject({
+        ok: !c.red,
+        left: [c.coin],
+        result: `${CLEAN}, sweeping ${c.moves} only, and ${c.left} is left in the pool; its account \`${address}\` for ${c.coin} is frozen${c.red ? ": read it" : ""}`,
+      });
+      expect(res.pools[0][c.side].heldBack).toBeUndefined();
+      expect(res.pools[0][other].result).toBe(CLEAN);
+      expect(res.ok).toBe(!c.red);
+      expect(summary(res, { live: false })).toContain(address);
+    });
+  }
 
-  // ── A side is sent only when every account its transfer touches is open ────
+  // ── The pool's own account of a coin, frozen, leaves that coin for each side owed it ──
   const authority = findProgramAddress([Buffer.from("vault_and_lp_mint_auth_seed")], VENUE_PROGRAM).address;
   for (const c of [
-    { coin: USDC_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 15_000_000n], held: ["venue"], red: true },
-    { coin: USDC_MINT, venueOwes: [0n, 30_000_000n], islandOwes: [1_000_000n, 15_000_000n], held: ["island"], red: false },
-    { coin: USDT_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 0n], held: ["venue"], red: true },
-    { coin: BAYLA, venueOwes: [51_216_483n, 7_000_000_000n], islandOwes: [23_051_592n, 3_683_000_000n], held: ["venue", "island"], red: false },
-    { coin: BAYLA, venueOwes: [51_216_483n, 0n], islandOwes: [23_051_592n, 3_683_000_000n], held: ["island"], red: false },
+    { coin: USDC_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 15_000_000n], left: { venue: [`0.03 of ${SOL_MINT}`, `2 of ${USDC_MINT}`] }, red: true },
+    { coin: USDC_MINT, venueOwes: [0n, 30_000_000n], islandOwes: [1_000_000n, 15_000_000n], left: { island: [`0.015 of ${SOL_MINT}`, `1 of ${USDC_MINT}`] }, red: false },
+    { coin: USDT_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 0n], left: { venue: [`0.03 of ${SOL_MINT}`, `2 of ${USDT_MINT}`] }, red: true },
+    {
+      coin: BAYLA,
+      venueOwes: [51_216_483n, 7_000_000_000n],
+      islandOwes: [23_051_592n, 3_683_000_000n],
+      left: { venue: [`0.051216483 of ${SOL_MINT}`, `7,000 of ${BAYLA}`], island: [`0.023051592 of ${SOL_MINT}`, `3,683 of ${BAYLA}`] },
+      red: false,
+    },
+    { coin: BAYLA, venueOwes: [51_216_483n, 0n], islandOwes: [23_051_592n, 3_683_000_000n], left: { island: [`0.023051592 of ${SOL_MINT}`, `3,683 of ${BAYLA}`] }, red: false },
   ]) {
-    const name = { [BAYLA]: "BAYLA", [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" }[c.coin];
-    it(`the pool's own ${name} account frozen holds back the ${c.held.join(" and the ")}'s side, each owed ${name}: ${c.red ? "the venue's fails the run" : "named, and the run passes"}; a side not owed ${name} still goes`, async () => {
+    const name = NAME[c.coin];
+    it(`the pool's own ${name} account frozen leaves ${name} in the pool for the ${Object.keys(c.left).join(" and the ")}'s side, each owed ${name}, named, and each sweeps its other coin: ${c.red ? "the venue's fails the run" : "the run passes"}; a side not owed ${name} sweeps as usual, unnamed`, async () => {
       const dollar = c.coin !== BAYLA;
       const coins = dollar ? DOLLAR_SOL(c.coin) : SOL_BAYLA;
       const own = [key(), key()];
@@ -1078,17 +1112,290 @@ describe("venue-sweep: a run", () => {
       const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
       const owes = { venue: c.venueOwes, island: c.islandOwes };
       for (const side of ["venue", "island"]) {
-        if (c.held.includes(side)) {
-          expect(res.pools[0][side]).toMatchObject({ heldBack: true, ok: !(c.red && side === "venue") });
-          expect(res.pools[0][side].result).toContain(`the pool's own account \`${own[at]}\` for ${c.coin} is frozen`);
-        } else expect(res.pools[0][side].result).toMatch(owes[side].some((x) => x > 0n) ? /simulated clean/ : /^nothing set aside$/);
+        const l = c.left[side];
+        const fails = c.red && side === "venue";
+        if (l) {
+          expect(res.pools[0][side]).toMatchObject({
+            ok: !fails,
+            left: [c.coin],
+            result: `${CLEAN}, sweeping ${l[0]} only, and ${l[1]} is left in the pool; the pool's own account \`${own[at]}\` for ${c.coin} is frozen${fails ? ": read it" : ""}`,
+          });
+          expect(res.pools[0][side].heldBack).toBeUndefined();
+        } else expect(res.pools[0][side].result).toBe(owes[side].some((x) => x > 0n) ? CLEAN : "nothing set aside");
       }
-      const sent = ["venue", "island"].filter((s) => !c.held.includes(s) && owes[s].some((x) => x > 0n));
+      // Every side owed anything is sent: each frozen leg's other coin passes the floor on its own.
+      const sent = ["venue", "island"].filter((s) => owes[s].some((x) => x > 0n));
       expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual(sent.map((s) => [s]));
       expect(res.ok).toBe(!c.red);
       expect(summary(res, { live: false })).toContain(own[at]);
     });
   }
+
+  // ── A frozen leg: what can move is sent, the frozen coin is named as left in the pool, never as swept ──
+  const MINTS = [SOL_MINT, BAYLA];
+  const BOTH = { protocol: [51_216_483n, 7_000_000_000n], fund: [23_051_592n, 3_683_000_000n] };
+  /**
+   * A pool of `coins` with its own two accounts, both owners holding both destinations: `frozen`
+   * lists by coin what is frozen ({ pool, vault, workshop }), and `flags` adds a delegate or a close
+   * authority to an owner's account ({ vault: { [mint]: { delegate: true } } }).
+   */
+  function legPool({ coins = SOL_BAYLA, decimals = [9, 6], protocol, fund = [0n, 0n], frozen = {}, flags = {} }) {
+    const own = [key(), key()];
+    const pool = [
+      key(),
+      poolBytes({ ammConfig: tierKey, vault0: own[0], vault1: own[1], mint0: coins[0][0], mint1: coins[1][0], program0: coins[0][1], program1: coins[1][1], decimals0: decimals[0], decimals1: decimals[1], protocol, fund }),
+    ];
+    const set = (who) => Object.fromEntries(coins.map(([m], i) => [m, { frozen: (frozen[who] ?? []).includes(i), ...flags[who]?.[m] }]));
+    const accounts = {
+      ...accountsOf(VAULT, coins, set("vault")),
+      ...accountsOf(WORKSHOP, coins, set("workshop")),
+      ...Object.fromEntries(own.map((a, i) => [a, tokenAccount({ mint: coins[i][0], owner: authority, program: coins[i][1], frozen: (frozen.pool ?? []).includes(i) })])),
+    };
+    return { pool, own, accounts };
+  }
+
+  // The pool's own account of coin 0, or of coin 1, frozen.
+  for (const at of [0, 1]) {
+    it(`a live run with the pool's own account of coin ${at} frozen: each side sweeps its other coin and names coin ${at} as left in the pool, with that account, never as swept`, async () => {
+      const kp = Keypair.generate();
+      const f = legPool({ ...BOTH, frozen: { pool: [at] } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: live(kp), log: quiet, wait: async () => {} });
+      const sent = chain.sentTxs();
+      expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      const because = `the pool's own account \`${f.own[at]}\` for ${MINTS[at]} is frozen`;
+      for (const [i, side, coin0, coin1] of [
+        [0, "venue", `0.051216483 of ${SOL_MINT}`, `7,000 of ${BAYLA}`],
+        [1, "island", `0.023051592 of ${SOL_MINT}`, `3,683 of ${BAYLA}`],
+      ]) {
+        const [moves, left] = at === 0 ? [coin1, coin0] : [coin0, coin1];
+        expect(res.pools[0][side]).toEqual({
+          share: `${coin0} + ${coin1}`,
+          ok: true,
+          sent: true,
+          swept: true,
+          fee: true,
+          signature: sigOfTx(sent[i]),
+          opens: [],
+          left: [MINTS[at]],
+          result: `swept ${moves} only, and ${left} is left in the pool; ${because}`,
+        });
+      }
+      expect(res.ok).toBe(true);
+      const text = summary(res, { live: true });
+      const line = text.split("\n").find((l) => l.includes(f.pool[0]));
+      for (const side of ["venue", "island"]) expect(line).toContain(` ${res.pools[0][side].result} \`${res.pools[0][side].signature}\` |`);
+      expect(text).toContain("2 sweeps seen on chain (10,000 lamports of network fees)");
+    });
+  }
+
+  // The vault's own account frozen, instead of the pool's.
+  for (const at of [0, 1]) {
+    it(`a live run with the vault's own account of coin ${at} frozen: the venue's side sweeps its other coin and names coin ${at} as left in the pool, with that account; the island's side sweeps both`, async () => {
+      const kp = Keypair.generate();
+      const f = legPool({ ...BOTH, frozen: { vault: [at] } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: live(kp), log: quiet, wait: async () => {} });
+      const [moves, left] = at === 0 ? [`7,000 of ${BAYLA}`, `0.051216483 of ${SOL_MINT}`] : [`0.051216483 of ${SOL_MINT}`, `7,000 of ${BAYLA}`];
+      expect(chain.sentTxs().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, left: [MINTS[at]], result: `swept ${moves} only, and ${left} is left in the pool; its account \`${vaultAccounts[at]}\` for ${MINTS[at]} is frozen` });
+      expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: "swept" });
+      expect(res.pools[0].island.left).toBeUndefined();
+      expect(res.ok).toBe(true);
+    });
+  }
+
+  // Nothing the side is owed can move.
+  it("a side owed only a frozen coin sends nothing and waits, naming the account; the other side, not owed that coin, sweeps as usual", async () => {
+    const f = legPool({ protocol: [0n, 7_000_000_000n], fund: [23_051_592n, 0n], frozen: { pool: [1] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: {}, log: quiet });
+    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["island"]]);
+    expect(res.pools[0].venue).toEqual({
+      share: `0 of ${SOL_MINT} + 7,000 of ${BAYLA}`,
+      ok: true,
+      left: [BAYLA],
+      result: `waits, nothing sent: 7,000 of ${BAYLA} is left in the pool; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen`,
+    });
+    expect(res.pools[0].island.result).toBe(CLEAN);
+    expect(res.ok).toBe(true);
+  });
+
+  it("a side with both of its coins frozen sends nothing and waits, naming both accounts", async () => {
+    const f = legPool({ ...BOTH, frozen: { pool: [0, 1] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: {}, log: quiet });
+    expect(chain.simulated()).toEqual([]);
+    for (const [side, sol, bayla] of [
+      ["venue", "0.051216483", "7,000"],
+      ["island", "0.023051592", "3,683"],
+    ]) {
+      expect(res.pools[0][side]).toMatchObject({
+        ok: true,
+        left: MINTS,
+        result: `waits, nothing sent: ${sol} of ${SOL_MINT} and ${bayla} of ${BAYLA} are left in the pool; the pool's own account \`${f.own[0]}\` for ${SOL_MINT} is frozen; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen`,
+      });
+      expect(res.pools[0][side].heldBack).toBeUndefined();
+    }
+    expect(res.ok).toBe(true);
+  });
+
+  it("the vault's USDC account frozen with only USDC owed: nothing is sent, the side waits, named, and the run fails", async () => {
+    const f = legPool({ coins: DOLLAR_SOL(USDC_MINT), decimals: [6, 9], protocol: [2_000_000n, 0n], frozen: { vault: [0] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const address = associatedTokenAddress(VAULT, USDC_MINT, TOKEN_PROGRAM);
+    expect(chain.simulated()).toEqual([]);
+    expect(res.pools[0].venue).toMatchObject({ ok: false, left: [USDC_MINT], result: `waits, nothing sent: 2 of ${USDC_MINT} is left in the pool; its account \`${address}\` for ${USDC_MINT} is frozen: read it` });
+    expect(res.ok).toBe(false);
+    expect(exitCode(res)).toBe(1);
+  });
+
+  // What can move is under the floor once the frozen coin is left out.
+  for (const c of [
+    { sol: 72, protocol: [1_000_000n, 7_000_000_000n], at: 1, left: `7,000 of ${BAYLA}`, why: "0.001 SOL at $72 is $0.072" },
+    { sol: null, protocol: [1_000_000n, 7_000_000_000n], at: 1, left: `7,000 of ${BAYLA}`, why: "no SOL price, and 0.001 SOL is under the 0.007 SOL that stands in" },
+    { sol: null, protocol: [51_216_483n, 100_000_000n], at: 0, left: `0.051216483 of ${SOL_MINT}`, why: "100 BAYLA is $0.10, and a frozen SOL leg never stands in" },
+  ]) {
+    it(`a side whose other coin is under the floor once the frozen one is left out sends nothing and waits, naming the account (${c.why})`, async () => {
+      const f = legPool({ protocol: c.protocol, frozen: { pool: [c.at] } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(c.sol, { [BAYLA]: 0.001 }), env: {}, log: quiet });
+      expect(chain.simulated()).toEqual([]);
+      expect(res.pools[0].venue).toMatchObject({
+        ok: true,
+        left: [MINTS[c.at]],
+        result: `waits: what can move is under the $0.5 floor, and ${c.left} is left in the pool; the pool's own account \`${f.own[c.at]}\` for ${MINTS[c.at]} is frozen`,
+      });
+      expect(res.pools[0].venue.heldBack).toBeUndefined();
+      expect(res.pools[0].island.result).toBe("nothing set aside");
+      expect(res.ok).toBe(true);
+    });
+  }
+
+  it("the pool's own USDT account frozen and the SOL left under the floor: the venue's side waits, named, and the run fails", async () => {
+    const f = legPool({ coins: DOLLAR_SOL(USDT_MINT), decimals: [6, 9], protocol: [2_000_000n, 1_000_000n], frozen: { pool: [0] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(chain.simulated()).toEqual([]);
+    expect(res.pools[0].venue).toMatchObject({
+      ok: false,
+      left: [USDT_MINT],
+      result: `waits: what can move is under the $0.5 floor, and 2 of ${USDT_MINT} is left in the pool; the pool's own account \`${f.own[0]}\` for ${USDT_MINT} is frozen: read it`,
+    });
+    expect(res.ok).toBe(false);
+  });
+
+  // The vault's USDC or USDT frozen fails the run, though the other coin is sent.
+  for (const c of [
+    { coin: USDC_MINT, where: "vault" },
+    { coin: USDC_MINT, where: "pool" },
+    { coin: USDT_MINT, where: "vault" },
+    { coin: USDT_MINT, where: "pool" },
+  ]) {
+    const name = NAME[c.coin];
+    it(`a live run with ${c.where === "vault" ? "the vault's" : "the pool's"} own ${name} account frozen: the venue's side sweeps its SOL, names the ${name} as left, and the run fails (exit code 1)`, async () => {
+      const kp = Keypair.generate();
+      const f = legPool({ coins: DOLLAR_SOL(c.coin), decimals: [6, 9], protocol: [2_000_000n, 30_000_000n], fund: [1_000_000n, 15_000_000n], frozen: { [c.where]: [0] } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      const sent = chain.sentTxs();
+      expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      const own = `the pool's own account \`${f.own[0]}\` for ${c.coin} is frozen`;
+      const because = c.where === "vault" ? `its account \`${associatedTokenAddress(VAULT, c.coin, TOKEN_PROGRAM)}\` for ${c.coin} is frozen` : own;
+      expect(res.pools[0].venue).toMatchObject({ ok: false, swept: true, signature: sigOfTx(sent[0]), left: [c.coin], result: `swept 0.03 of ${SOL_MINT} only, and 2 of ${c.coin} is left in the pool; ${because}: read it` });
+      // The island's side never fails the run; the pool's own account leaves the island's share of that coin too.
+      expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: c.where === "vault" ? "swept" : `swept 0.015 of ${SOL_MINT} only, and 1 of ${c.coin} is left in the pool; ${own}` });
+      expect(res.ok).toBe(false);
+      expect(exitCode(res)).toBe(1);
+    });
+  }
+
+  // The Workshop's USDC or USDT frozen never fails the run.
+  for (const c of [
+    { coin: USDC_MINT, where: "workshop" },
+    { coin: USDC_MINT, where: "pool" },
+    { coin: USDT_MINT, where: "workshop" },
+    { coin: USDT_MINT, where: "pool" },
+  ]) {
+    const name = NAME[c.coin];
+    it(`a live run with ${c.where === "workshop" ? "the Workshop's" : "the pool's"} own ${name} account frozen and the venue ${c.where === "pool" ? "not owed it" : "owed it too"}: the island's side sweeps its SOL, names the ${name} as left, and the run passes`, async () => {
+      const kp = Keypair.generate();
+      const f = legPool({ coins: DOLLAR_SOL(c.coin), decimals: [6, 9], protocol: [c.where === "pool" ? 0n : 2_000_000n, 30_000_000n], fund: [1_000_000n, 15_000_000n], frozen: { [c.where]: [0] } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      const sent = chain.sentTxs();
+      expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+      const because = c.where === "workshop" ? `its account \`${associatedTokenAddress(WORKSHOP, c.coin, TOKEN_PROGRAM)}\` for ${c.coin} is frozen` : `the pool's own account \`${f.own[0]}\` for ${c.coin} is frozen`;
+      expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, signature: sigOfTx(sent[1]), left: [c.coin], result: `swept 0.015 of ${SOL_MINT} only, and 1 of ${c.coin} is left in the pool; ${because}` });
+      expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, result: "swept" });
+      expect(res.ok).toBe(true);
+      expect(exitCode(res)).toBe(0);
+    });
+  }
+
+  // A frozen destination of a coin the side is not owed does not hold it back.
+  for (const c of [
+    { side: "venue", owner: VAULT, who: "vault", coins: SOL_BAYLA, at: 1, red: false },
+    { side: "island", owner: WORKSHOP, who: "workshop", coins: SOL_BAYLA, at: 1, red: false },
+    { side: "venue", owner: VAULT, who: "vault", coins: DOLLAR_SOL(USDC_MINT), at: 0, red: true },
+  ]) {
+    const [coin, program] = c.coins[c.at];
+    it(`the ${c.side}'s ${NAME[coin]} account frozen, with no ${NAME[coin]} owed to that side: the side is sent and the account named; ${c.red ? "a frozen USDC account of the vault fails the run" : "the run passes"}`, async () => {
+      const share = c.coins === SOL_BAYLA ? [51_216_483n, 0n] : [0n, 30_000_000n];
+      const f = legPool({
+        coins: c.coins,
+        decimals: c.coins === SOL_BAYLA ? [9, 6] : [6, 9],
+        protocol: c.side === "venue" ? share : [0n, 0n],
+        fund: c.side === "island" ? share : [0n, 0n],
+        frozen: { [c.who]: [c.at] },
+      });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+      const address = associatedTokenAddress(c.owner, coin, program);
+      expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([[c.side]]);
+      expect(res.pools[0][c.side]).toMatchObject({ ok: !c.red, result: `${CLEAN}; its account \`${address}\` for ${coin} is frozen${c.red ? ": read it" : ""}` });
+      expect(res.pools[0][c.side].left).toBeUndefined();
+      expect(res.pools[0][c.side].heldBack).toBeUndefined();
+      expect(res.ok).toBe(!c.red);
+    });
+  }
+
+  // A delegate or a close authority still holds the side back, owed or not.
+  for (const c of [
+    { side: "venue", owner: VAULT, who: "vault", flag: "delegate", says: "has a delegate", red: true },
+    { side: "island", owner: WORKSHOP, who: "workshop", flag: "closeAuthority", says: "has a close authority", red: false },
+  ]) {
+    it(`the ${c.side}'s BAYLA account that ${c.says} holds its side back though no BAYLA is owed to it, as the program refuses it whatever the amount: ${c.red ? "the run fails" : "named, and the run passes"}`, async () => {
+      const share = [51_216_483n, 0n];
+      const f = legPool({ protocol: c.side === "venue" ? share : [0n, 0n], fund: c.side === "island" ? share : [0n, 0n], flags: { [c.who]: { [BAYLA]: { [c.flag]: true } } } });
+      const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+      const address = associatedTokenAddress(c.owner, BAYLA, TOKEN_2022_PROGRAM);
+      expect(chain.simulated()).toEqual([]);
+      expect(res.pools[0][c.side]).toMatchObject({ ok: !c.red, heldBack: true, result: `held back, nothing sent: its account \`${address}\` for ${BAYLA} ${c.says}${c.red ? ": read it" : ""}` });
+      expect(res.ok).toBe(!c.red);
+    });
+  }
+
+  it("a delegate holds the venue's side back even where a frozen coin would leave the other free to move, and fails the run; the island's side still sweeps its other coin", async () => {
+    const f = legPool({ ...BOTH, frozen: { pool: [1] }, flags: { vault: { [SOL_MINT]: { delegate: true } } } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["island"]]);
+    expect(res.pools[0].venue).toMatchObject({
+      ok: false,
+      heldBack: true,
+      result: `held back, nothing sent: its account \`${vaultAccounts[0]}\` for ${SOL_MINT} has a delegate; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen: read it`,
+    });
+    expect(res.pools[0].venue.left).toBeUndefined();
+    expect(res.pools[0].island).toMatchObject({
+      ok: true,
+      left: [BAYLA],
+      result: `${CLEAN}, sweeping 0.023051592 of ${SOL_MINT} only, and 3,683 of ${BAYLA} is left in the pool; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen`,
+    });
+    expect(res.ok).toBe(false);
+  });
 
   it("a vault account with a delegate or a close authority is named, and fails the run, on a day only the island's side of its pool is due", async () => {
     // One pool where the venue has nothing set aside, one where its share is under the floor.
@@ -1441,6 +1748,22 @@ describe("venue-sweep: the process, as the workflow runs it", () => {
     expect(badKey.summary).toContain("It did not run: the keypair is not JSON");
     expect(`${badKey.summary}${badKey.output}`).not.toContain("31337");
     expect(chain.calls).toEqual([]);
+  });
+
+  it("with the vault's USDC account frozen the job still sends the SOL, names the USDC as left in the pool, and exits 1", { timeout: 30_000 }, async () => {
+    const tierKey = key();
+    const coins = [
+      [USDC_MINT, TOKEN_PROGRAM],
+      [SOL_MINT, TOKEN_PROGRAM],
+    ];
+    const pool = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: USDC_MINT, mint1: SOL_MINT, program0: TOKEN_PROGRAM, program1: TOKEN_PROGRAM, decimals0: 6, decimals1: 9, protocol: [2_000_000n, 30_000_000n] })];
+    const accounts = { ...accountsOf(VAULT, coins, { [USDC_MINT]: { frozen: true } }), ...accountsOf(WORKSHOP, coins) };
+    const chain = fakeChain({ pools: [pool], tiers: { [tierKey]: tierBytes(VAULT, WORKSHOP) }, accounts });
+    const r = await runJob(["--payer", payer], { chain });
+    expect(r.code).toBe(1);
+    expect(chain.calls.filter((c) => c.method === "simulateTransaction").length).toBe(1);
+    const usdc = associatedTokenAddress(VAULT, USDC_MINT, TOKEN_PROGRAM);
+    expect(r.summary).toContain(`a live run would send it, sweeping 0.03 of ${SOL_MINT} only, and 2 of ${USDC_MINT} is left in the pool; its account \`${usdc}\` for ${USDC_MINT} is frozen: read it`);
   });
 });
 

@@ -710,11 +710,14 @@ other coins is named and left to hand collects, as is one with a coin that takes
 A destination counts as open only when its coin's own token program owns it. The job opens only
 the vault's missing accounts (their rent stays the venue's); it sweeps the island's share only
 where the Workshop already holds both of that pool's accounts, and its summary names the missing
-ones for the island to open. A side is sent only when every account its transfer touches is open
-(the owner's ruling of 2026-11-21): a destination with a delegate, a close authority or a freeze
-holds that side back and names it, as does the pool's own account of a coin that side is owed
-when that one is frozen. On the vault's side each of these but a freeze of a coin other than USDC
-or USDT also fails the run, and the vault's destinations are checked on any day the job reads
+ones for the island to open. It follows the program's two rules above (the owner's ruling of
+2026-11-21, "Fix in the program"). A destination with a delegate or a close authority holds that
+side back and names it, owed or not, since the program refuses it. A coin that side is owed whose
+destination or pool account is frozen is left in the pool and named with that account: it counts
+nothing toward the floor, and the other coin is sent when it passes on its own, the summary never
+calling the frozen one swept. On the vault's side a delegate, a close authority or a frozen USDC or
+USDT also fails the run, even when the other coin is sent; the Workshop's side never fails it, any
+other freeze is only named, and the vault's destinations are checked on any day the job reads
 them. The job pays 5,000 lamports for each sweep it sends, the island's included, and its summary
 says what it paid and what its key holds.
 
