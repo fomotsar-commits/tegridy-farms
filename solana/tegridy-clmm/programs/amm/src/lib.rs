@@ -155,11 +155,8 @@ pub mod raydium_clmm {
     /// * `trade_fee_rate` - The new trade fee rate of amm config, be set when `param` is 0
     /// * `protocol_fee_rate` - The new protocol fee rate of amm config, be set when `param` is 1
     /// * `fund_fee_rate` - The new fund fee rate of amm config, be set when `param` is 2
-    /// * `new_owner` - The config's new owner, be set when `param` is 3
     /// * `new_fund_owner` - The config's new fund owner, be set when `param` is 4
-    /// * `limit_protocol_fee_rate` - The new limit protocol fee rate of amm config, be set when `param` is 5
-    /// * `limit_fund_fee_rate` - The new limit fund fee rate of amm config, be set when `param` is 6
-    /// * `param` - The value can be 0 | 1 | 2 | 3 | 4 | 5 | 6, otherwise will report an error
+    /// * `param` - The value can be 0 | 1 | 2 | 4, otherwise will report an error
     ///
     pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u32) -> Result<()> {
         instructions::update_amm_config(ctx, param, value)
@@ -400,11 +397,11 @@ pub mod raydium_clmm {
     /// * `tick_upper_index` - The upper boundary of market
     /// * `tick_array_lower_start_index` - The start index of tick array which includes tick low
     /// * `tick_array_upper_start_index` - The start index of tick array which includes tick upper
-    /// * `liquidity` - The liquidity to be added, if zero, and the base_flag is specified, calculate liquidity base amount_0_max or amount_1_max according base_flag, otherwise open position with zero liquidity
+    /// * `liquidity` - The liquidity to be added; zero opens a position with no liquidity
     /// * `amount_0_max` - The max amount of token_0 to spend, which serves as a slippage check
     /// * `amount_1_max` - The max amount of token_1 to spend, which serves as a slippage check
     /// * `with_metadata` - The flag indicating whether to create NFT mint metadata
-    /// * `base_flag` - if the liquidity specified as zero, true: calculate liquidity base amount_0_max otherwise base amount_1_max
+    /// * `base_flag` - memetics.finance: must be None with zero liquidity; a deposit states its liquidity
     ///
     pub fn open_position_v2<'info>(
         ctx: Context<'info, OpenPositionV2<'info>>,
@@ -441,11 +438,11 @@ pub mod raydium_clmm {
     /// * `tick_upper_index` - The upper boundary of market
     /// * `tick_array_lower_start_index` - The start index of tick array which includes tick low
     /// * `tick_array_upper_start_index` - The start index of tick array which includes tick upper
-    /// * `liquidity` - The liquidity to be added, if zero, and the base_flag is specified, calculate liquidity base amount_0_max or amount_1_max according base_flag, otherwise open position with zero liquidity
+    /// * `liquidity` - The liquidity to be added; zero opens a position with no liquidity
     /// * `amount_0_max` - The max amount of token_0 to spend, which serves as a slippage check
     /// * `amount_1_max` - The max amount of token_1 to spend, which serves as a slippage check
     /// * `with_metadata` - The flag indicating whether to create NFT mint metadata
-    /// * `base_flag` - if the liquidity specified as zero, true: calculate liquidity base amount_0_max otherwise base amount_1_max
+    /// * `base_flag` - memetics.finance: must be None with zero liquidity; a deposit states its liquidity
     ///
     pub fn open_position_with_token22_nft<'info>(
         ctx: Context<'info, OpenPositionWithToken22Nft<'info>>,
@@ -508,10 +505,10 @@ pub mod raydium_clmm {
     /// # Arguments
     ///
     /// * `ctx` - The context of accounts
-    /// * `liquidity` - The desired liquidity to be added, if zero, calculate liquidity base amount_0 or amount_1 according base_flag
+    /// * `liquidity` - The desired liquidity to be added, can't be zero
     /// * `amount_0_max` - The max amount of token_0 to spend, which serves as a slippage check
     /// * `amount_1_max` - The max amount of token_1 to spend, which serves as a slippage check
-    /// * `base_flag` - must be specified if liquidity is zero, true: calculate liquidity base amount_0_max otherwise base amount_1_max
+    /// * `base_flag` - memetics.finance: ignored; a deposit states its liquidity
     ///
     pub fn increase_liquidity_v2<'info>(
         ctx: Context<'info, IncreaseLiquidityV2<'info>>,

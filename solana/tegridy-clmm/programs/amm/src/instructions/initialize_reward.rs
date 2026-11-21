@@ -128,11 +128,10 @@ pub fn initialize_reward(
     )?;
 
     let operation_state = ctx.accounts.operation_state.load()?;
-    // memetics.finance: a pool's opener starts no reward (2026-11-03 audit, CL-03/CR-4, the
-    // owner's ruling), as in Orca's pools: only the vault or an operation owner it named does.
+    // memetics.finance: only the vault starts a reward (2026-11-03 audit, CL-03/CR-4, and
+    // 2026-11-15 audit, RNG-05): not a pool's opener, and not an operation owner.
     require!(
-        ctx.accounts.reward_funder.key() == crate::admin::ID
-            || operation_state.validate_operation_owner(ctx.accounts.reward_funder.key()),
+        ctx.accounts.reward_funder.key() == crate::admin::ID,
         ErrorCode::NotApproved
     );
 
@@ -184,4 +183,20 @@ pub fn initialize_reward(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod reward_starter_test {
+    /// memetics.finance (2026-11-15 audit, RNG-05): the handler creates the reward vault before
+    /// it asks who signed, so no unit test reaches its check; this pins the check's text instead:
+    /// the vault alone, no operation owner. The local-chain suite runs it (check R15).
+    #[test]
+    fn only_the_vault_starts_a_reward_test() {
+        let src = include_str!("initialize_reward.rs");
+        let handler = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(handler.contains(
+            "require!(\n        ctx.accounts.reward_funder.key() == crate::admin::ID,\n        ErrorCode::NotApproved\n    );"
+        ));
+        assert!(!handler.contains("operation_owner"));
+    }
 }

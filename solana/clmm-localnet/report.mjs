@@ -71,9 +71,9 @@ the venue's 10.4% was collectable only by the vault, and the island's 5.6% only 
 is refused (check V9), and since 2026-11-03 a tier's island share, once handed over, cannot be pointed anywhere
 else, not even at the vault (check V6). No tier may charge
 more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5), or
-have a tick spacing of 0 (T10). Only the vault or an operator it names can start a reward, a pool's opener cannot
-(R4), and a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11, R13, R14). (A fee
-earned where no LP's range is in use, when a swap fills a limit order there, goes to the venue's share.) Opening a
+have a tick spacing of 0 (T10). Only the vault can start or change a reward: not a pool's opener (R4), and not an
+operator it names (R15, R16); a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11,
+R13, R14). (The LPs' part of the fee on a limit-order fill goes to the venue's share, whatever liquidity is in use.) Opening a
 pool paid exactly 0.5 SOL to the vault through \`create_pool\`, now the one instruction that opens one (P4); a wrong
 receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL were refused (P5 to P7).
 Seven instructions are gone since 2026-11-03: custom and permissioned pools, the permission accounts, both
@@ -155,8 +155,8 @@ ${cuRows.join('\n')}
    is made (T6, T7), and since 2026-11-03 cannot point it anywhere else, not even at itself (V6), nor collect it
    (V9): only a program upgrade could. The vault keeps the rate setting, within the ceilings (K1 to K5).
 2. **The vault cannot pay for rewards today.** Every reward stream needs the operation account first (3,529 bytes,
-   0.0186 SOL at mainnet's rate), made and paid by the vault, and since 2026-11-03 only the vault or an operator it
-   names can start one (R4). The vault held 0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
+   0.0186 SOL at mainnet's rate), made and paid by the vault, and only the vault can start one (R4, R15). The vault
+   held 0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
 3. **Raydium's key list also holds the SPL Memo program.** \`solana/guards/upstream/deny-keys.txt\` is every key
    Raydium's code writes, less three system keys, so it carries Memo, which every v2 swap and withdrawal must name.
    G1 went red on it in the first run; it now treats Memo as named-only and fails on any other key.

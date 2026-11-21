@@ -220,6 +220,12 @@ type MutableTick = TickStateView;
 /** `limit_order_unfilled_amount`. */
 const unfilled = (t: MutableTick) => u64(t.ordersAmount + t.partFilledOrdersRemaining);
 
+/**
+ * tick_array.rs `UNFILLED_RATIO_ONE`. The ratio is carried as the program carries it but never
+ * read: no quoted amount depends on it, so one an older build wrote at 2^64 is not rescaled here.
+ */
+const UNFILLED_RATIO_ONE = 1n << 126n;
+
 /** `get_limit_order_output_with_price`: what the resting orders pay for `amountIn`, rounded down. */
 function limitOrderOutput(amountIn: bigint, token0PriceX64: bigint, zeroForOne: boolean): bigint {
   const r = zeroForOne ? mulDivFloor(amountIn, token0PriceX64, Q64, U128_MAX) : mulDivFloor(amountIn, Q64, token0PriceX64, U128_MAX);
@@ -290,7 +296,7 @@ export function matchLimitOrder(
     if (t.partFilledOrdersRemaining !== 0n) fail('RequireEqViolated');
     if (!(t.ordersAmount >= rest)) fail('InvalidLimitOrderAmount');
     t.orderPhase = t.orderPhase === U64_MAX ? U64_MAX : t.orderPhase + 1n;
-    t.unfilledRatioX64 = mulDivFloor(Q64, t.ordersAmount - rest, t.ordersAmount, U128_MAX) ?? fail('CalculateOverflow');
+    t.unfilledRatioX64 = mulDivFloor(UNFILLED_RATIO_ONE, t.ordersAmount - rest, t.ordersAmount, U128_MAX) ?? fail('CalculateOverflow');
     t.partFilledOrdersRemaining = t.ordersAmount - rest;
     t.ordersAmount = 0n;
   }
@@ -469,8 +475,8 @@ function swapInternalWith(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPr
     }
     s.tickSpacingIndex = i32(s.tickSpacingIndex + (zeroForOne ? -1 : 1));
   };
-  /** `apply_swap_amounts` and `spilt_fees`. */
-  const apply = (amountIn: bigint, amountOut: bigint, fee: bigint) => {
+  /** `apply_swap_amounts` and `spilt_fees`: a limit-order fill's LP part goes to the venue. */
+  const apply = (amountIn: bigint, amountOut: bigint, fee: bigint, isLimitOrderFill: boolean) => {
     const consumed = feeOnInput ? u64(amountIn + fee) : amountIn;
     if (a.isBaseInput) {
       s.remaining = u64(s.remaining - consumed);
@@ -484,7 +490,7 @@ function swapInternalWith(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPr
     if (protocolDelta > 0n) s.protocolFee = u64(s.protocolFee + BigInt.asUintN(64, protocolDelta));
     if (fundDelta > 0n) s.fundFee = u64(s.fundFee + BigInt.asUintN(64, fundDelta));
     const remainingFee = u64(fee - BigInt.asUintN(64, protocolDelta) - BigInt.asUintN(64, fundDelta));
-    if (s.liquidity > 0n) {
+    if (s.liquidity > 0n && !isLimitOrderFill) {
       if (mulDivFloor(remainingFee, Q64, s.liquidity, U128_MAX) === null) fail('CalculateOverflow');
       s.lpFee = u64(s.lpFee + remainingFee);
     } else {
@@ -535,7 +541,7 @@ function swapInternalWith(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPr
       let step: SwapStep;
       if (s.sqrtPrice !== boundedPrice) {
         step = computeSwap(s.sqrtPrice, boundedPrice, s.liquidity, s.remaining, feeRate, a.isBaseInput, zeroForOne, feeOnInput);
-        apply(step.amountIn, step.amountOut, step.feeAmount);
+        apply(step.amountIn, step.amountOut, step.feeAmount, false);
       } else {
         step = { sqrtPriceNextX64: boundedPrice, amountIn: 0n, amountOut: 0n, feeAmount: 0n };
       }
@@ -543,7 +549,7 @@ function swapInternalWith(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPr
       if (s.sqrtPriceNext === step.sqrtPriceNextX64) {
         // At the next used price: fill its resting orders, then cross it if nothing rests.
         const lo = matchLimitOrder(tick, s.remaining, zeroForOne, a.isBaseInput, feeRate, feeOnInput, s.sqrtPriceNext);
-        if (lo.amountIn !== 0n || lo.amountOut !== 0n || lo.ammFeeAmount !== 0n) apply(lo.amountIn, lo.amountOut, lo.ammFeeAmount);
+        if (lo.amountIn !== 0n || lo.amountOut !== 0n || lo.ammFeeAmount !== 0n) apply(lo.amountIn, lo.amountOut, lo.ammFeeAmount, true);
         if (!tickIsInitialized(tick)) {
           if (current.initializedTickCount === 0) fail('CalculateOverflow');
           current.initializedTickCount -= 1;

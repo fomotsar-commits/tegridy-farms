@@ -7,7 +7,7 @@ import { PublicKey, SystemProgram, Keypair, spl, LAMPORTS_PER_SOL } from './lib/
 import { ADDR, WORK, LOCAL_TIME_LOCK, MAINNET_TIME_LOCK, registry } from './lib/config.mjs';
 import { conn, send, airdrop, kp, ledger } from './lib/chain.mjs';
 import { asVault, readMultisig, approveIx, squadsPdas, checkIdl, vaultPda } from './lib/squads.mjs';
-import { ix, PDA, account, sqrtPriceX64, tickAt, alignDown, arrayStart, order, ataOf } from './lib/clmm.mjs';
+import { ix, PDA, account, sqrtPriceX64, tickAt, alignDown, arrayStart, order, ataOf, liquidityFor } from './lib/clmm.mjs';
 import { MUTANTS } from './mutants.mjs';
 
 const MUT = process.env.CLMM_MUTANT || '';
@@ -369,16 +369,17 @@ function tokenMetadata(data) {
   return null;
 }
 
-async function openPosition(key, owner, [lower, upper], { bayla, solMax, baseBayla = true, withMetadata = true }) {
+async function openPosition(key, owner, [lower, upper], { bayla, solMax, withMetadata = true }) {
   const nft = Keypair.generate();
   reg(nft.publicKey, `${key} NFT mint`);
   const nftAcc = reg(spl.getAssociatedTokenAddressSync(nft.publicKey, owner.publicKey, false, ADDR.token2022), `${key} NFT account`);
   const pos = reg(PDA.position(nft.publicKey), `${key} position`);
   const taL = arrayStart(lower, SPACING); const taU = arrayStart(upper, SPACING);
   for (const s of [taL, taU]) { arrays.add(s); reg(PDA.tickArray(poolA, s), `pool A tick array ${s}`); }
-  // Amounts in the program's order; the base side is the one named by base_flag.
+  // Amounts in the program's order, and the liquidity both caps cover at the price now.
   const baylaMax = bayla * BAYLA_UNIT; const lamMax = BigInt(Math.round(solMax * 1e9));
   const [a0, a1] = baylaIs0 ? [baylaMax, lamMax] : [lamMax, baylaMax];
+  const liquidity = liquidityFor((await pool()).sqrt_price_x64, lower, upper, a0, a1);
   const before = { b: await tok(ata(owner.publicKey, BAYLA)), s: await tok(ata(owner.publicKey, WSOL)) };
   const r = await send(`${key}: open position`, [ix('open_position_with_token22_nft', {
     payer: owner.publicKey, position_nft_owner: owner.publicKey, position_nft_mint: nft.publicKey, position_nft_account: nftAcc,
@@ -387,7 +388,7 @@ async function openPosition(key, owner, [lower, upper], { bayla, solMax, baseBay
     vault_0_mint: M0, vault_1_mint: M1,
   }, {
     tick_lower_index: lower, tick_upper_index: upper, tick_array_lower_start_index: taL, tick_array_upper_start_index: taU,
-    liquidity: 0n, amount_0_max: a0, amount_1_max: a1, with_metadata: withMetadata, base_flag: baseBayla === baylaIs0,
+    liquidity, amount_0_max: a0, amount_1_max: a1, with_metadata: withMetadata, base_flag: null,
   })], [owner, nft]);
   const after = { b: await tok(ata(owner.publicKey, BAYLA)), s: await tok(ata(owner.publicKey, WSOL)) };
   positions[key] = { owner, nft: nft.publicKey, nftAcc, pos, lower, upper, taL, taU };
@@ -422,7 +423,7 @@ async function openPosition(key, owner, [lower, upper], { bayla, solMax, baseBay
     `${fmt(o.paidBayla, 6)} BAYLA, ${o.paidSol} lamports, ticks ${positions.bob.lower}..${positions.bob.upper}`);
 }
 {
-  const o = await openPosition('carol', carol, mut('L4') ? range(S / 3, S * 1.3) : range(S / 3, S / 1.3), { bayla: 5_000_000n, solMax: 15, baseBayla: false });
+  const o = await openPosition('carol', carol, mut('L4') ? range(S / 3, S * 1.3) : range(S / 3, S / 1.3), { bayla: 5_000_000n, solMax: 15 });
   if (!o.r.ok) console.log(o.r.logs.join('\n'));
   check('L4', 'open_position_with_token22_nft', 'a SOL-only position below the price takes SOL and not one unit of BAYLA', o.r.ok && o.paidSol > 0n && o.paidBayla === 0n,
     `${fmt(o.paidSol, 9)} SOL, ${o.paidBayla} BAYLA base units, ticks ${positions.carol.lower}..${positions.carol.upper}`);
@@ -454,7 +455,8 @@ const liqIx = (name, key, args, remaining = []) => {
   const l0 = (await account('PersonalPositionState', positions.alice.pos)).liquidity;
   const b0 = await tok(ata(alice.publicKey, BAYLA)); const s0 = await tok(ata(alice.publicKey, WSOL));
   const [a0, a1] = baylaIs0 ? [2_000_000n * BAYLA_UNIT, 40n * 10n ** 9n] : [40n * 10n ** 9n, 2_000_000n * BAYLA_UNIT];
-  const r = await send('alice adds to her position', [liqIx('increase_liquidity_v2', 'alice', mut('L7') ? { liquidity: 0n, amount_0_max: 0n, amount_1_max: 0n, base_flag: baylaIs0 } : { liquidity: 0n, amount_0_max: a0, amount_1_max: a1, base_flag: baylaIs0 })], [alice]);
+  const add = liquidityFor((await pool()).sqrt_price_x64, positions.alice.lower, positions.alice.upper, a0, a1);
+  const r = await send('alice adds to her position', [liqIx('increase_liquidity_v2', 'alice', mut('L7') ? { liquidity: add, amount_0_max: 0n, amount_1_max: 0n, base_flag: null } : { liquidity: add, amount_0_max: a0, amount_1_max: a1, base_flag: null })], [alice]);
   const l1 = (await account('PersonalPositionState', positions.alice.pos)).liquidity;
   const db = b0 - (await tok(ata(alice.publicKey, BAYLA))); const ds = s0 - (await tok(ata(alice.publicKey, WSOL)));
   check('L7', 'increase_liquidity_v2', 'adding to a position raises its liquidity and takes both coins', l1 > l0 && db > 0n && ds > 0n, `+${fmt(db, 6)} BAYLA, +${fmt(ds, 9)} SOL, ${r.cu} CU`);

@@ -265,6 +265,11 @@ pub fn check_limit_order_amount(amount: u64, tick_index: i32, zero_for_one: bool
     if amount_out < U128::one() || amount_out >= U128::from(u64::MAX - 2) {
         return err!(ErrorCode::InvalidLimitOrderAmount);
     }
+    // memetics.finance: at the taker's rounding one unit must cost no more than a u64, or no
+    // swap can ever fill the order (2026-11-15 audit, RNG-04).
+    let taker_price_x64 = tick_math::get_price_at_tick(tick_index, zero_for_one)?;
+    TickState::get_limit_order_input_with_price(1, taker_price_x64, zero_for_one)
+        .map_err(|_| error!(ErrorCode::InvalidLimitOrderAmount))?;
     Ok(())
 }
 
@@ -288,4 +293,25 @@ pub fn check_tick_index(
         return err!(ErrorCode::InvalidTickIndex);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod check_limit_order_amount_test {
+    use super::*;
+
+    /// memetics.finance (2026-11-15 audit, RNG-04): near the bottom of the range the taker's
+    /// price of token 1 rounds to 1 in Q64, so one unit costs 2^64 of token 0: more than any
+    /// u64. The maker's rounding alone let such an order in; open and increase now refuse it.
+    #[test]
+    fn an_order_no_u64_input_can_buy_is_refused_test() {
+        assert_eq!(
+            check_limit_order_amount(1, -443_520, false).unwrap_err(),
+            ErrorCode::InvalidLimitOrderAmount.into()
+        );
+        // Where a unit costs a u64 at the taker's rounding, the same order goes in.
+        assert!(check_limit_order_amount(1, -436_680, false).is_ok());
+        assert!(check_limit_order_amount(1, 443_520, true).is_ok());
+        assert!(check_limit_order_amount(1_000, 0, true).is_ok());
+        assert!(check_limit_order_amount(1_000, 0, false).is_ok());
+    }
 }
