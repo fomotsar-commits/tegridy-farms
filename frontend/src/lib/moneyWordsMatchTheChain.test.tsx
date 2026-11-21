@@ -1,10 +1,8 @@
 // The Ethereum-side money sentences, pinned as claim shapes (the reads are in the commit).
-// 1. Staker ETH does not wait on the pool: the pool is live, a payout round waits on 1 ETH.
+// 1. Nothing about ETH waits on the native pool going live.
 // 2. The venue's one-sixth cut of the pool fee is a switch the owner wallet flips pool by
-//    pool. It has been on for TOWELI/WETH since 2026-10-16 (kLast set, feeTo = treasury;
-//    re-read 2026-10-17), so copy may not call the Ethereum cut off, and a pool's providers
-//    keep the whole 0.3% only where it has not been switched on.
-// 3. The router fee does not all reach stakers: a referral share comes off first.
+//    pool, on for TOWELI/WETH since 2026-10-16, so copy may not call the Ethereum cut off.
+// 3. The router fee goes to the treasury Safe after a referral share (owner ruling 2026-11-15).
 // 4. A static answer cannot read the chain: a figure that can move is dated or points live.
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -105,11 +103,11 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
     const legal = [
       'a payout round can open only after 1 ETH has arrived',
       'The pair contract lets the venue take one sixth of that fee as newly minted pool shares.',
-      'The other 80% is routed toward TOWELI stakers as ETH.',
+      "The rest goes to the venue's treasury; none of it goes to stakers.",
       'limit orders executed on our thin native pool',
       'it stays undeployed until the native pool is deep enough to support it',
-      'protocol swap fees route on-chain, after a referral share, to stakers in ETH',
-      'Protocol fees route on-chain to stakers, after the referral carve.',
+      "protocol swap fees go on-chain, after a referral share, to the venue's treasury",
+      'Protocol fees go on-chain to the treasury, after the referral share.',
       'add liquidity, stake LP tokens, earn rewards',
       'Swap fee 0.3%, all to providers until the venue switches on its one-sixth cut for that pool',
       'To check a pool today, read kLast on its pair contract: 0 means its cut is not on.',
@@ -121,64 +119,43 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
   });
 });
 
-// The static answers a visitor is given about ETH for stakers: the assistant's and the
-// TOWELI room's FAQ. Found by subject, so a new answer on the subject is held too.
+// The static answers a visitor is given about swap fees: the assistant's and the TOWELI
+// room's FAQ. Found by subject, so a new answer on the subject is held too.
 const STATIC_ANSWERS: { where: string; text: string }[] = [
   ...KNOWLEDGE_BASE.map((e) => ({ where: `towelie [${e.keywords.join(', ')}]`, text: e.answer })),
   ...TOWELI_FAQ_DATA.flatMap((s) => s.items.map((i) => ({ where: `faq "${i.q}"`, text: i.a }))),
 ];
 const A_DATE = /\b\d{1,2} (?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d\b/;
-const A_LIVE_READ = /\/premium\b|Premium page|shows the live (?:number|total|rate)/i;
-/** The fixed floor of a payout round: design, true before and after the first payment. */
-const THE_ROUND_FLOOR = /\b1 ETH\b/;
-/** A statement that nothing has been paid: history, true only as of a reading. */
-const NOTHING_PAID = /none has been distributed yet|had been paid none/;
 
-describe('what a static answer may say about ETH for stakers', () => {
-  const aboutSwapFeeEth = STATIC_ANSWERS.filter((a) => /swap[- ]fee|swap fees|venue fee/i.test(a.text) && /\bETH\b/.test(a.text) && /stak/i.test(a.text));
+describe('what a static answer may say about swap fees', () => {
+  const aboutSwapFees = STATIC_ANSWERS.filter((a) => /swap[- ]fee|swap fees|venue fee/i.test(a.text));
 
   it('finds the answers on the subject', () => {
-    // Two FAQ answers, four of the assistant's, and the two Gold Card answers.
-    expect(aboutSwapFeeEth.length).toBeGreaterThanOrEqual(8);
+    // The assistant's token, project, supply, fee and Gold Card answers, and three FAQ answers.
+    expect(aboutSwapFees.length).toBeGreaterThanOrEqual(8);
   });
 
-  it('each one says what a payout round waits on, or that nothing has been paid', () => {
-    for (const a of aboutSwapFeeEth) {
-      expect(THE_ROUND_FLOOR.test(a.text) || NOTHING_PAID.test(a.text), a.where).toBe(true);
+  it('each one sends the swap fee to the treasury, and none to stakers or holders', () => {
+    // Owner ruling 2026-11-15: every router pays the treasury Safe.
+    for (const a of aboutSwapFees) {
+      expect(a.text, a.where).toMatch(/treasury/i);
+      expect(a.text, a.where).not.toMatch(/routed toward|in line for ETH|payout round|ETH swap-fee|earn ETH/i);
     }
   });
 
-  it('one that says nothing has been paid dates it or points at the live figure', () => {
-    const history = aboutSwapFeeEth.filter((a) => NOTHING_PAID.test(a.text));
-    expect(history.length).toBeGreaterThanOrEqual(4);
-    for (const a of history) {
-      expect(A_LIVE_READ.test(a.text) || A_DATE.test(a.text), a.where).toBe(true);
-    }
-  });
-
-  it('an answer that gives the router fee as a figure names the referral share and does not hand stakers the whole fee', () => {
-    const withRate = STATIC_ANSWERS.filter((a) => /0\.5%/.test(a.text) && /\bfee\b/i.test(a.text) && /staker/i.test(a.text));
+  it('an answer that gives the router fee as a figure names the referral share and dates the rate', () => {
+    const withRate = STATIC_ANSWERS.filter((a) => /0\.5%/.test(a.text) && /\bfee\b/i.test(a.text));
     expect(withRate.length).toBeGreaterThanOrEqual(2);
     for (const a of withRate) {
       expect(a.text, a.where).toMatch(/referral share/i);
-      // The staker share is the remainder, stated as a route, never as an arrival.
-      expect(a.text, a.where).toMatch(/routed toward (?:TOWELI )?stakers/);
+      expect(a.text, a.where).toMatch(/goes to the venue's treasury/);
       // The rate is a setting the owner can move: it is dated, never stated as timeless.
       expect(a.text, a.where).toMatch(A_DATE);
     }
   });
 
-  it('a measured amount of ETH in a static answer carries the date it was read', () => {
-    // "1 ETH" is the distributor's fixed floor, a constant in the deployed bytecode.
-    const withAmount = STATIC_ANSWERS.filter((a) => /\b\d+(?:\.\d+)? ETH\b/.test(a.text.replace(/\b1 ETH\b/g, '')));
-    expect(withAmount.length).toBeGreaterThanOrEqual(2);
-    for (const a of withAmount) expect(a.text, a.where).toMatch(A_DATE);
-  });
-
-  it('the answers written on 2026-10-10 carry no em dash', () => {
-    const rewritten = aboutSwapFeeEth.filter((x) => THE_ROUND_FLOOR.test(x.text) || /had been paid none/.test(x.text));
-    expect(rewritten.length).toBeGreaterThanOrEqual(6);
-    for (const a of rewritten) expect(a.text, a.where).not.toContain('—');
+  it('the answers about swap fees carry no em dash', () => {
+    for (const a of aboutSwapFees) expect(a.text, a.where).not.toContain('—');
   });
 });
 
@@ -191,9 +168,9 @@ describe('the limits table on /risks says where each swap fee goes', () => {
     return found[0]!;
   };
 
-  it('the venue fee row names the referral share, and routes the rest instead of delivering it', () => {
+  it('the venue fee row names the referral share, and sends the rest to the treasury', () => {
     expect(row('Protocol fee')).toMatch(/referral share comes off first/i);
-    expect(row('Protocol fee')).toMatch(/routed toward stakers/i);
+    expect(row('Protocol fee')).toMatch(/goes to the venue's treasury/i);
     expect(row('Protocol fee')).not.toMatch(/revenue to stakers/i);
   });
 

@@ -12,7 +12,6 @@ const BASE: SwapVenue = {
   factory: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC', router: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
   swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
   uniswapV2Router: '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24', uniswapV2Factory: '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6',
-  feeSink: 'remittance',
 } as SwapVenue;
 const ETH: SwapVenue = { ...BASE, chainId: 1, name: 'Ethereum', weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', uniswapV2Router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' } as SwapVenue;
 const ME = getAddress('0x00000000000000000000000000000000000000aa');
@@ -22,7 +21,7 @@ const bnkr = EVM_BASKET.base.find((c) => c.symbol === 'BNKR')!;
 const mfer = EVM_BASKET.base.find((c) => c.symbol === '$mfer')!;
 const v2 = mfer.pools.find((p) => p.dex === 'uniswap-v2')!;
 const v3 = mfer.pools.find((p) => p.dex === 'uniswap-v3')!;
-const SAFE = getAddress('0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1');
+const SAFE = getAddress('0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0');
 const FEE: VenueFee = { bps: 50n, recipient: SAFE };
 const q = (coin: EvmBasketCoin, outside: { pool: EvmPool; out: bigint }[], ours: bigint | null = null, unread = false, venueFee: VenueFee | null = null): EvmLegQuote =>
   ({ coin, amountIn: 1_000n, outside, ours: ours === null ? null : { out: ours, feeBps: 50n }, venueFee, unread });

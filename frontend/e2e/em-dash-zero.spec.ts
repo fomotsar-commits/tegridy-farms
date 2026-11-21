@@ -271,8 +271,9 @@ const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
   // 11 -> 9 on 2026-11-08: NFT lending's move to Gondi rewrote copy TOWELI's room shows.
-  '/toweli': 9,
-  '/towelie': 9,
+  // 9 -> 8 on 2026-11-16: the swap fee copy, rewritten for the treasury Safe, carries none.
+  '/toweli': 8,
+  '/towelie': 8,
   '/bayla': 0,
   '/pepe': 0,
   '/mfer': 0,
@@ -336,7 +337,8 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 4,
+  // 4 -> 1 on 2026-11-16: the "Where swap fees go" panel (was "Real Yield") carries none.
+  toweli: 1,
   bayla: 0,
   bobo: 0,
   soy: 0,

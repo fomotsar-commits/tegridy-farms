@@ -25,19 +25,18 @@
 //     (visibility and actionability are different questions)
 //   - an unreadable credit is UNKNOWN, never zero
 //   - the amount survives into both the human report and GITHUB_OUTPUT
-//   - the "does this open a distribution epoch" claim equals the arithmetic against
-//     RevenueDistributor.MIN_DISTRIBUTE_AMOUNT, in both directions
+//   - the report says recovered ETH can be paid on to the treasury Safe (the router's
+//     payee, owner ruling 2026-11-15) with no minimum, and states the amount only when read
 //   - the workflow consumes an output key the script actually writes, via `env:`
 //
 // Reword any of the prose freely; these stay green. Drop the read, mis-key the output,
-// classify a failed read as zero, or hardcode the epoch claim, and they go red.
+// classify a failed read as zero, or send the money anywhere but the treasury, and they go red.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ADDRESSES,
-  MIN_DISTRIBUTE_AMOUNT,
   classifyCallerCredit,
   encodeAddressArg,
   hexToBigInt,
@@ -146,35 +145,31 @@ describe('a read that failed is unknown, never zero', () => {
   });
 });
 
-describe('the claim about opening a distribution epoch equals the arithmetic', () => {
-  // RevenueDistributor.MIN_DISTRIBUTE_AMOUNT is 1e18. Recovering the credit moves it to
-  // SwapFeeRouter.accumulatedETHFees and nothing more; at the live numbers it is seven
-  // orders of magnitude short. The table straddles the threshold in both directions so
-  // that a hardcoded answer of either kind fails.
-  it.each([
-    [2_400_000_000_000n, 0n, false],
-    [1n, MIN_DISTRIBUTE_AMOUNT - 2n, false],
-    [1n, MIN_DISTRIBUTE_AMOUNT - 1n, true],
-    [MIN_DISTRIBUTE_AMOUNT, 0n, true],
-    [MIN_DISTRIBUTE_AMOUNT * 5n, 7n, true],
-  ])('credit %s + accumulated %s -> opensEpoch %s', (creditWei, accumulatedETHFeesWei, expected) => {
-    const c = classifyCallerCredit(reading({ creditWei, accumulatedETHFeesWei }));
-    expect(c.distribution.opensEpoch).toBe(expected);
-    expect(c.distribution.opensEpoch).toBe(creditWei + accumulatedETHFeesWei >= MIN_DISTRIBUTE_AMOUNT);
+describe('the report says where recovered ETH ends: the treasury Safe, with no minimum', () => {
+  // Owner ruling 2026-11-15: the router's payee is the treasury Safe, and
+  // distributeFeesToStakers() pays all of accumulatedETHFees to it, whatever the amount.
+  // The stakers' payout contract and its 1 ETH round are no longer on this path.
+  it('names the treasury Safe as the payee and makes no epoch or staker claim', () => {
+    expect(ADDRESSES.treasury).toBe('0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
+    const c = classifyCallerCredit(reading());
+    expect(c.distribution.payee).toBe(ADDRESSES.treasury);
+    const text = renderReport(c);
+    expect(text).toContain(`the treasury Safe ${ADDRESSES.treasury}`);
+    expect(text).toMatch(/There is no minimum/);
+    // Whole words: the router's function is still named distributeFeesToStakers().
+    expect(text).not.toMatch(/\bepoch|\bstakers\b|MIN_DISTRIBUTE_AMOUNT/i);
   });
 
-  // Derived, not asserted. If the epoch line were a fixed string, these two renders
-  // would be identical and this fails.
-  it('renders a different epoch statement either side of the threshold', () => {
-    const below = renderReport(classifyCallerCredit(reading({ creditWei: 1n, accumulatedETHFeesWei: 0n })));
-    const above = renderReport(classifyCallerCredit(reading({ creditWei: MIN_DISTRIBUTE_AMOUNT, accumulatedETHFeesWei: 0n })));
-    expect(below).not.toBe(above);
-    expect(below).toContain(String(MIN_DISTRIBUTE_AMOUNT - 1n)); // the shortfall, stated
+  it('states what the router would then hold from both reads', () => {
+    const c = classifyCallerCredit(reading({ creditWei: 7n, accumulatedETHFeesWei: 5n }));
+    expect(c.distribution.afterRecoveryWei).toBe(12n);
+    expect(renderReport(c)).toContain('It would then hold 12 wei.');
   });
 
   it('admits it does not know when accumulatedETHFees could not be read', () => {
     const c = classifyCallerCredit(reading({ accumulatedETHFeesWei: null }));
-    expect(c.distribution.opensEpoch).toBeNull();
+    expect(c.distribution.afterRecoveryWei).toBeNull();
+    expect(renderReport(c)).toMatch(/unknown this run: accumulatedETHFees could not be read/);
   });
 });
 

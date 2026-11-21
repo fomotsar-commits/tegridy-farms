@@ -1,5 +1,5 @@
 import { UNISWAP_V2_FACTORY, UNISWAP_V2_ROUTER, CHAIN_ID } from '../constants';
-import type { Address, ChainConfig } from './types';
+import type { Address } from './types';
 import { getChainConfig } from './registry';
 
 /**
@@ -34,8 +34,6 @@ export interface SwapVenue {
   /** The outside pools our quote is compared with. */
   readonly uniswapV2Router: Address;
   readonly uniswapV2Factory: Address;
-  /** Where the venue fee lands: 'distributor' reaches stakers; 'remittance' is a Safe on that chain. */
-  readonly feeSink: ChainConfig['feeSink'];
 }
 
 /**
@@ -89,7 +87,6 @@ export function swapVenueOn(chainId: number | undefined | null): SwapVenue | nul
     swapFeeRouter,
     uniswapV2Router: outside.router,
     uniswapV2Factory: outside.factory,
-    feeSink: config.feeSink,
   });
   VENUES.set(config.id, venue);
   return venue;

@@ -12,7 +12,7 @@ import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
-import { goldCardBenefits, goldCardSubhead, revenueSharingSubhead } from '../lib/premiumBenefits';
+import { GOLD_CARD_BENEFITS, GOLD_CARD_SUBHEAD, REVENUE_SHARING_SUBHEAD } from '../lib/premiumBenefits';
 
 // F375: the PremiumAccess contract charges monthlyFee × months with NO discount
 // (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
@@ -157,7 +157,7 @@ export default function PremiumPage() {
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
-            {goldCardSubhead({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
+            {GOLD_CARD_SUBHEAD}
           </p>
         </m.div>
 
@@ -267,7 +267,7 @@ export default function PremiumPage() {
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Gold Card Benefits</h2>
           <p className="text-white text-[12px] mb-5">Everything included with your Gold Card membership</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {goldCardBenefits({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading }).map((b, i) => (
+            {GOLD_CARD_BENEFITS.map((b, i) => (
               <m.div key={b.title} className="relative isolate glass-card p-4"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.06 }}>
@@ -451,7 +451,7 @@ export default function PremiumPage() {
         <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Revenue Sharing</h2>
           <p className="text-white text-[12px] mb-5">
-            {revenueSharingSubhead({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
+            {REVENUE_SHARING_SUBHEAD}
           </p>
 
           {revenue.isDataLoading ? (

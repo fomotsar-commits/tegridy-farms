@@ -4,17 +4,14 @@ import {
   CONFIGURED_CHAIN_IDS,
   DEFAULT_CHAIN_ID,
   contractOn,
-  feesBecomeStakerYieldOn,
   getChainConfig,
   isChainConfigured,
   unconfiguredChainLabel,
 } from './registry';
-import type { ChainConfig } from './types';
 import {
   CHAIN_ID,
   SWAP_FEE_ROUTER_ADDRESS,
-  REVENUE_DISTRIBUTOR_ADDRESS,
-  isDeployed,
+  TREASURY_ADDRESS,
 } from '../constants';
 
 const BASE = 8453;
@@ -98,7 +95,6 @@ describe('the L2 entries are configured, honest, and LIVE (MVP + curve deployed 
     expect(config.capabilities.staking).toBe(false);
     expect(config.capabilities.referrals).toBe(false);
     expect(config.capabilities.protocolOwnedLiquidity).toBe(false);
-    expect(config.feeSink).toBe('remittance');
   });
 
   it('Base carries the canonical Chainlink sequencer uptime feed', () => {
@@ -160,7 +156,7 @@ describe('contract lookup on the configured chain', () => {
     });
     expect(contractOn(1, 'feeSink')).toEqual({
       status: 'deployed',
-      address: REVENUE_DISTRIBUTOR_ADDRESS,
+      address: TREASURY_ADDRESS,
     });
   });
 
@@ -190,34 +186,6 @@ describe('capabilities are derived from the address book, never asserted over it
     expect(capabilities.staking).toBe(contracts.staking != null);
     expect(capabilities.referrals).toBe(contracts.referralSplitter != null);
     expect(capabilities.protocolOwnedLiquidity).toBe(contracts.polAccumulator != null);
-    expect(capabilities.stakerYield).toBe(isDeployed(contracts.feeSink));
-  });
-});
-
-describe('the fee-sink kind is what decides whether "yield" is a true word', () => {
-  it('mainnet fees reach stakers on mainnet', () => {
-    expect(getChainConfig(1)?.feeSink).toBe('distributor');
-    expect(feesBecomeStakerYieldOn(1)).toBe(true);
-  });
-
-  it('a chain we do not serve yields nothing, and saying otherwise would be a claim we cannot back', () => {
-    expect(feesBecomeStakerYieldOn(BASE)).toBe(false);
-    expect(feesBecomeStakerYieldOn(undefined)).toBe(false);
-  });
-
-  it('a remittance chain would report false even with a live fee sink', () => {
-    // Guards the rule rather than a current entry: any second chain without
-    // veTOWELI captures fees into a Safe and pays nobody until a bridge cycle
-    // lands elsewhere. This asserts the function reads `feeSink`, so such a chain
-    // cannot be added and read as yield-bearing by default.
-    const mainnet = getChainConfig(1)!;
-    // Typed as `ChainConfig`, not left to infer from `'remittance' as const`.
-    // Inferred, `feeSink` had the single literal type `'remittance'`, so the
-    // `=== 'distributor'` below was a comparison the compiler could settle on its
-    // own — the whole expression folded to a literal `false` and the assertion
-    // was `expect(false).toBe(false)`, which is true of any program.
-    const remittanceChain: ChainConfig = { ...mainnet, id: BASE, feeSink: 'remittance' };
-    expect(remittanceChain.feeSink === 'distributor' && remittanceChain.capabilities.stakerYield).toBe(false);
   });
 });
 

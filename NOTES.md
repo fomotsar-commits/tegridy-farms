@@ -205,6 +205,20 @@ lockfile's `packages` map, resolving each dependency name as Node does (the pack
 copies no audit lists, search the installed tree for a string from the flawed file:
 `grep -rl -F POSIX_REGEX_SOURCE node_modules`.
 
+## 2026-11-16: importing one helper from `lib/chains` loads only the registry
+
+**Believed:** `import { getChainConfig } from '../../lib/chains'` pulls in the chain records and
+nothing else.
+
+**Measured** (vitest, this worktree, 2026-11-16): `lib/chains/index.ts` also re-exports
+`./viemChains`, which imports `fallback` from wagmi. Once `EvmSwapPanel.tsx` imported the index,
+all three `TradePage.*.test.tsx` files failed before a test ran: each mocks `wagmi` without
+`fallback`, and vitest refuses the module ("No "fallback" export is defined on the "wagmi" mock").
+Importing `lib/chains/registry` instead, as `swapVenue.ts` does, made all three pass.
+
+**Do:** code that needs only chain records imports `lib/chains/registry`. Keep the index for code
+that also wants the wagmi chains and transports.
+
 ## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
 
 **Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on

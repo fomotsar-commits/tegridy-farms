@@ -1,13 +1,6 @@
-// RealYieldProof — the panel that says whether real ETH has reached stakers.
-//
-// THE BUG THIS PINS. Every read was collapsed with `status === 'success' ? x : 0n`,
-// so an RPC outage produced the identical render to a healthy chain that has
-// simply not distributed yet: on the Farm loop it printed "Real Yield — Not Yet
-// Paid", a factual claim about the chain, on the strength of a call that never
-// came back. The partial cases were worse — a live distribution alongside a
-// failed epochCount printed "0" epochs and "0.0%" claimed as measurements.
-//
-// The rule: a zero is only publishable when a read returned it.
+// RealYieldProof: where the swap fee goes (the treasury Safe, owner ruling 2026-11-15), and what
+// the stakers' payout contract has paid. A zero is only publishable when a read returned it: an
+// RPC outage once printed a "not yet paid" claim about the chain on a call that never came back.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ReactNode, HTMLAttributes } from 'react';
@@ -31,7 +24,7 @@ vi.mock('framer-motion', () => {
 });
 
 import { RealYieldProof } from './RealYieldProof';
-import { REVENUE_DISTRIBUTOR_ADDRESS, isDeployed } from '../lib/constants';
+import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS, isDeployed } from '../lib/constants';
 
 /** ~1.5 ETH distributed, ~0.75 claimed, 3 epochs. */
 function seedHealthyReads() {
@@ -50,7 +43,7 @@ describe('RealYieldProof', () => {
   it('renders the proven figures once a distribution has landed', () => {
     seedHealthyReads();
     render(<RealYieldProof />);
-    expect(screen.getByText(/Real Yield, Proven On-Chain/i)).toBeTruthy();
+    expect(screen.getByText(/Where swap fees go/i)).toBeTruthy();
     expect(screen.getByText('1.5000 ETH')).toBeTruthy();
     expect(screen.getByText('3')).toBeTruthy();
     expect(screen.getByText('50.0%')).toBeTruthy();
@@ -71,17 +64,32 @@ describe('RealYieldProof', () => {
   });
 
   // ── the core distinction ─────────────────────────────────────────────────
-  it('says "not yet paid" only when the chain actually said zero', () => {
+  it('says nothing was paid only when the chain actually said zero', () => {
     wagmiMock.setReadResult({ functionName: 'totalDistributed', result: 0n });
     render(<RealYieldProof showWhenEmpty />);
-    expect(screen.getByText(/Not Yet Paid/i)).toBeTruthy();
+    expect(screen.getByText(/No ETH has been paid to stakers/i)).toBeTruthy();
   });
 
-  it('an unreturned read renders unavailable, never "not yet paid"', () => {
+  it('an unreturned read renders unread, never "nothing was paid"', () => {
     wagmiMock.setReadResult({ functionName: 'totalDistributed', result: undefined, status: 'failure' });
     render(<RealYieldProof showWhenEmpty />);
-    expect(screen.queryByText(/Not Yet Paid/i)).toBeNull();
-    expect(screen.getByText(/Figures Unavailable/i)).toBeTruthy();
+    expect(screen.queryByText(/No ETH has been paid/i)).toBeNull();
+    expect(screen.getByText(/Not read yet/i)).toBeTruthy();
+  });
+
+  // Owner ruling 2026-11-15: every venue fee goes to the treasury Safe. Whatever the payout
+  // read says, the panel names that destination, links the Safe, and promises stakers nothing.
+  it.each([
+    ['paid', () => seedHealthyReads()],
+    ['empty', () => wagmiMock.setReadResult({ functionName: 'totalDistributed', result: 0n })],
+    ['unread', () => wagmiMock.setReadResult({ functionName: 'totalDistributed', result: undefined, status: 'failure' })],
+  ])('in the %s state it sends the swap fee to the treasury and links the treasury Safe', (_state, seed) => {
+    seed();
+    const { container } = render(<RealYieldProof showWhenEmpty />);
+    expect(container.textContent).toMatch(/To the venue.s treasury, not to stakers/);
+    expect(container.querySelector(`a[href*="${TREASURY_ADDRESS}"]`)).not.toBeNull();
+    expect(container.textContent).not.toMatch(/distributed to stakers|real yield|not yet paid/i);
+    expect(container.textContent).not.toContain('—');
   });
 
   // HONESTY GUARD: the degraded surface has to disclose its own limit, and must

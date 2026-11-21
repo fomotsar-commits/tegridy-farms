@@ -1118,7 +1118,7 @@ export function POLAccumulatorCard() {
                 cannot be funded from swap fees as wired today. SwapFeeRouter&apos;s POL share is{' '}
                 <span className="font-mono text-white/85">{wiringKnown ? `${((shareBps ?? 0) / 100).toFixed(2)}%` : '—'}</span>
                 {wiringKnown && !targetMatches ? ' and its accumulator target is not set to this contract' : ''}
-                , so every fee that reaches the distributable pool goes to stakers and treasury instead.
+                , so every fee that reaches the distributable pool goes to the treasury instead.
                 Turning it on takes two timelocked governance calls, not a deploy — until then, treat
                 the paragraph above as a plan, not a running feature.
               </p>

@@ -183,8 +183,8 @@ export function ChainPoolTable({ chainId, onPick }: { chainId: number; onPick: (
           address instead. Check the pool&apos;s address before you add.
         </p>
         <p>
-          {/* The old factory pays the cut to the fee-remittance Safe, the one new pools open on
-              since 2026-11-08 to the treasury Safe: this says only "the venue" (law-25 read of #1169). */}
+          {/* Both factories pay the cut to the chain's treasury Safe (owner ruling 2026-11-15);
+              this says only "the venue" (law-25 read of #1169). */}
           Every pool charges 0.3% on each swap, split by pool share. The venue&apos;s one-sixth cut (0.05%)
           is off until it is switched on for that pool; then it goes to the venue as new pool shares.
         </p>

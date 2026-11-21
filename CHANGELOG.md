@@ -55,6 +55,7 @@ The site's Changelog tab shows both files.
 - Earn: Harvest says a refused claim, a short reward vault and an older stake's caution in plainer words, and when a run is done it counts a refused claim as refused, as the claim's row does.
 - Earn: while a claim waits on your wallet, its row in Harvest says Check your wallet.
 - Earn: Harvest's drawing draws itself in the first time it comes into view and leans a little toward your pointer; with reduced motion it stands still.
+- Swap fees: on Ethereum, Base and Robinhood Chain every venue fee now goes to that chain's treasury Safe (after a referral share on Ethereum), and the site says so wherever it said the fee went to TOWELI stakers: home, Earn, Gold Card, FAQ, the assistant, Treasury and Swap, which on Ethereum now shows where the fee goes as it already did on the other two chains. The Gold Card says it carries no share of swap fees, and Earn's Fee Share tile now reads Swap Fees: Treasury.
 
 ### 2026-11-15
 
