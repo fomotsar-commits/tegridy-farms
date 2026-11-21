@@ -479,6 +479,23 @@ describe("venue-sweep: the instruction", () => {
     expect(feesSwept(invoked(program, [`Program data: ${side.toString("base64")}`]), program, 0)).toEqual([]);
   });
 
+  it("a line a program prints that only quotes a call's opening or its result does not place a call: only the runtime's own lines do", () => {
+    const program = key();
+    const other = key();
+    const e = { pool: key(), fund: false, owner: key(), moved: [1n, 2n], left: [0n, 0n] };
+    const line = sweptLine(e);
+    const decoded = { pool: e.pool, fund: false, owner: e.owner, moved: e.moved, left: e.left };
+    // Inside another program's call, a quoted result does not end that call: its record stays its own.
+    expect(feesSwept(invoked(program, ["Program log: Instruction: SweepFees", ...invoked(other, [`Program log: Program ${other} success`, line], 2)]), program, 0)).toEqual([]);
+    expect(feesSwept(invoked(program, ["Program log: Instruction: SweepFees", ...invoked(other, [`Program log: Program ${other} failed: custom program error: 0x1`, line], 2)]), program, 0)).toEqual([]);
+    // A quoted opening does not start a call or count an instruction.
+    const quoted = invoked(program, [`Program log: Program ${other} invoke [1]`, line]);
+    expect(feesSwept(quoted, program, 0)).toEqual([decoded]);
+    expect(feesSwept(quoted, program, 1)).toEqual([]);
+    // Nor does it make another program's record the pool program's.
+    expect(feesSwept(invoked(other, [`Program log: Program ${program} invoke [1]`, line]), program, 1)).toEqual([]);
+  });
+
   it("reads Anchor's 'no such instruction' from a simulation's error", () => {
     expect(customError({ InstructionError: [2, { Custom: 101 }] }, 2)).toBe(101);
     expect(customError({ InstructionError: [1, { Custom: 101 }] }, 2)).toBe(null);
@@ -1674,6 +1691,24 @@ describe("venue-sweep: a run", () => {
     });
   }
 
+  for (const c of [
+    { side: "island", owner: WORKSHOP, other: "venue", red: false },
+    { side: "venue", owner: VAULT, other: "island", red: true },
+  ]) {
+    it(`in a live run, the ${c.side}'s BAYLA account that requires a memo holds that side back before anything is simulated or sent for it: ${c.red ? "the run fails" : "the run passes"}, and the other side is swept`, async () => {
+      const kp = Keypair.generate();
+      const flags = { [BAYLA]: { memo: true } };
+      const chain = fakeChain({ pools: [big], tiers, accounts: { ...accountsOf(VAULT, SOL_BAYLA, c.owner === VAULT ? flags : {}), ...accountsOf(WORKSHOP, SOL_BAYLA, c.owner === WORKSHOP ? flags : {}) } });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([[c.other]]);
+      expect(chain.sentTxs().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([[c.other]]);
+      const address = associatedTokenAddress(c.owner, BAYLA, TOKEN_2022_PROGRAM);
+      expect(res.pools[0][c.side]).toMatchObject({ ok: !c.red, heldBack: true, result: `held back, nothing sent: its account \`${address}\` for ${BAYLA} requires a memo on every transfer in${c.red ? ": read it" : ""}` });
+      expect(res.pools[0][c.other]).toMatchObject({ ok: true, swept: true });
+      expect(res.ok).toBe(!c.red);
+    });
+  }
+
   // A refusal of the island's sweep for its accounts' own settings: 6018, 6020, or Token-2022's 36 (a memo needed).
   for (const code of [6018, 6020, 36]) {
     it(`a simulation of the island's sweep refused with ${code} holds back only the island's side, named, and the run passes; the venue's refused with ${code} fails it`, async () => {
@@ -1691,6 +1726,19 @@ describe("venue-sweep: a run", () => {
       expect(res2.pools[0].venue.heldBack).toBeUndefined();
       expect(res2.pools[0].island.result).toBe(CLEAN);
       expect(res2.ok).toBe(false);
+    });
+
+    it(`in a live run, a simulation of the island's sweep refused with ${code} holds back only the island's side: named, nothing sent for it, no fee counted, and the run passes`, async () => {
+      const kp = Keypair.generate();
+      const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), simErr: (tx) => (sweepsIn(tx).some((ix) => sideOf(ix) === "island") ? { InstructionError: [0, { Custom: code }] } : null) });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      expect(chain.sentTxs().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"]]);
+      expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_VENUE}` });
+      expect(res.pools[0].island).toMatchObject({ ok: true, heldBack: true, result: expect.stringMatching(new RegExp(`^held back, nothing sent: a Workshop account .*\\(${code}\\); the simulation refused it: `)) });
+      expect(res.pools[0].island.fee).toBeUndefined();
+      expect(res.paid.sweeps).toBe(1);
+      expect(res.ok).toBe(true);
+      expect(summary(res, { live: true })).toContain("1 sweep seen on chain (5,000 lamports of network fees)");
     });
   }
 
@@ -1712,6 +1760,17 @@ describe("venue-sweep: a run", () => {
     expect(res2.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: "sent, and it failed on chain" });
     expect(res2.ok).toBe(false);
   });
+
+  for (const code of [6018, 6020, 36]) {
+    it(`a live island sweep that fails on chain with ${code} is named, its fee counted, and the run passes`, async () => {
+      const kp = Keypair.generate();
+      const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: null }, { confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: code }] } }] });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      expect(res.pools[0].island).toMatchObject({ ok: true, sent: true, fee: true, result: expect.stringMatching(new RegExp(`^sent, and it failed on chain: a Workshop account .* \\(${code}\\)$`)) });
+      expect(res.paid.sweeps).toBe(2);
+      expect(res.ok).toBe(true);
+    });
+  }
 
   it("a Workshop account handed to another owner is named on the island's side on a day it has nothing set aside, and while its other account is missing; the run passes", async () => {
     const stranger = key();
@@ -1977,6 +2036,20 @@ describe("venue-sweep: a run", () => {
     expect(chain.calls.filter((c) => c.method === "getMultipleAccounts").map((c) => c.params[0])[1]).toEqual([...theirs, ...ownOf(pool)]);
     expect(res.daily?.named).toEqual([{ text: `the vault's account \`${theirs[1]}\` for ${USDC_MINT} has a delegate`, red: true }]);
     expect(res.ok).toBe(false);
+  });
+
+  it("a live run makes the daily read too: the vault's account is named, the run fails, the summary says it, and both sides are still swept", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: { ...opened(VAULT, WORKSHOP), ...accountsOf(VAULT, [[USDC_MINT, TOKEN_PROGRAM]], { [USDC_MINT]: { delegate: true } }) } });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    expect(chain.calls.filter((c) => c.method === "getMultipleAccounts").map((c) => c.params[0])[1]).toEqual([BAYLA, ...VAULT_DAILY, vault0, vault1]);
+    const named = `the vault's account \`${VAULT_DAILY[1]}\` for ${USDC_MINT} has a delegate`;
+    expect(res.daily).toEqual({ vault: 3, pools: 2, named: [{ text: named, red: true }] });
+    expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_VENUE}` });
+    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
+    expect(res.ok).toBe(false);
+    expect(exitCode(res)).toBe(1);
+    expect(summary(res, { live: true })).toContain(`\nRead today, as every day, whether or not a side was due: ${named}: read it.\n`);
   });
 
   // ── The floor is each side's own ───────────────────────────────────────────
@@ -2399,6 +2472,76 @@ describe("venue-sweep: a run", () => {
     expect(chain.calls.some((c) => c.method === "getTransaction")).toBe(false);
     expect(res.pools[0].island.result).toBe("not tried: the run stopped early");
     expect(res.ok).toBe(false);
+  });
+
+  it("a landed sweep the chain returns only on its third read is read back then, the reads 1.5 seconds apart, and its row is its own event's", async () => {
+    const kp = Keypair.generate();
+    let asked = 0;
+    let venueSig = null;
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), txAnswer: (sig, tx) => ((venueSig ??= sig) === sig && ++asked < 3 ? null : tx) });
+    const waits = [];
+    let last = "";
+    const call = async (method, params) => {
+      last = method;
+      return chain.call(method, params);
+    };
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async (ms) => waits.push([last, ms]) });
+    const sent = chain.sentTxs();
+    expect(chain.calls.filter((c) => c.method === "getTransaction" && c.params[0] === sigOfTx(sent[0])).length).toBe(3);
+    expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, event: { moved: [51_216_483n, 7_000_000_000n], left: [0n, 0n] }, result: `swept ${BIG_VENUE}` });
+    expect(res.pools[0].venue.notReadBack).toBeUndefined();
+    // Between the reads of one transaction: 1.5 seconds each, and none before the first.
+    expect(waits.filter(([after]) => after === "getTransaction")).toEqual([
+      ["getTransaction", 1500],
+      ["getTransaction", 1500],
+    ]);
+    expect(res.ok).toBe(true);
+  });
+
+  it("an island sweep that cannot be read back fails the run as the venue's does, and its row keeps the counts read before the send", async () => {
+    const kp = Keypair.generate();
+    const seen = [];
+    // Only the island's sweep, the second one read back, is never returned.
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), txAnswer: (sig, tx) => ((seen.includes(sig) || seen.push(sig)) && seen.indexOf(sig) === 1 ? null : tx) });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    const sent = chain.sentTxs();
+    expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_VENUE}` });
+    expect(res.pools[0].island).toMatchObject({
+      ok: false,
+      swept: true,
+      fee: true,
+      signature: sigOfTx(sent[1]),
+      notReadBack: "the chain did not return it after 5 reads",
+      result: `swept ${BIG_ISLAND}, by the counts read before the send: not read back (the chain did not return it after 5 reads), so look its signature up`,
+    });
+    expect(res.ok).toBe(false);
+    expect(exitCode(res)).toBe(1);
+  });
+
+  it("a sweep that leaves a frozen coin and cannot be read back says what the read before the send said: the coin left is never called swept, and stays listed", async () => {
+    const kp = Keypair.generate();
+    const f = legPool({ ...BOTH, frozen: { pool: [1] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts, txAnswer: () => null });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: live(kp), log: quiet, wait: async () => {} });
+    for (const [side, moves, left] of [
+      ["venue", `0.051216483 of ${SOL_MINT}`, `7,000 of ${BAYLA}`],
+      ["island", `0.023051592 of ${SOL_MINT}`, `3,683 of ${BAYLA}`],
+    ]) {
+      const s = res.pools[0][side];
+      expect(s).toMatchObject({ ok: false, swept: true, left: [BAYLA], notReadBack: "the chain did not return it after 5 reads" });
+      expect(s.event).toBeUndefined();
+      expect(s.result).toBe(`swept ${moves} only, and ${left} is left in the pool, by the counts read before the send: not read back (the chain did not return it after 5 reads), so look its signature up; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen`);
+    }
+    expect(res.ok).toBe(false);
+  });
+
+  it("on a test chain, a landed sweep is read back from the record that the program the run names printed", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
+    const res = await run(parseArgs(["--live", "--program", key()]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, event: { moved: [51_216_483n, 7_000_000_000n], left: [0n, 0n] }, result: `swept ${BIG_VENUE}` });
+    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
+    expect(res.ok).toBe(true);
   });
 
   it("a sweep not confirmed after 40 looks, its blockhash still good at the last one, is said so, never as expired, and fails the run", async () => {
