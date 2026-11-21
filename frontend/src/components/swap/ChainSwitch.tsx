@@ -19,7 +19,7 @@ import { ModuleNetworkPicker, useModuleNetwork } from '../layout/moduleNetwork';
  * the form in place and leaves nothing.
  * `align`: 'end' opens the list from the button's right edge, for a drop-down at the screen's right.
  */
-const NOTES = { ethereum: 'Uniswap / CoW', base: 'Our pools + Uniswap', robinhood: 'Our pools + Uniswap', solana: 'Our pools + Jupiter', cardano: 'Minswap pools' } as const;
+const NOTES = { ethereum: 'Uniswap / CoW', base: 'Our pools + Uniswap', robinhood: 'Our pools + Uniswap', hyperevm: 'Our pools', solana: 'Our pools + Jupiter', cardano: 'Minswap pools' } as const;
 
 export function ChainSwitch({ at, align }: { at?: string; align?: 'start' | 'end' } = {}) {
   const { pathname } = useLocation();

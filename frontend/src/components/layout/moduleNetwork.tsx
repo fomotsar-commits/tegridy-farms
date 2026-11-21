@@ -34,7 +34,7 @@ const SECTIONS = {
     items: SWAP_SECTION.items,
     at: '/solana',
     missing: 'No swap here',
-    notes: { ethereum: 'Uniswap / CoW', base: 'Our pools + Uniswap', robinhood: 'Our pools + Uniswap', solana: 'Our pools + Jupiter', cardano: 'Minswap pools' } as Partial<Record<VenueChain, string>>,
+    notes: { ethereum: 'Uniswap / CoW', base: 'Our pools + Uniswap', robinhood: 'Our pools + Uniswap', hyperevm: 'Our pools', solana: 'Our pools + Jupiter', cardano: 'Minswap pools' } as Partial<Record<VenueChain, string>>,
   },
   pools: { label: 'Pools network', items: POOLS_SECTION.items, at: '/pools', missing: 'No pools here', notes: {} as Partial<Record<VenueChain, string>> },
 } as const;

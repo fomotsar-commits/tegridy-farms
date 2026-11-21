@@ -1474,6 +1474,8 @@ async function onchain() {
     1: ETH_RPC,
     8453: process.env.BASE_RPC || 'https://mainnet.base.org',
     4663: process.env.RH_RPC || 'https://rpc.mainnet.chain.robinhood.com',
+    // HyperEVM: its rows land in addresses.json only once our V3 venue is deployed there.
+    999: process.env.HYPEREVM_RPC || 'https://rpc.hyperliquid.xyz/evm',
   };
   const evmPairs = [];
   for (const p of evmReadPairs(evmEntries)) {
@@ -1497,7 +1499,7 @@ async function onchain() {
   // `base` rows were read (20 Base pairs) every one of them came back NOT CHECKED. That
   // is the honest outcome, but a chain that is always skipped is as inert as a chain
   // that is never read. Other chains keep 50.
-  const EVM_BATCH_MAX = { 8453: 10 };
+  const EVM_BATCH_MAX = { 8453: 10, 999: 10 };
   for (const [cid, pairs] of byChain) {
     for (const group of chunk(pairs, EVM_BATCH_MAX[cid] ?? 50)) {
       const res = await post(

@@ -299,7 +299,7 @@ export function buildEvmOrder(a: {
   }
   const txs: EvmOrderTx[] = [];
   if (universal && venueFee && feeLegs.length > 0) {
-    const { commands, inputs } = buyManyWithEth({ weth: a.venue.weth, legs: feeLegs, feeBips: venueFee.bps, feeRecipient: venueFee.recipient });
+    const { commands, inputs } = buyManyWithEth({ chainId: a.venue.chainId, weth: a.venue.weth, legs: feeLegs, feeBips: venueFee.bps, feeRecipient: venueFee.recipient });
     txs.push({
       kind: 'batch', to: universal, value: batchValue, legs: batchLegs,
       data: encodeFunctionData({ abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [commands, inputs, a.deadline] }),
