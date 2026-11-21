@@ -3,29 +3,52 @@
 // every destination itself, moves the venue's share (10.4% of each trade fee) to the vault's own
 // token accounts and the island's (5.6%) to the Workshop's, each in a transaction of its own.
 //
-// Each owner's side is sent only when that owner's own share passes the floor on the coins priced
-// here: SOL, USDC, USDT and the island's five (Jupiter's keyless price, as the volume figure reads
-// it; a price that is not a finite number above 0 is no price). No other coin takes a price: a pool
-// with none of these is named and left to hand collects, as is one with a coin that takes a
-// transfer fee. Before a pool's sides go, the pool and every account their transfers touch are
-// read again in one request, and each side goes by the counts as they stand then; after the
-// venue's sweep is sent, the island's accounts and the pool are read once more. A destination
-// counts as open only when its coin's own token program owns it. The vault's missing ones are
-// opened here (their rent stays the venue's); the Workshop's never are (its share waits, and the
-// summary names them). It follows the pool program's two rules (the owner's ruling, 2026-11-21:
-// "Fix in the program"). An open destination with a delegate or a close authority holds its side
-// back, named, owed or not, since the program refuses it. A coin the side is owed whose
-// destination or pool account is frozen is left in the pool and named with that account, also on
-// a side that waits: it counts nothing toward the floor, and the other coin is sent when it passes
-// on its own. On the vault's side a delegate, a close authority or a frozen USDC or USDT also fails
-// the run, whether the other coin is sent or the side waits, and its destinations are checked
-// whenever they are read. The key pays 5,000 lamports a sweep, the island's included, and the
-// vault's rent: at most two sweeps a pool a run, and each missing vault account's rent once. Every
-// simulation is of the unsigned transaction; a live run signs only what it then sends, on a
-// finalized blockhash, which every node knows. An error stays on its pool's row; a transport that
-// stops answering, or the run's own time limit, ends the run early. Each signature is logged
-// before it is sent, and a send that answers an error is looked up on chain. On mainnet a listing
-// with no pool fails the run. The summary is always written, with what the key paid and holds.
+// Each owner's side is sent only when that owner's own share passes the floor ($0.50, kept by the
+// owner's ruling of 2026-11-21) on the coins priced here: SOL, USDC, USDT and the island's five
+// (Jupiter's keyless price, as the volume figure reads it; a price that is not a finite number
+// above 0 is no price). When Jupiter cannot be read, the island's coins count nothing, one summary
+// line names them and says why, and the run stays green (the owner's ruling, 2026-11-21). No other
+// coin takes a price: a pool with none of these is named and left to hand collects, as is one with
+// a coin that takes a transfer fee.
+//
+// Every run reads the vault's own SOL, USDC and USDT accounts and every listed pool's own two, with
+// the pools' Token-2022 coins, in one paced read (100 accounts a call). It names a delegate, a close
+// authority or a freeze on any of them that day, whether or not a side is due (the owner's ruling,
+// 2026-11-21). On the vault's, a delegate, a close authority or a frozen USDC or USDT fails the
+// run, as does an account handed to another owner or one that requires a memo on every transfer
+// in. A frozen pool account of USDC or USDT fails it in a pool where the venue holds a share of
+// that coin. Anything else is only named.
+//
+// Before a pool's sides go, the pool and every account their transfers touch are read again in one
+// request, and each side goes by the counts as they stand then; after the venue's sweep is sent,
+// the island's accounts and the pool are read once more. A destination counts as open only when
+// its coin's own token program owns it. The vault's missing ones are opened here (their rent stays
+// the venue's); the Workshop's never are (its share waits, and the summary names them).
+//
+// It follows the pool program's rules (the owner's rulings of 2026-11-21: "Fix in the program",
+// and the Workshop's own account settings hold back only the island's side, named). An open
+// destination with a delegate or a close authority, or one handed to another owner, holds its side
+// back, named, owed or not, since the program refuses it (6020, 6018). One that requires a memo on
+// every transfer in holds its side back when its coin moves, since its token program refuses that
+// transfer. A coin the side is owed whose destination or pool account is frozen is left in the
+// pool and named with that account, also on a side that waits: it counts nothing toward the floor,
+// and the other coin is sent when it passes on its own. On the vault's side each of these also
+// fails the run, a freeze only when it is of USDC or USDT. On the Workshop's side none does, and a
+// refusal of the island's sweep for its accounts' own settings (6018, 6020, or Token-2022's 36 for
+// a memo), in its simulation or on chain, is named, not a failure. Any other refusal fails the run.
+//
+// Once a sweep lands, its transaction is read back and its row is written from its own FeesSwept:
+// one printed by the pool program itself, in its own call, for that pool, side and owner. A sweep
+// that cannot be read back keeps the counts read before the send, is named "not read back", and
+// fails the run, so that its signature is looked up.
+//
+// The key pays 5,000 lamports a sweep, the island's included, and the vault's rent: at most two
+// sweeps a pool a run, and each missing vault account's rent once. Every simulation is of the
+// unsigned transaction; a live run signs only what it then sends, on a finalized blockhash, which
+// every node knows. An error stays on its pool's row; a transport that stops answering, or the
+// run's own time limit, ends the run early. Each signature is logged before it is sent, and a send
+// that answers an error is looked up on chain. On mainnet a listing with no pool fails the run.
+// The summary is always written, with what the key paid and holds.
 //
 //   node frontend/scripts/venue-sweep.mjs --payer <address>   dry run: reads and simulates as that
 //                                                             payer, sends nothing, needs no key
@@ -63,8 +86,24 @@ const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 export const POOL_TAG = createHash("sha256").update("account:PoolState").digest().subarray(0, 8);
 /** Anchor's instruction tag: sha256("global:sweep_fees")[..8]. */
 export const SWEEP_FEES_TAG = createHash("sha256").update("global:sweep_fees").digest().subarray(0, 8);
+/** Anchor's event tag: sha256("event:FeesSwept")[..8], the first 8 bytes of each sweep's record (states/config.rs). */
+export const FEES_SWEPT_TAG = createHash("sha256").update("event:FeesSwept").digest().subarray(0, 8);
+/** FeesSwept's size: the tag, the pool, the side, the owner and four amounts. */
+const FEES_SWEPT_BYTES = 8 + 32 + 1 + 32 + 4 * 8;
 /** Anchor's "instruction not found" (InstructionFallbackNotFound): the program has no sweep. */
 const NO_SUCH_INSTRUCTION = 101;
+/**
+ * The refusals of the island's sweep that its own accounts' settings make, by number: an account
+ * handed to another owner (the pool program's 6018), one with a delegate or a close authority
+ * (6020), and one that requires a memo on every transfer in (Token-2022's TokenError::NoMemo, 36,
+ * the 37th of its errors). The island's transaction holds the sweep alone, and only the transfers
+ * into the Workshop's accounts call Token-2022, so 36 there is the Workshop's memo rule.
+ */
+const WORKSHOP_REFUSALS = new Map([
+  [6018, "a Workshop account is not its own"],
+  [6020, "a Workshop account has a delegate or a close authority"],
+  [36, "a Workshop account requires a memo on every transfer in"],
+]);
 /** What a sweep costs in network fees: one signature, no priority fee. */
 const FEE_LAMPORTS = 5000;
 /**
@@ -83,10 +122,14 @@ export const RUN_LIMIT_MS = 9 * 60_000;
 const NO_ANSWER = /: no answer after \d+ tries/;
 /** How many times a sent sweep's status is looked at, 1.5 seconds apart, before the job gives up on it. */
 const LOOKS = 40;
+/** How many times a landed sweep's transaction is asked for, 1.5 seconds apart, before it is said as not read back. */
+const READS = 5;
 const NOTHING = "nothing set aside";
 const UNPRICED = "no priced coin: not swept by this job";
 const DOLLARS = new Set([USDC_MINT, USDT_MINT]);
 const ISLAND = new Set(ISLAND_COINS.map((c) => c.mint));
+/** The vault's own accounts every run reads: its wrapped SOL, USDC and USDT, each a classic Token account. */
+const VAULT_COINS = [SOL_MINT, USDC_MINT, USDT_MINT];
 
 const pk = (d, o) => base58(d.subarray(o, o + 32));
 const u64 = (d, o) => d.readBigUInt64LE(o);
@@ -195,62 +238,120 @@ export function transferFeeBps(d) {
   return 0;
 }
 
-/** The pools' Token-2022 coins that take a fee on transfer: mint -> basis points, or null when unreadable. */
-export async function transferFeeCoins(call, pools) {
-  const mints = [
-    ...new Set(
-      pools.flatMap((p) => [
-        [p.mint0, p.program0],
-        [p.mint1, p.program1],
-      ]).filter(([, prog]) => prog === TOKEN_2022_PROGRAM).map(([m]) => m)
-    ),
-  ];
-  const out = new Map();
-  for (let i = 0; i < mints.length; i += 100) {
-    const chunk = mints.slice(i, i + 100);
-    const infos = (await call("getMultipleAccounts", [chunk, { encoding: "base64", commitment: "confirmed" }])).value;
-    chunk.forEach((m, j) => {
-      const bps = infos[j]?.data?.[0] ? transferFeeBps(Buffer.from(infos[j].data[0], "base64")) : null;
-      if (bps !== 0) out.set(m, bps);
-    });
+/**
+ * Does a token account require a memo on every transfer in? Only a Token-2022 account can: its
+ * MemoTransfer entry says so (spl-token-2022's extension/memo_transfer: type 8, one byte, any value
+ * but 0 for yes). The layout is a mint's, as above: the 165-byte account, the account type
+ * (2 = account) at 165, then type/length/value entries from 166. An entry cut short reads as yes.
+ */
+export function memoRequired(d) {
+  if (d.length <= 166 || d[165] !== 2) return false;
+  for (let off = 166; off + 4 <= d.length; ) {
+    const type = d.readUInt16LE(off);
+    const len = d.readUInt16LE(off + 2);
+    if (type === 0) break;
+    if (type === 8) return len < 1 || off + 4 + len > d.length || d[off + 4] !== 0;
+    off += 4 + len;
   }
+  return false;
+}
+
+/** Accounts by address, in the order given: getMultipleAccounts, at most 100 addresses a call, each call paced by the transport. */
+async function readAccounts(call, keys) {
+  const out = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const chunk = keys.slice(i, i + 100);
+    const value = (await call("getMultipleAccounts", [chunk, { encoding: "base64", commitment: "confirmed" }])).value;
+    if (value?.length !== chunk.length) throw new Error(`getMultipleAccounts answered ${value?.length ?? "no"} accounts for ${chunk.length}`);
+    out.push(...value);
+  }
+  return out;
+}
+
+/** The Token-2022 coins of `mints` (their accounts in `infos`, in the same order) that take a fee on transfer: mint -> basis points, or null when unreadable. */
+function transferFeeCoins(mints, infos) {
+  const out = new Map();
+  mints.forEach((m, j) => {
+    const bps = infos[j]?.data?.[0] ? transferFeeBps(Buffer.from(infos[j].data[0], "base64")) : null;
+    if (bps !== 0) out.set(m, bps);
+  });
   return out;
 }
 
 /**
  * A destination as the job reads it: open only when the coin's own token program owns it, and then
- * its delegate (a COption tag, u32 at byte 72), its state (byte 108, 2 = frozen) and its close
- * authority (a COption tag at byte 129), where both token programs keep them in a token account's
- * first 165 bytes. Not open, it carries the lamports already at the address.
+ * its owner (bytes 32 to 64), its delegate (a COption tag, u32 at byte 72), its state (byte 108,
+ * 2 = frozen) and its close authority (a COption tag at byte 129), where both token programs keep
+ * them in a token account's first 165 bytes, and whether it requires a memo on every transfer in
+ * (memoRequired). Not open, it carries the lamports already at the address.
  */
 export function destinationState(info, tokenProgram) {
   if (!info || info.owner !== tokenProgram) return { open: false, lamports: info?.lamports ?? 0 };
   const d = Buffer.from(info.data[0], "base64");
-  return { open: true, delegate: d.readUInt32LE(72) !== 0, frozen: d[108] === 2, closeAuthority: d.readUInt32LE(129) !== 0 };
+  return { open: true, owner: pk(d, 32), delegate: d.readUInt32LE(72) !== 0, frozen: d[108] === 2, closeAuthority: d.readUInt32LE(129) !== 0, memo: memoRequired(d) };
+}
+
+/** What is wrong with an open token account, in words (none when nothing is); `handedTo` is its owner when that is not the one it should be. */
+const wrongWith = (s, handedTo = null) =>
+  [
+    s.delegate && "has a delegate",
+    s.closeAuthority && "has a close authority",
+    handedTo && `has been handed to \`${handedTo}\``,
+    s.memo && "requires a memo on every transfer in",
+    s.frozen && "is frozen",
+  ].filter(Boolean);
+
+/**
+ * What the daily read found, named (the owner's ruling, 2026-11-21): on the vault's own SOL, USDC
+ * and USDT accounts (`vaultOwn`, each with the owner it should have) and every listed pool's own
+ * two (`poolOwn`), their states in `infos` in that order. `red` on the vault's for a delegate, a
+ * close authority, another owner, a memo rule or a frozen USDC or USDT; on a pool's for a frozen
+ * USDC or USDT account where the venue holds a share of that coin. Anything else is only named.
+ */
+function dailyNames(vaultOwn, poolOwn, infos) {
+  const named = [];
+  vaultOwn.forEach((a, k) => {
+    const s = destinationState(infos[k], TOKEN_PROGRAM);
+    if (!s.open) return;
+    const handedTo = s.owner !== a.owner ? s.owner : null;
+    const why = wrongWith(s, handedTo);
+    if (why.length) named.push({ text: `the vault's account \`${a.address}\` for ${a.mint} ${why.join(" and ")}`, red: s.delegate || s.closeAuthority || !!handedTo || s.memo || (s.frozen && DOLLARS.has(a.mint)) });
+  });
+  poolOwn.forEach((a, k) => {
+    const s = destinationState(infos[vaultOwn.length + k], a.program);
+    if (!s.open) return;
+    const why = wrongWith(s);
+    if (why.length) named.push({ text: `the pool \`${a.pool.address}\`'s own account \`${a.address}\` for ${a.mint} ${why.join(" and ")}`, red: s.frozen && DOLLARS.has(a.mint) && a.pool.protocol[a.i] > 0n });
+  });
+  return named;
 }
 
 /**
- * What is wrong with one owner's side, named, by the pool program's two rules (the owner's ruling,
- * 2026-11-21). An open destination with a delegate or a close authority `blocks` the side, owed or
- * not: the program refuses it (6020). A freeze leaves only its leg: given `pool` (the pool's own two
- * accounts) and the side's `share`, each coin the side is owed whose destination or pool account is
- * frozen is `left` (the program keeps its count and still moves the other coin), and a frozen
- * destination of a coin the side is not owed is only named. On the vault's side a delegate, a close
- * authority or a frozen USDC or USDT also fails the run, whether or not the other coin is sent; any
- * other freeze is only named. On the Workshop's side a delegate, a close authority or a freeze never
- * fails the run.
+ * What is wrong with one owner's side, named, by the pool program's rules (the owner's rulings,
+ * 2026-11-21). An open destination with a delegate or a close authority (6020), or handed from the
+ * side's `owner` to another (6018), `blocks` the side, owed or not: the program refuses it. One
+ * that requires a memo on every transfer in is listed in `memo`: its token program refuses a coin
+ * moving into it. A freeze leaves only its leg: given `pool` (the pool's own two accounts) and the
+ * side's `share`, each coin the side is owed whose destination or pool account is frozen is `left`
+ * (the program keeps its count and still moves the other coin), and a frozen destination of a coin
+ * the side is not owed is only named. On the vault's side each of these also fails the run, a
+ * freeze only when it is of USDC or USDT, whether or not the other coin is sent; any other freeze
+ * is only named. On the Workshop's side none of them ever fails the run.
  */
-function problems({ states, addresses, mints, vault, pool = null, share = null }) {
+function problems({ owner, states, addresses, mints, vault, pool = null, share = null }) {
   const named = [];
   let blocks = false;
   let fails = false;
+  const memo = [];
   states.forEach((s, i) => {
     if (!s.open) return;
-    const why = [s.delegate && "has a delegate", s.closeAuthority && "has a close authority", s.frozen && "is frozen"].filter(Boolean);
+    const handed = s.owner !== owner;
+    const why = wrongWith(s, handed ? s.owner : null);
     if (!why.length) return;
     named.push(`its account \`${addresses[i]}\` for ${mints[i]} ${why.join(" and ")}`);
-    if (s.delegate || s.closeAuthority) blocks = true;
-    if (vault && (s.delegate || s.closeAuthority || (s.frozen && DOLLARS.has(mints[i])))) fails = true;
+    if (s.delegate || s.closeAuthority || handed) blocks = true;
+    if (s.memo) memo.push(i);
+    if (vault && (s.delegate || s.closeAuthority || handed || s.memo || (s.frozen && DOLLARS.has(mints[i])))) fails = true;
   });
   pool?.states.forEach((s, i) => {
     if (!s.open || !s.frozen || share[i] === 0n) return;
@@ -259,10 +360,10 @@ function problems({ states, addresses, mints, vault, pool = null, share = null }
   });
   // Each coin the side is owed whose destination or pool account is frozen (destinationState reads a freeze on an open account only).
   const left = pool ? [0, 1].filter((i) => share[i] > 0n && (states[i].frozen || pool.states[i].frozen)) : [];
-  return { named, blocks, left, fails };
+  return { named, blocks, memo, left, fails };
 }
 const said = (p) => `${p.named.join("; ")}${p.fails ? ": read it" : ""}`;
-/** A side held back for a delegate or a close authority: nothing is sent. */
+/** A side held back for one of its accounts: nothing is sent. */
 const held = (p) => ({ ok: !p.fails, heldBack: true, result: `held back, nothing sent: ${said(p)}` });
 /** A side's result with its accounts' problems named after it, failing the run where they do. */
 const naming = (r, p) => (p.named.length ? { ...r, ok: r.ok && !p.fails, result: `${r.result}; ${said(p)}` } : r);
@@ -271,6 +372,35 @@ const naming = (r, p) => (p.named.length ? { ...r, ok: r.ok && !p.fails, result:
 export function customError(err, ix) {
   const e = err?.InstructionError;
   return Array.isArray(e) && e[0] === ix && typeof e[1]?.Custom === "number" ? e[1].Custom : null;
+}
+
+/**
+ * The FeesSwept records in a transaction's logs that the pool program `programId` printed itself,
+ * in its own call as the transaction's instruction `ix` (depth 1): a line printed by any other
+ * program, or by this one in a deeper call, is not counted. The runtime writes the invoke, success
+ * and failed lines, so a program can print neither. Each record is decoded as states/config.rs
+ * lays it out: the tag, the pool, the side (1 = the fund owner's), the owner, then what moved of
+ * each coin and what was left.
+ */
+export function feesSwept(logs, programId, ix) {
+  const stack = [];
+  let at = -1;
+  const out = [];
+  for (const line of logs) {
+    let m;
+    if ((m = /^Program (\w+) invoke \[(\d+)\]$/.exec(line))) {
+      const depth = Number(m[2]);
+      if (depth === 1) at++;
+      stack.length = depth - 1;
+      stack.push(m[1]);
+    } else if (/^Program \w+ (success|failed: .*)$/.test(line)) stack.pop();
+    else if ((m = /^Program data: (\S+)$/.exec(line)) && at === ix && stack.length === 1 && stack[0] === programId) {
+      const d = Buffer.from(m[1], "base64");
+      if (d.length !== FEES_SWEPT_BYTES || !d.subarray(0, 8).equals(FEES_SWEPT_TAG) || d[40] > 1) continue;
+      out.push({ pool: pk(d, 8), fund: d[40] === 1, owner: pk(d, 41), moved: [u64(d, 73), u64(d, 81)], left: [u64(d, 89), u64(d, 97)] });
+    }
+  }
+  return out;
 }
 
 /** A raw amount in whole coins, at most 20 decimal places: a mint may claim up to 255 decimals, and Node refuses more than 100. */
@@ -325,12 +455,30 @@ async function islandCoinPrices(fetchImpl) {
   }
 }
 
+/** Is anything set aside in these two counts? */
+const owed = (share) => share.some((x) => x > 0n);
+/** Each coin's amount in `raw` above 0, as "<amount> of <mint>", joined with "and". */
+const amounts = (pool, raw) =>
+  raw
+    .map((x, i) => (x > 0n ? `${fmt(x, i ? pool.decimals1 : pool.decimals0)} of ${i ? pool.mint1 : pool.mint0}` : null))
+    .filter(Boolean)
+    .join(" and ");
+/** The counts in `kept` (above 0) as left in the pool, in words. */
+const stays = (pool, kept) => `${amounts(pool, kept)} ${kept.filter((x) => x > 0n).length > 1 ? "are" : "is"} left in the pool`;
+/** What a sweep moves and what stays in the pool, in words: "<moved>", "<moved> only, and <kept> is left in the pool", or "nothing". */
+const words = (pool, moved, kept) => {
+  const m = amounts(pool, moved);
+  if (!owed(kept)) return m || "nothing";
+  return `${m ? `${m} only, and` : "nothing:"} ${stays(pool, kept)}`;
+};
+
 /**
  * One run. `deps` are injectable for tests: { call (JSON-RPC), fetchImpl, env, log, wait, now }.
  * Returns { ok, notUpgraded, pools: [...], listed, stopped, unvisited, payer, paid, balance,
- * balanceError, keep, prices }. A side's `left` lists the coins a frozen account leaves in the
- * pool: its result never calls them swept. It throws only when it cannot start (no key for a live
- * run, no payer for a dry run).
+ * balanceError, keep, prices, daily }. A side's `left` lists the coins left in the pool, its result
+ * never calling them swept; a landed sweep's `event` is what its own FeesSwept says moved and stayed
+ * of each coin, or `notReadBack` says why there is none. `daily` is what the daily read named. It
+ * throws only when it cannot start (no key for a live run, no payer for a dry run).
  */
 export async function run(opts, deps) {
   const { call, fetchImpl = globalThis.fetch, env = process.env, log = console.log, wait = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now } = deps;
@@ -340,7 +488,7 @@ export async function run(opts, deps) {
   const payer = signer?.address ?? opts.payer;
   if (!payer) throw new Error("a dry run needs --payer <address> or VENUE_SWEEPER_KEYPAIR");
 
-  const res = { ok: true, notUpgraded: false, pools: [], listed: false, stopped: null, unvisited: 0, payer, paid: { opened: 0, rent: 0, sweeps: 0 }, balance: null, balanceError: null, keep: null, prices: null };
+  const res = { ok: true, notUpgraded: false, pools: [], listed: false, stopped: null, unvisited: 0, payer, paid: { opened: 0, rent: 0, sweeps: 0 }, balance: null, balanceError: null, keep: null, prices: null, daily: null };
   const limit = now() + RUN_LIMIT_MS;
   /** Past the run's time limit? Then the run stops, and says so. */
   const late = () => {
@@ -390,7 +538,24 @@ export async function run(opts, deps) {
         }
       })
     );
-    feeCoins = await transferFeeCoins(rpc, pools);
+    // One paced read: the pools' Token-2022 coins, for their transfer fees, and on every run the
+    // vault's own SOL, USDC and USDT accounts (on a test chain, each tier's protocol owner's) and
+    // every listed pool's own two.
+    const t22 = [
+      ...new Set(
+        pools.flatMap((p) => [
+          [p.mint0, p.program0],
+          [p.mint1, p.program1],
+        ]).filter(([, prog]) => prog === TOKEN_2022_PROGRAM).map(([m]) => m)
+      ),
+    ];
+    const owners = mainnet ? [VAULT] : [...new Set([...tiers.values()].filter((t) => t && !t.error).map((t) => t.protocolOwner))];
+    const vaultOwn = owners.flatMap((owner) => VAULT_COINS.map((mint) => ({ owner, mint, address: associatedTokenAddress(owner, mint, TOKEN_PROGRAM) })));
+    const poolOwn = pools.flatMap((pool) => [0, 1].map((i) => ({ pool, i, mint: i ? pool.mint1 : pool.mint0, program: i ? pool.program1 : pool.program0, address: i ? pool.vault1 : pool.vault0 })));
+    const infos = await readAccounts(rpc, [...t22, ...vaultOwn.map((a) => a.address), ...poolOwn.map((a) => a.address)]);
+    feeCoins = transferFeeCoins(t22, infos);
+    res.daily = { vault: vaultOwn.length, pools: poolOwn.length, named: dailyNames(vaultOwn, poolOwn, infos.slice(t22.length)) };
+    if (res.daily.named.some((x) => x.red)) res.ok = false;
   } catch (e) {
     res.ok = false;
     res.stopped ??= `the pools could not be read: ${e.message}`;
@@ -410,11 +575,37 @@ export async function run(opts, deps) {
   log(`${listed.length} pools on ${opts.program}; SOL ${solUsd == null ? "price unread" : `$${solUsd}`}; island coins ${islandText}; payer ${payer}; ${opts.live ? "LIVE" : "dry run"}`);
 
   /**
-   * Simulates one transaction and, in a live run, sends it and waits for the chain: what came of
-   * it. `created` are the vault's accounts it opens ({ address, before: the lamports already there });
-   * `only`, when a frozen leg stays in the pool, says what the sweep moves and what it leaves.
+   * A landed sweep's own record, read from its transaction (asked for at version 1, as the repo's
+   * reads ask, so a newer one is refused, never misread): its FeesSwept, printed by the pool
+   * program in its own call as instruction `ix`, for the pool, side and owner in `want`; or why
+   * there is none.
    */
-  const sendOne = async (label, ixs, created = [], only = "") => {
+  const readBack = async (signature, ix, want) => {
+    let tx = null;
+    try {
+      for (let i = 0; i < READS && !tx; i++) {
+        if (i) await wait(1500);
+        tx = await rpc("getTransaction", [signature, { encoding: "json", commitment: "confirmed", maxSupportedTransactionVersion: 1 }]);
+      }
+    } catch (e) {
+      return { why: e.late ? "the run stopped before it was read" : `it could not be read: ${e.message}` };
+    }
+    if (!tx) return { why: `the chain did not return it after ${READS} reads` };
+    if (tx.meta?.err) return { why: `the chain says it failed: ${JSON.stringify(tx.meta.err)}` };
+    const events = feesSwept(tx.meta?.logMessages ?? [], opts.program, ix);
+    if (events.length !== 1) return { why: `it shows ${events.length} FeesSwept printed by the pool program in its own call, not one` };
+    const [e] = events;
+    if (e.pool !== want.pool || e.fund !== want.fund || e.owner !== want.owner) return { why: `its FeesSwept is of the pool ${e.pool}, the ${e.fund ? "fund" : "protocol"} owner's side and ${e.owner}` };
+    return { event: { moved: e.moved, left: e.left } };
+  };
+
+  /**
+   * Simulates one sweep and, in a live run, sends it, waits for the chain and reads it back: what
+   * came of it. `created` are the vault's accounts it opens ({ address, before: the lamports already
+   * there }); `plan` is what the read before it found would move and stay ({ moving, kept }, raw);
+   * `fund` and `owner` say whose side it is.
+   */
+  const sendOne = async (label, ixs, { created = [], pool, plan, fund, owner }) => {
     // A finalized blockhash, which every node knows: a node a few slots behind still takes the send.
     const { blockhash, lastValidBlockHeight } = (await rpc("getLatestBlockhash", [{ commitment: "finalized" }])).value;
     const compiled = compileLegacy({ payer, instructions: ixs, recentBlockhash: blockhash });
@@ -434,12 +625,15 @@ export async function run(opts, deps) {
           ? { ok: false, notUpgraded: true, result: "the pool program has no sweep (not upgraded, or rolled back): nothing sent, and a live run fails on it" }
           : { ok: true, notUpgraded: true, result: "the pool program has no sweep yet (not upgraded): nothing sent" };
       }
-      return { ok: false, result: `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join("; ")}` };
+      const refused = `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join("; ")}`;
+      // The Workshop's own account settings hold back only the island's side: named, never a failure.
+      if (fund && WORKSHOP_REFUSALS.has(code)) return { ok: true, heldBack: true, result: `held back, nothing sent: ${WORKSHOP_REFUSALS.get(code)} (${code}); ${refused}` };
+      return { ok: false, result: refused };
     }
     // Each account it opens with its rent, as the simulation leaves it: null where that was not read.
     const opens = created.map((c, i) => ({ address: c.address, rent: sim.accounts?.[i] ? sim.accounts[i].lamports - c.before : null }));
     // `fee`: the network fee is paid (or, in a dry run, would be); `opens` count only when its accounts are really opened.
-    if (!opts.live) return { ok: true, clean: true, fee: true, opens, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it${only && `, sweeping ${only}`}` };
+    if (!opts.live) return { ok: true, clean: true, fee: true, opens, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it${owed(plan.kept) ? `, sweeping ${words(pool, plan.moving, plan.kept)}` : ""}` };
     if (late()) return { ok: false, result: "not sent: the run stopped early" };
     const wire = signTransaction(compiled, signer);
     // The signature is in the signed bytes (the 64 after their count): it is logged before the send.
@@ -456,10 +650,12 @@ export async function run(opts, deps) {
     }
     let landed = null;
     let expired = false;
+    let failure = null;
     try {
       for (let i = 0; i < LOOKS && landed === null; i++) {
         await wait(1500);
         const st = (await rpc("getSignatureStatuses", [[signature]])).value[0];
+        failure = st?.err ?? null;
         if (st?.err) landed = false;
         else if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") landed = true;
         else if ((await rpc("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) {
@@ -472,8 +668,22 @@ export async function run(opts, deps) {
       return { ok: false, signature, result: answered ? `its send answered an error (${answered}), and ${why}` : `sent, but ${why}` };
     }
     const after = answered ? ` (its send answered: ${answered})` : "";
-    if (landed) return { ok: true, sent: true, swept: true, fee: true, signature, opens, result: `swept${only && ` ${only}`}${after}` };
-    if (landed === false) return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain${after}` };
+    if (landed) {
+      const done = { ok: true, sent: true, swept: true, fee: true, signature, opens };
+      // The row is written from the sweep's own record on chain: what moved and what stays, per coin.
+      const back = await readBack(signature, ixs.length - 1, { pool: pool.address, fund, owner });
+      if (back.event) {
+        const left = [pool.mint0, pool.mint1].filter((_, i) => back.event.left[i] > 0n);
+        return { ...done, event: back.event, ...(left.length ? { left } : {}), result: `swept ${words(pool, back.event.moved, back.event.left)}${after}` };
+      }
+      return { ...done, ok: false, notReadBack: back.why, result: `swept ${words(pool, plan.moving, plan.kept)}${after}, by the counts read before the send: not read back (${back.why}), so look its signature up` };
+    }
+    if (landed === false) {
+      const code = customError(failure, ixs.length - 1);
+      // The Workshop's own account settings, changed since the simulation: named, never a failure.
+      if (fund && WORKSHOP_REFUSALS.has(code)) return { ok: true, sent: true, fee: true, signature, result: `sent, and it failed on chain: ${WORKSHOP_REFUSALS.get(code)} (${code})${after}` };
+      return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain${after}` };
+    }
     if (expired) {
       return {
         ok: false,
@@ -496,7 +706,6 @@ export async function run(opts, deps) {
     }
   };
 
-  const owed = (share) => share.some((x) => x > 0n);
   const shareOf = (pool, share) => `${fmt(share[0], pool.decimals0)} of ${pool.mint0} + ${fmt(share[1], pool.decimals1)} of ${pool.mint1}`;
   const nothing = { ok: true, result: NOTHING };
   const under = { ok: true, result: `under the $${opts.minUsd} floor: waits` };
@@ -548,7 +757,6 @@ export async function run(opts, deps) {
       [pool.mint1, pool.program1],
     ];
     const mints = [pool.mint0, pool.mint1];
-    const decimals = [pool.decimals0, pool.decimals1];
     const vaultTo = destinations(pool, tier.protocolOwner);
     const workshopTo = destinations(pool, tier.fundOwner);
     const poolOwn = [pool.vault0, pool.vault1];
@@ -572,46 +780,44 @@ export async function run(opts, deps) {
     const [vaultDest, workshopDest] = first.dest;
     row.venue.share = shareOf(pool, first.protocol);
     row.island.share = shareOf(pool, first.fund);
-    /** Each coin's amount in `raw` above 0, as "<amount> of <mint>", joined with "and". */
-    const amounts = (raw) =>
-      raw
-        .map((x, i) => (x > 0n ? `${fmt(x, decimals[i])} of ${mints[i]}` : null))
-        .filter(Boolean)
-        .join(" and ");
     /**
-     * One side by the program's two rules (`p` from problems()): held back for a delegate or a
-     * close authority. Otherwise each frozen leg is left in the pool and counts nothing toward the
-     * floor, and `send(only)` sends the rest once it passes on its own, `only` saying what moves.
-     * What is wrong is named after the result either way.
+     * One side by the program's rules (`p` from problems()): held back for a delegate, a close
+     * authority, an account handed to another owner, or a memo rule on an account its coin moves
+     * into. Otherwise each frozen leg is left in the pool and counts nothing toward the floor, and
+     * `send(plan)` sends the rest once it passes on its own, `plan` saying what moves and what
+     * stays. What is wrong is named after the result either way.
      */
     const side = async (p, share, send) => {
       if (p.blocks) return held(p);
-      if (!p.left.length) return naming(await send(""), p);
       const moving = share.map((x, i) => (p.left.includes(i) ? 0n : x));
-      const stays = `${amounts(share.map((x, i) => (p.left.includes(i) ? x : 0n)))} ${p.left.length > 1 ? "are" : "is"} left in the pool`;
-      const leaving = (r) => ({ ...naming(r, p), left: p.left.map((i) => mints[i]) });
-      if (!owed(moving)) return leaving({ ok: true, result: `waits, nothing sent: ${stays}` });
-      if (!worthSweeping(pool, moving, prices, opts.minUsd)) return leaving({ ok: true, result: `waits: what can move is under the $${opts.minUsd} floor, and ${stays}` });
-      return leaving(await send(`${amounts(moving)} only, and ${stays}`));
+      // An account that requires a memo on every transfer in refuses a coin that moves into it.
+      if (p.memo.some((i) => moving[i] > 0n)) return held(p);
+      const plan = { moving, kept: share.map((x, i) => (p.left.includes(i) ? x : 0n)) };
+      if (!p.left.length) return naming(await send(plan), p);
+      // A landed sweep read back says itself what was left; anything else lists the frozen legs.
+      const leaving = (r) => (r.event ? naming(r, p) : { ...naming(r, p), left: p.left.map((i) => mints[i]) });
+      if (!owed(moving)) return leaving({ ok: true, result: `waits, nothing sent: ${stays(pool, plan.kept)}` });
+      if (!worthSweeping(pool, moving, prices, opts.minUsd)) return leaving({ ok: true, result: `waits: what can move is under the $${opts.minUsd} floor, and ${stays(pool, plan.kept)}` });
+      return leaving(await send(plan));
     };
     /** The venue's sweep, after the vault's missing accounts are opened: they and their rent stay the venue's. */
-    const sendVenue = (only) => {
+    const sendVenue = (plan) => {
       const opens = coins.map(([mint, tokenProgram], i) => ({ mint, tokenProgram, address: vaultTo[i], before: vaultDest[i].lamports })).filter((_, i) => !vaultDest[i].open);
       row.created = opens.length;
       const ixs = [...opens.map(({ mint, tokenProgram }) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram })), sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })];
-      return sendOne(`the venue's sweep of ${pool.address}`, ixs, opens, only);
+      return sendOne(`the venue's sweep of ${pool.address}`, ixs, { created: opens, pool, plan, fund: false, owner: tier.protocolOwner });
     };
-    const sendIsland = (only) => sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })], [], only);
+    const sendIsland = (plan) => sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })], { pool, plan, fund: true, owner: tier.fundOwner });
     /**
      * One side on its share as the read found it: nothing set aside, under the floor, or `go`. What
      * is wrong with its accounts (`p` from problems(), the pool's own two included) is named either
      * way, and on the vault's side fails the run where it does.
      */
     const weigh = async (p, share, go) => (!owed(share) ? naming(nothing, p) : !worthSweeping(pool, share, prices, opts.minUsd) ? naming(under, p) : attempt(go));
-    const venueP = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true, pool: first.pooled, share: first.protocol });
+    const venueP = problems({ owner: tier.protocolOwner, states: vaultDest, addresses: vaultTo, mints, vault: true, pool: first.pooled, share: first.protocol });
     Object.assign(row.venue, await weigh(venueP, first.protocol, () => side(venueP, first.protocol, sendVenue)));
     const islandSide = (dest, pooled, share) => {
-      const p = problems({ states: dest, addresses: workshopTo, mints, vault: false, pool: pooled, share });
+      const p = problems({ owner: tier.fundOwner, states: dest, addresses: workshopTo, mints, vault: false, pool: pooled, share });
       return weigh(p, share, async () => {
         // The Workshop's are never opened here: its share waits until the island holds both, and
         // what is wrong with the one it holds is named meanwhile.
@@ -719,6 +925,14 @@ export function summary(res, opts) {
   const count = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
   const n = (x) => x.toLocaleString("en-US");
   lines.push("", `${res.pools.filter((r) => r.note === NOTHING).length} pools have nothing set aside; ${res.pools.filter(waits).length} are under the floor and wait.`);
+  if (res.daily && (res.daily.vault || res.daily.pools)) {
+    const { named, vault, pools } = res.daily;
+    const read = [vault && "the vault's SOL, USDC and USDT accounts", pools && `the pools' own ${n(pools)} accounts`].filter(Boolean).join(" and ");
+    lines.push(
+      "",
+      named.length ? `Read today, as every day, whether or not a side was due: ${named.map((x) => `${x.text}${x.red ? ": read it" : ""}`).join("; ")}.` : `Read today, as every day: ${read}. Nothing to name.`
+    );
+  }
   if (res.pools.some((r) => r.note === UNPRICED)) {
     lines.push("", "A pool with no SOL, USDC, USDT or island coin has no price here, so this job never sweeps it: its shares wait for a hand collect.");
   }

@@ -690,7 +690,10 @@ ruling, 2026-11-21, "Fix in the program").** It reads each destination and vault
 whoever sends it: a sweep never pays into an account with a delegate or a close authority, and
 a frozen account no longer fails a sweep. Only an owner can stop its own sweep: an account it
 hands over (6018), or gives a delegate or a close authority (6020), refuses that owner's sweep
-of the pool, both coins, while the other owner's still goes through. A coin's issuer can freeze
+of the pool, both coins, while the other owner's still goes through. So does a Token-2022 account
+it sets to require a memo on every transfer in (MemoTransfer): Token-2022 then refuses any amount
+of that coin moving in (its error 36, NoMemo), so the owner's sweep of a pool fails whenever that
+coin moves; an amount of 0 is never sent, so it does not. A coin's issuer can freeze
 an account, but that leaves only that coin's leg counted: a frozen destination leaves its
 owner's share of the coin, a frozen pool vault both owners' shares of it, and every other leg
 still moves.
@@ -705,23 +708,41 @@ never installed; nothing in the repo reads either shape.
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`) with a wallet that holds only
 gas money, so neither the vault nor the island has to sign anything. It lists only real pools and
 sends the venue's sweep and the island's as separate transactions, each only when that owner's
-own share passes the floor ($0.50, counting SOL, USDC, USDT and the island's five coins: a pool of
-other coins is named and left to hand collects, as is one with a coin that takes a transfer fee).
-A destination counts as open only when its coin's own token program owns it. The job opens only
-the vault's missing accounts (their rent stays the venue's); it sweeps the island's share only
-where the Workshop already holds both of that pool's accounts, and its summary names the missing
-ones for the island to open. Just before a pool's sides go, it reads the pool again with every
-account their sweeps touch, and goes by the counts as they stand then. It follows the program's
-two rules above (the owner's ruling of 2026-11-21, "Fix in the program"). A destination with a
-delegate or a close authority holds that side back and names it, owed or not, since the program
-refuses it. A coin that side is owed whose destination or pool account is frozen is left in the
-pool and named with that account, on a side that waits too: it counts nothing toward the floor,
-and the other coin is sent when it passes on its own, the summary never calling the frozen one
-swept. On the vault's side a delegate, a close authority or a frozen USDC or USDT also fails the
-run, whether the other coin is sent or the side waits. On the Workshop's side none of these fails
-it, any other freeze is only named, and the vault's destinations are checked on any day the job
-reads them. The job pays 5,000 lamports for each sweep it sends, the island's included, and its
-summary says what it paid and what its key holds.
+own share passes the floor ($0.50, kept by the owner's ruling of 2026-11-21, counting SOL, USDC,
+USDT and the island's five coins: a pool of other coins is named and left to hand collects, as is
+one with a coin that takes a transfer fee). When Jupiter cannot be read, the island's coins count
+nothing, one summary line names them with the reason, and the run stays green (the owner's
+ruling, 2026-11-21). A destination counts as open only when its coin's own token program owns
+it. The job opens only the vault's missing accounts (their rent stays the venue's); it sweeps the
+island's share only where the Workshop already holds both of that pool's accounts, and its
+summary names the missing ones for the island to open.
+
+Every run reads the vault's own SOL, USDC and USDT accounts and every listed pool's own two in
+one paced request, and names a delegate, a close authority or a freeze on any of them that day,
+whether or not a side is due (the owner's ruling, 2026-11-21). On the vault's, a delegate, a close
+authority or a frozen USDC or USDT fails the run, as does an account handed to another owner or
+one that requires a memo. A frozen pool account of USDC or USDT fails it in a pool where the venue
+holds a share of that coin. Anything else is only named.
+
+Just before a pool's sides go, the job reads the pool again with every account their sweeps
+touch, and goes by the counts as they stand then. It follows the program's rules above (the
+owner's rulings of 2026-11-21: "Fix in the program", and the Workshop's own account settings
+hold back only the island's side, named). A destination with a delegate or a close authority, or
+one handed to another owner, holds that side back and names it, owed or not, since the program
+refuses it; one that requires a memo holds it back when its coin would move. A coin that side is
+owed whose destination or pool account is frozen is left in the pool and named with that
+account, on a side that waits too: it counts nothing toward the floor, and the other coin is sent
+when it passes on its own. On the vault's side each of these also fails the run (a freeze only of
+USDC or USDT), whether the other coin is sent or the side waits. On the Workshop's side none of
+them does: a refusal of the island's sweep for these settings (6018, 6020, or Token-2022's 36),
+in its simulation or on chain, is named, not a failure. Any other refusal fails the run.
+
+After a sweep lands, the job reads its transaction back and writes the row from that sweep's own
+`FeesSwept`: what moved and what was left of each coin. It counts only one printed by this
+program itself, in its own call, for that pool, side and owner. A sweep it cannot read back
+keeps the counts read before the send, is named "not read back", and fails the run, so its
+signature is looked up. The job pays 5,000 lamports for each sweep it sends, the island's
+included, and its summary says what it paid and what its key holds.
 
 **How it was proved, 2026-11-20 and 2026-11-21**, for one owner per call (the first form's
 proofs are in pull request #1282), on the build that also carries the resignation and the audit's
