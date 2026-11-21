@@ -96,9 +96,10 @@ names one, is the one exception: see "The keeper's fee".
 > **2026-11-14: the keeper can resign, in source.** A fee tier's keeper can give the role up
 > itself, at once, signing alone, so a stolen keeper key is switched off without waiting on a
 > vault proposal and its 48-hour lock. Only a wallet's key may be named keeper, and every change
-> of keeper or swap guard is logged. See "The keeper resigns" below. It needs a cp-swap upgrade
-> of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it. `diff-guard`
-> was re-pinned for it.
+> of keeper or swap guard is logged. See "The keeper resigns" below. It ships in the one swap-pool
+> upgrade of 2026-11, with the fee sweep (build `c6f4b43c…`, which first enlarges the program):
+> the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it. `diff-guard` was re-pinned
+> for it.
 
 > **2026-11-15: the fee sweep, in source.** Anyone may move one owner's whole share of a pool to
 > that owner's own token accounts (`sweep_fees`, a third added instruction): the protocol owner's
@@ -106,8 +107,9 @@ names one, is the one exception: see "The keeper's fee".
 > other's. The program derives every destination itself, so the caller chooses only the owner,
 > and the hand collects are unchanged. With it, the venue's cut lands in the vault and the
 > island's in the Workshop without a vault proposal each time (owner ruling 2026-11-15). See "The
-> fee sweep" below. Its first form, one call for both owners, ships with the keeper's resignation
-> (`987bdb2e…`); the per-owner form needs a second upgrade. `diff-guard` was re-pinned for it.
+> fee sweep" below. Its first form, one call for both owners (`987bdb2e…`), is never installed:
+> on 2026-11-20 the owner chose one upgrade straight to the per-owner form, which also carries the
+> keeper's resignation. `diff-guard` was re-pinned for it.
 
 > **Upgraded again: mainnet runs the build with the fee rules and the swap guard.** The Squads
 > vault's proposal #32 upgraded the program to the build made from this source at the merge of
@@ -614,8 +616,9 @@ anyone's, and the guard refuses them from inside another program, until the vaul
 keeper.
 
 **What it changes on chain, once upgraded.** Nothing for anyone but a keeper. The account is
-the same 236 bytes. Every number of the errors and every event before is kept. It needs a
-cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) does not carry it.
+the same 236 bytes. Every number of the errors and every event before is kept. It ships in the
+one swap-pool upgrade of 2026-11, with the fee sweep (build `c6f4b43c…`): the keeper-fee build
+(`9f0150e3…`, proposal #35) does not carry it.
 
 **How it was proved, 2026-11-14.** The same way as the swap guard's (Agave 3.1.11, Anchor
 0.32.1, the test wallet as admin, throwaway program ids, one validator holding each build).
@@ -629,7 +632,7 @@ cp-swap upgrade of its own: the keeper-fee build (`9f0150e3…`, proposal #35) d
 | the resignation file against trunk's build (no `resign_keeper`, param 9 unchecked, no events) | 7 fail; the 3 controls pass |
 | the resignation file against the build with `resign_keeper`'s keeper check removed (anyone may resign) | 3 fail: a stranger resigns the keeper, so the keeper's own resignation then logs the wrong keeper, and a tier with no keeper can be "resigned"; the 7 others pass |
 | `node solana/guards/provenance.mjs cp-swap` after the re-pin, and `key-guard.mjs` over every copy | upstream plus the reviewed patch: 37 files compared, 11 patched; no outside key |
-| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 721,488 bytes, sha256 `ef001114…`: it fits the program's 725,176 bytes of room on mainnet (3,688 to spare), so the upgrade needs no enlarge. Trunk's source built the same way gives `9f0150e3…` (715,224 bytes), #35's build, byte for byte. This build is never installed: the resignation ships inside the sweep's build (below) |
 
 ### The Solana audit's checks (2026-11-15)
 
@@ -680,10 +683,19 @@ rent stays in the account, which is the owner's.
 | Nothing else moves: not the other owner's share, the creator fee, the curve's tokens, the lp supply or the tier, and the price does not move, since the curve reads the vaults less every share set aside (`pool.rs` `vault_amount_without_fee`). Destinations that do not exist yet are created first by the caller (the associated token account program's CreateIdempotent); this program creates no account. | `sweep_pool_fees` in `lib.rs`; `utils/token.rs` skips an amount of 0 | |
 | Every sweep is logged: `FeesSwept` (the pool, which owner, that owner, what moved of each coin and what stays set aside). What moved is what arrived, since a sweep never moves a coin whose transfer takes a fee. Anyone can log one that moves nothing, and another program can print a look-alike line: a reader of logs counts only events printed inside this program's own call, or reads the token balances instead. | `states/config.rs`, emitted in `sweep_pool_fees` | |
 
+**What the program does not check (the owner's ruling, 2026-11-21).** A destination's delegate or
+close authority: only that account's owner can set either, so no outsider can. And whether the
+coin's issuer has frozen a destination: a frozen one fails that owner's sweep of the pool, for
+both of its coins, while the other owner's sweep is unaffected and a hand collect can still take
+the other coin. The program stays as it is, and the daily job checks each destination for all
+three before it sends (its own change, merged before the job is switched on).
+
 **What it changes on chain, once upgraded.** Nothing for any swap, deposit or withdrawal. The
-hand collects keep working exactly as before. The accounts are the same sizes; every error and
-event number before is kept, and 6019 is new. `FeesSwept` changes shape from the first form's
-(both owners, four amounts) to one per owner's sweep; nothing in the repo reads it.
+hand collects keep working exactly as before. The accounts are the same sizes, and every error
+and event number the program has on mainnet today is kept. New on chain, against today's
+program: errors 6016 to 6019, and the events `KeeperChanged`, `SwapGuardChanged` and
+`FeesSwept`. The first form's `FeesSwept` (both owners, four amounts) lived in source only and is
+never installed; nothing in the repo reads either shape.
 
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`) with a wallet that holds only
 gas money, so neither the vault nor the island has to sign anything. It sends the venue's sweep
@@ -703,9 +715,9 @@ Solana 2.3.0, Anchor 0.32.1, the test wallet as admin, throwaway program ids).
 | the sweep file against 29 copies, each with one check broken and built on its own: each destination's address check and still-owns check per coin; the vault-authority check; each owner's share paid to the other, read from the other's counts or zeroing them; the 6019 rule removed, or put on the island too; the transfer-fee rule removed, its count zeroed anyway, or every Token-2022 coin left; the tier and each vault binding removed; the token program's choice made classic or Token-2022 always, for the destinations and for the transfers; four ways of mislogging the event; one count left unzeroed; the amounts crossed | 27 fail at least one test. The two that do not (the vault-authority check made vacuous on one coin alone) change nothing: the address and owner checks make both destinations the same owner's, so the other coin's check refuses the same tiers; made vacuous on both, it fails |
 | the first commit's build, without the transfer-fee rule | its 12 tests pass |
 | the daily job against this build, two pools with real trades, one holding a coin that keeps 3% of every transfer | run 1 swept the venue's share into the admin's own accounts, which it opened, and left the island's waiting (its accounts missing, not opened by the job); after the island opened its own, run 2 swept the island's share only; the 3% coin's pool was left untouched; the job's payer signed two transactions in all |
-| the same job against trunk's program and against a build with no sweep | nothing sent, each case named, the run green; the payer's balance unchanged |
+| the same job against a build with no sweep, as mainnet's program is today | nothing sent, the case named, the run green; the payer's balance unchanged |
 | `provenance.mjs cp-swap` after the re-pin, `key-guard.mjs` as CI calls it, `provenance.mjs --pr-files` | 37 files compared, 12 patched; no outside key; the re-pin rule holds |
-| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,280 bytes, sha256 `c6f4b43c…`. The first upgrade leaves the program 746,816 bytes of room (`987bdb2e…`, the first form, built the same way, byte for byte as CI), so this one needs no enlarge. The launcher's build does not move (`028701a0…`) |
+| the mainnet binary, `cargo build-sbf -- --locked` with CI's Solana 2.3.0 | 746,280 bytes, sha256 `c6f4b43cac5060d8fcc68254b7efb855964487fb768137c6c9c848af68f2ca09`. Mainnet's program has 725,176 bytes of room (read 2026-11-20), so the upgrade first grows it by 21,104 bytes, about 107,208,320 lamports of rent at 5,080 a byte. Trunk's first form built the same way gives `987bdb2e…`, byte for byte as CI. The launcher's build does not move (`028701a0…`) |
 
 ---
 

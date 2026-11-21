@@ -298,7 +298,7 @@ describe("venue-sweep: the instruction", () => {
  * A fake chain: the pools and tiers given, the accounts that exist, and what each call returns.
  * `simErr(tx)` answers each simulation from the transaction itself (web3.js's reading of it).
  */
-function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT }, simErr = () => null, simLogs = () => [], statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
+function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT }, simErr = () => null, statuses = [{ confirmationStatus: "confirmed", err: null }] }) {
   const calls = [];
   let s = 0;
   let sent = 0;
@@ -310,7 +310,7 @@ function fakeChain({ pools, tiers, existing = new Set(), mints = { [BAYLA]: BAYL
     if (method === "getLatestBlockhash") return { value: { blockhash: "GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi", lastValidBlockHeight: 1000 } };
     if (method === "simulateTransaction") {
       const tx = Transaction.from(Buffer.from(params[0], "base64"));
-      return { value: { err: simErr(tx), logs: simLogs(tx), unitsConsumed: 61234 } };
+      return { value: { err: simErr(tx), logs: [], unitsConsumed: 61234 } };
     }
     if (method === "sendTransaction") return `SiG${++sent}`;
     if (method === "getSignatureStatuses") return { value: [statuses[Math.min(s++, statuses.length - 1)]] };
@@ -451,51 +451,43 @@ describe("venue-sweep: a run", () => {
     expect(res.pools[0].island.result).toMatch(/not upgraded/);
   });
 
-  // What trunk's first sweep (four destinations in one call) logged on a local validator, 2026-11-20,
-  // when this job's sweep reached it: it reads the job's token program as the fund owner's account.
-  const firstSweepLogs = [
-    `Program ${VENUE_PROGRAM} invoke [1]`,
-    "Program log: Instruction: SweepFees",
-    "Program log: AnchorError caused by account: fund_token_0_account. Error Code: AccountOwnedByWrongProgram. Error Number: 3007. Error Message: The given account is owned by a different program than expected.",
-    `Program ${VENUE_PROGRAM} consumed 10829 of 562056 compute units`,
-    `Program ${VENUE_PROGRAM} failed: custom program error: 0xbbf`,
-  ];
-  it("between the two upgrades, the first sweep's refusal of this job's accounts is said, nothing is sent, and it is not a failure", async () => {
-    const kp = Keypair.generate();
-    const chain = fakeChain({
-      pools: [big],
-      tiers,
-      existing: new Set(workshopAccounts),
-      simErr: (tx) => ({ InstructionError: [tx.instructions.length - 1, { Custom: 3007 }] }),
-      simLogs: () => firstSweepLogs,
-    });
-    const env = { VENUE_SWEEPER_KEYPAIR: JSON.stringify([...kp.secretKey]) };
-    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env, log: quiet, wait: async () => {} });
-    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
-    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
-    expect(res).toMatchObject({ ok: true, notUpgraded: true });
-    for (const side of ["venue", "island"]) expect(res.pools[0][side].result).toMatch(/first sweep.*nothing sent/);
-  });
-
-  it("the same error number with any other account named is a failure, and nothing is sent", async () => {
-    const chain = fakeChain({
-      pools: [big],
-      tiers,
-      existing: new Set(workshopAccounts),
-      simErr: (tx) => ({ InstructionError: [tx.instructions.length - 1, { Custom: 3007 }] }),
-      simLogs: () => firstSweepLogs.map((l) => l.replace("fund_token_0_account", "owner_token_0_account")),
-    });
-    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
-    expect(res).toMatchObject({ ok: false, notUpgraded: false });
-    expect(res.pools[0].venue.result).toMatch(/the simulation refused it/);
-    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
-  });
-
   it("any other refusal is a failure, and nothing is sent", async () => {
     const chain = fakeChain({ pools: [big], tiers, simErr: () => ({ InstructionError: [2, { Custom: 6018 }] }) });
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
     expect(res.ok).toBe(false);
     expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
+  });
+
+  // A dry run returns before any send whatever it makes of a refusal, so these two hold the live path.
+  it("in a live run too, a refused simulation is a failure and nothing is sent", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({
+      pools: [big],
+      tiers,
+      existing: new Set([...vaultAccounts, ...workshopAccounts]),
+      simErr: (tx) => ({ InstructionError: [tx.instructions.length - 1, { Custom: 6018 }] }),
+    });
+    const env = { VENUE_SWEEPER_KEYPAIR: JSON.stringify([...kp.secretKey]) };
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env, log: quiet, wait: async () => {} });
+    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
+    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
+    expect(res.ok).toBe(false);
+    for (const side of ["venue", "island"]) expect(res.pools[0][side].result).toMatch(/the simulation refused it/);
+  });
+
+  it("in a live run, a program with no sweep yet is said for both sides and nothing is sent", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({
+      pools: [big],
+      tiers,
+      existing: new Set([...vaultAccounts, ...workshopAccounts]),
+      simErr: (tx) => ({ InstructionError: [tx.instructions.length - 1, { Custom: 101 }] }),
+    });
+    const env = { VENUE_SWEEPER_KEYPAIR: JSON.stringify([...kp.secretKey]) };
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env, log: quiet, wait: async () => {} });
+    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
+    expect(res.notUpgraded).toBe(true);
+    for (const side of ["venue", "island"]) expect(res.pools[0][side].result).toMatch(/not upgraded/);
   });
 
   it("on mainnet, a tier that names anyone but the vault and the Workshop is not swept and fails the run", async () => {

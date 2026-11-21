@@ -14,7 +14,7 @@
 // pool program; any other is a test chain, where the mainnet owner check does not apply),
 // --min-usd <n> (default 0.5: a pool whose priced shares are worth less waits for a later day).
 // Exit 0 when every pool above the floor was swept or simulated clean (or the program has no
-// sweep yet, or only the first one), 1 when anything failed. Plain Node, no package: the key
+// sweep yet), 1 when anything failed. Plain Node, no package: the key
 // never shares a process with third-party code (venue-volume.yml's rule).
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -41,12 +41,6 @@ const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 export const SWEEP_FEES_TAG = createHash("sha256").update("global:sweep_fees").digest().subarray(0, 8);
 /** Anchor's "instruction not found" (InstructionFallbackNotFound): the program has no sweep yet. */
 const NO_SUCH_INSTRUCTION = 101;
-/**
- * The first sweep (2026-11-15: both owners in one call, four destinations) reads this sweep's token
- * program, its tenth account, as the fund owner's token-0 account: Anchor's AccountOwnedByWrongProgram,
- * logged against that account's name, which this sweep does not have.
- */
-const FIRST_SWEEP = { error: 3007, log: "caused by account: fund_token_0_account." };
 
 const pk = (d, o) => base58(d.subarray(o, o + 32));
 const u64 = (d, o) => d.readBigUInt64LE(o);
@@ -252,9 +246,6 @@ export async function run(opts, deps) {
       const code = customError(sim.err, ixs.length - 1);
       if (code === NO_SUCH_INSTRUCTION) {
         return { ok: true, notUpgraded: true, result: "the pool program has no sweep yet (not upgraded): nothing sent" };
-      }
-      if (code === FIRST_SWEEP.error && (sim.logs ?? []).some((l) => l.includes(FIRST_SWEEP.log))) {
-        return { ok: true, notUpgraded: true, result: "the pool program has only the first sweep, both owners in one call (not upgraded): nothing sent" };
       }
       return { ok: false, result: `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join(" | ")}` };
     }
