@@ -58,7 +58,7 @@ afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })))
 function fresh(): string {
   const root = mkdtempSync(join(tmpdir(), 'guard-tamper-'));
   made.push(root);
-  for (const d of [CLMM, CP, LAUNCH, LADDER, `${WS}/Cargo.toml`, `${WS}/Cargo.lock`, ...WORKFLOWS]) {
+  for (const d of [CLMM, CP, LAUNCH, LADDER, `${WS}/Cargo.toml`, `${WS}/Cargo.lock`, `${WS}/Anchor.toml`, ...WORKFLOWS]) {
     cpSync(join(REPO_ROOT, d), join(root, d), { recursive: true, filter: (s) => !/[\\/]target$/.test(s) });
   }
   return root;
@@ -82,6 +82,8 @@ const CLMM_LIB = `${CLMM}/programs/amm/src/lib.rs`;
 const CLMM_POOL = `${CLMM}/programs/amm/src/states/pool.rs`;
 const CP_TOKEN = `${CP}/src/utils/token.rs`;
 const WS_TOML = `${WS}/Cargo.toml`;
+const LADDER_TOML = `${LADDER}/Cargo.toml`;
+const LAUNCH_TOML = `${LAUNCH}/Cargo.toml`;
 const EVIL_CRATE = (root: string, name: string, body: string, extra = '') => {
   write(root, `${WS}/vendor-evil/${name}/Cargo.toml`, `[package]\nname = "${name}"\nversion = "0.32.1"\nedition = "2021"\n${extra}`);
   write(root, `${WS}/vendor-evil/${name}/src/lib.rs`, body);
@@ -243,6 +245,36 @@ const TAMPERS: Record<string, [(root: string) => void, boolean, boolean]> = {
     true,
   ],
   'B12 a nested target/ folder inside src': [(r) => write(r, `${CP}/src/target/evil.rs`, `pub const K: &str = "${KEY}";\n`), true, true],
+
+  // C: changes to our own two programs that passed both guards in the Solana audit of
+  // 2026-11-15. A key the program builds while it runs still passes both: a reader stops it.
+  'C1 the ladder compiles a source file from outside its folder': [
+    (r) => {
+      replace(r, LADDER_TOML, 'name = "bayla_ladder"', 'name = "bayla_ladder"\npath = "../../tools/outside_lib.rs"');
+      write(r, `${WS}/tools/outside_lib.rs`, `pub const K: &str = "${KEY}";\n`);
+    },
+    false,
+    true,
+  ],
+  'C2 the launcher compiles a source file from outside its folder': [(r) => replace(r, LAUNCH_TOML, 'name = "tegridy_launch"', 'name = "tegridy_launch"\npath = "../../tools/outside_lib.rs"'), false, true],
+  'C3 the ladder takes a git and a path dependency': [
+    (r) => replace(r, LADDER_TOML, '[dependencies]\n', '[dependencies]\nevil = { git = "https://example.com/evil" }\nevil2 = { path = "../../vendor-evil/evil2" }\n'),
+    false,
+    true,
+  ],
+  'C4 the ladder builds devnet by default': [(r) => replace(r, LADDER_TOML, 'default = []', 'default = ["devnet"]'), false, true],
+  'C5 the launcher builds devnet by default': [(r) => replace(r, LAUNCH_TOML, 'default = []', 'default = ["devnet"]'), false, true],
+  'C6 the ladder picks another compiler': [(r) => append(r, LADDER_TOML, '\n[package.metadata.solana]\ntools-version = "v1.41"\n'), false, true],
+  'C7 the launcher picks another compiler': [(r) => append(r, LAUNCH_TOML, '\n[package.metadata.solana]\ntools-version = "v1.41"\n'), false, true],
+  'C8 a crate added to the lock for the ladder alone': [
+    (r) => replace(r, `${WS}/Cargo.lock`, 'name = "bayla-ladder"\nversion = "0.1.0"\ndependencies = [\n "anchor-lang",\n "anchor-spl",\n]', 'name = "bayla-ladder"\nversion = "0.1.0"\ndependencies = [\n "anchor-lang",\n "anchor-spl",\n "raydium-cp-swap",\n]'),
+    false,
+    true,
+  ],
+  'C9 the range copy\'s own README edited': [(r) => append(r, `${CLMM}/README.md`, '\nOne more line.\n'), false, true],
+  'C10 the range copy\'s own fee-rule test edited': [(r) => append(r, `${CLMM}/programs/amm/tests/swap_math_fee_rule.rs`, '\n// one more line\n'), false, true],
+  'C11 the ladder\'s anchor build picks another Solana': [(r) => replace(r, `${WS}/Anchor.toml`, 'solana_version = "2.3.0"', 'solana_version = "1.18.26"'), false, true],
+  'C12 the ladder\'s anchor build takes a member from outside programs/': [(r) => replace(r, `${WS}/Anchor.toml`, '"programs/bayla-ladder"]', '"programs/bayla-ladder", "tools/evil"]'), false, true],
 };
 
 const OURS = [CP, CLMM, LAUNCH, LADDER];
@@ -277,13 +309,21 @@ describe('every tamper is refused by the guard whose field it is', () => {
 });
 
 describe('a pin, the reviewed patch or the allow-list changes in a pull request of its own', () => {
-  it('refuses other work beside a changed guard file, and passes one that is new or alone', () => {
+  it('refuses other work beside a changed or added guard file, and passes one alone', () => {
     const pin = 'M\tsolana/guards/upstream/cp-swap.diff\nM\tsolana/tegridy-amm/programs/cp-swap/src/lib.rs\n';
     expect(repinAlone(pin)).toEqual([]);
     expect(repinAlone(`${pin}M\tsolana/tegridy-amm/tests/tegridy-launch-migration.test.ts\n`)).toEqual([]);
+    // Our own programs' manifests are pinned too, so a re-pin may carry the program it pins.
+    expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\tsolana/tegridy-amm/programs/bayla-ladder/Cargo.toml\nM\tsolana/tegridy-amm/programs/tegridy-launch/src/lib.rs\n')).toEqual([]);
+    expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\tsolana/tegridy-amm/Anchor.toml\n')).toEqual([]);
     expect(repinAlone(`${pin}M\tfrontend/src/App.tsx\n`).join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/cp-swap.diff');
     expect(repinAlone('M\tsolana/guards/allowed-keys.json\nM\t.github/workflows/ci.yml\n')).toHaveLength(1);
-    expect(repinAlone('A\tsolana/guards/key-guard.mjs\nM\tfrontend/src/App.tsx\n')).toEqual([]);
+    expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\nM\tfrontend/src/App.tsx\n').join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/new-pin.sha256');
+    expect(repinAlone('A\tsolana/guards/upstream/new-pin.sha256\n')).toEqual([]);
+    // The site's own test reads the deny list, so it moves with it.
+    expect(repinAlone('M\tsolana/guards/upstream/deny-keys.txt\nM\tfrontend/src/test/siteNoRaydiumKeys.test.ts\n')).toEqual([]);
+    // Its pin line reads to the secret scanner as a key, so the scanner's skip rides with it.
+    expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\t.gitleaksignore\n')).toEqual([]);
   });
 });
 

@@ -464,8 +464,9 @@ export function judge({ ours, upstream = {}, deny: denyList = /** @type {string[
       if (release && allow.placeholder?.[k]) problems.push(`${k} is the placeholder program id; a release build refuses it: ${where.join(', ')}`);
     }
   }
+  // A system address gives no one a power, and may be named only to keep it off the deny list.
   for (const k of [...named.keys(), ...kept.keys()]) {
-    if (!seen.has(k)) problems.push(`allow-list entry ${k} appears nowhere in our copies: drop it, so the list stays exact`);
+    if (!seen.has(k) && !system.has(k)) problems.push(`allow-list entry ${k} appears nowhere in our copies: drop it, so the list stays exact`);
   }
   return { problems, counts: { found: seen.size, deny: deny.size, allowed: named.size + kept.size } };
 }
