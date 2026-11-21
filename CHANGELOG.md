@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-21
+
+- Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
+
 ### 2026-11-20
 
 - The city's island is now one architect's model at night, like its close-ups: cork land on a pale beach, a sea of deep blue resin, card streets, wooden palms and trees, each room's art laid as tile, small white figures on every plot, lit by its own street lamps, windows and glowing pools in a dark gallery.

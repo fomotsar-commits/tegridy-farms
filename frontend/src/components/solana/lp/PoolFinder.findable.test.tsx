@@ -191,6 +191,37 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     }
   });
 
+  // A double tap on Open a pool: the first tap moves the page, the second lands on whatever is
+  // under the finger now. At 430 wide that was a token, picked by nobody (Fable read, 2026-11-19).
+  it('the second tap of a double tap does not press what the first tap moved under the finger', async () => {
+    mount();
+    let moved = 0;
+    scrolled.mockImplementation(() => { moved = 255; });
+    const box = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 400 - moved, 100, 48));
+    try {
+      const finger = { clientX: 75, clientY: 439 };
+      const open = await task('Open a pool');
+      fireEvent.pointerDown(open, finger);
+      fireEvent.click(open, finger);
+      expect(moved).toBe(255);
+      const bayla = await chip('BAYLA');
+      fireEvent.pointerDown(bayla, finger);
+      fireEvent.click(bayla, { ...finger, detail: 2 });
+      await act(async () => {});
+      // A pick writes the token's address into the box at once.
+      const address = within(await finder()).getByLabelText('Token mint address');
+      expect(address).toHaveValue('');
+      expect(bayla).toHaveAttribute('aria-pressed', 'false');
+      // Tapped where it is drawn, it is picked.
+      fireEvent.pointerDown(bayla, { clientX: 60, clientY: 325 });
+      fireEvent.click(bayla, { clientX: 60, clientY: 325, detail: 1 });
+      await waitFor(() => expect(bayla).toHaveAttribute('aria-pressed', 'true'));
+    } finally {
+      box.mockRestore();
+      scrolled.mockReset();
+    }
+  });
+
   it('with adding paused, only Remove is offered and the card says so', async () => {
     mount('/pools', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');

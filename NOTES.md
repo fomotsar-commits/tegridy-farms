@@ -59,6 +59,28 @@ one package without a reinstall: `npm pack <name>@<locked version>`, extract the
 `package/` over the folder, and `require()` it to prove it loads. Check the version against the
 lockfile: an unpinned `npm pack` fetched lightningcss 1.33.0 where the lock says 1.32.0.
 
+## 2026-11-19: a press that scrolls the page makes a double tap's second tap press what moved under the finger
+
+**Believed:** a scroll that brings the next step onto the screen is harmless to the finger: the
+button that was pressed has already done its job.
+
+**Measured** (Playwright, Chromium and WebKit touch, 430x740 and 390x664, two taps at one point
+300 ms apart on /pools "Open a pool"): the first tap moved the page 179 / 255 px in one frame. The
+second landed on a token button (picked it: a lookup and a 1,951 px move) or on the address box's
+label (focus, so a phone's keyboard). jsdom never moves anything, so no unit test could see it.
+
+**Do:** send every move a page makes on its own through one helper that, when the move shifts
+the target on screen, drops touchend, mousedown and click within 25 px of the press for 500 ms
+(`frontend/src/lib/bringIntoView.ts`, with a source test that fails on a raw `scrollIntoView`).
+Measured with it: the same double tap pressed nothing; a tap on a token 38 px away 150 ms after
+the press, and the same spot 800 ms after, each picked the token.
+
+**But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
+the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On
+#1301's first CI run three specs failed with a press that did nothing ("Pair with SOL" stayed on
+USDC; Review: remove liquidity never enabled). A mouse counts its own clicks (`detail` is 2 on a
+double click's second), so a mouse is held only at `detail >= 2`; touch keeps the spot and time.
+
 ## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
 
 **Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
