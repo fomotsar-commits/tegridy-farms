@@ -205,6 +205,21 @@ lockfile's `packages` map, resolving each dependency name as Node does (the pack
 copies no audit lists, search the installed tree for a string from the flawed file:
 `grep -rl -F POSIX_REGEX_SOURCE node_modules`.
 
+## 2026-11-16: a guard that reads a doc line by line has read its claims
+
+**Believed:** `frontend/src/lib/docsClaimHonesty.test.ts`, testing each line of every published
+doc against its banned claim shapes, sees every claim in those docs.
+
+**Measured** (on trunk d8066da45): the README's fee bullet named where the swap fee went with the
+word for stakers wrapped onto the next line. Markdown wraps prose near 100 characters, so a
+claim's subject and its audience often sit on different lines, and a per-line regex sees neither
+half as a claim. Joining each wrapped paragraph
+(table rows, headings, list items and fences kept apart) caught it, and the 16 older shapes found
+nothing new in the 187 scanned files, so the switch cost nothing.
+
+A claim that a ruling made false, rather than one that was never true, also needs a history
+exemption for that shape alone (old plans, changelog lines), or the guard demands rewriting history.
+
 ## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
 
 **Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on

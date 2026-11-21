@@ -29,11 +29,8 @@ The app is live at **[memetics.finance](https://memetics.finance)**. Pick a path
 ## Path 1 — Stake TOWELI
 
 **Read this before you start.** Locking TOWELI earns you a **boost** and a governance
-position. It does **not** earn you ETH yield today: fees are paid per epoch, **no epoch has
-ever opened**, and the front door's take is still parked in `ReferralSplitter` awaiting a
-permissionless `recoverCallerCredit()` that nobody has called. Stake for the lock, the boost
-and the position NFT — not for a yield stream that has never run. (See
-[FAQ.md](FAQ.md#how-are-fees-distributed).)
+position. It does **not** earn you ETH: the venue's swap fee goes to the treasury Safe, not to
+stakers. (See [FAQ.md](FAQ.md#how-are-fees-distributed).)
 
 ### 1. Acquire TOWELI
 Use the in-app swap at `/swap`, or the Uniswap V2 pool where the deep liquidity actually
