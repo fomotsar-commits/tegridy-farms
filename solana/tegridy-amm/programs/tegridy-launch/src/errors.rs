@@ -60,6 +60,16 @@ pub enum LaunchError {
     PlatformReserveAlreadyReleased,
     #[msg("cp-swap program is not the one compiled into this build; the graduation venue cannot be repointed")]
     CpSwapProgramNotPinned,
+    #[msg("Account is not a fee tier of the configured pool program")]
+    NotAFeeTier,
+    #[msg("Migration reserve is above its ceiling")]
+    MigrationReserveTooHigh,
+    #[msg("The seller's wallet would hold less than its rent floor after this sell; add SOL to it first")]
+    SellerBelowRent,
+    #[msg("The admin key cannot be changed here; only a program upgrade moves it")]
+    AdminMovesOnlyByUpgrade,
+    #[msg("A new fee recipient must be a funded wallet, passed among the remaining accounts")]
+    NotAFundedWallet,
 }
 
 /// Lift a pure-curve error into the program's error space.

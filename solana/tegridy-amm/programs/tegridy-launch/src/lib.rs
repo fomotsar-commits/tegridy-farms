@@ -111,7 +111,7 @@ pub mod state;
 
 use crate::curve::{
     curve_supply, graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol,
-    quote_buy, quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
+    quote_buy, quote_sell, split_fee, BPS_DENOMINATOR, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
@@ -121,12 +121,21 @@ use crate::state::*;
 // replaces (8YVjjc…) corresponded to no key anybody holds; the 2026-08 id CpFnacr…
 // is SPENT and can never hold a program again.
 //
-// ONE program-id macro, deliberately with NO cfg arms (unlike cp-swap's). Three CI
-// patchers — solana-ci.yml's launch-constraints and migration-rehearsal jobs, and
-// solana-deploy-artifact.yml — each rewrite it with a single regex and assert it
-// matched EXACTLY ONCE. A devnet build therefore also carries this id unless one of
-// those patchers pins another; every CI test build does.
+// ONE program-id macro, with no cfg arms: CI's validator jobs and solana-deploy-artifact.yml
+// each rewrite it with a single regex that must match once. A `devnet` build turns the
+// pool-program pin off and names a test deployer, so it must never carry this id: it does
+// not compile until another id is patched in (XCH-07). Unit tests run no program.
 declare_id!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+#[cfg(all(feature = "devnet", not(test)))]
+const _: () = {
+    let id = ID.to_bytes();
+    let mainnet = pubkey!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2").to_bytes();
+    let mut i = 0;
+    while i < id.len() && id[i] == mainnet[i] {
+        i += 1;
+    }
+    assert!(i < id.len(), "tegridy-launch: a devnet build must not carry the mainnet program id; patch in a test id");
+};
 
 /// The cp-swap program every graduation must go to, pinned at COMPILE TIME.
 ///
@@ -207,6 +216,12 @@ fn check_cp_swap_program(program: &Pubkey, allow_unset: bool) -> Result<()> {
     Ok(())
 }
 
+/// The highest trade fee a launch may be configured with: the pools' own ceiling (4%),
+/// so a coin never pays more on its curve than its pool may charge after it (XCH-14).
+/// `curve::MAX_FEE_BPS` stays the curve math's wider backstop.
+const MAX_TRADE_FEE_BPS: u64 = raydium_cp_swap::states::MAX_FEE_RATE_NUMERATOR * BPS_DENOMINATOR
+    / raydium_cp_swap::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
+
 /// Every economic sanity check a launch configuration must pass.
 ///
 /// ONE function, called by both `initialize_global` and `update_global`, on purpose.
@@ -226,6 +241,7 @@ fn check_launch_economics(
     platform_reserve_bps: u64,
     graduation_target: u64,
     migration_reserve: u64,
+    rent: &Rent,
 ) -> Result<()> {
     // Rejects a reserve above the cap (as InvalidParameter).
     let (curve_tokens, _) =
@@ -249,14 +265,16 @@ fn check_launch_economics(
         .map_err(LaunchError::from)?;
     require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
 
-    // The reserve must at least cover the rent cp-swap charges the creator. It is
-    // snapshotted onto every curve at creation, so setting it too low does not fail
-    // here — it fails at the finish line of every launch created afterwards, with
-    // the pool already half-built and no way back. See MIN_MIGRATION_RESERVE_LAMPORTS
-    // for why this is a floor rather than the full requirement.
+    // The reserve covers at least the rent of the accounts cp-swap opens at graduation,
+    // at the rent of the moment (a later shortfall is the caller's to pay). It is
+    // buyers' money, and what it does not spend goes to the venue: hence a ceiling.
     require!(
-        migration_reserve >= MIN_MIGRATION_RESERVE_LAMPORTS,
+        migration_reserve >= cp_swap_rent(rent),
         LaunchError::MigrationReserveTooLow
+    );
+    require!(
+        migration_reserve <= MAX_MIGRATION_RESERVE_LAMPORTS,
+        LaunchError::MigrationReserveTooHigh
     );
 
     let ratio = graduation_price_ratio_bps(
@@ -380,6 +398,35 @@ fn payable_protocol_leg(fee_recipient_ai: &AccountInfo, protocol_lamports: u64) 
     Ok(protocol_lamports)
 }
 
+/// Rent of the six accounts cp-swap's `initialize_with_permission` opens with its payer's
+/// lamports at graduation: the pool, its price record, two vaults, the share mint and the
+/// share account (classic SPL Token only, so 165-byte token accounts).
+#[inline(never)]
+fn cp_swap_rent(rent: &Rent) -> u64 {
+    [
+        raydium_cp_swap::states::ObservationState::LEN,
+        raydium_cp_swap::states::PoolState::LEN,
+        TokenAccount::LEN,
+        TokenAccount::LEN,
+        Mint::LEN,
+        TokenAccount::LEN,
+    ]
+    .iter()
+    .map(|len| rent.minimum_balance(*len))
+    .sum()
+}
+
+/// The pool-opening fee of a cp-swap fee tier, refusing any account that is not a tier
+/// owned by `program`. Its own frame: `migrate_to_amm` has little stack to spare.
+#[inline(never)]
+fn tier_open_fee(tier: &AccountInfo, program: &Pubkey) -> Result<u64> {
+    require_keys_eq!(*tier.owner, *program, LaunchError::NotAFeeTier);
+    let data = tier.try_borrow_data()?;
+    let tier = raydium_cp_swap::states::AmmConfig::try_deserialize(&mut &data[..])
+        .map_err(|_| error!(LaunchError::NotAFeeTier))?;
+    Ok(tier.create_pool_fee)
+}
+
 #[program]
 pub mod tegridy_launch {
     use super::*;
@@ -413,7 +460,7 @@ pub mod tegridy_launch {
         amm_config: Pubkey,
         platform_reserve_bps: u64,
     ) -> Result<()> {
-        require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+        require!(trade_fee_bps <= MAX_TRADE_FEE_BPS, LaunchError::FeeTooHigh);
         // A share of the FEE, so 100% is the natural bound — anything above it
         // would pay the creator more than the trade charged.
         require!(
@@ -450,6 +497,7 @@ pub mod tegridy_launch {
             platform_reserve_bps,
             graduation_target_lamports,
             migration_reserve_lamports,
+            &Rent::get()?,
         )?;
         // Zero, or the compile-time pin. Nothing else, ever — see `mod cp_swap`.
         check_cp_swap_program(&cp_swap_program, true)?;
@@ -475,12 +523,11 @@ pub mod tegridy_launch {
         Ok(())
     }
 
-    /// Update mutable protocol parameters. Never affects a live curve — each
-    /// launch snapshots its own terms at creation.
-    /// `new_authority` / `new_fee_recipient` exist so neither is a one-shot
-    /// decision baked in at initialization. Without them a fat-fingered
-    /// `fee_recipient` would send every trade fee to the wrong address forever,
-    /// and authority could never be rotated onto a rebuilt multisig.
+    /// Update the settings. The terms a launch snapshots at creation never change for it;
+    /// the fee recipient, the pause and the pool tier are read live by every open curve.
+    /// The admin key is not updatable: only a program upgrade moves it. A new fee
+    /// recipient must be a funded wallet and a new tier a fee tier of the pool program,
+    /// each passed among the remaining accounts (LCH-04).
     pub fn update_global(
         ctx: Context<UpdateGlobal>,
         trade_fee_bps: Option<u64>,
@@ -497,7 +544,7 @@ pub mod tegridy_launch {
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
-            require!(f <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+            require!(f <= MAX_TRADE_FEE_BPS, LaunchError::FeeTooHigh);
             g.trade_fee_bps = f;
         }
         // Future launches only — every live curve snapshotted its own share at
@@ -551,6 +598,7 @@ pub mod tegridy_launch {
                 new_reserve_bps,
                 new_target,
                 new_reserve,
+                &Rent::get()?,
             )?;
             g.graduation_target_lamports = new_target;
             g.migration_reserve_lamports = new_reserve;
@@ -578,21 +626,26 @@ pub mod tegridy_launch {
             g.cp_swap_program = p;
         }
         if let Some(c) = new_amm_config {
-            require!(c != Pubkey::default(), LaunchError::InvalidParameter);
+            let tier = ctx.remaining_accounts.iter().find(|a| a.key == &c);
+            tier_open_fee(tier.ok_or(LaunchError::NotAFeeTier)?, &g.cp_swap_program)?;
             g.amm_config = c;
         }
         if let Some(p) = paused {
             g.paused = p;
         }
-        // Rotating to the default pubkey would brick the protocol irrecoverably —
-        // no one can sign for the System Program id, so authority would be lost
-        // and fees would burn. Reject rather than trust the caller.
-        if let Some(a) = new_authority {
-            require!(a != Pubkey::default(), LaunchError::InvalidParameter);
-            g.authority = a;
-        }
+        // The argument keeps its slot, so every encoder's bytes still mean the same.
+        require!(new_authority.is_none(), LaunchError::AdminMovesOnlyByUpgrade);
+        // A program, a sysvar, an unfunded address or a multisig's own account here would
+        // lose or block the venue's fees: only a funded wallet.
         if let Some(r) = new_fee_recipient {
-            require!(r != Pubkey::default(), LaunchError::InvalidParameter);
+            let w = ctx.remaining_accounts.iter().find(|a| a.key == &r);
+            let w = w.ok_or(LaunchError::NotAFundedWallet)?;
+            require!(
+                w.owner == &system_program::ID
+                    && w.data_is_empty()
+                    && w.lamports() >= Rent::get()?.minimum_balance(0),
+                LaunchError::NotAFundedWallet
+            );
             g.fee_recipient = r;
         }
         Ok(())
@@ -949,6 +1002,18 @@ pub mod tegridy_launch {
                 >= rent_floor,
             LaunchError::InsufficientRentExemptBalance
         );
+        // A seller whose wallet would end under its rent floor fails the whole sell at the
+        // runtime's rent check, with an error that names nothing: name it here (LCH-13).
+        let trader_ai = ctx.accounts.trader.to_account_info();
+        require!(
+            !curve::lands_in_rent_band(
+                trader_ai.lamports(),
+                q.lamports_out,
+                Rent::get()?.minimum_balance(trader_ai.data_len())
+            )
+            .map_err(LaunchError::from)?,
+            LaunchError::SellerBelowRent
+        );
 
         **curve_ai.try_borrow_mut_lamports()? = balance
             .checked_sub(debit)
@@ -1073,32 +1138,17 @@ pub mod tegridy_launch {
         let curve = &ctx.accounts.curve;
         require!(!curve.complete, LaunchError::AlreadyComplete);
 
-        // Gate on the ACCOUNTING quantity, because that is what the debit at the end
-        // of this instruction uses.
-        //
-        // This used to read `real_sol_reserves >= graduation_target_lamports`, which
-        // omitted the reserve — while the `spendable` check below measured the PDA's
-        // actual lamports, which anyone can inflate by sending it a donation. One
-        // lamport into the curve address turned a genuinely under-raised launch into
-        // a migration that ran the whole sequence — five account creations, the WSOL
-        // wrap, cp-swap's pool build, the LP burn, ~250k CU — and then underflowed the
-        // subtraction at the very end and returned `Overflow` (6000). Atomic, so
-        // nothing was lost; but a keeper reading 6000 on the highest-stakes
-        // instruction in the system has no way to learn the curve was simply short.
-        //
-        // Checking the sum here makes that subtraction unreachable by construction and
-        // gives one honest error code. It costs nothing: `buy` caps the raise at
-        // exactly `target + reserve`, so no legitimately funded curve is affected.
-        // The `spendable` check stays as the independent rent-survival guard it was
-        // always meant to be, rather than doubling as the funding test.
+        // Gate on the accounting quantity, which a donation to the curve cannot move. A
+        // dust sell takes a few lamports off a full curve, and a caller cannot know which
+        // state its transaction will meet: the caller pays such a gap, up to
+        // `MAX_GRADUATION_GAP_LAMPORTS`. A curve short by more is not ready (LCH-06).
         let move_lamports = curve
             .graduation_target_lamports
             .checked_add(curve.migration_reserve_lamports)
             .ok_or(LaunchError::Overflow)?;
-        require!(
-            curve.real_sol_reserves >= move_lamports,
-            LaunchError::NotReadyToGraduate
-        );
+        let gap = move_lamports.saturating_sub(curve.real_sol_reserves);
+        require!(gap <= MAX_GRADUATION_GAP_LAMPORTS, LaunchError::NotReadyToGraduate);
+        let from_curve = move_lamports - gap;
 
         let deposit_lamports = curve.graduation_target_lamports;
         // Every unsold token the curve could sell — and ONLY those. The platform
@@ -1113,18 +1163,16 @@ pub mod tegridy_launch {
         // `collect_creator_fee` will ever accept — see the CPI comment below.
         let pool_creator_key = curve.creator;
 
-        // The curve PDA must retain enough lamports beyond the deposit to cover
-        // cp-swap's create_pool_fee (charged as a NATIVE SOL transfer from the payer,
-        // in `initialize_with_permission`) plus rent on five accounts it creates.
-        // Checked BEFORE anything moves: discovering the shortfall mid-migration
-        // would leave the curve half-graduated.
+        // The curve must hold what is about to leave it, above its own rent floor.
+        // Checked before anything moves: finding it short mid-migration would leave the
+        // curve half-graduated.
         let curve_ai = ctx.accounts.curve.to_account_info();
         let rent_floor = Rent::get()?.minimum_balance(curve_ai.data_len());
         let spendable = curve_ai
             .lamports()
             .checked_sub(rent_floor)
             .ok_or(LaunchError::InsufficientRentExemptBalance)?;
-        require!(spendable >= move_lamports, LaunchError::MigrationReserveTooLow);
+        require!(spendable >= from_curve, LaunchError::MigrationReserveTooLow);
 
         // ── The cp-swap permission account ───────────────────────────────────
         //
@@ -1235,24 +1283,18 @@ pub mod tegridy_launch {
         ];
         let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
 
-        // Top the authority up to the rent-exempt floor for a zero-data account.
-        //
-        // NOT for account creation — a direct credit to a zero-lamport,
-        // System-owned, zero-data address is a legal `set_lamports` target and
-        // materialises the account at commit. It is for the END-OF-TRANSACTION rent
-        // check: `migration_authority` is writable, so the SVM verifies its
-        // rent-state transition, and a residual strictly between 1 lamport and
-        // `minimum_balance(0)` is rejected with `InsufficientFundsForRent` — AFTER
-        // the pool has already been created. Seeding to the floor makes the residual
-        // (floor + reserve - cp-swap's costs) unconditionally rent-exempt.
-        //
-        // Topped up rather than skipped when non-zero: this address is derivable, so
-        // anyone can send it 1 lamport, and an `== 0` guard would let them push the
-        // residual into that rejected band and brick graduation for the price of a
-        // transaction.
-        let seed_lamports = Rent::get()?.minimum_balance(0);
-        let seed_topup = seed_lamports.saturating_sub(auth_ai.lamports());
-        if seed_topup > 0 {
+        // The caller pays the curve's dust gap, and whatever cp-swap will charge the
+        // authority beyond the reserve this curve saved: rent for the accounts it opens
+        // plus the tier's opening fee, read now. A fee raised after launch then costs the
+        // caller the difference instead of stranding every funded curve (LCH-05).
+        let charge = cp_swap_rent(&Rent::get()?)
+            .checked_add(tier_open_fee(&ctx.accounts.amm_config, &g.cp_swap_program)?)
+            .ok_or(LaunchError::Overflow)?;
+        let topup = charge
+            .saturating_sub(auth_ai.lamports().saturating_add(curve.migration_reserve_lamports))
+            .checked_add(gap)
+            .ok_or(LaunchError::Overflow)?;
+        if topup > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -1261,7 +1303,7 @@ pub mod tegridy_launch {
                         to: auth_ai.clone(),
                     },
                 ),
-                seed_topup,
+                topup,
             )?;
         }
 
@@ -1271,11 +1313,11 @@ pub mod tegridy_launch {
         // runtime until reconciled — see the block above.
         **curve_ai.try_borrow_mut_lamports()? = curve_ai
             .lamports()
-            .checked_sub(move_lamports)
+            .checked_sub(from_curve)
             .ok_or(LaunchError::Overflow)?;
         **auth_ai.try_borrow_mut_lamports()? = auth_ai
             .lamports()
-            .checked_add(move_lamports)
+            .checked_add(from_curve)
             .ok_or(LaunchError::Overflow)?;
 
         // ── RECONCILIATION BARRIER — LOAD-BEARING, NOT DEAD CODE ─────────────
@@ -1530,98 +1572,36 @@ pub mod tegridy_launch {
         let lp_after = token::accessor::amount(&lp_ai)?;
         require!(lp_after == 0, LaunchError::LpNotBurned);
 
-        // ── 5. Return every recoverable lamport to whoever paid for migration ─
+        // ── 5. Settle: the caller ends even, the venue keeps the rest ────────
         //
-        // Migration is permissionless and `payer` fronts real money for it: rent on
-        // `auth_wsol` and `auth_token`, plus the authority's rent-exempt floor. The
-        // authority additionally ends up holding however much
-        // `migration_reserve_lamports` over-provisioned cp-swap's real costs.
-        //
-        // None of that is reachable afterwards. Only this program can sign for the
-        // authority, no instruction moves lamports out of a curve once `complete` is
-        // set, and this instruction cannot run twice. So leaving it behind is a
-        // permanent leak — and worse, it means calling this instruction always loses
-        // money, which is a poor foundation for a step anyone is allowed to trigger.
-        //
-        // ⚠️ DRAIN BEFORE CLOSING — this is a permanent-brick guard, not tidiness.
-        //
-        // SPL Token REFUSES to close a NON-NATIVE account holding any balance
-        // (`TokenError::NonNativeHasBalance`). `auth_token`'s address is derivable
-        // from the mint the moment `create_launch` lands, and the Associated Token
-        // Program lets anyone create an ATA for any owner, PDA or not. So an attacker
-        // could buy one token unit, create `auth_token`, donate that unit, and wait:
-        // cp-swap pulls exactly `deposit_tokens`, the donated unit survives, and an
-        // unconditional close reverts the whole instruction. Forever — nothing in
-        // this program can move tokens out of that ATA by any other path.
-        //
-        // That is the same permissionless one-transaction brick the LAUNCH_POOL_SEED
-        // fix exists to prevent, reached through a different door. Cost to attacker:
-        // ~0.002 SOL.
-        //
-        // Only `auth_token` needs this. `auth_wsol` is native, so the close ignores
-        // its balance and any donated WSOL simply returns to `payer`; `auth_lp`
-        // cannot be pre-created because its mint does not exist until cp-swap makes
-        // it inside this very instruction.
-        let auth_token_ai = ctx.accounts.auth_token.to_account_info();
-        let residual_tokens = token::accessor::amount(&auth_token_ai)?;
-        if residual_tokens > 0 {
-            token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    Transfer {
-                        from: auth_token_ai.clone(),
-                        to: ctx.accounts.curve_vault.to_account_info(),
-                        authority: auth_ai.clone(),
-                    },
-                    auth_signer,
-                ),
-                residual_tokens,
-            )?;
-        }
-
-        // The closes MUST follow the burn: `auth_lp` has to be empty first, and SPL
-        // Token refuses to close a non-native account holding a balance. They send
-        // rent to `payer` directly, not via the authority, so they do not change what
-        // the sweep below forwards. All four are CPIs and reconcile normally — no
-        // manual lamport mutation survives past the barrier above.
+        // The closes follow the burn: SPL Token refuses to close a non-native account
+        // holding a balance (`auth_token` was made here and cp-swap pulled all it held).
+        // The caller gets back the rent it fronted for the two staging accounts. The share
+        // account's rent came from the reserve, so it goes to `fee_recipient`, before the
+        // sweep: an empty treasury is then rent-exempt when the sweep lands.
         for account in [
             ctx.accounts.auth_wsol.to_account_info(),
             ctx.accounts.auth_token.to_account_info(),
             lp_ai.clone(),
         ] {
+            let destination = if account.key == lp_ai.key {
+                ctx.accounts.fee_recipient.to_account_info()
+            } else {
+                ctx.accounts.payer.to_account_info()
+            };
             token::close_account(CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::CloseAccount {
                     account,
-                    destination: ctx.accounts.payer.to_account_info(),
+                    destination,
                     authority: auth_ai.clone(),
                 },
                 auth_signer,
             ))?;
         }
 
-        // Sweeping to zero retires the authority entirely, which is why the
-        // rent-band hazard the seed top-up guards against cannot bite here. Keep
-        // that top-up anyway: it is what makes this safe if the sweep is ever
-        // removed.
-        //
-        // ── WHO GETS THE RESIDUAL, AND WHY IT IS NOT THE CALLER ──────────────
-        // This used to pay `payer`. It is NOT the caller's money: `move_lamports`
-        // is `deposit + reserve` (above) and only `deposit` goes into the pool, so
-        // `residual` is the unspent migration reserve — which buyers funded, because
-        // the reserve is raised ON TOP of the graduation target and `buy` caps the
-        // raise at `target + reserve`.
-        //
-        // Migration is deliberately permissionless, so paying it to `payer` made
-        // graduation a standing MEV bounty: watch for `real_sol_reserves == target +
-        // reserve`, call this instruction, collect the surplus. With the runbook's
-        // recommended 0.25 SOL reserve that is roughly 0.06 SOL of traders' money per
-        // graduation to whoever wins the race, and ~0.21 SOL if the operator ever
-        // sets `create_pool_fee = 0`.
-        //
-        // `payer` is still made whole and then some: the three `close_account` calls
-        // above return 3x ATA rent to it, against the 2x ATA rent + seed top-up it
-        // fronted. It does not need — and must not get — the reserve as well.
+        // What the reserve did not spend is buyers' money, never the caller's: all of
+        // it goes to `fee_recipient`, and the authority ends at zero.
         let residual = auth_ai.lamports();
         if residual > 0 {
             system_program::transfer(
@@ -1640,19 +1620,14 @@ pub mod tegridy_launch {
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
         let curve = &mut ctx.accounts.curve;
-        // Subtract EVERYTHING that left, not just the deposit. `move_lamports` is
-        // deposit + reserve and all of it went to the migration authority, so
-        // subtracting only the deposit left a migrated curve reporting a balance of
-        // exactly `migration_reserve_lamports` that it does not hold. Harmless
-        // on-chain — nothing reads it once `complete` is set — but every indexer,
-        // Fact Sheet and explorer reading curve state would have shown a number that
-        // is simply false.
+        // Subtract everything that left the curve, not just the deposit, so a graduated
+        // curve reports the zero real SOL it holds to every indexer and explorer.
         curve.real_sol_reserves = curve
             .real_sol_reserves
-            .checked_sub(move_lamports)
+            .checked_sub(from_curve)
             .ok_or(LaunchError::Overflow)?;
-        // Zero sellable tokens remain. The vault holds only any swept dust; the
-        // platform reserve went to the treasury at `create_launch`.
+        // Zero sellable tokens remain: the pool took them all, and the platform reserve
+        // went to the treasury at `create_launch`.
         curve.real_token_reserves = 0;
         curve.complete = true;
         curve.pool = pool;
@@ -1953,12 +1928,16 @@ pub struct MigrateToAmm<'info> {
     )]
     pub auth_wsol: Box<Account<'info, TokenAccount>>,
 
-    /// The launch-token leg, moved out of the curve vault for the same reason.
+    /// The launch-token leg, moved out of the curve vault for the same reason. Plain `init`
+    /// at the launcher's own address, closed in the handler: an account anyone could make
+    /// first could be frozen first, and every graduation would fail at the move into it.
     #[account(
-        init_if_needed,
+        init,
         payer = payer,
-        associated_token::mint = launch_mint,
-        associated_token::authority = migration_authority
+        token::mint = launch_mint,
+        token::authority = migration_authority,
+        seeds = [STAGING_SEED, launch_mint.key().as_ref()],
+        bump
     )]
     pub auth_token: Box<Account<'info, TokenAccount>>,
 
@@ -2143,6 +2122,11 @@ mod layout_tests {
         assert_eq!(LaunchError::PlatformReserveLocked as u32 + 6000, 6022);
         assert_eq!(LaunchError::PlatformReserveAlreadyReleased as u32 + 6000, 6023);
         assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
+        assert_eq!(LaunchError::NotAFeeTier as u32 + 6000, 6025);
+        assert_eq!(LaunchError::MigrationReserveTooHigh as u32 + 6000, 6026);
+        assert_eq!(LaunchError::SellerBelowRent as u32 + 6000, 6027);
+        assert_eq!(LaunchError::AdminMovesOnlyByUpgrade as u32 + 6000, 6028);
+        assert_eq!(LaunchError::NotAFundedWallet as u32 + 6000, 6029);
     }
 
     /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,
@@ -2350,6 +2334,30 @@ mod layout_tests {
         let (per_mint, _) =
             Pubkey::find_program_address(&[MIGRATION_AUTH_SEED, mint.as_ref()], &crate::ID);
         assert_ne!(a, per_mint);
+    }
+
+    /// LCH-11: the reserve's floor is the rent of cp-swap's pool accounts at the rent of
+    /// the moment, not a figure compiled in at an old rate, and the reserve has a ceiling.
+    /// 5,080 lamports a byte is mainnet's rent since 2026-09; 6,960 the old rate.
+    #[test]
+    fn the_migration_reserve_is_bounded_by_the_rent_of_the_moment_and_a_ceiling() {
+        let today = Rent { lamports_per_byte_year: 2_540, exemption_threshold: 2.0, burn_percent: 50 };
+        let old = Rent::default();
+        assert_eq!(cp_swap_rent(&today), 30_769_560);
+        assert_eq!(cp_swap_rent(&old), 42_156_720);
+        // The test suites' book: 30 SOL virtual, 3.69% reserve, each target continuous.
+        let check = |reserve: u64, rent: &Rent| {
+            let (vsol, vtok, supply) = (30_000_000_000, 1_033_406_300_000_000, 1_000_000_000_000_000);
+            let (curve_s, _) = curve::curve_supply(supply, 369).unwrap();
+            let target = curve::continuity_target(vsol, vtok, curve_s, reserve).unwrap();
+            error_number(check_launch_economics(vsol, vtok, supply, 369, target, reserve, rent))
+        };
+        assert_eq!(check(30_769_560, &today), None, "today's rent is enough");
+        assert_eq!(check(30_769_559, &today), Some(6017));
+        assert_eq!(check(30_769_560, &old), Some(6017), "a rent rise raises the floor");
+        assert_eq!(check(42_156_720, &old), None);
+        assert_eq!(check(MAX_MIGRATION_RESERVE_LAMPORTS, &today), None);
+        assert_eq!(check(MAX_MIGRATION_RESERVE_LAMPORTS + 1, &today), Some(6026));
     }
 
     /// The permission PDA's seed is cp-swap's, not ours. Restating it locally is what

@@ -40,11 +40,14 @@ import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  AuthorityType,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
+  createFreezeAccountInstruction,
   createMint,
+  createSetAuthorityInstruction,
   createSyncNativeInstruction,
-  createTransferInstruction,
+  getAccount,
   getAssociatedTokenAddressSync,
   getMint,
   mintTo,
@@ -89,6 +92,9 @@ const PERMISSION_SEED = Buffer.from("permission");
  *  so the canonical address can be occupied by anyone to brick a graduation; a PDA
  *  of the launch program cannot. See LAUNCH_POOL_SEED in state.rs. */
 const LAUNCH_POOL_SEED = Buffer.from("launchpool");
+/** The launch's coins are staged at [STAGING_SEED, mint] of the launch program, an account
+ *  `migrate_to_amm` creates and closes itself. See STAGING_SEED in state.rs. */
+const STAGING_SEED = Buffer.from("staging");
 
 // cp-swap seeds — from programs/cp-swap/src/states/{config,pool}.rs and lib.rs.
 const AMM_CONFIG_SEED = Buffer.from("amm_config");
@@ -179,6 +185,107 @@ describe("tegridy-launch full migration rehearsal", () => {
   });
   const tokenBalance = async (account: PublicKey): Promise<bigint> =>
     BigInt((await provider.connection.getTokenAccountBalance(account)).value.amount);
+  const lamportsOf = async (k: PublicKey): Promise<number> =>
+    (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+  /** A new wallet holding `sol`; the provider wallet pays every transaction fee. */
+  const fundedKeypair = async (sol: number): Promise<Keypair> => {
+    const k = Keypair.generate();
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: k.publicKey, lamports: sol * LAMPORTS_PER_SOL })
+      ),
+      []
+    );
+    return k;
+  };
+  /** The wallet trading its own launch of `mint`. */
+  const tradeAccountsFor = (mint: PublicKey) => ({
+    trader: wallet.publicKey,
+    global: pda([GLOBAL_SEED], launch.programId),
+    feeRecipient: cfgFeeRecipient,
+    creator: wallet.publicKey,
+    mint,
+    curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+    curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+    traderTokenAccount: getAssociatedTokenAddressSync(mint, wallet.publicKey),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+  });
+  /** A new launch by the wallet, bought until it awaits migration. */
+  const fullLaunch = async (): Promise<PublicKey> => {
+    const mint = await createMint(provider.connection, wallet, wallet.publicKey, null, 9);
+    await launch.methods.createLaunch().accountsPartial(launchAccounts(mint, cfgFeeRecipient)).rpc();
+    await createAssociatedTokenAccount(provider.connection, wallet, mint, wallet.publicKey);
+    for (let i = 0; i < 24; i++) {
+      try {
+        await launch.methods
+          .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
+          .accountsPartial(tradeAccountsFor(mint))
+          .rpc();
+      } catch (e) {
+        if (!String(e).includes("AwaitingMigration")) throw e;
+        return mint;
+      }
+    }
+    throw new Error("the curve never filled");
+  };
+  /** Every `migrate_to_amm` account for `mint`; `authToken` is left to the IDL. */
+  const migrateAccounts = (mint: PublicKey, payer: PublicKey) => {
+    const migAuth = pda([MIGRATION_AUTH_SEED], launch.programId);
+    const poolState = pda([LAUNCH_POOL_SEED, mint.toBuffer()], launch.programId);
+    const lpMint = pda([POOL_LP_MINT_SEED, poolState.toBuffer()], cpSwap.programId);
+    const [m0, m1] =
+      Buffer.compare(NATIVE_MINT.toBuffer(), mint.toBuffer()) < 0 ? [NATIVE_MINT, mint] : [mint, NATIVE_MINT];
+    return {
+      payer,
+      global: pda([GLOBAL_SEED], launch.programId),
+      feeRecipient: cfgFeeRecipient,
+      launchMint: mint,
+      curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+      curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+      wsolMint: NATIVE_MINT,
+      creator: wallet.publicKey,
+      migrationAuthority: migAuth,
+      authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
+      authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
+      cpSwapProgram: cpSwap.programId,
+      ammConfig,
+      cpSwapPermission: pda([PERMISSION_SEED, migAuth.toBuffer()], cpSwap.programId),
+      ammAuthority: pda([AUTH_SEED], cpSwap.programId),
+      poolState,
+      lpMint,
+      token0Vault: pda([POOL_VAULT_SEED, poolState.toBuffer(), m0.toBuffer()], cpSwap.programId),
+      token1Vault: pda([POOL_VAULT_SEED, poolState.toBuffer(), m1.toBuffer()], cpSwap.programId),
+      createPoolFee: feeReceiver,
+      observationState: pda([OBSERVATION_SEED, poolState.toBuffer()], cpSwap.programId),
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    };
+  };
+  const migrate = (mint: PublicKey, payer: Keypair) =>
+    launch.methods
+      .migrateToAmm()
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+      .accountsPartial(migrateAccounts(mint, payer.publicKey))
+      .signers([payer])
+      .rpc();
+  /** Rent held for good by the five accounts cp-swap opened for `mint`'s pool. */
+  const poolRent = async (mint: PublicKey): Promise<number> => {
+    const a = migrateAccounts(mint, wallet.publicKey);
+    let sum = 0;
+    for (const k of [a.poolState, a.lpMint, a.token0Vault, a.token1Vault, a.observationState]) {
+      const info = (await provider.connection.getAccountInfo(k))!;
+      sum += await provider.connection.getMinimumBalanceForRentExemption(info.data.length);
+    }
+    return sum;
+  };
+  /** Sets the launch tier's pool-opening fee (cp-swap admin: the wallet, in this build). */
+  const setTierFee = (lamports: number) =>
+    cpSwap.methods
+      .updateAmmConfig(5, new BN(lamports))
+      .accountsPartial({ owner: wallet.publicKey, ammConfig })
+      .rpc();
 
   before(async () => {
     launch = loadIdlProgram(provider, "tegridy_launch");
@@ -278,7 +385,31 @@ describe("tegridy-launch full migration rehearsal", () => {
 
   it("creates a launch, buys it to target, migrates, and BURNS the LP", async () => {
     // ── create ────────────────────────────────────────────────────────────────
-    launchMint = await createMint(provider.connection, wallet, wallet.publicKey, null, 9);
+    // ADVERSARIAL PRECONDITION 1 (LCH-01): the address graduation used to stage the coins
+    // in, the migration authority's associated account for this mint, exists and is frozen
+    // before the launch. Graduation must not depend on it.
+    launchMint = await createMint(provider.connection, wallet, wallet.publicKey, wallet.publicKey, 9);
+    const oldStaging = getAssociatedTokenAddressSync(
+      launchMint,
+      pda([MIGRATION_AUTH_SEED], launch.programId),
+      true
+    );
+    await provider.sendAndConfirm(
+      new Transaction()
+        .add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            oldStaging,
+            pda([MIGRATION_AUTH_SEED], launch.programId),
+            launchMint
+          )
+        )
+        .add(createFreezeAccountInstruction(oldStaging, launchMint, wallet.publicKey))
+        .add(createSetAuthorityInstruction(launchMint, wallet.publicKey, AuthorityType.FreezeAccount, null)),
+      []
+    );
+    assert.isTrue((await getAccount(provider.connection, oldStaging)).isFrozen, "precondition: frozen");
+    assert.isNull((await getMint(provider.connection, launchMint)).freezeAuthority, "precondition: no freeze authority");
     curve = pda([CURVE_SEED, launchMint.toBuffer()], launch.programId);
     curveVault = pda([VAULT_SEED, launchMint.toBuffer()], launch.programId);
 
@@ -418,37 +549,6 @@ describe("tegridy-launch full migration rehearsal", () => {
         ? [NATIVE_MINT, launchMint]
         : [launchMint, NATIVE_MINT];
 
-    // ── ADVERSARIAL PRECONDITION 1: dust the migration authority's token ATA ─
-    // `auth_token`'s address is derivable from the launch mint the moment the launch
-    // is created, and the Associated Token Program lets ANYONE create an ATA for any
-    // owner, PDA or not. SPL Token then refuses to close a NON-NATIVE account holding
-    // a balance (TokenError::NonNativeHasBalance), so a single donated token unit
-    // survives cp-swap's exact-amount pull and made the unconditional close revert —
-    // a permissionless, ~0.002 SOL, PERMANENT graduation brick, with no path in the
-    // program to ever empty that account.
-    //
-    // The handler now drains any residual to the curve vault before closing. Donate
-    // the unit here so that regression turns this test red instead of shipping.
-    const authTokenAta = getAssociatedTokenAddressSync(launchMint, migAuth, true);
-    await provider.sendAndConfirm(
-      new Transaction()
-        .add(
-          createAssociatedTokenAccountInstruction(
-            wallet.publicKey,
-            authTokenAta,
-            migAuth,
-            launchMint
-          )
-        )
-        .add(createTransferInstruction(buyerAta, authTokenAta, wallet.publicKey, 1)),
-      []
-    );
-    assert.equal(
-      (await provider.connection.getTokenAccountBalance(authTokenAta)).value.amount,
-      "1",
-      "the dust donation must really be in place or this test proves nothing"
-    );
-
     // ── ADVERSARIAL PRECONDITION 2: occupy cp-swap's canonical pool ──────────
     // `create_pool` refuses a `pool_state` that is no longer System-owned, so whoever
     // opens the canonical [POOL_SEED, amm_config, mint0, mint1] pool first bricks a
@@ -528,13 +628,17 @@ describe("tegridy-launch full migration rehearsal", () => {
     const feeReceiverBefore = BigInt(
       (await provider.connection.getTokenAccountBalance(feeReceiver)).value.amount
     );
-    // AUDIT 2026-08-08: the unspent migration reserve used to be swept to `payer`,
-    // and migration is permissionless — so any bot could call this and pocket the
-    // surplus, which is money BUYERS raised (the reserve sits on top of the
-    // graduation target). Capture both balances so the regression assertions below
-    // can prove the surplus goes to the protocol and not to the caller.
-    const payerLamportsPre =
-      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
+    // LCH-08: migration is permissionless, so its caller must end exactly even and every
+    // lamport of the reserve it does not spend must reach the venue. The caller here is
+    // not the fee payer, so its balance moves only by what migrate_to_amm takes and gives.
+    const caller = Keypair.generate();
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: caller.publicKey, lamports: LAMPORTS_PER_SOL })
+      ),
+      []
+    );
+    const callerLamportsPre = (await provider.connection.getAccountInfo(caller.publicKey))!.lamports;
     const cfgFeeRecipientPre =
       (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
 
@@ -553,7 +657,7 @@ describe("tegridy-launch full migration rehearsal", () => {
       // can never be mistaken for the lamport-reconciliation bug coming back.
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
       .accountsPartial({
-        payer: wallet.publicKey,
+        payer: caller.publicKey,
         global: globalKey,
         feeRecipient: cfgFeeRecipient,
         launchMint,
@@ -565,7 +669,7 @@ describe("tegridy-launch full migration rehearsal", () => {
         creator: wallet.publicKey,
         migrationAuthority: migAuth,
         authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
-        authToken: getAssociatedTokenAddressSync(launchMint, migAuth, true),
+        // `authToken` is left to the IDL, which names the program's own staging address.
         authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
         cpSwapProgram: cpSwap.programId,
         ammConfig,
@@ -581,6 +685,7 @@ describe("tegridy-launch full migration rehearsal", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
+      .signers([caller])
       .rpc({ skipPreflight: false });
 
     // ── assert ───────────────────────────────────────────────────────────────
@@ -649,33 +754,18 @@ describe("tegridy-launch full migration rehearsal", () => {
     );
 
     // ── the migration reserve must not be MEV ────────────────────────────────
-    // Regression test for the audit finding. The unspent reserve belongs to the
-    // protocol, not to whoever won the race to call a permissionless instruction.
+    // The unspent reserve belongs to the venue, not to whoever won the race to call a
+    // permissionless instruction (LCH-08). The caller gets back exactly the rent it
+    // fronted; the venue gets the reserve less what cp-swap kept for good: the opening
+    // fee and the rent of the pool's five new accounts.
     const cfgFeeRecipientPost =
       (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
-    const payerLamportsPost =
-      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
-
-    const residualToProtocol = cfgFeeRecipientPost - cfgFeeRecipientPre;
-    assert.isAbove(
-      residualToProtocol,
-      0,
-      "the unspent migration reserve must reach the config's fee recipient"
-    );
-
-    // The caller fronts a seed top-up plus two ATA rents and gets three ATA rents
-    // back, so it ends slightly up — but by RENT, not by a share of the reserve.
-    // Anything near the reserve size means the sweep is paying the caller again.
-    const payerDelta = payerLamportsPost - payerLamportsPre;
-    assert.isBelow(
-      payerDelta,
-      residualToProtocol,
-      "the caller must never gain more than the protocol does — that is the leak"
-    );
-    assert.isBelow(
-      payerDelta,
-      MIGRATION_RESERVE.toNumber() / 2,
-      "the caller's gain must be rent-scale, not reserve-scale"
+    const callerLamportsPost = (await provider.connection.getAccountInfo(caller.publicKey))!.lamports;
+    assert.equal(callerLamportsPost, callerLamportsPre, "the caller must end exactly even");
+    assert.equal(
+      cfgFeeRecipientPost - cfgFeeRecipientPre,
+      MIGRATION_RESERVE.toNumber() - (await poolRent(launchMint)) - CREATE_POOL_FEE.toNumber(),
+      "the venue must receive every lamport of the reserve the pool did not keep"
     );
 
     // ── report the REAL compute cost ─────────────────────────────────────────
@@ -731,13 +821,11 @@ describe("tegridy-launch full migration rehearsal", () => {
     );
 
     // ── nothing recoverable is left stranded ─────────────────────────────────
-    // Migration is permissionless, so `payer` fronts rent on two ATAs plus the
-    // authority's floor, and the authority also absorbs whatever the migration
-    // reserve over-provisioned. After migration NONE of it is reachable — only the
-    // program signs for the authority, and a `complete` curve never releases
-    // lamports — so the handler closes the three token accounts and sweeps the
-    // authority to zero. Assert it actually happened: a silent regression here is a
-    // permanent leak and it makes calling this instruction lose money.
+    // Migration is permissionless, so `payer` fronts rent on the two staging accounts,
+    // and the authority also absorbs whatever the migration reserve over-provisioned.
+    // After migration NONE of it is reachable (only the program signs for the
+    // authority, and a `complete` curve never releases lamports), so the handler
+    // closes the three token accounts and sweeps the authority to zero.
     const authInfo = await provider.connection.getAccountInfo(migAuth);
     assert.isTrue(
       authInfo === null || authInfo.lamports === 0,
@@ -751,24 +839,21 @@ describe("tegridy-launch full migration rehearsal", () => {
     }
     for (const [name, addr] of [
       ["auth_wsol", getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true)],
-      ["auth_token", getAssociatedTokenAddressSync(launchMint, migAuth, true)],
+      ["auth_token", pda([STAGING_SEED, launchMint.toBuffer()], launch.programId)],
       ["auth_lp", getAssociatedTokenAddressSync(lpMint, migAuth, true)],
     ] as [string, PublicKey][]) {
-      assert.isNull(
-        await provider.connection.getAccountInfo(addr),
-        `${name} must be closed so its rent goes back to the caller`
-      );
+      assert.isNull(await provider.connection.getAccountInfo(addr), `${name} must be closed`);
     }
 
-    // The donated dust was drained rather than left to block the close. Asserting
-    // where it LANDED, not merely that migration survived: a close made conditional
-    // instead of draining would also pass the checks above while silently stranding
-    // the rent, so pin the actual destination. The platform reserve is not here:
-    // it went to the treasury at create, so the dust unit is all the vault holds.
+    // LCH-01: the coins never touched the frozen associated account, which is still
+    // there, still frozen and empty, and the vault gave every coin to the pool.
+    const old = await getAccount(provider.connection, oldStaging);
+    assert.isTrue(old.isFrozen, "the old staging address stays frozen");
+    assert.equal(old.amount.toString(), "0");
     assert.equal(
       (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
-      "1",
-      "the vault must hold exactly the swept dust unit"
+      "0",
+      "the vault must be empty: the pool received every unsold coin"
     );
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
@@ -806,7 +891,6 @@ describe("tegridy-launch full migration rehearsal", () => {
           creator: wallet.publicKey,
           migrationAuthority: pda([MIGRATION_AUTH_SEED], launch.programId),
           authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, pda([MIGRATION_AUTH_SEED], launch.programId), true),
-          authToken: getAssociatedTokenAddressSync(launchMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
           authLp: getAssociatedTokenAddressSync(lpMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
           cpSwapProgram: cpSwap.programId,
           ammConfig,
@@ -909,7 +993,7 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     // Every token minted is in exactly one of the places this launch can have put
     // it. The squatter's pool holds the 1,000,000 units the adversarial
-    // precondition seeded it with; the curve vault holds the swept dust unit.
+    // precondition seeded it with; the curve vault and the frozen account hold none.
     const [mint0, mint1] =
       NATIVE_MINT.toBuffer() < launchMint.toBuffer()
         ? [NATIVE_MINT, launchMint]
@@ -997,5 +1081,167 @@ describe("tegridy-launch full migration rehearsal", () => {
       CREATE_POOL_FEE.toString(),
       "the fee tier charges its opening fee"
     );
+  });
+
+  // ─── LCH-05: a launch-tier fee raised after launch ──────────────────────────
+  //
+  // A curve's reserve is fixed when it is created; the tier's opening fee is read at
+  // graduation. Raised past what the reserve can pay, graduation must still open the
+  // pool, with the caller paying exactly the difference.
+  it("the caller pays the part of a raised opening fee the reserve cannot", async () => {
+    const mint = await fullLaunch();
+    const highFee = 2 * MIGRATION_RESERVE.toNumber();
+    await setTierFee(highFee);
+    try {
+      const caller = await fundedKeypair(1);
+      const callerBefore = await lamportsOf(caller.publicKey);
+      const treasuryBefore = await lamportsOf(cfgFeeRecipient);
+      const feeBefore = await tokenBalance(feeReceiver);
+      await migrate(mint, caller);
+
+      // cp-swap's whole charge: the fee and the rent of the six accounts it opened. The
+      // share account is closed again and its rent goes to the venue.
+      const shareRent = await provider.connection.getMinimumBalanceForRentExemption(165);
+      const charge = highFee + (await poolRent(mint)) + shareRent;
+      assert.equal(
+        callerBefore - (await lamportsOf(caller.publicKey)),
+        charge - MIGRATION_RESERVE.toNumber(),
+        "the caller pays exactly what the reserve could not"
+      );
+      assert.equal((await lamportsOf(cfgFeeRecipient)) - treasuryBefore, shareRent);
+      assert.equal((await tokenBalance(feeReceiver)) - feeBefore, BigInt(highFee), "the whole fee was charged");
+      const c: any = await (launch.account as any).bondingCurve.fetch(pda([CURVE_SEED, mint.toBuffer()], launch.programId));
+      assert.isTrue(c.complete, "the coin graduated");
+    } finally {
+      await setTierFee(CREATE_POOL_FEE.toNumber());
+    }
+  });
+
+  // ─── LCH-06: a dust sell after the curve is full ────────────────────────────
+  //
+  // A sell of a few lamports takes a full curve just under target + reserve, and a buy
+  // cannot share a transaction with a graduation that expects the curve full. The
+  // caller pays such a gap, up to a small limit; a real sale still makes it wait.
+  it("graduates a curve a dust sell left 2 lamports short, the caller paying them", async () => {
+    const mint = await fullLaunch();
+    const curveKey = pda([CURVE_SEED, mint.toBuffer()], launch.programId);
+    const realSol = async (): Promise<string> =>
+      ((await (launch.account as any).bondingCurve.fetch(curveKey)) as any).realSolReserves.toString();
+    const full = GRAD_TARGET.add(MIGRATION_RESERVE);
+    assert.equal(await realSol(), full.toString(), "precondition: full");
+    // The fewest tokens whose sale takes `gross` lamports off the curve, at its price now.
+    const sellGross = async (gross: bigint) => {
+      const c: any = await (launch.account as any).bondingCurve.fetch(curveKey);
+      const S = BigInt(c.virtualSolReserves.add(c.realSolReserves).toString());
+      const T = BigInt(c.virtualTokenReserves.add(c.realTokenReserves).toString());
+      const tokens = (gross * T + (S - gross) - 1n) / (S - gross);
+      await launch.methods.sell(new BN(tokens.toString()), new BN(0)).accountsPartial(tradeAccountsFor(mint)).rpc();
+    };
+    const caller = await fundedKeypair(1);
+
+    // A real sale (20,000 lamports, over the limit): not ready, as before.
+    await sellGross(20_000n);
+    assert.equal(await realSol(), full.subn(20_000).toString());
+    let refused = "";
+    try {
+      await migrate(mint, caller);
+    } catch (e) {
+      refused = String(e);
+    }
+    assert.include(refused, "NotReadyToGraduate");
+    await launch.methods.buy(new BN(LAMPORTS_PER_SOL), new BN(0)).accountsPartial(tradeAccountsFor(mint)).rpc();
+    assert.equal(await realSol(), full.toString(), "a capped buy refills the curve exactly");
+
+    // Dust: 2 lamports.
+    await sellGross(2n);
+    assert.equal(await realSol(), full.subn(2).toString(), "precondition: 2 lamports short");
+    const callerBefore = await lamportsOf(caller.publicKey);
+    const treasuryBefore = await lamportsOf(cfgFeeRecipient);
+    await migrate(mint, caller);
+    assert.equal(callerBefore - (await lamportsOf(caller.publicKey)), 2, "the caller pays the 2 lamports");
+    assert.equal(
+      (await lamportsOf(cfgFeeRecipient)) - treasuryBefore,
+      MIGRATION_RESERVE.toNumber() - (await poolRent(mint)) - CREATE_POOL_FEE.toNumber(),
+      "the venue's share is what it would be on a full curve"
+    );
+    const c: any = await (launch.account as any).bondingCurve.fetch(curveKey);
+    assert.isTrue(c.complete);
+    assert.equal(c.realSolReserves.toString(), "0");
+  });
+
+  // ─── LCH-13: graduation's last transfer into an empty treasury ──────────────
+  //
+  // With the treasury at 0 lamports and a reserve just short of cp-swap's charge, the
+  // venue's last credit used to land between 1 lamport and the treasury's rent floor,
+  // which the runtime refuses after the pool was built. The caller now pays the
+  // shortfall and the share account's rent reaches the treasury first.
+  it("graduates into an empty treasury when the reserve is just short", async () => {
+    const original = cfgFeeRecipient;
+    const treasury = await fundedKeypair(1);
+    const setRecipient = (k: PublicKey) =>
+      launch.methods
+        .updateGlobal(null, null, null, null, k, null, null, null, null, null, null)
+        .accountsPartial({ global: pda([GLOBAL_SEED], launch.programId), authority: wallet.publicKey })
+        .remainingAccounts([{ pubkey: k, isSigner: false, isWritable: false }])
+        .rpc();
+    await setRecipient(treasury.publicKey);
+    cfgFeeRecipient = treasury.publicKey;
+    const short = 100_000;
+    assert.isBelow(short, await provider.connection.getMinimumBalanceForRentExemption(0));
+    try {
+      const mint = await fullLaunch();
+      // cp-swap's own account sizes: price record, pool, two vaults, share mint and account.
+      let rent6 = 0;
+      for (const n of [4075, 637, 165, 165, 82, 165]) {
+        rent6 += await provider.connection.getMinimumBalanceForRentExemption(n);
+      }
+      await setTierFee(MIGRATION_RESERVE.toNumber() + short - rent6);
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: treasury.publicKey,
+          toPubkey: wallet.publicKey,
+          lamports: await lamportsOf(treasury.publicKey),
+        })
+      );
+      drain.feePayer = wallet.publicKey;
+      await provider.sendAndConfirm(drain, [treasury]);
+      assert.equal(await lamportsOf(treasury.publicKey), 0, "precondition: an empty treasury");
+
+      const caller = await fundedKeypair(1);
+      const before = await lamportsOf(caller.publicKey);
+      await migrate(mint, caller);
+      const shareRent = await provider.connection.getMinimumBalanceForRentExemption(165);
+      assert.equal((await poolRent(mint)) + shareRent, rent6, "the sizes above are cp-swap's");
+      assert.equal(before - (await lamportsOf(caller.publicKey)), short, "the caller pays the shortfall");
+      assert.equal(await lamportsOf(treasury.publicKey), shareRent, "the treasury ends rent-exempt");
+    } finally {
+      await setTierFee(CREATE_POOL_FEE.toNumber());
+      await setRecipient(original);
+      cfgFeeRecipient = original;
+    }
+  });
+
+  // ─── LCH-04: a new tier must be a fee tier of the pool program ──────────────
+  it("update_global takes a real fee tier, and refuses a pool program account that is not one", async () => {
+    const globalKey = pda([GLOBAL_SEED], launch.programId);
+    const setTier = (tier: PublicKey) =>
+      launch.methods
+        .updateGlobal(null, null, null, null, null, null, null, tier, null, null, null)
+        .accountsPartial({ global: globalKey, authority: wallet.publicKey })
+        .remainingAccounts([{ pubkey: tier, isSigner: false, isWritable: false }])
+        .rpc();
+    // A graduated pool: owned by the pool program, but not a tier.
+    const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+    let refused = "";
+    try {
+      await setTier(c.pool);
+    } catch (e) {
+      refused = String(e);
+    }
+    assert.include(refused, "NotAFeeTier");
+    // POSITIVE CONTROL: the public tier is a real tier, then back to the launch tier.
+    await setTier(publicConfig);
+    assert.equal(((await (launch.account as any).globalConfig.fetch(globalKey)) as any).ammConfig.toBase58(), publicConfig.toBase58());
+    await setTier(ammConfig);
   });
 });
