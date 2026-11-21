@@ -698,11 +698,18 @@ program: errors 6016 to 6019, and the events `KeeperChanged`, `SwapGuardChanged`
 never installed; nothing in the repo reads either shape.
 
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`) with a wallet that holds only
-gas money, so neither the vault nor the island has to sign anything. It sends the venue's sweep
-and the island's as separate transactions, opens only the vault's missing token accounts (their
-rent stays the venue's), and sweeps the island's share only where the Workshop already holds both
-of that pool's accounts: its summary names the missing ones, and the island opens them itself. It
-leaves a pool with a coin that takes a transfer fee to the owners' hand collects.
+gas money, so neither the vault nor the island has to sign anything. It lists only real pools and
+sends the venue's sweep and the island's as separate transactions, each only when that owner's
+own share passes the floor ($0.50, counting SOL, USDC, USDT and the island's five coins: a pool of
+other coins is named and left to hand collects, as is one with a coin that takes a transfer fee).
+A destination counts as open only when its coin's own token program owns it. The job opens only
+the vault's missing accounts (their rent stays the venue's); it sweeps the island's share only
+where the Workshop already holds both of that pool's accounts, and its summary names the missing
+ones for the island to open. Before a side is sent, its open destinations are read (the owner's
+ruling of 2026-11-21): a delegate, a close authority or a freeze holds that side back and names
+it, and on the vault's side each of these but a freeze of a coin other than USDC or USDT also
+fails the run. The job pays 5,000 lamports for each sweep it sends, the island's included, and
+its summary says what it paid and what its key holds.
 
 **How it was proved, 2026-11-20**, for one owner per call (the first form's proofs are in pull
 request #1282), on the build that also carries the resignation and the audit's checks (WSL:

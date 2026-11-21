@@ -4,15 +4,19 @@ name: Venue Sweep
 # program's `sweep_fees` (solana/tegridy-amm lib.rs, 2026-11-15): the venue's share to the
 # Squads vault's own token accounts, the island's to the Workshop's. The PROGRAM derives and
 # enforces every destination, so this job cannot send a coin anywhere else; its key holds only
-# gas money (the network fee, and once per new coin an owner's token-account rent).
+# gas money (the network fee of each sweep, and once per new coin the vault's token-account
+# rent, which stays the vault's). It never pays the island's rent.
 #
 # Owner ruling 2026-11-15: every venue fee lands in the treasury by itself.
 #
 # It sends only when the repository variable VENUE_SWEEP_LIVE is "true" (set it after the
 # upgrade that adds sweep_fees has executed), or on a manual run with "live" ticked. Otherwise
-# it reads and simulates, and says what it would sweep. Before the upgrade, the simulation's
-# "no such instruction" is reported and the run is green. No npm install: no third-party code
-# runs next to the key (the same rule as venue-volume.yml).
+# it reads and simulates, unsigned, and says what it would sweep. Before the upgrade, the
+# simulation's "no such instruction" is reported and a dry run is green; a live run that meets
+# it fails. A live run without the key fails too. No npm install: no third-party code runs next
+# to the key (the same rule as venue-volume.yml). The key belongs in the `venue-sweep`
+# environment's secrets, with that environment limited to mvp-launch, so a manual run of
+# another branch's copy of this file never gets it.
 
 on:
   schedule:
@@ -34,6 +38,7 @@ concurrency:
 jobs:
   sweep:
     runs-on: ubuntu-latest
+    environment: venue-sweep
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,6 +56,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${VENUE_SWEEPER_KEYPAIR:-}" ]; then
+            if [ "$LIVE" = "true" ]; then
+              echo "::error::the run is live but VENUE_SWEEPER_KEYPAIR is not set: nothing can be sent"
+              exit 1
+            fi
             echo "::warning::VENUE_SWEEPER_KEYPAIR is not set: nothing can be simulated or sent"
             exit 0
           fi
