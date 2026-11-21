@@ -4,10 +4,13 @@
 // @solana/spl-token, which the job itself never loads. Node's environment, not jsdom: there
 // web3.js's own curve check and its serializer break (see scripts/bayla-ladder-ops.test.mjs).
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { Keypair, Message, PublicKey, Transaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, getTransferFeeConfig, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount, unpackMint } from "@solana/spl-token";
 import {
@@ -27,6 +30,7 @@ import {
 import {
   POOL_SIZE,
   POOL_TAG,
+  RUN_LIMIT_MS,
   SWEEP_FEES_TAG,
   TIER_SIZE,
   VAULT,
@@ -396,12 +400,21 @@ describe("venue-sweep: the instruction", () => {
   });
 });
 
+/** An RPC's refusal as the job's transport throws it, carrying the JSON-RPC error a stub server answers with. */
+const rpcError = (method, code, message) => Object.assign(new Error(`${method}: ${JSON.stringify({ code, message })}`), { rpcError: { code, message } });
+/** A transaction's signature as the RPC names it: the 64 bytes after the wire's signature count. */
+const sigOfWire = (b64) => base58(Buffer.from(b64, "base64").subarray(1, 65));
+const sigOfTx = (tx) => base58(tx.signatures[0].signature);
+
 /**
  * A fake chain: the pools, tiers and accounts given, and what each call returns. getProgramAccounts
  * honours the filters it is sent, as the RPC does (`honourFilters: false` plays one that ignores
  * them). `simErr(tx)` answers each simulation from the transaction itself (web3.js's reading of it),
  * and a simulation asked for accounts gets each back holding `rent` lamports, as an opened account
- * would. `fail(method, params)` may return an error for that call to throw instead.
+ * would (none with `simAccounts: false`). A send lands and is answered with its own signature; one
+ * already landed is refused as a node's preflight refuses it; only a landed one has a status, from
+ * `statuses`. `fail(method, params)` may return an error for that call to throw instead (a send it
+ * fails never lands).
  */
 function fakeChain({
   pools,
@@ -410,6 +423,7 @@ function fakeChain({
   mints = { [BAYLA]: BAYLA_MINT, [GROYPER]: GROYPER_MINT },
   simErr = () => null,
   simLogs = [],
+  simAccounts = true,
   statuses = [{ confirmationStatus: "confirmed", err: null }],
   fail = () => null,
   honourFilters = true,
@@ -419,7 +433,7 @@ function fakeChain({
 }) {
   const calls = [];
   let s = 0;
-  let sent = 0;
+  const landed = new Set();
   const passes = (data, filters) => {
     const d = Buffer.from(data, "base64");
     return filters.every((f) => {
@@ -446,11 +460,18 @@ function fakeChain({
     if (method === "simulateTransaction") {
       const tx = Transaction.from(Buffer.from(params[0], "base64"));
       const asked = params[1]?.accounts?.addresses;
-      return { value: { err: simErr(tx), logs: simLogs, unitsConsumed: 61234, accounts: asked ? asked.map(() => ({ owner: TOKEN_PROGRAM, lamports: rent, data: ["", "base64"] })) : null } };
+      return { value: { err: simErr(tx), logs: simLogs, unitsConsumed: 61234, accounts: asked && simAccounts ? asked.map(() => ({ owner: TOKEN_PROGRAM, lamports: rent, data: ["", "base64"] })) : null } };
     }
-    if (method === "sendTransaction") return `SiG${++sent}`;
-    if (method === "getSignatureStatuses") return { value: [statuses[Math.min(s++, statuses.length - 1)]] };
+    if (method === "sendTransaction") {
+      const sig = sigOfWire(params[0]);
+      if (landed.has(sig)) throw rpcError(method, -32002, "Transaction simulation failed: This transaction has already been processed");
+      landed.add(sig);
+      return sig;
+    }
+    if (method === "getSignatureStatuses") return { value: params[0].map((sig) => (landed.has(sig) ? statuses[Math.min(s++, statuses.length - 1)] : null)) };
     if (method === "getBlockHeight") return blockHeight;
+    // Mainnet's rent today: 5,080 lamports a byte, the 128-byte account header included.
+    if (method === "getMinimumBalanceForRentExemption") return (128 + params[0]) * 5080;
     if (method === "getBalance") return { context: { slot: 1 }, value: balance };
     throw new Error(`unexpected ${method}`);
   };
@@ -657,7 +678,7 @@ describe("venue-sweep: a run", () => {
     const sent = chain.calls.filter((c) => c.method === "sendTransaction").map((c) => Transaction.from(Buffer.from(c.params[0], "base64")));
     expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["island"]]);
     expect(res.ok).toBe(true);
-    expect(res.pools[0]).toMatchObject({ created: 0, venue: { swept: true, signature: "SiG1" }, island: { swept: true, signature: "SiG2" } });
+    expect(res.pools[0]).toMatchObject({ created: 0, venue: { swept: true, signature: sigOfTx(sent[0]) }, island: { swept: true, signature: sigOfTx(sent[1]) } });
     for (const tx of sent) {
       expect(tx.verifySignatures()).toBe(true);
       expect(tx.feePayer.toBase58()).toBe(kp.publicKey.toBase58());
@@ -705,6 +726,27 @@ describe("venue-sweep: a run", () => {
     expect(text).toContain(onBadTier[0]);
   });
 
+  it("a listing the RPC refuses fails the run without throwing, and the summary says the pools were not listed and the balance was not read", async () => {
+    const chain = fakeChain({ pools: [big], tiers, fail: (m) => (m === "getProgramAccounts" ? rpcError("getProgramAccounts", -32010, "excluded from account secondary indexes") : null) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res).toMatchObject({ ok: false, pools: [] });
+    expect(res.stopped).toMatch(/^the pools could not be read: getProgramAccounts: .*secondary indexes/);
+    expect(chain.calls.map((c) => c.method)).toEqual(["getProgramAccounts"]);
+    const text = summary(res, { live: false });
+    expect(text).toContain("); the pools were not listed.");
+    expect(text).toContain(`The balance of \`${payer}\` was not read.`);
+    expect(text).not.toContain("not looked at");
+  });
+
+  it("a failed read of the pools' coins fails the run before anything is simulated", async () => {
+    const chain = fakeChain({ pools: [big], tiers, fail: (m, p) => (m === "getMultipleAccounts" && p[0].includes(BAYLA) ? rpcError("getMultipleAccounts", -32603, "Internal error") : null) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.ok).toBe(false);
+    expect(res.stopped).toMatch(/^the pools could not be read: getMultipleAccounts: .*Internal error/);
+    expect(chain.calls.some((c) => c.method === "simulateTransaction")).toBe(false);
+    expect(summary(res, { live: false })).toContain("1 pool not looked at");
+  });
+
   // ── Errors stay on their row ───────────────────────────────────────────────
   const dollarPool = (mint) => [
     key(),
@@ -732,7 +774,7 @@ describe("venue-sweep: a run", () => {
     expect(summary(res, { live: false })).toMatch(/Node is behind/);
   });
 
-  it("a send the RPC refuses stays on that side's row, and the other side is still sent", async () => {
+  it("a send the RPC refuses stays on that side's row with its signature, after the chain is asked about it; the other side is still sent", async () => {
     const kp = Keypair.generate();
     const chain = fakeChain({
       pools: [big],
@@ -740,14 +782,65 @@ describe("venue-sweep: a run", () => {
       accounts: opened(VAULT, WORKSHOP),
       fail: (m, p) =>
         m === "sendTransaction" && sweepsIn(Transaction.from(Buffer.from(p[0], "base64"))).some((ix) => sideOf(ix) === "venue")
-          ? new Error('sendTransaction: {"code":-32002,"message":"Transaction simulation failed: Blockhash not found"}')
+          ? rpcError("sendTransaction", -32002, "Transaction simulation failed: Blockhash not found")
           : null,
     });
     const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    const [venueTx, islandTx] = chain.sentTxs();
     expect(res.ok).toBe(false);
-    expect(res.pools[0].venue).toMatchObject({ ok: false, result: expect.stringMatching(/sending failed: .*Blockhash not found/) });
-    expect(res.pools[0].venue.signature).toBeUndefined();
-    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, signature: "SiG1" });
+    expect(res.pools[0].venue).toMatchObject({ ok: false, signature: sigOfTx(venueTx), result: expect.stringMatching(/^sending failed \(.*Blockhash not found.*\), and it was not seen on chain/) });
+    expect(chain.calls.filter((c) => c.method === "getSignatureStatuses" && c.params[0][0] === sigOfTx(venueTx)).length).toBe(40);
+    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, signature: sigOfTx(islandTx) });
+  });
+
+  it("a send whose answer is lost is looked up on chain: the transport's repeat is told it was already processed, and the row says swept, with its signature", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
+    let sends = 0;
+    // The job's real transport. The venue's send reaches the chain, and its answer is lost on the way back.
+    const net = async (url, init) => {
+      const { method, params } = JSON.parse(init.body);
+      let result;
+      try {
+        result = await chain.call(method, params);
+      } catch (e) {
+        if (e.rpcError) return { status: 200, json: async () => ({ jsonrpc: "2.0", id: 1, error: e.rpcError }) };
+        throw e;
+      }
+      if (method === "sendTransaction" && sends++ === 0) throw new Error("socket hang up");
+      return { status: 200, json: async () => ({ jsonrpc: "2.0", id: 1, result }) };
+    };
+    const call = solanaRpc({ fetchImpl: net, url: "http://rpc.invalid", pauseMs: 0, wait: async () => {} });
+    const logged = [];
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: (l) => logged.push(l), wait: async () => {} });
+    const sent = chain.sentTxs();
+    expect(sent.map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"], ["venue"], ["island"]]); // the venue's twice: the transport repeated it
+    const sig = sigOfTx(sent[0]);
+    expect(res.pools[0].venue).toMatchObject({ ok: true, swept: true, signature: sig, result: expect.stringMatching(/^swept \(its send answered: sendTransaction: .*already been processed/) });
+    expect(logged.some((l) => l.includes(sig))).toBe(true);
+    expect(res.ok).toBe(true);
+    expect(summary(res, { live: true })).toContain("2 sweeps seen on chain (10,000 lamports of network fees)");
+  });
+
+  it("a send that answers an error and is never seen on chain fails its row, which keeps its signature, and costs no fee", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({
+      pools: [big],
+      tiers,
+      accounts: opened(VAULT, WORKSHOP),
+      fail: (m) => (m === "sendTransaction" ? rpcError("sendTransaction", -32002, "Transaction simulation failed: This transaction has already been processed") : null),
+    });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    const sent = chain.sentTxs();
+    for (const [i, side] of [
+      [0, "venue"],
+      [1, "island"],
+    ]) {
+      expect(res.pools[0][side]).toMatchObject({ ok: false, signature: sigOfTx(sent[i]), result: expect.stringMatching(/^sending failed \(.*already been processed.*\), and it was not seen on chain/) });
+    }
+    expect(res.ok).toBe(false);
+    expect(res.paid.sweeps).toBe(0);
+    expect(summary(res, { live: true })).toContain("0 sweeps seen on chain (0 lamports of network fees)");
   });
 
   it("an error reading a sent sweep's status is written with its signature, and the run goes on", async () => {
@@ -760,10 +853,11 @@ describe("venue-sweep: a run", () => {
       fail: (m) => (m === "getSignatureStatuses" && reads++ === 0 ? new Error('getSignatureStatuses: {"code":-32603,"message":"Internal error"}') : null),
     });
     const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    const [venueTx, islandTx] = chain.sentTxs();
     expect(res.ok).toBe(false);
-    expect(res.pools[0].venue).toMatchObject({ ok: false, signature: "SiG1", result: expect.stringMatching(/sent, but its status could not be read: .*Internal error/) });
-    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, signature: "SiG2" });
-    expect(summary(res, { live: true })).toContain("`SiG1`");
+    expect(res.pools[0].venue).toMatchObject({ ok: false, signature: sigOfTx(venueTx), result: expect.stringMatching(/sent, but its status could not be read: .*Internal error/) });
+    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, signature: sigOfTx(islandTx) });
+    expect(summary(res, { live: true })).toContain(`\`${sigOfTx(venueTx)}\``);
   });
 
   it("a transport that has used all its retries ends the run early, and the summary is still written", async () => {
@@ -795,20 +889,111 @@ describe("venue-sweep: a run", () => {
     expect(text).toContain("1 pool not looked at");
   });
 
-  it("each signature is logged as soon as it is sent, before the chain is asked about it", async () => {
+  for (const [n, where] of [
+    [1, "between one pool's two sides"],
+    [2, "between two pools"],
+  ]) {
+    it(`the run stops itself at its ${RUN_LIMIT_MS / 60_000}-minute limit, reached ${where}: the rest is counted as not looked at, and the summary is still written`, async () => {
+      const more = () => [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [51_216_483n, 0n], fund: [23_051_592n, 0n] })];
+      const chain = fakeChain({ pools: [big, more(), more()], tiers, accounts: opened(VAULT, WORKSHOP) });
+      let t = 0;
+      let sims = 0;
+      // The n-th simulation answers past the limit.
+      const call = async (method, params) => {
+        const r = await chain.call(method, params);
+        if (method === "simulateTransaction" && ++sims === n) t = RUN_LIMIT_MS + 1;
+        return r;
+      };
+      const res = await run(parseArgs(["--payer", payer]), { call, fetchImpl: noPrice, env: {}, log: quiet, now: () => t });
+      expect(res.ok).toBe(false);
+      expect(res.stopped).toBe(`it reached its ${RUN_LIMIT_MS / 60_000}-minute limit`);
+      expect(res.pools.map((r) => r.pool)).toEqual([big[0]]);
+      expect(res.pools[0].venue.result).toMatch(/simulated clean/);
+      expect(res.pools[0].island.result).toMatch(n === 1 ? /^not tried: the run stopped early$/ : /simulated clean/);
+      expect(res.unvisited).toBe(2);
+      expect(chain.calls.filter((c) => c.method === "simulateTransaction").length).toBe(n);
+      expect(chain.calls.some((c) => c.method === "getBalance")).toBe(false);
+      expect(summary(res, { live: false })).toContain(`The run stopped early (it reached its ${RUN_LIMIT_MS / 60_000}-minute limit); 2 pools not looked at.`);
+    });
+  }
+
+  it("a live sweep whose simulation answers past the limit is not sent, and no sending is logged", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
+    let t = 0;
+    const call = async (method, params) => {
+      const r = await chain.call(method, params);
+      if (method === "simulateTransaction") t = RUN_LIMIT_MS + 1;
+      return r;
+    };
+    const logged = [];
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: (l) => logged.push(l), wait: async () => {}, now: () => t });
+    expect(res.pools[0].venue).toEqual({ share: expect.any(String), ok: false, result: "not sent: the run stopped early" });
+    expect(res.pools[0].island.result).toBe("not tried: the run stopped early");
+    expect(chain.calls.some((c) => c.method === "sendTransaction")).toBe(false);
+    expect(logged.some((l) => l.startsWith("sending"))).toBe(false);
+    expect(res.ok).toBe(false);
+  });
+
+  it("a send that gets no answer after all its tries is written with its signature, the chain is not asked about it, and the run stops", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
+    // The job's real transport, on a network where a send is never answered.
+    const net = async (url, init) => {
+      const { method, params } = JSON.parse(init.body);
+      if (method === "sendTransaction") throw new Error("socket hang up");
+      return { status: 200, json: async () => ({ jsonrpc: "2.0", id: 1, result: await chain.call(method, params) }) };
+    };
+    const call = solanaRpc({ fetchImpl: net, url: "http://rpc.invalid", pauseMs: 0, wait: async () => {} });
+    const logged = [];
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: (l) => logged.push(l), wait: async () => {} });
+    const line = logged.find((l) => l.startsWith("sending the venue's sweep"));
+    expect(line, "the venue's signature, logged before its send").toBeDefined();
+    const sig = line.split(": ")[1];
+    expect(res.pools[0].venue).toMatchObject({
+      ok: false,
+      signature: sig,
+      result: "sending got no answer (sendTransaction: no answer after 8 tries (socket hang up)): look its signature up on chain",
+    });
+    expect(chain.calls.some((c) => c.method === "getSignatureStatuses")).toBe(false);
+    expect(res.pools[0].island.result).toBe("not tried: the run stopped early");
+    expect(res.stopped).toMatch(/^sendTransaction: no answer after 8 tries/);
+    expect(res.ok).toBe(false);
+  });
+
+  it("a sweep still waiting for the chain when the run reaches its limit keeps its signature, and the other side is not tried", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [null] });
+    let t = 0;
+    const call = async (method, params) => {
+      const r = await chain.call(method, params);
+      if (method === "sendTransaction") t = RUN_LIMIT_MS + 1;
+      return r;
+    };
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {}, now: () => t });
+    const sent = chain.sentTxs();
+    expect(sent.length).toBe(1);
+    expect(res.pools[0].venue).toMatchObject({ ok: false, signature: sigOfTx(sent[0]), result: "sent, but the run stopped before the chain confirmed it: look its signature up" });
+    expect(res.pools[0].island.result).toBe("not tried: the run stopped early");
+    expect(chain.calls.some((c) => c.method === "getSignatureStatuses")).toBe(false);
+    expect(res.ok).toBe(false);
+  });
+
+  it("each signature is taken from the signed bytes and logged before its send is made", async () => {
     const kp = Keypair.generate();
     const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
     const logged = [];
     await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: (line) => logged.push([line, chain.calls.length]), wait: async () => {} });
-    const sends = chain.calls.map((c, i) => [c.method, i]).filter(([m]) => m === "sendTransaction");
+    const sends = chain.calls.map((c, i) => [c, i]).filter(([c]) => c.method === "sendTransaction");
     expect(sends.length).toBe(2);
     for (const [n, side] of [
       [0, "venue"],
       [1, "island"],
     ]) {
-      const line = logged.find(([text]) => text.includes(`SiG${n + 1}`));
+      const sig = sigOfWire(sends[n][0].params[0]);
+      const line = logged.find(([text]) => text.includes(sig));
       expect(line?.[0]).toMatch(new RegExp(`${side}'s sweep of ${big[0]}`));
-      expect(line[1]).toBe(sends[n][1] + 1); // the very next thing after its send
+      expect(line[1]).toBe(sends[n][1]); // logged with nothing between it and its send
     }
   });
 
@@ -820,7 +1005,8 @@ describe("venue-sweep: a run", () => {
     const [venueTx] = chain.simulated();
     expect(venueTx.instructions.map((i) => i.programId.toBase58())).toEqual([ATA_PROGRAM, VENUE_PROGRAM]);
     expect(venueTx.instructions[0].keys.slice(1, 4).map((k) => k.pubkey.toBase58())).toEqual([vaultAccounts[0], VAULT, SOL_MINT]);
-    expect(res.pools[0]).toMatchObject({ created: 1, venue: { result: expect.stringMatching(/simulated clean/), rent: 838_200 } });
+    expect(res.pools[0]).toMatchObject({ created: 1, venue: { result: expect.stringMatching(/simulated clean/), opens: [{ address: vaultAccounts[0], rent: 838_200 }] } });
+    expect(res.paid).toMatchObject({ opened: 1, rent: 838_200 });
     expect(res.ok).toBe(true);
   });
 
@@ -846,6 +1032,8 @@ describe("venue-sweep: a run", () => {
     { side: "island", owner: WORKSHOP, coin: SOL_MINT, flag: "delegate", says: "has a delegate", red: false },
     { side: "island", owner: WORKSHOP, coin: BAYLA, flag: "closeAuthority", says: "has a close authority", red: false },
     { side: "island", owner: WORKSHOP, coin: BAYLA, flag: "frozen", says: "is frozen", red: false },
+    { side: "island", owner: WORKSHOP, coin: USDC_MINT, flag: "frozen", says: "is frozen", red: false },
+    { side: "island", owner: WORKSHOP, coin: USDT_MINT, flag: "frozen", says: "is frozen", red: false },
   ]) {
     const name = { [SOL_MINT]: "SOL", [BAYLA]: "BAYLA", [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" }[c.coin];
     it(`the ${c.side}'s side is held back when its ${name} account ${c.says}: ${c.red ? "the run fails" : "it is named, and the run passes"}; the other side still goes`, async () => {
@@ -866,6 +1054,87 @@ describe("venue-sweep: a run", () => {
     });
   }
 
+  // ── A side is sent only when every account its transfer touches is open ────
+  const authority = findProgramAddress([Buffer.from("vault_and_lp_mint_auth_seed")], VENUE_PROGRAM).address;
+  for (const c of [
+    { coin: USDC_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 15_000_000n], held: ["venue"], red: true },
+    { coin: USDC_MINT, venueOwes: [0n, 30_000_000n], islandOwes: [1_000_000n, 15_000_000n], held: ["island"], red: false },
+    { coin: USDT_MINT, venueOwes: [2_000_000n, 30_000_000n], islandOwes: [0n, 0n], held: ["venue"], red: true },
+    { coin: BAYLA, venueOwes: [51_216_483n, 7_000_000_000n], islandOwes: [23_051_592n, 3_683_000_000n], held: ["venue", "island"], red: false },
+    { coin: BAYLA, venueOwes: [51_216_483n, 0n], islandOwes: [23_051_592n, 3_683_000_000n], held: ["island"], red: false },
+  ]) {
+    const name = { [BAYLA]: "BAYLA", [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" }[c.coin];
+    it(`the pool's own ${name} account frozen holds back the ${c.held.join(" and the ")}'s side, each owed ${name}: ${c.red ? "the venue's fails the run" : "named, and the run passes"}; a side not owed ${name} still goes`, async () => {
+      const dollar = c.coin !== BAYLA;
+      const coins = dollar ? DOLLAR_SOL(c.coin) : SOL_BAYLA;
+      const own = [key(), key()];
+      const pool = [
+        key(),
+        poolBytes({ ammConfig: tierKey, vault0: own[0], vault1: own[1], mint0: coins[0][0], mint1: coins[1][0], program0: coins[0][1], program1: coins[1][1], decimals0: dollar ? 6 : 9, decimals1: dollar ? 9 : 6, protocol: c.venueOwes, fund: c.islandOwes }),
+      ];
+      const at = coins.findIndex(([m]) => m === c.coin);
+      const pooled = Object.fromEntries(own.map((a, i) => [a, tokenAccount({ mint: coins[i][0], owner: authority, program: coins[i][1], frozen: i === at })]));
+      const chain = fakeChain({ pools: [pool], tiers, accounts: { ...accountsOf(VAULT, coins), ...accountsOf(WORKSHOP, coins), ...pooled } });
+      const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+      const owes = { venue: c.venueOwes, island: c.islandOwes };
+      for (const side of ["venue", "island"]) {
+        if (c.held.includes(side)) {
+          expect(res.pools[0][side]).toMatchObject({ heldBack: true, ok: !(c.red && side === "venue") });
+          expect(res.pools[0][side].result).toContain(`the pool's own account \`${own[at]}\` for ${c.coin} is frozen`);
+        } else expect(res.pools[0][side].result).toMatch(owes[side].some((x) => x > 0n) ? /simulated clean/ : /^nothing set aside$/);
+      }
+      const sent = ["venue", "island"].filter((s) => !c.held.includes(s) && owes[s].some((x) => x > 0n));
+      expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual(sent.map((s) => [s]));
+      expect(res.ok).toBe(!c.red);
+      expect(summary(res, { live: false })).toContain(own[at]);
+    });
+  }
+
+  it("a vault account with a delegate or a close authority is named, and fails the run, on a day only the island's side of its pool is due", async () => {
+    // One pool where the venue has nothing set aside, one where its share is under the floor.
+    const usdc = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: USDC_MINT, mint1: SOL_MINT, program0: TOKEN_PROGRAM, program1: TOKEN_PROGRAM, decimals0: 6, decimals1: 9, protocol: [0n, 0n], fund: [1_000_000n, 15_000_000n] })];
+    const sol = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [1_000n, 0n], fund: [23_051_592n, 0n] })];
+    const accounts = {
+      ...accountsOf(VAULT, DOLLAR_SOL(USDC_MINT), { [USDC_MINT]: { delegate: true } }),
+      ...accountsOf(VAULT, [SOL_BAYLA[1]], { [BAYLA]: { closeAuthority: true } }),
+      ...accountsOf(WORKSHOP, DOLLAR_SOL(USDC_MINT)),
+      ...accountsOf(WORKSHOP, SOL_BAYLA),
+    };
+    const chain = fakeChain({ pools: [usdc, sol], tiers, accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const row = (p) => res.pools.find((r) => r.pool === p[0]);
+    const usdcAccount = associatedTokenAddress(VAULT, USDC_MINT, TOKEN_PROGRAM);
+    expect(row(usdc).venue).toMatchObject({ ok: false, result: `nothing set aside; its account \`${usdcAccount}\` for ${USDC_MINT} has a delegate: read it` });
+    expect(row(sol).venue).toMatchObject({ ok: false, result: `under the $0.5 floor: waits; its account \`${vaultAccounts[1]}\` for ${BAYLA} has a close authority: read it` });
+    for (const p of [usdc, sol]) expect(row(p).island.result).toMatch(/simulated clean/);
+    expect(res.ok).toBe(false);
+    const text = summary(res, { live: false });
+    expect(text).toContain(usdcAccount);
+    expect(text).toContain(vaultAccounts[1]);
+  });
+
+  it("a Workshop account with a delegate is named while the island's share waits for another of its accounts; the run still passes", async () => {
+    const accounts = { ...opened(VAULT), ...accountsOf(WORKSHOP, [SOL_BAYLA[0]], { [SOL_MINT]: { delegate: true } }) };
+    const chain = fakeChain({ pools: [big], tiers, accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const [row] = res.pools;
+    expect(row.island).toMatchObject({ ok: true, result: `waits: the Workshop has no account yet for ${BAYLA}; its account \`${workshopAccounts[0]}\` for ${SOL_MINT} has a delegate` });
+    expect(row.missing).toEqual([{ mint: BAYLA, address: workshopAccounts[1] }]);
+    expect(row.venue.result).toMatch(/simulated clean/);
+    expect(res.ok).toBe(true);
+    const text = summary(res, { live: false });
+    expect(text).toContain(workshopAccounts[0]);
+    expect(text).toContain(workshopAccounts[1]);
+  });
+
+  it("on mainnet, a tier that names the vault but another fund owner is not swept either, and fails the run", async () => {
+    const chain = fakeChain({ pools: [big], tiers: { [tierKey]: tierBytes(VAULT, key()) }, accounts: opened(VAULT, WORKSHOP) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.ok).toBe(false);
+    expect(res.pools[0].note).toMatch(/not the vault and the Workshop/);
+    expect(chain.calls.some((c) => c.method === "simulateTransaction")).toBe(false);
+  });
+
   // ── The floor is each side's own ───────────────────────────────────────────
   for (const sol of [72, null]) {
     it(`the floor is each side's own: a venue share of 693 lamports is not sent while the island's 0.01 SOL waits (${sol ? "SOL at $72" : "no SOL price: 0.007 SOL stands in"})`, async () => {
@@ -879,6 +1148,15 @@ describe("venue-sweep: a run", () => {
       expect(res.ok).toBe(true);
     });
   }
+
+  it("SOL's price is read and used: at $200 a venue share of 0.003 SOL ($0.60) is swept, which the 0.007 SOL stand-in would leave", async () => {
+    const pool = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [3_000_000n, 0n], fund: [0n, 0n] })];
+    const chain = fakeChain({ pools: [pool], tiers, accounts: opened(VAULT, WORKSHOP) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(200), env: {}, log: quiet });
+    expect(res.prices.sol).toBe(200);
+    expect(res.pools[0].venue.result).toMatch(/simulated clean/);
+    expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"]]);
+  });
 
   // ── The island's coins take a price, and only they ─────────────────────────
   it("the island's coins take the price the site's volume figure uses: a pool of two island coins is swept once the venue's own share passes the floor", async () => {
@@ -919,6 +1197,7 @@ describe("venue-sweep: a run", () => {
     const text = summary(res, { live: false });
     expect(text).toContain(`| \`${unpriced[0]}\` | no priced coin: not swept by this job |`);
     expect(text).toContain("0 are under the floor and wait");
+    expect(text).toContain("A pool with no SOL, USDC, USDT or island coin has no price here, so this job never sweeps it: its shares wait for a hand collect.");
     expect(seen.find((s) => s.url.includes("jup.ag")).url).not.toContain(a);
     expect(res.ok).toBe(true);
   });
@@ -961,6 +1240,17 @@ describe("venue-sweep: a run", () => {
     for (const side of ["venue", "island"]) expect(res.pools[0][side]).toMatchObject({ ok: false, result: "sent, and it failed on chain" });
     expect(res.ok).toBe(false);
     expect(exitCode(res)).toBe(1);
+    // A failed transaction still paid its fee.
+    expect(summary(res, { live: true })).toContain("2 sweeps seen on chain (10,000 lamports of network fees)");
+  });
+
+  it("a sweep that failed on chain opened nothing: its accounts and their rent are not counted as paid", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [2, { Custom: 1 }] } }] });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    expect(res.pools[0].created).toBe(2);
+    expect(res.paid).toMatchObject({ opened: 0, rent: 0, sweeps: 2 });
+    expect(summary(res, { live: true })).toContain("Paid by the key: 0 accounts opened for the vault (0 lamports of rent, which stays the vault's); 2 sweeps seen on chain");
   });
 
   it("a sweep never seen on chain is said so and fails the run", async () => {
@@ -999,6 +1289,18 @@ describe("venue-sweep: a run", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("a live run's simulation checks the signature on the real blockhash, and its send keeps the RPC's own preflight", async () => {
+    const kp = Keypair.generate();
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP) });
+    const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+    expect(res.ok).toBe(true);
+    const sims = chain.calls.filter((c) => c.method === "simulateTransaction");
+    const sends = chain.calls.filter((c) => c.method === "sendTransaction");
+    expect([sims.length, sends.length]).toEqual([2, 2]);
+    for (const c of sims) expect(c.params[1]).toMatchObject({ sigVerify: true, replaceRecentBlockhash: false });
+    for (const c of sends) expect(c.params[1]).toEqual({ encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 });
+  });
+
   // ── What the key paid ──────────────────────────────────────────────────────
   it("the summary says what the key paid and what it holds, from one balance read at the end", async () => {
     const kp = Keypair.generate();
@@ -1014,12 +1316,41 @@ describe("venue-sweep: a run", () => {
     expect(chain.calls[balances[0][1]].params[0]).toBe(kp.publicKey.toBase58());
     const text = summary(res, { live: true });
     expect(text).toContain("Paid by the key: 1 account opened for the vault (1,488,440 lamports of rent");
-    expect(text).toContain("2 sweeps sent (10,000 lamports of network fees)");
+    expect(text).toContain("2 sweeps seen on chain (10,000 lamports of network fees)");
     expect(text).toContain(`\`${kp.publicKey.toBase58()}\` holds 42,000,000 lamports`);
+    expect(text).not.toContain("fund it");
     // A dry run says what a live run would pay.
     const dry = fakeChain({ pools: [big], tiers, accounts, rent: 1_488_440, balance: 7 });
     const res2 = await run(parseArgs(["--payer", payer]), { call: dry.call, fetchImpl: noPrice, env: {}, log: quiet });
     expect(summary(res2, { live: false })).toMatch(/A live run would pay: 1 account opened for the vault \(1,488,440 lamports of rent[^)]*\); 2 sweeps sent \(10,000 lamports of network fees\)/);
+  });
+
+  it("a dry run counts an account it would open once, though each pool's simulation opens it afresh", async () => {
+    const big2 = [key(), poolBytes({ ammConfig: tierKey, vault0: key(), vault1: key(), mint0: SOL_MINT, mint1: BAYLA, program0: TOKEN_PROGRAM, program1: TOKEN_2022_PROGRAM, protocol: [51_216_483n, 7_000_000_000n], fund: [0n, 0n] })];
+    const chain = fakeChain({ pools: [big, big2], tiers, accounts: opened(WORKSHOP), rent: 1_488_440 });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const opening = chain.simulated().filter((tx) => tx.instructions.some((i) => i.programId.toBase58() === ATA_PROGRAM));
+    expect(opening.length).toBe(2); // each venue simulation opens the vault's two accounts
+    expect(res.paid).toMatchObject({ opened: 2, rent: 2_976_880, sweeps: 3 });
+    expect(summary(res, { live: false })).toContain("A live run would pay: 2 accounts opened for the vault (2,976,880 lamports of rent, which stays the vault's); 3 sweeps sent (15,000 lamports of network fees)");
+  });
+
+  it("an opened account's rent that the simulation did not return is said as not read, never as 0", async () => {
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(WORKSHOP), simAccounts: false });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.paid).toMatchObject({ opened: 2, rent: null });
+    expect(summary(res, { live: false })).toContain("2 accounts opened for the vault (its rent not read)");
+  });
+
+  it("the summary says when the payer holds less than one more sweep that opens a vault account needs: what it must keep, the rent and the fee", async () => {
+    const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), balance: 1_503_440 });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const text = summary(res, { live: false });
+    expect(text).toContain(`\`${payer}\` holds 1,503,440 lamports.`);
+    expect(text).toContain("That is under the 2,143,680 lamports one more sweep that opens a vault account needs (650,240 the payer must keep, 1,488,440 of rent and 5,000 of fee): fund it.");
+    const rich = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), balance: 2_143_680 });
+    const res2 = await run(parseArgs(["--payer", payer]), { call: rich.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(summary(res2, { live: false })).not.toContain("fund it");
   });
 
   it("a refusal's log lines are joined with '; ', and a '|' in any cell cannot break the summary's table", async () => {
@@ -1038,5 +1369,146 @@ describe("venue-sweep: a run", () => {
     expect(line.split(/(?<!\\)\|/).length).toBe(8); // six cells between seven pipes
     expect(line).toContain("one \\| two; Program log: three four;");
     expect(line).toMatch(/simulated clean/);
+  });
+});
+
+describe("venue-sweep: the process, as the workflow runs it", () => {
+  const script = join(here, "venue-sweep.mjs");
+  // Price reads never leave this machine: only the local stub RPC below can be reached.
+  const offline = `data:text/javascript,${encodeURIComponent('const f = globalThis.fetch; globalThis.fetch = (u, i) => (String(u).startsWith("http://127.0.0.1:") ? f(u, i) : Promise.reject(new Error("no network in this test")));')}`;
+
+  /** The job as a process, against a local stub RPC answering from `chain`, with GITHUB_STEP_SUMMARY set: its exit code, output and summary file. */
+  async function runJob(args, { chain, env = {} }) {
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", async () => {
+        const { id, method, params } = JSON.parse(body);
+        let out;
+        try {
+          out = { jsonrpc: "2.0", id, result: await chain.call(method, params) };
+        } catch (e) {
+          out = { jsonrpc: "2.0", id, error: e.rpcError ?? { code: -32603, message: e.message } };
+        }
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(out));
+      });
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const dir = mkdtempSync(join(tmpdir(), "venue-sweep-"));
+    const file = join(dir, "summary.md");
+    try {
+      const childEnv = { ...process.env };
+      delete childEnv.VENUE_SWEEPER_KEYPAIR;
+      delete childEnv.JUPITER_API_KEY;
+      Object.assign(childEnv, { GITHUB_STEP_SUMMARY: file }, env);
+      const child = spawn(process.execPath, ["--import", offline, script, "--rpc", `http://127.0.0.1:${server.address().port}`, ...args], { env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      child.stdout.on("data", (d) => (output += d));
+      child.stderr.on("data", (d) => (output += d));
+      const code = await new Promise((r) => child.on("close", r));
+      return { code, output, summary: existsSync(file) ? readFileSync(file, "utf8") : null };
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const payer = key();
+
+  it("a run that fails exits 1 and still writes its summary", { timeout: 30_000 }, async () => {
+    const chain = fakeChain({ pools: [], tiers: {}, fail: (m) => (m === "getProgramAccounts" ? rpcError(m, -32010, "excluded from account secondary indexes") : null) });
+    const r = await runJob(["--payer", payer], { chain });
+    expect(r.code).toBe(1);
+    expect(r.summary).toMatch(/^### Venue sweep \(dry run\)\n/);
+    expect(r.summary).toContain("The run stopped early (the pools could not be read: getProgramAccounts:");
+  });
+
+  it("a clean run exits 0 and writes its summary", { timeout: 30_000 }, async () => {
+    const chain = fakeChain({ pools: [], tiers: {} });
+    const r = await runJob(["--payer", payer], { chain });
+    expect(r.code).toBe(0);
+    expect(r.summary).toMatch(/^### Venue sweep \(dry run\)\n/);
+    expect(r.summary).toContain(`\`${payer}\` holds 987,654,321 lamports`);
+  });
+
+  it("a run that cannot start exits 1 and its summary says why, never echoing the key", { timeout: 30_000 }, async () => {
+    const chain = fakeChain({ pools: [], tiers: {} });
+    const noPayer = await runJob([], { chain });
+    expect(noPayer.code).toBe(1);
+    expect(noPayer.summary).toBe("### Venue sweep\n\nIt did not run: a dry run needs --payer <address> or VENUE_SWEEPER_KEYPAIR\n");
+    const badKey = await runJob(["--live"], { chain, env: { VENUE_SWEEPER_KEYPAIR: "not-a-key-31337" } });
+    expect(badKey.code).toBe(1);
+    expect(badKey.summary).toContain("It did not run: the keypair is not JSON");
+    expect(`${badKey.summary}${badKey.output}`).not.toContain("31337");
+    expect(chain.calls).toEqual([]);
+  });
+});
+
+describe("venue-sweep: the workflow", () => {
+  const yml = readFileSync(join(here, "../../.github/workflows/venue-sweep.yml"), "utf8");
+  /** The sweep step's script, as bash is given it. */
+  const step = (() => {
+    const lines = yml.split(/\r?\n/);
+    const at = lines.findIndex((l) => l.includes("name: Sweep the pools' fee shares to their owners"));
+    const from = lines.findIndex((l, i) => i > at && /^\s*run: \|\s*$/.test(l));
+    const indent = lines[from].indexOf("run:");
+    const body = [];
+    for (let i = from + 1; i < lines.length && (lines[i].trim() === "" || lines[i].length - lines[i].trimStart().length > indent); i++) body.push(lines[i]);
+    const cut = Math.min(...body.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length));
+    return body.map((l) => l.slice(cut)).join("\n");
+  })();
+  // Git's own bash on Windows, where the PATH's bash may be WSL's launcher; plain bash elsewhere.
+  const bash = (() => {
+    if (process.platform !== "win32") return "bash";
+    const r = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+    if (r.status !== 0) return null;
+    const root = resolve(r.stdout.trim(), "..", "..", "..");
+    return [join(root, "bin", "bash.exe"), join(root, "usr", "bin", "bash.exe")].find((p) => existsSync(p)) ?? null;
+  })();
+
+  it("runs in the venue-sweep environment, and only its one step is handed the key", () => {
+    expect(yml).toMatch(/\n {4}environment: venue-sweep\r?\n/);
+    expect(yml.match(/secrets\.VENUE_SWEEPER_KEYPAIR/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!bash)("its step fails a live run without the key, warns and passes a dry one, and passes --live only to a live run", () => {
+    for (const [secret, isLive, code, says] of [
+      ["", "true", 1, /::error::the run is live but VENUE_SWEEPER_KEYPAIR is not set/],
+      ["", "false", 0, /::warning::VENUE_SWEEPER_KEYPAIR is not set/],
+      ["[1]", "true", 0, /^NODE frontend\/scripts\/venue-sweep\.mjs --live$/m],
+      ["[1]", "false", 0, /^NODE frontend\/scripts\/venue-sweep\.mjs$/m],
+    ]) {
+      // `node` is a shell function here: the step's own lines run, and the job's command line is only printed.
+      const r = spawnSync(bash, ["-c", `node() { echo "NODE $*"; }\n${step}`], { encoding: "utf8", env: { ...process.env, VENUE_SWEEPER_KEYPAIR: secret, LIVE: isLive } });
+      expect([r.status, `${r.stdout}${r.stderr}`]).toEqual([code, expect.stringMatching(says)]);
+      if (!secret) expect(r.stdout).not.toContain("NODE");
+    }
+  });
+});
+
+describe("venue-sweep: no package runs beside the key", () => {
+  it("the job loads only Node's own modules and this repo's files, all the way down", () => {
+    const repo = resolve(here, "..", "..");
+    const seen = new Set();
+    const walk = (file) => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const src = readFileSync(file, "utf8");
+      const specs = [
+        ...src.matchAll(/^[ \t]*(?:import|export)\b[^;]*?\bfrom[ \t]*["']([^"'\n]+)["']/gm),
+        ...src.matchAll(/^[ \t]*import[ \t]*["']([^"'\n]+)["']/gm),
+        ...src.matchAll(/\bimport\(\s*["']([^"'\n]+)["']/g),
+      ].map((m) => m[1]);
+      for (const s of specs) {
+        if (s.startsWith("node:")) continue;
+        expect(s, `${file} loads ${s}`).toMatch(/^\.\.?\//);
+        const next = resolve(dirname(file), s);
+        expect(next.startsWith(repo + sep), `${file} loads ${s}, outside the repo`).toBe(true);
+        walk(next);
+      }
+    };
+    walk(join(here, "venue-sweep.mjs"));
+    const files = [...seen].map((f) => f.slice(repo.length + 1).split(sep).join("/"));
+    expect(files).toEqual(expect.arrayContaining(["frontend/scripts/venue-sweep.mjs", "frontend/scripts/lib/solana-signer.mjs", "frontend/scripts/lib/venue-volume-chain.mjs", "frontend/scripts/venue-volume.mjs"]));
   });
 });

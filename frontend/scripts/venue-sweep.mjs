@@ -8,12 +8,15 @@
 // it). No other coin takes a price: a pool with none of these is named and left to hand collects,
 // as is one with a coin that takes a transfer fee. A destination counts as open only when its
 // coin's own token program owns it. The vault's missing ones are opened here (their rent stays the
-// venue's); the Workshop's never are (its share waits, and the summary names them). An open
-// destination with a delegate, a close authority or a freeze holds its side back, named; on the
-// vault's side all but a freeze of a coin other than USDC or USDT also fail the run. The key pays
+// venue's); the Workshop's never are (its share waits, and the summary names them). A side is sent
+// only when every account its transfer touches is open: an open destination with a delegate, a
+// close authority or a freeze holds it back, named, as does the pool's own account of a coin it is
+// owed when that one is frozen. On the vault's side all but a freeze of a coin other than USDC or
+// USDT also fail the run, and its destinations are checked whenever they are read. The key pays
 // 5,000 lamports a sweep, the island's included, and the vault's rent. An error stays on its pool's
-// row; a transport that stops answering ends the run early; the summary is always written, with
-// what the key paid and holds.
+// row; a transport that stops answering, or the run's own time limit, ends the run early. Each
+// signature is logged before it is sent, and a send that answers an error is looked up on chain.
+// The summary is always written, with what the key paid and holds.
 //
 //   node frontend/scripts/venue-sweep.mjs --payer <address>   dry run: reads and simulates as that
 //                                                             payer, sends nothing, needs no key
@@ -55,6 +58,11 @@ export const SWEEP_FEES_TAG = createHash("sha256").update("global:sweep_fees").d
 const NO_SUCH_INSTRUCTION = 101;
 /** What a sweep costs in network fees: one signature, no priority fee. */
 const FEE_LAMPORTS = 5000;
+/**
+ * The run stops itself after 9 minutes and still writes its summary: a call already under way may
+ * use all its tries (about 5 minutes more) inside the workflow's 15.
+ */
+export const RUN_LIMIT_MS = 9 * 60_000;
 /** solanaRpc's error once a call has used all its tries (lib/venue-volume-chain.mjs): the RPC is not answering. */
 const NO_ANSWER = /: no answer after \d+ tries/;
 const NOTHING = "nothing set aside";
@@ -204,12 +212,14 @@ export function destinationState(info, tokenProgram) {
 }
 
 /**
- * A side whose open destinations are not safe to pay into is held back and named (the owner's
- * ruling, 2026-11-21). On the vault's side a delegate, a close authority or a frozen USDC or USDT
- * account also fails the run; any other frozen account is only named. The Workshop's side never
- * fails the run. Null when every open destination is plain.
+ * What is wrong with one owner's side, named: each open destination with a delegate, a close
+ * authority or a freeze (the owner's ruling, 2026-11-21) and, given `pool` (the pool's own two
+ * accounts) and that side's `share`, the pool's own account of a coin the side is owed when that
+ * one is frozen, since its transfer out would be refused. On the vault's side a delegate, a close
+ * authority or a frozen USDC or USDT account also fails the run; any other freeze is only named.
+ * The Workshop's side never fails the run.
  */
-function heldBack(states, addresses, mints, vault) {
+function problems({ states, addresses, mints, vault, pool = null, share = null }) {
   const named = [];
   let fails = false;
   states.forEach((s, i) => {
@@ -219,9 +229,18 @@ function heldBack(states, addresses, mints, vault) {
     named.push(`its account \`${addresses[i]}\` for ${mints[i]} ${why.join(" and ")}`);
     if (vault && (s.delegate || s.closeAuthority || (s.frozen && DOLLARS.has(mints[i])))) fails = true;
   });
-  if (!named.length) return null;
-  return { ok: !fails, heldBack: true, result: `held back, nothing sent: ${named.join("; ")}${fails ? ": read it" : ""}` };
+  pool?.states.forEach((s, i) => {
+    if (!s.open || !s.frozen || share[i] === 0n) return;
+    named.push(`the pool's own account \`${pool.addresses[i]}\` for ${mints[i]} is frozen`);
+    if (vault && DOLLARS.has(mints[i])) fails = true;
+  });
+  return { named, fails };
 }
+const said = (p) => `${p.named.join("; ")}${p.fails ? ": read it" : ""}`;
+/** A side held back for its problems: nothing is sent. */
+const held = (p) => ({ ok: !p.fails, heldBack: true, result: `held back, nothing sent: ${said(p)}` });
+/** A side's result with its accounts' problems named after it, failing the run where they do. */
+const naming = (r, p) => (p.named.length ? { ...r, ok: r.ok && !p.fails, result: `${r.result}; ${said(p)}` } : r);
 
 /** The custom error number a simulation's `err` carries for instruction `ix`, or null. */
 export function customError(err, ix) {
@@ -279,21 +298,31 @@ async function islandCoinPrices(fetchImpl) {
 }
 
 /**
- * One run. `deps` are injectable for tests: { call (JSON-RPC), fetchImpl, env, log, wait }.
- * Returns { ok, notUpgraded, pools: [...], stopped, unvisited, payer, paid, balance, prices }. It
- * throws only when it cannot start (no key for a live run, no payer for a dry run).
+ * One run. `deps` are injectable for tests: { call (JSON-RPC), fetchImpl, env, log, wait, now }.
+ * Returns { ok, notUpgraded, pools: [...], listed, stopped, unvisited, payer, paid, balance,
+ * balanceError, keep, prices }. It throws only when it cannot start (no key for a live run, no
+ * payer for a dry run).
  */
 export async function run(opts, deps) {
-  const { call, fetchImpl = globalThis.fetch, env = process.env, log = console.log, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = deps;
+  const { call, fetchImpl = globalThis.fetch, env = process.env, log = console.log, wait = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now } = deps;
   const mainnet = opts.program === VENUE_PROGRAM;
   const signer = env.VENUE_SWEEPER_KEYPAIR ? keypairSigner(env.VENUE_SWEEPER_KEYPAIR) : null;
   if (opts.live && !signer) throw new Error("--live needs VENUE_SWEEPER_KEYPAIR");
   const payer = signer?.address ?? opts.payer;
   if (!payer) throw new Error("a dry run needs --payer <address> or VENUE_SWEEPER_KEYPAIR");
 
-  const res = { ok: true, notUpgraded: false, pools: [], stopped: null, unvisited: 0, payer, paid: { opened: 0, rent: 0, sweeps: 0 }, balance: null, prices: null };
-  // Every call but the last balance read goes through here: one that has used all its tries ends the run.
+  const res = { ok: true, notUpgraded: false, pools: [], listed: false, stopped: null, unvisited: 0, payer, paid: { opened: 0, rent: 0, sweeps: 0 }, balance: null, balanceError: null, keep: null, prices: null };
+  const limit = now() + RUN_LIMIT_MS;
+  /** Past the run's time limit? Then the run stops, and says so. */
+  const late = () => {
+    if (now() <= limit) return false;
+    res.stopped ??= `it reached its ${RUN_LIMIT_MS / 60_000}-minute limit`;
+    return true;
+  };
+  // Every call but the reads at the end goes through here: none is made past the time limit, and
+  // one that has used all its tries ends the run.
   const rpc = async (method, params) => {
+    if (late()) throw Object.assign(new Error(`not asked: the run stopped early (${res.stopped})`), { late: true });
     try {
       return await call(method, params);
     } catch (e) {
@@ -308,6 +337,7 @@ export async function run(opts, deps) {
   try {
     const filters = [{ dataSize: POOL_SIZE }, { memcmp: { offset: 0, bytes: base58(POOL_TAG) } }];
     const raw = await rpc("getProgramAccounts", [opts.program, { encoding: "base64", commitment: "confirmed", filters }]);
+    res.listed = true;
     // An account that will not decode is a failed row of its own; the rest are still swept.
     listed = raw.map((a) => {
       try {
@@ -333,6 +363,7 @@ export async function run(opts, deps) {
   } catch (e) {
     res.ok = false;
     res.stopped ??= `the pools could not be read: ${e.message}`;
+    res.unvisited = listed?.length ?? 0;
     return res;
   }
   const solUsd = await solPrice(fetchImpl);
@@ -371,31 +402,44 @@ export async function run(opts, deps) {
       }
       return { ok: false, result: `the simulation refused it: ${JSON.stringify(sim.err)}; ${(sim.logs ?? []).slice(-3).join("; ")}` };
     }
-    const opened = created.length;
-    const after = sim.accounts;
-    const rent = !opened ? 0 : Array.isArray(after) && after.length === opened && after.every((a) => a) ? after.reduce((sum, a, i) => sum + (a.lamports - created[i].before), 0) : null;
-    if (!opts.live) return { ok: true, clean: true, opened, rent, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it` };
-    let sig;
+    // Each account it opens with its rent, as the simulation leaves it: null where that was not read.
+    const opens = created.map((c, i) => ({ address: c.address, rent: sim.accounts?.[i] ? sim.accounts[i].lamports - c.before : null }));
+    // `fee`: the network fee is paid (or, in a dry run, would be); `opens` count only when its accounts are really opened.
+    if (!opts.live) return { ok: true, clean: true, fee: true, opens, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it` };
+    if (late()) return { ok: false, result: "not sent: the run stopped early" };
+    // The signature is in the signed bytes (the 64 after their count): it is logged before the send.
+    const signature = base58(wire.subarray(1, 65));
+    log(`sending ${label}: ${signature}`);
+    let answered = null;
     try {
-      sig = await rpc("sendTransaction", [wire.toString("base64"), { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
+      await rpc("sendTransaction", [wire.toString("base64"), { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
     } catch (e) {
-      return { ok: false, result: `sending failed: ${e.message}` };
+      // An answer lost after the transaction reached the chain makes the transport's repeat answer
+      // "already processed": the chain is asked what came of it, unless the RPC has stopped answering.
+      answered = e.message;
+      if (res.stopped) return { ok: false, signature, result: `sending got no answer (${answered}): look its signature up on chain` };
     }
-    log(`sent ${label}: ${sig}`);
     let landed = null;
     try {
       for (let i = 0; i < 40 && landed === null; i++) {
         await wait(1500);
-        const st = (await rpc("getSignatureStatuses", [[sig]])).value[0];
+        const st = (await rpc("getSignatureStatuses", [[signature]])).value[0];
         if (st?.err) landed = false;
         else if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") landed = true;
         else if ((await rpc("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) break;
       }
     } catch (e) {
-      return { ok: false, sent: true, signature: sig, result: `sent, but its status could not be read: ${e.message}` };
+      const why = e.late ? "the run stopped before the chain confirmed it: look its signature up" : `its status could not be read: ${e.message}`;
+      return { ok: false, signature, result: answered ? `its send answered an error (${answered}), and ${why}` : `sent, but ${why}` };
     }
-    if (landed) return { ok: true, sent: true, swept: true, signature: sig, opened, rent, result: "swept" };
-    return { ok: false, sent: true, signature: sig, result: landed === false ? "sent, and it failed on chain" : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again" };
+    const after = answered ? ` (its send answered: ${answered})` : "";
+    if (landed) return { ok: true, sent: true, swept: true, fee: true, signature, opens, result: `swept${after}` };
+    if (landed === false) return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain${after}` };
+    return {
+      ok: false,
+      signature,
+      result: answered ? `sending failed (${answered}), and it was not seen on chain before its blockhash expired` : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again",
+    };
   };
 
   /** One side, its error kept on its own row; once the run has stopped, not tried at all. */
@@ -404,7 +448,7 @@ export async function run(opts, deps) {
     try {
       return await fn();
     } catch (e) {
-      return { ok: false, result: `error: ${e.message}` };
+      return { ok: false, result: e.late ? "not tried: the run stopped early" : `error: ${e.message}` };
     }
   };
 
@@ -462,34 +506,44 @@ export async function run(opts, deps) {
     const mints = [pool.mint0, pool.mint1];
     const vaultTo = destinations(pool, tier.protocolOwner);
     const workshopTo = destinations(pool, tier.fundOwner);
-    const infos = (await rpc("getMultipleAccounts", [[...vaultTo, ...workshopTo], { encoding: "base64", commitment: "confirmed" }])).value;
+    const poolOwn = [pool.vault0, pool.vault1];
+    // Every account a side's transfer touches, in one read: both owners' destinations and the pool's own two.
+    const infos = (await rpc("getMultipleAccounts", [[...vaultTo, ...workshopTo, ...poolOwn], { encoding: "base64", commitment: "confirmed" }])).value;
     const states = (from) => coins.map(([, tokenProgram], i) => destinationState(infos[from + i], tokenProgram));
+    const vaultDest = states(0);
+    const workshopDest = states(2);
+    const pooled = { states: states(4), addresses: poolOwn };
+    // Each owner's destinations are checked whenever they are read, whichever side is due.
+    const vaultSeen = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true });
+    const workshopSeen = problems({ states: workshopDest, addresses: workshopTo, mints, vault: false });
     const venue = async () => {
-      const dest = states(0);
-      const hold = heldBack(dest, vaultTo, mints, true);
-      if (hold) return hold;
+      const p = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true, pool: pooled, share: pool.protocol });
+      if (p.named.length) return held(p);
       // The vault's missing accounts are opened here: they and their rent stay the venue's.
-      const opens = coins.map(([mint, tokenProgram], i) => ({ mint, tokenProgram, address: vaultTo[i], before: dest[i].lamports })).filter((_, i) => !dest[i].open);
+      const opens = coins.map(([mint, tokenProgram], i) => ({ mint, tokenProgram, address: vaultTo[i], before: vaultDest[i].lamports })).filter((_, i) => !vaultDest[i].open);
       row.created = opens.length;
       const ixs = [...opens.map(({ mint, tokenProgram }) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram })), sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })];
       return sendOne(`the venue's sweep of ${pool.address}`, ixs, opens);
     };
     const islandSide = async () => {
-      const dest = states(2);
-      // The Workshop's are never opened here: its share waits until the island holds both.
-      const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !dest[i].open);
+      // The Workshop's are never opened here: its share waits until the island holds both, and
+      // what is wrong with the one it holds is named meanwhile.
+      const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !workshopDest[i].open);
       if (lacking.length) {
         row.missing = lacking;
-        return { ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` };
+        return naming({ ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` }, workshopSeen);
       }
-      return heldBack(dest, workshopTo, mints, false) ?? sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })]);
+      const p = problems({ states: workshopDest, addresses: workshopTo, mints, vault: false, pool: pooled, share: pool.fund });
+      if (p.named.length) return held(p);
+      return sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })]);
     };
-    Object.assign(row.venue, !owed(pool.protocol) ? nothing : !venueDue ? under : await attempt(venue));
-    Object.assign(row.island, !owed(pool.fund) ? nothing : !islandDue ? under : await attempt(islandSide));
+    Object.assign(row.venue, !owed(pool.protocol) ? naming(nothing, vaultSeen) : !venueDue ? naming(under, vaultSeen) : await attempt(venue));
+    Object.assign(row.island, !owed(pool.fund) ? naming(nothing, workshopSeen) : !islandDue ? naming(under, workshopSeen) : await attempt(islandSide));
   };
 
+  const opened = new Map();
   for (const [i, item] of listed.entries()) {
-    if (res.stopped) {
+    if (res.stopped || late()) {
       res.unvisited = listed.length - i;
       break;
     }
@@ -511,22 +565,29 @@ export async function run(opts, deps) {
       if (!s?.result) continue;
       if (!s.ok) res.ok = false;
       if (s.notUpgraded) res.notUpgraded = true;
-      if (s.sent || s.clean) res.paid.sweeps++;
-      if (s.swept || s.clean) {
-        res.paid.opened += s.opened;
-        res.paid.rent = res.paid.rent === null || s.rent === null ? null : res.paid.rent + s.rent;
-      }
+      // A fee for each sweep the chain has seen, a failed one too, or a dry run would send; none for one never seen.
+      if (s.fee) res.paid.sweeps++;
+      // Each account once: in a dry run every pool's simulation opens it afresh.
+      for (const o of s.opens ?? []) if (!opened.has(o.address)) opened.set(o.address, o.rent);
     }
   }
+  res.paid.opened = opened.size;
+  res.paid.rent = [...opened.values()].reduce((sum, r) => (sum === null || r === null ? null : sum + r), 0);
   if (res.stopped) {
     res.ok = false;
     return res;
   }
-  // One read at the end: what the key holds after the run.
+  // At the end: what a sweep that opens a vault account needs the payer to hold (the least it
+  // must keep, and a token account's rent), then one read of what it holds.
+  try {
+    res.keep = { floor: await call("getMinimumBalanceForRentExemption", [0]), rent: await call("getMinimumBalanceForRentExemption", [165]) };
+  } catch {
+    res.keep = null;
+  }
   try {
     res.balance = (await call("getBalance", [payer, { commitment: "confirmed" }])).value;
-  } catch {
-    res.balance = null;
+  } catch (e) {
+    res.balanceError = e.message;
   }
   return res;
 }
@@ -560,14 +621,18 @@ export function summary(res, opts) {
     const why = res.prices.islandError ? ` (${cell(res.prices.islandError)})` : "";
     lines.push("", `No price today for ${res.prices.unpriced.join(", ")}${why}: their shares counted as nothing against the floor.`);
   }
-  if (res.stopped) lines.push("", `The run stopped early (${cell(res.stopped)}); ${count(res.unvisited, "pool")} not looked at.`);
+  if (res.stopped) lines.push("", `The run stopped early (${cell(res.stopped)}); ${res.listed ? `${count(res.unvisited, "pool")} not looked at` : "the pools were not listed"}.`);
   const p = res.paid;
   const rent = p.rent === null ? "its rent not read" : `${n(p.rent)} lamports of rent, which stays the vault's`;
-  const balance = res.balance == null ? `The balance of \`${res.payer}\` could not be read` : `\`${res.payer}\` holds ${n(res.balance)} lamports`;
+  const balance = res.balance != null ? `\`${res.payer}\` holds ${n(res.balance)} lamports` : `The balance of \`${res.payer}\` ${res.balanceError ? "could not be read" : "was not read"}`;
   lines.push(
     "",
-    `${opts.live ? "Paid by the key" : "A live run would pay"}: ${count(p.opened, "account")} opened for the vault (${rent}); ${count(p.sweeps, "sweep")} sent (${n(p.sweeps * FEE_LAMPORTS)} lamports of network fees). ${balance}.`
+    `${opts.live ? "Paid by the key" : "A live run would pay"}: ${count(p.opened, "account")} opened for the vault (${rent}); ${count(p.sweeps, "sweep")} ${opts.live ? "seen on chain" : "sent"} (${n(p.sweeps * FEE_LAMPORTS)} lamports of network fees). ${balance}.`
   );
+  const need = res.keep ? res.keep.floor + res.keep.rent + FEE_LAMPORTS : null;
+  if (need !== null && res.balance != null && res.balance < need) {
+    lines.push("", `That is under the ${n(need)} lamports one more sweep that opens a vault account needs (${n(res.keep.floor)} the payer must keep, ${n(res.keep.rent)} of rent and ${n(FEE_LAMPORTS)} of fee): fund it.`);
+  }
   return lines.join("\n");
 }
 

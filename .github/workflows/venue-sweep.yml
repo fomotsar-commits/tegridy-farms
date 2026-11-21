@@ -16,7 +16,9 @@ name: Venue Sweep
 # it fails. A live run without the key fails too. No npm install: no third-party code runs next
 # to the key (the same rule as venue-volume.yml). The key belongs in the `venue-sweep`
 # environment's secrets, with that environment limited to mvp-launch, so a manual run of
-# another branch's copy of this file never gets it.
+# another branch's copy of this file never gets it. GitHub creates the environment, with no
+# rules, on this file's first run: set its branch rule before the secret goes in, and fund the
+# key no later than that day (a payer with nothing fails every simulation, so every run).
 
 on:
   schedule:

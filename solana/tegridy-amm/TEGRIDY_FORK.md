@@ -705,11 +705,13 @@ other coins is named and left to hand collects, as is one with a coin that takes
 A destination counts as open only when its coin's own token program owns it. The job opens only
 the vault's missing accounts (their rent stays the venue's); it sweeps the island's share only
 where the Workshop already holds both of that pool's accounts, and its summary names the missing
-ones for the island to open. Before a side is sent, its open destinations are read (the owner's
-ruling of 2026-11-21): a delegate, a close authority or a freeze holds that side back and names
-it, and on the vault's side each of these but a freeze of a coin other than USDC or USDT also
-fails the run. The job pays 5,000 lamports for each sweep it sends, the island's included, and
-its summary says what it paid and what its key holds.
+ones for the island to open. A side is sent only when every account its transfer touches is open
+(the owner's ruling of 2026-11-21): a destination with a delegate, a close authority or a freeze
+holds that side back and names it, as does the pool's own account of a coin that side is owed
+when that one is frozen. On the vault's side each of these but a freeze of a coin other than USDC
+or USDT also fails the run, and the vault's destinations are checked on any day the job reads
+them. The job pays 5,000 lamports for each sweep it sends, the island's included, and its summary
+says what it paid and what its key holds.
 
 **How it was proved, 2026-11-20**, for one owner per call (the first form's proofs are in pull
 request #1282), on the build that also carries the resignation and the audit's checks (WSL:
