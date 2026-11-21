@@ -710,16 +710,18 @@ other coins is named and left to hand collects, as is one with a coin that takes
 A destination counts as open only when its coin's own token program owns it. The job opens only
 the vault's missing accounts (their rent stays the venue's); it sweeps the island's share only
 where the Workshop already holds both of that pool's accounts, and its summary names the missing
-ones for the island to open. It follows the program's two rules above (the owner's ruling of
-2026-11-21, "Fix in the program"). A destination with a delegate or a close authority holds that
-side back and names it, owed or not, since the program refuses it. A coin that side is owed whose
-destination or pool account is frozen is left in the pool and named with that account: it counts
-nothing toward the floor, and the other coin is sent when it passes on its own, the summary never
-calling the frozen one swept. On the vault's side a delegate, a close authority or a frozen USDC or
-USDT also fails the run, even when the other coin is sent; the Workshop's side never fails it, any
-other freeze is only named, and the vault's destinations are checked on any day the job reads
-them. The job pays 5,000 lamports for each sweep it sends, the island's included, and its summary
-says what it paid and what its key holds.
+ones for the island to open. Just before a pool's sides go, it reads the pool again with every
+account their sweeps touch, and goes by the counts as they stand then. It follows the program's
+two rules above (the owner's ruling of 2026-11-21, "Fix in the program"). A destination with a
+delegate or a close authority holds that side back and names it, owed or not, since the program
+refuses it. A coin that side is owed whose destination or pool account is frozen is left in the
+pool and named with that account, on a side that waits too: it counts nothing toward the floor,
+and the other coin is sent when it passes on its own, the summary never calling the frozen one
+swept. On the vault's side a delegate, a close authority or a frozen USDC or USDT also fails the
+run, whether the other coin is sent or the side waits. On the Workshop's side none of these fails
+it, any other freeze is only named, and the vault's destinations are checked on any day the job
+reads them. The job pays 5,000 lamports for each sweep it sends, the island's included, and its
+summary says what it paid and what its key holds.
 
 **How it was proved, 2026-11-20 and 2026-11-21**, for one owner per call (the first form's
 proofs are in pull request #1282), on the build that also carries the resignation and the audit's

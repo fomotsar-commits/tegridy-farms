@@ -41,7 +41,9 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     environment: venue-sweep
-    timeout-minutes: 15
+    # The job stops itself after 9 minutes; a call under way then may take 5.5 more. 20 holds both,
+    # with room for checkout and Node (venue-sweep.test.mjs pins the sum).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

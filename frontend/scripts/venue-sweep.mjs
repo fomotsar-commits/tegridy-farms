@@ -5,21 +5,27 @@
 //
 // Each owner's side is sent only when that owner's own share passes the floor on the coins priced
 // here: SOL, USDC, USDT and the island's five (Jupiter's keyless price, as the volume figure reads
-// it). No other coin takes a price: a pool with none of these is named and left to hand collects,
-// as is one with a coin that takes a transfer fee. A destination counts as open only when its
-// coin's own token program owns it. The vault's missing ones are opened here (their rent stays the
-// venue's); the Workshop's never are (its share waits, and the summary names them). It follows the
-// pool program's two rules (the owner's ruling, 2026-11-21: "Fix in the program"). An open
-// destination with a delegate or a close authority holds its side back, named, owed or not, since
-// the program refuses it. A coin the side is owed whose destination or pool account is frozen is
-// left in the pool and named with that account: it counts nothing toward the floor, and the other
-// coin is sent when it passes on its own. On the vault's side a delegate, a close authority or a
-// frozen USDC or USDT also fails the run, even when the other coin is sent, and its destinations
-// are checked whenever they are read. The key pays 5,000 lamports a sweep, the island's included,
-// and the vault's rent. An error stays on its pool's row; a transport that stops answering, or the
-// run's own time limit, ends the run early. Each signature is logged before it is sent, and a send
-// that answers an error is looked up on chain. The summary is always written, with what the key
-// paid and holds.
+// it; a price that is not a finite number above 0 is no price). No other coin takes a price: a pool
+// with none of these is named and left to hand collects, as is one with a coin that takes a
+// transfer fee. Before a pool's sides go, the pool and every account their transfers touch are
+// read again in one request, and each side goes by the counts as they stand then; after the
+// venue's sweep is sent, the island's accounts and the pool are read once more. A destination
+// counts as open only when its coin's own token program owns it. The vault's missing ones are
+// opened here (their rent stays the venue's); the Workshop's never are (its share waits, and the
+// summary names them). It follows the pool program's two rules (the owner's ruling, 2026-11-21:
+// "Fix in the program"). An open destination with a delegate or a close authority holds its side
+// back, named, owed or not, since the program refuses it. A coin the side is owed whose
+// destination or pool account is frozen is left in the pool and named with that account, also on
+// a side that waits: it counts nothing toward the floor, and the other coin is sent when it passes
+// on its own. On the vault's side a delegate, a close authority or a frozen USDC or USDT also fails
+// the run, whether the other coin is sent or the side waits, and its destinations are checked
+// whenever they are read. The key pays 5,000 lamports a sweep, the island's included, and the
+// vault's rent: at most two sweeps a pool a run, and each missing vault account's rent once. Every
+// simulation is of the unsigned transaction; a live run signs only what it then sends, on a
+// finalized blockhash, which every node knows. An error stays on its pool's row; a transport that
+// stops answering, or the run's own time limit, ends the run early. Each signature is logged
+// before it is sent, and a send that answers an error is looked up on chain. On mainnet a listing
+// with no pool fails the run. The summary is always written, with what the key paid and holds.
 //
 //   node frontend/scripts/venue-sweep.mjs --payer <address>   dry run: reads and simulates as that
 //                                                             payer, sends nothing, needs no key
@@ -62,12 +68,21 @@ const NO_SUCH_INSTRUCTION = 101;
 /** What a sweep costs in network fees: one signature, no priority fee. */
 const FEE_LAMPORTS = 5000;
 /**
- * The run stops itself after 9 minutes and still writes its summary: a call already under way may
- * use all its tries (about 5 minutes more) inside the workflow's 15.
+ * The largest token account a coin swept here takes: 165 bytes, and 170 for a Token-2022 one with
+ * the ImmutableOwner entry the associated token program gives it. (A taxed coin's are larger, and
+ * its pools are never swept.)
+ */
+const ACCOUNT_BYTES = 170;
+/**
+ * The run stops itself after 9 minutes and still writes its summary. Only a call already under way
+ * can run past it, using all its tries (5.5 minutes at most): the reads at the end are made only
+ * inside the limit. The workflow's 20 minutes hold both, with room for checkout and Node.
  */
 export const RUN_LIMIT_MS = 9 * 60_000;
 /** solanaRpc's error once a call has used all its tries (lib/venue-volume-chain.mjs): the RPC is not answering. */
 const NO_ANSWER = /: no answer after \d+ tries/;
+/** How many times a sent sweep's status is looked at, 1.5 seconds apart, before the job gives up on it. */
+const LOOKS = 40;
 const NOTHING = "nothing set aside";
 const UNPRICED = "no priced coin: not swept by this job";
 const DOLLARS = new Set([USDC_MINT, USDT_MINT]);
@@ -222,7 +237,8 @@ export function destinationState(info, tokenProgram) {
  * frozen is `left` (the program keeps its count and still moves the other coin), and a frozen
  * destination of a coin the side is not owed is only named. On the vault's side a delegate, a close
  * authority or a frozen USDC or USDT also fails the run, whether or not the other coin is sent; any
- * other freeze is only named. The Workshop's side never fails the run.
+ * other freeze is only named. On the Workshop's side a delegate, a close authority or a freeze never
+ * fails the run.
  */
 function problems({ states, addresses, mints, vault, pool = null, share = null }) {
   const named = [];
@@ -283,11 +299,13 @@ export function parseArgs(argv) {
   return out;
 }
 
+/** A price only when it is a finite number above 0: JSON's 1e999 reads as Infinity, which is no price. */
+const usable = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+
 async function solPrice(fetchImpl) {
   try {
     const r = await fetchImpl("https://api.coinbase.com/v2/prices/SOL-USD/spot", { signal: AbortSignal.timeout(10_000) });
-    const v = Number((await r.json())?.data?.amount);
-    return v > 0 ? v : null;
+    return usable(Number((await r.json())?.data?.amount));
   } catch {
     return null;
   }
@@ -300,7 +318,8 @@ async function solPrice(fetchImpl) {
  */
 async function islandCoinPrices(fetchImpl) {
   try {
-    return { prices: await islandPrices(fetchImpl, ""), error: null };
+    const read = await islandPrices(fetchImpl, "");
+    return { prices: Object.fromEntries(Object.entries(read).map(([mint, usd]) => [mint, usable(usd)])), error: null };
   } catch (e) {
     return { prices: {}, error: e.message };
   }
@@ -347,6 +366,8 @@ export async function run(opts, deps) {
   try {
     const filters = [{ dataSize: POOL_SIZE }, { memcmp: { offset: 0, bytes: base58(POOL_TAG) } }];
     const raw = await rpc("getProgramAccounts", [opts.program, { encoding: "base64", commitment: "confirmed", filters }]);
+    // Mainnet's program has pools: a listing of none there is a wrong answer, not a quiet day.
+    if (mainnet && !raw.length) throw new Error("the RPC listed no pool, and mainnet's program has pools");
     res.listed = true;
     // An account that will not decode is a failed row of its own; the rest are still swept.
     listed = raw.map((a) => {
@@ -380,7 +401,7 @@ export async function run(opts, deps) {
   const inPools = ISLAND_COINS.filter((c) => listed.some((l) => l.pool && (l.pool.mint0 === c.mint || l.pool.mint1 === c.mint)));
   const island = inPools.length ? await islandCoinPrices(fetchImpl) : { prices: {}, error: null };
   const prices = { sol: solUsd, island: island.prices };
-  res.prices = { ...prices, islandError: island.error, unpriced: inPools.filter((c) => island.prices[c.mint] == null).map((c) => c.symbol) };
+  res.prices = { ...prices, islandError: island.error, unpriced: inPools.filter((c) => island.prices[c.mint] == null).map((c) => c.symbol), floor: opts.minUsd };
   const islandText = !inPools.length
     ? "none in a pool"
     : island.error
@@ -394,14 +415,16 @@ export async function run(opts, deps) {
    * `only`, when a frozen leg stays in the pool, says what the sweep moves and what it leaves.
    */
   const sendOne = async (label, ixs, created = [], only = "") => {
-    const { blockhash, lastValidBlockHeight } = (await rpc("getLatestBlockhash", [{ commitment: "confirmed" }])).value;
+    // A finalized blockhash, which every node knows: a node a few slots behind still takes the send.
+    const { blockhash, lastValidBlockHeight } = (await rpc("getLatestBlockhash", [{ commitment: "finalized" }])).value;
     const compiled = compileLegacy({ payer, instructions: ixs, recentBlockhash: blockhash });
-    // A dry run never signs, key or no key: the RPC simulates the bare message as the payer.
-    const wire = opts.live ? signTransaction(compiled, signer) : Buffer.concat([Buffer.from([1]), Buffer.alloc(64), compiled.message]);
-    const config = { encoding: "base64", sigVerify: opts.live, replaceRecentBlockhash: !opts.live, commitment: "confirmed" };
+    // Every simulation, dry run or live, is of the bare message as the payer, unsigned: a live run
+    // signs only once it has decided to send.
+    const bare = Buffer.concat([Buffer.from([1]), Buffer.alloc(64), compiled.message]);
+    const config = { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" };
     // The accounts it opens, as the simulation leaves them: their rent is what the key pays for them.
     if (created.length) config.accounts = { encoding: "base64", addresses: created.map((c) => c.address) };
-    const sim = (await rpc("simulateTransaction", [wire.toString("base64"), config])).value;
+    const sim = (await rpc("simulateTransaction", [bare.toString("base64"), config])).value;
     if (sim.err) {
       const code = customError(sim.err, ixs.length - 1);
       if (code === NO_SUCH_INSTRUCTION) {
@@ -418,6 +441,7 @@ export async function run(opts, deps) {
     // `fee`: the network fee is paid (or, in a dry run, would be); `opens` count only when its accounts are really opened.
     if (!opts.live) return { ok: true, clean: true, fee: true, opens, result: `simulated clean (${sim.unitsConsumed ?? "?"} compute units); a live run would send it${only && `, sweeping ${only}`}` };
     if (late()) return { ok: false, result: "not sent: the run stopped early" };
+    const wire = signTransaction(compiled, signer);
     // The signature is in the signed bytes (the 64 after their count): it is logged before the send.
     const signature = base58(wire.subarray(1, 65));
     log(`sending ${label}: ${signature}`);
@@ -431,13 +455,17 @@ export async function run(opts, deps) {
       if (res.stopped) return { ok: false, signature, result: `sending got no answer (${answered}): look its signature up on chain` };
     }
     let landed = null;
+    let expired = false;
     try {
-      for (let i = 0; i < 40 && landed === null; i++) {
+      for (let i = 0; i < LOOKS && landed === null; i++) {
         await wait(1500);
         const st = (await rpc("getSignatureStatuses", [[signature]])).value[0];
         if (st?.err) landed = false;
         else if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") landed = true;
-        else if ((await rpc("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) break;
+        else if ((await rpc("getBlockHeight", [{ commitment: "confirmed" }])) > lastValidBlockHeight) {
+          expired = true;
+          break;
+        }
       }
     } catch (e) {
       const why = e.late ? "the run stopped before the chain confirmed it: look its signature up" : `its status could not be read: ${e.message}`;
@@ -446,11 +474,16 @@ export async function run(opts, deps) {
     const after = answered ? ` (its send answered: ${answered})` : "";
     if (landed) return { ok: true, sent: true, swept: true, fee: true, signature, opens, result: `swept${only && ` ${only}`}${after}` };
     if (landed === false) return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain${after}` };
-    return {
-      ok: false,
-      signature,
-      result: answered ? `sending failed (${answered}), and it was not seen on chain before its blockhash expired` : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again",
-    };
+    if (expired) {
+      return {
+        ok: false,
+        signature,
+        result: answered ? `sending failed (${answered}), and it was not seen on chain before its blockhash expired` : "sent, but not seen on chain before its blockhash expired: tomorrow's run tries again",
+      };
+    }
+    // The looks ran out first: its blockhash had not expired at the last one, so it may still land.
+    const unseen = `not confirmed after ${LOOKS} looks, though its blockhash had not expired at the last one: look its signature up`;
+    return { ok: false, signature, result: answered ? `its send answered an error (${answered}), and it was ${unseen}` : `sent, but ${unseen}` };
   };
 
   /** One side, its error kept on its own row; once the run has stopped, not tried at all. */
@@ -519,15 +552,26 @@ export async function run(opts, deps) {
     const vaultTo = destinations(pool, tier.protocolOwner);
     const workshopTo = destinations(pool, tier.fundOwner);
     const poolOwn = [pool.vault0, pool.vault1];
-    // Every account a side's transfer touches, in one read: both owners' destinations and the pool's own two.
-    const infos = (await rpc("getMultipleAccounts", [[...vaultTo, ...workshopTo, ...poolOwn], { encoding: "base64", commitment: "confirmed" }])).value;
-    const states = (from) => coins.map(([, tokenProgram], i) => destinationState(infos[from + i], tokenProgram));
-    const vaultDest = states(0);
-    const workshopDest = states(2);
-    const pooled = { states: states(4), addresses: poolOwn };
-    // Each owner's destinations are checked whenever they are read, whichever side is due.
-    const vaultSeen = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true });
-    const workshopSeen = problems({ states: workshopDest, addresses: workshopTo, mints, vault: false });
+    /**
+     * One read of the `owners`' destinations, the pool's own two accounts and the pool itself: each
+     * owner's two as destinationState reads them, the pool's two, and the pool's two shares as they
+     * stand now, so a share swept or collected since the listing is not sent for again.
+     */
+    const read = async (owners) => {
+      const to = owners.flat();
+      const infos = (await rpc("getMultipleAccounts", [[...to, ...poolOwn, pool.address], { encoding: "base64", commitment: "confirmed" }])).value;
+      const states = (from) => coins.map(([, tokenProgram], i) => destinationState(infos[from + i], tokenProgram));
+      const again = infos[to.length + 2];
+      if (!again) throw new Error(`the pool ${pool.address} could not be read again`);
+      const { protocol, fund } = decodePool(pool.address, again.data[0]);
+      return { dest: owners.map((_, k) => states(2 * k)), pooled: { states: states(to.length), addresses: poolOwn }, protocol, fund };
+    };
+    // Every account a side's transfer touches, in one read: both owners' destinations (each owner's
+    // are checked whenever they are read, whichever side is due), the pool's own two, and the pool.
+    const first = await read([vaultTo, workshopTo]);
+    const [vaultDest, workshopDest] = first.dest;
+    row.venue.share = shareOf(pool, first.protocol);
+    row.island.share = shareOf(pool, first.fund);
     /** Each coin's amount in `raw` above 0, as "<amount> of <mint>", joined with "and". */
     const amounts = (raw) =>
       raw
@@ -557,23 +601,41 @@ export async function run(opts, deps) {
       const ixs = [...opens.map(({ mint, tokenProgram }) => createIdempotentIx({ payer, owner: tier.protocolOwner, mint, tokenProgram })), sweepFeesIx({ programId: opts.program, pool, owner: tier.protocolOwner, fund: false })];
       return sendOne(`the venue's sweep of ${pool.address}`, ixs, opens, only);
     };
-    const venue = async () => {
-      const p = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true, pool: pooled, share: pool.protocol });
-      return side(p, pool.protocol, sendVenue);
+    const sendIsland = (only) => sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })], [], only);
+    /**
+     * One side on its share as the read found it: nothing set aside, under the floor, or `go`. What
+     * is wrong with its accounts (`p` from problems(), the pool's own two included) is named either
+     * way, and on the vault's side fails the run where it does.
+     */
+    const weigh = async (p, share, go) => (!owed(share) ? naming(nothing, p) : !worthSweeping(pool, share, prices, opts.minUsd) ? naming(under, p) : attempt(go));
+    const venueP = problems({ states: vaultDest, addresses: vaultTo, mints, vault: true, pool: first.pooled, share: first.protocol });
+    Object.assign(row.venue, await weigh(venueP, first.protocol, () => side(venueP, first.protocol, sendVenue)));
+    const islandSide = (dest, pooled, share) => {
+      const p = problems({ states: dest, addresses: workshopTo, mints, vault: false, pool: pooled, share });
+      return weigh(p, share, async () => {
+        // The Workshop's are never opened here: its share waits until the island holds both, and
+        // what is wrong with the one it holds is named meanwhile.
+        const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !dest[i].open);
+        if (lacking.length) {
+          row.missing = lacking;
+          return naming({ ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` }, p);
+        }
+        return side(p, share, sendIsland);
+      });
     };
-    const islandSide = async () => {
-      // The Workshop's are never opened here: its share waits until the island holds both, and
-      // what is wrong with the one it holds is named meanwhile.
-      const lacking = coins.map(([mint], i) => ({ mint, address: workshopTo[i] })).filter((_, i) => !workshopDest[i].open);
-      if (lacking.length) {
-        row.missing = lacking;
-        return naming({ ok: true, result: `waits: the Workshop has no account yet for ${lacking.map((m) => m.mint).join(" or ")}` }, workshopSeen);
-      }
-      const p = problems({ states: workshopDest, addresses: workshopTo, mints, vault: false, pool: pooled, share: pool.fund });
-      return side(p, pool.fund, (only) => sendOne(`the island's sweep of ${pool.address}`, [sweepFeesIx({ programId: opts.program, pool, owner: tier.fundOwner, fund: true })], [], only));
-    };
-    Object.assign(row.venue, !owed(pool.protocol) ? naming(nothing, vaultSeen) : !venueDue ? naming(under, vaultSeen) : await attempt(venue));
-    Object.assign(row.island, !owed(pool.fund) ? naming(nothing, workshopSeen) : !islandDue ? naming(under, workshopSeen) : await attempt(islandSide));
+    // The venue's sweep, once sent, took seconds or more: the Workshop's accounts, the pool's own
+    // two and the pool are read again before the island's side goes.
+    if (!row.venue.signature || !owed(first.fund)) Object.assign(row.island, await islandSide(workshopDest, first.pooled, first.fund));
+    else {
+      Object.assign(
+        row.island,
+        await attempt(async () => {
+          const again = await read([workshopTo]);
+          row.island.share = shareOf(pool, again.fund);
+          return islandSide(again.dest[0], again.pooled, again.fund);
+        })
+      );
+    }
   };
 
   const opened = new Map();
@@ -612,17 +674,29 @@ export async function run(opts, deps) {
     res.ok = false;
     return res;
   }
-  // At the end: what a sweep that opens a vault account needs the payer to hold (the least it
-  // must keep, and a token account's rent), then one read of what it holds.
+  // At the end: what one more sweep that opens a vault account needs the payer to hold (the least
+  // it must keep, and the rent of one account of the largest size), then one read of what it holds.
+  // They only feed the summary, so each is made only inside the time limit, and none after one the
+  // RPC left unanswered: only a call already under way can run past the limit.
+  let answering = true;
+  const endRead = async (method, params) => {
+    if (!answering || now() > limit) throw Object.assign(new Error("not asked"), { skipped: true });
+    try {
+      return await call(method, params);
+    } catch (e) {
+      if (NO_ANSWER.test(e?.message ?? "")) answering = false;
+      throw e;
+    }
+  };
   try {
-    res.keep = { floor: await call("getMinimumBalanceForRentExemption", [0]), rent: await call("getMinimumBalanceForRentExemption", [165]) };
+    res.keep = { floor: await endRead("getMinimumBalanceForRentExemption", [0]), rent: await endRead("getMinimumBalanceForRentExemption", [ACCOUNT_BYTES]) };
   } catch {
     res.keep = null;
   }
   try {
-    res.balance = (await call("getBalance", [payer, { commitment: "confirmed" }])).value;
+    res.balance = (await endRead("getBalance", [payer, { commitment: "confirmed" }])).value;
   } catch (e) {
-    res.balanceError = e.message;
+    if (!e.skipped) res.balanceError = e.message;
   }
   return res;
 }
@@ -656,6 +730,10 @@ export function summary(res, opts) {
     const why = res.prices.islandError ? ` (${cell(res.prices.islandError)})` : "";
     lines.push("", `No price today for ${res.prices.unpriced.join(", ")}${why}: their shares counted as nothing against the floor.`);
   }
+  if (res.prices && res.prices.sol == null) {
+    const sol = ((0.007 * res.prices.floor) / 0.5).toLocaleString("en-US", { maximumFractionDigits: 9 });
+    lines.push("", `SOL's price was not read today, so ${sol} SOL stood in for the $${res.prices.floor} floor.`);
+  }
   if (res.stopped) lines.push("", `The run stopped early (${cell(res.stopped)}); ${res.listed ? `${count(res.unvisited, "pool")} not looked at` : "the pools were not listed"}.`);
   const p = res.paid;
   const rent = p.rent === null ? "its rent not read" : `${n(p.rent)} lamports of rent, which stays the vault's`;
@@ -666,7 +744,7 @@ export function summary(res, opts) {
   );
   const need = res.keep ? res.keep.floor + res.keep.rent + FEE_LAMPORTS : null;
   if (need !== null && res.balance != null && res.balance < need) {
-    lines.push("", `That is under the ${n(need)} lamports one more sweep that opens a vault account needs (${n(res.keep.floor)} the payer must keep, ${n(res.keep.rent)} of rent and ${n(FEE_LAMPORTS)} of fee): fund it.`);
+    lines.push("", `That is under the ${n(need)} lamports one more sweep that opens one vault account needs (${n(res.keep.floor)} the payer must keep, ${n(res.keep.rent)} of rent and ${n(FEE_LAMPORTS)} of fee): fund it.`);
   }
   return lines.join("\n");
 }
