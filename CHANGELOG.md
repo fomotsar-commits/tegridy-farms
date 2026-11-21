@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-20
 
+- The city is no longer laid out on a grid: a ring road winds round the island, a boulevard runs from the pier through the plaza, and the buildings stand scattered along the streets at their own angles, with the island's greenery between them and the lighthouse alone on the far point.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19

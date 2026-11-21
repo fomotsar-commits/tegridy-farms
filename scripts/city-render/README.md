@@ -9,6 +9,13 @@ building opens its close-up. This folder makes those pictures.
 - `plan.json`: the island's layout, written from the site's own plan (`frontend/src/lib/city/plan.ts`)
   by `frontend/src/lib/city/renderPlan.test.ts`. That test fails if this file and the plan disagree,
   so a render can never stand its buildings somewhere the page's plaques and presses are not.
+  The town is not a grid: its streets are smooth curves (`roads`, closely set centre lines; a
+  ring road round the island, a boulevard from the pier through the plaza, a short lane), and
+  each plot stands on a street's far side, turned to face it. A plot has TWO places: its frame
+  (`x0`, `y0`, its pool, garden, palms and lamps; the old grid slot, where `buildings.py` and
+  `maquette.py` make it) and its `site` (the middle it is moved to and how far it is turned, in
+  radians, the site's sense). `island.py` builds each plot in its frame, then moves the lot to its
+  site; a close-up is shot in the frame, so moving a plot never changes its close-up.
 - `kit.py`: materials and parts (each room's picture as a lit print, thatch, tin, bamboo, palms,
   lamps, the art wrap). Everything takes the site's coordinates; Blender's world is the site's with
   y turned over, because the site's axonometric is a mirror of a real camera's view.
