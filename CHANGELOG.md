@@ -7,10 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-20
+### 2026-11-21
 
 - Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
 
+### 2026-11-20
+
+- The city's island is now one architect's model at night, like its close-ups: cork land on a pale beach, a sea of deep blue resin, card streets, wooden palms and trees, each room's art laid as tile, small white figures on every plot, lit by its own street lamps, windows and glowing pools in a dark gallery.
+- The city is no longer laid out on a grid: a ring road winds round the island, a boulevard runs from the pier through the plaza, and the buildings stand scattered along the streets at their own angles, with the island's greenery between them and the lighthouse alone on the far point.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19
