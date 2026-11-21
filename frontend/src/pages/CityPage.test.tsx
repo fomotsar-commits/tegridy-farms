@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { BUNGALOWS } from '../lib/bungalows';
 import type { PoolRead } from '../lib/city/plan';
 import type { CityReads } from '../hooks/useCityReads';
+import { closeUpSrc } from '../lib/city/render';
 
 // The page under test is its words and its list. The drawing is lib/city/scene.ts, proven in
 // scene.test.ts; jsdom has no canvas to draw on, so the canvas stands in as an empty one.
@@ -75,11 +76,11 @@ describe('/city', () => {
   it("opens the picked building's close-up, its art at full size, and changes it with the pick", () => {
     mount(base());
     const shot = card().getByRole('img');
-    expect(shot.getAttribute('src')).toBe('/city/close/bayla.webp');
+    expect(shot.getAttribute('src')).toBe(closeUpSrc('bayla'));
     expect(shot.getAttribute('alt')).toMatch(/^Bayla, The Lighthouse, close up$/);
     const list = within(screen.getByRole('navigation', { name: 'Every plot' }));
     fireEvent.click(list.getByRole('button', { name: 'TREASURY' }));
-    expect(card().getByRole('img').getAttribute('src')).toBe('/city/close/treasury.webp');
+    expect(card().getByRole('img').getAttribute('src')).toBe(closeUpSrc('treasury'));
   });
 
   // Review, 2026-11-19: every pick blanked the close-up to an empty black frame until it loaded.
@@ -87,7 +88,7 @@ describe('/city', () => {
     const { container } = mount(base());
     fireEvent.load(card().getByRole('img'));
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Every plot' })).getByRole('button', { name: 'TREASURY' }));
-    const under = () => container.querySelector('img[aria-hidden="true"][src="/city/close/bayla.webp"]');
+    const under = () => container.querySelector(`img[aria-hidden="true"][src="${closeUpSrc('bayla')}"]`);
     expect(under()).not.toBeNull();
     const next = card().getByRole('img');
     expect(next.hasAttribute('data-in')).toBe(false);

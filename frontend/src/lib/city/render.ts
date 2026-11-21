@@ -7,6 +7,17 @@
 // and lib/city/renderPlan.test.ts fails if that file and this plan ever disagree.
 
 import { ISLAND_CX, ISLAND_CY, type PieceId } from './plan';
+import FINGERPRINTS from './renderFingerprints.json';
+
+/**
+ * A picture in public/city, linked by its contents' fingerprint. The pictures keep their names
+ * each time they are rendered again, and a browser keeps each for a week without asking
+ * (frontend/vercel.json, /city/(.*)), so a returning visitor saw last week's island under this
+ * week's plaques (owner, 2026-11-21: the grid island under the new layout's labels). A new
+ * picture is now a new link, fetched at once. scripts/city-render/render_all.py writes the
+ * fingerprints after a render; lib/city/renderFingerprints.test.ts fails if one is stale.
+ */
+const cityPicture = (file: string): string => `/city/${file}?v=${(FINGERPRINTS as Record<string, string>)[file] ?? ''}`;
 
 /**
  * How tall each building stands in the render, in world units: what each builder in
@@ -27,8 +38,8 @@ export const RENDER_SPAN = [95, 66] as const;
 /** Pixels to one world unit in the full image, and in the half-size one. */
 export const RENDER_K = 36;
 export const RENDER = {
-  full: { src: '/city/island.webp', k: RENDER_K, width: RENDER_SPAN[0] * RENDER_K, height: RENDER_SPAN[1] * RENDER_K },
-  half: { src: '/city/island-half.webp', k: RENDER_K / 2, width: (RENDER_SPAN[0] * RENDER_K) / 2, height: (RENDER_SPAN[1] * RENDER_K) / 2 },
+  full: { src: cityPicture('island.webp'), k: RENDER_K, width: RENDER_SPAN[0] * RENDER_K, height: RENDER_SPAN[1] * RENDER_K },
+  half: { src: cityPicture('island-half.webp'), k: RENDER_K / 2, width: (RENDER_SPAN[0] * RENDER_K) / 2, height: (RENDER_SPAN[1] * RENDER_K) / 2 },
 } as const;
 /** A building's close-up: its art at full size, opened by a press on it. */
-export const closeUpSrc = (plotId: string): string => `/city/close/${plotId}.webp`;
+export const closeUpSrc = (plotId: string): string => cityPicture(`close/${plotId}.webp`);
