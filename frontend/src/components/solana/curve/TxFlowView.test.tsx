@@ -1034,17 +1034,86 @@ describe('a review left open past its blockhash', () => {
 });
 
 // The same, through the button a visitor presses and the review they read.
-function Flow({ api, build }: { api: WriteApi; build: () => Promise<Prepared> }) {
-  const flow = useTxFlow(api, rpc);
+function Flow({ api, build, signWhenReady, at = rpc, who = signer }: { api: WriteApi; build: () => Promise<Prepared>; signWhenReady?: boolean; at?: WriteRpc; who?: TxSigner | null }) {
+  const flow = useTxFlow(api, at);
   return (
     <>
       <button type="button" onClick={() => void flow.prepare(build, { repeatable: true })}>
         Review
       </button>
-      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={signer} />
+      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={who} signWhenReady={signWhenReady} />
     </>
   );
 }
+
+// Owner, 2026-11-19: "claiming yield from lps is 3 different clicks just to harvest".
+describe('one press (signWhenReady): a claim goes to the wallet once its test run passes', () => {
+  const press = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+  };
+
+  it('opens the wallet with no Sign press, once, and keeps the review on screen beside it', async () => {
+    let answer: (o: TxOutcome) => void = () => undefined;
+    const api = fakeApi({ submitPrepared: vi.fn(() => new Promise<TxOutcome>((r) => (answer = r))) });
+    const first = prepared(buySummary());
+    render(<Flow api={api} build={builds(first)} signWhenReady />);
+    await press();
+    await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(1));
+    expect(signed(api)).toEqual([first]);
+    expect(screen.queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Waiting for your wallet. Approve it there if it matches what is below.');
+    expect(screen.getByTestId('tx-review')).toHaveTextContent('Test run passed');
+    await act(async () => {
+      answer({ status: 'confirmed', signature: SIG, slot: 1 });
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(api.submitPrepared).toHaveBeenCalledTimes(1);
+  });
+
+  it('after Start over, the next press goes to the wallet again by itself', async () => {
+    const api = fakeApi({ submitPrepared: vi.fn(async (): Promise<TxOutcome> => ({ status: 'not-sent', stage: 'sign', message: 'User rejected the request.' })) });
+    render(<Flow api={api} build={builds(prepared(buySummary()), again())} signWhenReady />);
+    await press();
+    await vi.waitFor(() => expect(screen.getByTestId('tx-outcome')).toHaveAttribute('data-status', 'not-sent'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    await press();
+    await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(2));
+  });
+
+  it('without it, nothing reaches the wallet until Sign in wallet is pressed', async () => {
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()))} />);
+    await press();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('with no wallet that can sign, it waits and says so', async () => {
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()))} signWhenReady who={null} />);
+    await press();
+    expect(screen.getByText('Connect a wallet that can sign to continue.')).toBeInTheDocument();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('a review built again that reads differently is shown and waits for Sign in wallet', async () => {
+    // The network is past the first build's blockhash, so the wallet's turn builds it again.
+    const late = { getBlockHeight: async () => 1_234 } as unknown as WriteRpc;
+    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), { lastValidBlockHeight: 1_000_000 });
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()), fresh)} signWhenReady at={late} />);
+    await press();
+    await vi.waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('1 line reads differently now:'));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+  });
+});
 
 describe('the stale review on screen', () => {
   const openStale = async (api: WriteApi, build: () => Promise<Prepared>) => {
