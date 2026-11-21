@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
+import { localeCut } from '../lib/formatting';
 import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
 import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
@@ -39,7 +40,6 @@ import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { IsoIsland } from '../components/farm/IsoIsland';
 import { rowTerms, venuePoolRows } from '../lib/venuePools';
 import { planAspect } from '../lib/isoPlan';
-import { earnPoolPath } from '../lib/earnRoutes';
 import { EDITORIAL_GRAIN, EDITORIAL_GREEN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { SheetRuler } from '../components/dwg/SheetRuler';
 import { HarvestCard } from '../components/farm/HarvestCard';
@@ -121,27 +121,31 @@ function VenueEarn() {
           {/* One heading, one line (owner, 2026-10-14: as few words as possible).
               The island's name is in the list's own heading below. */}
           <header
-            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 md:grid md:grid-cols-1"
+            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 max-md:flex max-md:flex-col md:grid md:grid-cols-1"
             style={{ background: 'rgba(5,8,15,0.9)' }}
           >
             <div aria-hidden="true" className="absolute inset-0 -z-10 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
             {/* The village takes most of the sheet (owner, 2026-11-14: the bungalows "much much
                 further"), and the words stand in the corners its plan leaves empty: the count top
                 left, the title bottom left. All three share one grid cell from 768px, so the sheet
-                is as tall as the taller of them. The words let a pointer through to the houses
-                behind them, and take it back on their own text and controls. The small print has a
-                row of its own under that cell, so opening it makes the sheet taller below the model
-                rather than lifting the word onto the houses.
-                A phone: the model stands behind the word and fades out above the line under it, so
-                the first row is no further down the screen and the line is read on plain black. */}
-            <div className="max-md:absolute max-md:-z-10 max-md:-right-10 max-md:-top-1 max-md:w-[min(74%,21rem)] max-md:opacity-80 max-md:[mask-image:linear-gradient(to_bottom,#000_58%,transparent_96%)] md:[grid-area:1/1] md:justify-self-end md:w-[var(--model-w)] md:-mr-6 lg:-mr-9 md:-mt-4 md:mb-2" style={modelWidth}>
-              <IsoIsland rows={pools} active={active} onActive={setActive} onOpen={(id) => navigate(earnPoolPath(id))} />
+                is as tall as the taller of them. The word lets a pointer through to the houses
+                behind it, and the line under it takes it back on its own text. The small print has
+                a row of its own under that cell, so opening it makes the sheet taller below the
+                model rather than lifting the word onto the houses.
+                A phone: the model has a row of its own under the line, the sheet's full width, so
+                every house is whole and takes a tap (owner, 2026-11-15: it "doesnt fit the screen
+                properly"). Until then it stood behind the word, cut off at the screen's right edge
+                and under the word's letters, and seven of its eleven houses could not be tapped.
+                A press on a house enters its bungalow (`/<id>`), as its door on the front page
+                and the bungalow picker do; the row under it opens its pool. */}
+            <div className="max-md:order-2 max-md:-mx-4 max-md:mt-4 md:[grid-area:1/1] md:justify-self-end md:w-[var(--model-w)] md:-mr-6 lg:-mr-9 md:-mt-4 md:mb-2" style={modelWidth}>
+              <IsoIsland rows={pools} active={active} onActive={setActive} onOpen={(id) => navigate(`/${id}`)} />
             </div>
             <p className="relative flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60 md:[grid-area:1/1] md:self-start md:justify-self-start">
               <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
               {pools.length} pools · {chains} chains
             </p>
-            <div className="relative min-w-0 md:[grid-area:1/1] md:self-end md:justify-self-start md:max-w-[46%] md:pointer-events-none md:[&>*]:pointer-events-auto">
+            <div className="relative min-w-0 md:[grid-area:1/1] md:self-end md:justify-self-start md:max-w-[46%] md:pointer-events-none md:[&>p]:pointer-events-auto">
               {/* The word rises from under a mask, as the menu's do; its outline stands a step
                   down and to the right of it, as a plan's projection does (drawn from `data-echo`,
                   so the heading holds the one word). */}
@@ -157,7 +161,7 @@ function VenueEarn() {
                 Pick a coin, open its pool, stake.
               </p>
             </div>
-            <FinePrint summary="How it works" className="relative mt-1 max-w-[62ch] md:[grid-area:2/1] md:max-w-[46%]">
+            <FinePrint summary="How it works" className="relative mt-1 max-w-[62ch] max-md:order-3 md:[grid-area:2/1] md:max-w-[46%]">
                 <p>
                   Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
                 </p>
@@ -320,7 +324,7 @@ function ToweliFarm() {
   // means "could not read", and conflating the two was exactly the dry-day
   // display bug. isDry only flips once reads landed, so the distinction holds.
   const rewardsRemainingDisplay = pool.isDeployed && (rewardsRemainingNum > 0 || pool.isDry)
-    ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
+    ? `${localeCut(pool.rewardsRemaining, 0)} TOWELI`
     : '–';
 
   // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).

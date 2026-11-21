@@ -1,0 +1,34 @@
+// The island's render: one night image of the whole island from the site's own axonometric,
+// made in Blender from this plan (scripts/city-render/). The page lays it under the live parts
+// (people, plaques, a press on a plot), which are drawn with the same projection, so they land on
+// the buildings they belong to.
+//
+// THE FRAME IS SET HERE AND NOWHERE ELSE. scripts/city-render/plan.json carries it to Blender,
+// and lib/city/renderPlan.test.ts fails if that file and this plan ever disagree.
+
+import { ISLAND_CX, ISLAND_CY, type PieceId } from './plan';
+
+/**
+ * How tall each building stands in the render, in world units: what each builder in
+ * scripts/city-render/buildings.py returns. A plot's plaque hangs above it, and a press on the
+ * picture reaches up to it.
+ */
+export const PIECE_TOP: Record<PieceId, number> = {
+  wing: 4.06, pads: 3.86, blade: 3.46, balance: 3.36, ghost: 3.26,
+  slouch: 3.46, monolith: 4.06, gridshell: 2.13, wave: 2.81, lantern: 3.26,
+  lighthouse: 8.04, canopy: 3.66, hourglass: 5.16, lifeguard: 4.26, lift: 5.06,
+  halo: 4.16, stack: 4.96, villa: 2.61, bloom: 3.81, slip: 3.06,
+};
+
+/** The world point at the middle of the image: x, y, z. */
+export const RENDER_CENTER = [ISLAND_CX, ISLAND_CY + 1.5, 2.6] as const;
+/** How much of the world the image spans, in the sheet's own units at zoom 1 (lib/city/kit.ts UNIT pixels each). */
+export const RENDER_SPAN = [95, 66] as const;
+/** Pixels to one world unit in the full image, and in the half-size one. */
+export const RENDER_K = 36;
+export const RENDER = {
+  full: { src: '/city/island.webp', k: RENDER_K, width: RENDER_SPAN[0] * RENDER_K, height: RENDER_SPAN[1] * RENDER_K },
+  half: { src: '/city/island-half.webp', k: RENDER_K / 2, width: (RENDER_SPAN[0] * RENDER_K) / 2, height: (RENDER_SPAN[1] * RENDER_K) / 2 },
+} as const;
+/** A building's close-up: its art at full size, opened by a press on it. */
+export const closeUpSrc = (plotId: string): string => `/city/close/${plotId}.webp`;

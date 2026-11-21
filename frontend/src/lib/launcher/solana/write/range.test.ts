@@ -383,6 +383,19 @@ describe('the pool’s price against the outside market, asked fresh at Review',
     expect(priceLine(await notices(readsAt({ kind: 'ok', solPerToken: POOL_PRICE / 1.1, source: 'Jupiter' })))).toMatch(/10% above the outside price/);
   });
 
+  it('what a move back would cost is a loss: rounded up at the sixth decimal, never below the estimate', async () => {
+    const reads = readsAt({ kind: 'ok', solPerToken: POOL_PRICE * 1.1, source: 'Jupiter' });
+    const p = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, reads, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    const s = p.summary as Extract<RangeSummary, { kind: 'range-open' }>;
+    if (s.price.state !== 'disagrees') throw new Error(`price check ${s.price.state}`);
+    const loss = s.price.lossQuote!;
+    // It runs past the sixth decimal of SOL, where a cut and a round-up differ.
+    expect(loss % 1_000n).not.toBe(0n);
+    const [whole, frac = ''] = /would take up to about ([\d.,]+) SOL/.exec(s.warnings.join(' '))![1]!.replace(/,/g, '').split('.');
+    const shown = BigInt(whole!) * 1_000_000_000n + BigInt(frac.padEnd(9, '0'));
+    expect(shown >= loss && shown - loss < 1_000n).toBe(true);
+  });
+
   it('no outside market, or a read that failed, is said too: never read as agreeing', async () => {
     expect(priceLine(await notices(readsAt({ kind: 'no-route', detail: 'Jupiter has no route for this token' })))).toBe(RANGE_COPY.noMarket);
     expect(priceLine(await notices(readsAt({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 500)' })))).toBe(RANGE_COPY.priceUnread('Jupiter did not give a price (HTTP 500)'));

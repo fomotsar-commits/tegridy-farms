@@ -5,7 +5,7 @@ import { EDITORIAL_BG, EDITORIAL_GREEN, EDITORIAL_INK, mixHex } from '../../lib/
 import { groundMatrix, iso, pts, type Pt } from '../../lib/iso';
 import { HOUSE_D, MURAL_ACROSS, RAIL_GAP, RAIL_TOP, U, gableFrame, muralFrame, rungHeights } from '../../lib/isoBungalow';
 import { muralOf, muralWidth, readFacts, restDim, usePictures } from '../../lib/isoMural';
-import { KEY, NAME_PX, PAD, TURN, groundOf, keyFoot, planBox, planStreets, roadOf } from '../../lib/isoPlan';
+import { KEY, NAME_PX, PAD, TURN, groundOf, keyFoot, planBox, planStreets, plotOutline, roadOf } from '../../lib/isoPlan';
 import type { VenuePoolRow } from '../../lib/venuePools';
 import { BungalowDefs, IsoBungalow } from './IsoBungalow';
 
@@ -14,8 +14,12 @@ import { BungalowDefs, IsoBungalow } from './IsoBungalow';
  * picture (IsoBungalow.tsx; the plan is lib/isoPlan.ts). ⚠️ It draws only what the registry knows,
  * never a rate, a balance or a size; one thing is to scale, a ladder's rungs, with the key giving
  * their two ends from the contract's constants. Hidden from assistive tech: each house is a linked
- * row in the schedule, and pointing at either lights both; a press on a house opens its pool. Idle,
- * it lights each house in turn, and holds still under reduced motion or off screen.
+ * row in the schedule, and pointing at either lights both; a press on a house or its plot enters its
+ * bungalow, as its front-page door does (owner, 2026-11-15). Idle, it lights each house in turn, and
+ * holds still under reduced motion or off screen.
+ *
+ * ⚠️ ONLY A MOUSE OR A PEN POINTS. On a tap, lifting a roof is a hover, and iOS drops the click of a
+ * tap whose hover changes the page, so a house took two taps. A touch never lights a house.
  */
 
 const FLOOR_LABEL = `${(MIN_BOOST_BPS / 10_000).toFixed(2)}×`;
@@ -130,7 +134,7 @@ export function IsoIsland({ rows, active, onActive, onOpen, className = '' }: {
       aria-hidden="true"
       data-testid="earn-site-model"
       className={`block w-full h-auto select-none ${className}`}
-      onMouseLeave={() => onActive?.(null)}
+      onPointerLeave={(e) => { if (e.pointerType !== 'touch') onActive?.(null); }}
     >
       <defs>
         <radialGradient id={`${fade}-g`} cx="50%" cy="55%" r="55%">
@@ -187,8 +191,10 @@ export function IsoIsland({ rows, active, onActive, onOpen, className = '' }: {
               const shown = wall?.shown ?? null;
               return (
                 <g key={b.row.id} data-pool={b.row.id} data-lit={on ? '' : undefined} data-lifted={up ? '' : undefined}
-                  onMouseEnter={() => onActive?.(b.row.id)} onClick={() => onOpen?.(b.row.id)}
+                  onPointerEnter={(e) => { if (e.pointerType !== 'touch') onActive?.(b.row.id); }}
+                  onClick={() => onOpen?.(b.row.id)}
                   style={{ cursor: onOpen ? 'pointer' : undefined }}>
+                  <polygon points={pts(plotOutline(b.x, b.y))} fill="none" pointerEvents="all" data-hit="plot" />
                   <IsoBungalow defs={fade} x={b.x} y={b.y} art={shown?.src}
                     frames={shown ? { front: muralFrame(shown.facts, wall?.position), gable: gableFrame(shown.facts, wall?.position) } : null}
                     dim={restDim(shown?.facts.luma)}

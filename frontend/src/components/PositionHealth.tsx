@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { staggerContainer, staggerItem } from '../lib/motion';
+import { decimalText } from '../lib/formatting';
 import { CardArt } from './ui/CardArt';
 
 /**
@@ -31,14 +32,16 @@ const SEV: Record<Severity, { color: string; glyph: string }> = {
   good: { color: '#22c55e', glyph: '✓' }, // ✓
 };
 
+/** An amount owed or held, cut at the digit shown: never printed above what is there. */
 function compact(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toFixed(n < 1 ? 2 : 0);
+  if (n >= 1_000_000) return `${decimalText(n, { places: 1, shift: -6 })}M`;
+  if (n >= 1_000) return `${decimalText(n, { places: 1, shift: -3 })}K`;
+  return decimalText(n, { places: n < 1 ? 2 : 0 }) ?? '0';
 }
 
-export function PositionHealth() {
+/** `reserveEmpty`: the TOWELI reward reserve is read and empty, so a claim pays 0. */
+export function PositionHealth({ reserveEmpty = false }: { reserveEmpty?: boolean }) {
   const pos = useUserPosition();
 
   // Self-gate: nothing to watch without a live staking position.
@@ -74,8 +77,8 @@ export function PositionHealth() {
     });
   }
 
-  // Rewards sitting unclaimed. Not during a READ pause: getReward is whenNotPaused.
-  if (claimable > 0.0001 && pos.isPaused !== true) {
+  // Rewards sitting unclaimed. Not during a READ pause (getReward is whenNotPaused), nor on an empty reserve.
+  if (claimable > 0.0001 && pos.isPaused !== true && !reserveEmpty) {
     alerts.push({
       id: 'claim',
       sev: 'info',

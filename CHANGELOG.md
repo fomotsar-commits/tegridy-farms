@@ -7,9 +7,37 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-20
+
+- The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
+
+### 2026-11-19
+
+- The city, rendered again: each building's close-up is now taken at eye height, its art facing you. The island at night has pools that read as water, lamps that light the street, a lagoon that deepens from the shore, and a different garden corner at each bungalow.
+- The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
+- The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
+- Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.
+
+### 2026-11-18
+
+- New page, /city: the island at night, rendered in 3D. Every room is a building wrapped in its own art, with its pool beside it; tap one to see it close up, with its pool's dollars. With a wallet connected, people walk your staking pay from each pool holding some to your door. Trades are not drawn yet.
+- Pools, your positions: a share in a pool of two island coins (BIG BRAIN/BAYLA, BRAINLET/SOY and the like) now shows what it earned, and Claim fees, with no press. A pool opened on this site used to read "changed this pool in more than one way at once" and show no figures; and only your first two shares worked out their earnings by themselves, so a pool listed below them needed a press first. Every share now works its earnings out by itself, one after another, top first.
+- NFT loans: WETH amounts are written from your side of the loan. What you pay, owe or put up is rounded up at the digits shown (the wrap and approve buttons, the offer you sign, what repaying costs, the venue's share of the interest, the wall's LOAN tag, the Lend card's line about who would buy the NFT), and what you receive or are owed is cut. The borrow tab's Largest figure shows four decimals, like the offer card under it.
+- Lock-ladder pools: the early-exit and emergency penalties and the minimum stake are rounded up at the digits shown, never down.
+- Solana: fees and costs are rounded up at the digits shown, never down: a sell's fee, the pool fee and the creator fee, a token's own transfer fee, what opening a pool costs, what a range position or a one-coin add puts in, and a review's network and priority fees. An amount smaller than the last digit shown reads "<0.0001", never a whole 0.0001. A review's one-time account deposits, and the fees a refused transaction cost, are printed to the lamport. The Pools page's rates card states the opening deposits as the opening form does.
+- Prices round to the nearest digit again instead of being cut: the TOWELI price on the dashboard, the price and FDV on Tokenomics, and an NFT pool's spot price and delta.
+- Dashboard: the empty-reserve warning under each Claim button now sits on a dark plate in amber, so it reads over light art and wraps on a phone.
+- Dashboard loans: a borrower's row says "You borrowed" where it said "You owe", because the figure is the loan amount, not what repaying costs. That amount and the Borrowing total are rounded up, as on the loan card.
+- NFT lending, the Lend form: with an amount typed, its three steps (Wrap ETH, Approve WETH, Sign Offer) now fit their row on a phone and on a tablet, each name whole. The row ran 9 pixels past a 390 pixel screen, so the page slid sideways, and 21 pixels past its column on a 768 pixel tablet.
+
 ### 2026-11-17
 
+- Earn, the drawing of the island's houses: a press on a house, or on the ground just around it, now enters that house's bungalow, as its door on the front page does; it used to open the pool. On a phone the drawing has a row of its own under the title, whole and the width of the screen, where it used to sit behind the word Earn, cut off at the edge, with seven of its eleven houses out of reach. On a touch screen a tap no longer lifts a roof first, which on an iPhone or iPad could swallow the tap.
 - Solana pools: the pool program was upgraded again. A fee tier's named keeper, the venue's own price robot (wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz), now pays no trade fee and no creator fee on its own swaps, so those swaps earn the pools' liquidity providers, the venue and the island nothing. Everyone else pays as before. The lines you read before adding liquidity or opening a pool, the Rates card's details and "The program" on the Pools page say so.
+- Solana and Phantom's warnings (Phantom support's answer of 2026-11-16): Claim all asks your wallet once per claim, and Buy all on the island order once per coin, never several on one approval. Every claim, stake and exit on a staking pool, and every DCA or limit order, is now test-run before your wallet is asked; when the test run fails or cannot finish, or your wallet lacks the SOL for the network fee and any account rent (it says how much), your wallet is not asked at all. Your wallet only signs, and this site sends.
+- Amounts you receive, are owed or hold are cut at the digits shown, never rounded up: Harvest's vault line, the wallet board's balance, stake and earned rows, the dashboard and its position alerts, the Ethereum swap's You receive and Min. Received, limit and TWAP orders, liquidity, staking, referrals, receipts, Premium's Your Balance and the Solana basket's coin figures.
+- Amounts you pay are rounded up at the digits shown, never down: the early-exit penalty and the rewards an exit gives up, mint and upload prices, DCA totals, the Solana and Ethereum baskets' totals, an NFT pool's Total Cost and Protocol Fee, Premium's prices, Total Cost and Approve, what a receipt says you paid, a CoW order's sell amount, the LP farm's minimum stake, and the Solana curve's You pay, You sell and a buy's trade fee.
+- Dashboard: with the TOWELI reward reserve empty, the claim button now says before you press that a claim pays 0 until it is refilled, and neither Towelie nor the position alerts tell you to claim.
 
 ### 2026-11-16
 
@@ -348,31 +376,6 @@ The site's Changelog tab shows both files.
 - Heat is the only number a person has here now: points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone. A room whose reward vault is empty shows no rate and says it pays nothing until funded.
 - Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool.
 - Solana wallet list on phones: on Android, Phantom opens this page in its own app; inside a wallet's own browser, that wallet is listed once; the whole list fits a small screen.
-
-### 2026-10-16
-
-- Solana pools: the risk line on every add, open and review now says what the team's vault can do (pause removing, change fees or replace the pool program, with 2 of 2 keys and no wait) and that no outside firm has checked our changes.
-- Solana LP: a pool whose price is more than 3% off now says what that costs you as a share of what you add, where it said the whole gap went to the first trade. The pool stays open to deposits.
-- Solana LP and Pools: opening a pool is called "Open a pool" on its buttons and card, and above its button the card says the whole cost read from the chain: the venue's fee plus account setup you do not get back (about 0.04 SOL today).
-- Solana LP, "Add with one coin": the swap step's review now shows its price change. On a route where the site fee cannot be taken (BAYLA's pump.fun route), it no longer says 0.50%: the first Sign sends nothing and shows the review again with "No site fee on this route", and the next Sign sends exactly that.
-- Solana LP, Remove liquidity: once a withdrawal is confirmed, the card says what you got (about this much SOL and this much of the token) and offers Swap it, which opens the Solana swap on that token, and Add to another pool, which brings the All pools list up. Close is still there.
-- Solana LP: each row of All pools carries short warning tags, such as Trading off, Frozen or Little money in pool, and busy moments no longer hold a pool's Add button back.
-
-### 2026-10-15
-
-- Solana swaps and the price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes.
-- The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
-- Towelie in the corner: a press on a tab sliding under him as you scroll now opens the tab instead of going to Towelie, in Safari on an iPad too.
-- Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
-- Launch: the graduation fee line, and the integrator fees on Admin, now count the fees held in launched tokens as well as in ETH and TOWELI. They asked the browser's network connection for the full launch history, which every free provider refuses, so they always warned "only base pairs were checked". They now read it from the site, as the launch list already does.
-- Pro Terminal on an iPad held upright (and any window 768 to about 940px wide): the page no longer scrolls sideways. The pools table was widening the whole page by up to 122px; it now scrolls inside its own card, as it always did on a laptop.
-- A shared link to the site now unfurls as the home page's own first picture, Bayla at the door, on X, Discord and Telegram. It used to be a text card. A page with its own picture keeps it. X keeps an old card for about a week per link.
-- Solana adds, removals, pool openings and swaps: taking your time on the review no longer shuts the wallet. It opens unless something you would sign for changed, and a new warning still stops it.
-- Solana LP: every pool on the venue is now listed under the finder as soon as the page opens (pair, fee tier, what it holds, price), with no token to search first. View opens that token's pools. When there are more pools than the list holds, it says so and the search finds the rest.
-- Launched token pages (/launch and /eth-curve): the maker's allocation and create-buy now ask other hosts for the launch receipt, and say "could not be read" only when none has it.
-- Swap (Ethereum): the venue's swap fee goes only to the venue's own Safe on the trade's chain. Ethereum was set to the Base Safe, which nobody controls there, so the Ethereum swap fee is off until that is fixed. No fee ever went to it.
-- Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. When GeckoTerminal is busy, the last copy shows with the time it was read.
-- Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
 
 ## Earlier
 

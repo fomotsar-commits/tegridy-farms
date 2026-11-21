@@ -221,10 +221,11 @@ describe('the emergency hatch is priced, never assumed', () => {
   it('a SHORT lock is quoted its time-left price, not the cap', async () => {
     // veYFI's schedule: 7 days left on 500 is floor(500e6 x floor(604_800e18 / 4y) / 1e18)
     // = 2_397_260 raw — under half a percent. A card still quoting the cap would tell
-    // this staker their exit costs 375.
+    // this staker their exit costs 375. A cost rounds up at the last digit shown: 2.4, not 2.39.
     reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW + 7 * DAY), weight: 200_000_000n })] }) };
     draw();
-    expect(await screen.findByText(`Emergency withdraw: costs ${fmtRaw(2_397_260n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText('Emergency withdraw: costs 2.4 BAYLA')).toBeTruthy();
+    expect(screen.getByText(/is retained\./).textContent).toMatch(/^2\.4 BAYLA is retained\./);
     expect(screen.getByText(`Exit early: keep ${fmtRaw(497_602_740n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText(/costs 375 BAYLA/)).toBeNull();
   });
@@ -1202,6 +1203,13 @@ describe('the minimum stake is shown in every state', () => {
     await screen.findByLabelText('Amount');
     const label = screen.getByText('Minimum stake');
     expect(label.nextElementSibling?.textContent).toMatch(/^100\s*BAYLA$/);
+  });
+
+  it('a minimum that is not a whole number of shown digits rounds up: 100.005 reads 100.01', async () => {
+    reads.pool = { ok: true, value: poolView({ minStakeRaw: 100_005_000n }) };
+    draw();
+    const label = await screen.findByText('Minimum stake');
+    expect(label.nextElementSibling?.textContent).toMatch(/^100\.01\s*BAYLA$/);
   });
 
   it('keeps its disclosure, linked to it for assistive tech', async () => {

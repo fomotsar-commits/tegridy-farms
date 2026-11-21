@@ -43,6 +43,9 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   '/nakamigos': { desktop: 300, phone: 300 },
   '/bayla': { desktop: 500, phone: 500 },
   '/dashboard': { desktop: 225, phone: 225 },
+  // The city is a drawing: a heading, a line, one plot's card and the list of plots. Measured
+  // 2026-11-18 with every read fixed: 75 / 75.
+  '/city': { desktop: 85, phone: 85 },
 };
 
 type Call = { id?: unknown; method?: unknown; params?: unknown[] };

@@ -59,7 +59,7 @@ import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 import { CP_SWAP_PROGRAM, OFFSETS, POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, QUOTE_COINS } from "./pool-index.js";
-import { EVM_CHAINS, PRICE_IDS_MAX } from "../../scripts/lib/venue-volume-chain.mjs";
+import { EVM_CHAINS, HYPEREVM_V3, PRICE_IDS_MAX, hyperEvmCounted, listV3Pools } from "../../scripts/lib/venue-volume-chain.mjs";
 import { spotPrice } from "../../scripts/venue-volume.mjs";
 
 /** The range-pool program and its PoolState, copied from src/lib/solana/clmm (a test pins them). */
@@ -89,6 +89,10 @@ export const SOLANA_PROGRAMS = Object.freeze([
   }),
 ]);
 export const EVM_TVL_CHAINS = Object.freeze(["ethereum", "base", "robinhood"]);
+/** The pool rows the answer names, in order: HyperEVM last, once its pools are deployed. */
+export function tvlChainNames(hyperEvm = hyperEvmCounted()) {
+  return ["solana", ...EVM_TVL_CHAINS, ...(hyperEvm ? ["hyperevm"] : [])];
+}
 
 /** The two Solana staking programs: where each pool account keeps its count of what is staked
  *  (a u64, after the 8-byte discriminator). Both keep the staked coin's mint at byte 10. */
@@ -424,6 +428,23 @@ export async function readEvm(name, { fetchImpl, priceOf, chains = EVM_CHAINS })
   return { usd: 2 * wethHeld * ethUsd, pools: priced.length, unvalued: 0 };
 }
 
+/**
+ * HyperEVM, our Uniswap V3 pools: what each holds of WHYPE (at HYPE's price) and of the two
+ * dollar coins (a dollar each), both sides. A V3 pool's two sides are not equal in worth, so
+ * neither is doubled. Only listed coins are held by a listed pool, so every dollar here is one.
+ */
+export async function readHyperEvmTvl({ fetchImpl, priceOf, v3 = HYPEREVM_V3 }) {
+  const ask = evmCall(v3.rpcs, fetchImpl);
+  const call = (method, params) => ask(params[0].to, params[0].data);
+  const pools = await listV3Pools(call, v3);
+  if (!pools.length) return { usd: 0, pools: 0, unvalued: 0 };
+  const held = (coin, pool) => ask(coin.address, "0x70a08231" + pool.slice(2).padStart(64, "0")).then((h) => word(h, 0));
+  const sides = await Promise.all(pools.flatMap((p) => [p.coin0, p.coin1].map(async (coin) => ({ coin, raw: await held(coin, p.address) }))));
+  const hype = sides.some((s) => s.coin.value === "HYPE" && s.raw > 0n) ? await priceOf("HYPE") : 0;
+  const usd = sides.reduce((sum, s) => sum + (s.coin.value === "USD6" ? Number(s.raw) / 1e6 : (Number(s.raw) / 1e18) * hype), 0);
+  return { usd, pools: pools.length, unvalued: 0 };
+}
+
 const TOKEN_PROGRAMS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"]);
 
 /** Each staked amount in dollars: `{ usd, vaults, unvalued }`, where `unvalued` counts pools left out for want of a price. */
@@ -626,7 +647,11 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     return floor;
   };
   const [results, staking, nfts] = await Promise.all([
-    settle("pools", [["solana", solana], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])], "pools"),
+    settle("pools", [
+      ["solana", solana],
+      ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })]),
+      ...(hyperEvmCounted() ? [["hyperevm", () => readHyperEvmTvl({ fetchImpl, priceOf })]] : []),
+    ], "pools"),
     settle("staking", [["solana", () => readSolanaStaking({ fetchImpl, marketPrices })], ...STAKE_CHAINS.slice(1).map((name) => [name, () => readEvmStaking(name, { fetchImpl, marketPrices })])], "vaults"),
     settle("nfts", [["ethereum", () => readNfts({ fetchImpl, priceOf, floorOf })]], "nfts"),
   ]);

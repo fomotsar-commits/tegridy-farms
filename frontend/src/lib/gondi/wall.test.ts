@@ -104,6 +104,21 @@ describe('the levels (wallElevation)', () => {
     expect(over.labels.find((l) => l.id === 'dim')).toMatchObject({ t: '40% OVER THE FLOOR', tone: 'bad' });
   });
 
+  it('the LOAN tag is what the lender puts up: rounded up at 4 decimals from the exact amount, its height from the float', () => {
+    // 0.030049 WETH reads 0.0300 to the nearest and 0.0301 rounded up. One wei over 0.03 reads 0.0301 too.
+    const exact = facts({ principal: 0.030049, exact: '0.030049' });
+    const loan = (W: number, f: WallFacts) => wallElevation(W, f, JBAC).labels.find((l) => l.id === 'loan');
+    expect(loan(600, exact)).toMatchObject({ v: '0.0301 WETH' });
+    expect(loan(328, exact)).toMatchObject({ v: '0.0301' });
+    expect(wallElevation(600, exact, JBAC).loanY).toBe(wallElevation(600, facts({ principal: 0.030049 }), JBAC).loanY);
+    expect(loan(600, facts({ principal: 0.03, exact: '0.030000000000000001' }))).toMatchObject({ v: '0.0301 WETH' });
+    expect(loan(600, facts({ principal: 0.03, exact: '0.03' }))).toMatchObject({ v: '0.0300 WETH' });
+    // Not to scale (no floor read), the listed LOAN reads the same way.
+    expect(loan(600, facts({ market: { ...read, floor: null }, principal: 0.030049, exact: '0.030049' }))).toMatchObject({ v: '0.0301 WETH' });
+    // One wei over 0.03 is a float of 0.03, so only the exact amount carried to this wall rounds it up.
+    expect(loan(600, facts({ market: { ...read, floor: null }, principal: 0.03, exact: '0.030000000000000001' }))).toMatchObject({ v: '0.0301 WETH' });
+  });
+
   it('compact, the tags are short and carry no unit', () => {
     const d = wallElevation(328, facts({ principal: 0.045 }), JBAC);
     expect(d.compact).toBe(true);

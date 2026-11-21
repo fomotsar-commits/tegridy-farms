@@ -7,7 +7,7 @@ import { useCowTwap } from '../../hooks/useCowTwap';
 import { planTwap, twapDataFromPlan, TWAP_MAX_PARTS, TWAP_MIN_PARTS } from '../../lib/composableCow';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { WETH_ADDRESS } from '../../lib/constants';
-import { formatTokenAmountGrouped } from '../../lib/formatting';
+import { formatTokenAmountGrouped, formatTokenAmountGroupedUp } from '../../lib/formatting';
 import { Link } from 'react-router-dom';
 import { TWAP_IDLE_NOTE } from '../../lib/yield/dcaYield';
 import { FinePrint } from '../ui/FinePrint';
@@ -204,7 +204,7 @@ export function TwapOrderPanel() {
               <>
                 <div className="flex justify-between">
                   <span className="text-white/80">Each part sells</span>
-                  <span className="text-white font-mono">{formatTokenAmountGrouped(formatUnits(plan.partSellAmount, 18))} WETH</span>
+                  <span className="text-white font-mono">{formatTokenAmountGroupedUp(formatUnits(plan.partSellAmount, 18))} WETH</span>
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-white/80">Min received / part</span>
