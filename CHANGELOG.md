@@ -7,8 +7,15 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-20
+
+- The city's island is now one architect's model at night, like its close-ups: cork land on a pale beach, a sea of deep blue resin, card streets, wooden palms and trees, each room's art laid as tile, small white figures on every plot, lit by its own street lamps, windows and glowing pools in a dark gallery.
+- The city is no longer laid out on a grid: a ring road winds round the island, a boulevard runs from the pier through the plaza, and the buildings stand scattered along the streets at their own angles, with the island's greenery between them and the lighthouse alone on the far point.
+- The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
+
 ### 2026-11-19
 
+- The city, rendered again: each building's close-up is now taken at eye height, its art facing you. The island at night has pools that read as water, lamps that light the street, a lagoon that deepens from the shore, and a different garden corner at each bungalow.
 - The city: tap a building and its card now shows where you tapped, beside the picture on a wide screen and in a strip over it on a phone. Whole island shows the whole island on a phone too. With a wallet connected, a dotted path runs from each pool holding your pay to your door, and the people walking it are big enough to see. The card says which wallet it read, the times are in UTC, and the close-up no longer goes blank while the next one loads.
 - The city is in the ☰ menu, under Island. Its picture now fades into the night at its edges, so the sea no longer stops at a straight line when you zoom out or move the island.
 - Pools, Start here: Open a pool and Add liquidity no longer pull the card to the top of the screen when pressed. The page moves only if the tokens or the address box are off screen, so the button stays under your pointer or finger. And on any page opened straight from its address (a bookmark, a shared link, a refresh) or by Back, a press that changes only what the page shows (a token picked on Pools, say) no longer throws the page to the top first.

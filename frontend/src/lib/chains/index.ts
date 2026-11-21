@@ -16,6 +16,8 @@ export {
   feesBecomeStakerYieldOn,
   getChainConfig,
   isChainConfigured,
+  isChainServed,
+  servedEvmChainNames,
   launchWrongChainMessage,
   unconfiguredChainLabel,
 } from './registry';

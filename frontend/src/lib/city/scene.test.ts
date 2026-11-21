@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { iso } from '../iso';
 import { cityRooms } from '../../hooks/useCityReads';
 import { BG, COS30, UNIT, createKit, hash, mix } from './kit';
-import { PD, PW, buildPlan, coast, walkLength } from './plan';
-import { RENDER, RENDER_CENTER, RENDER_SPAN } from './render';
+import { FD, FW, PD, PW, buildPlan, coast, onSite, walkLength } from './plan';
+import { PIECE_TOP, RENDER, RENDER_CENTER, RENDER_SPAN } from './render';
 import { EDGE_FADE, ISLAND_BOX, PERSON_MIN_PX, PICK_PULSE, PLAQUE_FULL_K, createScene, type SceneData } from './scene';
 
 /** A canvas that draws nothing and remembers every picture laid on it, and every fill made with a gradient. */
@@ -134,7 +134,7 @@ describe("the island's picture", () => {
     expect(texts.join('')).toBe('DRAWING THE ISLAND');
     const near = plan.plots.reduce((a, b) => (b.depth > a.depth ? b : a));
     const k = UNIT * scene.cam.z;
-    const [x, y] = [near.x0 + PW / 2, near.y0 + PD - 0.4];
+    const [x, y] = onSite(near, near.x0 + PW / 2, near.y0 + PD - 0.4);
     expect(scene.hit((x - y) * COS30 * k + scene.cam.x, (x + y) * 0.5 * k + scene.cam.y)?.id).toBe(near.id);
     texts.length = 0;
     scene.setBackdrop({ img: {} as CanvasImageSource, k: RENDER.half.k, width: RENDER.half.width, height: RENDER.half.height });
@@ -221,10 +221,24 @@ describe('the city scene', () => {
     scene.render();
     const near = plan.plots.reduce((a, b) => (b.depth > a.depth ? b : a));
     const k = UNIT * scene.cam.z;
-    const x = near.x0 + PW / 2;
-    const y = near.y0 + PD - 0.4;
+    const [x, y] = onSite(near, near.x0 + PW / 2, near.y0 + PD - 0.4);
     expect(scene.hit((x - y) * COS30 * k + scene.cam.x, (x + y) * 0.5 * k + scene.cam.y)?.id).toBe(near.id);
     expect(scene.hit(-5000, -5000)).toBeNull();
+  });
+
+  // The scattered town (2026-11-20) stands plots close, turned every way: a press on a building
+  // must still find it, and not the plot standing nearer the eye beside it.
+  it('picks every plot from a press on the middle of its building, however close a nearer plot stands', () => {
+    const { scene, plan } = stage();
+    scene.setData(NONE);
+    scene.fit(true);
+    scene.render();
+    const k = UNIT * scene.cam.z;
+    for (const p of plan.plots) {
+      const [x, y] = onSite(p, p.X + FW / 2, p.Y + FD / 2);
+      const z = PIECE_TOP[p.piece] / 2;
+      expect(scene.hit((x - y) * COS30 * k + scene.cam.x, ((x + y) * 0.5 - z) * k + scene.cam.y)?.id, p.id).toBe(p.id);
+    }
   });
 
   // Review, 2026-11-19: on a phone, Whole island showed mid-town, with five plots off the sheet.

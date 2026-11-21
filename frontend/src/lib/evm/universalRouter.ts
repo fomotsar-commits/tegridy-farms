@@ -26,6 +26,7 @@ export function universalRouterOn(chainId: number): Address | null {
 
 // Commands.sol
 const V3_SWAP_EXACT_IN = 0x00;
+const SWEEP = 0x04;
 const TRANSFER = 0x05;
 const PAY_PORTION = 0x06;
 const PERMIT2_PERMIT = 0x0a;
@@ -101,15 +102,32 @@ function commandBytes(cmds: number[]): Hex {
   return `0x${cmds.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
-const v3SwapExactIn = (recipient: Address, amountIn: bigint, amountOutMin: bigint, path: Hex, payerIsUser: boolean) =>
-  encodeAbiParameters(
+/**
+ * The chains whose router is Uniswap's v2.2.0 (our HyperEVM venue): its V3_SWAP_EXACT_IN takes a
+ * sixth field, minHopPriceX36, a per-hop price floor (universal-router 64027f3, Dispatcher.sol
+ * 68-84), sent empty. Base's v2.0 takes five, and six there, or five here, would revert.
+ */
+const SIX_FIELD_V3_SWAP: ReadonlySet<number> = new Set([999]);
+
+export function v3SwapExactIn(chainId: number, recipient: Address, amountIn: bigint, amountOutMin: bigint, path: Hex, payerIsUser: boolean): Hex {
+  if (SIX_FIELD_V3_SWAP.has(chainId)) {
+    return encodeAbiParameters(
+      [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'bytes' }, { type: 'bool' }, { type: 'uint256[]' }],
+      [recipient, amountIn, amountOutMin, path, payerIsUser, []],
+    );
+  }
+  return encodeAbiParameters(
     [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'bytes' }, { type: 'bool' }],
     [recipient, amountIn, amountOutMin, path, payerIsUser],
   );
+}
 const payPortion = (token: Address, recipient: Address, bips: bigint) =>
   encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint256' }], [token, recipient, bips]);
 const transfer = (token: Address, recipient: Address, value: bigint) =>
   encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint256' }], [token, recipient, value]);
+/** SWEEP's amountMin is a uint160 in Payments.sol: the same 32-byte word as a uint256 below 2^160. */
+const sweep = (token: Address, recipient: Address, amountMin: bigint) =>
+  encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint160' }], [token, recipient, amountMin]);
 const recipientAndMin = (recipient: Address, amountMin: bigint) =>
   encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [recipient, amountMin]);
 const permit2Permit = (permit: PermitSingle, signature: Hex) =>
@@ -140,7 +158,7 @@ const permit2Permit = (permit: PermitSingle, signature: Hex) =>
  * `feeRecipient`, and unwraps the rest to the seller, who must get at least `minOut`.
  */
 export function sellForEth(a: {
-  coin: Address; weth: Address; poolFee: number; amountIn: bigint; minOut: bigint;
+  chainId: number; coin: Address; weth: Address; poolFee: number; amountIn: bigint; minOut: bigint;
   feeBips: bigint; feeRecipient: Address; permit?: { permit: PermitSingle; signature: Hex };
 }): RouterCall {
   const cmds: number[] = [];
@@ -148,9 +166,30 @@ export function sellForEth(a: {
   if (a.permit) { cmds.push(PERMIT2_PERMIT); inputs.push(permit2Permit(a.permit.permit, a.permit.signature)); }
   cmds.push(V3_SWAP_EXACT_IN, PAY_PORTION, UNWRAP_WETH);
   inputs.push(
-    v3SwapExactIn(ADDRESS_THIS, a.amountIn, 0n, v3Path(a.coin, a.poolFee, a.weth), true),
+    v3SwapExactIn(a.chainId, ADDRESS_THIS, a.amountIn, 0n, v3Path(a.coin, a.poolFee, a.weth), true),
     payPortion(a.weth, a.feeRecipient, a.feeBips),
     recipientAndMin(MSG_SENDER, a.minOut),
+  );
+  return { commands: commandBytes(cmds), inputs };
+}
+
+/**
+ * Swap one coin for another (neither the chain's own coin). As a sale for ETH, but the router
+ * keeps `tokenOut`, pays `feeBips` of it to `feeRecipient`, and sweeps the rest to the
+ * seller, who must get at least `minOut` (the SDK's fee-on-output sequence).
+ */
+export function swapTokens(a: {
+  chainId: number; tokenIn: Address; tokenOut: Address; poolFee: number; amountIn: bigint; minOut: bigint;
+  feeBips: bigint; feeRecipient: Address; permit?: { permit: PermitSingle; signature: Hex };
+}): RouterCall {
+  const cmds: number[] = [];
+  const inputs: Hex[] = [];
+  if (a.permit) { cmds.push(PERMIT2_PERMIT); inputs.push(permit2Permit(a.permit.permit, a.permit.signature)); }
+  cmds.push(V3_SWAP_EXACT_IN, PAY_PORTION, SWEEP);
+  inputs.push(
+    v3SwapExactIn(a.chainId, ADDRESS_THIS, a.amountIn, 0n, v3Path(a.tokenIn, a.poolFee, a.tokenOut), true),
+    payPortion(a.tokenOut, a.feeRecipient, a.feeBips),
+    sweep(a.tokenOut, MSG_SENDER, a.minOut),
   );
   return { commands: commandBytes(cmds), inputs };
 }
@@ -161,14 +200,14 @@ export function sellForEth(a: {
  * get at least `minOut`.
  */
 export function buyWithEth(a: {
-  coin: Address; weth: Address; poolFee: number; minOut: bigint; feeBips: bigint; feeRecipient: Address;
+  chainId: number; coin: Address; weth: Address; poolFee: number; minOut: bigint; feeBips: bigint; feeRecipient: Address;
 }): RouterCall {
   return {
     commands: commandBytes([PAY_PORTION, WRAP_ETH, V3_SWAP_EXACT_IN]),
     inputs: [
       payPortion(ETH, a.feeRecipient, a.feeBips),
       recipientAndMin(ADDRESS_THIS, CONTRACT_BALANCE),
-      v3SwapExactIn(MSG_SENDER, CONTRACT_BALANCE, a.minOut, v3Path(a.weth, a.poolFee, a.coin), false),
+      v3SwapExactIn(a.chainId, MSG_SENDER, CONTRACT_BALANCE, a.minOut, v3Path(a.weth, a.poolFee, a.coin), false),
     ],
   };
 }
@@ -182,6 +221,7 @@ export function buyWithEth(a: {
  * alone. The last leg spends what is left, so the router keeps nothing.
  */
 export function buyManyWithEth(a: {
+  chainId: number;
   weth: Address;
   legs: readonly { coin: Address; poolFee: number; amountIn: bigint; minOut: bigint }[];
   feeBips: bigint;
@@ -194,6 +234,7 @@ export function buyManyWithEth(a: {
       transfer(ETH, a.feeRecipient, fee),
       recipientAndMin(ADDRESS_THIS, CONTRACT_BALANCE),
       ...a.legs.map((l, i) => v3SwapExactIn(
+        a.chainId,
         MSG_SENDER,
         i === a.legs.length - 1 ? CONTRACT_BALANCE : l.amountIn - portion(l.amountIn, a.feeBips),
         l.minOut,
