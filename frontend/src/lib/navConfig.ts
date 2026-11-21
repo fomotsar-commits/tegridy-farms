@@ -8,6 +8,7 @@ import { GONDI_LOAN_ADDRESS } from './gondi/loanOffer.js';
 import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's and own pools' switches (lib/cardano/flags.ts).
 import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
+import { hyperEvmLive } from './chains/hyperEvm';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
 import { sheetHref, type SheetKind } from './sheet';
 import { roomSheetOr } from './sheetRooms';
@@ -114,6 +115,8 @@ export const NAV_SECTIONS: NavSection[] = [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
       // Hidden, with no route, until the owner opens it (CARDANO_SWAP_OPEN, lib/cardano/flags.ts).
       ...(cardanoSwapVisible() ? [{ to: '/cardano', label: 'Cardano Swap', tabLabel: 'Cardano' }] : []),
+      // Hidden, with no route, until every HyperEVM address is deployed (lib/chains/hyperEvm.ts).
+      ...(hyperEvmLive() ? [{ to: '/hyperevm', label: 'HyperEVM Swap', tabLabel: 'HyperEVM' }] : []),
     ],
   },
   {
@@ -139,6 +142,8 @@ export const NAV_SECTIONS: NavSection[] = [
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
       // The venue's own Cardano pools: hidden, with no route, until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts).
       ...(cardanoOwnPoolsVisible() ? [{ to: '/cardano-pools', label: 'Cardano pools', tabLabel: 'Cardano' }] : []),
+      // Our own Uniswap V3 pools and your positions: hidden, with no route, as the HyperEVM swap.
+      ...(hyperEvmLive() ? [{ to: '/hyperevm-pools', label: 'HyperEVM pools', tabLabel: 'HyperEVM' }] : []),
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
       { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
     ],
