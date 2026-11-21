@@ -9,8 +9,9 @@ import { preflightOrders } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
 
-// Rough gas estimate per Seaport fulfillment (~150k gas units)
-const GAS_PER_FILL = 150_000n;
+// Gas per item. Two or more OpenSea listings share one transaction: 367k was
+// measured for three on a mainnet fork (2026-11-15), so ~125k each.
+const GAS_PER_FILL = 125_000n;
 const GWEI_DECIMALS = 1e9;
 
 // F637: the 30-gwei default was 30-300x too high at current basefees, so EST. GAS
@@ -368,38 +369,54 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
     // "nothing swept" is not a thing we can say.
     let stoppedOnNotice = false;
 
-    // EIP-5792 fast path: buy every OpenSea listing in ONE wallet confirmation
-    // when the wallet supports atomic batching and the sweep is all-Seaport with
-    // 2+ items — the same one-click path the cart uses. Falls through to the
-    // per-item loop on unsupported / build failure / mixed-native (zero regression).
-    const allSeaport = sweepList.length >= 2 && sweepList.every(l => !(l.isNative && l.nativeOrder));
-    let batched = false;
-    if (allSeaport) {
-      // One wallet confirmation for the whole batch — there's no per-item
+    // Every OpenSea listing in the sweep goes in ONE transaction, on any wallet
+    // (api.js fulfillSeaportOrdersBatch, Seaport's fulfillAvailableAdvancedOrders),
+    // the same path the cart uses. Our own order book's listings follow one at a time.
+    const seaportList = sweepList.filter(l => !(l.isNative && l.nativeOrder));
+    const batched = seaportList.length >= 2;
+    let stopped = false;
+    if (batched) {
+      // One wallet confirmation for the whole batch: there's no per-item
       // progress to show, so flag it for an indeterminate label instead of a
       // counter frozen at 0/N for the duration of the confirmation.
       setBatching(true);
-      const res = await fulfillSeaportOrdersBatch(sweepList, { buyerAddress: wallet });
+      const res = await fulfillSeaportOrdersBatch(seaportList, { buyerAddress: wallet });
       setBatching(false);
-      if (res.success) {
-        for (const nft of sweepList) {
-          recordTransaction({ type: "buy", nft, price: nft.price, hash: res.hash, wallet, slug: collection.slug });
-        }
-        bought = sweepList.length;
-        batched = true;
-      } else if (res.error === "rejected") {
+      for (const nft of res.bought ?? []) {
+        recordTransaction({ type: "buy", nft, price: nft.price, hash: res.hash, wallet, slug: collection.slug });
+      }
+      bought += (res.bought ?? []).length;
+      const missed = res.missed ?? [];
+      if (missed.length) {
+        setSkippedItems((prev) => [...prev, ...missed.map((m) => ({
+          id: m.listing.id ?? m.listing.tokenId ?? m.listing.orderHash,
+          label: m.listing.name || `#${m.listing.id ?? m.listing.tokenId}`,
+          reason: m.gone ? "was just sold" : getFriendlyError(m.reason || "failed"),
+        }))]);
+      }
+      if (res.error === "rejected") {
         addToast?.("Sweep cancelled", "info");
         setSweeping(false);
         setProgress(0);
         return;
       }
-      // unsupported / build-failed / other → fall through to the sequential path.
+      if (toastTxNotice(addToast, res)) {
+        stoppedOnNotice = true;
+        stopped = true;
+      } else if (res.error === "insufficient") {
+        addToast?.(res.message, "error");
+        stopped = true;
+      } else if (res.error && !(res.bought ?? []).length && !missed.length) {
+        addToast?.(getFriendlyError(res.message || res.error), "error");
+        stopped = true;
+      }
     }
 
-    if (!batched) {
-      for (let i = 0; i < sweepList.length; i++) {
+    const oneByOne = stopped ? [] : batched ? sweepList.filter(l => l.isNative && l.nativeOrder) : sweepList;
+    if (oneByOne.length > 0) {
+      for (let i = 0; i < oneByOne.length; i++) {
         setProgress(i + 1);
-        const nft = sweepList[i];
+        const nft = oneByOne[i];
         const result = nft.isNative && nft.nativeOrder
           ? await fulfillNativeOrder(nft.nativeOrder)
           : await fulfillSeaportOrder(nft, { buyerAddress: wallet });
