@@ -1,14 +1,16 @@
 //! The program's ExactIn swap, as arithmetic.
 //!
-//! Transcribed from raydium-io/raydium-cp-swap @ 78f254e1 (Apache-2.0, Copyright Raydium),
-//! the files our program carries byte for byte (solana-ci.yml `diff-guard`):
+//! Transcribed from raydium-io/raydium-cp-swap @ 78f254e1 (Apache-2.0, Copyright Raydium).
+//! Our program carries the first four files byte for byte (solana-ci.yml `diff-guard`); its
+//! swap_base_input.rs adds the swap guard (refused in lib.rs `update`) and the keeper's rates:
+//!
 //!   programs/cp-swap/src/curve/fees.rs              ceil_div, floor_div, the fee splits
 //!   programs/cp-swap/src/curve/constant_product.rs  swap_base_input_without_fees
 //!   programs/cp-swap/src/curve/calculator.rs        CurveCalculator::swap_base_input
 //!   programs/cp-swap/src/states/pool.rs             vault_amount_without_fee,
-//!                                                   is_creator_fee_on_input,
-//!                                                   adjust_creator_fee_rate
+//!                                                   is_creator_fee_on_input, adjust_creator_fee_rate
 //!   programs/cp-swap/src/instructions/swap_base_input.rs  the checks around them
+//!
 //! The one change: where upstream unwraps (a panic, which on chain fails the transaction),
 //! this returns a refusal, so a quote never panics in Jupiter's router.
 

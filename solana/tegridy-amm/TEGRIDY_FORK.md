@@ -502,11 +502,10 @@ fixture `jupiter-sdk/tests/fixtures/memetics.so` and the hash its parity test pi
 `MAINNET_RUNBOOK.md` and the registry text in `frontend/scripts/addresses.json`. This
 upgrade is also the first to carry the fee rules of 2026-11-03, with their own list above.
 
-**Before these pools are listed on an aggregator.** The Jupiter SDK reads no guard
-(`jupiter-sdk/src/state.rs` decodes a tier's fees only), so it would quote a pool on a
-guarded tier, and every such route would be refused on chain. Before a listing, either the
-SDK refuses to quote a tier whose guard is on, or the program lets that aggregator's program
-through (the account-list change named above).
+**Before these pools are listed on an aggregator.** The Jupiter SDK gives no quote for a
+tier whose guard is on (`jupiter-sdk/src/lib.rs`), since every such route would be refused
+on chain. Before a listing, either the guard goes off on the tier listed, or the program lets
+that aggregator's program through (the account-list change named above).
 
 **How it was proved, 2026-11-10.** The validator runs were made as CI's migration-rehearsal
 job makes them (the test wallet as admin, a throwaway program id), on Agave 3.1.11 with

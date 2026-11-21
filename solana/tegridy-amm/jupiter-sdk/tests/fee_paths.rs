@@ -1,7 +1,7 @@
 //! Jupiter's quote parity check on the fee paths the live pools do not take. Both BAYLA pools
-//! charge no creator fee and no fund fee, so `tests/parity.rs` never runs the program's
-//! creator-fee split, its creator fee on the output, or its fund fee. Here the BAYLA/SOL
-//! snapshot is copied with those switched on, and the DEPLOYED program
+//! charge no creator fee, so `tests/parity.rs` never runs the program's creator-fee split or
+//! its creator fee on the output. Here the BAYLA/SOL snapshot (`common::snapshot`) is copied
+//! with it switched on, and the DEPLOYED program
 //! (`tests/fixtures/memetics.so`) runs each swap in LiteSVM against the copy: the quote must
 //! still equal what it pays out. The kit asks for this ("different fee modes").
 //!
@@ -31,10 +31,9 @@ const BAYLA: Pubkey = pubkey!("7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump");
 const SWAPS: [(Pubkey, Pubkey, u64); 2] =
     [(WSOL, BAYLA, 123_456_789), (BAYLA, WSOL, 987_654_321_123)];
 
-/// 0.5% creator fee and a fund fee of 4% of the trade fee, on top of the tier's own rates.
+/// A 0.5% creator fee, on top of the tier's own rates.
 const CREATOR_FEE_RATE: u64 = 5_000;
-const FUND_FEE_RATE: u64 = 40_000;
-/// Fees already booked in the pool to the venue's fund (SOL) and to the creator (BAYLA):
+/// Fees already booked in the pool to the island's share (SOL) and to the creator (BAYLA):
 /// the curve must trade against the vaults less these.
 const BOOKED_FUND_FEES_TOKEN_0: u64 = 1_000_000;
 const BOOKED_CREATOR_FEES_TOKEN_1: u64 = 1_000_000_000;
@@ -45,8 +44,8 @@ fn set(data: &mut [u8], f: Field, bytes: &[u8]) {
 }
 
 /// The BAYLA/SOL snapshot with the pool's `creator_fee_on` and `enable_creator_fee` set,
-/// written to its own directory. Every copy also turns on the tier's creator and fund rates
-/// and books fund and creator fees in the pool.
+/// written to its own directory. Every copy also turns on the tier's creator rate and books
+/// fund and creator fees in the pool.
 fn copy_with(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> PathBuf {
     let pool_key = common::BAYLA_SOL_POOL;
     let snapshot = common::snapshot(&pool_key);
@@ -85,11 +84,6 @@ fn copy_with(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> PathBu
         config,
         config_fields::CREATOR_FEE_RATE,
         &CREATOR_FEE_RATE.to_le_bytes(),
-    );
-    set(
-        config,
-        config_fields::FUND_FEE_RATE,
-        &FUND_FEE_RATE.to_le_bytes(),
     );
 
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("fee-paths/{name}"));

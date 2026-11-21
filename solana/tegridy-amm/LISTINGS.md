@@ -79,7 +79,8 @@ ready to send) and traction, which listings 1 and 2 are meant to build.
 
 ## What each listing does for the money
 
-- Venue fees: every routed trade pays the pool's 1% trade fee; LPs keep 84%, the venue 16%.
+- Venue fees: every routed trade pays the pool's 1% trade fee; LPs keep 84% of it, the venue
+  10.4% (its vault collects) and the island 5.6% (its Workshop collects).
 - The robot: more outside swaps in our pools mean more gaps to close. Once Jupiter routes
   through our pools, co-located arbitrageurs will compete for those gaps; the venue then
   earns fees on their trades instead.

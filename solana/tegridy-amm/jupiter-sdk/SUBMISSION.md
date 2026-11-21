@@ -11,15 +11,16 @@ page. The owner sends the form. Nothing in this folder sends anything.
    `9f0150e3…` (the vault's proposal #35; `../MAINNET_RUNBOOK.md`, section 4b). The keeper's
    fee changes no quote this SDK makes: it quotes routers, never the keeper. **While the guard is on for a fee setting,
    its pools refuse every swap that another program calls (6015), Jupiter's included.** This SDK
-   reads a fee setting's fees only, so it would still quote those pools and every such route
-   would fail on chain. Before sending, one of two things is true and the SDK knows it: the
-   guard is off for the fee settings being listed, or the program lets Jupiter's program
-   through (a program change). Either way the SDK refuses to quote a fee setting whose guard is
-   on (`../TEGRIDY_FORK.md`, "The swap guard").
-2. The fixtures are taken again from that program, as `README.md` says under "To take new
-   snapshots": delete `tests/fixtures/memetics.so`, run the refresh, pin the new hash in
-   `tests/parity.rs`, and write `tests/fixtures/quote_vectors.json` again, with the site's
-   `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Every test passes.
+   gives no quote for that fee setting. Both live fee settings have it on (proposal #33,
+   2026-11-14), so today the SDK quotes no live pool and there is nothing to list. Before
+   sending, the owner chooses one: the guard off for the fee setting to be listed (a vault
+   proposal, 48 hours), or a program change that lets Jupiter's program through
+   (`../TEGRIDY_FORK.md`, "The swap guard").
+2. The fixtures are taken again from the program then on mainnet (`README.md`, under the
+   fixtures): `node scripts/take-fixtures.mjs`, pin the printed hash in `tests/parity.rs`, and
+   write `tests/fixtures/quote_vectors.json` again, with the site's
+   `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Every test passes. Today's
+   fixtures are from 2026-11-15, before proposal #35 changes the program.
 3. The Scope A audit report is published (`../AUDIT_RFQ.md` asks for it first, on its own).
 4. The figures below are read again on the day.
 
@@ -45,9 +46,10 @@ page. The owner sends the form. Nothing in this folder sends anything.
 ## How money moves once Jupiter routes to us
 
 A trade Jupiter sends through one of our pools pays that pool's trade fee out of what goes in:
-1% on tier 1, where every public pool sits. The pool's liquidity providers keep 84% of it. The
-venue's 16% stays in the pool until the venue's vault collects it. Jupiter's own fees are
-Jupiter's, and nothing of ours goes to Jupiter.
+1% on tier 1, where every public pool sits. The pool's liquidity providers keep 84% of it. Two
+shares stay booked in the pool until they are collected: the venue's 10.4%, by the venue's
+vault, and the island's 5.6%, by the island's Workshop. Jupiter's own fees are Jupiter's, and
+nothing of ours goes to Jupiter.
 
 ## What Jupiter checks after listing
 
