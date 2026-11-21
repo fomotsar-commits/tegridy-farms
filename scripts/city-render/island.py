@@ -1,4 +1,10 @@
-# The island at night, built in Blender from the site's own plan (plan.json), and rendered.
+# The island as one architect's model at night in a gallery (owner, 2026-11-21: "ship it ... this is
+# daytime we need nighttime"), built in Blender from the site's own plan (plan.json) and rendered.
+# Its stock is the close-ups' (stock.py): cork land on a pale veneer beach, a sea of deep blue resin,
+# grey card streets on card pavements, basswood palms and beads for trees, every room's art laid as
+# glazed tile, three white figures on every plot. The gallery is dark, a low warm spot on the middle
+# of the town and a cool moon over the whole model, so what lights it at night is its own: the street
+# lamps, the windows, the pools poured in their communities' colours and lit from within.
 #
 #   blender -b --factory-startup --python island.py -- <mode> <out.png> [scale] [samples]
 #
@@ -13,10 +19,14 @@ from mathutils import Matrix, Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import kit
-from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, light, lamp, patio, stones, palm, put, inked
+from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, lamp, patio, stones, palm, put, inked
 import buildings
+import stock
 
 kit.ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
+# every material the builders ask for, as the close-ups' stock; the island's cork at a coarser grain,
+# its beach a paler veneer, its streets grey card
+stock.swap(lawn=lambda: stock.cork(30.0), sand=stock.pale, asphalt=stock.grey)
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 MODE = argv[0] if argv else 'island'
 OUT = argv[1] if len(argv) > 1 else os.path.join(HERE, 'out', 'island.png')
@@ -74,39 +84,14 @@ def plot_ground(p, grow=0.0):
 scene = bpy.context.scene
 for o in list(bpy.data.objects):
     bpy.data.objects.remove(o, do_unlink=True)
-kit.INK = kit.collection('ink')
+kit.INK = None                 # a model is a photograph: no drawn line
 
-# ---------- render settings ----------
-engines = [i.identifier for i in bpy.types.RenderSettings.bl_rna.properties['engine'].enum_items]
-scene.render.engine = 'BLENDER_EEVEE_NEXT' if 'BLENDER_EEVEE_NEXT' in engines else 'BLENDER_EEVEE'
-ee = scene.eevee
-for name, val in (('taa_render_samples', SAMPLES), ('use_raytracing', True), ('use_shadows', True), ('use_fast_gi', True), ('fast_gi_distance', 4.0),
-                  ('shadow_ray_count', 2), ('shadow_step_count', 8), ('volumetric_end', 200.0)):
-    try:
-        setattr(ee, name, val)
-    except Exception as ex:
-        print('skip', name, ex)
-vs = scene.view_settings
-vs.view_transform = 'AgX'
-scene.render.image_settings.file_format = 'PNG'
-scene.render.image_settings.color_depth = '16'
+stock.cycles(scene, SAMPLES, threshold=0.02, bounces=(6, 2, 3, 6, 12))
 
 # ---------- the sea, the reef, the beach, the land ----------
 def sea():
-    m = kit.bpy.data.materials.new('sea')
-    m.use_nodes = True
-    nt = m.node_tree
-    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
-    b.inputs['Base Color'].default_value = (0.004, 0.012, 0.022, 1)
-    b.inputs['Roughness'].default_value = 0.06
-    nz = nt.nodes.new('ShaderNodeTexNoise')
-    nz.inputs['Scale'].default_value = 0.9
-    nz.inputs['Detail'].default_value = 6.0
-    bp = nt.nodes.new('ShaderNodeBump')
-    bp.inputs['Strength'].default_value = 0.18
-    nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
-    nt.links.new(bp.outputs['Normal'], b.inputs['Normal'])
-    return m
+    """The sea in a model: a sheet of deep blue resin, glossy, barely lit."""
+    return kit.mat('m sea', (0.006, 0.014, 0.03), rough=0.03, coat=1.0, emit=(0.02, 0.06, 0.14), strength=0.04)
 
 coast = {k: [tuple(p) for p in v] for k, v in plan['coast'].items()}
 cx0, cy0 = G['ISLAND_CX'], G['ISLAND_CY']
@@ -114,57 +99,23 @@ rects('sea', [((cx0 - 160, cy0 - 160), (cx0 + 160, cy0 + 160), -0.32)], sea())
 
 
 def shallows():
-    """The lagoon: turquoise over the sand at the shore, deepening to night at the reef (it read as one flat teal band)."""
-    m = bpy.data.materials.new('shallows')
-    m.use_nodes = True
-    nt = m.node_tree
-    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    """The lagoon: the same resin, tinted teal over the shallows and deepening to the sea's blue."""
+    m = bpy.data.materials.new('m lagoon')
+    nt, b = kit._bsdf(m)
     at = nt.nodes.new('ShaderNodeAttribute')
     at.attribute_name = 'shore'
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.interpolation = 'EASE'
-    ramp.color_ramp.elements[0].color = (0.002, 0.012, 0.022, 1)
-    ramp.color_ramp.elements[1].color = (0.02, 0.15, 0.16, 1)
+    ramp.color_ramp.elements[0].color = (0.006, 0.014, 0.03, 1)
+    ramp.color_ramp.elements[1].color = (0.03, 0.13, 0.15, 1)
     nt.links.new(at.outputs['Fac'], ramp.inputs['Fac'])
     nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
     key = 'Emission Color' if 'Emission Color' in b.inputs else 'Emission'
     nt.links.new(ramp.outputs['Color'], b.inputs[key])
     b.inputs['Emission Strength'].default_value = 0.14
-    b.inputs['Roughness'].default_value = 0.05
-    nz = nt.nodes.new('ShaderNodeTexNoise')
-    nz.inputs['Scale'].default_value = 1.3
-    nz.inputs['Detail'].default_value = 6.0
-    bp = nt.nodes.new('ShaderNodeBump')
-    bp.inputs['Strength'].default_value = 0.12
-    nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
-    nt.links.new(bp.outputs['Normal'], b.inputs['Normal'])
-    return m
-
-
-def broken(name, colour, strength, scale):
-    """A line of light broken as surf is: lit where a noise rises over its middle, water between (they read as drawn lines)."""
-    m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    nt = m.node_tree
-    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
-    tc = nt.nodes.new('ShaderNodeTexCoord')
-    nz = nt.nodes.new('ShaderNodeTexNoise')
-    nz.inputs['Scale'].default_value = scale
-    nz.inputs['Detail'].default_value = 3.0
-    nt.links.new(tc.outputs['Object'], nz.inputs['Vector'])
-    ramp = nt.nodes.new('ShaderNodeMapRange')
-    ramp.inputs['From Min'].default_value = 0.36
-    ramp.inputs['From Max'].default_value = 0.72
-    nt.links.new(nz.outputs['Fac'], ramp.inputs['Value'])
-    mul = nt.nodes.new('ShaderNodeMath')
-    mul.operation = 'MULTIPLY'
-    mul.inputs[1].default_value = strength
-    nt.links.new(ramp.outputs['Result'], mul.inputs[0])
-    b.inputs['Base Color'].default_value = (0.01, 0.05, 0.06, 1)
-    key = 'Emission Color' if 'Emission Color' in b.inputs else 'Emission'
-    b.inputs[key].default_value = (*colour, 1)
-    nt.links.new(mul.outputs['Value'], b.inputs['Emission Strength'])
-    b.inputs['Roughness'].default_value = 0.3
+    b.inputs['Roughness'].default_value = 0.03
+    kit._set(b, ('Coat Weight', 'Clearcoat'), 1.0)
+    kit._set(b, ('Coat Roughness',), 0.01)
     return m
 
 
@@ -173,11 +124,9 @@ lagoon = ring_between('lagoon', coast['1.26'], coast['1'], -0.31, -0.31, shallow
 _shore = lagoon.data.attributes.new('shore', 'FLOAT', 'POINT')
 for _i in range(len(lagoon.data.vertices)):
     _shore.data[_i].value = 0.0 if _i < len(coast['1.26']) else 1.0
-# one soft line of surf off the beach, rising and falling along it; no reef line (both read as drawn contours)
-tube('foam', [(x, y, -0.28) for (x, y) in coast['1.03']] + [coast['1.03'][0] + (-0.28,)], 0.06, broken('foam', (0.85, 0.93, 1.0), 1.0, 0.7))
 ring_between('beach', coast['1'], coast['0.95'], -0.3, 0.0, kit.sand())
 slab_from('land', coast['0.95'], -0.3, 0.0, kit.lawn())
-# the island's own growth: shrubs everywhere the town is not, thicker toward the shore
+# the island's own growth, as a model maker plants it: turned basswood beads everywhere the town is not
 import random as _r
 def _inside(poly, x, y):
     c = False
@@ -202,7 +151,7 @@ for k in range(4):
     bpy.ops.object.modifier_apply(modifier='d')
     for poly in t.data.polygons:
         poly.use_smooth = True
-    t.data.materials.append(kit.mat(f'shrub {k}', ((0.02, 0.09, 0.04), (0.03, 0.12, 0.05), (0.04, 0.1, 0.03), (0.025, 0.08, 0.05))[k], rough=0.6))
+    t.data.materials.append(stock.basswood())
     _shrub_meshes.append(t.data)
     bpy.data.objects.remove(t, do_unlink=True)
 _rnd = _r.Random(11)
@@ -224,7 +173,7 @@ for _ in range(2600):
     put(o)
     s = _rnd.uniform(0.28, 0.75)
     o.location = V(x, y, s * 0.3)
-    o.scale = (s * _rnd.uniform(0.9, 1.4), s, s * _rnd.uniform(0.55, 0.85))
+    o.scale = tuple(v * 0.85 for v in (s * _rnd.uniform(0.9, 1.4), s, s * _rnd.uniform(0.55, 0.85)))
     o.rotation_euler = (0, 0, _rnd.uniform(0, 6.3))
     _shrubs += 1
 print('shrubs', _shrubs)
@@ -317,7 +266,7 @@ for k, r in enumerate(ROADS):
             cyl('turning circle', end[0], end[1], -0.02, ROAD_HALF + 0.75, 0.035 + 0.0015 * k, asphalt, verts=48)
 for j in JUNCTIONS:
     cyl('junction', j[0], j[1], -0.02, ROAD_HALF + 0.35, 0.045, asphalt, verts=48)
-bars('road paint', dash_q, kit.mat('road paint', kit.CREAM, rough=0.5, emit=kit.CREAM, strength=0.35), 0.03)
+bars('road paint', dash_q, kit.mat('road paint', (0.6, 0.57, 0.5), rough=0.5, emit=kit.CREAM, strength=0.12), 0.03)
 # a crossing wherever a walk goes over a street: five bars along the street, set across it
 zq = []
 for z in plan['zebras']:
@@ -326,7 +275,7 @@ for z in plan['zebras']:
     for j in range(5):
         o = -ROAD_HALF + 0.2 + j * 0.44 + 0.11
         zq.append(((z['x'] + n[0] * o, z['y'] + n[1] * o), t, 0.6, 0.22))
-bars('crossings', zq, kit.mat('crossing paint', (0.75, 0.72, 0.62), rough=0.5, emit=kit.CREAM, strength=0.2), 0.05)
+bars('crossings', zq, kit.mat('crossing paint', (0.6, 0.57, 0.5), rough=0.5, emit=kit.CREAM, strength=0.12), 0.05)
 # the pier, its posts in the sea
 pv = G['PIER_X']
 (box('pier', pv - 1.2, G['PIER_Y0'], -0.12, 2.4, G['PIER_Y1'] - G['PIER_Y0'], 0.14, kit.wood()))
@@ -335,7 +284,8 @@ for k in range(int((G['PIER_Y1'] - G['PIER_Y0']) / 1.5) + 1):
         cyl('pier post', pv + dx, G['PIER_Y0'] + k * 1.5, -0.6, 0.06, 0.75, kit.wood(), verts=8)
 
 # ---------- plots, pools, gardens ----------
-art = {rid: kit.art(rid, src) for rid, src in plan['art'].items()}
+# each room's art laid as glazed tile, coarser than in its close-up so it reads from above, lit for the night
+art = {rid: stock.mosaic(rid, src, tiles=64, glow=0.6) for rid, src in plan['art'].items()}
 plots = [p for p in plan['plots'] if ONLY is None or p['id'] == ONLY]
 
 def pool(p):
@@ -346,11 +296,9 @@ def pool(p):
         # dry: the outline only, as the site draws it until a coin moves in
         tube('dry pool', [(x, y, ZP + 0.02) for (x, y) in pts] + [pts[0] + (ZP + 0.02,)], 0.02, kit.glow(kit.CREAM, 1.5, 'dry line'))
         return
-    slab_from('water', pts, ZP - 0.02, ZP + 0.035, kit.water(col))
+    # poured resin in its community's colour, lit from within: the brightest thing on a plot at night
+    slab_from('water', pts, ZP - 0.02, ZP + 0.035, stock.resin(col, glow=1.7))
     (tube('coping', [(x, y, ZP + 0.06) for (x, y) in pts] + [pts[0] + (ZP + 0.06,)], 0.07, kit.stone()))
-    # the pool's own light spills its colour over the coping and the lawn round it, as a lit pool does at night
-    # set just under the surface, so the water never mirrors it as a white spot
-    light('POINT', 'pool glow', (pl['cx'], pl['cy'], ZP - 0.05), 18 + 6 * pl['rw'] * pl['rd'], kit.lin(kit.hexrgb(col)), shadow=False, soft=0.6)
     if pl['lanes']:
         x0, x1 = pl['cx'] - pl['rw'] / 2, pl['cx'] + pl['rw'] / 2
         y0 = pl['cy'] - pl['rd'] / 2
@@ -361,22 +309,18 @@ def pool(p):
                 sphere('float', xx, yy, ZP + 0.07, 0.035, kit.mat('float red', (0.8, 0.12, 0.08), rough=0.4) if (j // 3) % 2 else kit.mat('float white', (0.9, 0.9, 0.88), rough=0.4), seg=6)
         sphere('buoy', x0 + pl['rw'] * 0.55, pl['cy'] + 0.5, ZP + 0.1, 0.12, kit.glow((1.0, 0.75, 0.2), 2.5, 'buoy'), seg=12)
     if pl['jet']:
-        tube('jet', [(pl['cx'], pl['cy'], ZP + 0.05), (pl['cx'], pl['cy'], ZP + 1.3)], 0.04, kit.glow((1.0, 0.85, 0.5), 8.0, 'jet'))
-        for i in range(10):
-            a = 2 * math.pi * i / 10
-            for t in (0.3, 0.6, 0.85):
-                sphere('drop', pl['cx'] + math.cos(a) * 0.55 * t, pl['cy'] + math.sin(a) * 0.55 * t, ZP + 1.3 - 1.2 * t * t, 0.02, kit.glow((1.0, 0.9, 0.7), 10.0, 'drop'), seg=6)
+        cyl('jet', pl['cx'], pl['cy'], ZP + 0.03, 0.035, 0.7, stock.rod(), r2=0.012, verts=16)
     if pl['lilies']:
         for (dx, dy, r) in ((-0.3, -1.1, 0.26), (0.25, 0.4, 0.2), (-0.2, 1.2, 0.23), (0.35, -0.3, 0.16)):
-            cyl('lily', pl['cx'] + dx, pl['cy'] + dy, ZP + 0.06, r, 0.01, kit.mat('lily small', (0.1, 0.35, 0.15), rough=0.4), verts=20)
+            cyl('lily', pl['cx'] + dx, pl['cy'] + dy, ZP + 0.06, r, 0.01, stock.basswood(), verts=20)
 
 tops = {}
 for p in plots:
     _before = set(bpy.data.objects)
     x0, y0 = p['x0'], p['y0']
     box('plot', x0, y0, 0.0, PW, PD, ZP, kit.terrazzo())
-    inner = kit.lawn() if p['kind'] == 'room' else kit.paving()
-    box('plot inner', x0 + 0.3, y0 + 0.3, ZP, PW - 0.6, PD - 0.6, 0.004, inner)
+    inner = kit.lawn() if p['kind'] == 'room' else stock.scored()
+    ground = box('plot inner', x0 + 0.3, y0 + 0.3, ZP, PW - 0.6, PD - 0.6, 0.004, inner)
     if p['pool']:
         pool(p)
     if p['garden']:
@@ -392,6 +336,9 @@ for p in plots:
     for (x, y) in plan['lamps']:
         if x0 <= x <= x0 + PW and y0 <= y <= y0 + PD:
             lamp(x, y)
+    # three white figures on its open ground, turned toward its building, as its close-up has
+    bpy.context.view_layer.update()
+    stock.figures(scene, p, ZP, PW, PD, lambda ob, n=ground.name: ob.name == n)
     # then the whole plot is turned and moved to where it stands on the island
     bpy.context.view_layer.update()
     M = site_matrix(p)
@@ -408,30 +355,9 @@ if ONLY is None:
     for (x, y) in plan['streetLamps']:
         lamp(x, y)
 
-# ---------- night ----------
-light('SUN', 'moon', (0, 0, 40), 2.2, (0.55, 0.66, 1.0)).rotation_euler = (math.radians(52), 0, math.radians(-25))
-bpy.data.lights['moon'].angle = math.radians(1.5)
-c = V(cx0, cy0, 0)
-fill = light('AREA', 'sky fill', (cx0 + 60, cy0 + 60, 70), 14000, (0.45, 0.58, 1.0), size=120, shadow=False)
-fill.rotation_euler = (c - fill.location).to_track_quat('-Z', 'Y').to_euler()
-world = bpy.data.worlds.new('night')
-scene.world = world
-world.use_nodes = True
-bg = next(n for n in world.node_tree.nodes if n.type == 'BACKGROUND')
-bg.inputs['Strength'].default_value = 1.0
-# the night: the sheet's own dark overhead, a little lighter and bluer at the horizon
-_wt = world.node_tree
-_tc = _wt.nodes.new('ShaderNodeTexCoord')
-_sep = _wt.nodes.new('ShaderNodeSeparateXYZ')
-_wt.links.new(_tc.outputs['Generated'], _sep.inputs['Vector'])
-_sky = _wt.nodes.new('ShaderNodeValToRGB')
-_sky.color_ramp.interpolation = 'EASE'
-_sky.color_ramp.elements[0].position = 0.0
-_sky.color_ramp.elements[0].color = (0.018, 0.034, 0.06, 1)
-_sky.color_ramp.elements[1].position = 0.35
-_sky.color_ramp.elements[1].color = (*kit.lin(kit.BG), 1)
-_wt.links.new(_sep.outputs['Z'], _sky.inputs['Fac'])
-_wt.links.new(_sky.outputs['Color'], bg.inputs['Color'])
+# palms, the lighthouse's brass, and every light the builders made, at a model's strength; the street
+# lamps' heads a little softer than in a close-up, where one stands close, so the island's many read as dots
+stock.dress(glow={'lamp glow': 12.0, 'buoy': 0.6, 'dry line': 0.4})
 
 # ---------- camera ----------
 cam = bpy.data.cameras.new('cam')
@@ -460,23 +386,43 @@ else:
 co.location = look + forward_back * 200
 scene.camera = co
 
-# ---------- the drawing set's cream line, on the architecture only ----------
-try:
-    scene.render.use_freestyle = True
-    scene.render.line_thickness_mode = 'ABSOLUTE'
-    scene.render.line_thickness = 1.25 * max(1.0, SCALE)
-    ls = scene.view_layers[0].freestyle_settings.linesets[0]
-    ls.select_by_visibility = True
-    ls.select_by_collection = True
-    ls.collection = kit.INK
-    ls.select_by_edge_types = True
-    ls.select_silhouette = True
-    ls.select_border = True
-    ls.select_crease = True
-    ls.linestyle.color = kit.CREAM
-    ls.linestyle.alpha = 0.38
-except Exception as ex:
-    print('freestyle skip', ex)
+# ---------- the gallery at night ----------
+# The room is dark: a low warm spot on the middle of the town, a cool rim from the far side, a faint
+# fill and a moon, none of them seen in the glossy resin sea; what lights the model is its own.
+world = bpy.data.worlds.new('gallery')
+scene.world = world
+world.use_nodes = True
+bg = next(n for n in world.node_tree.nodes if n.type == 'BACKGROUND')
+bg.inputs['Color'].default_value = (0.0012, 0.0016, 0.003, 1)
+bg.inputs['Strength'].default_value = 1.0
+target = V(cx0, cy0 + 2, 0)
+flat = Vector((forward_back.x, forward_back.y, 0)).normalized()     # the visitor's side, on the ground
+side = Vector((-flat.y, flat.x, 0))
+up = Vector((0, 0, 1))
+
+
+def gallery(kind, name, at, energy, colour, **kw):
+    l = bpy.data.lights.new(name, kind)
+    l.energy = energy
+    l.color = colour
+    for k, v in kw.items():
+        setattr(l, k, v)
+    o = bpy.data.objects.new(name, l)
+    put(o)
+    o.location = at
+    o.rotation_euler = (target - at).to_track_quat('-Z', 'Y').to_euler()
+    o.visible_glossy = False
+    o.visible_camera = False
+    return o
+
+
+D = 110
+gallery('SPOT', 'gallery key', target + flat * D * 0.35 + side * D * 0.45 + up * D * 0.8, 1.2e4, (1.0, 0.9, 0.78),
+        spot_size=math.radians(40), spot_blend=0.9, shadow_soft_size=1.5)
+gallery('SPOT', 'gallery rim', target - flat * D * 0.6 - side * D * 0.3 + up * D * 0.6, 1.2e4, (0.6, 0.72, 1.0),
+        spot_size=math.radians(60), spot_blend=0.8, shadow_soft_size=4.0)
+gallery('AREA', 'gallery fill', target + flat * D * 0.7 - side * D * 0.6 + up * D * 0.4, 2e3, (0.85, 0.9, 1.0), size=40.0)
+gallery('SUN', 'gallery moon', target, 0.12, (0.55, 0.66, 1.0), angle=math.radians(1.5)).rotation_euler = (math.radians(52), 0, math.radians(-25))
 
 scene.render.filepath = OUT
 bpy.ops.render.render(write_still=True)
