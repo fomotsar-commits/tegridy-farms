@@ -22,6 +22,16 @@ pub mod token;
 // the real id when, and if, this program is to go on chain.
 declare_id!("VwapPLACEHo1DERnotDep1oyed11111111111111111");
 
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "memetics-vwap-order",
+    project_url: "https://memetics.finance",
+    contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
+    policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
+    source_code: "https://memetics.finance/source/solana/vwap-order",
+    preferred_languages: "en"
+}
+
 pub const MAX_SLICES: usize = 96;
 /// The shortest window. With MIN_AVERAGE_SECONDS, slices are spread over the day.
 pub const MIN_INTERVAL: i64 = 600;

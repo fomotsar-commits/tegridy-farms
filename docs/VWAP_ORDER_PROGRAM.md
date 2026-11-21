@@ -17,19 +17,20 @@ the money waits in an escrow and anyone may send each slice when its time comes.
   person can close at any time and gets back every coin and every lamport, less the tips
   already paid.
 - **Where it stands.** Built on branch `feat/vwap-order-program` in `solana/vwap-order/`, with
-  14 tests that run it beside the exact program our pools run on mainnet, all seen failing first. Not audited,
-  not deployed, and no program address exists for it (only a placeholder nobody can deploy to).
+  15 tests that run it beside the exact program our pools run on mainnet (and beside the pool
+  upgrade waiting for the vault), all seen failing first, plus a rehearsal on copies of our real
+  BAYLA/SOL pool's accounts. Not audited, not deployed, and no program address exists for it
+  (only a placeholder nobody can deploy to).
 - **Nothing proven could be copied** (checked 2026-11-19, section 1). Jupiter's order program
   is closed source and being retired; Kamino's is public but its licence forbids production use
   until 2028-12-04. So this is our own code, built from pieces we already run. It breaks the
-  "copy proven code" rule until an outside audit.
-- **The owner's decision:** pay for an outside audit and then deploy (about 2.8 SOL of rent,
-  section 7, plus the audit), or leave it on the shelf and run only the site version. **Recommendation: leave it
-  on the shelf until the site version shows people want orders it cannot carry** (a whole day,
-  tab closed). BAYLA trades about $2,000 to $3,000 a day (`docs/VWAP_PLAN.md`), so today a site
-  order covers what people do.
-- Two smaller choices, only if it is to go on chain: who may upgrade it (section 8), and where
-  the hour-by-hour weights come from (section 4d).
+  "copy proven code" rule, and an audit by our own reviewers does not change that.
+- **The owner's decision, 2026-11-21:** an in-house audit on Tuesday 2026-11-24, then deploy on
+  the owner's word (about 1.74 SOL of rent, section 7; the steps: `docs/VWAP_ORDER_DEPLOY.md`).
+  The earlier recommendation, an outside audit and the shelf until the site version shows demand,
+  stands on record.
+- Two smaller choices before it goes on chain: who may upgrade it (section 8), and where the
+  hour-by-hour weights come from (section 4d).
 
 ## 1. Is there a proven program to copy? No
 
@@ -57,8 +58,8 @@ copy (read, not changed), and Anchor's standard account checks.
 
 **How the person pays.**
 - Their coins go into the escrow when they open the order (one transaction, one signature).
-- About 0.0085 SOL of rent while the order is open (8,546,880 lamports: the order account and its
-  two coin accounts). All of it comes back at close.
+- About 0.0062 SOL of rent while the order is open (6,238,240 lamports on mainnet, read
+  2026-11-21: the order account and its two coin accounts). All of it comes back at close.
 - A tip per slice, set by the person, at most 0.001 SOL. The site would suggest 0.00001 SOL
   (10,000 lamports). Tips for slices that never ran come back at close.
 - The pool's normal fee on each slice, exactly as on any swap: 1% on the 1% tier, 0.75% on the
@@ -206,26 +207,33 @@ price; dropping the weights leaves equal slices.
 
 ## 7. Costs
 
-- **Deploying:** the program is 396,552 bytes when built with Solana 2.3.0 (the version CI uses;
-  this machine's build has sha256 `b34fe4ddb5fcc398a26bccda7b0e37c786a4b74d0357d8bea091676e3b436261`).
-  Rent for it: 2,761,206,000 lamports (2.76 SOL) at exactly that size, plus 1,141,440 for the
-  program account; about 3.45 SOL with 25% room for audit fixes, so a later upgrade needs no
-  extension. Plus about 0.003 SOL of transaction fees to upload it. The rent comes
-  back if the program is ever closed.
-- **Per order:** 8,546,880 lamports (0.0085 SOL) of rent while open, all back at close, plus the
-  person's tips (the test order of 4 slices held 8,586,880 lamports: rent plus 4 tips of
-  10,000). A slice's three instructions used 73,845 compute units in the tests, in one ordinary
-  transaction (no lookup table needed).
-- **Outside audit:** an estimate, not a quote: a program this size is a one-to-two-week job for one
-  or two auditors, in the range of $15,000 to $40,000 at the firms `solana/tegridy-amm/AUDIT_RFQ.md`
-  lists. No quote has been asked for.
+Mainnet rent read 2026-11-21 (`solana rent`: 5,080 lamports a byte, counting 128 bytes more than
+the account holds; the tests' simulator charges the older 6,960, so its figures run higher):
+
+- **Deploying:** the program is 341,976 bytes when built with Solana 2.3.0, the version CI uses
+  (this machine's build: sha256 `38f7627d7fe36508c1b6ece762522d8f9287cfcfc93f9e89a558b89a0d0fd957`).
+  Rent: 1,738,116,920 lamports for its data at exactly that size, plus 833,120 for the program
+  account, about 1.739 SOL; plus a little for the upload's transaction fees. It comes back only if
+  the program is closed, which needs whoever may upgrade it.
+- **Per order:** 6,238,240 lamports (0.0062 SOL) of rent while open, all back at close, plus the
+  person's tips. A slice's three instructions used about 74,000 compute units in the tests (73,851
+  on the test pool, 74,080 on copies of the real one), in one ordinary transaction (no lookup
+  table needed).
+- **Audit:** in-house on 2026-11-24, at the cost of our own reviewers' time. An outside audit was
+  estimated, not quoted, at $15,000 to $40,000 for a program this size.
 
 ## 8. Before it could ever go on chain
 
-1. The owner's word, then an outside audit, every finding fixed with a test that fails first.
-2. The owner makes the program's key (never made by a session), and a pull request of its own puts
-   it on `solana/guards/allowed-keys.json`, so the key check covers this program like the others.
-3. The on-chain security text, as cp-swap's `security_txt!`.
+Each step, with its commands: `docs/VWAP_ORDER_DEPLOY.md`.
+
+1. The in-house audit of 2026-11-24, every finding fixed with a test that fails first; then the
+   owner's word.
+2. The owner makes the program's key (never made by a session); a pull request of its own puts the
+   committed placeholder on `solana/guards/allowed-keys.json`, so the key check covers this program
+   like the others; `solana-deploy-artifact.yml` (program `vwap-order`) pins the real id at build.
+3. Done 2026-11-21: the on-chain security text, as cp-swap's `security_txt!`, and no IDL
+   instructions (Anchor adds them unless built without; a stranger could claim the record first,
+   as the 2026-11-15 audit found for cp-swap and the launcher).
 4. **Who may upgrade it.** Whoever can upgrade it can take every escrow. Recommended: the Squads
    vault, whose 48-hour lock gives people time to close their orders before any upgrade lands; or
    no one at all once the audit's fixes are in (then a bug can never be fixed, only avoided).
@@ -238,7 +246,12 @@ price; dropping the weights leaves equal slices.
 `solana/vwap-order/litesvm-tests/` runs the order program beside our pool program's mainnet build
 (sha256 `9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146`, the build mainnet runs
 since proposal #35), with the swap guard on and a keeper named, as mainnet's 1% tier has them, in
-LiteSVM with the clock in hand. Seen red first (2026-11-19): against a copy whose four instructions do nothing, all 14 fail.
+LiteSVM with the clock in hand. The same 15 pass beside the pool upgrade waiting for the vault
+(trunk's build, sha256 `3f36e8adb9f541701f8b82df73ff07b76824fe3941381f7d95abdb9563dc7c48`), whose
+pool, price record and swap are unchanged. Seen red first (2026-11-19): against a copy whose four
+instructions do nothing, all 14 of that day fail; the 15th, `nobody_can_claim_the_programs_idl_record`,
+failed on 2026-11-21 before the IDL instructions were turned off (a stranger's claim went
+through).
 Then each check was taken out in a copy of its own, and each copy fails the test beside it:
 
 | Check taken out | Test that fails |
@@ -280,8 +293,15 @@ cargo build-sbf -- --locked
 cd ../../../tegridy-amm/programs/cp-swap && cargo build-sbf -- --locked
 cd ../../tests/cpi-caller && cargo build-sbf -- --locked
 cd ../../../vwap-order/litesvm-tests && cargo test
+node fetch-mainnet.mjs /tmp/mainnet.json && VWAP_MAINNET_ACCOUNTS=/tmp/mainnet.json cargo test -- --ignored
 ```
 
-Not covered: BAYLA's second extension (`TokenMetadata`; the test coin has only `MetadataPointer`,
-and the check is bayla-ladder's, which takes BAYLA on mainnet), accounts created ahead of an order,
-and real mainnet depth (the test pool is 100,000 units of each coin).
+**The rehearsal** (`rehearsal_on_the_venues_real_bayla_sol_pool`, run 2026-11-21 on accounts read
+at slot 472,286,750): the pool, its tier, its two vaults, its price record and both coins (BAYLA's
+real mint, with both its extensions), read from mainnet by `fetch-mainnet.mjs` (reads only) and set
+at their own addresses. The pool held 72.19 SOL and 11,917,857 BAYLA. Selling 1% of its BAYLA in
+4 slices, the first slice landed 1.262% under the pool's mid price (the 1% fee and a 0.25% move),
+the venue's and the island's shares grew, a slice after a 5% dump in the same second was refused
+by the pool's average, and the close returned the rest.
+
+Not covered: accounts created ahead of an order.

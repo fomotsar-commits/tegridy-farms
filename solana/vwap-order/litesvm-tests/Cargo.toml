@@ -19,3 +19,6 @@ solana-keypair = "2.2"
 solana-signer = "2.2"
 solana-transaction = "2.2"
 solana-sha256-hasher = "2.3"
+# The mainnet rehearsal reads fetch-mainnet.mjs's file.
+serde_json = "1"
+base64 = "0.22"

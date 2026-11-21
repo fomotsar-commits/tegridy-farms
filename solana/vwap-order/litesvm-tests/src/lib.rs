@@ -842,3 +842,150 @@ fn closing_returns_every_coin_and_every_lamport_to_the_owner_only() {
     // A slice that comes after the close finds no order.
     assert!(slice(&mut w, &p, &r, 250_000_000).is_err());
 }
+
+// ── the program itself ────────────────────────────────────────────────────────
+
+/// Anchor puts IDL instructions in every program unless built without them; on 2026-11-15 the
+/// audit found cp-swap's and the launcher's IDL records unclaimed, and anyone may claim one.
+#[test]
+fn nobody_can_claim_the_programs_idl_record() {
+    let mut w = World::new();
+    let stranger = runner(&mut w);
+    let base = Pubkey::find_program_address(&[], &vwap_order::ID).0;
+    let idl = Pubkey::create_with_seed(&base, "anchor:idl", &vwap_order::ID).unwrap();
+    let mut data = anchor_lang::idl::IDL_IX_TAG_LE.to_vec();
+    data.push(0); // IdlInstruction::Create
+    data.extend_from_slice(&1_000u64.to_le_bytes());
+    let ix = Instruction {
+        program_id: vwap_order::ID,
+        accounts: vec![
+            AccountMeta::new(stranger.pubkey(), true),
+            AccountMeta::new(idl, false),
+            AccountMeta::new_readonly(base, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(vwap_order::ID, false),
+        ],
+        data,
+    };
+    // Anchor's IdlInstructionStub: the program has no IDL instructions at all.
+    assert_eq!(code(&w.send(&[ix], &[&stranger])), Some(1000));
+    assert!(!w.exists(&idl));
+}
+
+// ── a rehearsal on the venue's real BAYLA/SOL pool ────────────────────────────
+
+/// The accounts `fetch-mainnet.mjs` read from mainnet, each set at its own address, beside the
+/// same cp-swap build mainnet runs. No key of the pool's tier is held, so it is used as it is.
+fn mainnet_world(path: &str) -> (World, u64) {
+    use base64::Engine;
+    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let mut svm = LiteSVM::new();
+    let _ = svm.add_program(vwap_order::ID, &so("VWAP_ORDER_SO", "../target/deploy/vwap_order.so"));
+    let _ = svm.add_program(CP, &so("CP_SWAP_SO", "../../tegridy-amm/target/deploy/raydium_cp_swap.so"));
+    let mut key = std::collections::HashMap::new();
+    for (name, a) in j["accounts"].as_object().unwrap() {
+        let address: Pubkey = a["address"].as_str().unwrap().parse().unwrap();
+        let account = Account {
+            lamports: a["lamports"].as_u64().unwrap(),
+            data: base64::engine::general_purpose::STANDARD.decode(a["data"].as_str().unwrap()).unwrap(),
+            owner: a["owner"].as_str().unwrap().parse().unwrap(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(address, account).unwrap();
+        key.insert(name.clone(), address);
+    }
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 1_000_000_000_000).unwrap();
+    let k = |n: &str| key[n];
+    let (t0, t1) = (k("mint_0"), k("mint_1"));
+    let t22 = if svm.get_account(&t0).unwrap().owner == spl_token_2022::ID { t0 } else { t1 };
+    let w = World {
+        svm,
+        payer,
+        keeper: Keypair::new(),
+        config: k("amm_config"),
+        pool: k("pool"),
+        observation: k("observation"),
+        classic: if t22 == t0 { t1 } else { t0 },
+        t22,
+        token_0: t0,
+        token_1: t1,
+        vault_0: k("vault_0"),
+        vault_1: k("vault_1"),
+    };
+    let obs = w.svm.get_account(&w.observation).unwrap().data;
+    let last = u64::from_le_bytes(obs[4043..4051].try_into().unwrap());
+    (w, last)
+}
+
+impl World {
+    /// Writes a token account's balance; the coins' mint authority is not ours to use.
+    fn set_balance(&mut self, account: &Pubkey, amount: u64) {
+        let mut a = self.svm.get_account(account).unwrap();
+        a.data[64..72].copy_from_slice(&amount.to_le_bytes());
+        self.svm.set_account(*account, a).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "needs VWAP_MAINNET_ACCOUNTS: node fetch-mainnet.mjs <file>"]
+fn rehearsal_on_the_venues_real_bayla_sol_pool() {
+    let path = std::env::var("VWAP_MAINNET_ACCOUNTS").expect("VWAP_MAINNET_ACCOUNTS");
+    let (mut w, last_trade) = mainnet_world(&path);
+    let bayla_vault = if w.t22 == w.token_0 { w.vault_0 } else { w.vault_1 };
+    let sol_vault = if w.t22 == w.token_0 { w.vault_1 } else { w.vault_0 };
+    let (bayla_depth, sol_depth) = (w.balance(&bayla_vault), w.balance(&sol_vault));
+    println!("pool holds {sol_depth} lamports and {bayla_depth} BAYLA units");
+    w.at(last_trade as i64 + 1);
+
+    // Sell 1% of the pool's BAYLA in 4 slices, 10 minutes apart, with a loose worst price (half
+    // of today's), so only the pool's average stands between a dumped price and the slice.
+    let total = bayla_depth / 100;
+    let mid_out = (total as u128 * sol_depth as u128 / bayla_depth as u128) as u64;
+    let p = person(&mut w, true, 0);
+    w.set_balance(&p.input, total);
+    let mut a = args(total, last_trade as i64 + 600, 4);
+    a.min_out_total = mid_out / 2;
+    open(&mut w, &p, a).unwrap();
+    let start = last_trade as i64 + 600;
+
+    let r = runner(&mut w);
+    let fees_before = w.fees_owed();
+    w.at(start);
+    let cu = slice(&mut w, &p, &r, total / 4).unwrap();
+    let got = w.balance(&p.out_vault);
+    let i = if p.input_mint == w.token_0 { 0 } else { 1 };
+    let fees = w.fees_owed();
+    println!(
+        "slice 1 of 4: {} BAYLA units in, {got} lamports out, {:.3}% under the pool's mid price, \
+         {cu} compute units; venue share +{}, island share +{}",
+        total / 4,
+        100.0 * (1.0 - got as f64 / (mid_out / 4) as f64),
+        fees[i] - fees_before[i],
+        fees[2 + i] - fees_before[2 + i]
+    );
+    assert!(got > mid_out / 4 * 98 / 100, "the pool's 1% fee and a 0.25% move, not more");
+    assert!(fees[i] > fees_before[i] && fees[2 + i] > fees_before[2 + i]);
+
+    // Someone dumps 5% of the pool's BAYLA in the same second, then runs slice 2: refused.
+    let ak = r.pubkey();
+    let dump_from = w.account(&p.input_mint.clone(), &ak, 0);
+    w.set_balance(&dump_from, bayla_depth / 20);
+    let dump_to = w.account(&p.output_mint.clone(), &ak, 0);
+    w.at(start + 600);
+    let ixs = [
+        w.swap_ix(&ak, &dump_from, &dump_to, &p.input_mint, bayla_depth / 20),
+        begin_ix(&w, &p, &ak),
+        w.swap_ix(&ak, &p.in_vault, &p.out_vault, &p.input_mint, vwap_order::math::slice_amount(total, &[1; 4], 1)),
+        end_ix(&w, &p, &ak),
+    ];
+    assert_eq!(code(&w.send(&ixs, &[&r])), err(OrderError::BelowAverage));
+
+    // The owner closes: three quarters of the BAYLA and the slice's SOL come back.
+    let ix = close_ix(&w, &p, &p.who.pubkey(), &p.input, &p.output);
+    let who = p.who.insecure_clone();
+    w.send(&[ix], &[&who]).unwrap();
+    assert_eq!(w.balance(&p.input), total - total / 4);
+    assert_eq!(w.balance(&p.output), got);
+}
