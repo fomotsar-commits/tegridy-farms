@@ -87,6 +87,12 @@ describe('pricing is rendered from the catalog the server enforces', () => {
     });
   });
 
+  // Owner, 2026-10-18: under CoinGecko and Birdeye at every tier; overage keeps its old multiple.
+  it('prices the plans at free, $49, $199 and $799 a month', () => {
+    expect(API_TIER_ORDER.map((id) => API_TIERS[id].priceUsdMonthly)).toEqual([0, 49, 199, 799]);
+    expect(API_TIER_ORDER.map((id) => API_TIERS[id].overageUsdPerCall)).toEqual([null, 0.002, 0.0008, 0.0004]);
+  });
+
   it('never quotes an overage rate that nothing can charge', async () => {
     // The catalog publishes overage rates so integrators can model cost. With no
     // processor wired nothing can bill them, so the quota hard-stops — and a cell
