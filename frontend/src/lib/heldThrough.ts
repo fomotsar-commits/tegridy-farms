@@ -164,7 +164,7 @@ const at = (l: readonly LayoutField[], name: string): number => {
 const POSITION = layout([
   ['bump', 'u8'], ['pool', 'pubkey'], ['owner', 'pubkey'], ['nonce', 'u32'], ['amount', 'u64'],
   ['weight', 'u128'], ['lock_end', 'i64'], ['reward_per_weight_paid', 'u128'], ['rewards_owed', 'u128'],
-  ['_reserved', 'u8[64]'],
+  ['weight_set_at', 'i64'], ['_reserved', 'u8[56]'],
 ], POSITION_SIZE);
 const USER_STATS = layout([
   ['bump', 'u8'], ['pool', 'pubkey'], ['owner', 'pubkey'], ['next_nonce', 'u32'], ['open_positions', 'u8'],
@@ -178,7 +178,7 @@ const POOL = layout([
   ['period_finish', 'i64'], ['last_update_time', 'i64'], ['reward_per_weight_stored', 'u128'],
   ['rewards_emitted', 'u128'], ['rewards_paid', 'u128'], ['reward_funded_cumulative', 'u128'],
   ['penalty_collected_cumulative', 'u128'], ['orphaned_penalty', 'u64'], ['degraded', 'bool'],
-  ['rpw_residue', 'u128'], ['emitted_residue', 'u128'], ['_reserved', 'u8[88]'],
+  ['rpw_residue', 'u128'], ['emitted_residue', 'u128'], ['degraded_notice_start', 'i64'], ['_reserved', 'u8[80]'],
 ], POOL_SIZE);
 
 // Streamflow stake_pool, field for field as its IDL declares them (pinned by the test).

@@ -127,9 +127,6 @@ const _: () = assert!(MAX_PENALTY_RATIO == PENALTY_SCALE * 3 / 4);
 /// * The truncate-to-zero floor scales with it. The smallest reload that emits anything
 ///   is `REWARDS_DURATION_SECS` raw units — 126.144 BAYLA at six decimals, up from
 ///   7.776. See AUDIT L-1 in `notify_reward`.
-/// * The M-2 burn floor scales with it too: a window whose rate is below
-///   `total_weighted / PRECISION` emits exactly nothing, and the budget that clears
-///   that bar is linear in this constant.
 /// * [`rate_change_allowed`]'s escape hatch gets slower by the same factor. A rate set
 ///   too high can only be brought down by letting the window lapse, and that wait is
 ///   now up to four years rather than up to ninety days. The guard still cannot brick
@@ -447,6 +444,19 @@ pub fn penalty_for(amount: u64, lock_end: i64, now: i64) -> u64 {
         MAX_PENALTY_RATIO,
     );
     ((amount as u128) * penalty_ratio / PENALTY_SCALE) as u64
+}
+
+/// Whether a degraded pool waives an early exit's penalty: only for a position whose weight
+/// was set at or before the flag's notice began. Weight set during the notice keeps the
+/// normal penalty. A stamp of 0 (a position opened before stamps existed) counts as before.
+pub fn penalty_waived(degraded: bool, weight_set_at: i64, notice_start: i64) -> bool {
+    degraded && weight_set_at <= notice_start
+}
+
+/// Whether a `declare_degraded` notice has begun: before `now`, and above 0. At 0 (an unset
+/// value) all weight set after the upgrade would pay; below it, unstamped weight too.
+pub fn notice_has_begun(notice_start: i64, now: i64) -> bool {
+    0 < notice_start && notice_start < now
 }
 
 /// Synthetix `notifyRewardAmount` rate: a reload after the window ends starts fresh;
@@ -921,6 +931,39 @@ mod tests {
             t += 3_600;
         }
         assert_eq!(prev, 0, "at lock_end the penalty is zero");
+    }
+
+    #[test]
+    fn a_degraded_pool_waives_the_penalty_only_for_weight_set_before_its_notice() {
+        let notice = 1_800_000_000i64;
+        // Set before the notice, or in its very second: free.
+        assert!(penalty_waived(true, notice - DAY, notice));
+        assert!(penalty_waived(true, notice, notice));
+        // Set during the notice: the normal penalty stands.
+        assert!(!penalty_waived(true, notice + 1, notice));
+        assert!(!penalty_waived(true, notice + 2 * DAY, notice));
+        // No stamp (every position opened before stamps existed) counts as before.
+        assert!(penalty_waived(true, 0, notice));
+        assert!(penalty_waived(true, 0, 0));
+        // Never outside a degraded pool, however old the position.
+        assert!(!penalty_waived(false, 0, notice));
+        assert!(!penalty_waived(false, notice - DAY, notice));
+    }
+
+    #[test]
+    fn a_notice_must_have_begun_and_be_above_0() {
+        let now = 1_800_000_000i64;
+        assert!(notice_has_begun(1, now));
+        assert!(notice_has_begun(now - 1, now));
+        // Not begun yet: weight bought while the proposal waits would leave free.
+        assert!(!notice_has_begun(now, now));
+        assert!(!notice_has_begun(now + DAY, now));
+        // At 0, all weight set after the upgrade would pay; below 0, unstamped weight too.
+        assert!(!penalty_waived(true, 1, 0));
+        assert!(!penalty_waived(true, 0, -1));
+        assert!(!notice_has_begun(0, now));
+        assert!(!notice_has_begun(-1, now));
+        assert!(!notice_has_begun(i64::MIN, now));
     }
 
     #[test]
