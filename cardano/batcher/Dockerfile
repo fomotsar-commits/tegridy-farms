@@ -5,7 +5,7 @@
 # Base pinned by digest (node 24.22.1, Debian bookworm, slim): a wrong digest fails the pull, it
 # can never fetch something else. CI runs the tests on the Node this line names; Dependabot
 # proposes newer ones (.github/dependabot.yml).
-FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
 ENV NODE_ENV=production
 WORKDIR /app
