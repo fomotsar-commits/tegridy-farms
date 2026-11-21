@@ -1,0 +1,83 @@
+{
+ "_source": "dev/bidbot-2026-11-15/code-map/raw/opensea-build16-*.json: POST /api/v2/offers/build with protocol_address = Seaport 1.6, offerer 0x...dEaD, 2026-11-15. Headers dropped.",
+ "junglebay": {
+  "requestBody": {
+   "offerer": "0x000000000000000000000000000000000000dEaD",
+   "quantity": 1,
+   "criteria": {
+    "collection": {
+     "slug": "junglebay"
+    }
+   },
+   "protocol_address": "0x0000000000000068F116a894984e2DB1123eB395"
+  },
+  "status": 200,
+  "fetchedAt": "2026-11-15T21:38:29.991Z",
+  "json": {
+   "partialParameters": {
+    "consideration": [
+     {
+      "itemType": 4,
+      "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+      "identifierOrCriteria": "0",
+      "startAmount": "1",
+      "endAmount": "1",
+      "recipient": "0x000000000000000000000000000000000000dead"
+     }
+    ],
+    "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+   },
+   "criteria": {
+    "collection": {
+     "slug": "junglebay"
+    },
+    "contract": null,
+    "trait": null,
+    "traits": null,
+    "numericTraits": null
+   },
+   "encodedTokenIds": ""
+  }
+ },
+ "gnssart": {
+  "requestBody": {
+   "offerer": "0x000000000000000000000000000000000000dEaD",
+   "quantity": 1,
+   "criteria": {
+    "collection": {
+     "slug": "gnssart"
+    }
+   },
+   "protocol_address": "0x0000000000000068F116a894984e2DB1123eB395"
+  },
+  "status": 200,
+  "fetchedAt": "2026-11-15T21:38:26.759Z",
+  "json": {
+   "partialParameters": {
+    "consideration": [
+     {
+      "itemType": 4,
+      "token": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+      "identifierOrCriteria": "0",
+      "startAmount": "1",
+      "endAmount": "1",
+      "recipient": "0x000000000000000000000000000000000000dead"
+     }
+    ],
+    "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+   },
+   "criteria": {
+    "collection": {
+     "slug": "gnssart"
+    },
+    "contract": null,
+    "trait": null,
+    "traits": null,
+    "numericTraits": null
+   },
+   "encodedTokenIds": ""
+  }
+ }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "house-signer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The house bidder's signer: a separate, minimal process that holds the house key and signs only orders and transactions that match a pinned template.",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "mutate": "node test/mutate.mjs"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0"
+  }
+}

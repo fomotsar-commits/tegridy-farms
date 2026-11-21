@@ -121,6 +121,9 @@ describe('the root is a front door', () => {
     'scripts',
     'slither.config.json',
     'solana',
+    // tools/house-signer: the house bidder's key holder, kept outside frontend/ so it runs with
+    // its own two pinned crypto packages and never with the frontend's dependency tree.
+    'tools',
   ];
 
   it('tracks nothing at the root outside the allowlist', () => {

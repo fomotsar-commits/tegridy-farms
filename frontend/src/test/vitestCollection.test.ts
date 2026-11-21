@@ -68,6 +68,11 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   // api/__tests__/bot-noncustodial.test.js, collected by this project, so a change
   // to the API or the migration cannot skip it.
   { prefix: 'bot/', runner: "vitest --root ../bot (ci.yml 'Telegram bot unit tests')" },
+  // The house bidder's signing process. Plain `node --test` inside tools/house-signer, on purpose:
+  // it must run with its own two pinned @noble packages, never the frontend's tree.
+  //   cd tools/house-signer && npm ci --ignore-scripts && node --test
+  // house-signer.yml runs exactly that ("Signer unit tests") on every pull request.
+  { prefix: 'tools/house-signer/', runner: "node --test (house-signer.yml 'Signer unit tests')" },
   // The arb-linkage monitor and its pause consumer. Plain `node --test`, not
   // vitest: they are operational scripts that must run on a bare runner with no
   // frontend toolchain.

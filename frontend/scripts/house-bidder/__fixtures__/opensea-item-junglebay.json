@@ -1,0 +1,21 @@
+{
+ "_source": "OpenSea GET /api/v2/chain/ethereum/contract/<JBAC>/nfts/3033, read 2026-11-16T01:13:11.813Z by dev/bidbot-2026-11-15/build-bot-data/live-opensea.mjs. Images, metadata, traits and rarity removed.",
+ "nft": {
+  "identifier": "3033",
+  "collection": "junglebay",
+  "contract": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+  "token_standard": "erc721",
+  "is_disabled": false,
+  "is_nsfw": false,
+  "is_suspicious": false,
+  "owners": [
+   {
+    "address": "0x1ff5d7d5fabcc6c7acfafc0372423651efb5a689",
+    "quantity": 1,
+    "quantity_string": "1"
+   }
+  ],
+  "creator": "",
+  "updated_at": "2026-11-16T01:13:17.946978"
+ }
+}

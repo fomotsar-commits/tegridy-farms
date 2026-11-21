@@ -1,0 +1,2728 @@
+{
+ "_source": "Trimmed from dev/bidbot-2026-11-15/collections-facts/raw/gnssart/sales-90d.json: OpenSea GET /api/v2/events/collection/gnssart?event_type=sale, read 2026-11-15T21:33:49.045Z, 90 days. Images, names, traits and descriptions removed; every other field as OpenSea sent it.",
+ "read_utc": "2026-11-15T21:33:49.045Z",
+ "after_utc": "2026-08-17T21:33:46.000Z",
+ "before_utc": "2026-11-15T21:33:46.000Z",
+ "asset_events": [
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794774527,
+   "transaction": "0xa24e5b56af514687100cf59a5f986ffa5fba61d3e0e709fc10151d5b189aa26a",
+   "order_hash": "0xf22b58c10fd2b62e612025ec979dd50b60399283d93bc23ab8ba54359dc69ed7",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14700000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794774527,
+   "seller": "0x3a65f764623cbbcc6bb22141c9b44a3d2082d53f",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2047",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711611,
+   "transaction": "0xf99ea2ae4ce200e855242d0b43ac0ab5d4dfa8754f1b0e02eea8ff99e3781b4b",
+   "order_hash": "0x7d281a3dcc4ad5f2a94a2baef040d5da658c3bbe32cfc40eb7a4235c0a25f75e",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14799000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711611,
+   "seller": "0x55dc599e9cd7754a028fa0631d865a9ca3636832",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4756",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711575,
+   "transaction": "0x8b66a76870dfd2f2efac808703c10077b8dc9493a91ff73e7fa23b36f6def091",
+   "order_hash": "0x0eb391c847edb76ecaf4fee032570039fc7b9c7d2098fb846f0442296b6a1d3c",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "11000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711575,
+   "seller": "0xf9a7facea55704bdcf65b5b6978eaa6c61323d1e",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2872",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711575,
+   "transaction": "0x8b66a76870dfd2f2efac808703c10077b8dc9493a91ff73e7fa23b36f6def091",
+   "order_hash": "0x35416651198ccb2bd4dfc7a8b9e0b2d054cce4d789711be2a4f56ccfa24fc062",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12931700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711575,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "203",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711539,
+   "transaction": "0xd4487daefafd1873280d0e81351d9c7c5faef2cef642589307058373d21c78b1",
+   "order_hash": "0x1a8cc9322e18b281e73a3e249daccfdaff4102d0578c4ddb9722bed11d67e21e",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "15454600000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711539,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "866",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711527,
+   "transaction": "0xf5168c1d7d71a4ad91c20cae7bb3c2b9042b26fe3bd4800a151263246087d35c",
+   "order_hash": "0xd76c0a61743feaec9a624cb95ec421a89347cd0d674339016281bd2b354881f7",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14798000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711527,
+   "seller": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6048",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711515,
+   "transaction": "0x0ec9084935f4af9dd1de50ae5d40e93e487cf961ef14850ecc7849e8e86fce29",
+   "order_hash": "0x2503ab7aac451d559fd0e46a000e1b3354ada570e42676490f3fe47a23facfd6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14797900000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711515,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2641",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711503,
+   "transaction": "0xa0c6491bd8a60fdd68e2f0609e9a3cab9592ea403b5884b1a4c43da1699cf2fd",
+   "order_hash": "0x8d038b71f8dfa0e9503d45e02b896d8a7c2d5bdfb4a2effc58b87991a05bc749",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "13000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711503,
+   "seller": "0x94c992717479ae408ff5fdb1c21f339ed3a927a5",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9365",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711491,
+   "transaction": "0x07e9e6719245d445c6a6bd8122c47f6cdb7413f02b7438b1f2f2af3280aeb206",
+   "order_hash": "0x2ea25b05b71fb4d77c2291dc0dc521d9a66fc1d02c3793b052ebed2e55053fdc",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12999000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711491,
+   "seller": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4778",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711467,
+   "transaction": "0xeec7aa719905a1ffe57b91b934470be3745eff506e66c8e1df6202937681667d",
+   "order_hash": "0x35b9c69542fe8acd35c8f606c61a3564db3f90609ecec77e3d3a88f73482fbf6",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "10900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711467,
+   "seller": "0x7853733783cdf02ea63a17c792ea9d0837b91b6d",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6114",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794711455,
+   "transaction": "0x1cb5fcebc113d16a114e2ebddfa4927de99bf392c7419293dbb4ad7c7b4b57cc",
+   "order_hash": "0x7c6a2a5779dbbeebe725b925e57e1c1f24052a446bf6bfc84aac1592c02c9d35",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "10890000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1794711455,
+   "seller": "0xb738fffb968e58a76c4d5162c42cec3f2228eb3f",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4089",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794597251,
+   "transaction": "0x53dd22f2f0146b0dbb6be5e0a0616f9cefc2d945088eba3bacd0989b1af9dd6f",
+   "order_hash": "0xf557b24fccec937da379fdd7aabdfb4ee64297550fa89822f4f1d091de5a8547",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "10900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794597251,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0x94c992717479ae408ff5fdb1c21f339ed3a927a5",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9365",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794588203,
+   "transaction": "0x614adfcf62ebcc7f997b0cbb263e386d36b383c13f223ef3971dcf0dc7625b3a",
+   "order_hash": "0x59334c25169b8e432ce8f8cd4fff9d587b489915831f1627078f6d02d58310f0",
+   "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "35000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794588203,
+   "seller": "0x41c5650491f981ba3a1354c516a693c36301a83f",
+   "buyer": "0xee0ec396c13f80d94022928bdccca59dc0c218c3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8399",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1794072875,
+   "transaction": "0x0608b970cfc571759ed702a3e446b6891d360398376a9465ebf0c5f6cf259d6d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "8900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1794072875,
+   "seller": "0x5f298691ee8606100cce28586d282180d18ffff5",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9365",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792979999,
+   "transaction": "0xd6089d6cbd9a4ac752509fd9bcd29545452a7b1cc3e0b2572dbf66685320bd34",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792979999,
+   "seller": "0xf9a7facea55704bdcf65b5b6978eaa6c61323d1e",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2891",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792943879,
+   "transaction": "0xb80d6368f7eb4981c2f7229b20d26405424fef078f7371081e69bb678a23f9c0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792943879,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8434",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792943843,
+   "transaction": "0xef3f8471706a1d263ae46607a01f552084841ad511e43973ae97eb930276fb82",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "11100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792943843,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "203",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792919255,
+   "transaction": "0xfdcc90e9e4b5514f9fe727338aec119fd8e0e4fb9e8157c5d46a898d58fd6fba",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "11800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792919255,
+   "seller": "0x7bd0fafe34a8b64afaf16166d644cdbb2b950aab",
+   "buyer": "0xf9a7facea55704bdcf65b5b6978eaa6c61323d1e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2891",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792919159,
+   "transaction": "0x2ed047eb745e5389a37a72fb2fb575578ef261efd377b84a45c3c8e94c5998b8",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "11800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792919159,
+   "seller": "0x7bd0fafe34a8b64afaf16166d644cdbb2b950aab",
+   "buyer": "0xf9a7facea55704bdcf65b5b6978eaa6c61323d1e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2872",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792914827,
+   "transaction": "0x148b2ab19d2651e7160b24ba0d9266701035daa5bbee64d8b2a6e2ea87cf7c5f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792914827,
+   "seller": "0xed8fd239b60b69b599ac62664d272ed28245e68a",
+   "buyer": "0xd8f25e68dfc8c14daf61f8fc934cfb7dc47c78e8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5469",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792298927,
+   "transaction": "0x2915c8e5a85e7d4dbfb4519b07f02daef398e2e6fb6e463f937a31ec344fe9cd",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792298927,
+   "seller": "0x607f80309a94aec9bbb5a2f6da2c1329bd68e33e",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2641",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792073207,
+   "transaction": "0x88b5e1beeb4baedf736e7d1dc644bcfd8d36547186ebdca83f48ca64a395b06a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792073207,
+   "seller": "0x7d5a592352afee0a8f37da6f350557ca4694f113",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3249",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1792072991,
+   "transaction": "0xc505d86faf5db6131bec4e74b1ba8c1afeb492b2b5447832ee39b9ede99f0a71",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1792072991,
+   "seller": "0x7d5a592352afee0a8f37da6f350557ca4694f113",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1478",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791978299,
+   "transaction": "0xacfe8087cfccc0a6b31526c977096ada7ce9fd85d60675e0d2fe7efb7a64cb60",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16500000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791978299,
+   "seller": "0x291a21cafada89c74d017c1aad1a0c9634a92237",
+   "buyer": "0x9faafecec3d7e1bb718a2175b072f75bbf902de6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5328",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791970007,
+   "transaction": "0x7d2a2f15640b5b9df187b1db1f70f2b9fe50e15c3162ef342d9f41ddd1b57433",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791970007,
+   "seller": "0x6186290b28d511bff971631c916244a9fc539cfe",
+   "buyer": "0x291a21cafada89c74d017c1aad1a0c9634a92237",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5328",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791923171,
+   "transaction": "0xdc8718737bc4ab09c4893cbdd036bc125bd8089d1d8846ce3b237048f57d9072",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20020000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791923171,
+   "seller": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "buyer": "0x9faafecec3d7e1bb718a2175b072f75bbf902de6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2283",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791900947,
+   "transaction": "0x6bdb407762751c1d4a97b398175f0b5b41d43ec3a230cc6d2c72398e7fa1fd1a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791900947,
+   "seller": "0x0b9f898921b2bb8cd2d7d30faffec2c90200cc8c",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "468",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791900899,
+   "transaction": "0x907e3b99b747b36f1149b469ac353d8c5873dfb6fcaf2fe642528c3bb0fb1a6b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791900899,
+   "seller": "0x0b9f898921b2bb8cd2d7d30faffec2c90200cc8c",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "426",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791551051,
+   "transaction": "0x48952e70f58a287f1f5f00df6cf971ee676cc7e1e5d23e34cbebe7c1e104d6b1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14600000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791551051,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0x9faafecec3d7e1bb718a2175b072f75bbf902de6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "632",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791482495,
+   "transaction": "0x8dcccf09c76caaaf874234a3aa24daef3cc04d166cf3e3d81015c854fe44ca60",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "51000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791482495,
+   "seller": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "buyer": "0xf11f43bb3f15cbf8f6f132e4dc473ed7f14ff40d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "842",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791187679,
+   "transaction": "0x14f4356946e3f5f2f9e593a9e2cafcbd3ced456430f8bfef6fe4e737b186f0e9",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "50000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1791187679,
+   "seller": "0x440432c8e1919ef36b75394c60f6355de8ce790f",
+   "buyer": "0xaae24fb18c49bc4034eeb2081b160be1c40af425",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6923",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791187559,
+   "transaction": "0x995b8e41c3e5e1eab9c0e11d7e9eb823bad813ad2cbddbd7c03d27c23b580cf1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791187559,
+   "seller": "0xaae24fb18c49bc4034eeb2081b160be1c40af425",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3417",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791187559,
+   "transaction": "0x995b8e41c3e5e1eab9c0e11d7e9eb823bad813ad2cbddbd7c03d27c23b580cf1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791187559,
+   "seller": "0xaae24fb18c49bc4034eeb2081b160be1c40af425",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9629",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791146939,
+   "transaction": "0x55034bdcd1e63558bba4c91521c7b11c1310cfa0744f8bb2be3a5a3b48adb1ce",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "15270000000000000",
+    "token_address": "0x0000000000a39bb272e79075ade125fd351887ac",
+    "decimals": 18,
+    "symbol": "BETH"
+   },
+   "closing_date": 1791146939,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5583",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6921",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0x440432c8e1919ef36b75394c60f6355de8ce790f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6923",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6925",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6918",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6927",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791144599,
+   "transaction": "0x2db8b72f6a6026f533c0bea269b07bd53bbbce42d231a3ddaad821790dd2c905",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791144599,
+   "seller": "0xe02f813f584e25f10ad0acfe6cbf4fba7020ed6a",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6929",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791044255,
+   "transaction": "0x25791fbb27ec599d024029a7a21ca9d930b3b96436d290f6ce6e18167cd81ce3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "15500000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791044255,
+   "seller": "0x02f2eee105b5f2faca1d43a8379047426cacf559",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3224",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1791044243,
+   "transaction": "0xfcade1c1abb0ca954e8ff46015f65f1c3eac3d94c87189f6faa117d79486a237",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "15300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1791044243,
+   "seller": "0x02f2eee105b5f2faca1d43a8379047426cacf559",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "866",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790866343,
+   "transaction": "0x9909d7b2b0f4203c0443a160769f2da68908da33e1f1b34cc5ba19cbd6b46c04",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790866343,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2283",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790866259,
+   "transaction": "0xa34a376a5b0f699efe1ccaa434dcba90fdec7b103b5e2ea9a219c05007d2bbd1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790866259,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2378",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790741435,
+   "transaction": "0x145ffa36abe92ea1dec6e80a68bad859cbb33be49db53281da3c61e934118ce1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "70000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790741435,
+   "seller": "0x440432c8e1919ef36b75394c60f6355de8ce790f",
+   "buyer": "0x85c5c101b787ac0ccec11171575d2b43d4b911b5",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8589",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790589815,
+   "transaction": "0x16405dd06dd996071d3efdb5ba76f01f5f4708304d0255f4c297a062e373c554",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "14600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790589815,
+   "seller": "0x9c2da765c7389d36dfb418f0381090685b5692e8",
+   "buyer": "0x7853733783cdf02ea63a17c792ea9d0837b91b6d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6114",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790315051,
+   "transaction": "0x6908a3047ecdf490abdce9adfcb6633d7676b79e9e8d13a39894f962fd1f08b7",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790315051,
+   "seller": "0x48f89a77a7a79a9febb82efe230dc78b483bc6e5",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4359",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790184383,
+   "transaction": "0x142f39e80710969cce9659c892b5b36cf7494ecd778a2c689086126cd48b3f73",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790184383,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9341",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790184335,
+   "transaction": "0x592949c1b1d0bfdd668e600ee60ddf80dd22d56a6d869dd3e28892bf1764b514",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "33300000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790184335,
+   "seller": "0xbb23298cf5039fe0ac8473a143fb1200c8df1b54",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3473",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790177903,
+   "transaction": "0x3bf7616e7db5d95ee9c9998d0ad6c3d3ccea2f579437a381bbee0a43d90d677b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790177903,
+   "seller": "0x8c15897982549a5fa6a18305b7ccf7262476133d",
+   "buyer": "0x9e30ad52595a892c4e5cb54be99cf11277b7ff41",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4756",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790176427,
+   "transaction": "0xf3657099d20e05c4b1341578d0540d7633767c94f13e55158f222a6df62c125a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790176427,
+   "seller": "0xb9addb7594e6047baa292e98800a29d142e93fe1",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8260",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790061323,
+   "transaction": "0xb1fe8fdf32da6151be7e2f4b13b01e675219dba0e23f710224e4c0d8d2ae3fc3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34450000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790061323,
+   "seller": "0x2ceb5c59a6fcf574c4b2ab8cbdae88f44e5c2bc3",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8577",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790046311,
+   "transaction": "0x54a1acd073653c5877d2ff41295d4336e2a208b675c8522e5d013aa677b5e322",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34530000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1790046311,
+   "seller": "0x78b5936f553681e7626f2f39567126445ae3ae31",
+   "buyer": "0x831c3e0a6ffcff6b07f40b525b125bf19eb4b2d1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8587",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8576",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8588",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0x2ceb5c59a6fcf574c4b2ab8cbdae88f44e5c2bc3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8577",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "44600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0x440432c8e1919ef36b75394c60f6355de8ce790f",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8589",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "7106",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8580",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8584",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0x78b5936f553681e7626f2f39567126445ae3ae31",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8587",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8579",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8581",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8583",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1790027831,
+   "transaction": "0x39180628cbbe32a8f2c277f7701df91f3a88dc5b46027287e9dfedf9f363f160",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1790027831,
+   "seller": "0x4a59ef5c8eac8b43471e3c782996a0d07c554133",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8575",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789883111,
+   "transaction": "0x66a476a2f71744be7e52cac59940ca99aef6b88d98565ef40224ab8a81aae798",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789883111,
+   "seller": "0x9d6d254287922f9a96b23b2b9f74c735c9f655cf",
+   "buyer": "0xebd03be4405611cca70f0aa307625851a3802bfd",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1432",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789776959,
+   "transaction": "0x942f47b70cae6c0c495c6dfee549003b3adda82b173dcab07641bd4f768021e3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789776959,
+   "seller": "0xa178124bc348adc9657e41b3068c623ca0e4b05d",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "632",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789747919,
+   "transaction": "0x075f6d007b3c833a8cfd8b7742819864cfbdba1c0d005e77eebabfe24531f5b0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "34785000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789747919,
+   "seller": "0x9e30ad52595a892c4e5cb54be99cf11277b7ff41",
+   "buyer": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "842",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789747751,
+   "transaction": "0xb0f8173512daf5564a60fe7a1a5ab55e33d75c03971a6b9145f2b591e3c38ae6",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789747751,
+   "seller": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5583",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789722407,
+   "transaction": "0x63eefc3ac4d18e2de6e91310bdd5e89659652da11862bd4ac8c8470149e0513d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789722407,
+   "seller": "0xcd4aa0ce4f1b266acd69a43aa1c7e1796e4884da",
+   "buyer": "0x9e30ad52595a892c4e5cb54be99cf11277b7ff41",
+   "quantity": 1,
+   "nft": {
+    "identifier": "842",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789721663,
+   "transaction": "0xe013b87052e57d2eb6b87e220e5d55b7e89fb417a2a1f26b44accf9ba7fe73f2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789721663,
+   "seller": "0xcd4aa0ce4f1b266acd69a43aa1c7e1796e4884da",
+   "buyer": "0x9e30ad52595a892c4e5cb54be99cf11277b7ff41",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1061",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789721543,
+   "transaction": "0x81a9fe50eb645983bb99fac4a8300647fb84a3ce23c4e014a9b85b0358ce2d5c",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789721543,
+   "seller": "0xcd4aa0ce4f1b266acd69a43aa1c7e1796e4884da",
+   "buyer": "0xa178124bc348adc9657e41b3068c623ca0e4b05d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "632",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789511207,
+   "transaction": "0xe34431b057bfe2e6581d5d56f95defe1e11a1d669b25f3b08273008f331eeeda",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17600000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789511207,
+   "seller": "0x084c012b77f83f296e7b1edb7afff7ad5076ad8a",
+   "buyer": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4778",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789464683,
+   "transaction": "0x758ec871c0781e8b60a2d480ea4fe1781eb3da7bcd3d44aab863af23e6fa9718",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1789464683,
+   "seller": "0x711741ae6e6e4ee7abbc02212b141e963b314185",
+   "buyer": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6048",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789416083,
+   "transaction": "0x1c6bbe37761a231c0b8eb86591693e7f30b896705cca178ead66a4dbc39f8b9b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16899000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789416083,
+   "seller": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "buyer": "0x1ad68537bb6672e787739380e0c13b2f8b569788",
+   "quantity": 1,
+   "nft": {
+    "identifier": "7557",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789415987,
+   "transaction": "0xe1ad158768502cb09813850353e7434bc9b8417ff607b93e07c20eb9c7d8a610",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17100000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789415987,
+   "seller": "0xdc00f99d747bb3962514467ea927b5ddaa6ef1af",
+   "buyer": "0x1ad68537bb6672e787739380e0c13b2f8b569788",
+   "quantity": 1,
+   "nft": {
+    "identifier": "527",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789415963,
+   "transaction": "0xe97529e5a8b7e4cc1cf230bd7e8651cbadb81d56a581bcf56561b6f61b60612f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16900000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789415963,
+   "seller": "0x3a2ff6e85b0c5463bae870a383461738ae582348",
+   "buyer": "0x1ad68537bb6672e787739380e0c13b2f8b569788",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2356",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789410923,
+   "transaction": "0xebb936fe885e85727036a20ed5b7ee53cb35135165a212aa439054a4e7af104d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "70000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789410923,
+   "seller": "0xc8f0bfe2ca98c5a20a6c16ea0ae06cdc8123f96c",
+   "buyer": "0x8544a547366ebfa8711ccf60667cbf7c8b0943f1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "4531",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789410755,
+   "transaction": "0x273ea4c83e0839ad411e7cdede0776528e390e8b99091340d9d80619021b9e78",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "31330000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789410755,
+   "seller": "0xb0cf6360b50c48280e2c18fe9d96bc7d6f5ed697",
+   "buyer": "0x8544a547366ebfa8711ccf60667cbf7c8b0943f1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6911",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789052771,
+   "transaction": "0x4e3a323d0f68c1c0a4b18d77ef79ae27fcaf2e0dc6abb4dc86c09fdcdf93fb41",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22200000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789052771,
+   "seller": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "buyer": "0x1970c8f633fcb515a21fcff5bd50bfd664f3cb02",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8716",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789052723,
+   "transaction": "0x78d969f4ee7d108a0caa9731666da7b93f5b2677f8c69ad44e6d5169c15ba70e",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "38000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789052723,
+   "seller": "0xb085e5e8c53d965e7813ded505cfd9f6931e7aaf",
+   "buyer": "0x1970c8f633fcb515a21fcff5bd50bfd664f3cb02",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6549",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789050947,
+   "transaction": "0xecfbf485f1ab1392b02312027b6ee3550e773e48d80c7feb88f74e759a83477e",
+   "protocol_address": "",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789050947,
+   "seller": "0xb085e5e8c53d965e7813ded505cfd9f6931e7aaf",
+   "buyer": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1854",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1789041683,
+   "transaction": "0x509bd498c60e2fd42290be22e3611ae793fd6079c4ded1bddd324cb640ecc1c8",
+   "protocol_address": "",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "30000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1789041683,
+   "seller": "0xb085e5e8c53d965e7813ded505cfd9f6931e7aaf",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5287",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788889427,
+   "transaction": "0x8647f8d2e24392824cda55a3b692a9cc807eb2b4afdc692b15518c598aaf17c2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16890000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788889427,
+   "seller": "0x0bc1ca13a06f6d13f0b67ce451379c9468cd5e4f",
+   "buyer": "0xee0ec396c13f80d94022928bdccca59dc0c218c3",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2287",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788815867,
+   "transaction": "0x08dc8c4ecb669c16c4ced73dd6b67be6d037fc7ccfa4dc99d381b01e94bdeaaa",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17090000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788815867,
+   "seller": "0x0bc1ca13a06f6d13f0b67ce451379c9468cd5e4f",
+   "buyer": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5104",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x8ea22e38dfb227f742ad546b62e665c37d5bfb0ccec3de8a5c2059d2ed6f178f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "13385700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2859",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x8ea22e38dfb227f742ad546b62e665c37d5bfb0ccec3de8a5c2059d2ed6f178f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "20000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "155",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x8ea22e38dfb227f742ad546b62e665c37d5bfb0ccec3de8a5c2059d2ed6f178f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22200000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1344",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x8ea22e38dfb227f742ad546b62e665c37d5bfb0ccec3de8a5c2059d2ed6f178f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "13389700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0xfb6cf476f17a9f17732e365acac74cee679d5904",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8553",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x8ea22e38dfb227f742ad546b62e665c37d5bfb0ccec3de8a5c2059d2ed6f178f",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "13385700000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5837",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788765647,
+   "transaction": "0x3aaf857b37d79af29b0750f2a936f068d273ed00341ae622eb1d8c9cad6bc783",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "13340000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788765647,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2074",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788532883,
+   "transaction": "0xf7d915063084dd48b6a3cf513a42a457a91b41e4b70b764c4e066a3b823da232",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17086000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788532883,
+   "seller": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "143",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788529943,
+   "transaction": "0x032e162befba5f1a1a8fe41e2786be859933ce015f1c8fcc1b1091125509c1c4",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17050000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788529943,
+   "seller": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "buyer": "0xaff2c301e3ed03fe53c816cf484e176a842cfb35",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2689",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788505859,
+   "transaction": "0x3b24023f33a9707fb2eaee70b814a481964f2e3fd4f94ddd1be447fa7c0b6c18",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788505859,
+   "seller": "0xab4787b17bfb2004c4b074ea64871dfa238bd50c",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2689",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788505823,
+   "transaction": "0xf4b852b26a85ccf5c29209e3171bdce934f2c1f2a02e4f1a31a3692f8f1a0683",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788505823,
+   "seller": "0xab4787b17bfb2004c4b074ea64871dfa238bd50c",
+   "buyer": "0x00330fffa1ee8503d09fabed9bff204dc3cb3059",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2074",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788505823,
+   "transaction": "0xf4b852b26a85ccf5c29209e3171bdce934f2c1f2a02e4f1a31a3692f8f1a0683",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788505823,
+   "seller": "0xab4787b17bfb2004c4b074ea64871dfa238bd50c",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "143",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788505823,
+   "transaction": "0xf4b852b26a85ccf5c29209e3171bdce934f2c1f2a02e4f1a31a3692f8f1a0683",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788505823,
+   "seller": "0xab4787b17bfb2004c4b074ea64871dfa238bd50c",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2859",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788493487,
+   "transaction": "0xf0b405fdee7c504dfb1ab4e99f3fb127bf155ef4a7b2db2471f766b681583441",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17920000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788493487,
+   "seller": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "buyer": "0xf11f43bb3f15cbf8f6f132e4dc473ed7f14ff40d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5764",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788188843,
+   "transaction": "0x298d940615188183768559d4fde4679e57e86647e6a15f92874c85cc2374c851",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788188843,
+   "seller": "0x289e94f78ae566057b3a2ecc8f96964e78d81931",
+   "buyer": "0x1bce0701f553594189bbeed07a230bf88a74e7a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5764",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788188807,
+   "transaction": "0xc9da680f0555e6a55bd7d7b0ab8d1d52c6fa9e239e776907e0b4cfc2c5ec1ff5",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12800000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788188807,
+   "seller": "0x289e94f78ae566057b3a2ecc8f96964e78d81931",
+   "buyer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5837",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788188783,
+   "transaction": "0x9fa20ba6db89637ab0d36b2e51dc57377d2c52acb587a1fd2a98982ce35286e3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "12900000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1788188783,
+   "seller": "0x289e94f78ae566057b3a2ecc8f96964e78d81931",
+   "buyer": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "7557",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788155291,
+   "transaction": "0xed5ec6d7e00d4a276e45974e35b32b0c91c7132e247fb1dd2ab2583bba27e4d0",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17099000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788155291,
+   "seller": "0x40b7bbc63a88ba750761f213639cfcc254b42f8d",
+   "buyer": "0xd2c7b648897cc83820bfb6770cad4007e9867fdc",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1240",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788116603,
+   "transaction": "0x085037714817345a52ec43074b12349fd4389767cdc23dd757ba52319b68bbea",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "22200000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788116603,
+   "seller": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "buyer": "0x4b2e182b6cedcbde81cfafbd9d5434cd17f2d44d",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5583",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788060827,
+   "transaction": "0xb51fa0c5417851c4d5249a40f6e360fd076992ebd25339044816c9409c0725a1",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18000000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788060827,
+   "seller": "0x289e94f78ae566057b3a2ecc8f96964e78d81931",
+   "buyer": "0x831c3e0a6ffcff6b07f40b525b125bf19eb4b2d1",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5772",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788002963,
+   "transaction": "0x1cc76aed827587085b4824005249b35545f7a092e5dcb3d07f44fc8e664298d3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18000400000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788002963,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0x9faafecec3d7e1bb718a2175b072f75bbf902de6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9652",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1788002963,
+   "transaction": "0x1cc76aed827587085b4824005249b35545f7a092e5dcb3d07f44fc8e664298d3",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "18000100000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1788002963,
+   "seller": "0x5469f710255b9ac0ff28a926749489cfd4bcf877",
+   "buyer": "0x9faafecec3d7e1bb718a2175b072f75bbf902de6",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1606",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787900027,
+   "transaction": "0x34ddd4a0d2e4f7f8f20bbc1fe32544b5c5149affafd445fbfb57cd48198348fd",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "125000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787900027,
+   "seller": "0xe4c3c14db6d7dbe22a32f36d39c854c87242ddb0",
+   "buyer": "0x24a299102e0a052ba481a489d337728a1b064540",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5741",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787892827,
+   "transaction": "0x358029a8b47cafcdbb8b4bcd52913a5f3ba36919d997d6dc51f67c40ad433f2d",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "15100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787892827,
+   "seller": "0x95312ca698f23972a639c2c21e2885f390c0bb51",
+   "buyer": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "quantity": 1,
+   "nft": {
+    "identifier": "9652",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787737223,
+   "transaction": "0x027d8d504a5f0c4231b19d70daa2aa3ceb78e356e08047d1822958bf69a86581",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17400000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787737223,
+   "seller": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "buyer": "0xfb6cf476f17a9f17732e365acac74cee679d5904",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8553",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787655899,
+   "transaction": "0xa7d026f3ba2d9c736bc537ff9a00363216c040b0cc493c492609884445366b31",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16000000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787655899,
+   "seller": "0xf2d43d8dc7c8f2cef36ee1a3bf42524e2140a7b9",
+   "buyer": "0x5469f710255b9ac0ff28a926749489cfd4bcf877",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1606",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787593463,
+   "transaction": "0x1d607b8bd350ea8d1d94d78068a8af4f298b9469f53a1b437ed73f62f3c1a80b",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "16200000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787593463,
+   "seller": "0x55dd9a5f787dcf671b8513269d60f66327f0b209",
+   "buyer": "0x62782b7e6a839a8eef5665218d5c2eed0103586a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "8553",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787326511,
+   "transaction": "0xf7572a3dd804b96f67ad50d5b2b628bf30ab744878bf020a8f1314a8125e1dd2",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "17100000000000000",
+    "token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18,
+    "symbol": "WETH"
+   },
+   "closing_date": 1787326511,
+   "seller": "0xa1f885f11e625400711d386c951446b7217d3c51",
+   "buyer": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "quantity": 1,
+   "nft": {
+    "identifier": "6443",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787176007,
+   "transaction": "0xb6480655c4b19495ff575ada1204835cd33f754dac4a76d0a38569d0c1a83425",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "21250000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787176007,
+   "seller": "0x2ceb5c59a6fcf574c4b2ab8cbdae88f44e5c2bc3",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "5007",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787176007,
+   "transaction": "0xb6480655c4b19495ff575ada1204835cd33f754dac4a76d0a38569d0c1a83425",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "21220000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787176007,
+   "seller": "0x0bc1ca13a06f6d13f0b67ce451379c9468cd5e4f",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "2567",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787176007,
+   "transaction": "0xb6480655c4b19495ff575ada1204835cd33f754dac4a76d0a38569d0c1a83425",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "26818000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787176007,
+   "seller": "0x85efd4c6e5968af68a6fd598fe1369da11569a6a",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "1709",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787176007,
+   "transaction": "0xb6480655c4b19495ff575ada1204835cd33f754dac4a76d0a38569d0c1a83425",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "26817900000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787176007,
+   "seller": "0xb180e3fde77c0d4499a934014f437e8d442fd8a8",
+   "buyer": "0xe9b7ab8e367be5ac0e0c865136f1907bd73df53e",
+   "quantity": 1,
+   "nft": {
+    "identifier": "3983",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  },
+  {
+   "event_type": "sale",
+   "event_timestamp": 1787152703,
+   "transaction": "0x08735892ffb8295915c22ee84ba1f7409eb795296c7f4f1cb5a1a3421958334a",
+   "chain": "ethereum",
+   "payment": {
+    "quantity": "21340000000000000",
+    "token_address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18,
+    "symbol": "ETH"
+   },
+   "closing_date": 1787152703,
+   "seller": "0x9cd5786785ab904df0c8c953c19529a7ae89bc61",
+   "buyer": "0xd793f8c26d5f84738671be17dcff6dfde5cf7aed",
+   "quantity": 1,
+   "nft": {
+    "identifier": "190",
+    "collection": "gnssart",
+    "contract": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+    "token_standard": "erc721",
+    "is_disabled": false
+   }
+  }
+ ],
+ "next": null
+}

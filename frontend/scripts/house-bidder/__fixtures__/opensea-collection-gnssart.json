@@ -1,0 +1,73 @@
+{
+ "_source": "dev/bidbot-2026-11-15/collections-facts/raw/gnssart/collection.json (OpenSea GET /api/v2/collections/gnssart, 2026-11-15); images and description removed.",
+ "collection": "gnssart",
+ "name": "GNSS Art by MGXS",
+ "owner": "0x209aa937ac59f60384a70b98fec5daf54ac7b967",
+ "safelist_status": "verified",
+ "category": "pfps",
+ "is_disabled": false,
+ "is_nsfw": false,
+ "trait_offers_enabled": false,
+ "collection_offers_enabled": true,
+ "opensea_url": "https://opensea.io/collection/gnssart",
+ "project_url": "https://mgxs.co/",
+ "wiki_url": "",
+ "discord_url": "",
+ "telegram_url": "",
+ "twitter_username": "mgxs_co",
+ "instagram_username": "",
+ "contracts": [
+  {
+   "address": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+   "chain": "ethereum"
+  }
+ ],
+ "editors": [
+  "0x44389964165bc63693cd01afbd67415504169fb2",
+  "0x209aa937ac59f60384a70b98fec5daf54ac7b967"
+ ],
+ "fees": [
+  {
+   "fee": 1,
+   "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+   "required": true
+  },
+  {
+   "fee": 5,
+   "recipient": "0x209aa937ac59f60384a70b98fec5daf54ac7b967",
+   "required": false
+  }
+ ],
+ "rarity": {
+  "calculated_at": "2026-11-15T21:26:24.828017",
+  "max_rank": 9696,
+  "total_supply": 9696,
+  "strategy_id": "openrarity",
+  "strategy_version": "1.0"
+ },
+ "total_supply": 9696,
+ "unique_item_count": 9696,
+ "created_date": "2022-03-17",
+ "pricing_currencies": {
+  "listing_currency": {
+   "symbol": "ETH",
+   "address": "0x0000000000000000000000000000000000000000",
+   "chain": "ethereum",
+   "image": "https://raw2.seadn.io/currency_logos/ETH.svg",
+   "name": "Ethereum",
+   "decimals": 18,
+   "eth_price": "1",
+   "usd_price": "1815.32"
+  },
+  "offer_currency": {
+   "symbol": "WETH",
+   "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+   "chain": "ethereum",
+   "image": "https://raw2.seadn.io/currency_logos/WETH.svg",
+   "name": "Wrapped Ethereum",
+   "decimals": 18,
+   "eth_price": "1.000110173412951986",
+   "usd_price": "1815.52"
+  }
+ }
+}

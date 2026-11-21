@@ -1,0 +1,1082 @@
+{
+ "_source": "Real frames from wss://stream-api.opensea.io/socket/websocket (vsn 2.0.0), topics collection:junglebay and collection:gnssart, captured read-only 2026-11-16T00:52:52.581Z to 2026-11-16T00:58:52.924Z by dev/bidbot-2026-11-15/build-bot-data/capture-stream.mjs. 4420 frames seen; a few of each kind kept, including an item bid whose base_price is float-rounded and a collection offer for several NFTs. Item metadata trimmed to its name.",
+ "counts": {
+  "phx_reply": 2,
+  "item_listed": 69,
+  "order_invalidate": 125,
+  "item_cancelled": 2059,
+  "item_received_bid": 2112,
+  "collection_offer": 25,
+  "trait_offer": 4
+ },
+ "frames": [
+  [
+   "1",
+   "1",
+   "collection:junglebay",
+   "phx_reply",
+   {
+    "status": "ok",
+    "response": {}
+   }
+  ],
+  [
+   "2",
+   "2",
+   "collection:gnssart",
+   "phx_reply",
+   {
+    "status": "ok",
+    "response": {}
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "item_listed",
+   {
+    "event_type": "item_listed",
+    "version": 1,
+    "sent_at": "2026-11-16T00:52:53.417000Z",
+    "payload": {
+     "base_price": "17243300000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "event_timestamp": "2026-11-16T00:52:52.870000Z",
+     "expiration_date": "2026-11-16T01:03:42.000000Z",
+     "is_private": false,
+     "item": {
+      "nft_id": "ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "permalink": "https://opensea.io/item/ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "GNSS #2047"
+      }
+     },
+     "listing_date": "2026-11-16T00:52:52.000000Z",
+     "listing_type": null,
+     "maker": {
+      "address": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c"
+     },
+     "order_hash": "0xb42f723be66afc26c1609f1c40c406cc863868ab9b840a5ff9fb91e68caf0536",
+     "payment_token": {
+      "address": "0x0000000000000000000000000000000000000000",
+      "decimals": 18,
+      "eth_price": "0.0172433",
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "usd_price": "31.316764161"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+       "offer": [
+        {
+         "itemType": 2,
+         "token": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+         "identifierOrCriteria": "2047",
+         "startAmount": "1",
+         "endAmount": "1"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 0,
+         "token": "0x0000000000000000000000000000000000000000",
+         "identifierOrCriteria": "0",
+         "startAmount": "17070867000000000",
+         "endAmount": "17070867000000000",
+         "recipient": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c"
+        },
+        {
+         "itemType": 0,
+         "token": "0x0000000000000000000000000000000000000000",
+         "identifierOrCriteria": "0",
+         "startAmount": "172433000000000",
+         "endAmount": "172433000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790372",
+       "endTime": "1794791022",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "24446860302761739304752683030156737591518664810215442929817124116168357965818",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0xef8f36e0437ce513b592bd6bef226fa2255cb78fed87b22d9e032a014b450ec0176418d172f352ebbb39810831547bfdc2aacea15964142b68d1018b877a4c3b1b"
+     },
+     "quantity": 1,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "order_invalidate",
+   {
+    "event_type": "order_invalidate",
+    "version": 2,
+    "sent_at": "2026-11-16T00:52:53.636000Z",
+    "payload": {
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "event_timestamp": "2026-11-16T00:52:53.367000Z",
+     "item": {
+      "nft_id": "ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "permalink": "https://opensea.io/item/ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "#2047"
+      }
+     },
+     "order_hash": "0xf73a72f7553795c393ce7a76481d5447cf2726aedec4d10cbd14ec2926cc28e8",
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395"
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "item_cancelled",
+   {
+    "event_type": "item_cancelled",
+    "version": 2,
+    "sent_at": "2026-11-16T00:52:56.180000Z",
+    "payload": {
+     "base_price": "39800000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "event_timestamp": "2026-11-16T00:52:56.168000Z",
+     "expiration_date": "2026-11-16T01:22:11.000000Z",
+     "is_private": false,
+     "listing_date": "2026-11-16T00:47:11.000000Z",
+     "listing_type": null,
+     "maker": {
+      "address": "0xd1dc6e32109f10687f78c6f86a882699756ab317"
+     },
+     "order_hash": "0x8ef2db6a4f6c2a21f9e5ddfa3e456e2055499ff05d7ba6d66d911a0ed54c71f1",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0398",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "72.2569"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "quantity": 1,
+     "taker": null,
+     "transaction": null,
+     "item": {
+      "nft_id": "ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "permalink": "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "#1802"
+      }
+     }
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "item_received_bid",
+   {
+    "event_type": "item_received_bid",
+    "version": 1,
+    "sent_at": "2026-11-16T00:52:57.000000Z",
+    "payload": {
+     "base_price": "40000000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:52:56.000000Z",
+     "event_timestamp": "2026-11-16T00:52:56.426000Z",
+     "expiration_date": "2026-11-16T01:27:56.000000Z",
+     "item": {
+      "nft_id": "ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "permalink": "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "Jungle Bay Ape #1802"
+      }
+     },
+     "maker": {
+      "address": "0xd1dc6e32109f10687f78c6f86a882699756ab317"
+     },
+     "order_hash": "0x94ecded50741a03cc8ff6b7b053121ca146450873efb916bc6196b2dad93ce06",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.04",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "72.62"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0xd1dc6e32109f10687f78c6f86a882699756ab317",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "40000000000000000",
+         "endAmount": "40000000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 2,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "1802",
+         "startAmount": "1",
+         "endAmount": "1",
+         "recipient": "0xd1dc6e32109f10687f78c6f86a882699756ab317"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "400000000000000",
+         "endAmount": "400000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790376",
+       "endTime": "1794792476",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "884290867071257584777441849507520036909937339080453",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0x98f141c6bcdacdcafaec8be7729bd0cb39b5266cd549a65719fd37e4b8920aa17ebe444e5eda48e94ca8f60df6aa78bf33df7f8fa2aeb4748b2eb272afb116831c"
+     },
+     "quantity": 1,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "item_listed",
+   {
+    "event_type": "item_listed",
+    "version": 1,
+    "sent_at": "2026-11-16T00:52:57.217000Z",
+    "payload": {
+     "base_price": "17243300000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "event_timestamp": "2026-11-16T00:52:56.741000Z",
+     "expiration_date": "2026-11-16T01:03:46.000000Z",
+     "is_private": false,
+     "item": {
+      "nft_id": "ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "permalink": "https://opensea.io/item/ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "GNSS #2047"
+      }
+     },
+     "listing_date": "2026-11-16T00:52:56.000000Z",
+     "listing_type": null,
+     "maker": {
+      "address": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c"
+     },
+     "order_hash": "0x581f6ea8d7f06a365ea4eda1371822a0122627241fc8e02a0f043ca560c21a5e",
+     "payment_token": {
+      "address": "0x0000000000000000000000000000000000000000",
+      "decimals": 18,
+      "eth_price": "0.0172433",
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "usd_price": "31.316764161"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c",
+       "offer": [
+        {
+         "itemType": 2,
+         "token": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+         "identifierOrCriteria": "2047",
+         "startAmount": "1",
+         "endAmount": "1"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 0,
+         "token": "0x0000000000000000000000000000000000000000",
+         "identifierOrCriteria": "0",
+         "startAmount": "17070867000000000",
+         "endAmount": "17070867000000000",
+         "recipient": "0xd93bea8972f02df40d1df236757de7b7cfb6a04c"
+        },
+        {
+         "itemType": 0,
+         "token": "0x0000000000000000000000000000000000000000",
+         "identifierOrCriteria": "0",
+         "startAmount": "172433000000000",
+         "endAmount": "172433000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790376",
+       "endTime": "1794791026",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "24446860302761739304752683030156737591518664810215442929817124116168357965818",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0xc4274159cc6a9e9a93acb7c4d9dafcec5a3fd375af45ddf0a59d89888e7a669d5590ac5226fa91e2f1bef257863994c8a0b7868208868ecaee1b155d67e406831b"
+     },
+     "quantity": 1,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "item_cancelled",
+   {
+    "event_type": "item_cancelled",
+    "version": 2,
+    "sent_at": "2026-11-16T00:52:57.293000Z",
+    "payload": {
+     "base_price": "39900000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "event_timestamp": "2026-11-16T00:52:57.280000Z",
+     "expiration_date": "2026-11-16T01:02:11.000000Z",
+     "is_private": false,
+     "listing_date": "2026-11-16T00:47:11.000000Z",
+     "listing_type": null,
+     "maker": {
+      "address": "0x0752bba86af23157cc1b12bc940dcb1281e2b375"
+     },
+     "order_hash": "0xb5e7a030d2e69aeb0d58091c81d6bbcfcdeed38c8838f4340daa4a971c210f7a",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0399",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "72.43845"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "quantity": 1,
+     "taker": null,
+     "transaction": null,
+     "item": {
+      "nft_id": "ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "permalink": "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "#1802"
+      }
+     }
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "item_received_bid",
+   {
+    "event_type": "item_received_bid",
+    "version": 1,
+    "sent_at": "2026-11-16T00:52:57.811000Z",
+    "payload": {
+     "base_price": "40100000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:52:57.000000Z",
+     "event_timestamp": "2026-11-16T00:52:57.289000Z",
+     "expiration_date": "2026-11-16T01:07:57.000000Z",
+     "item": {
+      "nft_id": "ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "permalink": "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/1802",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "Jungle Bay Ape #1802"
+      }
+     },
+     "maker": {
+      "address": "0x0752bba86af23157cc1b12bc940dcb1281e2b375"
+     },
+     "order_hash": "0xf2c5681239be0f49ca8aa1d33fcfb042fd78e42d0e90bf50971dcbf726ab0ece",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0401",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "72.80155"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x0752bba86af23157cc1b12bc940dcb1281e2b375",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "40100000000000000",
+         "endAmount": "40100000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 2,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "1802",
+         "startAmount": "1",
+         "endAmount": "1",
+         "recipient": "0x0752bba86af23157cc1b12bc940dcb1281e2b375"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "401000000000000",
+         "endAmount": "401000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790377",
+       "endTime": "1794791277",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "31394434160248541327886270499523202940160871934797764416235358625581752946626",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x7d478aad2746e8f09f528a03b5be27d58"
+      },
+      "signature": "0xed1bc67ba9d28d3742531672b1b81d8b658c4cb73d182265b0835241c7f5c6e51f03e6c3cb3d995c2ff008c181451542aa091c2433a9dc5d77fb5f0a2c3c42641c"
+     },
+     "quantity": 1,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "order_invalidate",
+   {
+    "event_type": "order_invalidate",
+    "version": 2,
+    "sent_at": "2026-11-16T00:52:57.946000Z",
+    "payload": {
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "event_timestamp": "2026-11-16T00:52:57.747000Z",
+     "item": {
+      "nft_id": "ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "permalink": "https://opensea.io/item/ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/2047",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "#2047"
+      }
+     },
+     "order_hash": "0xdf6165e5a196c7c8283015d56787889f666643b2977296decd90b36baa049493",
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395"
+    }
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "collection_offer",
+   {
+    "event_type": "collection_offer",
+    "version": 1,
+    "sent_at": "2026-11-16T00:53:06.679000Z",
+    "payload": {
+     "asset_contract_criteria": {
+      "address": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb"
+     },
+     "base_price": "4100000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "collection_criteria": {
+      "slug": "gnssart"
+     },
+     "created_date": "2026-11-16T00:53:04.000000Z",
+     "event_timestamp": "2026-11-16T00:53:06.168000Z",
+     "expiration_date": "2026-11-16T01:03:05.000000Z",
+     "item": {},
+     "maker": {
+      "address": "0x0ae9069b7897f488dde396510d159ba08de35594"
+     },
+     "order_hash": "0x7c4f8b61447554f8b48e5a858eff316ad0fc22875d2d1fced45a65423b33eeb9",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0164",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "29.7742"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x0ae9069b7897f488dde396510d159ba08de35594",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "16400000000000000",
+         "endAmount": "16400000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 4,
+         "token": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+         "identifierOrCriteria": "0",
+         "startAmount": "4",
+         "endAmount": "4",
+         "recipient": "0x0ae9069b7897f488dde396510d159ba08de35594"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "164000000000000",
+         "endAmount": "164000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790384",
+       "endTime": "1794790985",
+       "orderType": 3,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0x84aecd0e9ceac7e45ea79b7f78230333a13c18b39bb80a00fd632eb17e9768ba7961001400b2782b7f3a3c5d5064f907d40f4ac2dadaaab982a8f3b68149ed0d"
+     },
+     "quantity": 4,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "collection_offer",
+   {
+    "event_type": "collection_offer",
+    "version": 1,
+    "sent_at": "2026-11-16T00:53:16.635000Z",
+    "payload": {
+     "asset_contract_criteria": {
+      "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+     },
+     "base_price": "23000000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "collection_criteria": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:53:14.000000Z",
+     "event_timestamp": "2026-11-16T00:53:16.078000Z",
+     "expiration_date": "2026-11-16T01:04:14.000000Z",
+     "item": {},
+     "maker": {
+      "address": "0xbf3d74fe796cb5afa92d79aa83d3693897d13552"
+     },
+     "order_hash": "0xad09d92b420efa159d87899b5d81560e0369a67aed2937b6684f9eb81b0f9697",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.069",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "125.2695"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0xbf3d74fe796cb5afa92d79aa83d3693897d13552",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "69000000000000000",
+         "endAmount": "69000000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 4,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "0",
+         "startAmount": "3",
+         "endAmount": "3",
+         "recipient": "0xbf3d74fe796cb5afa92d79aa83d3693897d13552"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "690000000000000",
+         "endAmount": "690000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790394",
+       "endTime": "1794791054",
+       "orderType": 3,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0xe5d3a50a4a34b3d62cd15dbdfb943ee2a85e5f2f30761a446c7f9ea9d150a9e51d88bdec0056d25aa3d1d7e9ab2dbd249683dec9cb9ab89fd13adbb91616cbf8"
+     },
+     "quantity": 3,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "2",
+   null,
+   "collection:gnssart",
+   "collection_offer",
+   {
+    "event_type": "collection_offer",
+    "version": 1,
+    "sent_at": "2026-11-16T00:53:39.285000Z",
+    "payload": {
+     "asset_contract_criteria": {
+      "address": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb"
+     },
+     "base_price": "5700000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "gnssart"
+     },
+     "collection_criteria": {
+      "slug": "gnssart"
+     },
+     "created_date": "2026-11-16T00:53:36.000000Z",
+     "event_timestamp": "2026-11-16T00:53:38.212000Z",
+     "expiration_date": "2026-11-16T01:04:37.000000Z",
+     "item": {},
+     "maker": {
+      "address": "0x66f0a94701f6137802c3160042b74bbd7ba45836"
+     },
+     "order_hash": "0x674f7dbb92a56a761d2d9990a3dbe6095a162b17bea9b3b83ec91e15d3c6f79f",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0171",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "31.051377"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x66f0a94701f6137802c3160042b74bbd7ba45836",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "17100000000000000",
+         "endAmount": "17100000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 4,
+         "token": "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
+         "identifierOrCriteria": "0",
+         "startAmount": "3",
+         "endAmount": "3",
+         "recipient": "0x66f0a94701f6137802c3160042b74bbd7ba45836"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "171000000000000",
+         "endAmount": "171000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790416",
+       "endTime": "1794791077",
+       "orderType": 3,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0x3cda312ec767a01018e03d64a24c78705ded07c2c26f6058fa9357025a3d98e53399e18272e9337f24cdfc4fd192cee8bc79e4123bc75910d01d8e34d7142e98"
+     },
+     "quantity": 3,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "collection_offer",
+   {
+    "event_type": "collection_offer",
+    "version": 1,
+    "sent_at": "2026-11-16T00:54:38.298000Z",
+    "payload": {
+     "asset_contract_criteria": {
+      "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+     },
+     "base_price": "15800000000000002",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "collection_criteria": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:54:36.000000Z",
+     "event_timestamp": "2026-11-16T00:54:37.776000Z",
+     "expiration_date": "2026-11-16T01:04:36.000000Z",
+     "item": {},
+     "maker": {
+      "address": "0x272c548dbd62daff75afc59eca099dbba74ce265"
+     },
+     "order_hash": "0x3683749684334199a7cee244b63df7954416764dae08a6376eb6f0ea8a71e876",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0632",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "114.803432"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x272c548dbd62daff75afc59eca099dbba74ce265",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "63200000000000000",
+         "endAmount": "63200000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 4,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "0",
+         "startAmount": "4",
+         "endAmount": "4",
+         "recipient": "0x272c548dbd62daff75afc59eca099dbba74ce265"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "632000000000000",
+         "endAmount": "632000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790476",
+       "endTime": "1794791076",
+       "orderType": 3,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0x3855158322326b2c3ac688137b2ce09b3a17095b4c9f58b8e6ac12e898e091bb17f7c4b50d8b4aa5274dde4eb3852c21b9b51964397e2dd675e30a4232e01cff"
+     },
+     "quantity": 4,
+     "taker": null
+    }
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "trait_offer",
+   {
+    "event_type": "trait_offer",
+    "version": 1,
+    "sent_at": "2026-11-16T00:56:03.956000Z",
+    "payload": {
+     "asset_contract_criteria": {
+      "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9"
+     },
+     "base_price": "26300000000000000",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "collection_criteria": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:56:01.000000Z",
+     "event_timestamp": "2026-11-16T00:56:03.399000Z",
+     "expiration_date": "2026-11-16T01:11:00.000000Z",
+     "item": {},
+     "maker": {
+      "address": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3"
+     },
+     "order_hash": "0x4ea36f92d43fa2e26ce7d5ddcf7f758b1c3b68fb5d3c3538fbf956487272e930",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0263",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "47.788415"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "26300000000000000",
+         "endAmount": "26300000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 4,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "55400254368470136342076366144636104727451254359581266120111368732649710071143",
+         "startAmount": "1",
+         "endAmount": "1",
+         "recipient": "0x8ae732519c77bf571c2831351ba0dc23a57b1ab3"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "263000000000000",
+         "endAmount": "263000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790561",
+       "endTime": "1794791460",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "24446860302761739304752683030156737591518664810215442929805223457616849141017",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0x74c282c3d444f54500bace3039fc795dc5b61b2fbc3ea7840b8aa214429f16ad72a6b5b1d828a5df074ceb20f4f2b71530f4659f3c241e933699f0403bfc4a561c"
+     },
+     "quantity": 1,
+     "taker": null,
+     "trait_criteria": {
+      "trait_type": "Accessories",
+      "trait_name": "None"
+     },
+     "trait_criteria_list": [
+      {
+       "trait_type": "Accessories",
+       "trait_name": "None"
+      }
+     ],
+     "numeric_trait_criteria_list": []
+    }
+   }
+  ],
+  [
+   null,
+   "3",
+   "phoenix",
+   "phx_reply",
+   {
+    "status": "ok",
+    "response": {}
+   }
+  ],
+  [
+   "1",
+   null,
+   "collection:junglebay",
+   "item_received_bid",
+   {
+    "event_type": "item_received_bid",
+    "version": 1,
+    "sent_at": "2026-11-16T00:53:09.014000Z",
+    "payload": {
+     "base_price": "70900000000000010",
+     "chain": "ethereum",
+     "collection": {
+      "slug": "junglebay"
+     },
+     "created_date": "2026-11-16T00:53:08.000000Z",
+     "event_timestamp": "2026-11-16T00:53:08.671000Z",
+     "expiration_date": "2026-11-16T10:03:08.000000Z",
+     "item": {
+      "nft_id": "ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/3726",
+      "permalink": "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/3726",
+      "chain": {
+       "name": "ethereum"
+      },
+      "metadata": {
+       "name": "Jungle Bay Ape #3726"
+      }
+     },
+     "maker": {
+      "address": "0x86cb0f117e9e5c610ad70a928bf2cdd4ea6e075a"
+     },
+     "order_hash": "0x55d2f1a1b697a23e49b8bc71a5e5597ec3172ab8954368e0b70383473366bb21",
+     "payment_token": {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "decimals": 18,
+      "eth_price": "0.0709",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "usd_price": "128.71895"
+     },
+     "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+     "protocol_data": {
+      "parameters": {
+       "offerer": "0x86cb0f117e9e5c610ad70a928bf2cdd4ea6e075a",
+       "offer": [
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "70900000000000000",
+         "endAmount": "70900000000000000"
+        }
+       ],
+       "consideration": [
+        {
+         "itemType": 2,
+         "token": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+         "identifierOrCriteria": "3726",
+         "startAmount": "1",
+         "endAmount": "1",
+         "recipient": "0x86cb0f117e9e5c610ad70a928bf2cdd4ea6e075a"
+        },
+        {
+         "itemType": 1,
+         "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+         "identifierOrCriteria": "0",
+         "startAmount": "709000000000000",
+         "endAmount": "709000000000000",
+         "recipient": "0x0000a26b00c1f0df003000390027140000faa719"
+        }
+       ],
+       "startTime": "1794790388",
+       "endTime": "1794823388",
+       "orderType": 2,
+       "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+       "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+       "salt": "51951570786726798460324975021501917861654789585098516727724548426919776619544",
+       "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+       "totalOriginalConsiderationItems": 2,
+       "counter": "0x0"
+      },
+      "signature": "0xeca3cf51f46521291336e874597e0770ab866989d7d75024cc69d1f292d92a970b039a807e6707f7bcf969615132dd4f7ceb335d79d12b4d8b08608dc888625c1c"
+     },
+     "quantity": 1,
+     "taker": null
+    }
+   }
+  ]
+ ]
+}
