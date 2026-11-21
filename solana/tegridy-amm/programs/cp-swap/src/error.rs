@@ -58,4 +58,15 @@ pub enum ErrorCode {
     /// After KeeperNotAWallet, so every code above keeps its number.
     #[msg("A swept fee goes only to its owner's own token account")]
     NotFeeOwnersAccount,
+    /// memetics.finance, 2026-11-20: lib.rs `sweep_fees` was asked for the protocol owner's share
+    /// while the tier names anyone but the admin as that owner; it is collected by hand then.
+    /// After NotFeeOwnersAccount, so every code above keeps its number.
+    #[msg("A protocol fee is swept only while the admin owns it; collect it by hand")]
+    ProtocolOwnerNotAdmin,
+    /// memetics.finance, 2026-11-21: lib.rs `sweep_fees` was handed a destination with a delegate
+    /// or a close authority, which could take what lands in it (all of a wrapped-SOL account's
+    /// SOL, closing it). Only its owner can set either. After ProtocolOwnerNotAdmin, so every code
+    /// above keeps its number.
+    #[msg("A swept fee goes only to a token account with no delegate and no close authority")]
+    FeeAccountNotOwnerOnly,
 }
