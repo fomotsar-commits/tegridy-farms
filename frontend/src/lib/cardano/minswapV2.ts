@@ -46,6 +46,13 @@ export const MINSWAP_V2 = {
   /** utils.ak bounds on a pool's trading fee, in FEE_DENOMINATOR parts: 0.05% to 20%. */
   minTradingFee: 5n,
   maxTradingFee: 2000n,
+  /**
+   * deployed/mainnet/references.json `orderTxId`: Minswap's UTxO holding the order script as a
+   * reference script, at an address no key can spend. A cancel reads the script from here.
+   */
+  orderScriptRef: { txHash: 'cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776', index: 0 },
+  /** That script's size in bytes, which the cancel's network fee is priced by (references.json, and on chain). */
+  orderScriptSize: 2659,
 } as const;
 
 /**
@@ -353,7 +360,8 @@ function bool(csl: Csl, b: boolean): PlutusData {
  * Every step this rail writes is killable: TRUE. If the pool has moved past the minimum by the
  * time the batcher reaches the order, the batcher must return it (less the batcher fee)
  * instead of leaving it open. Minswap's own front end writes false and leaves such orders open
- * until cancelled; this rail has no cancel screen yet, so it never leaves one open.
+ * until cancelled; this rail never leaves one open on a moved price (an order the batcher skips
+ * is taken back with Cancel order: cancelTx.ts, and ownPools/cancelTx.ts for our own pools).
  */
 const KILLABLE = true;
 

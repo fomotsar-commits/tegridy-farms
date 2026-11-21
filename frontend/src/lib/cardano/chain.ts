@@ -137,9 +137,13 @@ export interface ProtocolParams {
 export async function readProtocolParams(signal?: AbortSignal): Promise<Read<ProtocolParams>> {
   const r = await getJson('params', {}, signal);
   if (r.status !== 'ok') return r;
-  if (!isRecord(r.data)) return unread('the parameters read was malformed');
-  const p = r.data;
-  const int = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null);
+  return parseProtocolParams(r.data);
+}
+
+const int = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null);
+
+function parseProtocolParams(p: unknown): Read<ProtocolParams> {
+  if (!isRecord(p)) return unread('the parameters read was malformed');
   const fields = {
     txFeePerByte: int(p.txFeePerByte),
     txFeeFixed: int(p.txFeeFixed),
@@ -164,6 +168,52 @@ export async function readProtocolParams(signal?: AbortSignal): Promise<Read<Pro
       minFeeRefScriptCostPerByte: fields.minFeeRefScriptCostPerByte!,
     },
   };
+}
+
+/** A price the ledger states as a decimal (0.0577 lovelace per memory unit), held exactly. */
+export interface Ratio {
+  numerator: bigint;
+  denominator: bigint;
+}
+
+/** What a transaction that runs a script is also priced and bounded by. */
+export interface ScriptParams {
+  priceMem: Ratio;
+  priceStep: Ratio;
+  /** Collateral must cover this percent of the network fee. */
+  collateralPercent: number;
+  maxCollateralInputs: number;
+  /** In the ledger's order: the script data hash commits to it, so it is used as read, never a copy. */
+  plutusV2CostModel: number[];
+}
+
+function ratioOf(v: unknown): Ratio | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return null;
+  const m = /^(\d+)(?:\.(\d{1,15}))?$/.exec(String(v));
+  if (!m) return null;
+  const decimals = m[2] ?? '';
+  return { numerator: BigInt(m[1] + decimals), denominator: 10n ** BigInt(decimals.length) };
+}
+
+/** The protocol parameters and the script prices, from one read. */
+export async function readScriptParams(signal?: AbortSignal): Promise<Read<{ params: ProtocolParams; script: ScriptParams }>> {
+  const r = await getJson('params', {}, signal);
+  if (r.status !== 'ok') return r;
+  const params = parseProtocolParams(r.data);
+  if (params.status !== 'ok') return params;
+  const p = r.data as Record<string, unknown>;
+  const prices = isRecord(p.executionUnitPrices) ? p.executionUnitPrices : {};
+  const priceMem = ratioOf(prices.priceMemory);
+  const priceStep = ratioOf(prices.priceSteps);
+  const collateralPercent = int(p.collateralPercentage);
+  const maxCollateralInputs = int(p.maxCollateralInputs);
+  const models = isRecord(p.costModels) ? p.costModels : {};
+  const v2 = models.PlutusV2;
+  const plutusV2CostModel = Array.isArray(v2) && v2.length > 0 && v2.length <= 1000 && v2.every((n) => Number.isSafeInteger(n)) ? (v2 as number[]) : null;
+  if (!priceMem || !priceStep) return unread('the script prices were unreadable');
+  if (collateralPercent === null || maxCollateralInputs === null || maxCollateralInputs < 1) return unread('the collateral parameters were unreadable');
+  if (!plutusV2CostModel) return unread('the Plutus V2 cost model was unreadable');
+  return { status: 'ok', data: { params: params.data, script: { priceMem, priceStep, collateralPercent, maxCollateralInputs, plutusV2CostModel } } };
 }
 
 /** What the chain and the token registry say a token is called, and its decimals. */

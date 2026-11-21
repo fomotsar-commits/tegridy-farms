@@ -3,7 +3,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAddressBech32 } from './address';
 import { ADA } from './minswapV2';
-import { EXPIRY_MARGIN_SLOTS, markOrderSettled, markOrderSubmitted, pollDelayMs, readOrderNotes, readOrderStatus, settledStatus, writeOrderNote, dropOrderNote, type PendingOrder } from './orderWatch';
+import {
+  EXPIRY_MARGIN_SLOTS,
+  cancelInFlight,
+  dropOrderNote,
+  markOrderCancelSent,
+  markOrderSettled,
+  markOrderSubmitted,
+  pollDelayMs,
+  readOrderNotes,
+  readOrderStatus,
+  settledStatus,
+  writeOrderNote,
+  type PendingOrder,
+} from './orderWatch';
 import { ASCEND, ORDER_TXS, fixture } from './testkit.fixture';
 
 const NIGHT = { policyId: '0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa', assetName: '4e49474854' };
@@ -102,6 +115,14 @@ describe('readOrderStatus', () => {
   it('says returned when an ADA-for-token order’s ADA comes back with no token', async () => {
     const bech = 'addr1qxflw7x7effnuy8j699cw03e7px2efsxlhgs5gjsvmaqdj23uxk5phjd4ljhup35cu2dmmkzktaadra6v5j6amt2sm7spk6n2a';
     stubProxy({ ...spentAt(BUY_NIGHT), tx: refund(BUY_NIGHT, bech, '752000000', null) });
+    expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'returned', fillTx: 'ab'.repeat(32) });
+  });
+
+  it('says returned when the trader’s own cancel pays it all back, less the network fee', async () => {
+    // cancelTx.ts's shape: the order its one input, one output to the trader (the collateral is
+    // not among tx_info's inputs or outputs).
+    const bech = 'addr1qxflw7x7effnuy8j699cw03e7px2efsxlhgs5gjsvmaqdj23uxk5phjd4ljhup35cu2dmmkzktaadra6v5j6amt2sm7spk6n2a';
+    stubProxy({ ...spentAt(BUY_NIGHT), tx: refund(BUY_NIGHT, bech, '751763072', null) });
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'returned', fillTx: 'ab'.repeat(32) });
   });
 
@@ -249,5 +270,35 @@ describe('order notes', () => {
     expect(n?.txHash).toBe(BUY_NIGHT.txHash);
     expect(n?.settled).toBeUndefined();
     expect(settledStatus(n!)).toBeNull();
+  });
+
+  it('keep the trader’s cancel, so a reload shows it on its way and not a second Cancel', () => {
+    writeOrderNote({ ...BUY_NIGHT, placedAt: Date.now() });
+    const cancel = { txHash: 'c'.repeat(64), sentAt: Date.now(), ttlSlot: 201_300_900 };
+    markOrderCancelSent(BUY_NIGHT.txHash, cancel);
+    expect(readOrderNotes()[0]?.cancel).toEqual(cancel);
+    expect(cancelInFlight(readOrderNotes()[0]!, Date.now())).toBe(true);
+  });
+
+  it('drop a malformed cancel, never the note', () => {
+    localStorage.setItem('tegridy.minswap.orders.v1', JSON.stringify([{ ...BUY_NIGHT, placedAt: Date.now(), cancel: { txHash: 'zz', sentAt: 1, ttlSlot: 1 } }]));
+    const [n] = readOrderNotes();
+    expect(n?.txHash).toBe(BUY_NIGHT.txHash);
+    expect(n?.cancel).toBeUndefined();
+  });
+
+  it('hold a cancel on its way until its expiry and the margin pass, then let the trader cancel again', () => {
+    const sentAt = 1_000_000_000;
+    const o = { cancel: { txHash: 'c'.repeat(64), sentAt, ttlSlot: 1 } };
+    expect(cancelInFlight(o, sentAt + 34 * 60_000)).toBe(true);
+    expect(cancelInFlight(o, sentAt + 36 * 60_000)).toBe(false);
+    expect(cancelInFlight({}, sentAt)).toBe(false);
+  });
+
+  it('are read every 10 s again for 10 minutes after a cancel, even on an old order', () => {
+    const now = 1_000_000_000;
+    const old = { txHash: 'b'.repeat(64), placedAt: now - 60 * 60_000 };
+    expect(pollDelayMs([old], () => false, now)).toBe(60_000);
+    expect(pollDelayMs([{ ...old, cancel: { txHash: 'c'.repeat(64), sentAt: now - 30_000, ttlSlot: 1 } }], () => false, now)).toBe(10_000);
   });
 });

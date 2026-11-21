@@ -12,6 +12,7 @@ import {
   lpAssetName,
   orderAddressFor,
   orderValue,
+  readOrderOwner,
   readPool,
   type ChainUtxo,
   type PoolState,
@@ -183,5 +184,36 @@ describe('the order', () => {
     expect(() => encodeSwapOrderDatum(csl, { ...base, swapAmount: 0n })).toThrow();
     expect(() => encodeSwapOrderDatum(csl, { ...base, minimumReceive: 0n })).toThrow();
     expect(() => encodeSwapOrderDatum(csl, { ...base, assetIn: TOOLS })).toThrow();
+  });
+});
+
+describe('the order’s owner, read back for a cancel', () => {
+  it('reads real orders as their traders’: canceller key and refund address', () => {
+    for (const [hash, change] of [
+      [ORDER_TXS.adaIn, 1],
+      [ORDER_TXS.tokenIn, 1],
+      [ORDER_TXS.tokenInKillable, 2],
+    ] as const) {
+      const { trader, datumHex } = realOrder(hash, change);
+      expect(readOrderOwner(csl, datumHex)).toEqual({ cancellerKeyHash: trader.payment.hash, refundTo: { payment: trader.payment, stake: trader.stake }, refundHasDatum: false });
+    }
+  });
+
+  it('reads no key when a script, not a key, may cancel', () => {
+    const { datumHex } = realOrder(ORDER_TXS.tokenIn, 1);
+    const c = csl.PlutusData.from_hex(datumHex).as_constr_plutus_data()!;
+    const fields = csl.PlutusList.new();
+    const spendScript = csl.PlutusList.new();
+    spendScript.add(csl.PlutusData.new_bytes(new Uint8Array(28).fill(0xab)));
+    // OAMSpendScript is the canceller's second constructor.
+    fields.add(csl.PlutusData.new_constr_plutus_data(csl.ConstrPlutusData.new(csl.BigNum.from_str('1'), spendScript)));
+    for (let i = 1; i < c.data().len(); i++) fields.add(c.data().get(i));
+    const scripted = csl.PlutusData.new_constr_plutus_data(csl.ConstrPlutusData.new(csl.BigNum.from_str('0'), fields)).to_hex();
+    expect(readOrderOwner(csl, scripted)?.cancellerKeyHash).toBeNull();
+  });
+
+  it('reads nothing from what is not an order datum', () => {
+    expect(readOrderOwner(csl, row('113c21f8').inlineDatumHex!)).toBeNull();
+    expect(readOrderOwner(csl, 'zz')).toBeNull();
   });
 });
