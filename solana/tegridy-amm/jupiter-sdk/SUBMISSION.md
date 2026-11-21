@@ -7,8 +7,9 @@ page. The owner sends the form. Nothing in this folder sends anything.
 
 ## Before sending
 
-1. The pool program on mainnet is the build with the swap guard, `01fe923b…` (the vault's
-   proposal #32; `../MAINNET_RUNBOOK.md`, section 4b). **While the guard is on for a fee setting,
+1. The pool program on mainnet is the build with the swap guard and the keeper's fee,
+   `9f0150e3…` (the vault's proposal #35; `../MAINNET_RUNBOOK.md`, section 4b). The keeper's
+   fee changes no quote this SDK makes: it quotes routers, never the keeper. **While the guard is on for a fee setting,
    its pools refuse every swap that another program calls (6015), Jupiter's included.** This SDK
    gives no quote for that fee setting. Both live fee settings have it on (proposal #33,
    2026-11-14), so today the SDK quotes no live pool and there is nothing to list. Before

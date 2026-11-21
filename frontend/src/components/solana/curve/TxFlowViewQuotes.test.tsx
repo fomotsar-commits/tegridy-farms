@@ -207,7 +207,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
   it('the costs paid in SOL stay in SOL', async () => {
     await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [] } });
     expect(value('Network fee')).toBe('<0.0001 SOL');
-    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
+    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.00203928 SOL');
     expect(value('Test run: your SOL changes by')).toBe('-0.0032 SOL');
   });
 
@@ -324,7 +324,7 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     const tokenRow = `${TOKEN_ACCOUNT.toBase58()} (opened for you; its deposit of 0.00207408 SOL stays in that account)`;
 
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT }), fees(TOKEN_RENT));
-    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
+    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.00207408 SOL');
     expect(value('The tokens arrive in')).toBe(tokenRow);
     // Both "arrives in" rows carry an address and then a sentence with a SOL amount in it: they
     // break between words, never in the middle of that amount. A row that is only an address
@@ -338,12 +338,12 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     cleanup();
 
     await review(withdraw(coin, { quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(COIN_RENT));
-    expect(value(`One-time deposit for your new ${C} account (it stays in that account)`)).toBe('0.002 SOL');
+    expect(value(`One-time deposit for your new ${C} account (it stays in that account)`)).toBe('0.00203928 SOL');
     expect(screen.queryByText('One-time deposit for your new token account (it stays in that account)')).not.toBeInTheDocument();
     cleanup();
 
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT, quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(TOKEN_RENT + COIN_RENT));
-    expect(value(`One-time deposits for your new token account and your new ${C} account (each stays in its own account)`)).toBe('0.0041 SOL');
+    expect(value(`One-time deposits for your new token account and your new ${C} account (each stays in its own account)`)).toBe('0.00411336 SOL');
     expect(value('The tokens arrive in')).toBe(tokenRow);
     expect(reviewText()).not.toContain(`2.07408 ${C}`);
   }, 30_000);
@@ -632,7 +632,7 @@ describe.each(COINS)('after signing, for a pool paired with $symbol', (coin) => 
   it('refused by the program: the fees it still cost are said in SOL', async () => {
     for (const [kind, summary] of kinds) {
       const text = await outcomeText(summary(), { status: 'reverted', signature: SIG, program: 'cp-swap', code: 6005, message: 'The price moved past your limit.' });
-      expect(text, kind).toContain('Nothing moved except the fees: 0.0012 SOL (the network fee and the priority fee).');
+      expect(text, kind).toContain('Nothing moved except the fees: 0.001205 SOL (the network fee and the priority fee).');
       expect(text, kind).not.toMatch(/\d\s*(USDC|BAYLA)\b/);
     }
   }, 30_000);
@@ -715,7 +715,7 @@ describe('a pool paired with SOL, through the same builders', () => {
       withdraw(SOL_QUOTE, { tokenAccountRent: 2_074_080n, quoteAccount: { address: COIN_ACCOUNT, rent: 2_039_280n } }),
       { fees: { ...FEES, newAccountRentLamports: 2_074_080n } },
     );
-    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
+    expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.00207408 SOL');
     expect(value('The SOL arrives')).toBe('as plain SOL');
   });
 

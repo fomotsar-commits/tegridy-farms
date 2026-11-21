@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { resetField, useFieldPools } from '../../../lib/solana/lp/fieldStore';
 import { MemoryRouter } from 'react-router-dom';
 import { QUOTE_COINS_IN_TURN, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { PublicKey } from '@solana/web3.js';
@@ -354,7 +355,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(within(row).getByTestId('lp-arb-gap')).toHaveTextContent('5.3% dearer here');
     expect(within(row).getByText(C)).toBeInTheDocument();
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
-    expect(value('Pay')).toBe('21.046 CORN ($19.99)');
+    expect(value('Pay')).toBe('21.0461 CORN ($19.99)');
     expect(value('Get')).toBe('≈ 0.2041 SOL ($20.41)');
     // Jupiter sells the 21.04 CORN that $19.99 buys at its listed price; sold here, they bring back $0.42 more.
     expect(value('Profit')).toBe('up to $0.42 round trip, at Jupiter’s live quote');
@@ -362,7 +363,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     // After the trade the pool's price sits the fee away from Jupiter's 0.0095 (0.0095 / 0.99 = 0.009596), less a
     // hair: the LPs' part of the fee stays in the token side's reserve, as the pool's own row will then show it.
     expect(value('After')).toMatch(/^1 CORN = 0\.009594 SOL/);
-    const swap = within(row).getByRole('link', { name: 'Swap: sell 21.046 CORN for SOL' });
+    const swap = within(row).getByRole('link', { name: 'Swap: sell 21.0461 CORN for SOL' });
     // The link carries the exact sized amount, to the base unit; the row prints it to four places.
     expect(swap).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=21\\.046\\d*$`)));
     expect(swap).toHaveClass('btn-primary');
@@ -395,11 +396,11 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     mount(readers({ marketPrices, legQuote, listPools: listPools(withFee) }));
     const row = await screen.findByTestId('lp-arb-row');
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
-    expect(value('Pay')).toBe('16.0377 CORN ($15.24)');
+    expect(value('Pay')).toBe('16.0378 CORN ($15.24)');
     // Bought on Jupiter, the tokens pay the token's fee again on their way into the pool: less than the $0.24 above.
     expect(value('Profit')).toMatch(/^up to \$0\.\d\d round trip, at Jupiter’s live quote$/);
     expect(value('Fee')).toBe('$0.13 to LPs · $0.02 to the venue · the token keeps back $0.15');
-    expect(within(row).getByRole('link', { name: 'Swap: sell 16.0377 CORN for SOL' })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=16\\.0377\\d*$`)));
+    expect(within(row).getByRole('link', { name: 'Swap: sell 16.0378 CORN for SOL' })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=16\\.0377\\d*$`)));
     expect(screen.getByTestId('lp-arb')).toHaveTextContent('a token whose transfer fee could not be read gets no figure');
   });
 
@@ -803,5 +804,26 @@ describe('All pools: every coin in a row copies its whole address', () => {
     });
     expect(writeText).toHaveBeenCalledWith(C);
     expect(within(crying!).getByText('Copied')).toBeInTheDocument();
+  });
+});
+
+describe("All pools feeds the sheet's drawing (P-01) from its own read, and says only what it read", () => {
+  it('draws a row a level gauge only when its dollars were read, and hands the drawing its pools in the rows’ order', async () => {
+    resetField();
+    // SOL and BAYLA priced, CORN not: BAYLA's pool has dollars, CORN's has none.
+    mount(readers({ ...jupiter({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3 }), listPools: vi.fn(async () => ok([view(CORN), view(BAYLA, 30n * 10n ** 9n)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(1));
+    const rows = screen.getAllByTestId('lp-all-pools-row');
+    const bayla = rows.find((r) => r.textContent?.includes('BAYLA / SOL'))!;
+    const corn = rows.find((r) => r.textContent?.includes('CORN / SOL'))!;
+    expect(bayla.querySelector('.p01-gauge')).not.toBeNull();
+    expect(bayla.querySelector('.p01-gauge')!.getAttribute('aria-hidden')).toBe('true');
+    expect(bayla.querySelector('.p01-gauge')!.textContent).toBe('');
+    expect(corn.querySelector('.p01-gauge')).toBeNull();
+    // The buttons stay the row's last element.
+    expect([...bayla.lastElementChild!.querySelectorAll('button, a')].map((el) => el.textContent)).toEqual(['Add', 'Swap', 'View']);
+    const { result } = renderHook(() => useFieldPools());
+    await waitFor(() => expect(result.current?.map((p) => p.address)).toEqual(rows.map((r) => r.getAttribute('data-pool'))));
+    expect(result.current?.map((p) => p.usd === null)).toEqual([false, true]);
   });
 });

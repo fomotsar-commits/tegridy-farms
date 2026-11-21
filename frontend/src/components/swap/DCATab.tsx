@@ -8,7 +8,7 @@ import { InfoTooltip } from '../ui/InfoTooltip';
 import { FinePrint } from '../ui/FinePrint';
 import { DcaYieldPanel } from '../yield/DcaYieldPanel';
 import { dcaIdleTotal } from '../../lib/yield/dcaYield';
-import { formatTokenAmount } from '../../lib/formatting';
+import { formatTokenAmount, toFixedUp } from '../../lib/formatting';
 import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
 
@@ -88,7 +88,7 @@ export function DCATab() {
     setSlippagePct(DEFAULT_SLIPPAGE_BPS / 100);
   };
 
-  const totalCost = amount && totalSwaps ? ((parseFloat(amount) || 0) * (parseInt(totalSwaps) || 0)).toFixed(4) : '0';
+  const totalCost = amount && totalSwaps ? toFixedUp((parseFloat(amount) || 0) * (parseInt(totalSwaps) || 0), 4) : '0';
 
   // Across LIVE schedules only. The composer's own figure above is a preview of a
   // schedule that does not exist yet, and summing the two would double-count it

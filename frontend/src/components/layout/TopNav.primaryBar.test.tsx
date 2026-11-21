@@ -139,14 +139,14 @@ describe('TopNav: the menu', () => {
     );
   });
 
-  // Owner, 2026-11-12: the marketplace, back in the menu after Launch.
-  it('lists Lore, Launch and Marketplace under Island, and Dashboard after them once a wallet connects', () => {
+  // Owner, 2026-11-12: the marketplace, back in the menu after Launch. 2026-11-19: the city, first.
+  it('lists City, Lore, Launch and Marketplace under Island, and Dashboard after them once a wallet connects', () => {
     const pages = (connected: boolean) => {
       const region = within(openDrawer('/', connected)).getByRole('region', { name: 'Island' });
       return within(region).getAllByRole('link').filter((l) => l.textContent !== 'Island')
         .map((l) => [l.textContent, l.getAttribute('href')]);
     };
-    const shown = [['Lore', '/lore'], ['Launch', '/launch'], ['Marketplace', '/nakamigos']];
+    const shown = [['City', '/city'], ['Lore', '/lore'], ['Launch', '/launch'], ['Marketplace', '/nakamigos']];
     expect(pages(false)).toEqual(shown);
     cleanup();
     expect(pages(true)).toEqual([...shown, ['Dashboard', '/dashboard']]);

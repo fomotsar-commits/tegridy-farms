@@ -44,4 +44,29 @@ pub enum ErrorCode {
     /// (states/config.rs refuses_swap). Last, so every code above keeps its number.
     #[msg("This pool's swaps must be sent directly, not called by another program")]
     SwapNotDirect,
+    /// memetics.finance, 2026-11-14: `resign_keeper` signed by someone who is not the tier's
+    /// keeper, or called by another program (lib.rs). After SwapNotDirect, so every code above
+    /// keeps its number.
+    #[msg("Only this fee tier's keeper can resign as its keeper, sending it directly")]
+    NotKeeper,
+    /// memetics.finance, 2026-11-14: update_config.rs param 9 named a key that is not a
+    /// wallet's (states/config.rs `may_name_keeper`).
+    #[msg("A keeper must be a wallet, not a program's address")]
+    KeeperNotAWallet,
+    /// memetics.finance, 2026-11-15: lib.rs `sweep_fees` was handed a destination that is not
+    /// the fee owner's own associated token account for that coin, or one its owner gave away.
+    /// After KeeperNotAWallet, so every code above keeps its number.
+    #[msg("A swept fee goes only to its owner's own token account")]
+    NotFeeOwnersAccount,
+    /// memetics.finance, 2026-11-20: lib.rs `sweep_fees` was asked for the protocol owner's share
+    /// while the tier names anyone but the admin as that owner; it is collected by hand then.
+    /// After NotFeeOwnersAccount, so every code above keeps its number.
+    #[msg("A protocol fee is swept only while the admin owns it; collect it by hand")]
+    ProtocolOwnerNotAdmin,
+    /// memetics.finance, 2026-11-21: lib.rs `sweep_fees` was handed a destination with a delegate
+    /// or a close authority, which could take what lands in it (all of a wrapped-SOL account's
+    /// SOL, closing it). Only its owner can set either. After ProtocolOwnerNotAdmin, so every code
+    /// above keeps its number.
+    #[msg("A swept fee goes only to a token account with no delegate and no close authority")]
+    FeeAccountNotOwnerOnly,
 }

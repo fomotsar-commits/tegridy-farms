@@ -26,6 +26,12 @@ import { BrowserRouter } from 'react-router-dom';
 // the first HTML.
 import './styles/wallet-adapter-ui.css';
 import './index.css';
+// The drawing set's sheets (styles/dwg.css): after index.css, so a sheet's rule wins a tie.
+import './styles/dwg.css';
+import './styles/dwg-pools.css';
+import './styles/dwg-staking.css';
+import './styles/dwg-loans.css';
+import './styles/dwg-city.css';
 import App from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { installGlobalHandlers } from './lib/errorReporting';

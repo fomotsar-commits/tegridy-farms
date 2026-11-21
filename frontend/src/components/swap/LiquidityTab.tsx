@@ -12,7 +12,7 @@ import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
 import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
 import { CONFIGURED_CHAIN_IDS, getChainConfig } from '../../lib/chains/registry';
-import { formatTokenAmount, formatNumber, shortenAddress } from '../../lib/formatting';
+import { formatTokenAmount, formatNumber, shortenAddress, toFixedCut } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -405,8 +405,8 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
               tokens they don&apos;t recognize.
               {yourUnderlying && (
                 <> Redeemable now for about{' '}
-                  <span className="text-white font-mono">{parseFloat(yourUnderlying.a).toFixed(4)} {tokenA.symbol}</span> +{' '}
-                  <span className="text-white font-mono">{parseFloat(yourUnderlying.b).toFixed(2)} {symB}</span>,
+                  <span className="text-white font-mono">{toFixedCut(yourUnderlying.a, 4)} {tokenA.symbol}</span> +{' '}
+                  <span className="text-white font-mono">{toFixedCut(yourUnderlying.b, 2)} {symB}</span>,
                   and it earns a cut of every swap through the pool.</>
               )}
             </p>
@@ -467,7 +467,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
             <div className="mb-2">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-white/70 text-[11px]">Token A</span>
-                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceAKnown ? balanceADisplay.toFixed(4) : '–'}</span>
+                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceAKnown ? toFixedCut(balanceADisplay, 4) : '\u2013'}</span>
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('A')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
@@ -491,7 +491,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-white/70 text-[11px]">Token B</span>
-                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceBKnown ? balanceBDisplay.toFixed(4) : '–'}</span>
+                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceBKnown ? toFixedCut(balanceBDisplay, 4) : '\u2013'}</span>
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('B')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
@@ -731,11 +731,11 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
                 <div className="text-white/70 mb-1.5">You'll get back</div>
                 <div className="flex justify-between text-white font-mono text-[12px]">
                   <span>{tokenA.symbol}</span>
-                  <span>~{parseFloat(expectedRemoveA).toFixed(6)}</span>
+                  <span>~{toFixedCut(expectedRemoveA, 6)}</span>
                 </div>
                 <div className="flex justify-between text-white font-mono text-[12px] mt-0.5">
                   <span>{symB}</span>
-                  <span>~{parseFloat(expectedRemoveB).toFixed(6)}</span>
+                  <span>~{toFixedCut(expectedRemoveB, 6)}</span>
                 </div>
               </div>
             )}

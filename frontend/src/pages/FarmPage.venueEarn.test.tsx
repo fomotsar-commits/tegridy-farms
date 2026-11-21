@@ -2,8 +2,8 @@
 // reads only two of the pools listed here, so the header speaks of lock length alone.
 // Real storage with nothing chosen: the same predicate the app runs puts us in the venue.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 vi.mock('../components/farm/VenuePoolIndex', () => ({ VenuePoolIndex: () => <div data-testid="pool-index" /> }));
 vi.mock('../components/farm/HarvestCard', () => ({ HarvestCard: () => null }));
@@ -52,6 +52,35 @@ describe("the venue's Earn header", () => {
     expect(title.contains(fine)).toBe(false);
     expect(title.className).toContain('md:[grid-area:1/1]');
     expect(screen.getByTestId('earn-site-model').parentElement!.className).toContain('md:[grid-area:1/1]');
+  });
+
+  it('a press on a house enters its bungalow, as its door on the front page does', () => {
+    const at: string[] = [];
+    function Where() {
+      at.push(useLocation().pathname);
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/earn']}>
+        <Routes>
+          <Route path="/earn" element={<FarmPage />} />
+          <Route path="*" element={<Where />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const room = venuePoolRows()[0]!;
+    fireEvent.click(screen.getByTestId('earn-site-model').querySelector(`[data-pool="${room.id}"] [data-hit=""]`)!);
+    expect(at.at(-1)).toBe(`/${room.id}`);
+  });
+
+  it('on a phone gives the model a row of its own under the title, the sheet’s full width, never behind the word', () => {
+    renderPage();
+    const model = screen.getByTestId('earn-site-model').parentElement!;
+    const classes = model.className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['max-md:order-2', 'max-md:-mx-4']));
+    expect(classes.filter((c) => /^max-md:(absolute|-z-|opacity-|w-|\[mask)/.test(c))).toEqual([]);
+    expect(screen.getByRole('heading', { level: 1, name: 'Earn' }).closest('header')!.className).toContain('max-md:flex-col');
+    expect(screen.getByText('How it works').closest('details')!.className).toContain('max-md:order-3');
   });
 
   it('gives the ladder’s two ends in the small print as the contract sets them', () => {

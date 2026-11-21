@@ -8,6 +8,7 @@ import { GONDI_LOAN_ADDRESS } from './gondi/loanOffer.js';
 import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's and own pools' switches (lib/cardano/flags.ts).
 import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
+import { hyperEvmLive } from './chains/hyperEvm';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
 import { sheetHref, type SheetKind } from './sheet';
 import { roomSheetOr } from './sheetRooms';
@@ -114,6 +115,8 @@ export const NAV_SECTIONS: NavSection[] = [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
       // Hidden, with no route, until the owner opens it (CARDANO_SWAP_OPEN, lib/cardano/flags.ts).
       ...(cardanoSwapVisible() ? [{ to: '/cardano', label: 'Cardano Swap', tabLabel: 'Cardano' }] : []),
+      // Hidden, with no route, until every HyperEVM address is deployed (lib/chains/hyperEvm.ts).
+      ...(hyperEvmLive() ? [{ to: '/hyperevm', label: 'HyperEVM Swap', tabLabel: 'HyperEVM' }] : []),
     ],
   },
   {
@@ -139,6 +142,8 @@ export const NAV_SECTIONS: NavSection[] = [
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
       // The venue's own Cardano pools: hidden, with no route, until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts).
       ...(cardanoOwnPoolsVisible() ? [{ to: '/cardano-pools', label: 'Cardano pools', tabLabel: 'Cardano' }] : []),
+      // Our own Uniswap V3 pools and your positions: hidden, with no route, as the HyperEVM swap.
+      ...(hyperEvmLive() ? [{ to: '/hyperevm-pools', label: 'HyperEVM pools', tabLabel: 'HyperEVM' }] : []),
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
       { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
     ],
@@ -152,6 +157,8 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/island',
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
+      // The island at night, rendered in 3D, every room's building wearing its art (owner, 2026-11-18).
+      { to: '/city',        label: 'City' },
       { to: '/gallery',     label: 'Gallery' },
       { to: '/community', label: 'Community' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
@@ -409,7 +416,8 @@ export function indexName(group: IndexGroup, item: NavItem): string {
  * (Earn's Yield Routing, Copy Trading and Checkout, 2026-11-11) is off its strip too, and so off the menu.
  */
 export const MENU_PARKED: ReadonlySet<string> = new Set([
-  // Under Island, everything but Lore.
+  // Under Island, everything but Lore and the city (owner, 2026-11-19: "theres no city tab in the
+  // remote under island"), which is also a door in the island lobby.
   '/island',
   '/gallery',
   '/community',
@@ -456,7 +464,7 @@ function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] 
  * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
  * /vesting stay out: their rails are undeployed (navConfig.test.ts). Owner, 2026-11-10: the
  * menu is cut down (MENU_PARKED). Island keeps Lore and gains Launch, then Marketplace
- * (2026-11-12), and Dashboard once a wallet connects (NavDrawer.tsx); Launch and Check leave the
+ * (2026-11-12), the city before them (2026-11-19), and Dashboard once a wallet connects (NavDrawer.tsx); Launch and Check leave the
  * menu as groups. Their pictures,
  * `nav-drawer:7` and `:2`, stay in the studio for when they come back.
  */
