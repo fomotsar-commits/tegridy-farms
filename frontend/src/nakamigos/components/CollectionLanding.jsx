@@ -14,8 +14,10 @@ const COLLECTION_LIST = Object.values(COLLECTIONS);
 // What a visitor came to press, on the first screen (owner 2026-10-14). Each
 // opens the flagship collection's tab where that action lives: Floor lists
 // what is for sale and hosts the offer panels; My NFTs is where a holder lists.
+// Browse opens Floor too, where every way into a collection lands (owner
+// 2026-11-15: "always land on floor"); Gallery is one tap from there.
 const START_ACTIONS = [
-  ["Browse", "gallery", "btn-primary"],
+  ["Browse", "listings", "btn-primary"],
   ["Buy", "listings", "btn-primary"],
   ["Sell / List", "collection", "btn-secondary"],
   ["Make offer", "listings", "btn-secondary"],
@@ -123,7 +125,9 @@ function CrossCollectionSearch() {
     setQuery("");
     setFocused(false);
     setActiveIndex(-1);
-    navigate(`/nakamigos/${r.slug}/${r.type === "token" ? `nft/${r.id}` : "gallery"}`);
+    // A collection opens at its bare address, so it lands where every way in
+    // lands: Floor if it trades here, Gallery if it is view-only (lib/parseRoute.js).
+    navigate(r.type === "token" ? `/nakamigos/${r.slug}/nft/${r.id}` : `/nakamigos/${r.slug}`);
   };
 
   // Reset the keyboard highlight whenever the result set changes.
