@@ -34,7 +34,8 @@ import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { EXTENSION } from '../../../solana/lp/tokenSafety';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 import { FakeChain, cfgLocal, legacyTx, openAccount, rent, setClock, setTransferFee, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
@@ -728,6 +729,27 @@ describe('the review holds the decoded steps to the plan', () => {
     expect(stepsProblem(swap(wrap, { ...wrap, lamports: wrap.lamports + 1n }), want)).not.toBeNull();
     expect(stepsProblem(steps, { ...want, opens: [...creates, Keypair.generate().publicKey] })).not.toBeNull();
     expect(stepsProblem(steps, { ...want, closes: !want.closes })).not.toBeNull();
+  });
+});
+
+// Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only. The builder refuses a
+// new position, and the checker refuses one built anyway; taking out and closing stay open.
+describe('a range pool priced in a delisted coin: withdraw-only', () => {
+  it('no new position, from the builder or past the checker; taking out, collecting and closing still build', async () => {
+    const c = ready(chainWith());
+    const args = { owner: ME, pool: POOL, ...inRange, side: 'token' as const, amount: 5_000_000n, toleranceBps: 100 };
+    const built = ok(await prepareRangeOpen(W(c), cfgLocal, PROG, READS, args));
+    const { position } = withPosition(c, { fees: [7n, 9n] });
+    await whileDelisted(SOL_QUOTE, async () => {
+      const open = await prepareRangeOpen(W(c), cfgLocal, PROG, READS, args);
+      expect(open.ok ? null : open.outcome.message).toBe(withdrawOnlyRefusal(SOL_QUOTE));
+      const r = decodeIntent(body(built), intentOf(built));
+      expect(r.ok ? 'accepted' : r.reason).toMatch(/priced in a coin this site no longer lists, so it is withdraw-only/);
+      const half = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 50, toleranceBps: 100 }));
+      expect(decodeIntent(body(half), intentOf(half)).ok).toBe(true);
+      ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    });
+    expect(decodeIntent(body(built), intentOf(built)).ok).toBe(true);
   });
 });
 

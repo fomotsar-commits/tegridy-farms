@@ -4,7 +4,7 @@ import { swapEnabled } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
-import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE, isWithdrawOnly, type QuoteCoin } from '../lp/quotes';
 import type { TransferFee } from '../lp/transferFee';
 import { coinBounds, type RuleSettings } from './rule';
 
@@ -298,6 +298,8 @@ export function simulationProblem(c: SimulatedChange, plan: Pick<Plan, 'minProfi
  */
 export function poolProblem(view: PoolView, fee: TransferFee | null | 'unread'): string | null {
   if (!isKeeperCoin(view.quote.mint) && isKeeperCoin(view.tokenMint)) return `priced in ${view.quote.symbol} against the keeper’s own coin`;
+  // Withdraw-only (quotes.ts): the keeper builds its own swaps, past the site's builders and checker.
+  if (isWithdrawOnly(view.quote)) return `priced in ${view.quote.symbol}, a delisted coin: withdraw-only`;
   if (view.vaultsFrozen) return 'a pool vault is frozen';
   if (!swapEnabled(view.snapshot.pool)) return 'trading is switched off in this pool';
   if (!view.config) return 'the pool’s fee settings were not read';

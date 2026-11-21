@@ -1,4 +1,4 @@
-import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './tokenSafety';
+import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from './mints';
 
 /**
  * The coins a pool on this site may pair a token with: SOL, USDC and the island's five
@@ -8,10 +8,23 @@ import { BAYLA_MINT, BOBO_MINT, BRAINLET_MINT, RIZZ_MINT, SOY_MINT, TOKEN_2022_P
  * checker each know these seven and nothing else, so a pool of two unknown tokens is
  * still `other-pair` and is never written to.
  *
- * ONE ROW PER COIN. Adding a coin is a row here, a row in the server's copy
- * (api/_lib/pool-index.js `QUOTE_COINS`, pinned to this list by a test), its mint's
- * mainnet dump beside the others in scripts/solana-localnet/golden (the row is pinned to
- * it by a test) and nothing else.
+ * ONE ROW PER COIN, APPENDED, NEVER DELETED. A new coin goes after every row, never
+ * between two: a row's place decides how every existing pool reads (below), so today's
+ * seven stay the exact prefix (a test pins it). A coin that goes bad is flagged
+ * `delisted`, not removed. Adding one is a PR on the owner's ruling for that coin (spec
+ * 2026-11-14, sections 4 and 5), and it takes all of these:
+ *   - its mint in mints.ts, and here its symbol in `QuoteSymbol`, its row and its place
+ *     at the end of `QUOTE_COINS`;
+ *   - its WELL_KNOWN_NAMES row (tokenSafety.ts) and the server's copy of that row
+ *     (api/_lib/share-name.js), so a copy of its name reads "fake";
+ *   - the server's other copies: api/_lib/pool-index.js `QUOTE_COINS` (pinned to this
+ *     list by a test), api/_lib/outside-prices.js `FIRST_MINTS`, api/_lib/position.js
+ *     `KNOWN`, and the volume counter's list (scripts/lib/venue-volume-chain.mjs);
+ *   - its mint's mainnet dump beside the others in scripts/solana-localnet/golden (the row
+ *     is pinned to it by a test);
+ *   - every test and e2e spec that writes the coin list out: the pool-opening card tests
+ *     (CreatePoolCard, CreatePoolPairing), SolanaRouteLine, the api's pools and
+ *     outside-prices tests, and e2e-solana lp-coins and lp-create.
  *
  * WHICH SIDE IS THE QUOTE. The list is in rank order. A pool that pairs two of these
  * coins is read as the LOWER-ranked one priced in the HIGHER-ranked one:
@@ -47,6 +60,14 @@ export interface QuoteCoin {
    * A new coin must say what its issuer can do to a pool's account before it is listed.
    */
   risk: string | null;
+  /**
+   * Set when the coin is no longer listed. Its row is never deleted: a row's place decides
+   * how every pool reads (rank order, below), and its pools' holders must still find them.
+   * A pool priced in a delisted coin is WITHDRAW-ONLY (`isWithdrawOnly`): Remove and Collect
+   * still build; Add, opening a pool and a swap in our own pools are refused, each by its
+   * builder and again by the transaction checker (intent.ts). No row is delisted today.
+   */
+  delisted?: true;
 }
 
 /**
@@ -98,6 +119,25 @@ const rankOf = (mint: string): number => QUOTE_COINS.findIndex((q) => q.mint ===
 export function quoteCoin(mint: string): QuoteCoin | null {
   return QUOTE_COINS[rankOf(mint)] ?? null;
 }
+
+/**
+ * Is a pool priced in this coin withdraw-only (`delisted`)? Looked up again in the list by
+ * mint, so a copy of a row is never trusted for it.
+ */
+export function isWithdrawOnly(coin: Pick<QuoteCoin, 'mint'>): boolean {
+  return quoteCoin(coin.mint)?.delisted === true;
+}
+
+/** Said wherever a withdraw-only pool is shown, in one line; `withdrawOnlyWhy` goes in the small print under it. */
+export const WITHDRAW_ONLY_LINE = 'Withdraw only: you can take your liquidity out of this pool, nothing more.';
+
+/** Why, with the coin's whole address. */
+export const withdrawOnlyWhy = (coin: Pick<QuoteCoin, 'symbol' | 'mint'>): string =>
+  `${coin.symbol} (${coin.mint}) is no longer a pairing coin on this site, so the site does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`;
+
+/** A builder's refusal for one. */
+export const withdrawOnlyRefusal = (coin: Pick<QuoteCoin, 'symbol'>): string =>
+  `Pools priced in ${coin.symbol} are withdraw-only: ${coin.symbol} is no longer a pairing coin on this site. Nothing was built.`;
 
 /**
  * How a pool of these two mints is read: its quote coin, which side that is, and the

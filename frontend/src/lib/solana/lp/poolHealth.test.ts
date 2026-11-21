@@ -15,7 +15,8 @@ import {
   UNTRADED_RESERVES_TOLERANCE_BPS,
   tokenReasons,
 } from './poolHealth';
-import { USDC_QUOTE } from './quotes';
+import { SOL_QUOTE, USDC_QUOTE, WITHDRAW_ONLY_LINE } from './quotes';
+import { whileDelisted } from './delisted.fixture';
 import { MIN_HISTORY_SECS, TRUSTED_HISTORY_SECS, decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
@@ -128,6 +129,17 @@ describe('assessPool', () => {
     expect(h.withdrawals).toBe('vault-frozen');
     expect(h.deposits.verdict).toBe('refused');
     expect(h.deposits.reasons.join(' ')).toMatch(/frozen/);
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only.
+  it('a pool priced in a delisted coin: deposits refused in one line; withdrawals stay open', async () => {
+    await whileDelisted(SOL_QUOTE, () => {
+      const h = assessPool({ ...base, view: view(), outside: outside(0.01) });
+      expect(h.deposits.verdict).toBe('refused');
+      expect(h.deposits.reasons).toEqual([WITHDRAW_ONLY_LINE]);
+      expect(h.withdrawals).toBe('open');
+    });
+    expect(assessPool({ ...base, view: view(), outside: outside(0.01) }).deposits.verdict).toBe('allowed');
   });
 
   // F4: unreadable fee settings are never "the checks pass".

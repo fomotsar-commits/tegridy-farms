@@ -7,7 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { AMM_CONFIG_OFFSETS, CREATOR_FEE_ON_BOTH, POOL_STATE_OFFSETS, POOL_STATUS_DISABLE_SWAP } from '../cpswap/program';
-import { BAYLA_QUOTE, USDC_QUOTE } from '../lp/quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
+import { whileDelisted } from '../lp/delisted.fixture';
 import { BAYLA_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '../lp/tokenSafety';
 import {
   CLOCK,
@@ -71,6 +72,19 @@ describe('a pool on the public fee tier (tier 1) is found and priced with its ow
     // 1% on tier 1. Tier 0's 0.25% would pay 90,720,... and the route would lean our way.
     expect(q.candidates[0]!.outAmount).toBe(expectedOut(SOL, 10n * SOL, 1_000_000n * TOK, 10_000n));
     expect(q.candidates[0]!.poolAddress).toBe(pool.address.toBase58());
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so it is never a route.
+  it('a pool priced in a delisted coin is found, and gives no quote: it cannot be traded here', async () => {
+    const mint = key();
+    const pool = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    const r = await read(base(mint, pool.accounts), mint);
+    if (r.kind !== 'ok') throw new Error(r.kind);
+    await whileDelisted(SOL_QUOTE, () => {
+      expect(r.pools.map((p) => p.address)).toEqual([pool.address.toBase58()]);
+      expect(quoteVenuePools(r, WSOL_MINT, SOL)).toEqual({ state: 'unquotable', candidates: [] });
+    });
+    expect(quoteVenuePools(r, WSOL_MINT, SOL).state).toBe('quoted');
   });
 
   it('prices each pool with the fee of the tier it is on, not one tier for all', async () => {

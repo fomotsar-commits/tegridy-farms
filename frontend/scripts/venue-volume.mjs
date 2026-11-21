@@ -18,7 +18,7 @@ import {
   EVM_CHAINS,
   HYPEREVM_V3,
   ISLAND_COINS,
-  ISLAND_DECIMALS,
+  PRICE_IDS_MAX,
   SOLANA_BOTS,
   SOL_MINT,
   USDC_MINT,
@@ -137,35 +137,42 @@ export async function spotPrice(symbol, fetchImpl) {
   return quotes[0];
 }
 
-const ISLAND_MINTS = new Set(ISLAND_COINS.map((c) => c.mint));
+const ISLAND_BY_MINT = new Map(ISLAND_COINS.map((c) => [c.mint, c]));
 
 /**
  * The island coins' market prices from Jupiter (the keyed host when its server-only key is
- * set), one read for all five: `{ mint: usd | null }`, null for a coin Jupiter has no price
- * for. Throws when Jupiter cannot be read, so the source is counted on the next run instead.
+ * set), at most PRICE_IDS_MAX coins a read: `{ mint: usd | null }`, null for a coin Jupiter has
+ * no price for. Throws when Jupiter cannot be read, so the source is counted on the next run instead.
  */
-export async function islandPrices(fetchImpl, key = (process.env.JUPITER_API_KEY || "").trim()) {
-  const ids = ISLAND_COINS.map((c) => c.mint).join(",");
+export async function islandPrices(fetchImpl, key = (process.env.JUPITER_API_KEY || "").trim(), coins = ISLAND_COINS) {
   const hosts = key ? [["https://api.jup.ag", { "x-api-key": key }], ["https://lite-api.jup.ag", {}]] : [["https://lite-api.jup.ag", {}]];
-  let last = "";
-  for (const [host, headers] of hosts) {
-    try {
-      const r = await fetchImpl(`${host}/price/v3?ids=${ids}`, { headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(10_000) });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      return Object.fromEntries(ISLAND_COINS.map((c) => [c.mint, Number(j?.[c.mint]?.usdPrice) > 0 ? Number(j[c.mint].usdPrice) : null]));
-    } catch (e) {
-      last = `${new URL(host).host} ${e?.message ?? e}`;
+  const out = {};
+  for (let i = 0; i < coins.length; i += PRICE_IDS_MAX) {
+    const turn = coins.slice(i, i + PRICE_IDS_MAX);
+    const ids = turn.map((c) => c.mint).join(",");
+    let j;
+    let last = "";
+    for (const [host, headers] of hosts) {
+      try {
+        const r = await fetchImpl(`${host}/price/v3?ids=${ids}`, { headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(10_000) });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        j = await r.json();
+        break;
+      } catch (e) {
+        last = `${new URL(host).host} ${e?.message ?? e}`;
+      }
     }
+    if (j === undefined) throw new Error(`no island coin price could be read (${last})`);
+    for (const c of turn) out[c.mint] = Number(j?.[c.mint]?.usdPrice) > 0 ? Number(j[c.mint].usdPrice) : null;
   }
-  throw new Error(`no island coin price could be read (${last})`);
+  return out;
 }
 
 /**
  * The dollars of one leg. USDC and USDT are dollars; SOL and WETH take today's price, an
- * island coin its market price (null when it has none).
+ * island coin its market price at its own decimals (null when it has no price).
  */
-export function legUsd(leg, prices) {
+export function legUsd(leg, prices, coins = ISLAND_COINS) {
   if (!leg) return null;
   if (leg.mint === USDC_MINT || leg.mint === USDT_MINT) return Number(leg.raw) / 1e6;
   if (leg.mint === SOL_MINT) return (Number(leg.raw) / 1e9) * prices.SOL;
@@ -173,12 +180,13 @@ export function legUsd(leg, prices) {
   // HyperEVM: WHYPE at HYPE's price; USD₮0 and USDC (6 decimals) are dollars.
   if (leg.mint === "HYPE") return (Number(leg.raw) / 1e18) * prices.HYPE;
   if (leg.mint === "USD6") return Number(leg.raw) / 1e6;
-  if (ISLAND_MINTS.has(leg.mint)) return prices[leg.mint] > 0 ? (Number(leg.raw) / 10 ** ISLAND_DECIMALS) * prices[leg.mint] : null;
+  const island = coins.find((c) => c.mint === leg.mint);
+  if (island) return prices[leg.mint] > 0 ? (Number(leg.raw) / 10 ** island.decimals) * prices[leg.mint] : null;
   return null;
 }
 
-/** The price `priceOf` is asked for to value a leg: SOL, ETH or an island coin's mint. */
-const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH" ? "ETH" : leg?.mint === "HYPE" ? "HYPE" : ISLAND_MINTS.has(leg?.mint) ? leg.mint : null);
+/** The price `priceOf` is asked for to value a leg: SOL, ETH, HYPE or an island coin's mint. */
+const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH" ? "ETH" : leg?.mint === "HYPE" ? "HYPE" : ISLAND_BY_MINT.has(leg?.mint) ? leg.mint : null);
 
 /**
  * New totals for one source: its old row plus the new swaps, each valued once. `repriced`
@@ -309,7 +317,7 @@ function pricer(fetchImpl) {
   let island = null;
   const priceOf = async (sym) => {
     if (sym in used) return used[sym];
-    if (ISLAND_MINTS.has(sym)) {
+    if (ISLAND_BY_MINT.has(sym)) {
       island ??= islandPrices(fetchImpl);
       used[sym] = (await island)[sym];
     } else {

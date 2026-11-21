@@ -416,8 +416,9 @@ describe('Review is described by the warnings above it', () => {
   });
 });
 
-// Owner, 2026-10-29: a token with a transfer fee may have a pool. Its two risks are said
-// before the button and above Review, and the form's numbers count what reaches the pool.
+// Owner, 2026-10-29: a token with a transfer fee may have a pool. Spec 2026-11-14: no NEW one is
+// opened here (the venue's cut in the token pays the fee). Its card still says both risks; the
+// Open card refuses before any form, as the opening's builder does.
 describe('a token that charges a transfer fee', () => {
   it('its card is "Allowed, with warnings", and both fee sentences are warnings', async () => {
     mount(readers(feeToken));
@@ -429,25 +430,15 @@ describe('a token that charges a transfer fee', () => {
     }
   });
 
-  it('the form says both risks above Review, the preview says what the token keeps, Match counts the fee, and Review is ON', async () => {
+  it('the Open card refuses it before any form, in one line, and offers no pair to open', async () => {
     mount(readers(feeToken));
-    const { panel } = await openPanel();
-    await within(panel).findByRole('button', { name: 'Max SOL' });
-    const lines = tokenReasons(feeToken, 'pools').warned;
-    expect(lines).toHaveLength(2);
-    const warnings = within(panel).getByTestId('lp-create-warnings');
-    for (const line of lines) expect(warnings).toHaveTextContent(line);
-    type(coinBox(panel, 'SOL'), '1');
-    type(tokens(panel), '100');
-    // 5 of the 100 typed are kept: the pool opens with 95, so at 1 SOL it opens above the market's 0.01.
-    expect(within(panel).getByTestId('lp-create-preview')).toHaveTextContent(/5 of those tokens \(5%\), kept by the token for its fee collector; the pool starts with 95/);
-    expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
-    // Matching the market keeps the tokens typed last and prices what REACHES the pool: 95 tokens at 0.01 is 0.95 SOL, not 1.
-    fireEvent.click(within(within(panel).getByTestId('lp-create-warnings')).getByRole('button', { name: 'Match the market price' }));
-    expect(tokens(panel)).toHaveValue('100');
-    expect(coinBox(panel, 'SOL')).toHaveValue('0.95');
-    expect(price(panel)).toHaveAttribute('data-price', 'agrees');
-    expect(reviewButton(panel)).toBeEnabled();
+    const card = await settled('token-refused');
+    const lines = tokenReasons(feeToken, 'pools');
+    expect(lines.warned).toEqual([]);
+    expect(lines.refused).toEqual(['It uses a transfer-fee setting, which lets the token take a fee out of every transfer.']);
+    expect(card).toHaveTextContent(`This site does not open pools for this token: ${lines.refused[0]}`);
+    expect(within(card).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 });
 

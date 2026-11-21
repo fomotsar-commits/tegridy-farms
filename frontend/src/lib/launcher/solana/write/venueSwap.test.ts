@@ -16,7 +16,8 @@ import {
   deriveAmmConfig,
   publicTierConfig,
 } from '../../../solana/cpswap/program';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, withdrawOnlyRefusal, type QuoteCoin } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 import { BAYLA_MINT } from '../../../solana/lp/tokenSafety';
 import { decodeIntent } from './intent';
 import { LP_COPY } from './liquidity';
@@ -395,6 +396,16 @@ describe('each pool is priced and traded with its own fee settings', () => {
     }
   });
 
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only: nobody trades in it here.
+  it('a pool priced in a delisted coin builds nothing, either way round', async () => {
+    const w = world({ coin: USDC_QUOTE, heldTokens: null });
+    await whileDelisted(USDC_QUOTE, async () => {
+      expect((await refusal(w, buy(w, { amountIn: 100n * TOK }))).message).toBe(withdrawOnlyRefusal(USDC_QUOTE));
+      expect((await refusal(w, sell(w))).message).toBe(withdrawOnlyRefusal(USDC_QUOTE));
+    });
+    ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { amountIn: 100n * TOK })));
+  });
+
   it('a pool at its own address is traded at that address', async () => {
     const w = world({ address: Keypair.generate().publicKey });
     const p = ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w)));
@@ -672,6 +683,12 @@ describe('the checker: a venue swap read back out of its bytes', () => {
     const tier0 = deriveAmmConfig(CPSWAP, 0);
     const onTier0: SwapIntent = { ...intent, pins: { ...intent.pins, ammConfig: tier0 } };
     expect(reasonOf(decodeIntent(replacing(ixs, sw, withKey(sw, 2, tier0)), onTier0))).toMatch(/launch tier \(fee tier 0\) without a launch/);
+  });
+
+  it('refuses a swap in a pool priced in a delisted coin, from the site’s own row', async () => {
+    const { ixs, intent } = await built();
+    await whileDelisted(SOL_QUOTE, () => expect(reasonOf(decodeIntent(ixs, intent))).toMatch(/priced in a coin this site no longer lists, so it is withdraw-only/));
+    expect(decodeIntent(ixs, intent).ok).toBe(true);
   });
 
   it('accepts a swap in the launch pool on the launch tier', async () => {

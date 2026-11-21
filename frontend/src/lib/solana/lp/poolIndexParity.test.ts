@@ -12,8 +12,10 @@ import { POOL_INDEX_MAX } from './poolIndex';
 import { QUOTE_COINS, quotesFor } from './quotes';
 
 describe('the pool index and the browser agree', () => {
-  it('on the pairing coins: the same mints, under the same token programs, in the same rank order', () => {
-    const row = (q: { symbol: string; mint: string; program: string }) => ({ symbol: q.symbol, mint: q.mint, program: q.program });
+  // `delisted` too: the server's TVL names no coin for the $200 list from a pool priced in a
+  // delisted coin (api/_lib/venueTvl.js), so a coin delisted in one copy only would still earn it.
+  it('on the pairing coins: the same mints, under the same token programs, in the same rank order, delisted alike', () => {
+    const row = (q: { symbol: string; mint: string; program: string; delisted?: boolean }) => ({ symbol: q.symbol, mint: q.mint, program: q.program, delisted: q.delisted === true });
     expect(SERVER_COINS.map(row)).toEqual(QUOTE_COINS.map(row));
   });
 

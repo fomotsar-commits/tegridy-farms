@@ -15,6 +15,7 @@ import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { pricedInCoin } from '../../../lib/solana/lp/pricedIn';
 import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
@@ -196,7 +197,25 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     el.focus({ preventScroll: true });
     el.scrollIntoView?.({ block: 'start' });
   }, []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} />;
+  // A link with ?priced=<a pairing coin> lists the pools priced in it instead (pricedIn.ts): what its community shares.
+  // Its own parameter, never the finder's ?mint= (a chip, a typed token, a row's View or Add, Add more liquidity all write
+  // that): one address always shows one list, and nothing the visitor presses swaps the list under them.
+  const priced = homeMint ? null : params.get('priced');
+  const pricedIn = useMemo(() => pricedInCoin(priced), [priced]);
+  // The list is what such a link is for: brought onto the screen when the page opens on it, and kept on the screen
+  // when Every pool drops the coin (the app puts the window at the top on the first change of address, App.tsx).
+  const listOnScreen = useRef(pricedIn !== null);
+  const everyPool = useCallback(() => {
+    listOnScreen.current = true;
+  }, []);
+  useEffect(() => {
+    if (!listOnScreen.current) return;
+    listOnScreen.current = false;
+    toAllPools();
+  }, [pricedIn, toAllPools]);
+  const allPools = (
+    <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} pricedIn={pricedIn} onEveryPool={everyPool} />
+  );
   const finder = (
     <PoolFinder
       ref={finderRef}
