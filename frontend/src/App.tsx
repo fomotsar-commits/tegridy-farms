@@ -17,6 +17,7 @@ import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { useOpensAtTheTop } from './hooks/useOpensAtTheTop';
+import { useNewPageKey } from './hooks/useNewPageKey';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
 import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { useSectionLink } from './hooks/useSectionLink';
@@ -27,6 +28,7 @@ import { holdReloadWhileWalletWorks } from './lib/reloadHold';
 import { StaleBuildFallback } from './components/StaleBuildFallback';
 import { rangePoolsVisible } from './lib/solana/clmm/programId';
 import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './lib/cardano/flags';
+import { hyperEvmLive } from './lib/chains/hyperEvm';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -58,6 +60,8 @@ const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
 // The Island lobby: cards, not tabs. See IslandPage.tsx for why.
 const IslandPage = lazy(() => import('./pages/IslandPage'));
+// The island drawn as a city, on one canvas: its own chunk, fetched only by a visitor to /city.
+const CityPage = lazy(() => import('./pages/CityPage'));
 // Docs for the keyed /api/v1 layer, rendered from api/_lib/apiTiers.js and
 // /api/v1?route=status, so it cannot claim what is not configured.
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
@@ -170,11 +174,12 @@ function NotFoundPage() {
   );
 }
 
-// Scroll to top on PUSH/REPLACE; on POP (Back/Forward) the browser restores the position.
+// Scroll to top on a PUSH/REPLACE to another page; on POP (Back/Forward) the browser restores
+// the position, and a move that changes only the query stays where it is (useNewPageKey).
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
   const navType = useNavigationType();
-  useOpensAtTheTop(navType === 'POP' || hash ? null : `${navType} ${pathname}`);
+  useOpensAtTheTop(useNewPageKey());
   useEffect(() => {
     if (navType === 'POP') return;
     // A #section link is useSectionLink's to place, below: it waits for the section,
@@ -321,6 +326,8 @@ function AnimatedRoutes() {
         <Route path="solana" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense></DeepLinkSheet>} />
         {/* No route until the Cardano swap is opened (lib/cardano/flags.ts). */}
         {cardanoSwapVisible() && <Route path="cardano" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
+        {/* No route until every HyperEVM address is deployed (lib/chains/hyperEvm.ts). */}
+        {hyperEvmLive() && <Route path="hyperevm" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
         {/* Pools is its own section: /liquidity, /pools, /range-pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="solana-lp" element={<SolanaLpRedirect />} />
@@ -330,6 +337,7 @@ function AnimatedRoutes() {
         <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<PoolsFallback />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
         {/* The venue's own Cardano pools: no route until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts). */}
         {cardanoOwnPoolsVisible() && <Route path="cardano-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
+        {hyperEvmLive() && <Route path="hyperevm-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
@@ -350,6 +358,7 @@ function AnimatedRoutes() {
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
         <Route path="island" element={<Suspense fallback={<PageSkeleton />}><IslandPage /></Suspense>} />
+        <Route path="city" element={<Suspense fallback={<PageSkeleton />}><CityPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
         <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />

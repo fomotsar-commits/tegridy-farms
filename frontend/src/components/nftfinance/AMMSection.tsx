@@ -24,7 +24,7 @@ import {
   TEGRIDY_NFT_POOL_FACTORY_ABI,
   TEGRIDY_NFT_POOL_ABI,
 } from '../../lib/contracts';
-import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountNearest, formatTokenAmountUp, shortenAddress } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
@@ -969,14 +969,14 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
               <div className="flex justify-between text-sm">
                 <span className="text-white">{mode === 'buy' ? 'Total Cost' : 'Payout'}</span>
                 <span className="font-mono tabular-nums text-white font-semibold">
-                  {formatTokenAmount(formatEther(bestAmount), 6)} ETH
+                  {mode === 'buy' ? formatTokenAmountUp(formatEther(bestAmount), 6) : formatTokenAmount(formatEther(bestAmount), 6)} ETH
                 </span>
               </div>
               {protocolFee !== undefined && (
                 <div className="flex justify-between text-sm">
                   <span className="text-white">Protocol Fee</span>
                   <span className="font-mono tabular-nums text-white">
-                    {formatTokenAmount(formatEther(protocolFee), 6)} ETH
+                    {formatTokenAmountUp(formatEther(protocolFee), 6)} ETH
                   </span>
                 </div>
               )}
@@ -1319,11 +1319,11 @@ export function PoolAdminPanel({
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-white/55">Spot Price</p>
-            <p className="text-[13px] font-mono text-white">{formatTokenAmount(formatEther(spotPrice), 4)} ETH</p>
+            <p className="text-[13px] font-mono text-white">{formatTokenAmountNearest(formatEther(spotPrice), 4)} ETH</p>
           </div>
           {pendingSpotAfter !== null && pendingSpotAfter > 0 && (
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingSpot === null ? '–' : formatTokenAmount(formatEther(pendingSpot), 4)}</p>
+              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingSpot === null ? '\u2013' : formatTokenAmountNearest(formatEther(pendingSpot), 4)}</p>
               <p className="text-[11.5px] text-yellow-200">{spotReady ? 'Ready to execute' : `Unlocks in ${formatCountdown(nowSec, pendingSpotAfter)}`}</p>
             </div>
           )}
@@ -1363,11 +1363,11 @@ export function PoolAdminPanel({
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-white/55">Delta</p>
-            <p className="text-[13px] font-mono text-white">{formatTokenAmount(formatEther(delta), 4)} ETH</p>
+            <p className="text-[13px] font-mono text-white">{formatTokenAmountNearest(formatEther(delta), 4)} ETH</p>
           </div>
           {pendingDeltaAfter !== null && pendingDeltaAfter > 0 && (
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingDeltaVal === null ? '–' : formatTokenAmount(formatEther(pendingDeltaVal), 4)}</p>
+              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingDeltaVal === null ? '\u2013' : formatTokenAmountNearest(formatEther(pendingDeltaVal), 4)}</p>
               <p className="text-[11.5px] text-yellow-200">{deltaReady ? 'Ready to execute' : `Unlocks in ${formatCountdown(nowSec, pendingDeltaAfter)}`}</p>
             </div>
           )}
@@ -1834,13 +1834,13 @@ function PoolCard({
             <div>
               <p className={`${labelClass} inline-flex items-center gap-1`}>Spot Price <InfoTooltip text="Current price for the next NFT buy or sell in this pool" /></p>
               <p className="text-sm font-mono tabular-nums text-white mt-0.5">
-                {formatTokenAmount(formatEther(spotPrice), 4)} ETH
+                {formatTokenAmountNearest(formatEther(spotPrice), 4)} ETH
               </p>
             </div>
             <div>
               <p className={`${labelClass} inline-flex items-center gap-1`}>Delta <InfoTooltip text="Price change after each trade. The bonding curve shifts by this amount per NFT." /></p>
               <p className="text-sm font-mono tabular-nums text-white mt-0.5">
-                {formatTokenAmount(formatEther(delta), 4)} ETH
+                {formatTokenAmountNearest(formatEther(delta), 4)} ETH
               </p>
             </div>
             <div>

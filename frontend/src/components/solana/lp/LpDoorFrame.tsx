@@ -31,6 +31,7 @@ export function LpDoorFrame({ mint, waiting, slotRef }: { mint: string; waiting:
   return (
     <section
       data-testid="lp-door"
+      data-dwg="door"
       aria-labelledby={room ? id : undefined}
       aria-label={room ? undefined : 'Add liquidity'}
       className={`${CARD} isolate mb-6`}

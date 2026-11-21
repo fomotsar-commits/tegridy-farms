@@ -1046,7 +1046,7 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   const NAME = BigInt((607 + 128) * 6_960) + 10_000_000n;
   const tiers = (openingDeposits: bigint | null) => vi.fn(async () => ({ kind: 'ok' as const, openingDeposits, tiers: [] }));
   const named = (cost: bigint | null = NAME) => ({ nameRecordCost: vi.fn(async () => cost) });
-  const READ = "Opening a pool costs 0.15 SOL to the venue plus about 0.0552 SOL you do not get back: account setup and the pool share's name record.";
+  const READ = "Opening a pool costs 0.15 SOL to the venue plus about 0.0553 SOL you do not get back: account setup and the pool share's name record.";
   const UNREAD = "Opening a pool costs 0.15 SOL to the venue plus account setup and the pool share's name record, which you do not get back (amount not read).";
   const cost = (c: HTMLElement) => within(c).getByTestId('lp-create-cost');
 
@@ -1096,7 +1096,7 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   it('a tier with no fee to open says nothing goes to the venue, and still says the setup', async () => {
     mount(readers({ feeTiers: tiers(DEPOSITS), ...named() }), { createFacts: readyFacts({ createPoolFee: 0n }) });
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe("Opening a pool costs nothing to the venue plus about 0.0552 SOL you do not get back: account setup and the pool share's name record."));
+    await waitFor(() => expect(said(cost(c))).toBe("Opening a pool costs nothing to the venue plus about 0.0553 SOL you do not get back: account setup and the pool share's name record."));
     expect(cost(c)).not.toHaveTextContent(/\b0 SOL/);
   });
 

@@ -36,7 +36,7 @@ export function PresetRow({
             key={d.seconds}
             aria-pressed={value === d.seconds}
             onClick={() => onChange(d.seconds)}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
+            className={`dwg-chip min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
               value === d.seconds ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
             }`}
             style={{ background: value === d.seconds ? SELECTED_BG : CARD_BG }}

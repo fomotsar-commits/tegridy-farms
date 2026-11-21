@@ -325,6 +325,22 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
     // Its pin line reads to the secret scanner as a key, so the scanner's skip rides with it.
     expect(repinAlone('M\tsolana/guards/provenance.mjs\nM\t.gitleaksignore\n')).toEqual([]);
   });
+
+  it("lets a re-pin move the daily sweep's two files and the build-hash file, and nothing else of the job's", () => {
+    const pin = 'M\tsolana/guards/upstream/cp-swap.diff\nM\tsolana/tegridy-amm/programs/cp-swap/src/lib.rs\n';
+    const job = 'M\tfrontend/scripts/venue-sweep.mjs\nM\tfrontend/scripts/venue-sweep.test.mjs\nM\t.github/scripts/solana-mainnet-builds.sha256\n';
+    expect(repinAlone(`${pin}${job}`)).toEqual([]);
+    for (const p of [
+      'frontend/scripts/lib/solana-signer.mjs',
+      'frontend/scripts/lib/venue-volume-chain.mjs',
+      '.github/workflows/venue-sweep.yml',
+      '.github/scripts/solana-build-pins.mjs',
+      '.github/scripts/solana-mainnet-builds.sha256.bak',
+      'frontend/scripts/venue-sweep.mjs.orig',
+    ]) {
+      expect(repinAlone(`${pin}M\t${p}\n`).join('\n')).toContain(`${p}: this pull request changes solana/guards/upstream/cp-swap.diff`);
+    }
+  });
 });
 
 describe('undoing the reviewed patch is strict', () => {

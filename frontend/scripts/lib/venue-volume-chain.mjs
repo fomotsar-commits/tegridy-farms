@@ -79,6 +79,86 @@ export const EVM_CHAINS = {
   },
 };
 
+// Our Uniswap V3 venue on HyperEVM (chain 999). The factory is the one in the site's record,
+// src/lib/chains/hyperEvmDeployment.ts (venue-volume.test.mjs pins the two equal); null until it
+// is deployed, and while it is null HyperEVM is no volume source and adds nothing to TVL.
+// startBlock is the factory's deploy block. Pools are found as the site finds them: our factory's
+// getPool for every pair of these coins at each fee tier. The public RPC serves 1,000 blocks of
+// logs a call (drpc's free plan 100), and the chain makes about a block a second.
+export const HYPEREVM_V3 = Object.freeze({
+  factory: null,
+  startBlock: null,
+  rpcs: ["https://rpc.hyperliquid.xyz/evm", "https://hyperliquid.drpc.org"],
+  coins: Object.freeze([
+    Object.freeze({ address: "0x5555555555555555555555555555555555555555", symbol: "WHYPE", decimals: 18, value: "HYPE" }),
+    Object.freeze({ address: "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb", symbol: "USD₮0", decimals: 6, value: "USD6" }),
+    Object.freeze({ address: "0xb88339CB7199b77E23DB6E890353E22632Ba630f", symbol: "USDC", decimals: 6, value: "USD6" }),
+  ]),
+  feeTiers: Object.freeze([100, 500, 3000, 10000]),
+  logSpan: 1000,
+  bots: new Set(),
+});
+
+/** Whether HyperEVM is counted: only once its factory and first block are set. */
+export function hyperEvmCounted(v3 = HYPEREVM_V3) {
+  return typeof v3.factory === "string" && /^0x[0-9a-fA-F]{40}$/.test(v3.factory) && !/^0x0{40}$/.test(v3.factory) && Number.isInteger(v3.startBlock);
+}
+
+// keccak256("Swap(address,address,int256,int256,uint160,uint128,int24)"), Uniswap V3's.
+export const V3_SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67";
+const pad = (hex) => hex.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+
+/** Every pool our HyperEVM factory has for the listed coins: [{ address, coin0, coin1 }], sorted as the pool sorts them. */
+export async function listV3Pools(call, v3 = HYPEREVM_V3) {
+  const out = [];
+  const coins = v3.coins;
+  for (let i = 0; i < coins.length; i++) {
+    for (let j = i + 1; j < coins.length; j++) {
+      const [coin0, coin1] = coins[i].address.toLowerCase() < coins[j].address.toLowerCase() ? [coins[i], coins[j]] : [coins[j], coins[i]];
+      for (const fee of v3.feeTiers) {
+        const r = await ethCall(call, v3.factory, "0x1698ee82" + pad(coin0.address) + pad(coin1.address) + pad(fee.toString(16)));
+        const address = addrWord(r);
+        if (!/^0x0{40}$/.test(address)) out.push({ address, coin0, coin1 });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A V3 Swap log's leg: the dollar side when the pool has one (its 6-decimal amount), else
+ * the WHYPE side, valued in HYPE. Amounts are signed (in is +, out is -): the leg is its size.
+ */
+export function v3SwapLeg(log, pool) {
+  const d = log.data.slice(2);
+  const signed = (k) => BigInt.asIntN(256, BigInt("0x" + d.slice(64 * k, 64 * k + 64)));
+  const abs = (x) => (x < 0n ? -x : x);
+  const side = pool.coin0.value === "USD6" ? 0 : pool.coin1.value === "USD6" ? 1 : pool.coin0.value === "HYPE" ? 0 : 1;
+  const coin = side === 0 ? pool.coin0 : pool.coin1;
+  return { mint: coin.value, raw: abs(signed(side)) };
+}
+
+/** HyperEVM's new swaps on our pools, up to its finalized block, as readEvmChain reads a V2 chain. */
+export async function readHyperEvm(call, cursor, { fetchImpl = globalThis.fetch, deadline, now, v3 = HYPEREVM_V3 } = {}) {
+  if (!hyperEvmCounted(v3)) throw new Error("HyperEVM is not deployed: nothing to count");
+  const head = await call("eth_getBlockByNumber", ["finalized", false]);
+  const headBlock = Number(BigInt(head.number));
+  const countedTo = new Date(Number(BigInt(head.timestamp)) * 1000).toISOString();
+  const pools = await listV3Pools(call, v3);
+  const from = cursor ? cursor.block + 1 : v3.startBlock;
+  if (!pools.length || from > headBlock) return { swaps: [], cursor: { block: headBlock }, countedTo };
+  const byAddress = new Map(pools.map((p) => [p.address, p]));
+  const read = await swapLogs(call, v3, pools.map((p) => p.address), from, headBlock, { fetchImpl, deadline, now, topic: V3_SWAP_TOPIC });
+  const swaps = [];
+  for (const log of read.logs) {
+    const pool = byAddress.get(log.address.toLowerCase());
+    if (log.removed || !pool) continue;
+    swaps.push({ leg: v3SwapLeg(log, pool), payer: "0x" + log.topics[1].slice(26).toLowerCase(), id: `${log.transactionHash}:${log.logIndex}` });
+  }
+  if (read.stopped) return { swaps, cursor: { block: read.through }, countedTo: null, incomplete: read.stopped };
+  return { swaps, cursor: { block: headBlock }, countedTo };
+}
+
 // NFT Lending: our Gondi v3.2 loan contract on Ethereum (scripts/addresses.json gondi-loan,
 // deployed in block 26365735). Its new loans are volume: the WETH a lender paid out.
 // A refinance is not counted again: its event carries the whole loan, not the part re-lent.

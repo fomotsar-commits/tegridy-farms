@@ -207,12 +207,12 @@ export function CurveTradePanel({
             <div className="space-y-1.5 pt-1">
               {quote.capped && raw !== null && (
                 <Notice tone="warn">
-                  This buy fills the curve: only {formatSol(quote.lamportsIn)} of your {formatSol(raw)} SOL is used. The
+                  This buy fills the curve: only {formatSol(quote.lamportsIn, 4, { up: true })} of your {formatSol(raw)} SOL is used. The
                   rest never leaves your wallet.
                 </Notice>
               )}
-              <Row label="You pay (at most)" value={`${formatSol(quote.lamportsIn)} SOL`} />
-              <Row label="Trade fee (inside that amount)" value={`${formatSol(quote.feeLamports)} SOL`} />
+              <Row label="You pay (at most)" value={`${formatSol(quote.lamportsIn, 4, { up: true })} SOL`} />
+              <Row label="Trade fee (inside that amount)" value={`${formatSol(quote.feeLamports, 4, { up: true })} SOL`} />
               {split && <Row label="Fee goes to" value={split} mono={false} />}
               <Row label="You receive (quoted)" value={tok(quote.tokensOut)} />
               <Row
@@ -228,7 +228,7 @@ export function CurveTradePanel({
           {quote?.side === 'sell' && raw !== null && (
             <div className="space-y-1.5 pt-1">
               <Row label="You receive (quoted)" value={`${formatSol(quote.lamportsOut)} SOL`} />
-              <Row label="Fee" value={`${formatSol(quote.feeLamports)} SOL`} />
+              <Row label="Fee" value={`${formatSol(quote.feeLamports, 4, { up: true })} SOL`} />
               {split && <Row label="Fee goes to" value={split} mono={false} />}
               <Row
                 label="You receive at least"

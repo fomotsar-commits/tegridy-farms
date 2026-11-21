@@ -18,8 +18,11 @@ import { FinePrint } from '../ui/FinePrint';
 import { exitCheck, underFloorPct, useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { CARD_BG, CARD_BORDER, LABEL_STYLE, LENDING_LIVE, collectionSymbol } from './nftLendingShared';
 import { FloorBar } from './FloorBar';
+import { decimalText } from '../../lib/formatting';
 
 const eth = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+/** `eth`'s shape, the last digit rounded up: what the lender puts up, or loses selling short. */
+const ethUp = (v: string | number) => decimalText(v, { places: 4, up: true, trim: true, group: true }) ?? eth(Number(v));
 
 export function LenderMarketPanel({
   collection,
@@ -35,6 +38,8 @@ export function LenderMarketPanel({
   const m = market.data;
   const bids = m?.bids ?? null;
   const principal = principalWei !== null && principalWei > 0n ? Number(formatEther(principalWei)) : null;
+  // The amount as its exact wei: what the lender puts up reads rounded up, never below it.
+  const exact = principalWei !== null && principalWei > 0n ? formatEther(principalWei) : null;
   const check = principal !== null ? exitCheck(principal, bids) : null;
   const under = principal !== null ? underFloorPct(principal, m?.floor ?? null) : null;
 
@@ -48,23 +53,23 @@ export function LenderMarketPanel({
   return (
     <div className="relative isolate rounded-xl p-3 md:p-4 space-y-2" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }} data-testid="lender-market">
       <CardArt pageId="nft-finance" idx={27} />
-      <p className="text-white text-[13px] font-semibold" style={LABEL_STYLE}>
+      <p className="text-white text-[13px] font-semibold" data-dwg="kicker" style={LABEL_STYLE}>
         A floor bid that earns while it waits.
       </p>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2" data-dwg="schedule">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <p className="text-white/80 text-[11px] uppercase tracking-wider" style={LABEL_STYLE}>
               {t.label}
             </p>
-            <p className="text-white text-[15px] font-semibold font-mono" style={LABEL_STYLE}>
+            <p className="text-white text-[15px] font-semibold font-mono" data-unread={!market.isLoading && t.value === '–' ? '' : undefined} style={LABEL_STYLE}>
               {market.isLoading ? '…' : t.value}
             </p>
           </div>
         ))}
       </div>
       {setPrincipal && (
-        <FloorBar symbol={collectionSymbol(collection)} principal={principal} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
+        <FloorBar symbol={collectionSymbol(collection)} principal={principal} exact={exact} floor={m?.floor ?? null} bestBid={bids?.bestBid ?? null} setPrincipal={setPrincipal} />
       )}
       {check && principal !== null && (
         <p
@@ -73,9 +78,9 @@ export function LenderMarketPanel({
           data-testid="lender-exit-check"
         >
           {check.kind === 'covered'
-            ? `A buyer already bids ${eth(check.bestBid)} WETH, at or above your ${eth(principal)}.`
+            ? `A buyer already bids ${eth(check.bestBid)} WETH, at or above your ${ethUp(exact ?? principal)}.`
             : check.kind === 'short'
-            ? `Your ${eth(principal)} WETH is ${eth(check.gap)} over the best bid: unrepaid, selling today loses that.`
+            ? `Your ${ethUp(exact ?? principal)} WETH is ${ethUp(check.gap)} over the best bid: unrepaid, selling today loses that.`
             : 'No open bids right now: unrepaid, you may have to hold the NFT or list it.'}
           {under !== null && under > 0 ? ` ${under}% under the floor.` : under !== null && under < 0 ? ` ${(-under).toLocaleString('en-US')}% over the floor.` : ''}
         </p>

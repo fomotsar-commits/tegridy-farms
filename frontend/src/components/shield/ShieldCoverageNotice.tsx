@@ -17,6 +17,7 @@ export function ShieldCoverageNotice() {
 
   return (
     <section
+      data-dwg="plate"
       className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Coverage"
