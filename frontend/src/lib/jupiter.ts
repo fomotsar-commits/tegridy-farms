@@ -22,6 +22,7 @@ import {
 } from './solana';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 import { JupiterTxRefused, jupiterTxRefusal, type JupiterTxExpectation } from './solana/swap/jupiterTxGuard';
+import { withWalletGuardRoom } from './solana/swap/walletGuardRoom';
 
 /** Every transaction Jupiter returns is read against the trade on screen before any caller can sign it. */
 function checked(b64: string, expect: JupiterTxExpectation): string {
@@ -246,7 +247,8 @@ export async function buildSwapTransaction(params: {
   }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
-  return checked(json.swapTransaction, {
+  // Room for the wallet's own safety check, then read like any answer from Jupiter.
+  return checked(withWalletGuardRoom(json.swapTransaction, MAX_PRIORITY_LAMPORTS), {
     kind: 'swap',
     user: params.userPublicKey,
     quote: params.quote,
