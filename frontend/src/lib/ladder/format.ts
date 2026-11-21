@@ -26,6 +26,13 @@ export function fmtRaw(raw: bigint | null | undefined, decimals: number, maxFrac
   return neg ? `-${out}` : out;
 }
 
+/** `fmtRaw` for what the visitor pays, loses or must stake at least: rounded up at the last digit shown. */
+export function fmtRawUp(raw: bigint | null | undefined, decimals: number, maxFrac = 2): string {
+  if (raw === null || raw === undefined || raw <= 0n) return fmtRaw(raw, decimals, maxFrac);
+  const unit = 10n ** BigInt(Math.max(0, decimals - maxFrac));
+  return fmtRaw(((raw + unit - 1n) / unit) * unit, decimals, maxFrac);
+}
+
 /**
  * Raw base units → the whole part (grouped like `fmtRaw`) and EXACTLY `frac` fraction
  * digits, padded with zeros and TRUNCATED, never rounded. `null` when unread.

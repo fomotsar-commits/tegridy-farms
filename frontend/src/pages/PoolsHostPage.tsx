@@ -13,6 +13,8 @@ const RangePoolsPage = lazy(() => import('./RangePoolsPage'));
 const ZapPage = lazy(() => import('../components/zap/ZapPage'));
 // The venue's own Cardano pools: positions, add, remove, open (lib/cardano/ownPools/).
 const CardanoPoolsPage = lazy(() => import('./CardanoPoolsPage'));
+// Our own Uniswap V3 pools on HyperEVM: the pools, your positions, add, collect, remove.
+const HyperEvmPoolsPage = lazy(() => import('./HyperEvmPoolsPage'));
 
 // /pools keeps its heading on screen between the host's chunk and the page's (PoolsFrame.tsx).
 const POOLS_FALLBACKS = { '/pools': <PoolsFallback panel /> };
@@ -36,6 +38,7 @@ export default function PoolsHostPage() {
         '/range-pools': RangePoolsPage,
         '/zap': ZapPage,
         '/cardano-pools': CardanoPoolsPage,
+        '/hyperevm-pools': HyperEvmPoolsPage,
       }}
       fallbacks={POOLS_FALLBACKS}
     />

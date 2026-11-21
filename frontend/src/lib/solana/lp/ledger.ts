@@ -7,7 +7,7 @@
 import { formatSol, formatTokenAmount } from '../../launcher/solana/curve/format';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
-import { IX_DEPOSIT, IX_INITIALIZE, IX_WITHDRAW } from '../cpswap/program';
+import { IX_CREATE_LP_METADATA, IX_DEPOSIT, IX_INITIALIZE, IX_WITHDRAW } from '../cpswap/program';
 import { lpWithdrawValue } from '../cpswap/read';
 import { minuteText } from './format';
 import { tokenSymbol } from './identity';
@@ -70,9 +70,18 @@ export function discriminatorIs(ix: Ix, disc: Uint8Array): boolean {
   return ix.data.length >= 8 && disc.every((b, i) => ix.data[i] === b);
 }
 
-/** Every cp-swap step, top-level or inner, that names `pool` among its accounts. */
+/**
+ * Every cp-swap step, top-level or inner, that names `pool` among its accounts and can
+ * move its tokens or shares. `create_lp_metadata` (the fork's one added instruction, which
+ * this site's opening sends right after `initialize`) is left out: it only writes the share
+ * token's name record and moves nothing of the pool's (lib.rs), so counting it made every
+ * pool opened here "changed in more than one way at once", and its opener got no figures
+ * and no Claim fees.
+ */
 export function stepsNaming(tx: ParsedTx, pool: string, programId: string): Ix[] {
-  return [...tx.instructions, ...tx.inner].filter((ix) => ix.programId === programId && ix.accounts.includes(pool));
+  return [...tx.instructions, ...tx.inner].filter(
+    (ix) => ix.programId === programId && ix.accounts.includes(pool) && !discriminatorIs(ix, IX_CREATE_LP_METADATA),
+  );
 }
 
 /** The two vaults' deltas as the pool's token and coin sides. A vault the record does not carry did not move. */

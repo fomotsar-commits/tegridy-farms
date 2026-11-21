@@ -102,6 +102,7 @@ describe('which word is lit', () => {
     // The island's own pages, which the drawer's Island row owned until 2026-10-18.
     ['/island', '', 'Island'],
     ['/gallery', '', 'Island'],
+    ['/city', '', 'Island'],
     ['/community', '', 'Island'],
     ['/tokenomics', '', 'Island'],
     ['/earn', '', 'Earn'],
@@ -685,9 +686,11 @@ describe("the menu's index", () => {
 
   // Owner, 2026-11-10: "hide all these except lore under island", and Launch under Island, "that
   // takes you to the launch page". Owner, 2026-11-12: the marketplace, back in the menu.
-  // Dashboard joins them once a wallet connects (NavDrawer.tsx).
-  it('lists only Lore, Launch and Marketplace under Island', () => {
+  // Owner, 2026-11-19: the city in the menu under Island too. Dashboard joins them once a
+  // wallet connects (NavDrawer.tsx).
+  it('lists only City, Lore, Launch and Marketplace under Island', () => {
     expect(group('Island').items.map((i) => [i.to, indexName(group('Island'), i)])).toEqual([
+      ['/city', 'City'],
       ['/lore', 'Lore'],
       ['/launch', 'Launch'],
       ['/nakamigos', 'Marketplace'],

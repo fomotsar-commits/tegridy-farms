@@ -12,6 +12,8 @@
  * is more honest than calling it "Mainnet".
  */
 
+import { HYPEREVM_CHAIN_ID, HYPEREVM_EXPLORER, HYPEREVM_NAME, hyperEvmLive } from './chains/hyperEvm';
+
 const EXPLORERS: Record<number, string> = {
   1: 'https://etherscan.io',
   5: 'https://goerli.etherscan.io',
@@ -59,6 +61,12 @@ const CHAIN_LABELS: Record<number, string> = {
   56: 'BNB Chain',
   43114: 'Avalanche',
 };
+
+// HyperEVM is named only once its venue is deployed: until then it reads as any unserved chain.
+if (hyperEvmLive()) {
+  EXPLORERS[HYPEREVM_CHAIN_ID] = HYPEREVM_EXPLORER;
+  CHAIN_LABELS[HYPEREVM_CHAIN_ID] = HYPEREVM_NAME;
+}
 
 const FALLBACK = 'https://etherscan.io';
 

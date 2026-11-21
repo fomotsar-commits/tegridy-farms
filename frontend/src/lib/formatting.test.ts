@@ -134,13 +134,13 @@ describe('formatNumber', () => {
 
 describe('formatTokenAmount', () => {
   it('handles string input', () => {
-    expect(formatTokenAmount('123.456789')).toBe('123.4568');
+    expect(formatTokenAmount('123.456789')).toBe('123.4567');
     expect(formatTokenAmount('42.5')).toBe('42.5000');
   });
 
   it('handles number input', () => {
-    expect(formatTokenAmount(123.456789)).toBe('123.4568');
-    expect(formatTokenAmount(1.23456789)).toBe('1.2346');
+    expect(formatTokenAmount(123.456789)).toBe('123.4567');
+    expect(formatTokenAmount(1.23456789)).toBe('1.2345');
   });
 
   it('returns dash for NaN string', () => {
@@ -176,7 +176,7 @@ describe('formatTokenAmount', () => {
 
   it('respects custom decimals', () => {
     expect(formatTokenAmount(1.23456789, 2)).toBe('1.23');
-    expect(formatTokenAmount(1.23456789, 6)).toBe('1.234568');
+    expect(formatTokenAmount(1.23456789, 6)).toBe('1.234567');
   });
 });
 
@@ -206,7 +206,7 @@ describe('formatTokenAmountGrouped', () => {
   });
 
   it('respects custom decimals', () => {
-    expect(formatTokenAmountGrouped(1234.56789, 2)).toBe('1,234.57');
+    expect(formatTokenAmountGrouped(1234.56789, 2)).toBe('1,234.56');
   });
 });
 

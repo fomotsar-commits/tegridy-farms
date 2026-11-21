@@ -10,6 +10,9 @@ pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 
+/// memetics.finance, 2026-11-15: a tier charges at most 1 SOL (in lamports) to open a pool.
+pub const MAX_CREATE_POOL_FEE: u64 = 1_000_000_000;
+
 /// Holds the current owner of the factory
 #[account]
 #[derive(Default, Debug)]
@@ -42,7 +45,9 @@ pub struct AmmConfig {
     pub swap_guard: u64,
     /// memetics.finance: the one signer whose swaps another program may still call while the
     /// guard is on, and who, since 2026-11-11, swaps on this tier free of the trade and creator
-    /// fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody.
+    /// fees (`swap_fee_rates`). The all-zero key, which every tier starts with, is nobody. Since
+    /// 2026-11-14 only a wallet's key may be named, and the keeper may give the role up at once
+    /// (`resign_keeper`).
     pub keeper: Pubkey,
     /// padding
     pub padding: [u64; 10],
@@ -87,6 +92,90 @@ impl AmmConfig {
         } else {
             (self.trade_fee_rate, pool_creator_fee_rate, creator_fee_on_input)
         }
+    }
+}
+
+/// memetics.finance, 2026-11-14: whether `keeper` may be named a tier's keeper: the all-zero
+/// key, which names nobody, or a wallet's key, which is a point on the curve. A program's own
+/// address (a PDA) is never a point, and naming one would let every caller that program lets
+/// through swap free and pass the guard, since the program signs for it.
+pub fn may_name_keeper(keeper: &Pubkey) -> bool {
+    *keeper == Pubkey::default()
+        || solana_curve25519::edwards::validate_edwards(&solana_curve25519::edwards::PodEdwardsPoint(
+            keeper.to_bytes(),
+        ))
+}
+
+/// memetics.finance, 2026-11-14: logged when the admin sets a tier's swap guard
+/// (update_config.rs param 8).
+#[event]
+pub struct SwapGuardChanged {
+    pub amm_config: Pubkey,
+    pub swap_guard: u64,
+}
+
+/// memetics.finance, 2026-11-14: logged when a tier's keeper changes: named or cleared by the
+/// admin (update_config.rs param 9), or given up by the keeper itself (lib.rs `resign_keeper`).
+#[event]
+pub struct KeeperChanged {
+    pub amm_config: Pubkey,
+    pub old_keeper: Pubkey,
+    pub new_keeper: Pubkey,
+    /// true when the keeper itself resigned, false when the admin set it
+    pub resigned: bool,
+}
+
+/// memetics.finance, 2026-11-15: logged by lib.rs `sweep_fees` for one owner's share of a pool:
+/// the fund owner's when `fund`, else the protocol owner's. In each token's base units, what
+/// moved to the owner's own account, and what stays set aside (a coin taking a transfer fee, or
+/// one whose pool vault or destination is frozen).
+#[event]
+pub struct FeesSwept {
+    pub pool_state: Pubkey,
+    pub fund: bool,
+    pub owner: Pubkey,
+    pub token_0_amount: u64,
+    pub token_1_amount: u64,
+    pub token_0_left: u64,
+    pub token_1_left: u64,
+}
+
+#[cfg(test)]
+mod may_name_keeper_test {
+    use super::*;
+
+    // On chain the check is the runtime's curve syscall; here it is solana-curve25519's host
+    // code. solana-pubkey's own `is_on_curve` (host only: it panics on chain, which is why the
+    // program cannot use it) is an independent reading of the same rule, so the two must agree
+    // on every key, wallets and non-wallets alike. tests/cp-swap-keeper-resign.test.ts names a
+    // real wallet (a generated keypair) on a validator.
+    #[test]
+    fn it_agrees_with_solana_pubkey_on_a_thousand_keys_on_and_off_the_curve() {
+        let (mut on, mut off) = (0, 0);
+        for _ in 0..1000 {
+            let k = Pubkey::new_unique();
+            assert_eq!(may_name_keeper(&k), k.is_on_curve(), "{k}");
+            if k.is_on_curve() { on += 1 } else { off += 1 }
+        }
+        assert!(on > 100 && off > 100, "both kinds were tried: {on} on, {off} off");
+    }
+
+    #[test]
+    fn the_all_zero_key_may_be_named_it_names_nobody() {
+        assert!(may_name_keeper(&Pubkey::default()));
+    }
+
+    #[test]
+    fn a_program_address_may_not_be_named() {
+        for seed in 0u8..64 {
+            let (pda, _) = Pubkey::find_program_address(&[b"anything", &[seed]], &crate::id());
+            assert!(!may_name_keeper(&pda), "{pda} is a program's address");
+        }
+        // This program's own signer, which owns every pool vault, above all.
+        let (authority, _) = Pubkey::find_program_address(&[crate::AUTH_SEED.as_bytes()], &crate::id());
+        assert!(!may_name_keeper(&authority));
+        // And the admin itself on mainnet, the Squads vault, which is a Squads PDA.
+        assert!(!may_name_keeper(&crate::admin::ID));
     }
 }
 

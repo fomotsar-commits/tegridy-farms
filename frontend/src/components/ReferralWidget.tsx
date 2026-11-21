@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { isAddress } from 'viem';
+import { toFixedCut } from '../lib/formatting';
 import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
 import { SITE_URL, SITE_HOST, CHAIN_ID } from '../lib/constants';
@@ -197,12 +198,12 @@ export function ReferralWidget({
           </div>
           <div className="bg-black/40 hover:bg-black/60 rounded-lg p-3 text-center transition-colors">
             <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Earned</p>
-            <p className="stat-value text-[18px] text-success">{(referralEarned ?? 0).toFixed(4)}</p>
+            <p className="stat-value text-[18px] text-success">{toFixedCut(referralEarned ?? 0, 4)}</p>
             <p className="text-white text-[9px]">ETH</p>
           </div>
           <div className="bg-black/40 hover:bg-black/60 rounded-lg p-3 text-center transition-colors">
             <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Pending</p>
-            <p className="stat-value text-[18px] text-white">{(referralPending ?? 0).toFixed(4)}</p>
+            <p className="stat-value text-[18px] text-white">{toFixedCut(referralPending ?? 0, 4)}</p>
             <p className="text-white text-[9px]">ETH</p>
           </div>
         </div>

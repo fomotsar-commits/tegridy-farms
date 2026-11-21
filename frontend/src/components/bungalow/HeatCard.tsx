@@ -42,7 +42,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
   };
 
   return (
-    <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+    <div className="relative isolate mt-6 rounded-2xl p-6" data-heat-card="" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
       <CardArt pageId="bungalow-heat-card" idx={0} />
       {/* The kicker is the card's one heading now; one line under it, the rest folded below. */}
       <h2 className="heading-luxury text-xl text-white mb-1">Check your heat</h2>

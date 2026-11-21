@@ -198,10 +198,15 @@ export async function clickReal(loc: Locator, what: string): Promise<void> {
 /**
  * No horizontal page scroll at this width (the sr-only / wrapper trap). Against `clientWidth`,
  * not `innerWidth`: the phone project widens its window to fit a page that is too wide.
+ * Asked again for two seconds: just after `setViewportSize` a page is still styled for the window
+ * it left, laid out at the new width (a 1280px heading in a 390px column read 453px wide), and
+ * neither two frames nor a media query that matches the new size says when it has restyled.
  */
 export async function expectNoSidewaysScroll(p: Page): Promise<void> {
-  const { sw, cw } = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
-  expect(sw, `page is ${sw}px wide in a ${cw}px window`).toBeLessThanOrEqual(cw);
+  await expect(async () => {
+    const { sw, cw } = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(sw, `page is ${sw}px wide in a ${cw}px window`).toBeLessThanOrEqual(cw);
+  }).toPass({ timeout: 2_000 });
 }
 
 /** The three sizes the owner checks: desktop, iPhone 14 and iPad (portrait). */
