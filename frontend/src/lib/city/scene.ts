@@ -10,7 +10,7 @@
 
 import type { Pt } from '../iso';
 import { BG, COS30, GLOW, INK, SPOT, TAU, UNIT, ZP, alpha, createKit, ink, mix, type Cam } from './kit';
-import { DISTRICTS, Hr, ISLAND_CX, ISLAND_CY, ISLAND_REACH, PD, PW, VILLA_DECK, coast, px0, py0, walkAt, walkLength, type Plan, type Plot } from './plan';
+import { DISTRICTS, FD, FW, ISLAND_CX, ISLAND_CY, ISLAND_REACH, TOWN_CENTRE, VILLA_DECK, coast, onSite, plotCorners, roadAt, walkAt, walkLength, type Plan, type Plot } from './plan';
 import { PIECE_TOP, RENDER, RENDER_CENTER } from './render';
 
 /** A room whose pool a read says is paying the connected wallet. */
@@ -135,20 +135,29 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
   const waterOf = (plot: Plot): string => plot.pool?.water ?? plot.acc;
   const topOf = (plot: Plot): number => PIECE_TOP[plot.piece];
 
-  /** Words painted flat on the road, reading along it, as a district's name is on Earn. */
-  function groundText(txt: string, x: number, y: number, size: number, col: string, gap = 0.34): void {
+  /**
+   * Words painted flat on a street, reading along it in the lane beside its centre line, as a
+   * district's name is on Earn: centred on a point of the street, heading as the street heads there.
+   */
+  function groundText(txt: string, at: Pt, heading: Pt, size: number, col: string, gap = 0.34): void {
     const k = K();
-    const [ox, oy] = P(x, y, 0.02);
+    // read left to right on the sheet, whichever way the street was drawn
+    const [tx, ty] = heading[0] - heading[1] < 0 ? [-heading[0], -heading[1]] : heading;
+    const [ox, oy] = P(at[0], at[1], 0.02);
     const sc = size / 10;
     ctx.save();
-    ctx.transform(COS30 * k * sc, 0.5 * k * sc, -COS30 * k * sc, 0.5 * k * sc, ox, oy);
+    // the text's across runs a quarter turn from its along, in the island's own sense
+    ctx.transform((tx - ty) * COS30 * k * sc, (tx + ty) * 0.5 * k * sc, (-ty - tx) * COS30 * k * sc, (tx - ty) * 0.5 * k * sc, ox, oy);
     ctx.font = `600 10px ${monoFont}`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = col;
-    let at = 0;
+    const step = (gap * 10) / size;
+    let wide = 0;
+    for (const ch of txt) wide += ctx.measureText(ch).width + step;
+    let x = -(wide - step) / 2;
     for (const ch of txt) {
-      ctx.fillText(ch, at, 0);
-      at += ctx.measureText(ch).width + (gap * 10) / size;
+      ctx.fillText(ch, x, 0.6 / sc);
+      x += ctx.measureText(ch).width + step;
     }
     ctx.restore();
   }
@@ -183,8 +192,7 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     }
   }
   function drawSelection(b: Plot, faint = false): void {
-    const { x0: x, y0: y } = b;
-    path([P(x - 0.1, y - 0.1, ZP + 0.02), P(x + PW + 0.1, y - 0.1, ZP + 0.02), P(x + PW + 0.1, y + PD + 0.1, ZP + 0.02), P(x - 0.1, y + PD + 0.1, ZP + 0.02)]);
+    path(plotCorners(b, 0.1).map(([x, y]) => P(x, y, ZP + 0.02)));
     const t = T - pickedAt;
     ctx.strokeStyle = faint ? ink(0.45) : alpha(SPOT, 0.8 + 0.15 * Math.sin(t * 3.3) * Math.max(0, 1 - t / PICK_PULSE));
     ctx.lineWidth = Math.max(faint ? 1 : 1.5, (faint ? 0.05 : 0.09) * K());
@@ -318,8 +326,11 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
       hits.push({
         plot: b,
         hull: convexHull([
-          P(b.x0, b.y0, 0), P(b.x0 + PW, b.y0, 0), P(b.x0 + PW, b.y0 + PD, 0), P(b.x0, b.y0 + PD, 0),
-          P(b.X, b.Y, top), P(b.X + 3.2, b.Y, top), P(b.X + 3.2, b.Y + 2.8, top), P(b.X, b.Y + 2.8, top),
+          ...plotCorners(b).map(([x, y]) => P(x, y, 0)),
+          ...([[b.X, b.Y], [b.X + FW, b.Y], [b.X + FW, b.Y + FD], [b.X, b.Y + FD]] as const).map(([fx, fy]) => {
+            const [x, y] = onSite(b, fx, fy);
+            return P(x, y, top);
+          }),
         ]),
       });
     }
@@ -336,7 +347,13 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
       dirty = false;
       return;
     }
-    if (cam.z > 0.34) DISTRICTS.forEach((name, r) => groundText(name, px0(r === 2 ? 2 : 0) + 0.7, Hr(r + 1) + 0.62, 0.72, ink(0.55)));
+    if (cam.z > 0.34)
+      for (const d of DISTRICTS) {
+        const road = plan.roads.find((r) => r.id === d.road);
+        if (!road) continue;
+        const { p, t } = roadAt(road, d.s);
+        groundText(d.name, p, t, 0.72, ink(0.55));
+      }
     if (hovered && hovered !== selected) drawSelection(hovered, true);
     if (selected) drawSelection(selected);
     // each paying room's way to the wallet, under the people walking it
@@ -354,7 +371,10 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     people.sort((a, b) => a.at[0] + a.at[1] - (b.at[0] + b.at[1]));
     for (const { at, w } of people) person(at[0], at[1], at[2], waterOf(w.plot), w.ph);
     // the wallet's door lights up as each one walks in
-    if (data.walletLit && doorPulse > 0) glow(P(plan.wallet.X + 1.6, plan.wallet.Y + 2.05, VILLA_DECK + 0.5), 1.6, GLOW, 0.5 * doorPulse);
+    if (data.walletLit && doorPulse > 0) {
+      const [dx, dy] = onSite(plan.wallet, plan.wallet.X + 1.6, plan.wallet.Y + 2.05);
+      glow(P(dx, dy, VILLA_DECK + 0.5), 1.6, GLOW, 0.5 * doorPulse);
+    }
     flushGlows();
     // plaques last: the hovered one over the rest, the picked one over all
     const compact = K() < PLAQUE_FULL_K;
@@ -452,7 +472,7 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     let z = Math.min((W - 16) / spanX, (H - 24) / spanY);
     const narrow = W < 700;
     if (narrow) z = Math.max(z, 0.55);
-    const c = narrow ? centerOn(px0(1) + 2.5, py0(2) + 1.5, 1.5, clampZ(z)) : centerOn(ISLAND_CX, ISLAND_CY + 1.0, 2.6, clampZ(z));
+    const c = narrow ? centerOn(TOWN_CENTRE[0], TOWN_CENTRE[1], 1.5, clampZ(z)) : centerOn(ISLAND_CX, ISLAND_CY + 1.0, 2.6, clampZ(z));
     cam.x = c.x;
     cam.y = c.y;
     cam.z = c.z;

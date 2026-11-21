@@ -8,7 +8,7 @@
 #
 # Then grade.py adds the glow and writes webp. A building's close-up is maquette.py's. See README.md.
 import bpy, json, math, os, sys
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -27,7 +27,50 @@ ONLY = MODE.split(':', 1)[1] if MODE.startswith('plate:') else None
 plan = json.load(open(os.path.join(HERE, 'plan.json'), encoding='utf-8'))
 G = plan['grid']
 ZP = G['ZP']
-SX, SY, RW, NC, NR, XMAX, YMAX = G['SX'], G['SY'], G['RW'], G['NC'], G['NR'], G['XMAX'], G['YMAX']
+PW, PD = G['PW'], G['PD']
+ROAD_HALF, PAVE_W, JR = G['ROAD_HALF'], G['PAVE_W'], G['JUNCTION_R']
+ROADS = [{'id': r['id'], 'pts': [tuple(q) for q in r['pts']], 'dead': r['dead']} for r in plan['roads']]
+JUNCTIONS = [tuple(j) for j in plan['junctions']]
+
+
+# ---------- the town's ground: where each plot stands, where the streets run ----------
+def site_xy(p, fx, fy):
+    """A point of a plot's frame (where its builder makes it), where the plot stands on the island (lib/city/plan.ts onSite)."""
+    s = p['site']
+    dx, dy = fx - (p['x0'] + PW / 2), fy - (p['y0'] + PD / 2)
+    c, sn = math.cos(s['rot']), math.sin(s['rot'])
+    return (s['x'] + dx * c - dy * sn, s['y'] + dx * sn + dy * c)
+
+
+def site_matrix(p):
+    """Carries everything built in a plot's frame to its site. Blender's y is the site's turned over, so the site's turn goes the other way about z."""
+    s = p['site']
+    return Matrix.Translation(V(s['x'], s['y'], 0)) @ Matrix.Rotation(-s['rot'], 4, 'Z') @ Matrix.Translation(-V(p['x0'] + PW / 2, p['y0'] + PD / 2, 0))
+
+
+def _seg_d(q, a, b):
+    abx, aby = b[0] - a[0], b[1] - a[1]
+    l2 = abx * abx + aby * aby
+    u = 0.0 if l2 == 0 else max(0.0, min(1.0, ((q[0] - a[0]) * abx + (q[1] - a[1]) * aby) / l2))
+    return math.hypot(q[0] - a[0] - abx * u, q[1] - a[1] - aby * u)
+
+
+def road_d(q, roads=None):
+    """How far a point is from the nearest centre line."""
+    best = 1e9
+    for r in (ROADS if roads is None else roads):
+        pts = r['pts']
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            if min(abs(q[0] - a[0]), abs(q[0] - b[0])) > best + 1 or min(abs(q[1] - a[1]), abs(q[1] - b[1])) > best + 1:
+                continue
+            best = min(best, _seg_d(q, a, b))
+    return best
+
+
+def plot_ground(p, grow=0.0):
+    return [site_xy(p, x, y) for (x, y) in ((p['x0'] - grow, p['y0'] - grow), (p['x0'] + PW + grow, p['y0'] - grow),
+                                             (p['x0'] + PW + grow, p['y0'] + PD + grow), (p['x0'] - grow, p['y0'] + PD + grow))]
 scene = bpy.context.scene
 for o in list(bpy.data.objects):
     bpy.data.objects.remove(o, do_unlink=True)
@@ -164,15 +207,18 @@ for k in range(4):
     bpy.data.objects.remove(t, do_unlink=True)
 _rnd = _r.Random(11)
 _land = coast['0.95']
+_plot_ground = [plot_ground(p, 0.6) for p in plan['plots']]
 _shrubs = 0
 for _ in range(2600):
     x = cx0 + _rnd.uniform(-36, 36)
     y = cy0 + _rnd.uniform(-30, 30)
     if not _inside(_land, x, y):
         continue
-    if -2.2 < x < XMAX + 4.6 and -2.2 < y < YMAX + 4.6:
+    if any(_inside(g, x, y) for g in _plot_ground):
         continue
-    if abs(x - (G['PIER_AVENUE'] * SX + RW / 2)) < 2.6 and y > YMAX:
+    if abs(x - G['PIER_X']) < 2.6 and y > G['PIER_Y0'] - 6:
+        continue
+    if road_d((x, y)) < ROAD_HALF + PAVE_W + 0.5:
         continue
     o = bpy.data.objects.new('shrub', _shrub_meshes[_shrubs % 4])
     put(o)
@@ -183,50 +229,112 @@ for _ in range(2600):
     _shrubs += 1
 print('shrubs', _shrubs)
 
-# ---------- roads ----------
-Hr = lambda i: i * SY + RW / 2
-Vr = lambda k: k * SX + RW / 2
-road_q, dash_q = [], []
-for i in range(NR + 1):
-    road_q.append(((-0.8, i * SY), (XMAX + 2.0, i * SY + RW), 0.01))
-    x = -0.8
-    while x < XMAX + 2.0:
-        dash_q.append(((x, Hr(i) - 0.035), (min(x + 0.55, XMAX + 2.0), Hr(i) + 0.035), 0.016))
-        x += 1.1
-for c in range(NC + 1):
-    end = G['PIER_Y0'] if c == G['PIER_AVENUE'] else YMAX + 2.0
-    road_q.append(((c * SX, -0.8), (c * SX + RW, end), 0.012))
-    y = -0.8
-    stop = G['PIER_Y1'] if c == G['PIER_AVENUE'] else YMAX + 2.0
-    while y < stop:
-        if not any(abs(y + 0.27 - Hr(i)) < RW / 2 for i in range(NR + 1)):
-            dash_q.append(((Vr(c) - 0.035, y), (Vr(c) + 0.035, min(y + 0.55, stop)), 0.018))
-        y += 1.1
-rects('roads', road_q, kit.asphalt())
-rects('road paint', dash_q, kit.mat('road paint', kit.CREAM, rough=0.5, emit=kit.CREAM, strength=0.35))
-for i in range(NR + 1):
-    cyl('turning circle', XMAX + 2.3, Hr(i), -0.02, 1.55, 0.03, kit.asphalt(), verts=48)
-for c in range(NC + 1):
-    if c != G['PIER_AVENUE']:
-        cyl('turning circle', Vr(c), YMAX + 2.3, -0.02, 1.55, 0.03, kit.asphalt(), verts=48)
+# ---------- streets ----------
+def _frame(pts, i, loop):
+    """A centre line's heading and its left at point i (the site's left: a quarter turn from the heading)."""
+    n = len(pts)
+    a = pts[i - 1] if i > 0 else (pts[n - 2] if loop else pts[i])
+    b = pts[i + 1] if i < n - 1 else (pts[1] if loop else pts[i])
+    tx, ty = b[0] - a[0], b[1] - a[1]
+    l = math.hypot(tx, ty) or 1.0
+    return (tx / l, ty / l), (-ty / l, tx / l)
+
+
+def _faced_up(o):
+    for f in o.data.polygons:
+        if f.normal.z < 0:
+            f.flip()
+    o.data.update()
+    return o
+
+
+def strip(name, rows, material, z):
+    """A band of quads through rows of (left, right) site points, faced up."""
+    verts, faces = [], []
+    for k, (l, r) in enumerate(rows):
+        verts += [V(l[0], l[1], z), V(r[0], r[1], z)]
+        if k:
+            n = len(verts)
+            faces.append((n - 4, n - 3, n - 1, n - 2))
+    return _faced_up(kit.mesh(name, verts, faces, material))
+
+
+def bars(name, items, material, z):
+    """Flat bars: (middle, heading, length along it, width across it)."""
+    verts, faces = [], []
+    for (q, (tx, ty), ln, wd) in items:
+        nx, ny = -ty, tx
+        n = len(verts)
+        for (a, b) in ((-ln / 2, -wd / 2), (ln / 2, -wd / 2), (ln / 2, wd / 2), (-ln / 2, wd / 2)):
+            verts.append(V(q[0] + tx * a + nx * b, q[1] + ty * a + ny * b, z))
+        faces.append((n, n + 1, n + 2, n + 3))
+    return _faced_up(kit.mesh(name, verts, faces, material))
+
+
+asphalt, kerb_stone = kit.asphalt(), kit.paving()
+dash_q = []
+for k, r in enumerate(ROADS):
+    pts = r['pts']
+    loop = math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-6
+    frames = [_frame(pts, i, loop) for i in range(len(pts))]
+    # the asphalt, each street a hair above the last where two meet
+    strip(f'road {r["id"]}', [((p[0] + n[0] * ROAD_HALF, p[1] + n[1] * ROAD_HALF), (p[0] - n[0] * ROAD_HALF, p[1] - n[1] * ROAD_HALF))
+                              for p, (t, n) in zip(pts, frames)], asphalt, 0.01 + 0.0015 * k)
+    # its pavements, both sides, stopping short wherever another street's asphalt comes in
+    others = [o for o in ROADS if o is not r]
+    for side in (1, -1):
+        run = []
+        for p, (t, n) in zip(pts, frames):
+            inner = (p[0] + n[0] * side * ROAD_HALF, p[1] + n[1] * side * ROAD_HALF)
+            outer = (p[0] + n[0] * side * (ROAD_HALF + PAVE_W), p[1] + n[1] * side * (ROAD_HALF + PAVE_W))
+            clear = all(road_d(q, others) > ROAD_HALF + 0.08 for q in (inner, outer)) and all(math.hypot(p[0] - j[0], p[1] - j[1]) > ROAD_HALF + 0.3 for j in JUNCTIONS)
+            if clear:
+                run.append((inner, outer))
+                continue
+            if len(run) > 1:
+                strip('pavement', run, kerb_stone, 0.045)
+            run = []
+        if len(run) > 1:
+            strip('pavement', run, kerb_stone, 0.045)
+    # the dashed centre line, broken through every junction and short of every turning circle
+    walked = 0.0
+    nxt = 0.0
+    for i in range(len(pts) - 1):
+        a, b = pts[i], pts[i + 1]
+        seg = math.hypot(b[0] - a[0], b[1] - a[1])
+        while seg > 0 and nxt <= walked + seg:
+            u = (nxt - walked) / seg
+            q = (a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u)
+            nxt += 1.1
+            if any(math.hypot(q[0] - j[0], q[1] - j[1]) < JR for j in JUNCTIONS):
+                continue
+            if (r['dead'][0] and math.hypot(q[0] - pts[0][0], q[1] - pts[0][1]) < 1.8) or (r['dead'][1] and math.hypot(q[0] - pts[-1][0], q[1] - pts[-1][1]) < 1.8):
+                continue
+            dash_q.append((q, ((b[0] - a[0]) / seg, (b[1] - a[1]) / seg), 0.55, 0.07))
+        walked += seg
+    for end, dead in zip((pts[0], pts[-1]), r['dead']):
+        if dead:
+            cyl('turning circle', end[0], end[1], -0.02, ROAD_HALF + 0.75, 0.035 + 0.0015 * k, asphalt, verts=48)
+for j in JUNCTIONS:
+    cyl('junction', j[0], j[1], -0.02, ROAD_HALF + 0.35, 0.045, asphalt, verts=48)
+bars('road paint', dash_q, kit.mat('road paint', kit.CREAM, rough=0.5, emit=kit.CREAM, strength=0.35), 0.03)
+# a crossing wherever a walk goes over a street: five bars along the street, set across it
 zq = []
 for z in plan['zebras']:
+    t = (math.cos(z['a']), math.sin(z['a']))
+    n = (-t[1], t[0])
     for j in range(5):
-        o = 0.2 + j * 0.44
-        if z['kind'] == 'v':
-            zq.append(((z['i'] * SX + o, z['at'] - 0.3), (z['i'] * SX + o + 0.22, z['at'] + 0.3), 0.02))
-        else:
-            zq.append(((z['at'] - 0.3, z['i'] * SY + o), (z['at'] + 0.3, z['i'] * SY + o + 0.22), 0.02))
-rects('crossings', zq, kit.mat('crossing paint', (0.75, 0.72, 0.62), rough=0.5, emit=kit.CREAM, strength=0.2))
+        o = -ROAD_HALF + 0.2 + j * 0.44 + 0.11
+        zq.append(((z['x'] + n[0] * o, z['y'] + n[1] * o), t, 0.6, 0.22))
+bars('crossings', zq, kit.mat('crossing paint', (0.75, 0.72, 0.62), rough=0.5, emit=kit.CREAM, strength=0.2), 0.05)
 # the pier, its posts in the sea
-pv = Vr(G['PIER_AVENUE'])
+pv = G['PIER_X']
 (box('pier', pv - 1.2, G['PIER_Y0'], -0.12, 2.4, G['PIER_Y1'] - G['PIER_Y0'], 0.14, kit.wood()))
 for k in range(int((G['PIER_Y1'] - G['PIER_Y0']) / 1.5) + 1):
     for dx in (-1.1, 1.1):
         cyl('pier post', pv + dx, G['PIER_Y0'] + k * 1.5, -0.6, 0.06, 0.75, kit.wood(), verts=8)
 
 # ---------- plots, pools, gardens ----------
-PW, PD = G['PW'], G['PD']
 art = {rid: kit.art(rid, src) for rid, src in plan['art'].items()}
 plots = [p for p in plan['plots'] if ONLY is None or p['id'] == ONLY]
 
@@ -264,6 +372,7 @@ def pool(p):
 
 tops = {}
 for p in plots:
+    _before = set(bpy.data.objects)
     x0, y0 = p['x0'], p['y0']
     box('plot', x0, y0, 0.0, PW, PD, ZP, kit.terrazzo())
     inner = kit.lawn() if p['kind'] == 'room' else kit.paving()
@@ -276,19 +385,28 @@ for p in plots:
         patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
     A = art.get(p['mural']) if p['mural'] else None
     tops[p['id']] = buildings.BUILDERS[p['piece']](p, A)
+    # its own palms and lamps stand in its frame too
+    for t in plan['palms']:
+        if t['plot'] == p['id']:
+            palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
+    for (x, y) in plan['lamps']:
+        if x0 <= x <= x0 + PW and y0 <= y <= y0 + PD:
+            lamp(x, y)
+    # then the whole plot is turned and moved to where it stands on the island
+    bpy.context.view_layer.update()
+    M = site_matrix(p)
+    for o in bpy.data.objects:
+        if o not in _before and o.parent is None:
+            o.matrix_world = M @ o.matrix_world
     print('built', p['id'], p['piece'])
 
-for t in plan['palms']:
-    if ONLY is None or t['plot'] == ONLY:
-        palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
 if ONLY is None:
-    for (x, y) in plan['lamps']:
+    # the streets' and the shore's palms, and the street lamps
+    for t in plan['palms']:
+        if t['plot'] is None:
+            palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
+    for (x, y) in plan['streetLamps']:
         lamp(x, y)
-else:
-    p0 = plots[0]
-    for (x, y) in plan['lamps']:
-        if p0['x0'] <= x <= p0['x0'] + PW and p0['y0'] <= y <= p0['y0'] + PD:
-            lamp(x, y)
 
 # ---------- night ----------
 light('SUN', 'moon', (0, 0, 40), 2.2, (0.55, 0.66, 1.0)).rotation_euler = (math.radians(52), 0, math.radians(-25))
@@ -336,7 +454,7 @@ else:
     p = next(q for q in plan['plots'] if q['id'] == pid)
     cam.sensor_fit = 'VERTICAL'
     cam.ortho_scale = 12.5
-    look = V(p['x0'] + PW / 2, p['y0'] + PD / 2, 2.2)
+    look = V(p['site']['x'], p['site']['y'], 2.2)
     scene.render.resolution_x = round(900 * SCALE)
     scene.render.resolution_y = round(900 * SCALE)
 co.location = look + forward_back * 200
