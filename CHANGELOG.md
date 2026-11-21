@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-21
 
+- The city: a building's close-up now has a gallery's wall label under it, with the piece's name, its community, and what the model is made of (glazed tile, brass, basswood, card and the like).
 - The city: a visitor who had opened it before saw last week's island, the old grid, under the new layout's labels, because their browser kept the old picture for up to a week. The island and every close-up now load fresh the first time they change.
 
 ### 2026-11-20

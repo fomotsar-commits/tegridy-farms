@@ -31,6 +31,24 @@ export const PIECE_TOP: Record<PieceId, number> = {
   halo: 4.16, stack: 4.96, villa: 2.61, bloom: 3.81, slip: 3.06,
 };
 
+/**
+ * What each model is made of, as a gallery's wall label gives it (owner, 2026-11-21: "labels").
+ * Read off the builders in scripts/city-render/buildings.py through the model stock they are given
+ * (stock.py: wood is basswood, thatch is jute, tin is zinc, stone and paint are white card, basalt
+ * is walnut, glass is amber or smoked); "glazed tile" is a room's own art; "light" is a lit window,
+ * lamp, ring or petal. A piece not rendered yet (QR's lantern) has none rather than a guess.
+ */
+export const PIECE_MEDIUM: Partial<Record<PieceId, string>> = {
+  wing: 'Glazed tile, jute, basswood, card', pads: 'Glazed tile, card, light', blade: 'Zinc, card, light',
+  balance: 'Brass, card, light', ghost: 'Basswood, card', slouch: 'Glazed tile, card',
+  monolith: 'Glazed tile, walnut, card, light', gridshell: 'Glazed tile, basswood, walnut, card',
+  wave: 'Glazed tile, basswood, card', lighthouse: 'Glazed tile, brass, amber glass',
+  canopy: 'Card, smoked glass, light', hourglass: 'Brass rod, card', lifeguard: 'White card',
+  lift: 'Glazed tile, jute, basswood, card', halo: 'Glazed tile, walnut, card, light',
+  stack: 'Glazed tile, jute, basswood, card', villa: 'Card, basswood, jute, light',
+  bloom: 'Glazed tile, basswood, light', slip: 'Basswood, walnut, card',
+};
+
 /** The world point at the middle of the image: x, y, z. */
 export const RENDER_CENTER = [ISLAND_CX, ISLAND_CY + 1.5, 2.6] as const;
 /** How much of the world the image spans, in the sheet's own units at zoom 1 (lib/city/kit.ts UNIT pixels each). */
