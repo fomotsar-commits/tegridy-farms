@@ -127,7 +127,8 @@ pub struct KeeperChanged {
 
 /// memetics.finance, 2026-11-15: logged by lib.rs `sweep_fees` for one owner's share of a pool:
 /// the fund owner's when `fund`, else the protocol owner's. In each token's base units, what
-/// moved to the owner's own account, and what stays set aside (a coin taking a transfer fee).
+/// moved to the owner's own account, and what stays set aside (a coin taking a transfer fee, or
+/// one whose pool vault or destination is frozen).
 #[event]
 pub struct FeesSwept {
     pub pool_state: Pubkey,

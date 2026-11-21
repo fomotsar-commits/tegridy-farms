@@ -465,9 +465,11 @@ pub mod raydium_cp_swap {
     /// Move one owner's whole share of a pool to that owner's own token accounts, in a call
     /// anyone may make: the protocol owner's, or with `fund` the fund owner's. The program
     /// derives both destinations from the pool's fee tier and refuses any other (6018
-    /// `NotFeeOwnersAccount`). A protocol owner other than the admin is never swept to (6019
-    /// `ProtocolOwnerNotAdmin`), and a coin that takes a transfer fee stays in the pool. Nothing
-    /// else moves, and the price does not: the curve never counts the shares set aside.
+    /// `NotFeeOwnersAccount`), and one with a delegate or a close authority (6020
+    /// `FeeAccountNotOwnerOnly`). A protocol owner other than the admin is never swept to (6019
+    /// `ProtocolOwnerNotAdmin`), and a coin that takes a transfer fee, or whose pool vault or
+    /// destination is frozen, stays in the pool. Nothing else moves, and the price does not: the
+    /// curve never counts the shares set aside.
     ///
     /// # Arguments
     ///
@@ -499,8 +501,10 @@ pub struct ResignKeeper<'info> {
 // Anyone may move one fee owner's whole share of a pool to that owner's own token accounts. The
 // call names one owner's two accounts only, so one owner's accounts never stop the other's. The
 // protocol share moves only while its owner is the admin, and a coin that takes a transfer fee
-// stays counted: both are then collected by hand, as upstream. The destinations must exist (the
-// caller creates them). What each check refuses: TEGRIDY_FORK.md, "The fee sweep".
+// stays counted: both are then collected by hand, as upstream. A destination with a delegate or a
+// close authority is refused, and a coin whose pool vault or destination is frozen stays counted
+// until it is thawed. The destinations must exist (the caller creates them). What each check
+// refuses: TEGRIDY_FORK.md, "The fee sweep".
 #[derive(Accounts)]
 #[instruction(fund: bool)]
 pub struct SweepFees<'info> {
@@ -547,12 +551,14 @@ pub struct SweepFees<'info> {
     pub vault_1_mint: Box<InterfaceAccount<'info, Mint>>,
 
     /// The owner's own token_0 account: its associated account under the coin's own token
-    /// program, still its own, and never one `authority` holds (audit CPS-09)
+    /// program, still its own, never one `authority` holds (audit CPS-09), and with no delegate
+    /// and no close authority
     #[account(
         mut,
         address = owners_account(&fee_owner(&amm_config, fund), &vault_0_mint) @ ErrorCode::NotFeeOwnersAccount,
         constraint = owner_token_0_account.owner == fee_owner(&amm_config, fund) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = owner_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault
+        constraint = owner_token_0_account.owner != authority.key() @ ErrorCode::InvalidVault,
+        constraint = owner_token_0_account.delegate.is_none() && owner_token_0_account.close_authority.is_none() @ ErrorCode::FeeAccountNotOwnerOnly
     )]
     pub owner_token_0_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -561,7 +567,8 @@ pub struct SweepFees<'info> {
         mut,
         address = owners_account(&fee_owner(&amm_config, fund), &vault_1_mint) @ ErrorCode::NotFeeOwnersAccount,
         constraint = owner_token_1_account.owner == fee_owner(&amm_config, fund) @ ErrorCode::NotFeeOwnersAccount,
-        constraint = owner_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault
+        constraint = owner_token_1_account.owner != authority.key() @ ErrorCode::InvalidVault,
+        constraint = owner_token_1_account.delegate.is_none() && owner_token_1_account.close_authority.is_none() @ ErrorCode::FeeAccountNotOwnerOnly
     )]
     pub owner_token_1_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -614,10 +621,16 @@ fn sweep_pool_fees(ctx: Context<SweepFees>, fund: bool) -> Result<()> {
         (owed, p.auth_bump)
     };
     // A coin that takes a transfer fee now on its share stays counted, all of it: only its
-    // owner's hand collect moves it, at a time the owner chooses.
+    // owner's hand collect moves it, at a time the owner chooses. So does a coin whose pool vault
+    // or destination its issuer has frozen, until it is thawed. The other coin still moves.
     let mut left = [0u64; 2];
-    for (i, mint) in [&a.vault_0_mint, &a.vault_1_mint].into_iter().enumerate() {
-        if get_transfer_fee(&mint.to_account_info(), owed[i])? > 0 {
+    let legs = [
+        (&a.vault_0_mint, &a.token_0_vault, &a.owner_token_0_account),
+        (&a.vault_1_mint, &a.token_1_vault, &a.owner_token_1_account),
+    ];
+    for (i, (mint, vault, to)) in legs.into_iter().enumerate() {
+        let frozen = vault.is_frozen() || to.is_frozen();
+        if frozen || get_transfer_fee(&mint.to_account_info(), owed[i])? > 0 {
             left[i] = owed[i];
         }
     }
