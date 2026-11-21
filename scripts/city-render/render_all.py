@@ -1,14 +1,17 @@
 # Renders what /city shows and writes it where the site serves it (frontend/public/city/).
-#   python render_all.py [island] [close] [plotId ...]
+#   python render_all.py [island] [close] [plotId ...] [fingerprints]
 # With no argument: the island, then every plot's close-up. Set BLENDER to Blender's exe if it is
-# not at the default Windows path. Each frame is built from plan.json; see README.md.
-import os, subprocess, sys, json, time
+# not at the default Windows path. Each frame is built from plan.json; see README.md. Every run
+# ends by writing the pictures' fingerprints for the page's links; `fingerprints` alone writes
+# only those.
+import hashlib, os, subprocess, sys, json, time
 from PIL import Image
 from grade import grade, save, sharpen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 PUB = os.path.join(ROOT, 'frontend', 'public', 'city')
+PRINTS = os.path.join(ROOT, 'frontend', 'src', 'lib', 'city', 'renderFingerprints.json')
 OUT = os.path.join(HERE, 'out')
 BLENDER = os.environ.get('BLENDER', r'C:\Program Files\Blender Foundation\Blender 5.0\blender.exe')
 os.makedirs(os.path.join(PUB, 'close'), exist_ok=True)
@@ -26,10 +29,24 @@ def blender(script, mode, raw, scale, samples):
     print(f'{mode} rendered in {time.time() - t:.0f}s', flush=True)
 
 
-args = sys.argv[1:]
-do_island = not args or 'island' in args
+def fingerprints():
+    """
+    Each picture's contents fingerprint, which the page puts on its link (lib/city/render.ts): the
+    pictures keep their names, and a browser keeps each for a week, so a new picture needs a new link.
+    """
+    files = ['island.webp', 'island-half.webp'] + [f'close/{f}' for f in os.listdir(os.path.join(PUB, 'close')) if f.endswith('.webp')]
+    prints = {f: hashlib.sha256(open(os.path.join(PUB, f), 'rb').read()).hexdigest()[:10] for f in sorted(files)}
+    with open(PRINTS, 'w', encoding='utf-8', newline='\n') as fh:
+        json.dump(prints, fh, indent=2)
+        fh.write('\n')
+    print('fingerprints written', len(prints), flush=True)
+
+
+args = [a for a in sys.argv[1:] if a != 'fingerprints']
+only_prints = not args and len(sys.argv) > 1
+do_island = not only_prints and (not args or 'island' in args)
 ids = [a for a in args if a not in ('island', 'close')]
-if not args or 'close' in args:
+if not only_prints and (not args or 'close' in args):
     ids = ids or [p['id'] for p in plan['plots']]
 
 if do_island:
@@ -48,4 +65,5 @@ for pid in ids:
     blender('maquette.py', pid, raw, 1.0, 200)
     save(grade(raw, vignette=0.3), os.path.join(PUB, 'close', f'{pid}.webp'), 86)
     print('close-up written', pid, flush=True)
+fingerprints()
 print('ALL DONE', flush=True)

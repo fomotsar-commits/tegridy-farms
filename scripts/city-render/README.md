@@ -59,6 +59,13 @@ at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs P
 The island takes about ten minutes; each close-up one to two minutes (Cycles, on the CPU of an
 18-thread PC). Write test frames to an absolute path: Blender reads a relative one from its own working folder.
 
+Every run of `render_all.py` ends by writing each picture's fingerprint to
+`frontend/src/lib/city/renderFingerprints.json`, and the page puts it on the picture's link
+(`?v=`). The pictures keep their names, and a browser keeps each for a week without asking, so
+without a new link a returning visitor sees the old picture under the new plaques. Commit the
+file with the pictures; `lib/city/renderFingerprints.test.ts` fails if they disagree. A picture
+changed by hand: `python render_all.py fingerprints` writes only the fingerprints.
+
 One close-up again: `python render_all.py <plotId>`. A quick look at one (a third of the size, few
 samples): `blender -b --factory-startup --python maquette.py -- <plotId> <absolute out.png> 0.35 24`.
 One plot alone on the island, to work on a building: `blender -b --factory-startup --python island.py -- plate:<plotId> out/plate.png 0.6 16`.
