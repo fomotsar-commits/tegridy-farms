@@ -2,7 +2,7 @@
  * cp-swap's sweep (programs/cp-swap/src/lib.rs `sweep_fees`) on a local validator. solana-ci.yml's
  * migration-rehearsal job runs it after the keeper's files, on the same deployed cp-swap (this
  * wallet its admin, and the venue here: the protocol owner on mainnet is the admin). It opens its
- * own tiers (71 to 78), so it needs no other file. The rules: TEGRIDY_FORK.md, "The fee sweep";
+ * own tiers (71 to 80), so it needs no other file. The rules: TEGRIDY_FORK.md, "The fee sweep";
  * each test's title says the one it holds.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -17,6 +17,7 @@ import {
   createInitializeMintInstruction,
   createInitializeTransferFeeConfigInstruction,
   createMint,
+  createSyncNativeInstruction,
   ExtensionType,
   freezeAccount,
   getAccount,
@@ -61,9 +62,12 @@ const ONE_IN = 1_000_000n;
 const TAX_BPS = 300;
 
 const failure = (e: unknown) => `${String(e)}\n${((e as { logs?: string[] }).logs ?? []).join("\n")}`;
-/** A refusal by name when the simulation refuses it, or by number when the network does. */
+/**
+ * A refusal by its name and its number together, as Anchor logs them when the simulation refuses it, or
+ * by its number when the network does. The name alone would pass a refusal whose number had moved.
+ */
 const refusedWith = (name: string, code: number) => (err: string, what?: string) =>
-  assert.match(err, new RegExp(`${name}|"Custom":${code}\\b|custom program error: 0x${code.toString(16)}\\b`), what);
+  assert.match(err, new RegExp(`Error Code: ${name}\\. Error Number: ${code}\\.|"Custom":${code}\\b`), what);
 const refusedNotOwners = refusedWith("NotFeeOwnersAccount", 6018);
 const refusedNotAdmin = refusedWith("ProtocolOwnerNotAdmin", 6019);
 const refusedNotOwnerOnly = refusedWith("FeeAccountNotOwnerOnly", 6020);
@@ -134,9 +138,10 @@ describe("cp-swap sweep_fees", () => {
   /** Tier 71: two classic coins. 73: tier 71's coins, the vault authority its fund owner. 72 and 75:
    * a classic coin and a Token-2022 coin. 74 and 76: a classic coin and a Token-2022 coin with a 3%
    * transfer fee. 77 and 78: one classic coin its issuer can freeze, each time beside another classic
-   * coin. Each pair is indexed by the place of its Token-2022 or freezable coin: t22[0] (tier 72),
-   * taxed[0] (74) and freezable[0] (77) hold it as token 0, t22[1] (75), taxed[1] (76) and
-   * freezable[1] (78) as token 1, GROYPER's place on mainnet (wrapped SOL sorts first). */
+   * coin. 79 and 80: wrapped SOL beside a classic coin. Each pair is indexed by the place of its
+   * Token-2022, freezable or wrapped-SOL coin: t22[0] (tier 72), taxed[0] (74), freezable[0] (77)
+   * and wsol[0] (79) hold it as token 0, t22[1] (75), taxed[1] (76), freezable[1] (78) and
+   * wsol[1] (80) as token 1, GROYPER's place on mainnet (wrapped SOL sorts first). */
   let classic: Pool;
   let t22: [Pool, Pool];
   let authFund: Pool;
@@ -144,6 +149,7 @@ describe("cp-swap sweep_fees", () => {
   let taxedMints: [PublicKey, PublicKey];
   let freezable: [Pool, Pool];
   let freezableMint: PublicKey;
+  let wsol: [Pool, Pool];
 
   const n = (b: BN) => BigInt(b.toString());
   /** The four shares the pool has set aside, its creator fee, and its two vaults. */
@@ -409,11 +415,17 @@ describe("cp-swap sweep_fees", () => {
     const f = await createMint(conn, wallet, wallet.publicKey, wallet.publicKey, 6, keyFor(0));
     const g = await createMint(conn, wallet, wallet.publicKey, null, 6, keyFor(0, f));
     freezableMint = f;
+    // Wrapped SOL as token 0 beside h (tier 79) and as token 1 beside l (tier 80), two classic coins drawn
+    // to sort above it and below it: most mainnet pools pair with SOL.
+    const h = await createMint(conn, wallet, wallet.publicKey, null, 6, keyFor(1, NATIVE_MINT));
+    const l = await createMint(conn, wallet, wallet.publicKey, null, 6, keyFor(0, NATIVE_MINT));
     const coins: [PublicKey, PublicKey][] = [
       [a, TOKEN_PROGRAM_ID],
       [b, TOKEN_PROGRAM_ID],
       [f, TOKEN_PROGRAM_ID],
       [g, TOKEN_PROGRAM_ID],
+      [h, TOKEN_PROGRAM_ID],
+      [l, TOKEN_PROGRAM_ID],
       ...[...c, ...taxedMints].map((m): [PublicKey, PublicKey] => [m, TOKEN_2022_PROGRAM_ID]),
     ];
     for (const [m, prog] of coins) {
@@ -424,6 +436,15 @@ describe("cp-swap sweep_fees", () => {
       await mintTo(conn, wallet, m, ata(m, wallet.publicKey, prog), wallet, 100_000_000_000, [], undefined, prog);
       await mintTo(conn, wallet, m, ata(m, stranger.publicKey, prog), wallet, 10_000_000_000, [], undefined, prog);
     }
+    // Wrapped SOL: the wallet's account (the venue's, and this build's pool-opening fee receiver) gets
+    // enough to open both pools, the stranger's enough to trade; the island's is its destination.
+    for (const who of [stranger, island]) await createAssociatedTokenAccount(conn, wallet, NATIVE_MINT, who.publicKey);
+    const wrap = (who: PublicKey, sol: number) => [
+      SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: ata(NATIVE_MINT, who, TOKEN_PROGRAM_ID), lamports: sol * LAMPORTS_PER_SOL }),
+      createSyncNativeInstruction(ata(NATIVE_MINT, who, TOKEN_PROGRAM_ID)),
+    ];
+    const wrapped = await send([...wrap(wallet.publicKey, 5), ...wrap(stranger.publicKey, 1)], wallet);
+    assert.equal(wrapped.err, "", "SOL is wrapped");
     const [cm, cp] = sorted([a, TOKEN_PROGRAM_ID], [b, TOKEN_PROGRAM_ID]);
     classic = await openPool(71, cm, cp);
     /** A pool on tier `index` of the classic coin a and the Token-2022 coin m. */
@@ -435,6 +456,10 @@ describe("cp-swap sweep_fees", () => {
     freezable = [
       await openPool(77, ...sorted([f, TOKEN_PROGRAM_ID], [a, TOKEN_PROGRAM_ID])),
       await openPool(78, ...sorted([g, TOKEN_PROGRAM_ID], [f, TOKEN_PROGRAM_ID])),
+    ];
+    wsol = [
+      await openPool(79, ...sorted([NATIVE_MINT, TOKEN_PROGRAM_ID], [h, TOKEN_PROGRAM_ID])),
+      await openPool(80, ...sorted([NATIVE_MINT, TOKEN_PROGRAM_ID], [l, TOKEN_PROGRAM_ID])),
     ];
   });
 
@@ -526,40 +551,64 @@ describe("cp-swap sweep_fees", () => {
     }
   });
 
+  /** One of an owner's destinations: the account, its owner, and the token program that holds it. */
+  type Dest = { account: PublicKey; owner: Keypair; program: PublicKey };
+  const delegate = (d: Dest) => approve(conn, wallet, d.account, stranger.publicKey, d.owner, 1_000_000n, [], undefined, d.program);
+  const undelegate = (d: Dest) => revoke(conn, wallet, d.account, d.owner, [], undefined, d.program);
+  const closer = (d: Dest) => setAuthority(conn, wallet, d.account, d.owner, AuthorityType.CloseAccount, stranger.publicKey, [], undefined, d.program);
+  /** Only the key that holds a close authority can set it back to none: the stranger here, not the owner. */
+  const uncloser = (d: Dest) => setAuthority(conn, wallet, d.account, stranger, AuthorityType.CloseAccount, null, [], undefined, d.program);
   /** What lets someone other than its owner take from a token account, set by its owner, and how it is undone. */
-  const notOwnerOnly: [string, string, (account: PublicKey, owner: Keypair) => Promise<unknown>, (account: PublicKey, owner: Keypair) => Promise<unknown>][] = [
+  const notOwnerOnly: [string, string, (d: Dest) => Promise<unknown>, (d: Dest) => Promise<unknown>][] = [
+    ["a delegate", "revoked", delegate, undelegate],
+    ["a close authority", "set back to none", closer, uncloser],
     [
-      "a delegate",
-      "revoked",
-      (account, owner) => approve(conn, wallet, account, stranger.publicKey, owner, 1_000_000n),
-      (account, owner) => revoke(conn, wallet, account, owner),
-    ],
-    [
-      "a close authority",
-      "set back to none",
-      (account, owner) => setAuthority(conn, wallet, account, owner, AuthorityType.CloseAccount, stranger.publicKey),
-      (account) => setAuthority(conn, wallet, account, stranger, AuthorityType.CloseAccount, null),
+      "a delegate and a close authority at once",
+      "both undone",
+      async (d) => {
+        await delegate(d);
+        await closer(d);
+      },
+      async (d) => {
+        try {
+          await undelegate(d);
+        } finally {
+          await uncloser(d);
+        }
+      },
     ],
   ];
+  /** The kind of coin token i of `p` is. */
+  const kindOf = (p: Pool, i: number) =>
+    p.mints[i].equals(NATIVE_MINT) ? "wrapped SOL" : p.programs[i].equals(TOKEN_2022_PROGRAM_ID) ? "Token-2022" : "classic";
   for (const [what, undone, give, undo] of notOwnerOnly) {
-    it(`for each owner and each coin, a destination with ${what} is refused with 6020 and nothing moves; ${undone}, it is paid`, async () => {
-      for (const [who, fund, owner] of owners) {
-        for (const i of [0, 1]) {
-          await trade(classic);
-          const account = ata(classic.mints[i], owner.publicKey, classic.programs[i]);
-          await give(account, owner);
+    it(`for each owner, a destination with ${what} is refused with 6020 and nothing moves, its coin classic, Token-2022 or wrapped SOL, as token 0 and as token 1; ${undone}, it is paid`, async () => {
+      const places: [string, Pool, number][] = [
+        ["classic", classic, 0],
+        ["classic", classic, 1],
+        ["Token-2022", t22[0], 0],
+        ["Token-2022", t22[1], 1],
+        ["wrapped SOL", wsol[0], 0],
+        ["wrapped SOL", wsol[1], 1],
+      ];
+      for (const [kind, p, i] of places) {
+        assert.equal(kindOf(p, i), kind, `the ${kind} coin is token ${i}`);
+        for (const [who, fund, owner] of owners) {
+          await trade(p);
+          const d = { account: ata(p.mints[i], owner.publicKey, p.programs[i]), owner, program: p.programs[i] };
+          await give(d);
           try {
-            const before = await state(classic);
-            const heldBefore = await held(owner.publicKey, classic);
-            const refused = await send([await sweepIx(classic, fund, owner.publicKey)], stranger);
-            refusedNotOwnerOnly(refused.err, `${who}'s token ${i} account with ${what}`);
-            assert.deepEqual(await state(classic), before, "no count and no vault moved");
-            assert.deepEqual(await held(owner.publicKey, classic), heldBefore, "neither destination was paid");
+            const before = await state(p);
+            const heldBefore = await held(owner.publicKey, p);
+            const refused = await send([await sweepIx(p, fund, owner.publicKey)], stranger);
+            refusedNotOwnerOnly(refused.err, `${who}'s ${kind} account, token ${i}, with ${what}`);
+            assert.deepEqual(await state(p), before, "no count and no vault moved");
+            assert.deepEqual(await held(owner.publicKey, p), heldBefore, "neither destination was paid");
           } finally {
             // Always undone: a failure above must not leave the account so for the tests after.
-            await undo(account, owner);
+            await undo(d);
           }
-          await sweepPaysAll(classic, fund, owner, `${who}'s token ${i} account, ${undone}`);
+          await sweepPaysAll(p, fund, owner, `${who}'s ${kind} account, token ${i}, ${undone}`);
         }
       }
     });
