@@ -34,7 +34,7 @@ if not args or 'close' in args:
 
 if do_island:
     raw = os.path.join(OUT, 'island-raw.png')
-    blender('island.py', 'island', raw, 1.0, 64)
+    blender('island.py', 'island', raw, 1.0, 128)
     img = grade(raw)
     want = (plan['render']['width'], plan['render']['height'])
     assert img.size == want, (img.size, want)
