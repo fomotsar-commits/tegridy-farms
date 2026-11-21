@@ -970,6 +970,9 @@ async function main() {
     } catch (e) {
       log(`Earnings log not read for bans (${e instanceof Error ? e.message : String(e)}): none carried over`);
     }
+    // Every token account the keeper holds: a Jupiter leg may name none but its own two (keeper/plan.ts).
+    // Read before the page opens and before any pass: a read that fails stops the run here.
+    const tokenAccounts = new Set((await walletNow(owner.toBase58())).accounts.map((a) => a.address));
     serveScreen(screen);
     const takes = await scannerTakes();
     const io = {
@@ -981,6 +984,7 @@ async function main() {
       record,
       bans,
       takes,
+      held: tokenAccounts,
       log,
     };
     log(`  trips between outside pools: ${takes ? `the scanner's proven ones, from ${env.KEEPER_SCANNER_URL.trim()}` : 'off (set KEEPER_SCANNER_URL to the scanner page’s /state.json)'}`);
@@ -992,6 +996,7 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
+    log(`  token accounts held: ${tokenAccounts.size}; a Jupiter leg may name none of them but its own two`);
     log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);

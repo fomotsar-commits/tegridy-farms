@@ -5,7 +5,7 @@
 // on-chain IDL, and match what its API built for a live quote on 2026-10-31.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { ExtensionType, getAccountLen, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../cpswap/ix';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
@@ -14,6 +14,7 @@ import {
   DEFAULT_LIMITS,
   JUPITER_PROGRAM,
   MAX_LAMPORTS_SPENT,
+  NAMES_OTHER_ACCOUNT,
   ROUTE_V2,
   SHARED_ACCOUNTS_ROUTE_V2,
   decodeJupiterRoute,
@@ -136,6 +137,7 @@ const expectLeg = (over: Partial<JupiterLegExpect> = {}): JupiterLegExpect => ({
   minOut: 9_000n,
   refused: new Set(),
   untouchable: [],
+  held: new Set(),
   ...over,
 });
 const src = getAssociatedTokenAddressSync(token, owner, true, TOKEN_2022_PROGRAM_ID);
@@ -186,6 +188,22 @@ describe('jupiterLegProblem: what the keeper’s key signs', () => {
     expect(jupiterLegProblem(routeIx({ extra: [otherFloat] }), expectLeg({ untouchable: [otherFloat] }))).toMatch(/another of the keeper/);
   });
 
+  it('refuses a route that names any token account the keeper holds but the leg’s own two, in either layout', () => {
+    const leftover = Keypair.generate().publicKey;
+    const held = new Set([src, dst, leftover].map((k) => k.toBase58()));
+    expect(jupiterLegProblem(routeIx(), expectLeg({ held }))).toBeNull();
+    expect(jupiterLegProblem(routeIx({ extra: [leftover] }), expectLeg({ held }))).toBe(NAMES_OTHER_ACCOUNT);
+    const data = routeData(SHARED_ACCOUNTS_ROUTE_V2, 1_000n, 10_000n, 1_000, 0, true);
+    const keys = [Keypair.generate().publicKey, owner, src, Keypair.generate().publicKey, Keypair.generate().publicKey, dst, token, coin];
+    const shared = (...more: PublicKey[]) => new TransactionInstruction({ programId: JUPITER_PROGRAM, keys: [...keys, ...more].map((k) => acct(k, k.equals(owner))), data });
+    expect(jupiterLegProblem(shared(), expectLeg({ held }))).toBeNull();
+    expect(jupiterLegProblem(shared(leftover), expectLeg({ held }))).toBe(NAMES_OTHER_ACCOUNT);
+  });
+
+  it('refuses every route while the keeper’s own token accounts are unread', () => {
+    expect(jupiterLegProblem(routeIx(), expectLeg({ held: undefined }))).toMatch(/token accounts were not read/);
+  });
+
   it('refuses a minimum under the floor, by one unit', () => {
     // 10000 × (10000 − 1000) / 10000 = 9000: exactly the floor passes, one more refuses
     expect(jupiterLegProblem(routeIx(), expectLeg({ minOut: 9_000n }))).toBeNull();
@@ -220,6 +238,13 @@ describe('jupiterLegProblem: what the keeper’s key signs', () => {
   it('refuses a route through a refused venue', () => {
     const raydium = Keypair.generate().publicKey;
     expect(jupiterLegProblem(routeIx({ extra: [raydium] }), expectLeg({ refused: new Set([raydium.toBase58()]) }))).toMatch(/refused venue/);
+  });
+
+  it('refuses a route that names the venue’s pool program or either fee tier, with no venue refused', () => {
+    // The pool program, the launch tier (0) and the public tier (1), on mainnet.
+    for (const ours of ['EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT', 'BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW', 'CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy']) {
+      expect(jupiterLegProblem(routeIx({ extra: [new PublicKey(ours)] }), expectLeg({ refused: new Set() }))).toMatch(/venue’s pool program or one of its fee tiers/);
+    }
   });
 });
 
@@ -261,8 +286,24 @@ describe('lamportsInCoin: a new account’s rent, as a cost in the trip’s coin
   it('is lamports for SOL, and USDC at the two listed prices, rounded up', () => {
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, SOL_QUOTE, usd)).toBe(NEW_ACCOUNT_RENT);
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, SOL_QUOTE, new Map())).toBe(NEW_ACCOUNT_RENT); // SOL needs no price
-    expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, usd)).toBe(414_816n); // 0.00207408 SOL at $200
+    expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, usd)).toBe(314_960n); // 0.0015748 SOL at $200
     expect(lamportsInCoin(NEW_ACCOUNT_RENT, USDC_QUOTE, new Map([[USDC_QUOTE.mint, 1]]))).toBeNull();
+  });
+});
+
+describe('NEW_ACCOUNT_RENT: what a coin’s first trip must earn back for the account it opens', () => {
+  // Mainnet's rent, read 2026-11-15 (getMinimumBalanceForRentExemption): 5,080 lamports a byte, 128 bytes on top.
+  const rent = (bytes: number) => BigInt((128 + bytes) * 5_080);
+
+  it('is the rent of the largest account the keeper opens: Token-2022, with a transfer fee', () => {
+    expect(NEW_ACCOUNT_RENT).toBe(rent(getAccountLen([ExtensionType.ImmutableOwner, ExtensionType.TransferFeeAmount])));
+    expect(NEW_ACCOUNT_RENT).toBe(1_574_800n);
+  });
+
+  it('is never under the rent of the smaller accounts: a classic one, or Token-2022 with no fee', () => {
+    expect(rent(getAccountLen([]))).toBe(1_488_440n);
+    expect(rent(getAccountLen([ExtensionType.ImmutableOwner]))).toBe(1_513_840n);
+    expect(NEW_ACCOUNT_RENT).toBeGreaterThan(rent(getAccountLen([ExtensionType.ImmutableOwner])));
   });
 });
 

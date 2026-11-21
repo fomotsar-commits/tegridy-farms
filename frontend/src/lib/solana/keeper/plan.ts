@@ -1,6 +1,6 @@
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { swapEnabled } from '../cpswap/program';
+import { REGISTERED_PROGRAM_ID, swapEnabled } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
@@ -58,11 +58,11 @@ export interface KeeperLimits extends RuleSettings {
 export const DEFAULT_LIMITS: KeeperLimits = { maxTradeUsd: 25, minProfitUsd: 0.01, slippageBps: 50, microLamports: 10_000, lighthouseProven: false };
 
 /**
- * Rent for a token account the keeper opens on its first trade of a token (a Token-2022
- * account with its one extension, the larger of the two kinds). It is a cost of that trade:
- * the round trip must earn it back on top of the floor.
+ * Rent for a token account the keeper opens on its first trade of a token: the largest kind it
+ * opens (Token-2022 with a transfer fee, 182 bytes), at mainnet's rent on 2026-11-15. It is a cost
+ * of that trade: the round trip must earn it back on top of the floor.
  */
-export const NEW_ACCOUNT_RENT = 2_074_080n;
+export const NEW_ACCOUNT_RENT = 1_574_800n;
 
 /** `lamports` in the coin's base units, at Jupiter's listed prices; null without a price. */
 export function lamportsInCoin(lamports: bigint, coin: { mint: string; decimals: number }, usd: ReadonlyMap<string, number>): bigint | null {
@@ -201,17 +201,27 @@ export interface JupiterLegExpect {
   refused: ReadonlySet<string>;
   /** The keeper's other accounts (its other coin's): the route must not name them at all. */
   untouchable: readonly PublicKey[];
+  /** Every token account the keeper holds (cycle.ts `KeeperIo.held`); undefined: unread, and no route passes. */
+  held: ReadonlySet<string> | undefined;
 }
 
-/** `jupiterLegProblem`'s answer for a route that names one of `untouchable`. */
+/** `jupiterLegProblem`'s answer for a route that names one of `untouchable`, or of `held` but its own two. */
 export const NAMES_OTHER_ACCOUNT = 'the swap names another of the keeper’s accounts';
+
+/**
+ * The venue's pool program and its two fee tiers (`deriveAmmConfig` 0, the launch tier, and 1, the
+ * public one): no Jupiter leg may name them, whatever venues are refused. The keeper's own pool
+ * swaps are built by the keeper (cycle.ts `ownSwap`), never by Jupiter, so none of its trips needs one.
+ */
+const VENUE_POOL_KEYS = [REGISTERED_PROGRAM_ID, new PublicKey('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW'), new PublicKey('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy')];
 
 /**
  * Why Jupiter's swap instruction must not be signed, or null. It must be a `route_v2` (or the
  * shared-accounts one) into Jupiter, spending exactly `inAmount` from the keeper's own account
  * of the input coin, paying the keeper's own account of the output coin, with no platform fee,
- * a floor of at least `minOut`, no signer but the keeper, and no refused program anywhere.
- * Account order is the IDL's.
+ * a floor of at least `minOut`, no signer but the keeper, no refused program anywhere, nothing of
+ * the venue's pools (`VENUE_POOL_KEYS`), and no other token account of the keeper's. Account
+ * order is the IDL's.
  */
 export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpect): string | null {
   if (!ix.programId.equals(JUPITER_PROGRAM)) return 'the swap is not a call into Jupiter';
@@ -225,9 +235,13 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   const k = ix.keys.map((m) => m.pubkey);
   if (ix.keys.some((m) => m.isSigner && !m.pubkey.equals(e.owner))) return 'the swap asks another signer';
   if (k.some((p) => e.refused.has(p.toBase58()))) return 'the route passes through a refused venue';
+  if (k.some((p) => VENUE_POOL_KEYS.some((v) => v.equals(p)))) return 'the swap names the venue’s pool program or one of its fee tiers';
   if (k.some((p) => e.untouchable.some((u) => u.equals(p)))) return NAMES_OTHER_ACCOUNT;
+  const held = e.held;
+  if (!held) return 'the keeper’s own token accounts were not read';
   const sourceAta = getAssociatedTokenAddressSync(e.inputMint, e.owner, true, e.inputProgram);
   const destAta = getAssociatedTokenAddressSync(e.outputMint, e.owner, true, e.outputProgram);
+  if (k.some((p) => held.has(p.toBase58()) && !p.equals(sourceAta) && !p.equals(destAta))) return NAMES_OTHER_ACCOUNT;
   const at = (i: number) => k[i] ?? PublicKey.default;
   if (r.shared) {
     // program_authority, user_transfer_authority, source_token_account, program_source, program_destination, destination_token_account, source_mint, destination_mint
