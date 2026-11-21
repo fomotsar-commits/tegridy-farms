@@ -1,5 +1,5 @@
 import { WETH, WETH_BY_CHAIN, CONDUIT_ADDRESS } from "../constants";
-import { getProvider } from "../api";
+import { getProvider, getActiveWalletProvider, assertSameWallet } from "../api";
 import { waitForTxOutcome, txOutcomeError } from "./txOutcome";
 
 const WETH_ABI = [
@@ -21,16 +21,22 @@ function wethOn(chainId) {
   return address;
 }
 
+// The wallet that wraps or approves: the ACTIVE connector's, and refused when
+// the account that would sign is not the one the app is connected as
+// (api.js assertSameWallet), so a wrap is never paid by another wallet.
 async function getSigner(chainId = 1) {
   const { ethers } = await getEthers();
-  const provider = getProvider();
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
   if (!provider) throw new Error("No wallet");
   const browserProvider = new ethers.BrowserProvider(provider);
   const network = await browserProvider.getNetwork();
   if (Number(network.chainId) !== chainId) {
     throw new Error(chainId === 1 ? "Please switch to Ethereum Mainnet" : "Please switch to Base");
   }
-  return browserProvider.getSigner();
+  const signer = await browserProvider.getSigner();
+  const mismatch = assertSameWallet(await signer.getAddress(), connectedAddress);
+  if (mismatch) throw Object.assign(new Error(mismatch.message), { code: mismatch.error });
+  return signer;
 }
 
 export async function getWethBalance(address, chainId = 1) {

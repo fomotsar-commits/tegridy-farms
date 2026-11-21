@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
-import { fetchWalletNfts, shortenAddress, getProvider } from "../api";
-import { fetchTokenOffers, acceptOffer } from "../api-offers";
+import { fetchWalletNfts, shortenAddress } from "../api";
+import { fetchTokenOffers, acceptOffer, cancelOrder } from "../api-offers";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
-import { cancelSeaportOrder } from "../lib/seaportCancel";
-import { waitForTxOutcome, txOutcomeResult, toastTxNotice } from "../lib/txOutcome";
+import { toastTxNotice } from "../lib/txOutcome";
 import EmptyState from "./EmptyState";
 import CollectionOffersPanel from "./CollectionOffersPanel";
 import NetProceeds from "./NetProceeds";
@@ -267,47 +266,6 @@ function SkeletonRows({ count = 4 }) {
   ));
 }
 
-// ═══ CANCEL BID (Seaport cancelOrders) ═══
-
-async function cancelBid(order) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
-
-  try {
-    const { ethers } = await import("ethers");
-    const browserProvider = new ethers.BrowserProvider(provider);
-    const signer = await browserProvider.getSigner();
-
-    const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
-    if (!params) return { error: "failed", message: "Missing order parameters" };
-
-    // F630: shared helper reads the live counter + rebuilds OrderComponents so
-    // the cancel hits the real order hash (not a phantom that leaves it live).
-    // Cancel on the Seaport the bid was SIGNED against, not the hardcoded default —
-    // an OpenSea offer that lands on a newer Seaport would otherwise get its cancel
-    // sent to 1.5, succeed vacuously, and stay fillable. Null keeps the documented
-    // default for orders with no protocol address; unknown targets fail closed at
-    // the sink. Mirrors api-offers.cancelOrder:732-734.
-    const orderProtocolAddress =
-      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
-    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
-    const done = await waitForTxOutcome(tx);
-    if (done.kind !== "success") {
-      return txOutcomeResult(done, {
-        reverted: { error: "reverted", message: "The cancel reverted on-chain. The bid is still live." },
-        ifLanded: "the bid is already cancelled and a second cancel only costs gas.",
-      });
-    }
-    return { success: true, hash: done.hash };
-  } catch (err) {
-    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-      return { error: "rejected", message: "Transaction cancelled" };
-    }
-    console.error("Cancel bid error:", err);
-    return { error: "failed", message: "Failed to cancel bid" };
-  }
-}
-
 // ═══ COMPONENT ═══
 
 export default function BidManager({ wallet, onConnect, addToast, onPick, tokens, stats }) {
@@ -474,7 +432,9 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     setCancelling(bid.orderHash);
     addToast?.("Cancelling bid...", "info");
 
-    const result = await cancelBid(bid);
+    // The shared cancel (api-offers.js cancelOrder): on the bid's own chain, and
+    // only from the wallet the app is connected as.
+    const result = await cancelOrder(bid);
 
     if (result.success) {
       addToast?.("Bid cancelled successfully!", "success");
@@ -482,7 +442,8 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     } else if (result.error === "rejected") {
       addToast?.("Bid cancellation was declined in your wallet.", "info");
     } else if (!toastTxNotice(addToast, result)) {
-      addToast?.(result.error === "reverted" ? result.message : "Failed to cancel bid. Please try again.", "error");
+      const said = ["reverted", "wallet-mismatch", "wrong-chain"].includes(result.error);
+      addToast?.(said ? result.message : "Failed to cancel bid. Please try again.", "error");
     }
     setCancelling(null);
   }, [addToast, isWrongNetwork, switchChain]);
