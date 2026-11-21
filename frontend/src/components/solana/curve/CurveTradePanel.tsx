@@ -46,6 +46,8 @@ export interface CurveTradePanelProps {
   onSent?: OnSent;
   /** The connected wallet's tokens of this mint, for the sell side. `null` while reading. */
   walletHolding?: Fact<bigint> | null;
+  /** Why the page offers no Buy for this coin, said where Buy would be. Selling is untouched. */
+  buyRefusal?: string | null;
 }
 
 /**
@@ -67,6 +69,7 @@ export function CurveTradePanel({
   onSettled,
   onSent,
   walletHolding,
+  buyRefusal = null,
 }: CurveTradePanelProps) {
   const [side, setSide] = useState<Side>('buy');
   const [amount, setAmount] = useState('');
@@ -83,9 +86,11 @@ export function CurveTradePanel({
     side === 'buy'
       ? buyReason
         ? LAUNCH_ERROR_COPY[buyReason]
-        : allowed
-          ? null
-          : 'Buying is not available right now.'
+        : buyRefusal
+          ? buyRefusal
+          : allowed
+            ? null
+            : 'Buying is not available right now.'
       : sellReason
         ? LAUNCH_ERROR_COPY[sellReason]
         : !allowed

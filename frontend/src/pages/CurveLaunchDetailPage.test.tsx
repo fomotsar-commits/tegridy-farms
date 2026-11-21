@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { SolanaLaunchView, type LaunchData, type SolanaLaunchViewProps } from './CurveLaunchDetailPage';
+import { SolanaLaunchView, loadLaunchData, type LaunchData, type SolanaLaunchViewProps } from './CurveLaunchDetailPage';
 import { awaitingOwnLaunch } from '../components/solana/curve/pendingLaunch';
 import { readPendingTrades } from '../components/solana/curve/pendingTrade';
 import { usePendingTrades } from '../components/solana/curve/usePendingTrades';
@@ -21,7 +21,7 @@ import {
   prepared,
 } from '../components/solana/curve/fakeWriteApi.fixture';
 import type { CurveSignerState } from '../components/solana/curve/useCurveSigner';
-import { PLATFORM_TREASURY_VAULT } from '../lib/launcher/solana/curve';
+import { PLATFORM_TREASURY_VAULT, readLaunch, readMint, readRentFloors, type CurveRpc, type SolanaRpc } from '../lib/launcher/solana/curve';
 import type { LaunchPool, TxOutcome, WriteApi, WriteGate, WriteRpc } from '../components/solana/curve/ports';
 import type { PoolStateView } from '../lib/solana/cpswap/program';
 
@@ -39,6 +39,11 @@ vi.mock('framer-motion', () => {
     { get: () => ({ children, ...props }: { children?: React.ReactNode }) => <div {...props}>{children}</div> },
   );
   return { m: passthrough, motion: passthrough, AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</> };
+});
+// The page's own chain reads: the real ones, unless a test that loads a launch steers them.
+vi.mock('../lib/launcher/solana/curve', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/launcher/solana/curve')>();
+  return { ...real, readLaunch: vi.fn(real.readLaunch), readMint: vi.fn(real.readMint), readRentFloors: vi.fn(real.readRentFloors) };
 });
 
 const ready: CurveSignerState = {
@@ -64,6 +69,7 @@ function data(over: Partial<LaunchData> = {}): LaunchData {
     pool: null,
     // Who the launch's own create transaction paid the reserve to.
     reserveRecipient: KEY(4),
+    staging: { kind: 'ok', value: false },
     ...over,
   };
 }
@@ -315,6 +321,51 @@ describe('the launch page', () => {
     renderView();
     expect(screen.getByTestId('curve-trade-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('graduation-panel')).not.toBeInTheDocument();
+  });
+
+  // LCH-01 (interim): a coin whose staging account was frozen before launch can never graduate.
+  it('a coin that can never move to its pool offers no Buy and says why, and still sells; an unchecked one offers no Buy either', () => {
+    renderView({ data: data({ staging: { kind: 'ok', value: true } }) });
+    expect(screen.getByTestId('curve-trade-panel')).toHaveTextContent(
+      "No buying here: the launcher's account for this coin was frozen before launch, so it can never move to its pool. You can still sell.",
+    );
+    expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'sell' }));
+    expect(screen.getByLabelText('Sell (tokens)')).not.toBeDisabled();
+    cleanup();
+    renderView({ data: data({ staging: { kind: 'unreadable', detail: 'HTTP 429' } }) });
+    expect(screen.getByTestId('curve-trade-panel')).toHaveTextContent('No buying until this page can check that this coin can move to its pool.');
+    expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
+    cleanup();
+    // Read, and not frozen: Buy as before.
+    renderView();
+    expect(screen.getByLabelText('Spend at most (SOL)')).not.toBeDisabled();
+  });
+
+  it('the page reads the staging account itself, once, with the launch, and that read decides Buy', async () => {
+    const cases: Array<[NonNullable<LaunchData['staging']>, string | null]> = [
+      [{ kind: 'ok', value: true }, "No buying here: the launcher's account for this coin was frozen before launch"],
+      [{ kind: 'unreadable', detail: 'HTTP 429' }, 'No buying until this page can check that this coin can move to its pool.'],
+      [{ kind: 'ok', value: false }, null],
+    ];
+    const rpc: SolanaRpc = async () => null;
+    const curveRpc = {} as CurveRpc;
+    for (const [staging, said] of cases) {
+      vi.mocked(readLaunch).mockResolvedValueOnce(launchState());
+      vi.mocked(readMint).mockResolvedValueOnce(data().mintFacts);
+      vi.mocked(readRentFloors).mockResolvedValueOnce({ global: 1_000_000n, curve: 2_000_000n });
+      const api = fakeApi({ readStagingFrozen: vi.fn(async () => staging) });
+      const gateState = { status: 'ready' as const, api, cfg: openGate().cfg, gate: openGate() };
+      const loaded = await loadLaunchData(gateState, rpc, curveRpc, MINT);
+      expect(api.readStagingFrozen).toHaveBeenCalledTimes(1);
+      expect(api.readStagingFrozen).toHaveBeenCalledWith(curveRpc, gateState.cfg, MINT);
+      renderView({ gateState, data: loaded }, api);
+      if (said) {
+        expect(screen.getByTestId('curve-trade-panel')).toHaveTextContent(said);
+        expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
+      } else expect(screen.getByLabelText('Spend at most (SOL)')).not.toBeDisabled();
+      cleanup();
+    }
   });
 
   it('paused: selling stays available on the page', () => {

@@ -64,6 +64,12 @@ The site's Changelog tab shows both files.
 - NFT Finance: the page background is now the same photo as the NFT Lending card, four apes leaning over a stairwell rail, in place of the campfire.
 - Home page, with no bungalow entered: the Stake button opens what the bar's Earn word opens, now that Yield is called Earn.
 - Pools, Every position: when the pools cannot be read, the card says it in fewer words: "Positions could not be read just now. That does not mean there are none."
+- Pools, Range, Open this pool: Review now builds nothing until the range program's upgrade is on chain, and says so; it opens again by itself once the upgrade runs. Putting coins into a range pool that already exists, and swapping through one, are unchanged.
+- Pools, Range, putting coins into a pool: a pool that holds less liquidity at its price than your deposit would add (or none) is now refused, not only warned about, when its price is more than 3% from Jupiter's or could not be checked against it. A deeper pool off the market still gets the warning with its estimated cost.
+- Pools, your positions: a share too small to take out now says that waiting loses nothing, and its fine print says how to add to it without losing a unit to rounding.
+- Pools, adding coins: a deposit too small for one side now says to add a larger amount, and no longer names the least the pool takes, since at that amount the scarcer coin can round up by nearly a whole unit.
+- Launches on the Solana curve: a coin whose launcher account was frozen before launch can never move to its pool, so the list now leaves it out and its page offers no Buy, saying why; selling still works. A launch page offers Buy only once it has checked that account.
+- Launches on the Solana curve: a list row now says "No plant: its launch transaction carried none." for a launch made without the island's plant, as its page already did, and says when that could not be read.
 
 ### 2026-11-14
 

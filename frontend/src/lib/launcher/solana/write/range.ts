@@ -11,6 +11,7 @@ import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-t
 import { Keypair, PublicKey, SystemProgram, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
+import { BPF_LOADER_UPGRADEABLE_ID } from '../curve/read';
 import { formatTokenAmount } from '../curve/format';
 import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { EXACT_EXTENSIONS, EXTENSION, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
@@ -122,6 +123,7 @@ export const RANGE_COPY = {
   noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against an outside price. Anyone can open a range pool at any price.',
   priceUnread: (why: string) =>
     `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
+  thin: (said: string) => `${said} This pool has less liquidity at its price than your deposit would add, so nothing was built.`,
   removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
   rewardsPaused: 'Collecting rewards from this pool is switched off by the venue’s vault right now.',
@@ -153,6 +155,8 @@ export const RANGE_COPY = {
     'the test run does not show the venue’s vault receiving exactly the 0.5 SOL opening fee, so the range program on this network may not charge it yet',
   createPriceOff: (pct: string, side: 'above' | 'below') =>
     `Your opening price is ${pct} ${side} the market price (Jupiter’s). The first trader could buy from your deposit at it, so nothing was built. Use the market price.`,
+  preFixBuild: 'Opening a new range pool waits for the range program’s upgrade, which is not on chain yet. Nothing was built.',
+  buildUnread: 'Whether the range program’s upgrade is on chain could not be read just now, so nothing was built. Try again in a moment.',
 } as const;
 
 /** The largest a position's Token-2022 NFT mint gets: its name, symbol and link included (469 bytes for ours). */
@@ -191,6 +195,28 @@ export async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: Publi
 }
 
 export const deployed = (a: RawAccount | null) => a !== null && BPF_LOADERS.has(a.owner);
+
+/** The first 64 bytes of the range program's code (its ELF header) in the build from before the fix round (RNG-01). */
+const PRE_FIX_CODE_HEAD = '7f454c46020101000000000000000000030007010100000068a81200000000004000000000000000e04a17000000000000000000400038000400400009000800';
+
+/**
+ * Whether the range program may still be the build from before the fix round: the stub's
+ * pointer followed to its ProgramData, and 109 bytes of that read (tag 3, then the code's
+ * first 64 after the 45-byte head). Only an upgrade rewrites the code; an extend writes a new
+ * deploy slot and keeps it. True as well when something else is there.
+ */
+async function preFixBuild(rpc: WriteRpc, program: RawAccount | null): Promise<boolean | 'unread'> {
+  const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (!program || program.owner !== BPF_LOADER_UPGRADEABLE_ID.toBase58() || program.data.length < 36 || view(program.data).getUint32(0, true) !== 2) return true;
+  let pd: Awaited<ReturnType<WriteRpc['getAccountInfo']>>;
+  try {
+    pd = await rpc.getAccountInfo(new PublicKey(program.data.subarray(4, 36)), { commitment: 'confirmed', dataSlice: { offset: 0, length: 109 } });
+  } catch {
+    return 'unread';
+  }
+  if (!pd || !pd.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || pd.data.length < 109 || view(pd.data).getUint32(0, true) !== 3) return true;
+  return Array.from(pd.data.subarray(45, 109), (b) => b.toString(16).padStart(2, '0')).join('') === PRE_FIX_CODE_HEAD;
+}
 
 /** The pool as decoded, after the checks every range builder makes of it. A string says why not. */
 export function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | null): PoolStateView | string {
@@ -443,6 +469,11 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
       } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
       else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+      // A thin pool (less liquidity at its price than this deposit adds; none, when empty) holds
+      // whatever price its opener set: one not shown to agree with the market is refused (RNG-11).
+      if (check.state !== 'agrees' && pool.liquidity < plan.liquidity) {
+        return (check.state === 'unread' ? notRead : notSent)('build', RANGE_COPY.thin(warnings.join(' ')));
+      }
       return { check, warnings };
     },
     create: null,
@@ -492,6 +523,10 @@ export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, p
   const fresh = await readFresh(rpc, programId, poolKey, ammConfig, [token0, token1], poolOwn);
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
+  // A new range pool waits for the range program's fix build (RNG-01).
+  const old = await preFixBuild(rpc, fresh.program);
+  if (old === 'unread') return notRead('build', RANGE_COPY.buildUnread);
+  if (old) return notSent('build', RANGE_COPY.preFixBuild);
   if (!absent(fresh.pool)) {
     const there = decodePool(programId, poolKey, fresh.pool);
     const pr = typeof there === 'string' ? null : pairOf(there);
@@ -599,8 +634,8 @@ interface Opening {
   /** The opening's price bands nobody has used yet: each keeps a deposit that never comes back. */
   newBands: number;
   toleranceBps: number;
-  /** The price check and the words it puts on the review, from the plan. */
-  price: (plan: DepositPlan) => Promise<{ check: RangePriceCheck; warnings: string[] }>;
+  /** The price check and the words it puts on the review, from the plan; or why nothing is built. */
+  price: (plan: DepositPlan) => Promise<{ check: RangePriceCheck; warnings: string[] } | Extract<Prepared, { ok: false }>>;
   /** A new pool only: the step that opens it, its price, the program's fee and what its accounts keep. */
   create: { ix: TransactionInstruction; sqrtPriceX64: bigint; fee: bigint; rent: bigint } | null;
 }
@@ -655,7 +690,9 @@ async function openingTx(
   const max = sides(pair, max0, max1);
   const quoted = sides(pair, plan.amount0, plan.amount1);
 
-  const { check, warnings } = await o.price(plan);
+  const priced = await o.price(plan);
+  if ('outcome' in priced) return priced;
+  const { check, warnings } = priced;
   const freezes = freezeLines(pair, tokenMintRaw ?? null, coinMintRaw ?? null);
   if (!Array.isArray(freezes)) return notSent('build', freezes.refuse);
   warnings.push(...freezes);

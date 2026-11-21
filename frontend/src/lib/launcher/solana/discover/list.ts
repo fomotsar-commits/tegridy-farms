@@ -31,6 +31,7 @@ import {
   curvePda,
   curveVaultPda,
   decodeBondingCurve,
+  migrationAuthorityPda,
   type BondingCurve,
 } from '../curve/program';
 import { effectiveReserves } from '../curve/math';
@@ -98,6 +99,7 @@ export interface LaunchListItem {
   openingBuyTokens: bigint | null;
   boughtByOwner: LaunchOrigin['boughtByOwner'];
   birthSupply: bigint | null;
+  plant: LaunchOrigin['plant'];
   curve: Read<CurveAccount>;
   metadata: Read<TokenMetadata>;
 }
@@ -108,7 +110,7 @@ export interface LaunchListPage {
   before: string | null;
   /** How many index entries were looked at, for "none in the latest N". */
   scanned: number;
-  /** How many were hidden by `HIDDEN_MINTS`. */
+  /** How many were hidden: by `HIDDEN_MINTS`, or because their staging account is frozen. */
   hidden: number;
 }
 
@@ -462,16 +464,38 @@ async function multipleAccounts(rpc: SolanaRpc, keys: PublicKey[]): Promise<Arra
   });
 }
 
-/** Curves and metadata for a set of launches, two calls in total. */
+/** The account graduation pays a launch's coins into: the migration authority's, for the mint. */
+const stagingAccount = (programId: PublicKey, mint: PublicKey) => associatedTokenAddress(mint, migrationAuthorityPda(programId));
+
+/** A classic token account its mint's freeze authority froze: state, byte 108 of 165, is 2. */
+const frozenAccount = (a: { data: Uint8Array; owner: PublicKey } | null) => a !== null && a.owner.equals(TOKEN_PROGRAM_ID) && a.data.length === 165 && a.data[108] === 2;
+
+/**
+ * Whether a launch's staging account exists and is frozen (LCH-01): graduation's transfer
+ * into it always fails and nobody can thaw it, so the coin never reaches its pool. It can
+ * be frozen only before `create_launch`, so one read is final. A failed read says so.
+ */
+export async function readStagingFrozen(rpc: CurveRpc, cfg: CurveWriteConfig, mint: PublicKey): Promise<Read<boolean>> {
+  try {
+    return { kind: 'ok', value: frozenAccount(await rpc.getAccountInfo(stagingAccount(cfg.programId, mint))) };
+  } catch (e) {
+    return { kind: 'unreadable', detail: clipDetail(e) };
+  }
+}
+
+/** Curves, staging accounts and metadata for a set of launches, two calls in total. A launch whose staging account is frozen is left out. */
 async function enrich(rpc: SolanaRpc, cfg: CurveWriteConfig, origins: LaunchOrigin[]): Promise<LaunchListItem[]> {
   const curveKeys = origins.map((o) => curvePda(o.mint, cfg.programId));
   const metaKeys = origins.map((o) => metadataPda(o.mint));
   let curves: Awaited<ReturnType<typeof multipleAccounts>> | null = null;
+  let staging: Awaited<ReturnType<typeof multipleAccounts>> | null = null;
   let metas: Awaited<ReturnType<typeof multipleAccounts>> | null = null;
   let curveErr = '';
   let metaErr = '';
   try {
-    curves = await multipleAccounts(rpc, curveKeys);
+    const both = await multipleAccounts(rpc, [...curveKeys, ...origins.map((o) => stagingAccount(cfg.programId, o.mint))]);
+    curves = both.slice(0, origins.length);
+    staging = both.slice(origins.length);
   } catch (e) {
     curveErr = clipDetail(e);
   }
@@ -480,7 +504,8 @@ async function enrich(rpc: SolanaRpc, cfg: CurveWriteConfig, origins: LaunchOrig
   } catch (e) {
     metaErr = clipDetail(e);
   }
-  return origins.map((o, i): LaunchListItem => {
+  return origins.flatMap((o, i): LaunchListItem[] => {
+    if (staging && frozenAccount(staging[i] ?? null)) return [];
     let curve: Read<CurveAccount>;
     if (!curves) curve = { kind: 'unreadable', detail: curveErr };
     else {
@@ -507,17 +532,20 @@ async function enrich(rpc: SolanaRpc, cfg: CurveWriteConfig, origins: LaunchOrig
         metadata = d.ok ? { kind: 'ok', value: d.value } : { kind: 'undecodable', reason: d.reason };
       }
     }
-    return {
-      mint: o.mint,
-      creator: o.creator,
-      signature: o.signature,
-      blockTime: o.blockTime,
-      openingBuyTokens: o.openingBuyTokens,
-      boughtByOwner: o.boughtByOwner,
-      birthSupply: o.birthSupply,
-      curve,
-      metadata,
-    };
+    return [
+      {
+        mint: o.mint,
+        creator: o.creator,
+        signature: o.signature,
+        blockTime: o.blockTime,
+        openingBuyTokens: o.openingBuyTokens,
+        boughtByOwner: o.boughtByOwner,
+        birthSupply: o.birthSupply,
+        plant: o.plant,
+        curve,
+        metadata,
+      },
+    ];
   });
 }
 
@@ -588,7 +616,7 @@ async function scan(
   }
 
   const items = await enrich(rpc, cfg, origins);
-  return { kind: 'ok', value: { items, before: exhausted ? null : (before ?? null), scanned, hidden } };
+  return { kind: 'ok', value: { items, before: exhausted ? null : (before ?? null), scanned, hidden: hidden + origins.length - items.length } };
 }
 
 /** Launches whose create transaction mentions the index address. See the header for what that does NOT prove. */

@@ -67,6 +67,7 @@ async function build(): Promise<WriteApi> {
     listLaunchesByCreator: (rpc, cfg, creator, opts) => list.listLaunchesByCreator(rpc, cfg, creator, opts),
     readLaunchOrigin: list.readLaunchOrigin,
     readCreatorHolding: list.readCreatorHolding,
+    readStagingFrozen: list.readStagingFrozen,
     readLaunchPool: pool.readLaunchPool,
 
     meta: {

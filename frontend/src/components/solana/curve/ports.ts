@@ -191,6 +191,8 @@ export interface WriteApi {
   readLaunchOrigin(rpc: SolanaRpc, cfg: CurveWriteConfig, mint: PublicKey): Promise<Read<LaunchOrigin>>;
   /** Tokens in the creator's main token account now. No account = 0 there. */
   readCreatorHolding(rpc: CurveRpc, mint: PublicKey, creator: PublicKey): Promise<Read<{ amount: bigint; accountExists: boolean }>>;
+  /** Whether the account graduation pays this coin into was frozen before launch: then it never graduates. */
+  readStagingFrozen(rpc: CurveRpc, cfg: CurveWriteConfig, mint: PublicKey): Promise<Read<boolean>>;
   readLaunchPool(
     rpc: CurveRpc,
     cfg: CurveWriteConfig,

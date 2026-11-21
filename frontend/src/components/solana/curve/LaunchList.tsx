@@ -16,7 +16,7 @@ import { CardArt } from '../../ui/CardArt';
 import { Card, Notice } from './ui';
 import { TOGGLE_CLS, sharePercent } from './uiFormat';
 import { CreatorStakeFacts, LaunchImage } from './LaunchIdentity';
-import { MakerBuyLines } from './MakerCreateBuy';
+import { MakerBuyLines, RowPlantLine } from './MakerCreateBuy';
 import { identityWarnings, safeImageUrl } from './identity';
 import { holdingFact, makerBuyFact, type Fact } from './facts';
 import type { CurveWriteConfig, LaunchListItem, LaunchListPage, MetadataRead, WriteApi } from './ports';
@@ -262,6 +262,7 @@ function LaunchRow({
       {item.curve.kind === 'ok' && <ReserveLine curve={item.curve.value.curve} supply={facts ? facts.supply : null} />}
       {/* The launch page's maker figure, the same words, first. */}
       <MakerBuyLines buy={makerBuyFact(item.creator, item.boughtByOwner, item.birthSupply)} decimals={facts ? facts.decimals : null} />
+      <RowPlantLine plant={item.plant} />
       <CreatorStakeFacts holding={holding} supply={facts ? facts.supply : null} decimals={facts ? facts.decimals : null} />
     </li>
   );

@@ -1026,10 +1026,18 @@ function RemoveBlock({
     }
     case 'dust':
       line = (
-        <Notice tone="warn">
-          This share is too small to take out at the pool&apos;s current size: one side would round to zero (the pool program&apos;s rule).
-          Nothing is lost by waiting; if the pool grows, it may become possible.
-        </Notice>
+        <>
+          <Notice tone="warn">
+            This share is too small to take out now: one side would round to zero. Waiting loses nothing; it can be taken out once that side of
+            the pool grows.
+          </Notice>
+          <FinePrint summary="Freeing it by adding">
+            <p>
+              Add an amount that lands just under a whole number of that side&apos;s smallest units. The least the pool takes rounds that side up,
+              which costs you nearly one of them.
+            </p>
+          </FinePrint>
+        </>
       );
       break;
     case 'other-pair':
