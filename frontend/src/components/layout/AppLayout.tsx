@@ -14,7 +14,7 @@ import { Toaster } from 'sonner';
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
-import { isChainConfigured, unconfiguredChainLabel } from '../../lib/chains';
+import { isChainServed, servedEvmChainNames, unconfiguredChainLabel } from '../../lib/chains';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
@@ -75,8 +75,8 @@ export function AppLayout() {
   // The RAW `chainId` field, deliberately: wagmi's `chain` object is resolved by
   // config.chains.find(...), so it is UNDEFINED for exactly the unserved chains
   // this banner exists to catch — a `chain && !isChainConfigured(chain.id)`
-  // guard is structurally unreachable dead code.
-  const wrongNetwork = isConnected && walletChainId != null && !isChainConfigured(walletChainId);
+  // guard is structurally unreachable dead code. HyperEVM counts once its venue is live.
+  const wrongNetwork = isConnected && walletChainId != null && !isChainServed(walletChainId);
 
   // The banner's height, as `--app-alert-h` on <html>, so anything else pinned under the top bar
   // (the dashboard's frame, IslandDashboard.tsx) pins under the banner instead of beneath it. Its
@@ -202,7 +202,7 @@ export function AppLayout() {
             }}
           >
             You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
-            which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
+            which this app doesn&apos;t serve. Supported: {servedEvmChainNames().join(', ')}.
             {switchChain && (
               <button
                 onClick={() => switchChain({ chainId: mainnet.id })}
