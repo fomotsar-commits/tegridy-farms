@@ -116,7 +116,7 @@ export default function TokenomicsPage() {
                 {i.v !== undefined ? (
                   <p className="stat-value text-2xl text-white">{i.v}</p>
                 ) : (
-                  <AnimatedCounter value={i.numVal!} prefix={i.prefix} decimals={i.decimals} className="stat-value text-2xl text-white" />
+                  <AnimatedCounter value={i.numVal!} prefix={i.prefix} decimals={i.decimals} nearest className="stat-value text-2xl text-white" />
                 )}
                 {i.showSparkline && priceData.length > 1 && (
                   <Sparkline data={priceData} width={48} height={18} />

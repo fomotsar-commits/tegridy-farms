@@ -26,11 +26,13 @@ import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key, keyStartingWith } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpWriteApi } from '../curve/ports';
-import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { fakeLpApi, lpDepositSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { realToken } from './anyToken.fixture';
-import { isPlanProblem, planDeposit, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import { isPlanProblem, planDeposit, planWithdraw, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
 import type { TransferFee } from '../../../lib/solana/lp/transferFee';
 import { baseUnitsToInput } from '../curve/uiFormat';
+import { SummaryRows } from '../curve/TxFlowView';
+import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -79,10 +81,10 @@ const COIN_ACCOUNT = key().toBase58();
 const UNIT = 10n ** 6n;
 
 /** 1,000 of the coin against 100,000 tokens: 0.01 of the coin per token. A SOL pool: 10 SOL against 1,000 tokens. */
-function view(coin: QuoteCoin, mint: PublicKey, o: { token2022?: boolean } = {}): PoolView {
+function view(coin: QuoteCoin, mint: PublicKey, o: { token2022?: boolean; lpSupply?: bigint } = {}): PoolView {
   const q = coin.native ? 10n * 10n ** 9n : 1_000n * UNIT;
   const t = coin.native ? 1_000n * UNIT : 100_000n * UNIT;
-  const b = buildPool({ plain: true, mint, quote: coin, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: 1n });
+  const b = buildPool({ plain: true, mint, quote: coin, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: 1n, lpSupply: o.lpSupply });
   const read = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
   const quoteIsToken0 = read.token0Mint === coin.mint;
@@ -918,5 +920,111 @@ describe('a SOL pool whose token keeps back 5% of every transfer', () => {
     expect(row('You get about')).toHaveTextContent('1.25 SOL and 118.75 tokens');
     expect(row('You get at least')).toHaveTextContent(/and 117\.5625 tokens/);
     expect(row('The token’s own transfer fee')).toHaveTextContent('about 6.25 tokens more (5%), kept by the token for its fee collector; the amounts above are after it');
+  }, 20_000);
+});
+
+// What these forms say you need, or lose to the token's own fee, is rounded up at the fourth
+// decimal shown. "You put in about" is cut: an exact "At most" sits beside it, and rounded up the
+// estimate could read above that bound. In a pool of 3,000,000 shares a share's worth runs past
+// the fourth decimal on both sides, where up and cut differ.
+describe('a SOL pool’s forms: what you need and the token’s cut round up, "You put in about" is cut', () => {
+  const ODD = 3_000_000n;
+  const feeToken = realToken(LOW, { transferFee: true });
+  const FIVE: TransferFee = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 500 };
+  const withFee = { safety: vi.fn(async () => new Map([[LOW.toBase58(), feeToken]])) };
+  /** `raw` at `decimals`, rounded up at four decimals, trailing zeros dropped: the forms' figure. */
+  const up4 = (raw: bigint, decimals: number) => {
+    const units = (raw + 10n ** BigInt(decimals - 4) - 1n) / 10n ** BigInt(decimals - 4);
+    const frac = (units % 10_000n).toString().padStart(4, '0').replace(/0+$/, '');
+    return `${(units / 10_000n).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
+  };
+  /** The same figure cut at four decimals: an estimate's. */
+  const cut4 = (raw: bigint, decimals: number) => {
+    const units = raw / 10n ** BigInt(decimals - 4);
+    const frac = (units % 10_000n).toString().padStart(4, '0').replace(/0+$/, '');
+    return `${(units / 10_000n).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
+  };
+  /** Each side of a 1 SOL deposit as the Add form plans it (1% tolerance), in base units. */
+  const oneSol = (v: PoolView, fee: TransferFee | null = null) => {
+    const p = planDeposit(v.snapshot, { quoteIsToken0: v.quoteIsToken0, driving: 'quote', maxIn: 10n ** 9n, bps: 100n, availableQuote: null, availableToken: null, fees: poolFeesOf(v.quoteIsToken0, fee) });
+    if (isPlanProblem(p)) throw new Error('no plan');
+    return v.quoteIsToken0 ? { sol: p.cost0, tok: p.cost1, fee: p.fee1 } : { sol: p.cost1, tok: p.cost0, fee: p.fee0 };
+  };
+
+  it('Add: "You put in about" and the line read out are cut on both sides', async () => {
+    const v = view(SOL_QUOTE, LOW, { lpSupply: ODD });
+    const { panel, type, row } = await openAdd(v);
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type('SOL to add', '1');
+    const c = oneSol(v);
+    expect(c.sol % 100_000n).not.toBe(0n);
+    expect(c.tok % 100n).not.toBe(0n);
+    const both = `${cut4(c.sol, 9)} SOL and ${cut4(c.tok, 6)} tokens`;
+    expect(row('You put in about')?.textContent).toBe(both);
+    await waitFor(() => expect(statusLine(panel, 'You would add')).toContain(`You would add about ${both} and get `), { timeout: 4_000 });
+  }, 20_000);
+
+  // 0.7 tokens into 10 SOL and 1,000 tokens at 1%: "At most" is 0.0069993 SOL, the bound the
+  // transaction carries. Rounded up at four decimals, the estimate beside it would read 0.007 SOL.
+  it('Add 0.7 tokens to 10 SOL and 1,000 tokens: "You put in about" is never above "At most", on the form or the review', async () => {
+    const v = view(SOL_QUOTE, LOW);
+    const { panel, type, row } = await openAdd(v);
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type('Tokens to add', '0.7');
+    /** "X SOL and Y tokens" as base units, SOL first. */
+    const sides = (text: string | null | undefined): [bigint, bigint] => {
+      const m = /([\d.]+) SOL and ([\d.]+) tokens/.exec(text ?? '');
+      if (!m) throw new Error(`no amounts in "${text}"`);
+      return [parseDecimalToBaseUnits(m[1]!, 9)!, parseDecimalToBaseUnits(m[2]!, 6)!];
+    };
+    expect(row('At most')).toHaveTextContent('0.0069993 SOL and 0.7 tokens');
+    const [aboutSol, aboutTok] = sides(row('You put in about')?.textContent);
+    const [mostSol, mostTok] = sides(row('At most')?.textContent);
+    expect(aboutSol).toBeLessThanOrEqual(mostSol);
+    expect(aboutTok).toBeLessThanOrEqual(mostTok);
+    // The review of the same plan: its two rows stand the same way.
+    const p = planDeposit(v.snapshot, { quoteIsToken0: v.quoteIsToken0, driving: 'token', maxIn: 700_000n, bps: 100n, availableQuote: null, availableToken: null, fees: poolFeesOf(v.quoteIsToken0, null) });
+    if (isPlanProblem(p)) throw new Error('no plan');
+    const [cost, max] = v.quoteIsToken0 ? [{ quote: p.cost0, token: p.cost1 }, { quote: p.max0, token: p.max1 }] : [{ quote: p.cost1, token: p.cost0 }, { quote: p.max1, token: p.max0 }];
+    expect(max.quote).toBe(6_999_300n);
+    const shown = render(<SummaryRows summary={lpDepositSummary(key(), LOW, { quoteIsToken0: v.quoteIsToken0, quoted: cost, max })} decimals={6} display={(s) => s} />);
+    const reviewRow = (label: string) => within(shown.container).getByText(label).nextElementSibling?.textContent;
+    const [reviewAboutSol, reviewAboutTok] = sides(reviewRow('You put in about'));
+    const [reviewMostSol, reviewMostTok] = sides(reviewRow('At most'));
+    expect(reviewAboutSol).toBeLessThanOrEqual(reviewMostSol);
+    expect(reviewAboutTok).toBeLessThanOrEqual(reviewMostTok);
+  }, 20_000);
+
+  it('Add, more tokens than the wallet holds: what it needs up to is rounded up', async () => {
+    const v = view(SOL_QUOTE, LOW, { lpSupply: ODD });
+    const few = walletOf(SOL_QUOTE, { token: { address: TOKEN_ACCOUNT, amount: 10n * UNIT } });
+    const { panel, type } = await openAdd(v, { readers: { wallet: vi.fn(async () => few) } });
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type('SOL to add', '1');
+    const { tok } = oneSol(v);
+    expect(tok % 100n).not.toBe(0n);
+    await waitFor(() => expect(panel).toHaveTextContent(`This needs up to ${up4(tok, 6)} tokens and your wallet has 10 tokens.`), { timeout: 4_000 });
+  }, 20_000);
+
+  it('Add, a token that keeps 5% of each transfer: its cut of what you put in is rounded up', async () => {
+    const v = view(SOL_QUOTE, LOW, { lpSupply: ODD });
+    const { panel, type, row } = await openAdd(v, { readers: withFee });
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type('SOL to add', '1');
+    const { fee } = oneSol(v, FIVE);
+    expect(fee % 100n).not.toBe(0n);
+    expect(row('The token’s own transfer fee')).toHaveTextContent(`about ${up4(fee, 6)} tokens of those (5%), kept by the token for its fee collector`);
+  }, 20_000);
+
+  it('Remove, the same token: its cut of what the pool pays out is rounded up', async () => {
+    const v = view(SOL_QUOTE, LOW, { lpSupply: ODD });
+    const p = position(v, { lpAmount: 750_003n });
+    const { panel, row } = await openRemove(v, { position: p, readers: withFee });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    const w = planWithdraw(v.snapshot, { held: p.lpAmount, pctBps: 5_000n, bps: 100n, fees: poolFeesOf(v.quoteIsToken0, FIVE) });
+    if (isPlanProblem(w)) throw new Error('no plan');
+    const fee = v.quoteIsToken0 ? w.fee1 : w.fee0;
+    expect(fee % 100n).not.toBe(0n);
+    expect(row('The token’s own transfer fee')).toHaveTextContent(`about ${up4(fee, 6)} tokens more (5%), kept by the token for its fee collector`);
   }, 20_000);
 });

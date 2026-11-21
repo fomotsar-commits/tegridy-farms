@@ -11,7 +11,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { DOOR_WAITING, FRAME_CSS, LP_DOOR, POOLS_HEADING, poolsFrame, transform } from '../../scripts/render-pools-frame.mjs';
+import { DOOR_WAITING, FRAME_CSS, LP_DOOR, POOLS_HEADING, RULER_ZONES, poolsFrame, transform } from '../../scripts/render-pools-frame.mjs';
 import { pageHashes } from '../../scripts/lib/csp-hashes.mjs';
 import { CARD, CARD_STYLE } from './solana/curve/uiFormat';
 import { LP_WRITES, lpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
@@ -27,6 +27,8 @@ const doorSource = read('src/components/solana/lp/LpDoorFrame.tsx');
 const baylaLine = read('src/components/BaylaLine.tsx');
 const topNav = read('src/components/layout/TopNav.tsx');
 const indexCss = read('src/index.css');
+const dwgCss = read('src/styles/dwg.css');
+const poolsCss = read('src/styles/dwg-pools.css');
 const themeInit = read('public/theme-init.js');
 
 const out = transform(shell);
@@ -45,13 +47,49 @@ const set = (sheet: string, selector: string, prop: string) => {
   return new RegExp(`(?:^|;)${escaped(prop)}:([^;]+)`).exec(block)?.[1];
 };
 
+/**
+ * One declaration of one rule in a stylesheet as people write it (spaces, comments, !important),
+ * outside any at-rule (`media` undefined) or inside any `@media (<media>) {` block.
+ */
+const rule = (css: string, selector: string, prop: string, media?: string) => {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Each top-level block: its prelude and its body, braces counted.
+  const blocks: { head: string; body: string }[] = [];
+  let depth = 0;
+  let start = 0;
+  let open = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) open = i;
+      depth++;
+    } else if (text[i] === '}' && --depth === 0) {
+      blocks.push({ head: text.slice(start, open).trim(), body: text.slice(open + 1, i) });
+      start = i + 1;
+    }
+  }
+  const scopes = media === undefined ? blocks.filter((b) => !b.head.startsWith('@')) : blocks.filter((b) => b.head === `@media (${media})`).flatMap((b) => [...b.body.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ head: m[1]!.trim(), body: m[2]! })));
+  for (const b of scopes) {
+    if (!b.head.split(',').map((s) => s.trim()).includes(selector)) continue;
+    const decl = new RegExp(`(?:^|;)\\s*${escaped(prop)}\\s*:\\s*([^;]+?)\\s*(?:;|$)`).exec(b.body)?.[1];
+    if (decl !== undefined) return decl.replace(/\s*!important$/, '');
+  }
+  return undefined;
+};
+/** A CSS value in the frame's spelling: no spaces, no leading zero before a point. */
+const norm = (v: string | undefined) => (v ?? '').replace(/(^|[^\d.])0\./g, '$1.').replace(/\s+/g, '').replace(/'/g, '"');
+/** A sheet token's value from dwg.css's `.dwg { … }` (sheet P keeps the base spot ink). */
+const token = (name: string) => rule(dwgCss, '.dwg', name);
+
 // The page's own classes. A change to one of these is a change to the frame's rule beside it.
 const PAGE_ROOT = 'relative min-h-screen';
 const PAGE_BACKDROP = 'fixed inset-0 z-0';
-const PAGE_COLUMN = 'relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16';
+const PAGE_COLUMN = 'relative z-10 max-w-[1120px] mx-auto px-4 md:px-6 pt-8 pb-16';
+const PAGE_SHEET = 'dwg dwg-sheet';
+const PAGE_RULER = 'dwg-ruler';
 const PAGE_HERO = 'mb-6';
-const PAGE_H1 = 'heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3';
+const PAGE_H1 = 'dwg-word';
 const DOOR_LINE = 'text-white/70 text-[13px]';
+const HERO = ".dwg-sheet[data-sheet='P'] [data-dwg='hero']";
 
 afterEach(() => {
   cleanup();
@@ -107,24 +145,42 @@ describe('the pools page ships its heading in its own HTML', () => {
 });
 
 describe("the frame's rules are what the page's classes compute to", () => {
-  it("the heading: the page's words, at the page's size, weight, spacing and shadow", () => {
-    const h1 = /<h1 className="([^"]+)">\s*([^<]+?)\s*<\/h1>/.exec(page);
-    expect(h1?.[2]).toBe(POOLS_HEADING);
+  it("the heading: the page's words, in the sheet's word (styles/dwg.css .dwg-word), and its echo", () => {
+    const h1 = /<h1 className="([^"]+)"([^>]*)>\s*([^<]+?)\s*<\/h1>/.exec(page);
+    expect(h1?.[3]).toBe(POOLS_HEADING);
     expect(h1?.[1], 'the page restyled its heading: recut .pf-h1').toBe(PAGE_H1);
-    // text-3xl is 1.875rem on a 2.25rem line; md:text-5xl is 3rem on a line of 1; mb-3; text-white.
+    // One text node, broken after its first word by its own width; the echo is drawn from data-echo.
+    expect(h1?.[2]).toContain('data-break=""');
+    expect(h1?.[2]).toContain(`data-echo="${POOLS_HEADING}"`);
+    expect(frame.querySelector('h1')?.getAttribute('data-echo')).toBe(POOLS_HEADING);
+    // Under 48rem: the sheet's word at 1.875rem on a line of 1.2, as tall as the heading was.
+    expect(set(narrow, '.pf-h1', 'font-size')).toBe(rule(dwgCss, '.dwg-word', 'font-size'));
     expect(set(narrow, '.pf-h1', 'font-size')).toBe('1.875rem');
-    expect(Number(set(narrow, '.pf-h1', 'line-height'))).toBe(2.25 / 1.875);
-    expect(set(wide, '.pf-h1', 'font-size')).toBe('3rem');
-    expect(set(wide, '.pf-h1', 'line-height')).toBe('1');
-    expect(set(narrow, '.pf-h1', 'margin')).toBe('0 0 .75rem');
-    expect(set(narrow, '.pf-h1', 'color')).toBe('#fff');
-    // .heading-luxury is not in a layer, so its spacing outranks tracking-tight's: 0.01em.
-    const luxury = /\n\.heading-luxury \{([^}]*)\}/.exec(indexCss)?.[1] ?? '';
-    expect(luxury).toContain('font-family: var(--font-family-heading);');
+    expect(set(narrow, '.pf-h1', 'line-height')).toBe(rule(dwgCss, '.dwg-word', 'line-height'));
+    expect(norm(set(narrow, '.pf-h1', 'margin'))).toBe(norm(rule(dwgCss, '.dwg-word', 'margin')));
+    expect(norm(set(narrow, '.pf-h1', 'letter-spacing'))).toBe(norm(rule(dwgCss, '.dwg-word', 'letter-spacing')));
+    expect(set(narrow, '.pf-h1', 'font-weight')).toBe(rule(dwgCss, '.dwg-word', 'font-weight'));
+    expect(rule(dwgCss, '.dwg-word', 'color')).toBe('var(--dwg-ink)');
+    expect(set(narrow, '.pf-h1', 'color')).toBe(token('--dwg-ink'));
+    expect(rule(dwgCss, '.dwg-word', 'text-shadow')).toBe('none');
+    expect(set(narrow, '.pf-h1', 'text-shadow')).toBe('none');
+    expect(rule(dwgCss, '.dwg-word', 'font-family')).toBe('var(--font-family-heading)');
     expect(tight(set(narrow, '.pf-h1', 'font-family'))).toBe(tight(/--font-family-heading: ([^;]+);/.exec(indexCss)?.[1]));
-    expect(set(narrow, '.pf-h1', 'font-weight')).toBe(/font-weight: (\d+);/.exec(luxury)?.[1]);
-    expect(Number.parseFloat(set(narrow, '.pf-h1', 'letter-spacing') ?? '')).toBe(Number.parseFloat(/letter-spacing: ([^;]+);/.exec(luxury)?.[1] ?? ''));
-    expect(tight(set(narrow, '.pf-h1', 'text-shadow'))).toBe(tight(/text-shadow: ([^;]+);/.exec(luxury)?.[1]));
+    // From 48rem (Tailwind's md, 768px): the word large, tight, as narrow as its longest word.
+    expect(norm(set(wide, '.pf-h1', 'font-size'))).toBe(norm(rule(dwgCss, '.dwg-word', 'font-size', 'min-width: 48rem')));
+    expect(norm(set(wide, '.pf-h1', 'line-height'))).toBe(norm(rule(dwgCss, '.dwg-word', 'line-height', 'min-width: 48rem')));
+    expect(norm(set(wide, '.pf-h1', 'letter-spacing'))).toBe(norm(rule(dwgCss, '.dwg-word', 'letter-spacing', 'min-width: 48rem')));
+    expect(set(wide, '.pf-h1', 'width')).toBe(rule(dwgCss, ".dwg-word[data-break]", 'width', 'min-width: 48rem'));
+    // The echo: the same words, outlined in the sheet's spot ink, behind and a step down and right.
+    const echo = ".dwg-sheet[data-sheet='P'] .dwg-word[data-echo]::after";
+    expect(set(narrow, '.pf-h1::after', 'content')).toBe(rule(poolsCss, echo, 'content'));
+    expect(norm(set(narrow, '.pf-h1::after', 'transform'))).toBe(norm(rule(poolsCss, echo, 'transform')));
+    expect(rule(poolsCss, echo, '-webkit-text-stroke')).toBe('1.5px var(--dwg-spot)');
+    expect(set(narrow, '.pf-h1::after', '-webkit-text-stroke')).toBe(`1.5px ${token('--dwg-spot')}`);
+    expect(set(narrow, '.pf-h1::after', 'z-index')).toBe(rule(poolsCss, echo, 'z-index'));
+    // Drawing, not words: an empty alternative text, so the heading's name is said once.
+    expect(FRAME_CSS).toContain('content:attr(data-echo);content:attr(data-echo) / ""');
+    expect(poolsCss).toContain('content: attr(data-echo); content: attr(data-echo) / "";');
   });
 
   it("the body's text rules, which index.css brings after the frame is painted: smoothing and tabular figures", () => {
@@ -138,28 +194,45 @@ describe("the frame's rules are what the page's classes compute to", () => {
     expect(set(narrow, '.pools-frame', 'font-feature-settings')).toBe('"tnum" 1');
   });
 
-  it("the shell: the page's root, its dark backdrop, its column and its hero block", () => {
+  it("the shell: the page's root, its dark backdrop, its column, the sheet, its ruler and the hero block", () => {
     expect(page, 'the page changed its root: recut .pf-root').toContain(`<div className="${PAGE_ROOT}">`);
     expect(set(narrow, '.pf-root', 'min-height')).toBe('100vh');
     expect(page, 'the page changed its backdrop: recut .pf-bg').toContain(`<div className="${PAGE_BACKDROP}" style={{ background: '#060c1a' }}>`);
     expect(set(narrow, '.pf-bg', 'background')).toBe('#060c1a');
     expect(page, 'the page changed its column: recut .pf-col').toContain(`<div className="${PAGE_COLUMN}">`);
-    expect(set(narrow, '.pf-col', 'max-width')).toBe('900px');
+    expect(set(narrow, '.pf-col', 'max-width')).toBe('1120px');
     expect(set(narrow, '.pf-col', 'margin')).toBe('0 auto');
     expect(set(narrow, '.pf-col', 'padding')).toBe('2rem 1rem 4rem');
     expect([set(wide, '.pf-col', 'padding-left'), set(wide, '.pf-col', 'padding-right')]).toEqual(['1.5rem', '1.5rem']);
+    // The sheet: its frame (styles/dwg.css .dwg-sheet), then its ruler, then the hero, in that order.
+    expect(page, 'the page changed its sheet: recut .pf-sheet').toMatch(
+      new RegExp(`<div className="${PAGE_SHEET}" data-sheet="P">\\s*<SheetRuler />\\s*<PoolField />\\s*<m\\.div className="${PAGE_HERO}" data-dwg="hero" `),
+    );
+    expect(norm(set(narrow, '.pf-sheet', 'border'))).toBe(norm(rule(dwgCss, '.dwg-sheet', 'border')));
+    // The ruler: 15px tall from 48rem (its letters hang in it), none under; the frame counts its border in.
+    expect(set(narrow, '.pf-ruler', 'height')).toBe(rule(dwgCss, '.dwg-ruler', 'height'));
+    expect(set(narrow, '.pf-ruler', 'box-sizing')).toBe('border-box');
+    expect(set(narrow, '.pf-ruler', 'display')).toBe(rule(dwgCss, '.dwg-ruler', 'display'));
+    expect(set(wide, '.pf-ruler', 'display')).toBe(rule(dwgCss, '.dwg-ruler', 'display', 'min-width: 48rem'));
+    // The hero: no margin (the sheet's parts stand flush), its padding the sheet's (dwg.css --dwg-pad).
     expect(page, 'the page changed its hero block: recut .pf-hero').toContain(`<m.div className="${PAGE_HERO}" `);
-    expect(set(narrow, '.pf-hero', 'margin')).toBe('0 0 1.5rem');
+    expect(set(narrow, '.pf-hero', 'margin')).toBe(rule(poolsCss, HERO, 'margin'));
+    const pad = token('--dwg-pad');
+    expect(norm(set(narrow, '.pf-hero', 'padding'))).toBe(norm(rule(poolsCss, HERO, 'padding')?.replace('var(--dwg-pad)', pad!)));
+    expect(norm(set(wide, '.pf-hero', 'padding'))).toBe(norm(rule(poolsCss, HERO, 'padding', 'min-width: 48rem')?.replace('var(--dwg-pad)', pad!)));
   });
 
-  it("the LP door's waiting card, as LpDoorFrame draws it", () => {
+  it("the LP door's waiting card, as LpDoorFrame draws it and the sheet flattens it", () => {
     expect(CARD, 'the card changed: recut .pf-door').toBe('rounded-2xl p-5 relative overflow-hidden');
     expect(doorSource).toContain('className={`${CARD} isolate mb-6`}');
+    expect(doorSource).toContain('data-dwg="door"');
     expect(set(narrow, '.pf-door', 'padding')).toBe('1.25rem');
-    expect(set(narrow, '.pf-door', 'border-radius')).toBe('1rem');
     expect(set(narrow, '.pf-door', 'margin')).toBe('0 0 1.5rem');
-    expect(set(narrow, '.pf-door', 'border')).toBe(CARD_STYLE.border);
-    expect(set(narrow, '.pf-door', 'background')).toBe(CARD_STYLE.background);
+    // A flat hairline panel (styles/dwg-pools.css), over CARD_STYLE's inline border and fill.
+    const door = "section[data-dwg='door']";
+    expect(set(narrow, '.pf-door', 'border-radius')).toBe(rule(poolsCss, door, 'border-radius'));
+    expect(tight(set(narrow, '.pf-door', 'border'))).toBe(tight(rule(poolsCss, door, 'border')));
+    expect(tight(set(narrow, '.pf-door', 'background'))).toBe(tight(rule(poolsCss, door, 'background')));
     // Its line: white at 70%, 13px, on the body's own family, line and shadow.
     expect(doorSource).toMatch(new RegExp(`<p role="status" className="${escaped(DOOR_LINE)}">\\s*${escaped(DOOR_WAITING)}\\s*</p>`));
     expect(set(narrow, '.pf-door p', 'color')).toBe('rgba(255,255,255,0.7)');
@@ -297,11 +370,23 @@ describe("React's fallback is the same frame, in the page's own classes", () => 
     expect(react.getAttribute('class')).toBe(PAGE_ROOT);
     expect(react.firstElementChild?.getAttribute('class')).toBe(PAGE_BACKDROP);
     expect((react.firstElementChild as HTMLElement).style.background).toBe('rgb(6, 12, 26)');
-    expect(heading.parentElement!.parentElement!.getAttribute('class')).toBe(PAGE_COLUMN);
-    expect(heading.parentElement!.getAttribute('class')).toBe(PAGE_HERO);
+    const hero = heading.parentElement!;
+    const sheet = hero.parentElement!;
+    expect(sheet.parentElement!.getAttribute('class')).toBe(PAGE_COLUMN);
+    expect(sheet.getAttribute('class')).toBe(PAGE_SHEET);
+    expect(sheet.getAttribute('data-sheet')).toBe('P');
+    const ruler = sheet.firstElementChild!;
+    expect(ruler.getAttribute('class')).toBe(PAGE_RULER);
+    expect(Array.from(ruler.children).map((i) => i.getAttribute('data-z'))).toEqual(RULER_ZONES);
+    expect(Array.from(frame.querySelectorAll('.pf-ruler > i')).map((i) => i.getAttribute('data-z'))).toEqual(RULER_ZONES);
+    expect(hero.getAttribute('class')).toBe(PAGE_HERO);
+    expect(hero.getAttribute('data-dwg')).toBe('hero');
     expect(heading.getAttribute('class')).toBe(PAGE_H1);
+    expect(heading.getAttribute('data-echo')).toBe(POOLS_HEADING);
+    expect(heading.hasAttribute('data-break')).toBe(true);
     const card = react.querySelector('section')!;
     expect(card.getAttribute('class')).toBe(`${CARD} isolate mb-6`);
+    expect(card.getAttribute('data-dwg')).toBe('door');
     expect(tight(card.style.border)).toBe(tight(CARD_STYLE.border));
     expect(tight(card.style.background)).toBe(tight(CARD_STYLE.background));
     expect(card.querySelector('[role="status"]')!.getAttribute('class')).toBe(DOOR_LINE);

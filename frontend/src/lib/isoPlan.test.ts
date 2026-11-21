@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { iso, type Pt } from './iso';
 import { HOUSE_D, HOUSE_W, RAIL_TOP, U, bungalowBox, chimneyOutlines, houseOutline, railPoint, roofOutline, rungHeights } from './isoBungalow';
-import { GAP_X, GAP_Y, KEY, LETTER, NAME_PX, TURN, groundOf, keyBox, keyFoot, planAspect, planBox, planStreets, roadOf, type Street } from './isoPlan';
+import { GAP_X, GAP_Y, KEY, LETTER, NAME_PX, TURN, groundOf, keyBox, keyFoot, planAspect, planBox, planStreets, plotOutline, roadOf, type Street } from './isoPlan';
 import { venuePoolRows } from './venuePools';
 import { boxesMeet, clearance, inside } from '../test/polygon';
 
@@ -68,6 +68,27 @@ describe.each(layouts)('the plan, with %s', (_, streets) => {
       }
     });
     expect(worst.what).toBe('');
+  });
+
+  it('gives every house its plot to take a press on, and no plot takes a press meant for a house drawn before it', () => {
+    const plots = drawOrder(streets);
+    let worst = '';
+    plots.forEach((plot, j) => {
+      const ground = plotOutline(plot.x, plot.y);
+      // Its own front door's foot, and the gap to the next house along, are on its plot.
+      expect(inside(iso([plot.x + HOUSE_W / 2, plot.y + HOUSE_D + 0.3, 0], U), ground)).toBe(true);
+      expect(inside(iso([plot.x + HOUSE_W + GAP_X / 4, plot.y + HOUSE_D / 2, 0], U), ground)).toBe(true);
+      const earlier = plots.slice(0, j).flatMap((o) => shapesOf(o.x, o.y).map((poly) => ({ id: o.row.id, poly })));
+      const [x0, y0, x1, y1] = boxOf(ground);
+      for (let px = Math.floor(x0); px <= x1 && !worst; px += 2) {
+        for (let py = Math.floor(y0); py <= y1 && !worst; py += 2) {
+          if (!inside([px, py], ground)) continue;
+          const over = earlier.find((e) => inside([px, py], e.poly));
+          if (over) worst = `${plot.row.id}'s plot over ${over.id} at ${px},${py}`;
+        }
+      }
+    });
+    expect(worst).toBe('');
   });
 
   it('paints every street’s name on its own road, past the streets in front, where no house stands over it', () => {

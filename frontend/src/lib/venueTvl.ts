@@ -4,11 +4,18 @@
 // Anything the page cannot trust reads as unread, never as zero, and an answer that says
 // "current" while missing a chain is read as partial.
 
+import { hyperEvmLive } from './chains/hyperEvm';
+
 export const VENUE_TVL_URL = '/api/aggregator?resource=venue-tvl';
 
-/** Every chain the answer must name, in the order the page lists them. */
-export const TVL_CHAINS = Object.freeze({ solana: 'Solana', ethereum: 'Ethereum', base: 'Base', robinhood: 'Robinhood' });
-export type TvlChainName = keyof typeof TVL_CHAINS;
+/** Every chain the answer must name, in the order the page lists them: HyperEVM once its venue is live (the server's record is pinned to the site's). */
+const NAMES = { solana: 'Solana', ethereum: 'Ethereum', base: 'Base', robinhood: 'Robinhood', hyperevm: 'HyperEVM' } as const;
+export type TvlChainName = keyof typeof NAMES;
+export function tvlChains(hyperEvm: boolean = hyperEvmLive()): Readonly<Partial<Record<TvlChainName, string>>> {
+  const { hyperevm, ...rest } = NAMES;
+  return Object.freeze(hyperEvm ? { ...rest, hyperevm } : rest);
+}
+export const TVL_CHAINS: Readonly<Partial<Record<TvlChainName, string>>> = tvlChains();
 /** The chains with staking pools, in the order the answer lists them. */
 export const STAKE_CHAINS = Object.freeze(['solana', 'ethereum', 'base'] as const);
 export type StakeChainName = (typeof STAKE_CHAINS)[number];

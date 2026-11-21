@@ -106,11 +106,12 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '8305d18944c8e7be301b0fcc35d8f1f5389fea45da8ef632863097693a84b629',
+    deltaSha256: 'faea5a54058135071e0c440edbaf42089f4db9afd0b51af18f8d1027c4f660d3',
     patched: [
       'src/lib.rs',
       'src/error.rs',
       'src/instructions/admin/collect_fund_fee.rs',
+      'src/instructions/admin/collect_protocol_fee.rs',
       'src/instructions/admin/create_support_mint_associated.rs',
       'src/instructions/admin/update_config.rs',
       'src/instructions/initialize.rs',
@@ -158,7 +159,14 @@ export const REPIN_MAY_TOUCH = [
   'frontend/src/lib/solana/clmm/__fixtures__/program-vectors.json',
   'frontend/src/lib/solana/clmm/quote.ts',
   'frontend/scripts/clmm-vectors/vectors.rs',
+  // The daily fee sweep, whose test holds its account list equal to cp-swap's SweepFees: a patch
+  // that changes the sweep moves the job in the same pull request.
+  'frontend/scripts/venue-sweep.mjs',
+  'frontend/scripts/venue-sweep.test.mjs',
   '.github/workflows/solana-ci.yml',
+  // The mainnet build hashes solana-ci compares, once that file exists: a patch that changes a
+  // program changes its build's line in the same pull request.
+  '.github/scripts/solana-mainnet-builds.sha256',
 ];
 
 /** Line endings aside: the copies carry CRLF in places, and upstream does not. */
