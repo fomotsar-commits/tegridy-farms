@@ -1,6 +1,7 @@
 # The city's render
 
-`/city` shows the island as one night picture made in Blender, with the live parts (people
+`/city` shows the island as one picture made in Blender, an architect's model at night in a
+gallery, with the live parts (people
 walking a wallet's staking pay, plaques, the picked plot) drawn over it by the page. Tapping a
 building opens its close-up. This folder makes those pictures.
 
@@ -20,12 +21,18 @@ building opens its close-up. This folder makes those pictures.
   lamps, the art wrap). Everything takes the site's coordinates; Blender's world is the site's with
   y turned over, because the site's axonometric is a mirror of a real camera's view.
 - `buildings.py`: the twenty buildings, one idea each, every room's wrapped in its own picture.
-- `island.py`: builds the island from `plan.json` and renders it at night, with the drawing set's
-  cream line on the architecture.
-- `maquette.py`: a building's close-up, as an architect's model. It builds the plot with the
-  island's own builders, then swaps every material for a model maker's (basswood, white card, cork,
-  walnut, brass, gloss resin pools in each community's colour), lays the room's art as glazed tile
-  (each tile takes the picture's colour under its centre), sets the plot on a cut block and a black
+- `stock.py`: the model maker's stock both pictures are made of, so the island and its close-ups
+  are one model: basswood, white card, cork, walnut, brass, gloss resin pools in each community's
+  colour, the art laid as glazed tile (each tile takes the picture's colour under its centre),
+  white figures for scale, and the one Cycles setup. `swap()` hands the builders this stock in
+  place of `kit.py`'s night materials.
+- `island.py`: builds the island from `plan.json` as one model at night in a gallery: cork land on
+  a pale veneer beach, a sea of deep blue resin, grey card streets on card pavements, basswood palms
+  and beads for trees, three white figures on every plot. The gallery is dark (a low warm spot on
+  the middle of the town, a cool rim, a moon), so the model is lit by its own street lamps, windows
+  and pools. Cycles, the site's own axonometric camera.
+- `maquette.py`: a building's close-up, the same model seen up close. It builds the plot with the
+  island's own builders in `stock.py`'s stock, sets the plot on a cut block and a black
   plinth with three white figures for scale, and shoots it in Cycles at eye level: a 50 mm lens
   framed to the building's own size, from the corner its art wraps round, under a warm gallery spot,
   a cool rim light, and a blue-hour wall behind. Whatever stands between the camera and the
@@ -49,8 +56,8 @@ python render_all.py
 
 Blender 5.0 runs headless (`-b`), so nothing needs to be open. Set `BLENDER` to its exe if it is not
 at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs Pillow and NumPy.
-The island takes a few minutes; each close-up one to two minutes (Cycles, on the CPU of an 18-thread
-PC). Write test frames to an absolute path: Blender reads a relative one from its own working folder.
+The island takes about ten minutes; each close-up one to two minutes (Cycles, on the CPU of an
+18-thread PC). Write test frames to an absolute path: Blender reads a relative one from its own working folder.
 
 One close-up again: `python render_all.py <plotId>`. A quick look at one (a third of the size, few
 samples): `blender -b --factory-startup --python maquette.py -- <plotId> <absolute out.png> 0.35 24`.
