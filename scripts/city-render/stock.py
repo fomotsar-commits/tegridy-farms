@@ -1,8 +1,9 @@
 # The model maker's stock, shared by the island (island.py) and the close-ups (maquette.py), so the
 # whole city is one architect's model: basswood, white card, cork, walnut, brass, gloss resin, the
-# art laid as glazed tile, white figures for scale. Colour is kept for the art and the money.
-import bpy, math, os
-from mathutils import Vector
+# art laid as glazed tile, white figures for scale. Colour is kept for the art and the money. Its
+# palms, street lamps and harbour things are the owner's own models (props/), carved in the same wood.
+import bpy, bmesh, math, os
+from mathutils import Matrix, Vector
 import kit
 from kit import lin, hexrgb
 
@@ -94,7 +95,7 @@ def swap(**over):
     import buildings
     table = dict(wood=basswood, bamboo=basswood, thatch=jute, tin=zinc, stone=card, basalt=walnut, cream=card,
                  brass=brass, terrazzo=card, paving=card, lawn=cork, sand=cork, dark_glass=smoked,
-                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card())
+                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card(), palm=palm, lamp=lamp)
     table.update(over)
     for k, f in table.items():
         setattr(kit, k, f)
@@ -234,6 +235,108 @@ def figures(scene, P, ZP, PW, PD, inner):
     return picked
 
 
+# ---------- the owner's props (props/*.glb: made with Meshy AI, slimmed), in the same wood ----------
+PROPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'props')
+_props = {}
+
+
+def _carved(m):
+    """A prop's own picture read as basswood: its light and dark become the wood's, so detail stays and colour goes."""
+    if not m or not m.use_nodes:
+        return
+    nt = m.node_tree
+    b = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if b is None:
+        return
+    tex = next((l.from_node for l in nt.links if l.to_node == b and l.to_socket.name == 'Base Color' and l.from_node.type == 'TEX_IMAGE'), None)
+    ramp = nt.nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].color = (0.28, 0.19, 0.11, 1)
+    ramp.color_ramp.elements[1].color = (0.8, 0.66, 0.47, 1)
+    if tex:
+        bw = nt.nodes.new('ShaderNodeRGBToBW')
+        nt.links.new(tex.outputs['Color'], bw.inputs[0])
+        nt.links.new(bw.outputs[0], ramp.inputs['Fac'])
+    else:
+        ramp.inputs['Fac'].default_value = 0.6
+    nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
+    b.inputs['Metallic'].default_value = 0.0
+    b.inputs['Roughness'].default_value = 0.6
+
+
+def prop(name):
+    """
+    One prop's mesh, read once per scene: every part joined, upright, its base at 0 and centred,
+    carved in basswood. Returns (mesh, its width / depth / height, the middle of its top, e.g. a lamp's head).
+    """
+    if name in _props:
+        return _props[name]
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=os.path.join(PROPS, name + '.glb'))
+    new = [o for o in bpy.data.objects if o not in before]
+    bpy.context.view_layer.update()
+    bm = bmesh.new()
+    mats = []
+    for o in new:
+        if o.type != 'MESH':
+            continue
+        part = o.data.copy()
+        part.transform(o.matrix_world)
+        for p in part.polygons:
+            p.material_index += len(mats)
+        mats += list(o.data.materials)
+        bm.from_mesh(part)
+        bpy.data.meshes.remove(part)
+    me = bpy.data.meshes.new(f'prop {name}')
+    bm.to_mesh(me)
+    bm.free()
+    for m in mats:
+        me.materials.append(m)
+        _carved(m)
+    xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]; zs = [v.co.z for v in me.vertices]
+    me.transform(Matrix.Translation(Vector((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs)))))
+    dims = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+    top = [v.co for v in me.vertices if v.co.z > dims[2] * 0.93]
+    head = sum(top, Vector()) / len(top) if top else Vector((0, 0, dims[2]))
+    me.use_fake_user = True                      # a scene's builder deletes every object first, never meshes
+    for o in new:
+        bpy.data.objects.remove(o, do_unlink=True)
+    _props[name] = (me, dims, head)
+    return _props[name]
+
+
+def place(name, x, y, z, size, along='h', rot=0.0):
+    """A prop at site (x, y, z), `size` its height ('h') or its longest side ('l'), turned `rot` (Blender's sense, about z)."""
+    me, dims, _ = prop(name)
+    k = size / (dims[2] if along == 'h' else max(dims[0], dims[1]))
+    o = bpy.data.objects.new(name, me)
+    kit.put(o)
+    o.location = kit.V(x, y, z)
+    o.scale = (k, k, k)
+    o.rotation_euler = (0, 0, rot)
+    return o, k
+
+
+def palm(x, y, h, lean, ph, coll=None, z=0.06):
+    """
+    A palm `h` tall, the owner's coconut palm, turned by its phase `ph`: no two stand alike. Stands in
+    for kit.palm everywhere (swap), so the island, every close-up and BNKR's roof get the same palms.
+    Its lean is the model's own. (The owner's young palm is 180,000 triangles that will not slim: its
+    leaves are loose pieces the decimator cannot merge.)
+    """
+    place('coconut-palm', x, y, z - 0.06, h * 1.05, 'h', rot=ph)
+
+
+def lamp(x, y):
+    """A street lamp: the streetlight model, its head lit by a warm glow and a point light, as kit.lamp's was."""
+    rot = ((int(x * 3 + y * 5) % 8) / 8.0) * math.tau
+    o, k = place('streetlight', x, y, 0.0, 1.6, 'h', rot=rot)
+    hd = prop('streetlight')[2]
+    off = Matrix.Rotation(rot, 3, 'Z') @ Vector((hd.x * k, hd.y * k, 0))
+    hx, hy, hz = o.location.x + off.x, -(o.location.y + off.y), hd.z * k      # back to the site's y
+    kit.sphere('lamp head', hx, hy, hz - 0.08, 0.07, kit.glow(kit.WARM, 18.0, 'lamp glow'), seg=12)
+    kit.light('POINT', 'lamp', (hx, hy, hz - 0.12), 48, kit.WARM, shadow=False, soft=0.1)
+
+
 # ---------- the lights the builders made, at a model's strength ----------
 GLOW = {'lamp core': 4.0, 'roof cream': 0.0, 'beacon': 25.0, 'frosted': 0.35, 'embers': 4.0, 'flame': 6.0, 'lily leaf': 0.15}
 LIGHTS = {'lantern': 0.25, 'waist': 0.4, 'fire': 0.25, 'tower wash': 0.5}
@@ -241,20 +344,15 @@ LIGHTS = {'lantern': 0.25, 'waist': 0.4, 'fire': 0.25, 'tower wash': 0.5}
 
 def dress(glow=None, lights=None):
     """
-    Palms as laser-cut veneer fronds on walnut trunks; the lighthouse's stair and gallery in brass;
-    the island's sweeping beam taken out (only the LIGHT: the price keeper's beam is a mesh, and
-    stays); every light and lit material the builders made turned to a model's strength (AgX burns
-    a bright amber light to white).
+    The lighthouse's stair and gallery in brass; the island's sweeping beam taken out (only the
+    LIGHT: the price keeper's beam is a mesh, and stays); every light and lit material the builders
+    made turned to a model's strength (AgX burns a bright amber light to white).
     """
     glow = {**GLOW, **(glow or {})}
     lights = {**LIGHTS, **(lights or {})}
     for o in list(bpy.data.objects):
         n = o.name.split('.')[0]
-        if o.name.startswith('palm crown'):
-            o.data.materials.clear(); o.data.materials.append(basswood())
-        elif o.name.startswith('palm trunk'):
-            o.data.materials.clear(); o.data.materials.append(walnut())
-        elif n in ('stair rail', 'treads', 'gallery rail', 'gallery post', 'mast', 'lantern roof'):
+        if n in ('stair rail', 'treads', 'gallery rail', 'gallery post', 'mast', 'lantern roof'):
             o.data.materials.clear(); o.data.materials.append(brass())
         elif o.type == 'LIGHT':
             if n == 'beam':
