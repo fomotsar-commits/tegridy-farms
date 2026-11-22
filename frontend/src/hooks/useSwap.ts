@@ -574,7 +574,7 @@ export function useSwap(opts?: { chainId?: number }) {
       // 2026-11-01). The floor is the quote's own Min. Received, net of that fee.
       const { leg, feeBips, feeRecipient } = quote.v3;
       if (leg.side === 'buy') {
-        const call = buyWithEth({ coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, minOut: minReceivedRaw, feeBips, feeRecipient });
+        const call = buyWithEth({ chainId: swapChain, coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, minOut: minReceivedRaw, feeBips, feeRecipient });
         writeContract({ chainId: swapChain, address: leg.router, abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [call.commands, call.inputs, deadlineTs], value: parsedAmount });
         return;
       }
@@ -598,7 +598,7 @@ export function useSwap(opts?: { chainId?: number }) {
             const signature = await signTypedDataAsync({ domain: permit2Domain(swapChain), types: PERMIT_SINGLE_TYPES, primaryType: 'PermitSingle', message });
             permit = { permit: message, signature };
           }
-          const call = sellForEth({ coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, amountIn: parsedAmount, minOut: minReceivedRaw, feeBips, feeRecipient, permit });
+          const call = sellForEth({ chainId: swapChain, coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, amountIn: parsedAmount, minOut: minReceivedRaw, feeBips, feeRecipient, permit });
           writeContract({ chainId: swapChain, address: leg.router, abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [call.commands, call.inputs, deadlineTs] });
         } catch (e) {
           // Nothing was sent: release the latch and the snapshots, as a write error does.

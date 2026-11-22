@@ -28,6 +28,7 @@ import {
   type SwapRefusalCause,
   type SwapSimulation,
 } from '../../jupiter';
+import { trackSiteFeeWaived } from '../../analytics';
 
 /** Said before signing and in the result whenever the retry is the trade that goes out. */
 export const NO_SITE_FEE_ROUTE_COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
@@ -193,5 +194,12 @@ export async function prepareJupiterSwap(
     return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
   if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, ...caused(sim2) };
+  // Counted here, the one return that hands a fee-free trade to the wallet, so every caller is.
+  // A count that throws must never stop the trade it counts.
+  try {
+    trackSiteFeeWaived();
+  } catch {
+    /* not counted */
+  }
   return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true };
 }

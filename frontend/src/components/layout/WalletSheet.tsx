@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Modal } from '../ui/Modal';
+import { servedEvmChainNames } from '../../lib/chains/registry';
 import { reloadPage } from '../../lib/reloadPage';
 import {
   SOLANA_CONNECT_WAIT_NOTICE_MS,
@@ -216,7 +217,7 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
           busy={loading}
           onClick={onSolana}
         />
-        <Row name="Ethereum, Base, Robinhood Chain" detail={ethereumDetail} value={evm.label} onClick={onEthereum} />
+        <Row name={servedEvmChainNames().join(', ')} detail={ethereumDetail} value={evm.label} onClick={onEthereum} />
       </ul>
       <p role="status" className="sr-only">
         {solanaStatus}

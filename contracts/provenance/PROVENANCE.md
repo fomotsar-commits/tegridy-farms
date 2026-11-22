@@ -206,3 +206,20 @@ verbatim).
   Contracts CI build + `VerifyMVP` deploy gate's job.
 - ~~`UniswapV2OracleLibrary.sol` is vendored + hash-pinned but not yet a diff target~~ — row 8
   landed 2026-08-27: it is now the fourth diff target (see D7).
+
+## HyperEVM kit sources (pinned 2026-11-20, copied verbatim, no divergences)
+
+`contracts/hyperevm/` (our own Uniswap V3 on HyperEVM) compiles these copies exactly as their
+upstreams do. None is a diff target: there is no allowed divergence, so they are only hash-pinned.
+- `upstream/uniswap-protocol-fees/`: `Uniswap/protocol-fees` @ `eacc9c013cf74316263cfae7a00b3361a1644795`.
+  V3OpenFeeAdapter and its interface and library. Its compiled bytes are held against Uniswap's live
+  adapter by `contracts/hyperevm/scripts/check-adapter-bytes.mjs` (run in CI, offline).
+- `upstream/v3-core/`: `Uniswap/v3-core` @ `e3589b192d0be27e100cd0daaf6c97204fdb1899`. The
+  interfaces the adapter imports; this is the commit protocol-fees pins.
+- `upstream/solmate/`: `transmissions11/solmate` @ `e5e0ed64c75e74974151780884e59071d026d84e`.
+  `Owned`, as protocol-fees pins it.
+- `upstream/uniswap-contracts/`: `Uniswap/contracts` @ `a677c0d4b5fb6e3357cf6d0f0315bcb135a1e1ee`.
+  The briefcase V3 factory deployer: Uniswap's exact factory initcode, used by the kit's tests.
+
+Adding these sources changed only the pin list in each V2 snapshot's header line. No divergence
+changed.

@@ -7,8 +7,8 @@ import { doorArt } from '../doorArt';
 import { cityRooms } from '../../hooks/useCityReads';
 import { ZP } from './kit';
 import {
-  FD, FW, FX, FY, HILLS, ISLAND_CX, ISLAND_CY, ISLAND_REACH, NC, NR, PD, PIER_AVENUE, PIER_Y0, PIER_Y1, PW, RW, SX, SY, VILLA_DECK, XMAX, YMAX,
-  buildPlan, coast,
+  FD, FW, FX, FY, HILLS, ISLAND_CX, ISLAND_CY, ISLAND_REACH, JUNCTION_R, KERB, NC, NR, PAVE_W, PD, PIER_X, PIER_Y0, PIER_Y1, PW, ROAD_HALF, RW, SX, SY, VILLA_DECK,
+  buildPlan, coast, plotCorners,
 } from './plan';
 import { RENDER, RENDER_CENTER, RENDER_K, RENDER_SPAN } from './render';
 
@@ -32,17 +32,27 @@ function renderPlan() {
   }
   return {
     note: 'Written by frontend/src/lib/city/renderPlan.test.ts from lib/city/plan.ts. Do not edit by hand.',
-    grid: { PW, PD, RW, SX, SY, NC, NR, XMAX: r4(XMAX), YMAX: r4(YMAX), FX, FY, FW, FD, ZP, VILLA_DECK, PIER_AVENUE, PIER_Y0, PIER_Y1, ISLAND_CX: r4(ISLAND_CX), ISLAND_CY: r4(ISLAND_CY), ISLAND_REACH },
+    grid: {
+      PW, PD, RW, SX, SY, NC, NR, FX, FY, FW, FD, ZP, VILLA_DECK, ROAD_HALF, PAVE_W, KERB, JUNCTION_R, PIER_X, PIER_Y0, PIER_Y1,
+      ISLAND_CX: r4(ISLAND_CX), ISLAND_CY: r4(ISLAND_CY), ISLAND_REACH,
+    },
     render: { center: pt(RENDER_CENTER), span: [...RENDER_SPAN], k: RENDER_K, width: RENDER.full.width, height: RENDER.full.height },
+    // a plot's own parts are in its frame (where its builder makes it); `site` sets it down on the island
     plots: plan.plots.map((p) => ({
       id: p.id, kind: p.kind, civic: p.civic ?? null, piece: p.piece, name: p.name, tick: p.tick, acc: p.acc, c: p.c, r: p.r,
-      x0: r4(p.x0), y0: r4(p.y0), X: r4(p.X), Y: r4(p.Y), cx: r4(p.cx), cy: r4(p.cy), mural: p.mural ?? null,
+      x0: r4(p.x0), y0: r4(p.y0), X: r4(p.X), Y: r4(p.Y), cx: r4(p.fx), cy: r4(p.fy), mural: p.mural ?? null,
+      site: { x: r4(p.site.x), y: r4(p.site.y), rot: r4(p.site.rot) },
       pool: p.pool ? { pts: p.pool.pts.map(pt), cx: r4(p.pool.cx), cy: r4(p.pool.cy), rw: r4(p.pool.rw), rd: r4(p.pool.rd), water: p.pool.water, lanes: p.pool.lanes, jet: p.pool.jet, lilies: p.pool.lilies } : null,
       garden: p.garden ? p.garden.map(pt) : null,
     })),
+    // a plot's palms in its frame; the street's and the shore's on the island
     palms: plan.palms.map((t) => ({ x: r4(t.x), y: r4(t.y), h: r4(t.h), lean: r4(t.lean), r: r4(t.r), ph: r4(t.ph), plot: t.plot?.id ?? null })),
+    // each plot's own lamps, in its frame
     lamps: plan.lamps.map((l) => pt([l.x, l.y])),
-    zebras: plan.zebras.map((z) => ({ kind: z.kind, i: z.i, at: r4(z.at) })),
+    streetLamps: plan.streetLamps.map(pt),
+    roads: plan.roads.map((r) => ({ id: r.id, pts: r.pts.map(pt), dead: r.dead })),
+    junctions: plan.junctions.map(pt),
+    zebras: plan.zebras.map((z) => ({ road: z.road, x: r4(z.x), y: r4(z.y), a: r4(z.a) })),
     coast: Object.fromEntries([1, 0.95, 1.03, 1.12, 1.26].map((s) => [String(s), coast(s).map(pt)])),
     hills: HILLS.map((h) => ({ ...h })),
     art,
@@ -61,10 +71,11 @@ describe('the island Blender renders', () => {
     const want = renderPlan();
     expect(Object.keys(want.art).sort()).toEqual(want.plots.filter((p) => p.kind === 'room').map((p) => p.id).sort());
     for (const src of Object.values(want.art)) expect(src).toMatch(/^\/art\/.+\.(jpe?g|png|webp)$/i);
-    // every plot inside the frame, with room above it for its roof
+    // every plot inside the frame where it stands, with room above it for its roof
+    const plan = buildPlan(cityRooms());
     const [cx, cy, cz] = RENDER_CENTER;
-    for (const p of want.plots) {
-      for (const [x, y] of [[p.x0, p.y0], [p.x0 + PW, p.y0 + PD]] as const) {
+    for (const p of plan.plots) {
+      for (const [x, y] of plotCorners(p)) {
         const sx = (x - y - (cx - cy)) * Math.sqrt(3) / 2;
         const sy = (x + y - (cx + cy)) / 2 + cz;
         expect(Math.abs(sx), `${p.id} across`).toBeLessThan(RENDER_SPAN[0] / 2);

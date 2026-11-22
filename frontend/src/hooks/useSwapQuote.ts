@@ -4,6 +4,7 @@ import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { WETH_ADDRESS, CHAIN_ID, SWAP_FEE_BPS } from '../lib/constants';
 import { swapVenueOn, openingSwapVenue } from '../lib/chains/swapVenue';
+import { useRouteCut } from './useRouteCut';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 import { portion } from '../lib/evm/universalRouter';
@@ -240,7 +241,11 @@ export function useSwapQuote(
     query: { enabled: pairsEnabled },
   });
 
-  const hasTegridyPair = onRightChain && !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
+  const tegridyPairExists = onRightChain && !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
+  // Our pools are quoted only when every pool on `path` has the venue's cut on. Off or unread,
+  // the route is not offered (lib/evm/venueCut.ts: an old factory opens pools for free).
+  const baseCut = useRouteCut(venue?.factory, path, quoteChainId, pairsEnabled && path.length >= 2);
+  const hasTegridyPair = tegridyPairExists && baseCut === 'on';
 
   // Get quote from Venue Router (only if own pair exists)
   const { data: tegridyAmountsOut, isLoading: isTegridyQuoteLoading, refetch: refetchTegridy } = useReadContract({
@@ -267,7 +272,9 @@ export function useSwapQuote(
     chainId: quoteChainId,
     query: { enabled: pairsEnabled && !!openingVenue },
   });
-  const hasOpeningPair = !!openingVenue && !!openingPairAddr && openingPairAddr !== ZERO_ADDR;
+  const openingPairExists = !!openingVenue && !!openingPairAddr && openingPairAddr !== ZERO_ADDR;
+  const openingCut = useRouteCut(openingVenue?.factory, path, quoteChainId, pairsEnabled && !!openingVenue && path.length >= 2);
+  const hasOpeningPair = openingPairExists && openingCut === 'on';
   const { data: openingAmountsOut, isLoading: isOpeningQuoteLoading, refetch: refetchOpening } = useReadContract({
     address: at(openingVenue?.router),
     abi: TEGRIDY_ROUTER_ABI,
@@ -527,7 +534,8 @@ export function useSwapQuote(
   const intermediateAmount = activeAmountsOut && activeAmountsOut.length === 3 ? activeAmountsOut[1] : undefined;
 
   const isQuoteLoading = isUniQuoteLoading || (hasTegridyPair && isTegridyQuoteLoading)
-    || (hasOpeningPair && isOpeningQuoteLoading) || (!!v3Leg && isV3QuoteLoading);
+    || (hasOpeningPair && isOpeningQuoteLoading) || (!!v3Leg && isV3QuoteLoading)
+    || (tegridyPairExists && baseCut === 'loading') || (openingPairExists && openingCut === 'loading');
 
   // Price impact calculation.
   //
