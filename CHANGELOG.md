@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-22
 
-- The city: each bungalow's garden corner is now real carved furniture, on the island and in its close-up: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
+- The city: each bungalow's garden corner is now real carved furniture on the island: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
 
 ### 2026-11-21
 

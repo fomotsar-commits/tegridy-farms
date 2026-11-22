@@ -46,8 +46,9 @@ building opens its close-up. This folder makes those pictures.
   a cool rim light, and a blue-hour wall behind. Whatever stands between the camera and the
   building (a palm, a lamp, its garden corner) is left out. Colour is kept for the art and the
   money; the rest is pale model stock.
-- Each room's garden corner is one of four, by its id: a parasol over loungers, a fire pit with log
-  stools, a daybed under a canopy in its pool's colour, or a hammock.
+- Each room's garden corner is one of four, by its id, all the owner's own furniture: a sun umbrella
+  over loungers, a fire pit ringed by its stools, a pair of pool loungers by a floor lantern, or a
+  hammock. Only the island shows them: a close-up always leaves its garden corner out.
 - `grade.py`: a soft glow round the brightest lights and a light vignette.
 - `render_all.py`: renders the island and every close-up and writes them to `frontend/public/city/`.
 
