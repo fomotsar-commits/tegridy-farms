@@ -205,6 +205,35 @@ lockfile's `packages` map, resolving each dependency name as Node does (the pack
 copies no audit lists, search the installed tree for a string from the flawed file:
 `grep -rl -F POSIX_REGEX_SOURCE node_modules`.
 
+## 2026-11-16: a partial `vi.mock` of a module breaks code that merely imports a new export from it
+
+**Believed:** `vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }))` matters only to
+code that calls `trackPageView`.
+
+**Measured** (full `npx vitest run`, Windows, 2026-11-16): adding one `trackSiteFeeWaived()` call
+inside `prepareJupiterSwap` turned 16 page tests red (SolanaSwapPage.feeRetry 7, .ownPool 9).
+Vitest throws when code reads an export the mock factory did not define, so the swap path threw,
+and the page reported a failed build. In production nothing throws.
+
+**Do:** before adding an import to a shared module, grep the tests for partial mocks of the module
+you import from. A side-effect-only call (a count, a log) on a money path goes in `try/catch`: it
+must never stop the trade it records.
+
+## 2026-11-16: a harness that answers every chain read with one value hides a new read from its tests
+
+**Believed:** a hook test whose `publicClient.readContract` is `mockResolvedValue([in, out])` keeps
+testing the same swap after the hook adds a read before it.
+
+**Measured** (same run): the limit-order and DCA hooks began reading `getPair` and `kLast` first.
+The array answered `getPair`, the new check called the pool unread, and 24 limit-order tests went
+red. The two DCA files stayed green but no longer tested our pool: ETH-in DCA quietly fell back to
+Uniswap.
+
+**Do:** answer reads by `functionName` (`mockImplementation`), and when a guard is added, look
+for tests that stayed green for the wrong reason, not just the ones that went red. A build guard in
+a Vite plugin is testable without bundling: `resolveConfig({ configFile }, 'build', 'production')`
+runs every plugin's `configResolved`, in about a second.
+
 ## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
 
 **Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on

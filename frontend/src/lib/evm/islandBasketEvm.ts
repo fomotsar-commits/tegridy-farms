@@ -1,8 +1,9 @@
 import { encodeFunctionData } from 'viem';
-import { SWAP_FEE_ROUTER_ABI, TEGRIDY_FACTORY_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../contracts';
+import { SWAP_FEE_ROUTER_ABI, TEGRIDY_FACTORY_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_ROUTER_ABI } from '../contracts';
 import type { SwapVenue } from '../chains/swapVenue';
 import { minOut, type EvmBasketCoin, type EvmPool } from '../islandBasket';
 import { UNIVERSAL_ROUTER_ABI, buyManyWithEth, portion, universalRouterOn } from './universalRouter';
+import { venueCutOf } from './venueCut';
 
 /**
  * The island order on Ethereum and Base: quote every pool each coin has, take the one
@@ -144,11 +145,16 @@ async function quoteOutside(client: QuoteClient, venue: SwapVenue, quoter: `0x${
 
 /**
  * Our pool's quote, net of SwapFeeRouter's fee read live (the same linear haircut the
- * swap uses: it never over-promises). A fee outside 0–10% is no reading. Null: no pair.
+ * swap uses: it never over-promises). A fee outside 0–10% is no reading. Null: no pair, or its cut off.
  */
 async function quoteOurs(client: QuoteClient, venue: SwapVenue, coin: EvmBasketCoin, amountIn: bigint): Promise<{ out: bigint; feeBps: bigint } | null> {
   const pair = (await client.readContract({ address: venue.factory, abi: TEGRIDY_FACTORY_ABI, functionName: 'getPair', args: [coin.token, venue.weth] })) as string;
   if (!pair || pair.toLowerCase() === ZERO) return null;
+  // Our pool only with the venue's cut on (lib/evm/venueCut.ts). Off: not ours to route.
+  // Unread: the leg is unread, never priced as if the cut were on.
+  const cut = venueCutOf(await client.readContract({ address: pair as `0x${string}`, abi: UNISWAP_V2_PAIR_ABI, functionName: 'kLast' }));
+  if (cut === 'off') return null;
+  if (cut === 'unread') throw new Error('venue cut unread');
   const [amounts, feeBps] = await Promise.all([
     client.readContract({ address: venue.router, abi: TEGRIDY_ROUTER_ABI, functionName: 'getAmountsOut', args: [amountIn, [venue.weth, coin.token]] }) as Promise<readonly bigint[]>,
     client.readContract({ address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' }) as Promise<bigint>,
