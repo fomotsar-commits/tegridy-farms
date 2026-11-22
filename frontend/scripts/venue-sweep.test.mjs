@@ -2798,6 +2798,24 @@ describe("venue-sweep: a run", () => {
     expect(line).toMatch(/simulated clean/);
   });
 
+  it("a backslash in any cell is escaped too, so a '\\|' in a refusal's logs cannot break the summary's table", async () => {
+    const chain = fakeChain({
+      pools: [big],
+      tiers,
+      accounts: opened(VAULT, WORKSHOP),
+      simErr: (tx) => (sweepsIn(tx).some((ix) => sideOf(ix) === "venue") ? { InstructionError: [0, { Custom: 6018 }] } : null),
+      simLogs: ["Program log: one \\| two", "Program log: a \\ b"],
+    });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(res.pools[0].venue.result).toContain("Program log: one \\| two; Program log: a \\ b");
+    const line = summary(res, { live: false })
+      .split("\n")
+      .find((l) => l.includes(big[0]));
+    // In a table a "|" ends a cell unless an odd number of backslashes stands before it.
+    expect(line.split(/(?<!\\)(?:\\\\)*\|/).length).toBe(8); // six cells between seven pipes
+    expect(line).toContain("one \\\\\\| two; Program log: a \\\\ b");
+  });
+
   it("the summary's table keeps a pool whose sides only wait or are held back, each with its account named, though the run passes", async () => {
     // The pool's own SOL account frozen and each side owed only SOL: both wait, and nothing is sent.
     const waiting = legPool({ protocol: [51_216_483n, 0n], fund: [23_051_592n, 0n], frozen: { pool: [0] } });

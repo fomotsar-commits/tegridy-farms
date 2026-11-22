@@ -912,8 +912,9 @@ export async function run(opts, deps) {
 }
 
 export function summary(res, opts) {
-  // A cell holds no table syntax: a "|" is escaped and a line break becomes a space.
-  const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  // A cell holds no table syntax: a backslash and then a "|" are escaped (as verify-addresses.mjs
+  // does), and a line break becomes a space.
+  const cell = (s) => String(s ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
   const lines = [
     `### Venue sweep (${opts.live ? "live" : "dry run"})`,
     "",
