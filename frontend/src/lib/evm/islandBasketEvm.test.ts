@@ -151,10 +151,11 @@ describe('quoteEvmLegs', () => {
   const ZERO = '0x0000000000000000000000000000000000000000';
   const PAIR = '0x00000000000000000000000000000000000000bb';
   /** A chain in a box: answers by function name; `fail` names reads that throw; `quoted` keeps what V3 was asked to price. */
-  const box = (o: { pair?: string; fee?: bigint; payee?: string; fail?: string[]; quoted?: bigint[] } = {}): QuoteClient => ({
+  const box = (o: { pair?: string; fee?: bigint; payee?: string; kLast?: bigint; fail?: string[]; quoted?: bigint[] } = {}): QuoteClient => ({
     readContract: async ({ functionName, args }) => {
       if (o.fail?.includes(functionName)) throw new Error('rpc down');
       if (functionName === 'getPair') return o.pair ?? ZERO;
+      if (functionName === 'kLast') return o.kLast ?? 7n;
       if (functionName === 'feeBps') return o.fee ?? 50n;
       if (functionName === 'revenueDistributor') return o.payee ?? SAFE;
       if (functionName === 'getAmountsOut') return [args![0] as bigint, (args![0] as bigint) * 3n];
@@ -199,6 +200,18 @@ describe('quoteEvmLegs', () => {
       expect(out.map((l) => l.venueFee)).toEqual([null, null]);
       expect(quoted).toEqual([]);
     }
+  });
+
+  it('our pool with the venue cut off (kLast 0) is no pool of ours: never routed', async () => {
+    const [leg] = await quoteEvmLegs(box({ pair: PAIR, kLast: 0n }), BASE, legs);
+    expect(leg!.ours).toBeNull();
+    expect(leg!.unread).toBe(false);
+  });
+
+  it('our pool whose kLast did not answer marks the coin unread, never priced as ours', async () => {
+    const [leg] = await quoteEvmLegs(box({ pair: PAIR, fail: ['kLast'] }), BASE, legs);
+    expect(leg!.ours).toBeNull();
+    expect(leg!.unread).toBe(true);
   });
 
   it('no pair of ours is no pool, not a failure', async () => {

@@ -44,6 +44,8 @@ const IN = parseEther('1');
 function pools({ base, fresh, uni }: { base: bigint | null; fresh: bigint | null; uni: bigint }) {
   wagmiMock.setReadResult({ functionName: 'getPair', address: TEGRIDY_FACTORY_ADDRESS, result: base === null ? ZERO : PAIR });
   wagmiMock.setReadResult({ functionName: 'getPair', address: OPENING_FACTORY, result: fresh === null ? ZERO : PAIR });
+  // Both factories' pools have the venue's cut on (kLast set): a pool with it off is never quoted.
+  wagmiMock.setReadResult({ functionName: 'kLast', address: PAIR, result: 7n });
   if (base !== null) wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: TEGRIDY_ROUTER_ADDRESS, result: [IN, base] });
   if (fresh !== null) wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: OPENING_ROUTER, result: [IN, fresh] });
   wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: UNISWAP_V2_ROUTER, result: [IN, uni] });
