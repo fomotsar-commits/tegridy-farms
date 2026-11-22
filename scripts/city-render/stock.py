@@ -101,6 +101,9 @@ def swap(**over):
         setattr(kit, k, f)
         if hasattr(buildings, k):
             setattr(buildings, k, f)
+    # the owner's own buildings stand in for the designed pieces they replace (owners.py)
+    import owners
+    buildings.BUILDERS.update(owners.BUILDERS)
 
 
 # ---------- the art as a glazed tile mosaic ----------
@@ -205,7 +208,8 @@ def open_ground(scene, P, ZP, PW, PD, inner, steps=(26, 22), n=3):
     """
     dg = bpy.context.evaluated_depsgraph_get()
     x0, y0 = P['x0'], P['y0']
-    FCX, FCY = (x0 + 5.4, y0 + 2.8) if P['piece'] == 'lifeguard' else (P['X'] + 1.6, P['Y'] + 1.4)
+    import owners
+    FCX, FCY = owners.centre(P) if P['piece'] in owners.PIECES else (P['X'] + 1.6, P['Y'] + 1.4)
 
     def ground(x, y):
         hit, loc, nrm, idx, ob, mw = scene.ray_cast(dg, kit.V(x, y, 30), Vector((0, 0, -1)))
@@ -240,8 +244,12 @@ PROPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'props')
 _props = {}
 
 
-def _carved(m):
-    """A prop's own picture read as basswood: its light and dark become the wood's, so detail stays and colour goes."""
+def _carved(m, water=None):
+    """
+    A prop's own picture read as basswood: its light and dark become the wood's, so detail stays and
+    colour goes. With `water` (colour, glow), the picture's water (where it is bluer than it is red or
+    green) is poured as resin in that colour, lit from within, as the plots' pools are.
+    """
     if not m or not m.use_nodes:
         return
     nt = m.node_tree
@@ -261,12 +269,42 @@ def _carved(m):
     nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
     b.inputs['Metallic'].default_value = 0.0
     b.inputs['Roughness'].default_value = 0.6
+    if not (water and tex):
+        return
+    colour, strength = water
+    pick = lambda node, name: next(x for x in node.inputs if x.name == name and x.type == 'RGBA')
+    out = lambda node: next(x for x in node.outputs if x.type == 'RGBA')
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(tex.outputs['Color'], sep.inputs[0])
+    most = nt.nodes.new('ShaderNodeMath'); most.operation = 'MAXIMUM'
+    nt.links.new(sep.outputs[0], most.inputs[0]); nt.links.new(sep.outputs[1], most.inputs[1])
+    blue = nt.nodes.new('ShaderNodeMath'); blue.operation = 'SUBTRACT'
+    nt.links.new(sep.outputs[2], blue.inputs[0]); nt.links.new(most.outputs[0], blue.inputs[1])
+    wet = nt.nodes.new('ShaderNodeMapRange'); wet.clamp = True
+    wet.inputs['From Min'].default_value = 0.04; wet.inputs['From Max'].default_value = 0.16
+    nt.links.new(blue.outputs[0], wet.inputs['Value'])
+    base = nt.nodes.new('ShaderNodeMix'); base.data_type = 'RGBA'
+    nt.links.new(wet.outputs['Result'], base.inputs['Factor'])
+    nt.links.new(ramp.outputs['Color'], pick(base, 'A'))
+    pick(base, 'B').default_value = (*colour, 1)
+    nt.links.new(out(base), b.inputs['Base Color'])
+    lit = nt.nodes.new('ShaderNodeMix'); lit.data_type = 'RGBA'
+    nt.links.new(wet.outputs['Result'], lit.inputs['Factor'])
+    pick(lit, 'A').default_value = (0, 0, 0, 1)
+    pick(lit, 'B').default_value = (*colour, 1)
+    nt.links.new(out(lit), b.inputs['Emission Color'])
+    b.inputs['Emission Strength'].default_value = strength
+    gloss = nt.nodes.new('ShaderNodeMapRange')
+    gloss.inputs['To Min'].default_value = 0.6; gloss.inputs['To Max'].default_value = 0.05
+    nt.links.new(wet.outputs['Result'], gloss.inputs['Value'])
+    nt.links.new(gloss.outputs['Result'], b.inputs['Roughness'])
 
 
-def prop(name):
+def prop(name, water=None):
     """
     One prop's mesh, read once per scene: every part joined, upright, its base at 0 and centred,
-    carved in basswood. Returns (mesh, its width / depth / height, the middle of its top, e.g. a lamp's head).
+    carved in basswood (its water poured as resin, with `water`: see _carved; the first read decides).
+    Returns (mesh, its width / depth / height, the middle of its top, e.g. a lamp's head).
     """
     if name in _props:
         return _props[name]
@@ -291,7 +329,7 @@ def prop(name):
     bm.free()
     for m in mats:
         me.materials.append(m)
-        _carved(m)
+        _carved(m, water)
     xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]; zs = [v.co.z for v in me.vertices]
     me.transform(Matrix.Translation(Vector((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs)))))
     dims = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
@@ -316,14 +354,17 @@ def place(name, x, y, z, size, along='h', rot=0.0):
     return o, k
 
 
-def palm(x, y, h, lean, ph, coll=None, z=0.06):
+def palm(x, y, h, lean, ph, coll=None, z=0.06, young=False):
     """
     A palm `h` tall, the owner's coconut palm, turned by its phase `ph`: no two stand alike. Stands in
     for kit.palm everywhere (swap), so the island, every close-up and BNKR's roof get the same palms.
-    Its lean is the model's own. (The owner's young palm is 180,000 triangles that will not slim: its
-    leaves are loose pieces the decimator cannot merge.)
+    Its lean is the model's own. `young`: the owner's young palm, a little shorter (the island's
+    streets and shore mix them in; its leaves are loose pieces, so it keeps more triangles).
     """
-    place('coconut-palm', x, y, z - 0.06, h * 1.05, 'h', rot=ph)
+    if young:
+        place('palm-young', x, y, z - 0.06, h * 0.85, 'h', rot=ph)
+    else:
+        place('coconut-palm', x, y, z - 0.06, h * 1.05, 'h', rot=ph)
 
 
 def lamp(x, y):

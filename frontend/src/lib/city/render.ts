@@ -25,10 +25,10 @@ const cityPicture = (file: string): string => `/city/${file}?v=${(FINGERPRINTS a
  * picture reaches up to it.
  */
 export const PIECE_TOP: Record<PieceId, number> = {
-  wing: 4.06, pads: 3.86, blade: 3.46, balance: 3.36, ghost: 3.26,
+  wing: 4.06, pads: 3.86, market: 2.47, balance: 3.36, ghost: 3.26,
   slouch: 3.46, monolith: 4.06, gridshell: 2.13, wave: 2.81, lantern: 3.26,
-  lighthouse: 8.04, canopy: 3.66, hourglass: 5.16, lifeguard: 4.26, lift: 5.06,
-  halo: 4.16, stack: 4.96, villa: 2.61, bloom: 3.81, slip: 3.06,
+  lighthouse: 8.04, pavilion: 3.26, bank: 3.35, poolclub: 1.23, lift: 5.06,
+  halo: 4.16, stack: 4.96, villa: 2.61, bloom: 3.81, marina: 3.34,
 };
 
 /**
@@ -39,14 +39,14 @@ export const PIECE_TOP: Record<PieceId, number> = {
  * lamp, ring or petal. A piece not rendered yet (QR's lantern) has none rather than a guess.
  */
 export const PIECE_MEDIUM: Partial<Record<PieceId, string>> = {
-  wing: 'Glazed tile, jute, basswood, card', pads: 'Glazed tile, card, light', blade: 'Zinc, card, light',
+  wing: 'Glazed tile, jute, basswood, card', pads: 'Glazed tile, card, light', market: 'Carved basswood, card, light',
   balance: 'Brass, card, light', ghost: 'Basswood, card', slouch: 'Glazed tile, card',
   monolith: 'Glazed tile, walnut, card, light', gridshell: 'Glazed tile, basswood, walnut, card',
   wave: 'Glazed tile, basswood, card', lighthouse: 'Glazed tile, brass, amber glass',
-  canopy: 'Card, smoked glass, light', hourglass: 'Brass rod, card', lifeguard: 'White card',
+  pavilion: 'Carved basswood, card, light', bank: 'Carved basswood, card, light', poolclub: 'Carved basswood, resin, light',
   lift: 'Glazed tile, jute, basswood, card', halo: 'Glazed tile, walnut, card, light',
   stack: 'Glazed tile, jute, basswood, card', villa: 'Card, basswood, jute, light',
-  bloom: 'Glazed tile, basswood, light', slip: 'Basswood, walnut, card',
+  bloom: 'Glazed tile, basswood, light', marina: 'Carved basswood, card, light',
 };
 
 /** The world point at the middle of the image: x, y, z. */

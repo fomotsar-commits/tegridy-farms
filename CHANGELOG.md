@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-22
 
 - The city: each bungalow's garden corner is now real carved furniture on the island: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
+- The city is fully dressed with the owner's own models: the Treasury is a bank, Central Station a pavilion, NFT loans a market hall, Range a pool club and the Launch slip a harbour office flying three flags; a lighthouse lights the pier's head; a hotel, a café and a veranda house stand on open ground; sea grape, banana, rocks, benches, planters, bus shelters and a food stall fill the streets, and two small islands sit out at sea.
 
 ### 2026-11-21
 
