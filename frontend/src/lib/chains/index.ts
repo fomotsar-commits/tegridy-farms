@@ -14,6 +14,8 @@ export {
   contractOn,
   getChainConfig,
   isChainConfigured,
+  isChainServed,
+  servedEvmChainNames,
   launchWrongChainMessage,
   unconfiguredChainLabel,
 } from './registry';

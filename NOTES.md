@@ -15,6 +15,50 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-20: Uniswap's SDK builds a deposit from the amount typed, even when the range cannot take that coin
+
+**Believed:** `Position.fromAmount0` (and `fromAmount1`) from `@uniswap/v3-sdk` 3.31.11 turns
+"I put in this much of token0" into a position that uses about that much token0.
+
+**Measured** (a unit test on a WHYPE / USD₮0 pool at 40, 2026-11-20): for a range wholly below
+the price, which holds only token1, `fromAmount0(1e18)` returned a position whose mint amounts
+were 0 token0 and an enormous token1. The SDK passes the other side as `MaxUint256` to
+`maxLiquidityForAmounts`, so when the range cannot take the coin typed, the other coin alone
+sets the liquidity, unbounded. The same holds above the price for `fromAmount1`.
+
+**Do:** before `fromAmount0`, refuse a range with `tick >= tickUpper`; before `fromAmount1`, one
+with `tick < tickLower`, and tell the visitor to type the other coin
+(`frontend/src/lib/hyperevm/positions.ts` `pairedAmount`).
+
+## 2026-11-20: vi.doMock reached none of the modules loaded together with Promise.all
+
+**Believed:** after `vi.resetModules()` and `vi.doMock('./x', ...)`, `await Promise.all([import(a),
+import(b), ...])` loads every module against the mock.
+
+**Measured** (`frontend/src/lib/chains/hyperEvm.test.ts`, vitest 5.0.3, 2026-11-20): with seven
+modules imported in one `Promise.all`, none saw the mocked record. The same imports awaited one
+at a time all saw it, and a lone `import()` did too.
+
+**Do:** after a `doMock`, await each dynamic import in turn.
+
+## 2026-11-20: on this PC a failed npm install can leave a package half-written, and a clean npm ci can skip native builds
+
+**Believed:** an `npm install` that dies on `ECONNRESET` leaves `node_modules` as it was, and a
+fresh `npm ci` from a lockfile that lists `@rolldown/binding-win32-x64-msvc` installs it.
+
+**Measured** (private installs under `C:\Users\jimbo\dev\wt\`, 2026-11-20): after two installs
+died on `ECONNRESET`, `@solana/kit` 8.3.0 had its `.d.ts` files and `index.browser.mjs` missing
+(tsc: "Cannot find module '@solana/kit'"), and the rolldown binding's `.node` file was "not a
+valid Win32 application". A clean `npm ci` into a new folder (exit 0) then had no
+`@rolldown/binding-win32-x64-msvc` and no `lightningcss-win32-x64-msvc` at all, so vitest
+would not start ("Cannot find native binding"). The lockfile still listed every platform's
+package (72 before and after).
+
+**Do:** after an install on a flaky network, run tsc and start vitest before trusting it. To mend
+one package without a reinstall: `npm pack <name>@<locked version>`, extract the tarball, copy
+`package/` over the folder, and `require()` it to prove it loads. Check the version against the
+lockfile: an unpinned `npm pack` fetched lightningcss 1.33.0 where the lock says 1.32.0.
+
 ## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
 
 **Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
@@ -174,6 +218,35 @@ Importing `lib/chains/registry` instead, as `swapVenue.ts` does, made all three 
 
 **Do:** code that needs only chain records imports `lib/chains/registry`. Keep the index for code
 that also wants the wagmi chains and transports.
+
+## 2026-11-16: a partial `vi.mock` of a module breaks code that merely imports a new export from it
+
+**Believed:** `vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }))` matters only to
+code that calls `trackPageView`.
+
+**Measured** (full `npx vitest run`, Windows, 2026-11-16): adding one `trackSiteFeeWaived()` call
+inside `prepareJupiterSwap` turned 16 page tests red (SolanaSwapPage.feeRetry 7, .ownPool 9).
+Vitest throws when code reads an export the mock factory did not define, so the swap path threw,
+and the page reported a failed build. In production nothing throws.
+
+**Do:** before adding an import to a shared module, grep the tests for partial mocks of the module
+you import from. A side-effect-only call (a count, a log) on a money path goes in `try/catch`: it
+must never stop the trade it records.
+
+## 2026-11-16: a harness that answers every chain read with one value hides a new read from its tests
+
+**Believed:** a hook test whose `publicClient.readContract` is `mockResolvedValue([in, out])` keeps
+testing the same swap after the hook adds a read before it.
+
+**Measured** (same run): the limit-order and DCA hooks began reading `getPair` and `kLast` first.
+The array answered `getPair`, the new check called the pool unread, and 24 limit-order tests went
+red. The two DCA files stayed green but no longer tested our pool: ETH-in DCA quietly fell back to
+Uniswap.
+
+**Do:** answer reads by `functionName` (`mockImplementation`), and when a guard is added, look
+for tests that stayed green for the wrong reason, not just the ones that went red. A build guard in
+a Vite plugin is testable without bundling: `resolveConfig({ configFile }, 'build', 'production')`
+runs every plugin's `configResolved`, in about a second.
 
 ## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
 

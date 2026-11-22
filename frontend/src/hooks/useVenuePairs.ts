@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useReadContract, useReadContracts } from 'wagmi';
 import { ERC20_ABI, TEGRIDY_FACTORY_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
 import { liquidityVenueOn, openingVenueOn } from '../lib/chains/liquidityVenue';
+import { venueCutOf } from '../lib/evm/venueCut';
 
 /** The most pools listed at once; a longer list says how many it left out. */
 export const VENUE_PAIRS_SHOWN = 50;
@@ -27,7 +28,7 @@ export interface VenuePair {
   readonly token1: VenuePairToken | null;
   readonly reserve0: bigint | null;
   readonly reserve1: bigint | null;
-  /** Non-zero once the venue's one-sixth cut is switched on for this pool. */
+  /** Non-zero once the venue's one-sixth cut is switched on for this pool. Never 0 in a listed pool. */
   readonly kLast: bigint | null;
 }
 
@@ -37,7 +38,8 @@ export type VenuePairsRead =
   | { readonly status: 'unread' }
   /** allPairsLength() answered 0. The only state that may say "no pools". */
   | { readonly status: 'empty' }
-  | { readonly status: 'listed'; readonly total: number; readonly pairs: readonly VenuePair[] };
+  /** `hidden`: pools read whose cut reads off (kLast 0), left out of `pairs`: never listed, never routed. */
+  | { readonly status: 'listed'; readonly total: number; readonly pairs: readonly VenuePair[]; readonly hidden: number };
 
 type Result = { status: string; result?: unknown } | undefined;
 const ok = <T,>(r: Result): T | null => (r?.status === 'success' ? (r.result as T) : null);
@@ -49,8 +51,21 @@ const PAIR_CALLS = ['token0', 'token1', 'getReserves', 'kLast'] as const;
  * open a pool once it is deployed (owner ruling 2026-10-25). Each factory is read the same way
  * (useFactoryPairs). The list is "empty" only when every factory answered 0, and "unread" when
  * any did not answer: a pool list that silently drops a factory would read as complete.
+ * A pool whose kLast() reads 0 is left out and counted in `hidden`; one whose kLast() did
+ * not answer stays, as unread.
  */
 export function useVenuePairs(chainId: number): VenuePairsRead {
+  return withCutOn(useBothFactories(chainId));
+}
+
+/** `read` without the pools whose venue cut reads off. Indexes keep their places. */
+function withCutOn(read: VenuePairsRead): VenuePairsRead {
+  if (read.status !== 'listed') return read;
+  const pairs = read.pairs.filter((p) => p.address === null || venueCutOf(p.kLast) !== 'off');
+  return { ...read, pairs, hidden: read.hidden + read.pairs.length - pairs.length };
+}
+
+function useBothFactories(chainId: number): VenuePairsRead {
   const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
   const opening = useMemo(() => openingVenueOn(chainId), [chainId]);
   const base = useFactoryPairs(venue?.factory ?? null, venue?.chainId ?? 0, 0);
@@ -63,7 +78,7 @@ export function useVenuePairs(chainId: number): VenuePairsRead {
   if (base.status === 'loading' || fresh.status === 'loading') return { status: 'loading' };
   if (base.status === 'empty') return fresh;
   if (fresh.status === 'empty') return base;
-  return { status: 'listed', total: base.total + fresh.total, pairs: [...base.pairs, ...fresh.pairs] };
+  return { status: 'listed', total: base.total + fresh.total, pairs: [...base.pairs, ...fresh.pairs], hidden: 0 };
 }
 
 /**
@@ -163,5 +178,5 @@ function useFactoryPairs(factoryOrNull: Hex | null, readChainId: number, indexOf
       kLast: ok<bigint>(detail(k, 'kLast')),
     };
   });
-  return { status: 'listed', total, pairs };
+  return { status: 'listed', total, pairs, hidden: 0 };
 }

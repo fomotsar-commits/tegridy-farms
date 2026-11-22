@@ -1,9 +1,11 @@
 // The L2 pool list says only what its reads returned: "No pools yet" only when
 // allPairsLength() answered 0, "could not read" for a factory or a pool that did not answer,
-// and a dash for a reserve that did not land.
+// and a dash for a reserve that did not land. A pool whose venue cut reads off (kLast 0) is not
+// listed; one whose kLast did not answer is listed as unread, with no Add or Remove.
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { BASE, BRB, BRB_PAIR, answer, fake, oneBrbPool, resetFake } from '../../test/fakeFactory';
+import { openingVenueOn } from '../../lib/chains/liquidityVenue';
 
 vi.mock('wagmi', async () => {
   const f = await import('../../test/fakeFactory');
@@ -69,11 +71,43 @@ describe('the pool list on Base and Robinhood Chain', () => {
     expect(row).toHaveTextContent('0.3% fee: 0.25% to providers');
   });
 
-  it('says the split is not read when kLast did not answer', () => {
+  it('says the split is not read when kLast did not answer, and offers no Add or Remove', () => {
     oneBrbPool();
     fake.answers.delete(`${BRB_PAIR.toLowerCase()}:kLast:`);
     show();
-    expect(rowOf(/BRB \/ ETH/)).toHaveTextContent('0.3% fee, split not read');
+    const row = rowOf(/BRB \/ ETH/);
+    expect(row).toHaveTextContent('0.3% fee, split not read');
+    expect(within(row).queryByRole('link', { name: 'Add' })).toBeNull();
+    expect(within(row).queryByRole('link', { name: 'Remove' })).toBeNull();
+    expect(row).toHaveTextContent('not read');
+  });
+
+  it('leaves out a pool whose venue cut reads off, and says one was left out', () => {
+    oneBrbPool();
+    const OFF_PAIR = '0x000000000000000000000000000000000000c0ff';
+    fake.length = { data: 2n, isError: false };
+    answer(BASE.factory, 'allPairs', OFF_PAIR, [1n]);
+    answer(OFF_PAIR, 'token0', BRB);
+    answer(OFF_PAIR, 'token1', BASE.weth);
+    answer(OFF_PAIR, 'getReserves', [1n, 1n, 0]);
+    answer(OFF_PAIR, 'kLast', 0n);
+    const { container } = show();
+    expect(within(rowOf(/BRB \/ ETH/)).getByRole('link', { name: 'Add' })).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('c0ff');
+    expect(container).toHaveTextContent("1 not listed: the venue's cut is not on there yet.");
+    expect(container).not.toHaveTextContent(/The first \d+ of/);
+  });
+
+  it('with every pool\'s cut off, it says none is listed, never "No pools yet"', () => {
+    oneBrbPool();
+    // The fake answers allPairsLength() for both of Base's factories: the opening one holds it too.
+    answer(openingVenueOn(8453)!.factory, 'allPairs', BRB_PAIR, [0n]);
+    answer(BRB_PAIR, 'kLast', 0n);
+    const { container } = show();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(container).toHaveTextContent("2 not listed: the venue's cut is not on there yet.");
+    expect(screen.getByRole('status')).toHaveTextContent("No pools listed: none has the venue's cut on yet.");
+    expect(screen.queryByText(/No pools yet/)).toBeNull();
   });
 
   it('shows a token that copies a listed name, or is not plain ASCII, by its address', () => {

@@ -270,6 +270,7 @@ describe('useSwapQuote — priceImpact outage-as-zero', () => {
     // disabled — we never asked, so we cannot claim a read failed.
     wagmiMock.setReadResult({ functionName: 'getPair', address: UNISWAP_V2_FACTORY, result: ZERO_ADDR });
     wagmiMock.setReadResult({ functionName: 'getPair', address: TEGRIDY_FACTORY_ADDRESS, result: PAIR });
+    wagmiMock.setReadResult({ functionName: 'kLast', address: PAIR, result: 7n });
     wagmiMock.setReadResult({
       functionName: 'getAmountsOut',
       address: TEGRIDY_ROUTER_ADDRESS,
@@ -358,6 +359,7 @@ describe('useSwapQuote on Base: our pools vs Uniswap V2, the better one wins (20
 
   it('takes our pool when it pays more after the venue fee', () => {
     wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: OUR_PAIR });
+    wagmiMock.setReadResult({ functionName: 'kLast', address: OUR_PAIR, result: 7n });
     // 2100 before a 0.5% fee is 2089.5 after: more than Uniswap's 2000.
     wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_OUR_ROUTER, result: [IN, parseEther('2100')] });
     const q = quoteOnBase();
@@ -522,6 +524,7 @@ describe("useSwapQuote on Base: an island coin's own V3 pool, net of the venue f
 
   it('our own pool keeps the trade on a tie with the V3 route, both net of the venue fee', () => {
     wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: '0x8888888888888888888888888888888888888888' });
+    wagmiMock.setReadResult({ functionName: 'kLast', address: '0x8888888888888888888888888888888888888888', result: 7n });
     // The smallest output whose fee-netted figure equals the V3 route's to the wei.
     const v3Net = V3_OUT - (V3_OUT * 50n) / 10000n;
     const ours = (v3Net * 10000n + 9949n) / 9950n;

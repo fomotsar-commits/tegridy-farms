@@ -10,7 +10,7 @@
 
 import type { Pt } from '../iso';
 import { BG, COS30, GLOW, INK, SPOT, TAU, UNIT, ZP, alpha, createKit, ink, mix, type Cam } from './kit';
-import { DISTRICTS, Hr, ISLAND_CX, ISLAND_CY, ISLAND_REACH, PD, PW, VILLA_DECK, px0, py0, walkAt, walkLength, type Plan, type Plot } from './plan';
+import { DISTRICTS, FD, FW, ISLAND_CX, ISLAND_CY, ISLAND_REACH, TOWN_CENTRE, VILLA_DECK, coast, onSite, plotCorners, roadAt, walkAt, walkLength, type Plan, type Plot } from './plan';
 import { PIECE_TOP, RENDER, RENDER_CENTER } from './render';
 
 /** A room whose pool a read says is paying the connected wallet. */
@@ -37,10 +37,34 @@ interface Walker {
   d: number;
   ph: number;
 }
+/** How much of the picture's width its border takes to fade into the night: less than the sea between the shore and the picture's edge (scene.test.ts). */
+export const EDGE_FADE = 0.025;
 /** How fast people walk, in world units a second, and how often one sets off from a paying pool. */
 const WALK_SPEED = 1.25;
 const WALK_EVERY = 2.4;
+/** A person's least height on the sheet, in pixels: at the whole island a line of them still reads. */
+export const PERSON_MIN_PX = 18;
+/** How long a picked plot's outline pulses before it holds still, in seconds. Then, with nobody walking, the sheet needs no frames. */
+export const PICK_PULSE = 2.4;
+/** Pixels to a world unit below which the plaques would pile on each other (a phone's whole island): each but the picked one becomes a mark. */
+export const PLAQUE_FULL_K = 7.5;
 const ZOOM_MIN = 0.2;
+/** The whole island on the sheet, out to its outer surf line, in world units at zoom 1 (u across, v down). */
+export const ISLAND_BOX = (() => {
+  let u0 = Infinity;
+  let u1 = -Infinity;
+  let v0 = Infinity;
+  let v1 = -Infinity;
+  for (const [x, y] of coast(1.03)) {
+    const u = (x - y) * COS30;
+    const v = (x + y) / 2;
+    u0 = Math.min(u0, u);
+    u1 = Math.max(u1, u);
+    v0 = Math.min(v0, v);
+    v1 = Math.max(v1, v);
+  }
+  return { u0, u1, v0, v1 };
+})();
 /** Past the full picture's own sharpness by a little, no further. */
 const ZOOM_MAX = (RENDER.full.k * 1.3) / UNIT;
 
@@ -90,6 +114,14 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
   let data: SceneData = { paying: [], walletLit: false };
   let backdrop: Backdrop | null = null;
   let selected: Plot | null = null;
+  /** The scene's clock when the plot was picked: its outline pulses a little while, then holds. */
+  let pickedAt = 0;
+  /** The plot under a pointer that can hover: its plaque is lifted, its plot outlined faintly. */
+  let hovered: Plot | null = null;
+  /** A line laid over the foot of the sheet, until the visitor has picked something. */
+  let hint: string | null = null;
+  /** The nearest a visitor may zoom out on this sheet: the whole island, a little smaller. */
+  let zoomFloor = ZOOM_MIN;
   let doorPulse = 0;
   let fly: { from: Cam; to: Cam; t0: number; dur: number } | null = null;
   let dirty = true;
@@ -103,20 +135,29 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
   const waterOf = (plot: Plot): string => plot.pool?.water ?? plot.acc;
   const topOf = (plot: Plot): number => PIECE_TOP[plot.piece];
 
-  /** Words painted flat on the road, reading along it, as a district's name is on Earn. */
-  function groundText(txt: string, x: number, y: number, size: number, col: string, gap = 0.34): void {
+  /**
+   * Words painted flat on a street, reading along it in the lane beside its centre line, as a
+   * district's name is on Earn: centred on a point of the street, heading as the street heads there.
+   */
+  function groundText(txt: string, at: Pt, heading: Pt, size: number, col: string, gap = 0.34): void {
     const k = K();
-    const [ox, oy] = P(x, y, 0.02);
+    // read left to right on the sheet, whichever way the street was drawn
+    const [tx, ty] = heading[0] - heading[1] < 0 ? [-heading[0], -heading[1]] : heading;
+    const [ox, oy] = P(at[0], at[1], 0.02);
     const sc = size / 10;
     ctx.save();
-    ctx.transform(COS30 * k * sc, 0.5 * k * sc, -COS30 * k * sc, 0.5 * k * sc, ox, oy);
+    // the text's across runs a quarter turn from its along, in the island's own sense
+    ctx.transform((tx - ty) * COS30 * k * sc, (tx + ty) * 0.5 * k * sc, (-ty - tx) * COS30 * k * sc, (tx - ty) * 0.5 * k * sc, ox, oy);
     ctx.font = `600 10px ${monoFont}`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = col;
-    let at = 0;
+    const step = (gap * 10) / size;
+    let wide = 0;
+    for (const ch of txt) wide += ctx.measureText(ch).width + step;
+    let x = -(wide - step) / 2;
     for (const ch of txt) {
-      ctx.fillText(ch, at, 0);
-      at += ctx.measureText(ch).width + (gap * 10) / size;
+      ctx.fillText(ch, x, 0.6 / sc);
+      x += ctx.measureText(ch).width + step;
     }
     ctx.restore();
   }
@@ -126,20 +167,63 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     if (!backdrop) return;
     const s = K() / backdrop.k;
     const [cx, cy] = P(RENDER_CENTER[0], RENDER_CENTER[1], RENDER_CENTER[2]);
+    const w = backdrop.width * s;
+    const h = backdrop.height * s;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(backdrop.img, cx - (backdrop.width / 2) * s, cy - (backdrop.height / 2) * s, backdrop.width * s, backdrop.height * s);
+    ctx.drawImage(backdrop.img, x, y, w, h);
+    // The picture's edge never shows. The sea runs off its sides, so at any zoom it would stop at a
+    // straight line; instead its border fades into the night (the render's own sky is the page's).
+    // The band is narrower than the sea round the island, so no beach is dimmed.
+    const band = EDGE_FADE * w;
+    for (const [gx0, gy0, gx1, gy1, rx, ry, rw, rh] of [
+      [x, 0, x + band, 0, x, y, band, h],
+      [x + w, 0, x + w - band, 0, x + w - band, y, band, h],
+      [0, y, 0, y + band, x, y, w, band],
+      [0, y + h, 0, y + h - band, x, y + h - band, w, band],
+    ] as const) {
+      const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+      g.addColorStop(0, BG);
+      g.addColorStop(0.45, alpha(BG, 0.3));
+      g.addColorStop(1, alpha(BG, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(rx, ry, rw, rh);
+    }
   }
-  function drawSelection(b: Plot): void {
-    const { x0: x, y0: y } = b;
-    path([P(x - 0.1, y - 0.1, ZP + 0.02), P(x + PW + 0.1, y - 0.1, ZP + 0.02), P(x + PW + 0.1, y + PD + 0.1, ZP + 0.02), P(x - 0.1, y + PD + 0.1, ZP + 0.02)]);
-    ctx.strokeStyle = alpha(SPOT, 0.6 + 0.35 * Math.sin(T * 3.3));
-    ctx.lineWidth = Math.max(1.5, 0.09 * K());
+  function drawSelection(b: Plot, faint = false): void {
+    path(plotCorners(b, 0.1).map(([x, y]) => P(x, y, ZP + 0.02)));
+    const t = T - pickedAt;
+    ctx.strokeStyle = faint ? ink(0.45) : alpha(SPOT, 0.8 + 0.15 * Math.sin(t * 3.3) * Math.max(0, 1 - t / PICK_PULSE));
+    ctx.lineWidth = Math.max(faint ? 1 : 1.5, (faint ? 0.05 : 0.09) * K());
     ctx.stroke();
+  }
+  /**
+   * The way a paying room's people walk, dotted along the pavement in its pool's colour and
+   * marching toward the wallet's door, so the route reads between one walker and the next.
+   */
+  function drawTrail(b: Plot): void {
+    const k = K();
+    ctx.save();
+    ctx.beginPath();
+    b.walk!.forEach(([x, y, z], i) => {
+      const [sx, sy] = P(x, y, ZP + (z ?? 0));
+      if (i) ctx.lineTo(sx, sy);
+      else ctx.moveTo(sx, sy);
+    });
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, 0.1 * k);
+    ctx.setLineDash([0.01, Math.max(7, 0.55 * k)]);
+    ctx.lineDashOffset = -T * WALK_SPEED * k;
+    ctx.strokeStyle = alpha(waterOf(b), 0.6);
+    ctx.stroke();
+    ctx.restore();
   }
   /** A person carrying a basket. The basket holds the wallet's pay, in the colour of the pool it came from; they walk in a little of its light. */
   function person(x: number, y: number, z: number, col: string, ph: number): void {
-    // drawn a little over life size, more so when the island is far away, so a line of them still reads
-    const k = K() * Math.max(1.3, Math.min(2.3, 17 / K()));
+    // drawn a little over life size, and never under PERSON_MIN_PX tall (about 0.8 k), so a line of them still reads far off
+    const k = Math.max(K() * 1.3, PERSON_MIN_PX / 0.8);
     const [sx, sy] = P(x, y, ZP + z);
     glow([sx, sy - 0.3 * k], 0.9, col, 0.35);
     const body = mix(BG, col, 0.82);
@@ -174,8 +258,20 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     ctx.fillStyle = col;
     ctx.fill();
   }
-  function drawPlaque(b: Plot, sel: boolean): void {
+  function drawPlaque(b: Plot, sel: boolean, lift = false, compact = false): void {
     const [lx, ly] = P(b.cx, b.cy, topOf(b) + 0.45);
+    // Too far out for twenty names to stand apart: a mark in the pool's colour, where its plaque hangs.
+    if (compact && !sel && !lift) {
+      seg([lx, ly - 4], [lx, ly + 4], ink(0.4), 1);
+      ctx.fillStyle = 'rgba(5,8,15,.9)';
+      ctx.fillRect(Math.round(lx - 6), Math.round(ly - 16), 12, 12);
+      ctx.fillStyle = waterOf(b);
+      ctx.fillRect(Math.round(lx - 3), Math.round(ly - 13), 6, 6);
+      ctx.strokeStyle = ink(0.42);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(lx - 6) + 0.5, Math.round(ly - 16) + 0.5, 11, 11);
+      return;
+    }
     const text = sel && b.name.toUpperCase() !== b.tick ? `${b.tick} · ${b.name.toUpperCase()}` : b.tick;
     ctx.textBaseline = 'middle';
     ctx.font = `700 10px ${monoFont}`;
@@ -185,9 +281,9 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     const x = Math.round(lx - w / 2);
     const y = Math.round(ly - h);
     seg([lx, y + h], [lx, y + h + 6], ink(0.4), 1);
-    ctx.fillStyle = sel ? INK : 'rgba(5,8,15,.9)';
+    ctx.fillStyle = sel ? INK : lift ? mix(BG, '#2a3350', 0.9) : 'rgba(5,8,15,.9)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = sel ? INK : ink(0.42);
+    ctx.strokeStyle = sel || lift ? INK : ink(0.42);
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     ctx.fillStyle = waterOf(b);
@@ -200,13 +296,73 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     }
   }
 
+  /** A line in a dark pill at the foot of the sheet, in screen pixels. */
+  function footLine(text: string, col: string): void {
+    ctx.font = `700 11px ${monoFont}`;
+    ctx.textBaseline = 'middle';
+    const up = text.toUpperCase();
+    const tw = ctx.measureText(up).width + up.length * 1.2;
+    const w = Math.ceil(tw + 28);
+    const h = 30;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round(H - h - 16);
+    ctx.fillStyle = 'rgba(5,8,15,.86)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = ink(0.42);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = col;
+    let at = x + 14;
+    for (const ch of up) {
+      ctx.fillText(ch, at, y + h / 2 + 0.5);
+      at += ctx.measureText(ch).width + 1.2;
+    }
+  }
+  /** Where a press lands: each plot's ground and its building's height, nearest the eye found first. */
+  function placeHits(): void {
+    hits.length = 0;
+    for (const b of plan.plots) {
+      const top = topOf(b);
+      hits.push({
+        plot: b,
+        hull: convexHull([
+          ...plotCorners(b).map(([x, y]) => P(x, y, 0)),
+          ...([[b.X, b.Y], [b.X + FW, b.Y], [b.X + FW, b.Y + FD], [b.X, b.Y + FD]] as const).map(([fx, fy]) => {
+            const [x, y] = onSite(b, fx, fy);
+            return P(x, y, top);
+          }),
+        ]),
+      });
+    }
+  }
+
   function render(): void {
     if (!W || !H) return;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    hits.length = 0;
     drawBackdrop();
-    if (cam.z > 0.34) DISTRICTS.forEach((name, r) => groundText(name, px0(r === 2 ? 2 : 0) + 0.7, Hr(r + 1) + 0.62, 0.72, ink(0.55)));
+    placeHits();
+    // Until the picture has come, the night and a word that it is coming: no plaque floats on black.
+    if (!backdrop) {
+      footLine('Drawing the island', ink(0.6));
+      dirty = false;
+      return;
+    }
+    if (cam.z > 0.34)
+      for (const d of DISTRICTS) {
+        const road = plan.roads.find((r) => r.id === d.road);
+        if (!road) continue;
+        const { p, t } = roadAt(road, d.s);
+        groundText(d.name, p, t, 0.72, ink(0.55));
+      }
+    if (hovered && hovered !== selected) drawSelection(hovered, true);
     if (selected) drawSelection(selected);
+    // each paying room's way to the wallet, under the people walking it
+    if (data.walletLit) {
+      for (const p of data.paying) {
+        const b = plan.byId.get(p.roomId);
+        if (b?.walk) drawTrail(b);
+      }
+    }
     // people, nearest the eye drawn last
     const people = walkers.flatMap((w) => {
       const at = walkAt(w.plot.walk!, w.d);
@@ -215,21 +371,17 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     people.sort((a, b) => a.at[0] + a.at[1] - (b.at[0] + b.at[1]));
     for (const { at, w } of people) person(at[0], at[1], at[2], waterOf(w.plot), w.ph);
     // the wallet's door lights up as each one walks in
-    if (data.walletLit && doorPulse > 0) glow(P(plan.wallet.X + 1.6, plan.wallet.Y + 2.05, VILLA_DECK + 0.5), 1.6, GLOW, 0.5 * doorPulse);
-    flushGlows();
-    for (const b of plan.plots) {
-      const top = topOf(b);
-      hits.push({
-        plot: b,
-        hull: convexHull([
-          P(b.x0, b.y0, 0), P(b.x0 + PW, b.y0, 0), P(b.x0 + PW, b.y0 + PD, 0), P(b.x0, b.y0 + PD, 0),
-          P(b.X, b.Y, top), P(b.X + 3.2, b.Y, top), P(b.X + 3.2, b.Y + 2.8, top), P(b.X, b.Y + 2.8, top),
-        ]),
-      });
+    if (data.walletLit && doorPulse > 0) {
+      const [dx, dy] = onSite(plan.wallet, plan.wallet.X + 1.6, plan.wallet.Y + 2.05);
+      glow(P(dx, dy, VILLA_DECK + 0.5), 1.6, GLOW, 0.5 * doorPulse);
     }
-    // plaques last, the picked one over the rest
-    for (const b of plan.plots) if (b !== selected) drawPlaque(b, false);
+    flushGlows();
+    // plaques last: the hovered one over the rest, the picked one over all
+    const compact = K() < PLAQUE_FULL_K;
+    for (const b of plan.plots) if (b !== selected && b !== hovered) drawPlaque(b, false, false, compact);
+    if (hovered && hovered !== selected) drawPlaque(hovered, false, true);
     if (selected) drawPlaque(selected, true);
+    if (hint) footLine(hint, INK);
     dirty = false;
   }
 
@@ -282,7 +434,9 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
   }
 
   /* ── camera ── */
-  const clampZ = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  const clampZ = (z: number): number => Math.min(ZOOM_MAX, Math.max(zoomFloor, z));
+  /** The zoom at which the whole island, out to its surf, fits this sheet. */
+  const wholeZ = (): number => Math.min((W - 24) / ((ISLAND_BOX.u1 - ISLAND_BOX.u0) * UNIT), (H - 24) / ((ISLAND_BOX.v1 - ISLAND_BOX.v0) * UNIT));
   const centerOn = (x: number, y: number, z: number, zoom: number): Cam => {
     const k = UNIT * zoom;
     return { x: W / 2 - (x - y) * COS30 * k, y: H / 2 - ((x + y) * 0.5 - z) * k, z: zoom };
@@ -298,15 +452,27 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     if (cy + hy < H * 0.75) cam.y += H * 0.75 - (cy + hy);
     if (cy - hy > H * 0.25) cam.y -= cy - hy - H * 0.25;
   }
-  /** Show the town; on a narrow sheet, the middle of town at a size a thumb can press. */
-  function fit(): void {
+  /**
+   * Show the town; on a narrow sheet, the middle of town at a size a thumb can press. With
+   * `whole`, the whole island out to its surf, on any sheet: what the Whole island button means.
+   */
+  function fit(whole = false): void {
     fly = null;
+    if (whole) {
+      const z = clampZ(wholeZ());
+      const k = UNIT * z;
+      cam.x = W / 2 - ((ISLAND_BOX.u0 + ISLAND_BOX.u1) / 2) * k;
+      cam.y = H / 2 - ((ISLAND_BOX.v0 + ISLAND_BOX.v1) / 2) * k;
+      cam.z = z;
+      dirty = true;
+      return;
+    }
     const spanX = 2 * ISLAND_REACH * 0.62 * COS30 * UNIT;
     const spanY = ((2 * ISLAND_REACH * 0.62) / 2 + 9) * UNIT;
     let z = Math.min((W - 16) / spanX, (H - 24) / spanY);
     const narrow = W < 700;
     if (narrow) z = Math.max(z, 0.55);
-    const c = narrow ? centerOn(px0(1) + 2.5, py0(2) + 1.5, 1.5, clampZ(z)) : centerOn(ISLAND_CX, ISLAND_CY + 1.0, 2.6, clampZ(z));
+    const c = narrow ? centerOn(TOWN_CENTRE[0], TOWN_CENTRE[1], 1.5, clampZ(z)) : centerOn(ISLAND_CX, ISLAND_CY + 1.0, 2.6, clampZ(z));
     cam.x = c.x;
     cam.y = c.y;
     cam.z = c.z;
@@ -319,6 +485,7 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     W = w;
     H = h;
     DPR = dpr;
+    zoomFloor = Math.max(ZOOM_MIN, Math.min(0.85 * wholeZ(), ZOOM_MAX));
     if (first) fit();
     else {
       cam.x += dx;
@@ -366,7 +533,18 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
     return hits.slice().sort((a, b) => b.plot.depth - a.plot.depth).find((h) => inHull(h.hull, x, y))?.plot ?? null;
   }
   function select(b: Plot | null): void {
+    if (b !== selected) pickedAt = T;
     selected = b;
+    dirty = true;
+  }
+  function hover(b: Plot | null): void {
+    if (b === hovered) return;
+    hovered = b;
+    dirty = true;
+  }
+  function setHint(text: string | null): void {
+    if (text === hint) return;
+    hint = text;
     dirty = true;
   }
   function setBackdrop(b: Backdrop): void {
@@ -375,12 +553,12 @@ export function createScene(opts: { ctx: CanvasRenderingContext2D; plan: Plan; m
   }
 
   return {
-    cam, render, advance, setData, setBackdrop, resize, fit, zoomAt, panBy, flyTo, flyStep, hit, select,
+    cam, render, advance, setData, setBackdrop, resize, fit, zoomAt, panBy, flyTo, flyStep, hit, select, hover, setHint,
     /** Something changed since the last frame was drawn. */
     isDirty: () => dirty,
     markDirty: () => { dirty = true; },
-    /** People are on the street: the sheet needs every frame. */
-    isLive: () => walkers.length > 0 || nextOut.size > 0 || selected !== null,
+    /** People are on the street, or a pick's outline is still pulsing: the sheet needs every frame. */
+    isLive: () => walkers.length > 0 || nextOut.size > 0 || (selected !== null && T - pickedAt < PICK_PULSE),
     size: () => ({ w: W, h: H }),
     /** Pixels to one world unit at the present zoom: which picture is sharp enough. */
     pixelsPerUnit: () => UNIT * cam.z,
