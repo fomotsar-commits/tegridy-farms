@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-22
+
+- The city: each bungalow's garden corner is now real carved furniture, on the island and in its close-up: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
+
 ### 2026-11-21
 
 - The city: its palms and street lamps are new, finer carved models, on the island and in every close-up, and the pier is now a lit little harbour, with a kayak rack, a dock cart, fishing gear and a boat moored alongside.

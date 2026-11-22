@@ -19,14 +19,14 @@ from mathutils import Matrix, Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import kit
-from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, patio, stones, put, inked
+from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, stones, put, inked
 import buildings
 import stock
 
 kit.ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 # every material the builders ask for, as the close-ups' stock; the island's cork at a coarser grain,
-# its beach a paler veneer, its streets grey card. The swap also hands kit the owner's palms and
-# street lamps (stock.palm, stock.lamp), so they are called as kit.palm and kit.lamp below.
+# its beach a paler veneer, its streets grey card. The swap also hands kit the owner's palms, street
+# lamps and garden corners (stock.palm, stock.lamp, stock.patio), so they are called through kit below.
 stock.swap(lawn=lambda: stock.cork(30.0), sand=stock.pale, asphalt=stock.grey)
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 MODE = argv[0] if argv else 'island'
@@ -343,7 +343,7 @@ for p in plots:
     if p['garden']:
         stones(p['garden'])
     if p['kind'] == 'room':
-        patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
+        kit.patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
     A = art.get(p['mural']) if p['mural'] else None
     tops[p['id']] = buildings.BUILDERS[p['piece']](p, A)
     # its own palms and lamps stand in its frame too

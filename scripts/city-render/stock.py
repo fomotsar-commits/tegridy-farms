@@ -95,7 +95,7 @@ def swap(**over):
     import buildings
     table = dict(wood=basswood, bamboo=basswood, thatch=jute, tin=zinc, stone=card, basalt=walnut, cream=card,
                  brass=brass, terrazzo=card, paving=card, lawn=cork, sand=cork, dark_glass=smoked,
-                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card(), palm=palm, lamp=lamp)
+                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card(), palm=palm, lamp=lamp, patio=patio)
     table.update(over)
     for k, f in table.items():
         setattr(kit, k, f)
@@ -335,6 +335,30 @@ def lamp(x, y):
     hx, hy, hz = o.location.x + off.x, -(o.location.y + off.y), hd.z * k      # back to the site's y
     kit.sphere('lamp head', hx, hy, hz - 0.08, 0.07, kit.glow(kit.WARM, 18.0, 'lamp glow'), seg=12)
     kit.light('POINT', 'lamp', (hx, hy, hz - 0.12), 48, kit.WARM, shadow=False, soft=0.1)
+
+
+def patio(x, y, colour, seed=''):
+    """
+    A room's own corner of its garden, one of four by the room as kit.patio chose it (UX review,
+    2026-11-19: every plot had the same parasol), now the owner's own furniture (2026-11-22: "Yes, add
+    them"): a sun umbrella over a pair of loungers; a fire pit ringed by its stools, burning; a pair of
+    pool loungers by a floor lantern; a hammock. Each stands where kit.patio's did, at its size. Its
+    colour is the model's wood: colour stays for the art and the money.
+    """
+    kind = sum(ord(c) for c in seed) % 4 if seed else 0
+    if kind == 0:
+        place('umbrella', x + 0.2, y - 0.05, 0.06, 1.1, 'h')
+        place('lounger', x - 0.15, y - 0.45, 0.06, 1.2, 'l', rot=0.2)
+    elif kind == 1:
+        place('fire-pit', x, y, 0.06, 1.8, 'l')
+        kit.cyl('embers', x, y, 0.08, 0.16, 0.02, kit.glow((1.0, 0.38, 0.08), 14.0, 'embers'), verts=20)
+        kit.light('POINT', 'fire', (x, y, 0.55), 60, (1.0, 0.55, 0.22), shadow=True, soft=0.25)
+    elif kind == 2:
+        place('lounge-set', x, y, 0.06, 1.3, 'l')
+        kit.sphere('lantern', x + 0.62, y + 0.42, 0.14, 0.06, kit.glow(kit.WARM, 16.0, 'lamp glow'), seg=10)
+        kit.light('POINT', 'daybed lantern', (x + 0.62, y + 0.42, 0.3), 14, kit.WARM, shadow=False, soft=0.1)
+    else:
+        place('hammock', x, y, 0.06, 1.7, 'l')
 
 
 # ---------- the lights the builders made, at a model's strength ----------
