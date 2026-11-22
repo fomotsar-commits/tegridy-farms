@@ -7,10 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-21
+### 2026-11-22
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
 - Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.
+
+### 2026-11-21
+
+- The city: its palms and street lamps are new, finer carved models, on the island and in every close-up, and the pier is now a lit little harbour, with a kayak rack, a dock cart, fishing gear and a boat moored alongside.
 - The city: a building's close-up now has a gallery's wall label under it, with the piece's name, its community, and what the model is made of (glazed tile, brass, basswood, card and the like).
 - The city: a visitor who had opened it before saw last week's island, the old grid, under the new layout's labels, because their browser kept the old picture for up to a week. The island and every close-up now load fresh the first time they change.
 

@@ -25,7 +25,14 @@ building opens its close-up. This folder makes those pictures.
   are one model: basswood, white card, cork, walnut, brass, gloss resin pools in each community's
   colour, the art laid as glazed tile (each tile takes the picture's colour under its centre),
   white figures for scale, and the one Cycles setup. `swap()` hands the builders this stock in
-  place of `kit.py`'s night materials.
+  place of `kit.py`'s night materials, and the owner's palms and street lamps in place of
+  `kit.palm` and `kit.lamp`, so the island, every close-up and BNKR's roof share them.
+- `props/`: the owner's own models (made with Meshy AI, 2026-11-21), slimmed for the city: a
+  coconut palm, a streetlight, and the harbour's kayak rack, dock cart, fishing gear, cleat,
+  tender and buoys. `stock.prop()` reads each once, upright and centred, and carves it in
+  basswood: its own picture's light and dark become the wood's, so detail stays and colour goes.
+  `stock.place()` sets one down at its real size. The originals (millions of triangles each) are
+  kept out of the repo; a prop here is 3,000 to 20,000 triangles with one small picture.
 - `island.py`: builds the island from `plan.json` as one model at night in a gallery: cork land on
   a pale veneer beach, a sea of deep blue resin, grey card streets on card pavements, basswood palms
   and beads for trees, three white figures on every plot. The gallery is dark (a low warm spot on

@@ -19,13 +19,14 @@ from mathutils import Matrix, Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import kit
-from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, lamp, patio, stones, palm, put, inked
+from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, patio, stones, put, inked
 import buildings
 import stock
 
 kit.ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 # every material the builders ask for, as the close-ups' stock; the island's cork at a coarser grain,
-# its beach a paler veneer, its streets grey card
+# its beach a paler veneer, its streets grey card. The swap also hands kit the owner's palms and
+# street lamps (stock.palm, stock.lamp), so they are called as kit.palm and kit.lamp below.
 stock.swap(lawn=lambda: stock.cork(30.0), sand=stock.pale, asphalt=stock.grey)
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 MODE = argv[0] if argv else 'island'
@@ -282,6 +283,22 @@ pv = G['PIER_X']
 for k in range(int((G['PIER_Y1'] - G['PIER_Y0']) / 1.5) + 1):
     for dx in (-1.1, 1.1):
         cyl('pier post', pv + dx, G['PIER_Y0'] + k * 1.5, -0.6, 0.06, 0.75, kit.wood(), verts=8)
+# the harbour (owner, 2026-11-21: "Palms, lamps, harbour"): three lamps along the pier, so the night
+# shows it; a kayak rack, a dock cart, fishing gear and cleats on the deck; a tender moored alongside,
+# two buoys off the end. Only what a light falls on reads at night.
+if ONLY is None:
+    y0p, y1p, deck = G['PIER_Y0'], G['PIER_Y1'], 0.02
+    for (lx, ly) in ((pv - 0.95, y0p + 1.2), (pv + 0.95, y0p + 5.2), (pv - 0.95, y1p - 0.4)):
+        kit.lamp(lx, ly)
+    stock.place('kayak-rack', pv - 0.55, y0p + 2.6, deck, 1.0, 'l', rot=math.pi / 2)
+    stock.place('dock-cart', pv + 0.5, y0p + 4.8, deck, 0.6, 'l', rot=0.3)
+    stock.place('fishing-gear', pv - 0.5, y1p - 1.3, deck, 0.62, 'l', rot=1.2)
+    for yy in (y0p + 1.5, y0p + 4.0, y0p + 6.5, y1p - 0.6):
+        for xx in (pv - 1.08, pv + 1.08):
+            stock.place('cleat', xx, yy, deck, 0.16, 'l', rot=math.pi / 2)
+    stock.place('tender', pv + 2.4, y0p + 5.5, -0.3, 1.5, 'l', rot=math.pi / 2)
+    stock.place('buoys', pv - 2.2, y1p - 0.3, -0.31, 0.55, 'h')
+    stock.place('buoys', pv + 2.6, y1p + 0.8, -0.31, 0.5, 'h', rot=1.0)
 
 # ---------- plots, pools, gardens ----------
 # each room's art laid as glazed tile, coarser than in its close-up so it reads from above, lit for the night
@@ -332,10 +349,10 @@ for p in plots:
     # its own palms and lamps stand in its frame too
     for t in plan['palms']:
         if t['plot'] == p['id']:
-            palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
+            kit.palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
     for (x, y) in plan['lamps']:
         if x0 <= x <= x0 + PW and y0 <= y <= y0 + PD:
-            lamp(x, y)
+            kit.lamp(x, y)
     # three white figures on its open ground, turned toward its building, as its close-up has
     bpy.context.view_layer.update()
     stock.figures(scene, p, ZP, PW, PD, lambda ob, n=ground.name: ob.name == n)
@@ -351,9 +368,9 @@ if ONLY is None:
     # the streets' and the shore's palms, and the street lamps
     for t in plan['palms']:
         if t['plot'] is None:
-            palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
+            kit.palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
     for (x, y) in plan['streetLamps']:
-        lamp(x, y)
+        kit.lamp(x, y)
 
 # palms, the lighthouse's brass, and every light the builders made, at a model's strength; the street
 # lamps' heads a little softer than in a close-up, where one stands close, so the island's many read as dots
