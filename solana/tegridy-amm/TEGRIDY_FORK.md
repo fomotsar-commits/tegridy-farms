@@ -734,8 +734,9 @@ owed whose destination or pool account is frozen is left in the pool and named w
 account, on a side that waits too: it counts nothing toward the floor, and the other coin is sent
 when it passes on its own. On the vault's side each of these also fails the run (a freeze only of
 USDC or USDT), whether the other coin is sent or the side waits. On the Workshop's side none of
-them does: a refusal of the island's sweep for these settings (6018, 6020, or Token-2022's 36),
-in its simulation or on chain, is named, not a failure. Any other refusal fails the run.
+them does: a refusal of the island's sweep for these settings (6018, 6020, Token-2022's 36, or
+Anchor's 3012 for an account that does not exist), in its simulation or on chain, is named, not a
+failure. Any other refusal fails the run, and on the vault's side so does each of these.
 
 After a sweep lands, the job reads its transaction back and writes the row from that sweep's own
 `FeesSwept`: what moved and what was left of each coin. It counts only one printed by this

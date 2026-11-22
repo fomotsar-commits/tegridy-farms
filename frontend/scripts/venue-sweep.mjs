@@ -34,8 +34,9 @@
 // pool and named with that account, also on a side that waits: it counts nothing toward the floor,
 // and the other coin is sent when it passes on its own. On the vault's side each of these also
 // fails the run, a freeze only when it is of USDC or USDT. On the Workshop's side none does, and a
-// refusal of the island's sweep for its accounts' own settings (6018, 6020, or Token-2022's 36 for
-// a memo), in its simulation or on chain, is named, not a failure. Any other refusal fails the run.
+// refusal of the island's sweep for its accounts' own settings (6018, 6020, Token-2022's 36 for a
+// memo, or Anchor's 3012 for an account that does not exist), in its simulation or on chain, is
+// named, not a failure. Any other refusal fails the run, and so does each of these on the vault's.
 //
 // Once a sweep lands, its transaction is read back and its row is written from its own FeesSwept:
 // one printed by the pool program itself, in its own call, for that pool, side and owner. A sweep
@@ -95,14 +96,17 @@ const NO_SUCH_INSTRUCTION = 101;
 /**
  * The refusals of the island's sweep that its own accounts' settings make, by number: an account
  * handed to another owner (the pool program's 6018), one with a delegate or a close authority
- * (6020), and one that requires a memo on every transfer in (Token-2022's TokenError::NoMemo, 36,
- * the 37th of its errors). The island's transaction holds the sweep alone, and only the transfers
- * into the Workshop's accounts call Token-2022, so 36 there is the Workshop's memo rule.
+ * (6020), one that requires a memo on every transfer in (Token-2022's TokenError::NoMemo, 36, the
+ * 37th of its errors), and one that does not exist (Anchor's AccountNotInitialized, 3012). The
+ * island's transaction holds the sweep alone, and only the transfers into the Workshop's accounts
+ * call Token-2022, so 36 there is the Workshop's memo rule. Every other account it names is the
+ * pool's or its tier's and always exists, so 3012 there is a Workshop account that does not.
  */
 const WORKSHOP_REFUSALS = new Map([
   [6018, "a Workshop account is not its own"],
   [6020, "a Workshop account has a delegate or a close authority"],
   [36, "a Workshop account requires a memo on every transfer in"],
+  [3012, "a Workshop account does not exist"],
 ]);
 /** What a sweep costs in network fees: one signature, no priority fee. */
 const FEE_LAMPORTS = 5000;

@@ -1709,8 +1709,8 @@ describe("venue-sweep: a run", () => {
     });
   }
 
-  // A refusal of the island's sweep for its accounts' own settings: 6018, 6020, or Token-2022's 36 (a memo needed).
-  for (const code of [6018, 6020, 36]) {
+  // A refusal of the island's sweep for its accounts' own settings: 6018, 6020, Token-2022's 36 (a memo needed), or Anchor's 3012 (an account that does not exist).
+  for (const code of [6018, 6020, 36, 3012]) {
     it(`a simulation of the island's sweep refused with ${code} holds back only the island's side, named, and the run passes; the venue's refused with ${code} fails it`, async () => {
       const refusedOn = (side) => (tx) => (sweepsIn(tx).some((ix) => sideOf(ix) === side) ? { InstructionError: [tx.instructions.length - 1, { Custom: code }] } : null);
       const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), simErr: refusedOn("island") });
@@ -1761,7 +1761,7 @@ describe("venue-sweep: a run", () => {
     expect(res2.ok).toBe(false);
   });
 
-  for (const code of [6018, 6020, 36]) {
+  for (const code of [6018, 6020, 36, 3012]) {
     it(`a live island sweep that fails on chain with ${code} is named, its fee counted, and the run passes`, async () => {
       const kp = Keypair.generate();
       const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: null }, { confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: code }] } }] });
