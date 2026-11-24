@@ -44,7 +44,8 @@ building opens its close-up. This folder makes those pictures.
   colour goes; with `water`, the picture's water is poured as resin in a pool's colour.
   `stock.place()` sets one down at its real size. The originals (millions of triangles each) are
   kept out of the repo; a prop here is 3,000 to 40,000 triangles with one small picture (the
-  young palm keeps more: its leaves are loose pieces the decimator cannot merge).
+  young palm keeps more: its leaves are loose pieces the decimator cannot merge). These are the
+  fallback: the site's pictures are rendered from the originals (see Render again).
 - `island.py`: builds the island from `plan.json` as one model at night in a gallery: cork land on
   a pale veneer beach, a sea of deep blue resin, grey card streets on card pavements, basswood palms,
   sea grape and banana, rocks along the beach, a bench, bin, planter or bus shelter by each street
@@ -74,6 +75,24 @@ CITY_PLAN_WRITE=1 npx vitest run src/lib/city/renderPlan.test.ts
 cd ../scripts/city-render
 python render_all.py
 ```
+
+The site's pictures are made from the owner's models as handed over (owner, 2026-11-23: "use
+originals"), at full detail: slimmed to a few thousand triangles, a close-up's building cracked into
+shards. The originals stay out of the repo (eight are over GitHub's 100 MB a file), in one folder by
+the city's own names: `full/`, each original as handed over, for the close-ups; `island/`, a lighter
+copy of any original over 1,000,000 triangles for a building (500,000 for anything else), for the
+island picture only, which holds every model at once and must fit in the PC's memory. At the
+island's size a building is about 150 pixels across, so the lighter copy still has more detail than
+the picture can show. The owner keeps that folder at `dev\city-props-originals\` with
+`make_full_and_island.sh`, which makes both parts from the originals. Point `CITY_ORIGINALS` at it
+before rendering:
+
+```
+$env:CITY_ORIGINALS = 'C:\Users\jimbo\dev\city-props-originals'
+python render_all.py
+```
+
+Without it, `render_all.py` says so and renders from `props/`: fine for a test, not for the site.
 
 Blender 5.0 runs headless (`-b`), so nothing needs to be open. Set `BLENDER` to its exe if it is not
 at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`. Python needs Pillow and NumPy.

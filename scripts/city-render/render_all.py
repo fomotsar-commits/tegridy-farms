@@ -17,12 +17,22 @@ BLENDER = os.environ.get('BLENDER', r'C:\Program Files\Blender Foundation\Blende
 os.makedirs(os.path.join(PUB, 'close'), exist_ok=True)
 os.makedirs(OUT, exist_ok=True)
 plan = json.load(open(os.path.join(HERE, 'plan.json'), encoding='utf-8'))
+# The owner's own models as handed over (owner, 2026-11-23: "Yes, use originals"): CITY_ORIGINALS is
+# the folder holding them by the city's names, full/ as handed over and island/ lighter copies of the
+# heaviest for the island picture only (README.md). Too large for the repo, so without it the
+# pictures are made from props/, slimmed, which cracks a close-up's building.
+ORIGINALS = os.environ.get('CITY_ORIGINALS')
+print('models:', ORIGINALS or "props/ (slimmed: set CITY_ORIGINALS for the owner's originals)", flush=True)
 
 
 def blender(script, mode, raw, scale, samples):
     t = time.time()
+    env = dict(os.environ)
+    if ORIGINALS:
+        folders = (['island'] if script == 'island.py' else []) + ['full']
+        env['CITY_PROPS_FROM'] = ';'.join(os.path.join(ORIGINALS, f) for f in folders)
     log = subprocess.run([BLENDER, '-b', '--factory-startup', '--python', os.path.join(HERE, script), '--', mode, raw, str(scale), str(samples)],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, env=env)
     if 'WROTE' not in log.stdout:
         sys.stderr.write(log.stdout[-3000:] + log.stderr[-3000:])
         raise SystemExit(f'{mode}: no render')

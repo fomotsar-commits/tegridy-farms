@@ -3,6 +3,7 @@
 # art laid as glazed tile, white figures for scale. Colour is kept for the art and the money. Its
 # palms, street lamps and harbour things are the owner's own models (props/), carved in the same wood.
 import bpy, bmesh, math, os
+import numpy as np
 from mathutils import Matrix, Vector
 import kit
 from kit import lin, hexrgb
@@ -241,7 +242,18 @@ def figures(scene, P, ZP, PW, PD, inner):
 
 # ---------- the owner's props (props/*.glb: made with Meshy AI, slimmed), in the same wood ----------
 PROPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'props')
+# folders read before props/, first match wins, each holding models by the same names: render_all.py
+# points it at the owner's originals (CITY_ORIGINALS)
+FROM = [d for d in os.environ.get('CITY_PROPS_FROM', '').split(';') if d]
 _props = {}
+
+
+def _source(name):
+    for d in FROM + [PROPS]:
+        f = os.path.join(d, name + '.glb')
+        if os.path.exists(f):
+            return f
+    raise FileNotFoundError(f'no model {name!r} in {FROM + [PROPS]}')
 
 
 def _carved(m, water=None):
@@ -257,6 +269,10 @@ def _carved(m, water=None):
     if b is None:
         return
     tex = next((l.from_node for l in nt.links if l.to_node == b and l.to_socket.name == 'Base Color' and l.from_node.type == 'TEX_IMAGE'), None)
+    # an original brings its own metal, gloss and see-through pictures: wood is none of those (its
+    # surface picture, on Normal, stays: the carving's fine relief)
+    for l in [l for l in nt.links if l.to_node == b and l.to_socket.name in ('Metallic', 'Roughness', 'Alpha', 'Specular IOR Level', 'Emission Color', 'Emission Strength')]:
+        nt.links.remove(l)
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.elements[0].color = (0.28, 0.19, 0.11, 1)
     ramp.color_ramp.elements[1].color = (0.8, 0.66, 0.47, 1)
@@ -309,7 +325,9 @@ def prop(name, water=None):
     if name in _props:
         return _props[name]
     before = set(bpy.data.objects)
-    bpy.ops.import_scene.gltf(filepath=os.path.join(PROPS, name + '.glb'))
+    src = _source(name)
+    print('model', name, 'from', os.path.basename(os.path.dirname(src)), flush=True)
+    bpy.ops.import_scene.gltf(filepath=src)
     new = [o for o in bpy.data.objects if o not in before]
     bpy.context.view_layer.update()
     bm = bmesh.new()
@@ -330,11 +348,16 @@ def prop(name, water=None):
     for m in mats:
         me.materials.append(m)
         _carved(m, water)
-    xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]; zs = [v.co.z for v in me.vertices]
-    me.transform(Matrix.Translation(Vector((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs)))))
-    dims = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
-    top = [v.co for v in me.vertices if v.co.z > dims[2] * 0.93]
-    head = sum(top, Vector()) / len(top) if top else Vector((0, 0, dims[2]))
+    # read in bulk: an original has millions of points
+    co = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3)
+    lo, hi = co.min(axis=0), co.max(axis=0)
+    me.transform(Matrix.Translation(Vector((-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]))))
+    dims = tuple(float(v) for v in hi - lo)
+    co -= ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2])
+    top = co[co[:, 2] > dims[2] * 0.93]
+    head = Vector(top.mean(axis=0)) if len(top) else Vector((0, 0, dims[2]))
     me.use_fake_user = True                      # a scene's builder deletes every object first, never meshes
     for o in new:
         bpy.data.objects.remove(o, do_unlink=True)

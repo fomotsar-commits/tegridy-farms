@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-23
+
+- The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
+
 ### 2026-11-22
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
