@@ -80,8 +80,8 @@ describe('outcome copy', () => {
     );
     expect(screen.getByText('The price moved past your limit.')).toBeInTheDocument();
     const text = screen.getByTestId('tx-outcome').textContent ?? '';
-    // The amount is in the review's own format (5,000 + 12,000 lamports is under 0.0001 SOL).
-    expect(text).toMatch(/Nothing moved except the fees: <0\.0001 SOL \(the network fee and the priority fee\)\./);
+    // Said after the fact and compared with nothing, so to the lamport: 5,000 + 12,000 lamports.
+    expect(text).toMatch(/Nothing moved except the fees: 0\.000017 SOL \(the network fee and the priority fee\)\./);
     expect(text).not.toMatch(/only the network fee|except the network fee\./);
     expect(text.match(/fee/g)?.length).toBe(3);
   });
@@ -1248,6 +1248,20 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(signed(api)).toEqual([fresh]);
   });
 
+  // The fee lines are read at 0.0001 SOL: a priority fee that moved 100 lamports reads as it did,
+  // so they hold although the SOL the test run moved, fees aside, shifted 50 lamports.
+  it('a priority fee of 12,000 then 12,100 lamports: the fee lines read the same, and the wallet opens', async () => {
+    const first = prepared(buySummary(), CAP);
+    const fresh = again(buySummary(), {
+      ...CAP,
+      fees: { ...first.fees, priorityLamports: 12_100n },
+      simulated: { ...first.simulated, signerLamportsDelta: first.simulated.signerLamportsDelta - 150n },
+    });
+    expect(viewLines(fresh).fees).toEqual(viewLines(first).fees);
+    const { api } = await pressPastItsClock(first, fresh);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
   it.each<[string, Partial<PreparedTx>, bigint]>([
     ['the SOL the test run moved shifted by more than the fees', { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 36_000n, tokenDeltas: [] } }, 1_000_000n],
     ["the priority fee is above the page's cap", { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 35_000n, tokenDeltas: [] } }, 20_000n],
@@ -1481,6 +1495,11 @@ describe('the review, sorted by what can move each line', () => {
     expect(got.fees).toEqual(['Network fee: <0.0001 SOL', 'Priority fee: <0.0001 SOL (0.01% of this trade)', 'Test run: your SOL changes by: -0.1 SOL']);
     expect(got.lines.some((l) => /^(Price check|Estimated cost|Network fee|Priority fee|Test run: your SOL)/.test(l))).toBe(false);
     expect(got.lines).toContain('At most: 0.101 SOL and 10.1 tokens');
+  });
+
+  it('a network fee and a priority fee are paid: from 0.0001 SOL up they read rounded up, 250,000 lamports as 0.0003 SOL', () => {
+    const p = prepared(buySummary(), { fees: { baseLamports: 105_000n, priorityLamports: 250_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n } });
+    expect(viewLines(p).fees.slice(0, 2)).toEqual(['Network fee: 0.0002 SOL', 'Priority fee: 0.0003 SOL (0.25% of this trade)']);
   });
 
   it('a fee that could not be read: its notice is a fee line', () => {

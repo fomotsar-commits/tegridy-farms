@@ -5,7 +5,7 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { flushSync } from 'react-dom';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction, type Connection, type Transaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -118,11 +118,11 @@ import { perMillionPercent } from '../lib/solana/clmm/feeText';
 import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
-import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
-import { jupiterLastValidAtMost } from '../lib/solana/swap/jupiterNote';
-import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../lib/solana/blockhashWindow';
+import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, nothingSentCopy } from '../lib/solana/swap/walletCopy';
+import { sendWalletSwap } from '../lib/solana/swap/walletSwapSend';
 import type { AggregatorSeen } from '../lib/launcher/solana/write/types';
-import { readSendThrow } from '../lib/solana/walletThrow';
+import { sendBuiltTx } from '../lib/solana/walletWrite';
+import type { TestRun } from '../lib/solana/v1Send';
 import { noteKey, readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { fractionToBps, impactWarning } from '../components/solana/curve/uiFormat';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
@@ -135,7 +135,6 @@ import { markLanded } from '../lib/landed';
 import { openingBuyMint } from '../lib/solanaOpeningPair';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
-import { pollConfirm } from '../lib/solana/confirm';
 import { surfaceUnconfirmedTx } from '../lib/txErrors';
 
 // The review of a swap in our own pool, and the note of one not confirmed yet: its own
@@ -210,27 +209,50 @@ const CANCEL_REPEAT_COST = 'the order is already closed, so a second cancel will
 /** How long a sent swap is watched before the page says it cannot tell (SPEC_S3). */
 const SWAP_CONFIRM_TIMEOUT_MS = 90_000;
 
+/** Nothing was sent, in the shared send's own words (lib/solana/walletWrite.ts). */
+class NotSent extends Error {
+  readonly declined: boolean;
+  constructor(message: string, declined: boolean) {
+    super(message);
+    this.name = 'NotSent';
+    this.declined = declined;
+  }
+}
+
+/** The wallet's lone signer, as wallet-adapter's useWallet gives it. */
+type SignTx = <T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>;
+
+/** A Jupiter order transaction refused before any send, in words. */
+function jupiterRefused(run: TestRun, where: 'test' | 'send'): string {
+  const last = run.logs.length ? run.logs[run.logs.length - 1]! : JSON.stringify(run.err ?? 'no reason was given');
+  const clip = thrownWords(new Error(last));
+  return where === 'test'
+    ? `It did not pass its test run (${clip}), so your wallet was not asked. Nothing was sent.`
+    : `The network refused it before sending it (${clip}). Nothing was sent.`;
+}
+
 /**
- * Watch a sent transaction (polled, never subscribed: see lib/solana/confirm.ts).
+ * A transaction Jupiter built for this wallet (a DCA or limit order, placed or cancelled):
+ * test-run as built, the SOL checked, the wallet asked only to SIGN, and our own send with
+ * preflight on, watched (polled, never subscribed). Until 2026-11-17 the wallet signed AND
+ * sent it, untested (Phantom, ticket #467471).
  *
- * True once it confirmed. A revert the network reported throws, and each caller's
- * "failed" toast is right for that one. Anything short of either (a watch that ran out,
- * a status read that kept erroring) is NOT a failure: the transaction may still land,
- * and "failed" invites a second one that pays twice. That says "we can't tell, check
- * before you send it again" with the signature, and returns false.
- *
- * `repeatCost` completes "if it landed, ___" in the caller's own terms.
- *
- * The DCA and limit senders use this. The instant swap reads the same poller itself
- * (handleSwap), because it has more to say on each ending: the same warning here, plus
- * a row in recent activity and, for a revert, the signature and a link.
+ * The signature once it confirmed. A revert the network reported throws, and each caller's
+ * "failed" toast is right for that one. Nothing sent throws NotSent, with why. Anything
+ * else (a watch that ran out) is NOT a failure: it may still land, and "failed" invites a
+ * second one that pays twice. That says "we can't tell, check before you send it again"
+ * with the signature, and returns null. `repeatCost` completes "if it landed, ___".
  */
-async function confirmSent(connection: Connection, sig: string, repeatCost: string): Promise<boolean> {
-  const { outcome } = await pollConfirm(connection, sig);
-  if (outcome === 'confirmed') return true;
-  if (outcome === 'reverted') throw new Error('Transaction failed on-chain');
-  surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost });
-  return false;
+async function signSendBuilt(connection: Connection, owner: PublicKey | null, sign: SignTx | undefined, b64: string, repeatCost: string): Promise<string | null> {
+  if (!owner) throw new NotSent('Connect a wallet first. Nothing was sent.', false);
+  if (!sign) throw new NotSent('This wallet cannot sign a transaction for this page to send, so nothing was sent.', false);
+  const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+  const end = await sendBuiltTx(connection, (t) => sign(t), owner, tx, { refused: jupiterRefused });
+  if (end.kind === 'not-sent') throw new NotSent(end.reason, end.declined === true);
+  if (end.outcome === 'confirmed') return end.signature;
+  if (end.outcome === 'reverted') throw new Error('Transaction failed on-chain');
+  surfaceUnconfirmedTx(toast, { hash: end.signature, explorerUrl: `https://solscan.io/tx/${end.signature}`, repeatCost });
+  return null;
 }
 
 interface TokenPickerProps {
@@ -240,37 +262,12 @@ interface TokenPickerProps {
   onClose: () => void;
 }
 
-/** A throw from the wallet's sendTransaction, kept apart from every other throw of a press. */
-class WalletThrew extends Error {
-  readonly thrown: unknown;
-  constructor(thrown: unknown) {
-    super('The wallet did not hand back a signature');
-    this.thrown = thrown;
-  }
-}
-
-/** The wallet signs and sends; a throw from it is marked as the wallet's. */
-async function viaWallet(send: () => Promise<string>): Promise<string> {
-  try {
-    return await send();
-  } catch (e) {
-    throw new WalletThrew(e);
-  }
-}
-
-/**
- * Says a press's throw when it was the wallet's, as every Solana write says it
- * (lib/solana/walletThrow.ts): a cancel, a wallet that never signed, or an answer that
- * did not come back, which may have been sent. `did` completes "whether ___".
- * 'other': not the wallet's, the caller says it.
- */
-function sayWalletThrew(err: unknown, did: string): 'other' | 'not-sent' | 'unsure' {
-  if (!(err instanceof WalletThrew)) return 'other';
-  const t = readSendThrow(err.thrown);
-  if (t.kind === 'declined') toast.info('Not sent', { description: t.message });
-  else if (t.kind === 'not-signed') toast.error('Not sent', { description: t.message });
-  else toast.warning(LOST_ANSWER_TITLE, { description: lostAnswerCopy(t.reason, did) });
-  return t.kind === 'unsure' ? 'unsure' : 'not-sent';
+/** Says a press's throw when nothing was sent (NotSent): true. False: the caller says it. */
+function sayNotSent(err: unknown): boolean {
+  if (!(err instanceof NotSent)) return false;
+  if (err.declined) toast.info('Not sent', { description: err.message });
+  else toast.error('Not sent', { description: err.message });
+  return true;
 }
 
 /** A throw's own words on one line, for inside "(...)". */
@@ -929,7 +926,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
 
   const [totalAmount, setTotalAmount] = useState('');
   const [numBuys, setNumBuys] = useState(4);
@@ -983,18 +980,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
   /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
-  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const tx = VersionedTransaction.deserialize(bytes);
-    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
-    const release = holdReload();
-    try {
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
-      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
-    } finally {
-      release();
-    }
-  }
+  const signSend = (b64: string, repeatCost: string) => signSendBuilt(connection, publicKey, signTransaction, b64, repeatCost);
 
   async function handlePlace() {
     if (!publicKey || !totalBase || sameToken) return;
@@ -1035,13 +1021,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
       setTotalAmount('');
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the DCA was started');
-      if (said === 'other') toast.error('Could not start the DCA', { description: (err as Error).message });
-      if (said === 'unsure') {
-        // It may be running: clear the form so one more click does not start another.
-        setTotalAmount('');
-        loadOrders();
-      }
+      if (!sayNotSent(err)) toast.error('Could not start the DCA', { description: (err as Error).message });
     } finally {
       setPlacing(false);
     }
@@ -1058,9 +1038,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
       recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the DCA was cancelled');
-      if (said === 'other') toast.error('Could not cancel', { description: (err as Error).message });
-      if (said === 'unsure') loadOrders();
+      if (!sayNotSent(err)) toast.error('Could not cancel', { description: (err as Error).message });
     } finally {
       setCancelling(null);
     }
@@ -1217,7 +1195,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
 
   const [sellAmount, setSellAmount] = useState('');
   const [price, setPrice] = useState('');
@@ -1253,18 +1231,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
   /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
-  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const tx = VersionedTransaction.deserialize(bytes);
-    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
-    const release = holdReload();
-    try {
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
-      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
-    } finally {
-      release();
-    }
-  }
+  const signSend = (b64: string, repeatCost: string) => signSendBuilt(connection, publicKey, signTransaction, b64, repeatCost);
 
   async function handlePlace() {
     if (!publicKey || !makingAmount || !takingAmount || sameToken) return;
@@ -1299,13 +1266,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       setSellAmount(''); setPrice('');
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the order was placed');
-      if (said === 'other') toast.error('Could not place order', { description: (err as Error).message });
-      if (said === 'unsure') {
-        // It may be open: clear the form so one more click does not place another.
-        setSellAmount(''); setPrice('');
-        loadOrders();
-      }
+      if (!sayNotSent(err)) toast.error('Could not place order', { description: (err as Error).message });
     } finally {
       setPlacing(false);
     }
@@ -1327,9 +1288,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       });
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the order was cancelled');
-      if (said === 'other') toast.error('Could not cancel', { description: (err as Error).message });
-      if (said === 'unsure') loadOrders();
+      if (!sayNotSent(err)) toast.error('Could not cancel', { description: (err as Error).message });
     } finally {
       setCancelling(null);
     }
@@ -1470,7 +1429,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
  */
 export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolean; sheet?: boolean } = {}) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   // Inside the sheet (island answer twenty-five, build 3): opens on SOL to the room's coin, drawn as the
   // island drew it; either coin is a press that picks another from the page's own lists (owner, 2026-11-05).
   const sheetPlace = useSheet();
@@ -2243,10 +2202,6 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     // nothing was sent. The note a signature writes belongs to the wallet that signed.
     let step: 'quote' | 'build' = 'quote';
     let signed: string | null = null;
-    let tradeWords = '';
-    // Writes this press's note once the wallet has answered: by its signature, or null for an
-    // answer that was lost (owner, 2026-10-14, D1). Set just before the wallet is asked.
-    const press: { note: ((signature: string | null) => void) | null } = { note: null };
     const noteScope = swapPendingScope(publicKey.toBase58());
     setSwapping(true);
     // Until this swap is answered the page does not reload itself (lib/staleBuild.ts).
@@ -2398,48 +2353,54 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       const b64 = prepared.swapTransaction;
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
-      tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
-      // Read after Jupiter built it, so its blockhash is older than this height (jupiterNote.ts).
-      const lastValid: { at: number | null } = { at: null };
-      const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
-      // Its own blockhash, seen valid now: later, the first proof that it can no longer land.
-      const proof: { bh: NoteBlockhash | null } = { bh: null };
-      const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
-      press.note = (signature) => {
-        const sentAt = Date.now();
-        const write = () =>
-          holdNote({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, noteScope);
-        write();
-        // A read that lands after the note: the note learns when it can no longer land.
-        const had = { at: lastValid.at, bh: proof.bh };
-        void Promise.all([heightRead, bhRead]).then(() => {
-          const learned = (signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null);
-          if (learned && readPendingTrades(noteScope).some((n) => noteKey(n) === noteKey({ signature, sentAt }))) write();
-        });
-      };
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
+      const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
+      // The wallet signs; this page sends, sends again until the chain answers, and says
+      // a refusal in the network's words with nothing spent (lib/solana/swap/walletSwapSend.ts).
+      // A signature's note holds Buy for this wallet, in every tab of this site, until the
+      // chain answers for it (useVenueSwap). Never throws; 90 s is SPEC_S3's wait for a swap.
+      const end = await sendWalletSwap(
+        {
+          rpc: connection,
+          owner: publicKey,
+          sign: signTransaction ? (t) => signTransaction(t) : undefined,
+          signAndSend: (t) => sendTransaction(t, connection),
+          holdsNow: () => holdsNow(noteScope),
+          hold: (n) => holdNote({ kind: 'jupiter-swap', ...n }, noteScope),
+          stillHeld: (n) => readPendingTrades(noteScope).some((x) => noteKey(x) === noteKey(n)),
+          release: (s) => releaseNote(s, noteScope),
+        },
+        tx,
+        { words: tradeWords, slippageBps, timeoutMs: SWAP_CONFIRM_TIMEOUT_MS },
+      );
+      if (end.kind === 'not-sent') {
+        // Nothing reached the network: the form stands, as the person left it.
+        if (end.declined) toast.info('Not sent', { description: end.message });
+        else toast.error('Not sent', { description: end.message });
+        return;
+      }
+      if (end.kind === 'lost') {
+        // Only a wallet that cannot sign alone: it may be out with no signature to look up,
+        // and its note holds Buy until it can no longer land (owner, 2026-10-14, D1).
+        toast.warning(LOST_ANSWER_TITLE, { description: end.message });
+        setAmount('');
+        setQuote(null);
+        return;
+      }
+      const sig = end.signature;
       signed = sig;
-      // A signature exists: the swap may be on chain. Its note holds Buy for this wallet,
-      // in every tab of this site, until the chain answers for it (useVenueSwap).
-      press.note(sig);
+      const { outcome } = end;
       // From here nothing below may say "failed" unless the chain itself said so.
-      // pollConfirm (lib/solana/confirm.ts, the one poller the ladder and the DCA and
-      // limit tabs also use) never throws; a timeout or an unreadable status is
-      // 'unknown'. 90 s is SPEC_S3's wait for a swap.
       const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
-      const { outcome } = await pollConfirm(connection, sig, SWAP_CONFIRM_TIMEOUT_MS);
       // Whatever the chain said, the wallet spent something: Balance, MAX and the
       // insufficient guard are read again, not left on the pre-trade figure.
       retryPayBalance();
-      // Landed or refused: the chain answered, Buy is free. Unread: the note stays.
-      if (outcome !== 'unknown') releaseNote(sig, noteScope);
       if (outcome === 'reverted') {
         toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
         return;
       }
       if (outcome === 'unknown') {
         // The same "we can't tell, check before you send it again" the DCA and
-        // limit tabs raise (confirmSent above). A swap that may have landed with
+        // limit tabs raise (signSendBuilt above). A swap that may have landed with
         // no site fee says that too: the waiver is never silent in a result.
         surfaceUnconfirmedTx(toast, {
           hash: sig,
@@ -2482,20 +2443,11 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       setAmount('');
       setQuote(null);
     } catch (err) {
-      // The wallet's throw, in the words every Solana write uses for it. One that can come
-      // after it signed is "we cannot tell", never "failed": the form is cleared so the
-      // same buy is not one click away.
-      const said = sayWalletThrew(err, `it sent ${tradeWords || 'this swap'}`);
-      if (said === 'unsure') {
-        // It may be out with no signature to look up: Buy is held for this wallet until its
-        // blockhash can no longer land, 2 minutes at most (owner, 2026-10-14, D1).
-        press.note?.(null);
-        setAmount('');
-        setQuote(null);
-      } else if (said === 'other' && signed) {
+      // The wallet's own answers never land here: sendWalletSwap says each one and never throws.
+      if (signed) {
         // After the signature: its note stands until the chain answers.
         surfaceUnconfirmedTx(toast, { hash: signed, explorerUrl: `https://solscan.io/tx/${signed}`, repeatCost: 'swapping again buys a second time.' });
-      } else if (said === 'other') {
+      } else {
         // Stopped on a read before the wallet: nothing was sent, nothing failed, the form stands.
         toast.error('Not sent', {
           description: nothingSentCopy(step === 'quote' ? 'Jupiter’s price' : 'Jupiter’s transaction for this trade', thrownWords(err)),

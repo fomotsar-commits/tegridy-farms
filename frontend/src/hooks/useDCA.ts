@@ -4,7 +4,8 @@ import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { readRouteCut } from '../lib/evm/venueCut';
 import { selectOnChainVenue } from '../lib/venueSelect';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 import { readReceiptOutcome, surfaceReceiptNotice, waitForReceiptOutcome, type DirectReceiptOutcome } from '../lib/txErrors';
@@ -520,7 +521,9 @@ export function useDCA() {
       // fee from the input, so downstream comparison/haircut nets it out by
       // MAX_FEE_BPS (conservative linear haircut — never under-shoots by AMM
       // concavity, the same basis useSwapQuote uses).
-      const tegridyRes = await publicClient.readContract({
+      // Our pool only with the venue's cut on along the path (lib/evm/venueCut.ts); else Uniswap or skip.
+      const cut = await readRouteCut(publicClient, TEGRIDY_FACTORY_ADDRESS, path);
+      const tegridyRes = cut !== 'on' ? null : await publicClient.readContract({
         address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI,
         functionName: 'getAmountsOut', args: [parsedAmount, path],
       }).catch(() => null);
@@ -546,6 +549,13 @@ export function useDCA() {
         minOut = choice.minOut;
       } else {
         // Token input: native pool only (approval points at SwapFeeRouter).
+        if (cut !== 'on') {
+          executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
+          toast.error(cut === 'off'
+            ? `DCA: our ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} pool does not pay the venue its cut yet. Swap skipped.`
+            : `DCA: could not read our ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} pool. Swap skipped.`);
+          return;
+        }
         if (tegridyOut <= 0n) {
           executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
           toast.error(`DCA: No native liquidity to price ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} yet. Swap skipped.`);

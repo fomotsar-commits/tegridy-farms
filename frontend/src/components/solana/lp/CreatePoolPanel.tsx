@@ -471,7 +471,7 @@ function CreateInner({
       };
     }
   } else if (problem?.problem === 'over-balance' && problem.side === 'token') {
-    problemText = `You have ${tok(problem.have)}; this needs ${tok(problem.need)}.`;
+    problemText = `You have ${tok(problem.have)}; this needs ${tokensAbout(problem.need, dec, true)}.`;
     if (mostBoth) fix = { label: 'Use the most both balances allow', run: applyMostBoth };
   }
 
@@ -858,7 +858,7 @@ function CreateInner({
                 label="Account deposits"
                 value={
                   neverRefunded !== null && lpRent !== null
-                    ? `about ${solAbout(neverRefunded)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
+                    ? `about ${solAbout(neverRefunded, true)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
                     : signer
                       ? 'could not be read'
                       : 'read once a wallet is connected (the fee tiers list on this page has the amount)'
@@ -889,7 +889,7 @@ function CreateInner({
                   neverRefunded !== null && nameRecord !== null && lpRent !== null
                     ? coin.native
                       ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
-                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + nameRecord + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
+                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + nameRecord + lpRent, true)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
                       : // Three things leave the wallet, and they are never added together. The SOL
                         // is what the wallet must pay, so it is rounded up like the need above.
                         `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + nameRecord + lpRent)} for the fee to open, the account deposits and the name record, plus the network fee`

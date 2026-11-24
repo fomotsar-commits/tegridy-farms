@@ -176,7 +176,7 @@ describe("a door's first frame is the hero its own page renders", () => {
   });
 
   it('numbers the lot after the bungalows wherever the script types its number', () => {
-    // The script has no TS loader, so "13" is typed there: a 13th bungalow must move it.
+    // The script has no TS loader, so "12" is typed there: a 12th bungalow must move it.
     const lot = DOORS.find((d: Door) => d.path === LOT_PATH)!;
     const numbers = [lot.title, lot.description, lot.imageAlt, lot.heroLine]
       .flatMap((s) => [...s.matchAll(/\bLot (\d+)\b/g)].map((m) => Number(m[1])));

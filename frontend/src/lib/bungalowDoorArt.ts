@@ -28,7 +28,6 @@ export const DOOR_ART_OVERRIDES: Record<string, DoorArtOverride> = {
   "mfer": { artId: "63D92BE3-D739-4092-9785-200B1403A40B", objectPosition: "50% 27%" },
   "nb1": { artId: "naka31", objectPosition: "50% 28%" },
   "pepe": { artId: "13924936-60C5-4676-8BDC-36A5E79EE45A", objectPosition: "50% 43%" },
-  "qr": { artId: "7F184A9A-142E-4639-8D01-8225980F1A9F", objectPosition: "50% 4%" },
   "rizz": { artId: "B40345D2-9FCF-4110-979A-572B2CE7FE38", objectPosition: "50% 41%" },
   "soy": { artId: "F8B216D6-EA7F-4BA1-9F19-06E33770EAFB", objectPosition: "50% 43%" },
   "toweli": { artId: "drop10", objectPosition: "50% 16%" },

@@ -653,6 +653,7 @@ export const SURFACES: Surface[] = [
   { group: 'Island', pageId: 'island', idx: 1, label: 'Door card: Gallery' },
   { group: 'Island', pageId: 'island', idx: 3, label: 'Door card: Community' },
   { group: 'Island', pageId: 'island', idx: 5, label: 'Door card: Treasury & numbers' },
+  { group: 'Island', pageId: 'island', idx: 6, label: 'Door card: City' },
 
   // Island · Gallery
   { group: 'Island · Gallery', pageId: 'gallery', idx: 0, label: 'Page background' },

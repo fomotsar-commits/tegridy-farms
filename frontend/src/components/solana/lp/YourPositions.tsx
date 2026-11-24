@@ -125,12 +125,25 @@ function addingOpen(writes: LpWrites | null): boolean {
 }
 
 /**
- * How many rows work out what they earned by themselves, so a holder sees it with no
- * press: the first two shares in the main list whose pool was read. Each is one read of
- * at most 21 calls behind the budget gate (rpcBudget.ts). Every other share keeps the
- * press, and a set-aside or unplaced share has no earnings block at all.
+ * Every share in the main list whose pool was read works out what it earned by itself, so
+ * a holder sees it, and Claim fees, with no press. The list runs SOL pools first, then
+ * USDC, then the island's coins, so a cap of two rows (as it was until 2026-11-18) left
+ * every pool of two island coins without Claim fees in any wallet with two SOL shares.
+ *
+ * ONE AT A TIME, top row first: each read is at most 21 calls, and starts only once the one
+ * before it has answered, so the budget gate (rpcBudget.ts) judges each start by the proxy's
+ * latest count, and a wallet with many shares never spends the page's calls in one burst.
+ * A read the gate refuses says so on its row, with its button. A set-aside or unplaced
+ * share has no earnings block at all. Each list keeps its own queue (`useTurns`); every
+ * history call ends within READ_TIMEOUT_MS (readFetch.ts), so no turn holds the rest for good.
  */
-const AUTO_LEDGER_ROWS = 2;
+type InTurn = (job: () => Promise<void>) => void;
+function useTurns(): InTurn {
+  const last = useRef<Promise<void>>(Promise.resolve());
+  return useCallback((job) => {
+    last.current = last.current.then(job).catch(() => undefined);
+  }, []);
+}
 
 const HEAD = 'text-white font-semibold text-[12px]';
 const HINT = 'text-white/70';
@@ -242,7 +255,9 @@ function PositionsList({
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
   const aside = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) !== null);
-  const autoLedger = new Set(main.filter((p) => p.pool?.kind === 'pool').slice(0, AUTO_LEDGER_ROWS).map((p) => p.lpAccount));
+  // Every placed share in the main list; the rows' effects run top first, so they queue in that order (`useTurns`).
+  const autoLedger = new Set(main.filter((p) => p.pool?.kind === 'pool').map((p) => p.lpAccount));
+  const inTurn = useTurns();
   const more = read.totalShares - read.positions.length;
   // THE LANDING (island, answer twenty): a share that is new, or larger than on the read before,
   // rises into place once. Only a read after an earlier one can land anything, so opening the page
@@ -276,7 +291,7 @@ function PositionsList({
               owner={owner}
               safety={safetyOf(p)}
               chainNow={read.chainNow}
-              autoLedger={autoLedger.has(p.lpAccount)}
+              autoLedger={autoLedger.has(p.lpAccount) ? inTurn : null}
               readers={readers}
               onReadAgain={onReadAgain}
               onAddMore={onAddMore}
@@ -347,7 +362,7 @@ function PositionRow({
   safety,
   chainNow,
   setAside = null,
-  autoLedger = false,
+  autoLedger = null,
   readers,
   onReadAgain,
   onAddMore,
@@ -359,8 +374,8 @@ function PositionRow({
   safety: TokenSafety | null;
   chainNow: bigint | null;
   setAside?: string | null;
-  /** Set by the list on its first rows: the earnings block reads by itself. */
-  autoLedger?: boolean;
+  /** Set by the list on every placed main row: the queue the earnings block reads by itself in. Null: on a press only. */
+  autoLedger?: InTurn | null;
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
@@ -607,8 +622,8 @@ interface LedgerAnswer {
 const LEDGER_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60';
 
 /**
- * What a share earned, from its share account's own transactions (ledger.ts): by itself
- * when `auto`, on a press otherwise. The answer belongs to the shares it was worked out
+ * What a share earned, from its share account's own transactions (ledger.ts): by itself,
+ * in its turn, when `auto` is a queue; on a press otherwise. The answer belongs to the shares it was worked out
  * for; while they are unchanged a re-read of the wallet asks for no history again and the
  * kept transactions are valued at the pool as just read. Read 20 more joins older pages,
  * up to HISTORY_PAGES_MAX. `worth` needs no history: always printed. The button and the
@@ -643,7 +658,8 @@ function LedgerBlock({
   /** The token's check, for its ticker in the amounts. */
   safety: TokenSafety | null;
   readers: LpReaders;
-  auto: boolean;
+  /** The list's queue for reads with no press (`useTurns`), or null: this row reads only on a press. */
+  auto: InTurn | null;
   chainNow: bigint | null;
   worth: ReactNode;
   /** Remove is offered on this share (withdrawOffer 'offer'): Claim fees may be too. */
@@ -707,12 +723,40 @@ function LedgerBlock({
   };
   // The automatic read: once for the shares held, never again while an answer for them is
   // kept, and again when they change. A row the list did not mark never reads by itself.
+  // It waits its turn in the list's queue. When the turn comes it reads with this render's
+  // reader and pool, or ends at once if the row has gone, its shares changed (the new shares
+  // have their own turn) or a read started meanwhile. A row whose shares change, or that
+  // leaves the page, gives its turn up, so a read for shares no longer held holds no one.
   const startedFor = useRef<bigint | null>(null);
+  const live = useRef(true);
+  const release = useRef<(() => void) | null>(null);
+  const latest = useRef({ readFirstPage, lpAmount: p.lpAmount });
+  // Kept current after every render, before the effect below queues anything with it.
+  useEffect(() => {
+    latest.current = { readFirstPage, lpAmount: p.lpAmount };
+  });
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+      release.current?.();
+    };
+  }, []);
   useEffect(() => {
     if (!auto || startedFor.current === p.lpAmount || answer?.forAmount === p.lpAmount) return;
     startedFor.current = p.lpAmount;
-    void readFirstPage();
-    // The shares and the mark decide; the reader and the pool are read when it runs.
+    release.current?.();
+    const amount = p.lpAmount;
+    const at = asked.current;
+    auto(
+      () =>
+        new Promise<void>((done) => {
+          release.current = done;
+          if (!live.current || latest.current.lpAmount !== amount || asked.current !== at) return done();
+          void latest.current.readFirstPage().finally(done);
+        }),
+    );
+    // The shares and the mark decide; the reader and the pool are read when its turn comes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, p.lpAmount]);
   // The figures follow the pool as last read: the kept transactions at the new reserves, no history call.
@@ -735,7 +779,7 @@ function LedgerBlock({
     return () => onDays(null);
   }, [onDays, days]);
 
-  const working = busy || (auto && !shown);
+  const working = busy || (auto !== null && !shown);
   const trade = lastTrade(view);
   const writes = useLpWrites();
   // Fees to claim: figures that balance for every share, a trade on the pool's record, shares that are

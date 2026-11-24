@@ -323,7 +323,7 @@ export const ROUTES: readonly RouteSpec[] = [
   // literal list CANNOT drift: add a bungalow and the vitest guard fails until
   // its door is added here. LIVE doors render HomePage under the bungalow's
   // skin; settled-but-not-live doors render BungalowDoorLanding (2026-08-30).
-  ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
+  ...(['toweli', 'bayla', 'pepe', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
       voice: slug === 'toweli' || slug === 'towelie' ? ('toweli' as const) : ('bungalow' as const),
@@ -467,6 +467,27 @@ export const ROUTES: readonly RouteSpec[] = [
     why:
       'The venue’s own Cardano pools: routed only once CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts), which waits on ' +
       'the deploy filling api/_lib/cardano-own-pools.js. Walked in a --mode cardano-preview build until then.',
+    knownViolations: [],
+  },
+  {
+    path: '/hyperevm',
+    voice: null,
+    owner: 'pages/HyperEvmSwapPage.tsx',
+    gate: 'not-yet-routed',
+    why:
+      'The swap on our own Uniswap V3 pools on HyperEVM: routed only once every address in ' +
+      'lib/chains/hyperEvmDeployment.ts is set (hyperEvmLive). Nothing is deployed there yet.',
+    knownViolations: [],
+  },
+  {
+    path: '/hyperevm-pools',
+    voice: null,
+    owner: 'pages/HyperEvmPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · hyperevm-pools',
+    gate: 'not-yet-routed',
+    why:
+      'Our HyperEVM pools and your positions: routed only once every address in ' +
+      'lib/chains/hyperEvmDeployment.ts is set, as /hyperevm is.',
     knownViolations: [],
   },
   {
@@ -621,6 +642,16 @@ export const ROUTES: readonly RouteSpec[] = [
     // Nothing here can violate: static links, one h1, one h2-less grid. Left as
     // [] rather than guessed — a11y-routes.spec.ts asserts this by EQUALITY, so
     // a real violation fails loudly instead of hiding behind a pre-declared pin.
+    knownViolations: [],
+  },
+  {
+    path: '/city',
+    voice: 'venue',
+    owner: 'pages/CityPage.tsx',
+    gate: null,
+    why:
+      'The island drawn as a city on one canvas (2026-11-18). Read-only: no form and nothing to sign. ' +
+      'The canvas is aria-hidden; every plot it shows is a button in the list under it.',
     knownViolations: [],
   },
   { path: '/gallery', voice: 'venue', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },

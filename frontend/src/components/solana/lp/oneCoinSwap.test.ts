@@ -15,7 +15,8 @@ import { priceChangeOf, readStepTwo, saveStepTwo, sendJupiterLeg, stepOneLanded,
 
 const SOL = 'So11111111111111111111111111111111111111112';
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
-const USER = Keypair.generate().publicKey;
+const USER_KEY = Keypair.generate();
+const USER = USER_KEY.publicKey;
 const SIG = '5'.repeat(88);
 
 function quote(over: Partial<JupiterQuote> = {}): JupiterQuote {
@@ -40,6 +41,17 @@ const TX_B64 = (() => {
   return btoa(String.fromCharCode(...new VersionedTransaction(msg).serialize()));
 })();
 
+/**
+ * The reads before the wallet: the final test run (it passes) and the SOL (plenty). The
+ * fresh blockhash and the page's own send are not made here: these tests' wallet sends itself.
+ */
+const NOT_READ = {
+  getLatestBlockhashAndContext: vi.fn(async () => Promise.reject(new Error('not read here'))),
+  sendRawTransaction: vi.fn(async () => Promise.reject(new Error('not sent here'))),
+  getBalance: vi.fn(async () => 1_000_000_000),
+  simulateTransaction: vi.fn(async () => ({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 900_000_000, data: ['', 'base64'] }] } }) as never),
+};
+
 const OK: SwapSimulation = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
 
 function deps(over: Partial<JupiterLegDeps> = {}) {
@@ -60,7 +72,7 @@ function deps(over: Partial<JupiterLegDeps> = {}) {
       if (i >= 0) held.splice(i, 1);
     }),
     send: vi.fn<JupiterLegDeps['send']>(async () => SIG),
-    rpc: { getBlockHeight: vi.fn(async () => 1_000), getSignatureStatuses: vi.fn(), isBlockhashValid: vi.fn(async () => ({ context: { slot: 5 }, value: true })) },
+    rpc: { ...NOT_READ, getBlockHeight: vi.fn(async () => 1_000), getSignatureStatuses: vi.fn(), isBlockhashValid: vi.fn(async () => ({ context: { slot: 5 }, value: true })) },
     confirm: vi.fn<NonNullable<JupiterLegDeps['confirm']>>(async () => 'confirmed'),
     ...over,
   };
@@ -87,6 +99,30 @@ describe('sendJupiterLeg', () => {
     expect(d.send).toHaveBeenCalledTimes(1);
     expect(d.hold).toHaveBeenCalledWith(expect.objectContaining({ signature: SIG }));
     expect(d.release).toHaveBeenCalledWith(SIG);
+    expect(held).toHaveLength(0);
+  });
+
+  it('a wallet that can sign alone only signs: this page sends what it signed and watches it (2026-11-15)', async () => {
+    const sendRawTransaction = vi.fn(async () => 'sent');
+    const rpc = {
+      getLatestBlockhashAndContext: vi.fn(async () => ({ context: { slot: 500 }, value: { blockhash: new PublicKey(new Uint8Array(32).fill(9)).toBase58(), lastValidBlockHeight: 1_150 } })),
+      getBlockHeight: vi.fn(async () => 1_000),
+      isBlockhashValid: vi.fn(async () => ({ context: { slot: 600 }, value: true })),
+      getBalance: NOT_READ.getBalance,
+      simulateTransaction: NOT_READ.simulateTransaction,
+      sendRawTransaction,
+      getSignatureStatuses: vi.fn(async () => ({ context: { slot: 1 }, value: [{ slot: 9, confirmations: 1, err: null, confirmationStatus: 'confirmed' as const }] })),
+    };
+    const sign = vi.fn(async (tx: VersionedTransaction) => {
+      tx.sign([USER_KEY]);
+      return tx;
+    });
+    const { d, held } = deps({ sign, rpc: rpc as never });
+    const end = await sendJupiterLeg(d, ARGS);
+    expect(end).toMatchObject({ kind: 'sent', outcome: 'confirmed' });
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(d.send).not.toHaveBeenCalled();
+    expect(sendRawTransaction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ skipPreflight: false }));
     expect(held).toHaveLength(0);
   });
 
@@ -122,7 +158,7 @@ describe('sendJupiterLeg', () => {
     // The height read answers only after the confirm: by then the note was released.
     let answerHeight: (h: number) => void = () => {};
     const heightLater = new Promise<number>((r) => (answerHeight = r));
-    const { d, held } = deps({ rpc: { getBlockHeight: vi.fn(() => heightLater), getSignatureStatuses: vi.fn(), isBlockhashValid: vi.fn(async () => ({ context: { slot: 5 }, value: true })) } });
+    const { d, held } = deps({ rpc: { ...NOT_READ, getBlockHeight: vi.fn(() => heightLater), getSignatureStatuses: vi.fn(), isBlockhashValid: vi.fn(async () => ({ context: { slot: 5 }, value: true })) } });
     await sendJupiterLeg(d, ARGS);
     expect(held).toHaveLength(0);
     answerHeight(1_000);

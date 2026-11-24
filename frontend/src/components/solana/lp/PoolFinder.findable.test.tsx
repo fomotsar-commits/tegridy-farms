@@ -173,6 +173,24 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');
   });
 
+  // 'nearest' moves nothing when the box is already on screen: a pull to the top on every press
+  // moved the button out from under the pointer (owner, 2026-11-15).
+  // Measured after the press's line is drawn: measured before, the line pushed Find pools under the bottom bar.
+  it('a press brings the tokens and the address box on screen as far as needed, never the card to the top', async () => {
+    mount();
+    for (const name of ['Open a pool', 'Add liquidity']) {
+      scrolled.mockClear();
+      let lineAtScroll: string | null = null;
+      scrolled.mockImplementationOnce(() => { lineAtScroll = screen.getByTestId('lp-task-line').textContent; });
+      fireEvent.click(await task(name));
+      const form = within(await finder()).getByLabelText('Token mint address').closest('form');
+      expect(form).not.toBeNull();
+      expect(scrolledTo()).toEqual([form]);
+      expect(scrolled.mock.calls[0]![0]).toEqual({ block: 'nearest' });
+      expect(lineAtScroll).toBe(name === 'Open a pool' ? `Pick a token. You can pair it with ${QUOTE_COINS_OR}.` : 'Pick a token. If it has no pool yet, your deposit opens one.');
+    }
+  });
+
   it('with adding paused, only Remove is offered and the card says so', async () => {
     mount('/pools', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');

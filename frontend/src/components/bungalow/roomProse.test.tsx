@@ -30,11 +30,11 @@ const EM_DASH = '—';
 const SETTLED = BUNGALOWS.filter((b) => b.live && b.identity);
 
 describe('the settled rooms carry no prose em dash (ruling 6)', () => {
-  it('is judging all eleven rooms, not a sample', () => {
+  it('is judging all ten rooms, not a sample', () => {
     // toweli is live but has no settled identity (it is the TOWELI room), and nb1
     // is the quiet slot. If this count moves, the ruling's "eleven" moved with it.
     expect(SETTLED.map((b) => b.id).sort()).toEqual(
-      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jbm', 'mfer', 'pepe', 'qr', 'rizz', 'soy'],
+      ['bayla', 'bnkr', 'bobo', 'brainlet', 'drb', 'jbm', 'mfer', 'pepe', 'rizz', 'soy'],
     );
   });
 

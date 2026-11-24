@@ -78,10 +78,34 @@ describe('VenuePoolIndex', () => {
     expect(row.hasAttribute('data-current')).toBe(true);
     expect(document.querySelectorAll('tr[data-current]')).toHaveLength(1);
     const other = screen.getAllByRole('row').slice(1).find((r) => r !== row)!;
-    fireEvent.mouseEnter(other);
+    // A finger only presses: lighting the house above on a tap is a hover iOS would answer by
+    // dropping the row's click.
+    fireEvent.pointerEnter(other, { pointerType: 'touch' });
+    expect(onActive).not.toHaveBeenCalled();
+    fireEvent.pointerEnter(other, { pointerType: 'mouse' });
     expect(onActive).toHaveBeenCalledTimes(1);
     expect(onActive.mock.calls[0]![0]).not.toBe(room.id);
-    fireEvent.mouseLeave(screen.getByRole('table'));
+    fireEvent.pointerLeave(screen.getByRole('table'), { pointerType: 'mouse' });
+    expect(onActive).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a row reached by the keyboard marks its house, and lets go when focus leaves the table, not when it moves between rows', () => {
+    const onActive = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/earn']}>
+        <VenuePoolIndex onActive={onActive} />
+        <button type="button">after the table</button>
+      </MemoryRouter>,
+    );
+    const links = screen.getAllByRole('link', { name: /^Open / });
+    fireEvent.focus(links[0]!);
+    expect(onActive).toHaveBeenLastCalledWith(expect.any(String));
+    // Between rows: the next row takes the mark; nothing is let go of on the way.
+    fireEvent.blur(links[0]!, { relatedTarget: links[1] });
+    expect(onActive).not.toHaveBeenCalledWith(null);
+    fireEvent.focus(links[1]!);
+    // Out of the table: the mark goes.
+    fireEvent.blur(links[1]!, { relatedTarget: screen.getByRole('button', { name: 'after the table' }) });
     expect(onActive).toHaveBeenLastCalledWith(null);
   });
 

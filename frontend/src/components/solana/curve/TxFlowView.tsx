@@ -30,8 +30,8 @@ import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHea
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
-function tokenText(v: bigint, d: number | null, maxFractionDigits?: number): string {
-  const f = formatTokenAmount(v, d, maxFractionDigits);
+function tokenText(v: bigint, d: number | null, maxFractionDigits?: number, up = false): string {
+  const f = formatTokenAmount(v, d, maxFractionDigits, { up });
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
 /** $BAYLA always has 6 decimals, whatever the launch token's are. */
@@ -103,8 +103,8 @@ export function SummaryRows({
   decimals: number | null;
   display: (s: string, max: number) => string;
 }) {
-  const tok = (v: bigint, d: number | null = decimals) => {
-    const f = formatTokenAmount(v, d);
+  const tok = (v: bigint, d: number | null = decimals, up = false) => {
+    const f = formatTokenAmount(v, d, undefined, { up });
     return f.isBaseUnits ? `${f.text} (base units)` : f.text;
   };
   switch (summary.kind) {
@@ -119,8 +119,8 @@ export function SummaryRows({
           <Row label="Decimals" value={String(summary.decimals)} />
           {summary.openingBuy ? (
             <>
-              <Row label="Your opening buy: you pay" value={SOL(summary.openingBuy.quote.lamportsIn)} />
-              <Row label="…of which trade fee" value={SOL(summary.openingBuy.quote.feeLamports)} />
+              <Row label="Your opening buy: you pay" value={`${formatSol(summary.openingBuy.quote.lamportsIn, 4, { up: true })} SOL`} />
+              <Row label="…of which trade fee" value={`${formatSol(summary.openingBuy.quote.feeLamports, 4, { up: true })} SOL`} />
               <Row label="You receive exactly" value={tok(summary.openingBuy.minTokensOut, 6)} />
             </>
           ) : (
@@ -136,12 +136,12 @@ export function SummaryRows({
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           {summary.fillsCurve && (
             <Notice tone="warn">
-              This buy fills the curve, so this transaction can take at most {SOL(summary.maxLamportsIn)} of the{' '}
+              This buy fills the curve, so this transaction can take at most {`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} of the{' '}
               {SOL(summary.requestedLamports)} you entered. The rest never leaves your wallet.
             </Notice>
           )}
-          <Row label="You pay (at most)" value={SOL(summary.maxLamportsIn)} />
-          <Row label="…of which trade fee" value={SOL(summary.quote.feeLamports)} />
+          <Row label="You pay (at most)" value={`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} />
+          <Row label="…of which trade fee" value={`${formatSol(summary.quote.feeLamports, 4, { up: true })} SOL`} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive (quoted)" value={tok(summary.quote.tokensOut)} />
           <Row label="You receive at least" value={tok(summary.minTokensOut)} />
@@ -152,9 +152,9 @@ export function SummaryRows({
       return (
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
-          <Row label="You sell" value={tok(summary.tokensIn)} />
+          <Row label="You sell" value={tok(summary.tokensIn, decimals, true)} />
           <Row label="You receive (quoted)" value={SOL(summary.quote.lamportsOut)} />
-          <Row label="Trade fee" value={SOL(summary.quote.feeLamports)} />
+          <Row label="Trade fee" value={`${formatSol(summary.quote.feeLamports, 4, { up: true })} SOL`} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive at least" value={SOL(summary.minLamportsOut)} />
           <ImpactRows bps={summary.priceImpactBps} />
@@ -179,14 +179,14 @@ export function SummaryRows({
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           <Row label="Pool" value={summary.pool.toBase58()} />
-          <Row label="You pay" value={buying ? SOL(summary.amountIn) : tok(summary.amountIn)} />
+          <Row label="You pay" value={buying ? `${formatSol(summary.amountIn, 4, { up: true })} SOL` : tok(summary.amountIn, decimals, true)} />
           <Row label="You receive (quoted)" value={buying ? tok(summary.quote.outAmount) : SOL(summary.quote.outAmount)} />
           <Row label="You receive at least" value={buying ? tok(summary.minimumAmountOut) : SOL(summary.minimumAmountOut)} />
           <Row
             label="Pool fee (inside what you pay)"
-            value={buying ? SOL(summary.quote.result.tradeFee) : tok(summary.quote.result.tradeFee)}
+            value={buying ? `${formatSol(summary.quote.result.tradeFee, 4, { up: true })} SOL` : tok(summary.quote.result.tradeFee, decimals, true)}
           />
-          <PoolCreatorFeeRow quote={summary.quote} buying={buying} sol={SOL} tok={tok} />
+          <PoolCreatorFeeRow quote={summary.quote} buying={buying} sol={(v) => `${formatSol(v, 4, { up: true })} SOL`} tok={(v) => tok(v, decimals, true)} />
           <ImpactRows bps={fractionToBps(summary.quote.priceImpact)} />
           <Notice>
             {buying
@@ -279,7 +279,7 @@ const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
  * usual rounding) and exact (to the last digit). SOL is `SOL` / `solExact`, to the
  * character; USDC and BAYLA are printed with their own 6 decimals and symbol.
  */
-const coinAbout = (v: bigint, q: QuoteCoin) => (q.native ? SOL(v) : `${formatTokenAmount(v, q.decimals).text} ${q.symbol}`);
+const coinAbout = (v: bigint, q: QuoteCoin, up = false) => (q.native ? `${formatSol(v, 4, { up })} SOL` : `${formatTokenAmount(v, q.decimals, 4, { up }).text} ${q.symbol}`);
 const coinExact = (v: bigint, q: QuoteCoin) => (q.native ? solExact(v) : `${formatTokenAmount(v, q.decimals, q.decimals).text} ${q.symbol}`);
 
 function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
@@ -459,7 +459,7 @@ function LpPoolRows({ summary }: { summary: LpSummary }) {
 }
 
 function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
-  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const tok = (v: bigint, up = false) => tokenText(v, s.tokenDecimals, undefined, up);
   const q = s.quote;
   const limited =
     s.limitedByBalance === 'token'
@@ -478,7 +478,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       {s.transferFee && (
         <Row
           label={TRANSFER_FEE_LABEL}
-          value={`about ${tok(s.transferFee.kept)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
+          value={`about ${tok(s.transferFee.kept, true)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
           mono={false}
         />
       )}
@@ -530,7 +530,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       {s.transferFee && (
         <Row
           label={TRANSFER_FEE_LABEL}
-          value={`about ${tok(s.transferFee.kept)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
+          value={`about ${tokenText(s.transferFee.kept, s.tokenDecimals, undefined, true)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
           mono={false}
         />
       )}
@@ -730,6 +730,9 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
   const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, s.tokenDecimals) : tokenText(v, s.tokenDecimals)} ${tokenName}`;
   const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
   const [pay, get] = s.paysCoin ? [coin, tok] : [tok, coin];
+  // A fee, or the token's own cut, is paid or taken out: rounded up at the last digit shown.
+  const tokUp = (v: bigint) => `${tokenText(v, s.tokenDecimals, undefined, true)} ${tokenName}`;
+  const coinUp = (v: bigint) => coinAbout(v, q, true);
   return (
     <>
       <Row label="Pool" value={s.pool.toBase58()} />
@@ -744,14 +747,14 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
           label={TRANSFER_FEE_LABEL}
           value={
             s.paysCoin
-              ? `${tok(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
-              : `${tok(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
+              ? `${tokUp(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
+              : `${tokUp(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
           }
           mono={false}
         />
       )}
-      <Row label="Pool fee (inside what you pay)" value={`${pay(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
-      <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
+      <Row label="Pool fee (inside what you pay)" value={`${(s.paysCoin ? coinUp : tokUp)(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
+      <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={coinUp} tok={tokUp} />
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
       <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
       <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} line="market" />
@@ -969,14 +972,14 @@ export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx
   const share = base !== null && base > 0n ? sharePercent(f.priorityLamports, base) : null;
   return (
     <>
-      <Row label="Network fee" value={SOL(f.baseLamports)} line="fee" />
+      <Row label="Network fee" value={`${formatSol(f.baseLamports, 4, { up: true })} SOL`} line="fee" />
       <Row
         line="fee"
         label="Priority fee"
         value={
           !f.priorityFeeRead
             ? 'none added'
-            : `${SOL(f.priorityLamports)}${share ? ` (${share} of this trade)` : ''}`
+            : `${formatSol(f.priorityLamports, 4, { up: true })} SOL${share ? ` (${share} of this trade)` : ''}`
         }
       />
       {!f.priorityFeeRead && (
@@ -985,7 +988,7 @@ export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row label={rentRowLabel(prepared)} value={SOL(f.newAccountRentLamports)} />
+        <Row label={rentRowLabel(prepared)} value={solExact(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
@@ -1156,7 +1159,7 @@ function SignatureRow({ signature }: { signature: string }) {
 function feesSpentText(fees: PreparedTx['fees'] | null | undefined): string {
   if (!fees) return 'Nothing moved except the fees (the network fee and any priority fee).';
   const which = fees.priorityLamports > 0n ? 'the network fee and the priority fee' : 'the network fee';
-  return `Nothing moved except the fees: ${SOL(fees.baseLamports + fees.priorityLamports)} (${which}).`;
+  return `Nothing moved except the fees: ${solExact(fees.baseLamports + fees.priorityLamports)} (${which}).`;
 }
 
 /** What not to do while a sent transaction is unconfirmed: each kind's own risk in repeating it. */

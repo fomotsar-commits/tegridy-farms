@@ -7,7 +7,7 @@
 // first, twice: the card printed a constant 25% whatever the pool answered, then a
 // flat rate whatever the lock had left.
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
 type ReadCell = { status: 'success'; result: unknown } | { status: 'failure'; error: Error };
@@ -94,12 +94,13 @@ describe('EvmLadderPoolLive: the early-exit penalty is read from the pool', () =
     expect(await screen.findByTestId('ladder-exit-cost')).toHaveTextContent(
       'Leaving before your lock opens costs the time left on it over four years, capped at 75%.',
     );
-    // 20 of 1460 days: 13.698... QR, about 1.36% of the position, floored.
-    const exit = await screen.findByRole('button', { name: /^Exit early \(−13\.69\)$/ });
-    expect(exit).toHaveAttribute('title', expect.stringContaining('13.69 QR (about 1.36%)'));
+    // 20 of 1460 days: 13.698... QR, rounded up at the last digit shown (a cost is never
+    // printed below itself); about 1.36% of the position, floored.
+    const exit = await screen.findByRole('button', { name: /^Exit early \(−13\.7\)$/ });
+    expect(exit).toHaveAttribute('title', expect.stringContaining('13.7 QR (about 1.36%)'));
     expect(exit).toHaveAttribute('title', expect.stringContaining('capped at 75%'));
-    const hatch = screen.getByRole('button', { name: /^emergency \(−13\.69\)$/ });
-    expect(hatch).toHaveAttribute('title', expect.stringContaining('13.69 QR (about 1.36%)'));
+    const hatch = screen.getByRole('button', { name: /^emergency \(−13\.7\)$/ });
+    expect(hatch).toHaveAttribute('title', expect.stringContaining('13.7 QR (about 1.36%)'));
     expect(screen.getByText(/costs the time left on it over four years, capped at 75%, which stays in the pool/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/25%/);
   });
@@ -111,9 +112,41 @@ describe('EvmLadderPoolLive: the early-exit penalty is read from the pool', () =
     wagmiState.answers.set('positions:1', ok([USER, lockEnd, AMOUNT, 400n * E18]));
     wagmiState.answers.set(`penaltyFor:${AMOUNT},${lockEnd}`, ok(quote));
     render(<EvmLadderPoolLive bungalow={QR} />);
-    const exit = await screen.findByRole('button', { name: /^Exit early \(−4\.79\)$/ });
-    expect(exit).toHaveAttribute('title', expect.stringContaining('4.79 QR (about 0.47%)'));
+    const exit = await screen.findByRole('button', { name: /^Exit early \(−4\.8\)$/ });
+    expect(exit).toHaveAttribute('title', expect.stringContaining('4.8 QR (about 0.47%)'));
     expect(document.body.textContent).not.toMatch(/\(75%\)|\(25%\)/);
+  });
+
+  it('a flat 25% on 1,000.0001 QR costs 250.000025: both exits and both lines say 250.01', async () => {
+    seed({ flat: 2_500n });
+    wagmiState.answers.set('positions:1', ok([USER, LOCK_END, 1_000_000_100_000_000_000_000n, 400n * E18]));
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    const exit = await screen.findByRole('button', { name: /^Exit early \(−250\.01\)$/ });
+    expect(exit).toHaveAttribute('title', expect.stringContaining('Leaving early costs 250.01 QR (25%)'));
+    const hatch = screen.getByRole('button', { name: /^emergency \(−250\.01\)$/ });
+    expect(hatch).toHaveAttribute('title', expect.stringContaining('costs the same 250.01 QR (25%)'));
+  });
+
+  it('the minimum stake is what must be put in at least: rounded up, never shown as less', async () => {
+    // At 23 decimals the pool's 100e18 raw floor is 0.001 QR: cut, it reads "0" in both places.
+    seed({ flat: 2_500n });
+    wagmiState.answers.set('decimals:', ok(23));
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    fireEvent.change(await screen.findByLabelText('Amount of QR to stake'), { target: { value: '0.0005' } });
+    expect(screen.getByText(/minimum/)).toHaveTextContent('minimum 0.01 QR');
+    expect(screen.getByRole('button', { name: 'Minimum 1 QR' })).toBeInTheDocument();
+  });
+
+  it('a lock that has opened: emergency costs nothing, and its tooltip says so with no dash', async () => {
+    seed({ flat: 2_500n });
+    wagmiState.answers.set('positions:1', ok([USER, NOW - 86_400n, AMOUNT, 400n * E18]));
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    const hatch = await screen.findByRole('button', { name: /^emergency$/ });
+    expect(hatch).toHaveAttribute(
+      'title',
+      'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available: this is the last resort if rewards are ever broken.',
+    );
+    expect(hatch.getAttribute('title')).not.toContain(String.fromCharCode(0x2014));
   });
 
   it("a ladder's-law pool whose quote could not be read shows the schedule and no figure on the exits", async () => {

@@ -8,7 +8,7 @@ import type { ClaimResult } from './types';
 
 const rooms = evmHarvestRooms();
 const pepe = rooms.find((b) => b.id === 'pepe')!;
-const qr = rooms.find((b) => b.id === 'qr')!;
+const drb = rooms.find((b) => b.id === 'drb')!;
 const ok = (room: EvmHarvestRoom, over: Partial<Parameters<typeof planEvmPool>[1]> = {}) =>
   planEvmPool(room, { earnedRaw: 5n * 10n ** 18n, stakingToken: room.address, rewardsToken: room.address, surplusRaw: 10n ** 24n, decimals: 18, ...over });
 
@@ -24,9 +24,9 @@ describe('which pools Harvest reads on Ethereum and Base', () => {
 
 describe('planEvmPool', () => {
   it('a read amount above zero is one claim on that pool, on its own chain', () => {
-    const p = ok(qr);
+    const p = ok(drb);
     expect(p.claims).toHaveLength(1);
-    expect(p.claims[0]).toMatchObject({ chain: 'base', chainId: 8453, pool: qr.stakePool, symbol: 'QR', amountRaw: 5n * 10n ** 18n, caution: null });
+    expect(p.claims[0]).toMatchObject({ chain: 'base', chainId: 8453, pool: drb.stakePool, symbol: 'DRB', amountRaw: 5n * 10n ** 18n, caution: null });
     expect(ok(pepe).claims[0]).toMatchObject({ chain: 'ethereum', chainId: 1 });
   });
 
@@ -52,6 +52,16 @@ describe('planEvmPool', () => {
     const p = ok(pepe, { surplusRaw: 2n * 10n ** 18n });
     expect(p.claims).toHaveLength(1);
     expect(p.claims[0]!.caution).toMatch(/holds 2 PEPE now/);
+  });
+
+  it('the vault sentence never names more than the vault holds: 1,284.5 is 1,284, never 1,285', () => {
+    const p = ok(pepe, { earnedRaw: 2_000n * 10n ** 18n, surplusRaw: 1_284_500_000_000_000_000_000n });
+    expect(p.claims[0]!.caution).toMatch(/holds 1,284 PEPE now/);
+    for (const surplusRaw of [999_999_000_000_000_000_000n, 10n ** 18n - 1n, 1_999_999_999_999_999_999n]) {
+      const said = /holds ([\d,.]+) PEPE/.exec(ok(pepe, { earnedRaw: 10n ** 30n, surplusRaw }).claims[0]!.caution ?? '')![1]!;
+      const [whole, frac = ''] = said.replace(/,/g, '').split('.');
+      expect(BigInt(whole! + frac.padEnd(18, '0')), said).toBeLessThanOrEqual(surplusRaw);
+    }
   });
 
   it('an unread vault is not a gate', () => {
@@ -137,7 +147,7 @@ describe('sendCallsTogether: one chain’s claims as one wallet_sendCalls', () =
     expect(sleep).toHaveBeenCalledTimes(1);
     expect(got.get('evm:1')).toEqual({ kind: 'claimed', tx: H1 });
     // The wallet said success; the chain's receipt says reverted, and the receipt is what is told.
-    expect(got.get('evm:2')).toEqual({ kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: H2 });
+    expect(got.get('evm:2')).toEqual({ kind: 'reverted', reason: 'Nothing was claimed, so it stays owed. Only the network fee was spent.', tx: H2 });
   });
 
   it('a wallet that ran them as one transaction: its receipt is read once, and they share its fate', async () => {

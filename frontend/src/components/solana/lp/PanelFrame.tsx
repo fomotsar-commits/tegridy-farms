@@ -44,6 +44,7 @@ export function PanelFrame({
   return (
     <section
       data-testid={testId}
+      data-dwg="panel"
       aria-labelledby={id}
       className={`relative space-y-3 text-white/75 text-[11px] leading-relaxed min-w-0 ${inDoor || bare ? '' : 'rounded-lg p-3 mt-2'}`}
       style={inDoor || bare ? undefined : { background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}

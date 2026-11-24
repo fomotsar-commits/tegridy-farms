@@ -40,6 +40,7 @@ import {
   isDeployed,
 } from '../constants';
 import { getChainLabel } from '../explorer';
+import { HYPEREVM_CHAIN_ID, HYPEREVM_NAME, hyperEvmLive } from './hyperEvm';
 import type {
   Address,
   ChainConfig,
@@ -234,6 +235,20 @@ export const DEFAULT_CHAIN_ID: number = MAINNET.id;
 
 export function isChainConfigured(chainId: number | undefined | null): boolean {
   return chainId != null && Object.prototype.hasOwnProperty.call(CHAINS, chainId);
+}
+
+/**
+ * Does the venue serve this wallet chain at all: a registry chain, or HyperEVM once its own V3
+ * venue is live (chains/hyperEvm.ts keeps it out of CHAINS, whose shape is the V2 venue's).
+ */
+export function isChainServed(chainId: number | undefined | null, hyperEvmOn: boolean = hyperEvmLive()): boolean {
+  return isChainConfigured(chainId) || (hyperEvmOn && chainId === HYPEREVM_CHAIN_ID);
+}
+
+/** The EVM networks a wallet can use here, by name, in the order the copy has always said them, HyperEVM last. */
+export function servedEvmChainNames(hyperEvmOn: boolean = hyperEvmLive()): string[] {
+  const names = [MAINNET, BASE, ROBINHOOD].map((c) => c.name);
+  return hyperEvmOn ? [...names, HYPEREVM_NAME] : names;
 }
 
 /**

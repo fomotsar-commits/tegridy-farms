@@ -188,6 +188,26 @@ vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => wallet,
 }));
 
+// Since 2026-11-15 a wallet that can sign alone only signs Jupiter's swap and the page sends
+// it (lib/solana/swap/walletSwapSend.ts). web3 cannot serialize a transaction under jsdom, so
+// here Jupiter's swap goes through the wallet's own send, as before: what these tests pin is
+// WHEN the wallet is asked and what holds it, the same on either path. The page's send of
+// signed bytes is pinned in SolanaSwapPage.signThenSend.test.tsx and walletSwapSend.test.ts.
+vi.mock('../lib/solana/swap/walletSwapSend', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/solana/swap/walletSwapSend')>();
+  const viaWallet: typeof real.sendWalletSwap = (d, tx, a) => real.sendWalletSwap({ ...d, sign: undefined }, tx, a);
+  return { ...real, sendWalletSwap: viaWallet };
+});
+// Since 2026-11-17 the very bytes handed to the wallet are test-run, and its SOL read, before
+// it is asked (Phantom, ticket #467471: lib/solana/walletWrite.ts testBeforeWallet). That run
+// serializes Jupiter's transaction, which web3 cannot do under jsdom either, so here it stands
+// in as a run that passes with SOL to spare. It is pinned for real under node in
+// lib/solana/swap/walletSwapSend.test.ts and lib/solana/walletWrite.test.ts.
+vi.mock('../lib/solana/walletWrite', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/solana/walletWrite')>()),
+  testBeforeWallet: async () => ({ ok: true, before: 5_000_000_000n, fee: 5_000n, run: { ok: true, err: null, logs: [] } }),
+}));
+
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';

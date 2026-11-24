@@ -153,7 +153,7 @@ function OneCoinInner({
   poolRows?: ReactNode;
 }) {
   const { connection } = useConnection();
-  const { sendTransaction } = useWallet();
+  const { sendTransaction, signTransaction } = useWallet();
   // In the LP door this panel is the page's first screen (island, answer twenty-two): the
   // green button comes right after the amount and the pool's figures, the line and the setting after it.
   const inDoor = useInDoor();
@@ -190,7 +190,7 @@ function OneCoinInner({
 
   const name = (side: Side) => (side === 'quote' ? coin.symbol : tokenName);
   const decimalsOf = (side: Side) => (side === 'quote' ? coin.decimals : decimals);
-  const about = (side: Side, v: bigint) => (side === 'quote' ? coinAbout(v, coin) : `${formatTokenAmount(v, decimals, 4).text} ${tokenName}`);
+  const about = (side: Side, v: bigint, up = false) => (side === 'quote' ? coinAbout(v, coin, up) : `${formatTokenAmount(v, decimals, 4, { up }).text} ${tokenName}`);
   const exact = (side: Side, v: bigint) => (side === 'quote' ? coinExact(v, coin) : `${unitsExact(v, decimals)} ${tokenName}`);
   const other = (side: Side): Side => (side === 'quote' ? 'token' : 'quote');
 
@@ -575,6 +575,7 @@ function OneCoinInner({
           hold: (n) => venueSwap.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
           stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
           release: (sig) => venueSwap.pending.release(sig, scope),
+          sign: signTransaction ? (tx) => signTransaction(tx) : undefined,
           send: (tx) => sendTransaction(tx, connection),
           rpc: connection,
         },
@@ -1097,14 +1098,14 @@ function PriceChangeRows({ quote }: { quote: JupiterQuote }) {
 }
 
 /** Step 2 as the review of step 1 expects it, and what stays in the wallet. */
-function StepTwoRows({ plan, about, quoteIsToken0, lpDecimals }: { plan: Plan; about: (side: Side, v: bigint) => string; quoteIsToken0: boolean; lpDecimals: number }) {
+function StepTwoRows({ plan, about, quoteIsToken0, lpDecimals }: { plan: Plan; about: (side: Side, v: bigint, up?: boolean) => string; quoteIsToken0: boolean; lpDecimals: number }) {
   const two = plan.two;
   if (!two) return <Notice tone="warn">What step 2 adds could not be worked out from these figures. It has its own review.</Notice>;
   const cost = { quote: quoteIsToken0 ? two.plan.cost0 : two.plan.cost1, token: quoteIsToken0 ? two.plan.cost1 : two.plan.cost0 };
   return (
     <div className="space-y-1.5" data-testid="lp-one-step2-plan">
       <p className="text-white font-semibold">Step 2: add</p>
-      <Row label="You put in about" value={`${about('quote', cost.quote)} and ${about('token', cost.token)}`} mono={false} />
+      <Row label="You put in about" value={`${about('quote', cost.quote, true)} and ${about('token', cost.token, true)}`} mono={false} />
       <Row label="You get about" value={`${unitsExact(two.plan.lp, lpDecimals)} pool shares`} mono={false} />
       <Row label="Left in your wallet, about" value={`${about('quote', two.left.quote)} and ${about('token', two.left.token)}`} mono={false} />
     </div>

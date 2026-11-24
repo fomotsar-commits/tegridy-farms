@@ -674,6 +674,32 @@ describe("main: totals and cursor are written together, or not at all", () => {
     expect(errors.join(" ")).toMatch(/ethereum not counted::the run was out of time before it began/);
   }, 5_000);
 
+  // Node's timers keep their own clock and can call time up a millisecond before Date.now()
+  // does. Here Date.now() reads one behind them, so the let-go fires with a millisecond left.
+  it("once a source is let go, no other source starts, even with Date.now() a millisecond short", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const timersNow = Date.now;
+    const t0 = timersNow();
+    const behind = vi.spyOn(Date, "now").mockImplementation(() => Math.max(t0, timersNow() - 1));
+    try {
+      const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
+      const errors = [];
+      const started = [];
+      const readers = { jupiter: () => new Promise(() => {}), ethereum: (...a) => (started.push("ethereum"), reader([], { block: 9, pairs: [] })(...a)) };
+      const run = main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter", "ethereum"], readers, runMs: 50, log: () => {}, error: (m) => errors.push(m) });
+      while (vi.getTimerCount() === 0) await new Promise((r) => setImmediate(r)); // jupiter is reading
+      await vi.advanceTimersByTimeAsync(50);
+      expect(Date.now()).toBe(t0 + 49);
+      expect(await run).toBe(1);
+      expect(started).toEqual([]);
+      expect(db.rows.has("ethereum")).toBe(false);
+      expect(errors.join(" ")).toMatch(/ethereum not counted::the run was out of time before it began/);
+    } finally {
+      behind.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("what a let-go source reads after the run ends is never written", async () => {
     const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, unpriced: 0, bot_swaps: 0, bot_usd: 0, cursor: { k: "old" }, version: 2 }]);
     const late = new Promise((r) => setTimeout(r, 100));

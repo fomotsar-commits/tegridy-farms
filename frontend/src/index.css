@@ -991,14 +991,34 @@ input, textarea, select {
   -webkit-text-stroke: 1px var(--color-kyle-bright);
   pointer-events: none;
 }
-/* The site model (farm/IsoIsland.tsx): a lit block's name arrives with it. */
+/* The site model (farm/IsoBungalow.tsx): the name over a bungalow pointed at, and the guides its roof lifts along, arrive with it. */
 @keyframes iso-label-in {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: none; }
 }
 .iso-label { animation: iso-label-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
-/* Harvest's figure (farm/HarvestStack.tsx): the line that crosses the pad while the pools are
-   read (--scan-x and --scan-y are the pad's far edge), and the plate at the wallet breathing. */
+/* A room's picture fades onto its bungalow's walls once its size is read (farm/IsoBungalow.tsx). */
+@keyframes iso-mural-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.iso-mural { animation: iso-mural-in 0.6s ease-out both; }
+/* The chimney of a bungalow pointed at (farm/IsoBungalow.tsx): four soft puffs, each rising,
+   leaning with the same wind and thinning out. Twice, then still: the page does not animate for
+   as long as a house stays pointed at. */
+@keyframes iso-smoke {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(9px, -26px) scale(2); }
+}
+.iso-smoke {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: iso-smoke 2.1s ease-out 2;
+}
+/* Harvest's figure (farm/HarvestGranary.tsx): the line that crosses the footing while the pools are
+   read (--scan-x and --scan-y are the footing's far edge), and the mark at the wallet breathing. */
 @keyframes harvest-scan {
   0% { transform: translate(0, 0); opacity: 0; }
   12% { opacity: 1; }
@@ -1010,7 +1030,420 @@ input, textarea, select {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
-.harvest-breathe { animation: harvest-breathe 1.4s ease-in-out infinite; }
+/* The granary: a dashed storey arriving where a claim did not land (from --ghost-from, where it
+   hung at the wallet), the flag going up once a tower tops out (its delays count from the last
+   landing), and the revision cloud drawn round the storey at the wallet, then breathing. */
+@keyframes granary-ghost-in {
+  from { opacity: 0; transform: translateY(var(--ghost-from, 0px)); }
+  to { opacity: 1; transform: none; }
+}
+.granary-ghost-in { animation: granary-ghost-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* A dashed storey hung before its tower tops out: gone while it moves (300 ms in), back once the
+   roof is down (1550 ms), so it never passes through the storey landing or the roof coming down. */
+@keyframes granary-ghost-hop {
+  0%, 100% { opacity: 1; }
+  16%, 84% { opacity: 0; }
+}
+.granary-ghost-hop { animation: granary-ghost-hop 1.85s ease both; }
+@keyframes granary-flag-pole {
+  from { transform: scaleY(0); }
+  to { transform: none; }
+}
+.granary-flag-pole { transform-box: fill-box; transform-origin: 50% 100%; animation: granary-flag-pole 0.3s ease-out 1.55s both; }
+@keyframes granary-flag-unfurl {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+.granary-flag-unfurl { transform-box: fill-box; transform-origin: 0% 50%; animation: granary-flag-unfurl 0.26s ease-out 1.8s both; }
+@keyframes hv-cloud-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.hv-cloud { stroke-dasharray: 1; animation: hv-cloud-draw 0.7s ease-out both, harvest-breathe 1.4s ease-in-out 0.7s infinite; }
+/* The granary's life on screen. Every rule keys on a claim's state, on where the drawing is on screen
+   or on the pointer, never on a coin or an amount. Lengths inside the drawing are viewBox units.
+   The model turns: a skewY about the drawing's centre line, on .hv-turn round the svg and never the svg
+   (a transform there lays its text out again and repaints the drawing). Fine pointers: the script eases
+   it once the pointer rests, with no transition (one retargeted per move repaints). Touch: the scroll. */
+.hv-turn { transform-origin: 50% 100%; }
+@keyframes granary-turn {
+  from { transform: skewY(1.7deg); }
+  to { transform: skewY(-1.7deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @media (hover: none), (pointer: coarse) {
+    @supports (animation-timeline: view()) {
+      .hv-turn { animation: granary-turn linear both; animation-timeline: view(); animation-range: cover 0% cover 100%; }
+    }
+  }
+}
+/* The kit floats (fine pointers): the script writes a beat (--beat, 0 to 47, every 0.4 s while the
+   drawing is on screen) on each hung part; a hung storey or roof drifts 1.1 units over 16 beats, three
+   beats behind the part before it in the run (--k). No animation: one repaint a beat and none between,
+   none while the model turns. --beat does not inherit, so a beat restyles those few parts alone. */
+@property --beat {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .granary [data-plate]:is([data-state='ready'], [data-state='waiting']),
+  .granary [data-roof='kit'] { translate: 0 calc(sin((var(--beat, 0) - var(--k, 0) * 3) * 22.5deg) * 0.55px); }
+  /* At the wallet the rigging is taut: nothing on that stack drifts, and its guides run upward, two units a beat. */
+  .granary [data-stack]:has([data-plate][data-state='sending']) :is([data-plate], [data-roof]) { translate: none; }
+  .granary [data-stack]:has([data-plate][data-state='sending']) [data-guides] line { stroke-dashoffset: calc(var(--beat, 0) * -2px); }
+}
+/* The sheet draws itself, once, when first looked at (data-intro armed, then play): the grid ruled from
+   the back, the site plate and the footings inked, bright while the pen is on them and drying to their
+   own weight, the network's name cut; then each part of the kit appears as its built rise begins, held
+   back by --ink (INK_MS in HarvestGranary.tsx). Each line is ruled from a dash its own length (--len). */
+.granary { --ink: 460ms; }
+.granary[data-intro='armed'] { opacity: 0; }
+@keyframes granary-rule {
+  from { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); }
+  to { stroke-dasharray: var(--len); stroke-dashoffset: 0; }
+}
+@keyframes granary-dry {
+  from { stroke-opacity: var(--wet, 0.36); }
+}
+@keyframes granary-kit-in {
+  from { opacity: 0; }
+}
+@keyframes granary-wash-in {
+  from { fill-opacity: 0; }
+}
+.granary[data-intro='play'] [data-grid] line { animation: granary-rule 900ms cubic-bezier(0.3, 0, 0.2, 1) calc(min(var(--i, 0), 24) * 11ms) backwards, granary-dry 1200ms ease-in calc(min(var(--i, 0), 24) * 11ms) backwards; }
+.granary[data-intro='play'] :is([data-site], [data-board]) { --wet: 0.75; animation: granary-rule 900ms cubic-bezier(0.3, 0, 0.2, 1) 60ms backwards, granary-dry 1500ms ease-in 60ms backwards, granary-wash-in 300ms ease-out 200ms backwards; }
+.granary[data-intro='play'] [data-tower] [data-footing] polygon { --wet: 1; animation: granary-rule 520ms cubic-bezier(0.3, 0, 0.2, 1) 170ms backwards, granary-dry 1300ms ease-in 170ms backwards, granary-wash-in 260ms ease-out 300ms backwards; }
+.granary[data-intro='play'] [data-contact] { animation: granary-wash-in 260ms ease-out 300ms backwards; }
+.granary[data-intro='play'] [data-tower] [data-footing] :is(g, text) { animation: granary-kit-in 240ms ease-out 400ms backwards; }
+/* The kit is not there until its footing is: each part appears as its own rise begins (--k, its place in the run). */
+.granary[data-intro='play'] :is([data-plate] > g, [data-roof] > *, [data-guides]:not(.granary-ghost-in), [data-shadow]) { animation: granary-kit-in 220ms ease-out calc(var(--ink) + min(var(--k, 0), 12) * 60ms) backwards; }
+/* A drawing first seen mid-run: the light of paid storeys and the dashed twins come with the kit. */
+.granary[data-intro='play'] :is([data-pool], [data-throw], [data-ghosts]) { animation: granary-kit-in 220ms ease-out var(--ink) backwards; }
+/* The street: its kerb and ticks ruled with the board, the wallet inked before the footings, the lanes
+   (empty before a press) with the ground, each network's name with the footings' names. */
+.granary[data-intro='play'] [data-street] line { animation: granary-rule 900ms cubic-bezier(0.3, 0, 0.2, 1) 60ms backwards, granary-dry 1500ms ease-in 60ms backwards; }
+.granary[data-intro='play'] [data-wallet] { animation: granary-kit-in 300ms ease-out 120ms backwards; }
+.granary[data-intro='play'] :is([data-lanes], [data-lane-tags]) { animation: granary-kit-in 260ms ease-out 300ms backwards; }
+.granary[data-intro='play'] [data-street] text { animation: granary-kit-in 240ms ease-out 400ms backwards; }
+/* Round the drawing: its haze and its title wait with it; the haze comes in with the plate, the title is ruled last. */
+.hv-fig:has(.granary[data-intro='armed'])::before { opacity: 0; }
+.hv-fig:has(.granary[data-intro='armed']) .hv-vt { opacity: 0; }
+@keyframes hv-vt-rule {
+  from { transform: scaleX(0); }
+}
+.hv-fig:has(.granary[data-intro='play'])::before { animation: granary-kit-in 500ms ease-out 60ms backwards; }
+.hv-fig:has(.granary[data-intro='play']) .hv-vt-rule { transform-origin: 0 50%; animation: hv-vt-rule 520ms cubic-bezier(0.22, 1, 0.36, 1) 620ms backwards; }
+.hv-fig:has(.granary[data-intro='play']) .hv-vt-bub { animation: granary-kit-in 240ms ease-out 520ms backwards; }
+.hv-fig:has(.granary[data-intro='play']) .hv-vt-key { animation: granary-kit-in 300ms ease-out 980ms backwards; }
+/* The landing has weight, once, the same for every claim paid, on data-where='built' (the layout's word:
+   a claim paid but still hung lands when it lands): carried 3 units high and let go for the last of it;
+   its stack takes the load (data-thud flips, so each landing starts it afresh); dust leaves the seam;
+   the lamps strike past their size and settle. A stack topping out has its roof seated the same way. */
+@keyframes granary-seat {
+  0% { translate: 0 0; animation-timing-function: ease-in-out; }
+  42% { translate: 0 -3px; animation-timing-function: linear; }
+  66% { translate: 0 -3px; animation-timing-function: cubic-bezier(0.6, 0, 1, 0.6); }
+  75% { translate: 0 0.9px; animation-timing-function: ease-out; }
+  85% { translate: 0 -0.4px; animation-timing-function: ease-in-out; }
+  100% { translate: 0 0; }
+}
+.granary [data-plate][data-where='built'] { animation: granary-seat 1000ms linear; }
+@keyframes granary-thud-a {
+  0%, 100% { translate: 0 0; }
+  24% { translate: 0 1.1px; }
+  60% { translate: 0 -0.35px; }
+}
+@keyframes granary-thud-b {
+  0%, 100% { translate: 0 0; }
+  24% { translate: 0 1.1px; }
+  60% { translate: 0 -0.35px; }
+}
+.granary [data-stack][data-thud='a'] { animation: granary-thud-a 400ms ease-out 742ms; }
+.granary [data-stack][data-thud='b'] { animation: granary-thud-b 400ms ease-out 742ms; }
+@keyframes granary-dust {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.35); }
+  16% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, -2px)) scale(1.9); }
+}
+.granary [data-dust] circle { opacity: 0; transform-box: fill-box; transform-origin: center; }
+.granary [data-plate][data-where='built'] [data-dust] circle { animation: granary-dust 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 740ms both; }
+@keyframes granary-strike {
+  0% { transform: scale(0.5); }
+  30% { transform: scale(1.75); }
+  100% { transform: scale(1); }
+}
+/* The lamp is the bloom round the pane (never the wide one, whose light must stay clear of unpaid storeys). */
+.granary [data-lamp] { transform-box: fill-box; transform-origin: center; }
+.granary [data-plate][data-state='claimed'] [data-lamp] { animation: granary-strike 700ms cubic-bezier(0.2, 0.7, 0.3, 1) calc(790ms + var(--lamp, 0ms)) backwards; }
+@keyframes granary-seat-roof {
+  0% { translate: 0 0; animation-timing-function: ease-in-out; }
+  40% { translate: 0 -2.4px; animation-timing-function: linear; }
+  70% { translate: 0 -2.4px; animation-timing-function: cubic-bezier(0.6, 0, 1, 0.6); }
+  79% { translate: 0 0.6px; animation-timing-function: ease-out; }
+  89% { translate: 0 -0.3px; animation-timing-function: ease-in-out; }
+  100% { translate: 0 0; }
+}
+.granary [data-roof='topped'] { animation: granary-seat-roof 1010ms linear 750ms; }
+.granary [data-roof='topped'] [data-dust] circle { animation: granary-dust 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 1548ms both; }
+/* The flag flies: once unfurled it lifts in the wind three times and rests, as the chimney smokes twice. */
+@keyframes granary-fly {
+  0%, 100% { transform: none; }
+  30% { transform: skewY(-9deg) scaleX(0.9); }
+  65% { transform: skewY(6deg) scaleX(1.03); }
+}
+.granary-flag-unfurl { animation: granary-flag-unfurl 0.26s ease-out 1.8s both, granary-fly 1.5s ease-in-out 2.1s 3; }
+/* A lane moves only once its claim is paid: it runs green once from its building as its storey is set
+   down (750 ms), then its plate comes down inside the wallet's glass (1450 ms); the lane of the claim
+   at the wallet stands still. Each is drawn only in that state (HarvestGranary.tsx). */
+@keyframes city-run { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.granary [data-lane-run] { stroke-dasharray: 1; animation: city-run 700ms cubic-bezier(0.22, 1, 0.36, 1) 750ms both; }
+@keyframes city-plate-in { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.granary [data-landed] { animation: city-plate-in 380ms cubic-bezier(0.65, 0, 0.35, 1) 1450ms both; }
+/* Nothing repaints forever on a phone: the cloud and the brick at the wallet breathe six times (8.4 s)
+   and hold; the row's words still say it. The brick's own rule stands later in this file, so this one
+   names the button. */
+@media (hover: none), (pointer: coarse) {
+  .hv-cloud { animation: hv-cloud-draw 0.7s ease-out both, harvest-breathe 1.4s ease-in-out 0.7s 6; }
+  .hv-cta .hv-course i[data-s='sending'] { animation-iteration-count: 6; }
+}
+/* Reduced motion: every change lands at once (no waiting on a delay), the scan line holds still
+   across the footing's middle, the cloud stands whole, and no chimney smokes. */
+@media (prefers-reduced-motion: reduce) {
+  .granary, .granary * { transition-delay: 0s !important; animation-delay: 0s !important; }
+  .granary [data-smoke] { display: none; }
+  .hv-cloud { animation: none; stroke-dasharray: none; opacity: 1; }
+  .harvest-scan { animation: none; opacity: 0.7; transform: translate(calc(var(--scan-x, 0px) * 0.5), calc(var(--scan-y, 0px) * 0.5)); }
+  /* No turn, no float, no intro (the script does not attach); the one-shots at their ends: seated, lit, unfurled, no dust. */
+  .hv-turn { transform: none; animation: none; }
+  .granary [data-plate], .granary [data-roof], .granary [data-stack], .granary [data-lamp] { animation: none; }
+  .granary-flag-unfurl { animation: none; }
+  .granary [data-dust] { display: none; }
+  /* The lanes at their ends: a paid lane green whole, its plate in its place. */
+  .granary [data-lane-run], .granary [data-landed] { animation: none; }
+  .granary [data-lane-run] { stroke-dasharray: none; }
+}
+/* Harvest's card (farm/HarvestView.tsx), sheet H-01: one DOM order (head, fig, tally, act, list,
+   fine) set out by the card's content width (@container/harvest): one column under 55rem, the
+   instrument as a band beside the drawing from 55rem. The ledger sets its rows out by its own
+   width (@container/ledger). --fig-max caps the drawing's height per tier. Every mark drawn
+   from a data-* attribute is no part of the card's words. */
+.hv { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 16px; grid-template-areas: 'head' 'fig' 'tally' 'act' 'list' 'fine'; --fig-max: 23rem; }
+.hv[data-quiet] { --fig-max: 20rem; }
+.hv-fig[data-empty] { --fig-max: 9rem; }
+.hv-head { grid-area: head; min-width: 0; }
+.hv-fig { grid-area: fig; min-width: 0; position: relative; isolation: isolate; }
+/* The ground haze: the sheet's own dark behind the drawing only, feathered on every side, so the
+   card's art is calmed where the storeys stand and stays visible there. Static, outside the svg. */
+.hv-fig:not([data-empty])::before { content: ''; position: absolute; z-index: -1; inset: -10px -6px 26px; pointer-events: none; background: rgba(5, 8, 15, 0.4);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent), linear-gradient(to bottom, transparent, #000 14%, #000 82%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent), linear-gradient(to bottom, transparent, #000 14%, #000 82%, transparent);
+  -webkit-mask-composite: source-in; mask-composite: intersect; }
+.hv-tally { grid-area: tally; min-width: 0; }
+.hv-act { grid-area: act; min-width: 0; }
+.hv-list { grid-area: list; min-width: 0; }
+.hv-fine { grid-area: fine; min-width: 0; }
+.hv-fine details > div { max-width: 74ch; }
+.hv-money { margin: 12px 0 0; max-width: 46ch; font-size: 13px; line-height: 1.45; color: rgba(245, 228, 184, 0.8); }
+.hv-frame { display: none; position: absolute; inset: 9px; z-index: -1; border: 1px solid rgba(245, 228, 184, 0.14); pointer-events: none; }
+.hv-frame i { position: absolute; font: normal 600 7.5px/1 var(--font-family-mono); letter-spacing: 0.1em; color: rgba(245, 228, 184, 0.32); }
+.hv-frame i::before { content: attr(data-z); }
+.hv-frame .zt { top: -8.5px; transform: translateX(-50%); }
+.hv-frame .zb { bottom: -8.5px; transform: translateX(-50%); }
+.hv-frame .zl { left: -7.5px; transform: translateY(-50%); }
+.hv-frame .zr { right: -7.5px; transform: translateY(-50%); }
+.hv-frame .zs { top: -9px; width: 1px; height: 5px; background: rgba(245, 228, 184, 0.28); }
+.hv-frame .zs.b { top: auto; bottom: -9px; }
+.hv-vt { margin: 8px 0 0; display: flex; align-items: center; gap: 10px; font-family: var(--font-family-mono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(245, 228, 184, 0.55); }
+.hv-vt-bub { position: relative; flex: none; width: 27px; height: 27px; border: 1px solid rgba(245, 228, 184, 0.6); border-radius: 50%; }
+.hv-vt-bub::before, .hv-vt-bub::after { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; color: rgba(245, 228, 184, 0.85); }
+.hv-vt-bub::before { content: attr(data-a); top: 3px; font-size: 9px; letter-spacing: 0; }
+.hv-vt-bub::after { content: attr(data-b); bottom: 4px; margin: 0 4px; padding-top: 2px; border-top: 1px solid rgba(245, 228, 184, 0.45); font-size: 6px; letter-spacing: 0.04em; }
+.hv-vt-rule { flex: 1; min-width: 12px; height: 1px; background: rgba(245, 228, 184, 0.3); }
+.hv-vt-key { flex: none; white-space: nowrap; }
+/* The totals bar: one coin's line divided between its claims to scale (flex-grow is each claim's
+   share), filling as each is paid; then its figures. Lettered as a dimension string: each part's
+   number over the middle of its span, its ticks struck oblique. */
+.hv-tally > * + * { margin-top: 16px; }
+.hv-cap { margin: 0 0 6px; font-family: var(--font-family-mono); font-size: 10px; line-height: normal; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(245, 228, 184, 0.7); }
+.hv-dims { position: relative; display: flex; height: 22px; }
+.hv-seg { position: relative; min-width: 0; flex-basis: 0; }
+.hv-seg::before, .hv-seg:last-child::after { content: ''; position: absolute; bottom: 0; width: 1.2px; height: 9px; transform: rotate(40deg); background: rgba(245, 228, 184, 0.6); transition: background-color 300ms ease, height 300ms ease; }
+.hv-seg::before { left: 0; }
+.hv-seg:last-child::after { right: 0; }
+.hv-seg i { position: absolute; left: 0; right: 0; bottom: 4px; height: 1px; background: rgba(245, 228, 184, 0.4); transition: background-color 200ms ease-out, height 200ms ease-out, bottom 200ms ease-out; }
+.hv-seg b { position: absolute; left: 1px; right: 1px; bottom: 2px; height: 5px; transform: scaleX(0); transform-origin: 0 50%; transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease; }
+.hv-seg[data-s='sending'] b { transform: none; background: #e3b341; }
+.hv-seg[data-s='claimed'] b { transform: none; background: #22c55e; }
+/* A cautioned claim may have paid less than its part: striped, never drawn as paid in full. */
+.hv-seg[data-s='claimed'][data-caution] b { background: repeating-linear-gradient(90deg, #22c55e 0 3px, transparent 3px 5px); }
+.hv-seg[data-s='reverted']::before { background: #f08a6b; height: 13px; }
+.hv-seg[data-s='reverted'] i { background: repeating-linear-gradient(90deg, #f08a6b 0 3px, transparent 3px 5px); }
+.hv-seg em { position: absolute; left: 50%; top: 0; transform: translateX(-50%); font: normal 9.5px/1 var(--font-family-mono); letter-spacing: 0.08em; color: rgba(245, 228, 184, 0.6); text-shadow: 0 0 2px #05080f, 0 0 2px #05080f; transition: color 200ms ease-out; }
+.hv-seg em::before { content: attr(data-n); }
+.hv-seg[data-hot] i { background: #ffffff; height: 2px; bottom: 3.5px; }
+.hv-seg[data-hot] em { color: #ffffff; }
+.hv-figs { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: flex-end; column-gap: 28px; row-gap: 10px; }
+.hv-v { font-family: var(--font-family-heading); font-weight: 900; line-height: 1; letter-spacing: -0.045em; font-size: 28px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.hv-v.hv-lg { font-size: 38px; }
+.hv-v.hv-g { color: #22c55e; }
+.hv-u { margin-top: 6px; font-family: var(--font-family-mono); font-size: 10px; line-height: normal; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245, 228, 184, 0.65); }
+.hv-basis { margin: 8px 0 0; font-family: var(--font-family-mono); font-size: 10px; line-height: normal; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(245, 228, 184, 0.6); }
+/* The projection's terms wrap as one clause: never "funded to 22 Dec" over a lone "2026". */
+.hv-basis > span { display: inline-block; }
+/* The schedule: plaque, the room's door card, amount, where, state. Base rows suit a 35 to 43.75rem
+   list; one line each from 43.75rem; under 35rem the door card shrinks and the state drops under. */
+.hv-ledger, .hv-unread { list-style: none; margin: 0; padding: 0; }
+.hv-ledger { border-top: 1px solid rgba(255, 255, 255, 0.25); }
+.hv-list > * + * { margin-top: 12px; }
+.hv-row { position: relative; display: grid; grid-template-columns: 26px 54px minmax(0, 1fr) auto; column-gap: 12px; align-items: start; padding: 11px 0 11px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.hv-row > .hv-num { grid-column: 1; grid-row: 1 / span 2; }
+.hv-row > .hv-door { grid-column: 2; grid-row: 1 / span 2; }
+.hv-row > .hv-amt { grid-column: 3; grid-row: 1; }
+.hv-row > .hv-where { grid-column: 3; grid-row: 2; }
+.hv-row > .hv-st { grid-column: 4; grid-row: 1; }
+.hv-row > .hv-note { grid-column: 3 / -1; grid-row: 3; }
+.hv-edge { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); transform: scaleY(0.38); transform-origin: 50% 100%; transition: transform 200ms ease-out, background-color 300ms ease; }
+.hv-row[data-hot] .hv-edge, .hv-row[data-state='claimed'] .hv-edge { transform: none; }
+.hv-row[data-state='claimed'] .hv-edge { background: #22c55e; }
+.hv-row[data-held] .hv-edge { transform: none; background: repeating-linear-gradient(to bottom, rgba(245, 228, 184, 0.45) 0 4px, transparent 4px 8px); }
+.hv-num { position: relative; margin-top: 2px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 17px; font-family: var(--font-family-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: rgba(245, 228, 184, 0.8); border: 1px solid rgba(245, 228, 184, 0.4); transition: background-color 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out; }
+.hv-num::before { content: attr(data-n); }
+.hv-row[data-caution]:is([data-state='ready'], [data-state='waiting'], [data-state='sending'], [data-state='claimed']) .hv-num::after { content: '!'; position: absolute; top: -6px; right: -7px; width: 11px; height: 9px; padding-top: 1px; background: #f0b26b; color: #05080f; font-size: 7px; font-weight: 800; line-height: 9px; text-align: center; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.hv-row[data-state='waiting'] .hv-num { color: rgba(245, 228, 184, 0.5); border-color: rgba(245, 228, 184, 0.25); }
+.hv-row[data-hot]:is([data-state='ready'], [data-state='waiting']) .hv-num { background: #f5e4b8; color: #05080f; border-color: #ffffff; }
+.hv-row[data-state='claimed'] .hv-num { background: #22c55e; color: #05080f; border-color: #22c55e; }
+.hv-row[data-state='sending'] .hv-num { background: #e3b341; color: #05080f; border-color: #e3b341; }
+.hv-row[data-state='reverted'] .hv-num { color: #f08a6b; border: 1px dashed #f08a6b; }
+.hv-row[data-state='unconfirmed'] .hv-num { color: #f0b26b; border: 1px dashed #f0b26b; }
+.hv-row:is([data-state='declined'], [data-state='not-sent']) .hv-num { color: rgba(245, 228, 184, 0.55); border: 1px dashed rgba(245, 228, 184, 0.45); }
+.hv-row[data-held] .hv-num { border: 1px dashed rgba(245, 228, 184, 0.35); }
+/* The door card hangs 3 px over its slot, lifts to 6 at the wallet, drops in once paid, greys where it did not land. */
+.hv-door { position: relative; width: 54px; height: 26px; margin-top: 2px; }
+.hv-door > * { display: block; width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--accent); transform: translateY(-3px); box-shadow: 0 4px 0 -1px rgba(0, 0, 0, 0.6); transition: transform 450ms cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 450ms ease, border-color 300ms ease, opacity 300ms ease, filter 300ms ease; }
+.hv-door::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 1px; background: rgba(245, 228, 184, 0.28); transition: background-color 300ms ease, height 300ms ease; }
+.hv-row[data-state='waiting'] .hv-door > * { opacity: 0.55; }
+.hv-row[data-state='sending'] .hv-door > * { transform: translateY(-6px); border-color: #e3b341; box-shadow: 0 7px 0 -2px rgba(227, 179, 65, 0.35); }
+.hv-row[data-state='claimed'] .hv-door > * { transform: none; box-shadow: none; border-color: #22c55e; transition: transform 750ms cubic-bezier(0.65, 0, 0.35, 1), box-shadow 750ms ease, border-color 300ms ease, opacity 300ms ease, filter 300ms ease; }
+.hv-row[data-state='claimed'] .hv-door::after { background: #22c55e; height: 2px; }
+.hv-row[data-state='reverted'] .hv-door > * { opacity: 0.3; filter: grayscale(1); border: 1px dashed #f08a6b; }
+.hv-row[data-state='unconfirmed'] .hv-door > * { opacity: 0.45; border: 1px dashed #f0b26b; transform: none; box-shadow: none; }
+.hv-row:is([data-state='declined'], [data-state='not-sent']) .hv-door > * { opacity: 0.3; filter: grayscale(1); border: 1px dashed rgba(245, 228, 184, 0.45); transform: none; box-shadow: none; }
+.hv-row[data-held] .hv-door > * { opacity: 0.4; filter: grayscale(0.6); border: 1px dashed rgba(245, 228, 184, 0.5); transform: none; box-shadow: none; }
+.hv-amt { display: block; font-family: var(--font-family-heading); font-weight: 900; line-height: 1; letter-spacing: -0.035em; font-size: 23px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; transition: color 500ms ease; }
+.hv-row[data-state='claimed'] .hv-amt { color: #22c55e; }
+.hv-row[data-held] .hv-amt { font-size: 19px; color: rgba(245, 228, 184, 0.75); }
+.hv-where { display: block; margin-top: 6px; font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.35; color: rgba(245, 228, 184, 0.6); }
+/* No word left alone on a last line. */
+.hv-money, .hv-note, .hv-where { text-wrap: balance; }
+.hv-st { margin-top: 4px; font-family: var(--font-family-mono); font-size: 11px; line-height: normal; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
+.hv-st a { position: relative; color: inherit; text-decoration: underline; text-underline-offset: 4px; }
+.hv-page { position: relative; color: rgba(245, 228, 184, 0.8); text-decoration: underline; text-underline-offset: 4px; transition: color 200ms ease; }
+/* A 24 px target on a one-line box: each link reaches 5 px above and below its words, so the row keeps the schedule's rhythm. */
+a.hv-page::after, .hv-st a::after { content: ''; position: absolute; inset: -5px 0; }
+a.hv-page:hover { color: #22c55e; }
+/* While a run goes on the words stay, as plain text: no link away from the run. */
+span.hv-page { text-decoration: none; color: rgba(245, 228, 184, 0.5); }
+.hv-note { margin: 6px 0 0; max-width: 72ch; font-size: 12px; line-height: 1.55; color: #f0b26b; }
+.hv-row[data-held] .hv-note { color: rgba(245, 228, 184, 0.65); }
+.hv-unread li { position: relative; padding: 2px 0 2px 12px; font-size: 12px; line-height: 1.6; color: #f0b26b; }
+.hv-unread li::before { content: ''; position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; background: repeating-linear-gradient(to bottom, #f0b26b 0 2px, transparent 2px 5px); }
+.hv-unread button { position: relative; font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+/* Try again reaches 3 px above and below its 19 px line: a 25 px target that keeps the line's height. */
+.hv-unread button::after { content: ''; position: absolute; inset: -3px 0; }
+.hv-unread button:hover { color: #ffffff; }
+.hv-nothing { margin: 4px 0 0; font-family: var(--font-family-mono); font-size: 11px; line-height: normal; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245, 228, 184, 0.6); }
+@container ledger (width >= 43.75rem) {
+  .hv-row { grid-template-columns: 26px 54px minmax(0, 15.5rem) minmax(0, 1fr) auto; align-items: center; padding: 9px 0 9px 12px; }
+  .hv-row > .hv-num, .hv-row > .hv-door { grid-row: 1; }
+  .hv-row > .hv-where { grid-column: 4; grid-row: 1; margin-top: 0; }
+  .hv-row > .hv-st { grid-column: 5; grid-row: 1; margin-top: 0; }
+  .hv-row > .hv-note { grid-column: 3 / -1; grid-row: 2; margin-top: 2px; }
+}
+@container ledger (width < 35rem) {
+  .hv-row { grid-template-columns: 24px 40px minmax(0, 1fr); column-gap: 10px; }
+  .hv-row > .hv-st { grid-column: 3; grid-row: 3; margin-top: 6px; }
+  .hv-row > .hv-note { grid-column: 3; grid-row: 4; }
+  .hv-door { width: 40px; height: 20px; }
+  .hv-amt { font-size: 21px; }
+}
+/* The button: a green block standing on the sheet, its thickness drawn in steps as a storey's is;
+   pointed at it rises a step deeper, pressed it sets down. While it runs, a course of bricks along
+   its foot, one per claim: the one at the wallet breathes with the cloud round its storey. */
+.hv-actrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 18px; row-gap: 12px; }
+.hv-cta { position: relative; display: inline-flex; width: 100%; min-height: 58px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 8px 8px 20px; text-align: left; cursor: pointer;
+  border: 1px solid #22c55e; background: #22c55e; color: #05080f; font-family: var(--font-family-body); font-weight: 900; font-size: 15px; line-height: 1.2; letter-spacing: -0.01em; text-transform: uppercase;
+  box-shadow: 1px 1px 0 #15803d, 2px 2px 0 #15803d, 3px 3px 0 #136f36, 4px 4px 0 #136f36, 5px 5px 0 #0f5c2c, 6px 6px 0 #0f5c2c, 6px 6px 0 1px rgba(245, 228, 184, 0.55);
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out, background-color 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out; }
+.hv-cta:enabled:hover { transform: translate(-2px, -2px); box-shadow: 1px 1px 0 #15803d, 2px 2px 0 #15803d, 3px 3px 0 #136f36, 4px 4px 0 #136f36, 5px 5px 0 #0f5c2c, 6px 6px 0 #0f5c2c, 7px 7px 0 #0b4a24, 8px 8px 0 #0b4a24, 8px 8px 0 1px rgba(245, 228, 184, 0.55); }
+.hv-cta:enabled:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 #15803d, 2px 2px 0 #15803d, 2px 2px 0 1px rgba(245, 228, 184, 0.55); transition-duration: 120ms; }
+.hv-cta:disabled { cursor: not-allowed; background: transparent; color: rgba(245, 228, 184, 0.62); border-color: rgba(255, 255, 255, 0.2); box-shadow: none; }
+.hv-cta:focus-visible { outline: 2px solid #f5e4b8; outline-offset: 3px; }
+.hv-key { display: flex; width: 40px; height: 40px; flex-shrink: 0; align-items: center; justify-content: center; background: #05080f; color: #22c55e; transition: background-color 200ms ease, color 200ms ease; }
+.hv-key svg { transition: transform 300ms ease; }
+.hv-cta:enabled:hover .hv-key svg { transform: translateY(2px); }
+.hv-cta:disabled .hv-key { background: transparent; border: 1px solid rgba(255, 255, 255, 0.15); color: rgba(245, 228, 184, 0.4); }
+.hv-course { position: absolute; left: -1px; right: -1px; bottom: -1px; height: 5px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; }
+.hv-course i { display: block; background: rgba(245, 228, 184, 0.18); transition: background-color 300ms ease; }
+.hv-course i[data-s='sending'] { background: #e3b341; animation: harvest-breathe 1.4s ease-in-out 0.7s infinite; }
+.hv-course i[data-s='claimed'] { background: #22c55e; }
+.hv-course i[data-s='reverted'] { background: repeating-linear-gradient(90deg, #f08a6b 0 3px, transparent 3px 5px); }
+.hv-course i[data-s='unconfirmed'] { background: rgba(240, 178, 107, 0.6); }
+.hv-course i:is([data-s='declined'], [data-s='not-sent']) { background: rgba(245, 228, 184, 0.1); }
+.hv-cta-note { font-family: var(--font-family-mono); font-size: 11px; line-height: normal; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(245, 228, 184, 0.7); }
+.hv-cta-gap { color: #f0b26b; }
+/* The tiers. NARROW (under 35rem): the drawing bleeds 10 px into the padding (its view title keeps to
+   the text column). MID adds the sheet frame. WIDE (55rem up) sets the band: the title at the head of
+   the left column, the totals (or one or two rows) standing on the button at its foot, on the
+   drawing's ground line; the view title inside the frame. The storeys' lettering is the figure's own
+   (data-lettering), cut by how large it is drawn, not by the card's width. */
+@container harvest (width < 35rem) {
+  .hv-fig { margin: 0 -10px; }
+  .hv-vt { margin: 4px 10px 0; font-size: 9px; }
+  .hv-v { font-size: 24px; }
+  .hv-v.hv-lg { font-size: 32px; }
+}
+@container harvest (width >= 28rem) {
+  .hv-cta { width: auto; min-width: 20rem; }
+}
+@container harvest (width >= 35rem) {
+  .hv { --fig-max: 28rem; }
+  .hv[data-quiet] { --fig-max: 22rem; }
+  .hv-frame { display: block; }
+}
+@container harvest (width >= 55rem) {
+  .hv { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: 40px; row-gap: 18px; grid-template-areas: 'head fig' 'tally fig' 'act fig' 'list list' 'fine fine'; grid-template-rows: auto 1fr auto auto auto; --fig-max: 36rem; }
+  .hv:is([data-short], [data-bare]) { grid-template-areas: 'head fig' 'list fig' 'act fig' 'fine fine'; grid-template-rows: auto auto 1fr auto; }
+  .hv[data-short] { grid-template-rows: auto 1fr auto auto; }
+  .hv[data-short] .hv-list { align-self: end; }
+  .hv-tally { align-self: end; }
+  .hv-fig[data-empty] { --fig-max: 13rem; }
+  .hv[data-bare]:has(> .hv-tally) { grid-template-areas: 'head fig' 'tally fig' 'list fig' 'act fig' 'fine fine'; grid-template-rows: auto auto auto 1fr auto; }
+  .hv-fig { align-self: end; margin: -10px -14px 0 0; }
+  .hv-fig:not([data-empty])::before { inset: -10px -10px 26px -14px; }
+  .hv-vt { margin-right: 14px; }
+  .hv-figs { column-gap: 22px; }
+  .hv-v { font-size: 26px; }
+  .hv-v.hv-lg { font-size: 34px; }
+}
+/* No claim and a pool not read: no drawing, and no row kept for one, at every width (after the band's
+   own templates, so it holds there too). */
+.hv[data-undrawn] { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: 'head' 'act' 'list' 'fine'; }
+.hv[data-undrawn]:has(> .hv-tally) { grid-template-areas: 'head' 'tally' 'act' 'list' 'fine'; }
+/* Reduced motion: the card's changes land at once, the button stays put, and no brick breathes. */
+@media (prefers-reduced-motion: reduce) {
+  .hv *, .hv *::before, .hv *::after { transition-delay: 0s !important; }
+  .hv-cta:enabled:hover, .hv-cta:enabled:active { transform: none; }
+  .hv-course i[data-s] { animation: none; }
+}
+/* Printed, the drawing stands finished (HarvestGranary.tsx lets its intro go before the page is laid
+   out for print): nothing moves or waits, and the model stands straight. */
+@media print {
+  .granary, .granary *, .hv-vt * { animation: none !important; transition: none !important; }
+  .granary[data-intro], .hv-vt, .hv-fig::before { opacity: 1 !important; }
+  .hv-turn { transform: none !important; animation: none !important; }
+}
 
 /* The island order's split (IslandBasket.tsx): a hairline in cream, filled green up to the coin's
    share (--fill), and a hard square to drag. The input itself is 28px tall, so a thumb on a phone

@@ -18,7 +18,7 @@ const ETH: SwapVenue = { ...BASE, chainId: 1, name: 'Ethereum', weth: '0xC02aaA3
 const ME = getAddress('0x00000000000000000000000000000000000000aa');
 const DEADLINE = 1_800_000_000n;
 
-const qr = EVM_BASKET.base.find((c) => c.symbol === 'QR')!;
+const bnkr = EVM_BASKET.base.find((c) => c.symbol === 'BNKR')!;
 const mfer = EVM_BASKET.base.find((c) => c.symbol === '$mfer')!;
 const v2 = mfer.pools.find((p) => p.dex === 'uniswap-v2')!;
 const v3 = mfer.pools.find((p) => p.dex === 'uniswap-v3')!;
@@ -66,7 +66,7 @@ describe('routeEvmLeg: the swap’s rule, per coin', () => {
 });
 
 describe('buildEvmOrder', () => {
-  const quotes = [q(qr, [{ pool: qr.pools[0]!, out: 1_000_000n }], null, false, FEE), q(mfer, [{ pool: v2, out: 2_000n }], null, false, FEE), { ...q(mfer, [], 3_000n, false, FEE), amountIn: 2_000n }];
+  const quotes = [q(bnkr, [{ pool: bnkr.pools[0]!, out: 1_000_000n }], null, false, FEE), q(mfer, [{ pool: v2, out: 2_000n }], null, false, FEE), { ...q(mfer, [], 3_000n, false, FEE), amountIn: 2_000n }];
   const routes = quotes.map((x) => routeEvmLeg(x, 8453));
 
   it('on Base, puts the V3 coins in ONE Universal Router call that pays the venue first, then each other coin alone', () => {
@@ -84,7 +84,7 @@ describe('buildEvmOrder', () => {
     expect(b.transfer).toEqual(['0x0000000000000000000000000000000000000000', SAFE, 5n]);
     expect(b.wrap).toEqual([ADDRESS_THIS, CONTRACT_BALANCE]);
     // The only V3 coin spends all that is left, straight to the buyer, at its floor.
-    expect(b.swaps).toEqual([[MSG_SENDER, CONTRACT_BALANCE, minOut(1_000_000n, 100), v3Path(BASE.weth, 10000, qr.token), false]]);
+    expect(b.swaps).toEqual([[MSG_SENDER, CONTRACT_BALANCE, minOut(1_000_000n, 100), v3Path(BASE.weth, 10000, bnkr.token), false]]);
 
     expect(viaV2.to).toBe(BASE.uniswapV2Router);
     expect(viaV2.value).toBe(1_000n);
@@ -151,10 +151,11 @@ describe('quoteEvmLegs', () => {
   const ZERO = '0x0000000000000000000000000000000000000000';
   const PAIR = '0x00000000000000000000000000000000000000bb';
   /** A chain in a box: answers by function name; `fail` names reads that throw; `quoted` keeps what V3 was asked to price. */
-  const box = (o: { pair?: string; fee?: bigint; payee?: string; fail?: string[]; quoted?: bigint[] } = {}): QuoteClient => ({
+  const box = (o: { pair?: string; fee?: bigint; payee?: string; kLast?: bigint; fail?: string[]; quoted?: bigint[] } = {}): QuoteClient => ({
     readContract: async ({ functionName, args }) => {
       if (o.fail?.includes(functionName)) throw new Error('rpc down');
       if (functionName === 'getPair') return o.pair ?? ZERO;
+      if (functionName === 'kLast') return o.kLast ?? 7n;
       if (functionName === 'feeBps') return o.fee ?? 50n;
       if (functionName === 'revenueDistributor') return o.payee ?? SAFE;
       if (functionName === 'getAmountsOut') return [args![0] as bigint, (args![0] as bigint) * 3n];
@@ -185,7 +186,7 @@ describe('quoteEvmLegs', () => {
 
   it('on Ethereum (no Universal Router here), reads no venue fee and prices a V3 pool on the whole amount', async () => {
     const quoted: bigint[] = [];
-    const [leg] = await quoteEvmLegs(box({ quoted, fail: ['revenueDistributor'] }), ETH, [{ coin: qr, amountIn: 1_000n }]);
+    const [leg] = await quoteEvmLegs(box({ quoted, fail: ['revenueDistributor'] }), ETH, [{ coin: bnkr, amountIn: 1_000n }]);
     expect(leg!.venueFee).toBeNull();
     expect(leg!.unread).toBe(false);
     expect(quoted).toEqual([1_000n]);
@@ -194,11 +195,23 @@ describe('quoteEvmLegs', () => {
   it('on Base, a fee or payee that cannot be read holds every coin: nothing is priced as if fee-free', async () => {
     for (const o of [{ fail: ['revenueDistributor'] }, { fail: ['feeBps'] }, { payee: ZERO }, { payee: 'not an address' }, { fee: 1_001n }]) {
       const quoted: bigint[] = [];
-      const out = await quoteEvmLegs(box({ ...o, quoted }), BASE, [{ coin: mfer, amountIn: 1_000n }, { coin: qr, amountIn: 1_000n }]);
+      const out = await quoteEvmLegs(box({ ...o, quoted }), BASE, [{ coin: mfer, amountIn: 1_000n }, { coin: bnkr, amountIn: 1_000n }]);
       expect(out.map((l) => l.unread)).toEqual([true, true]);
       expect(out.map((l) => l.venueFee)).toEqual([null, null]);
       expect(quoted).toEqual([]);
     }
+  });
+
+  it('our pool with the venue cut off (kLast 0) is no pool of ours: never routed', async () => {
+    const [leg] = await quoteEvmLegs(box({ pair: PAIR, kLast: 0n }), BASE, legs);
+    expect(leg!.ours).toBeNull();
+    expect(leg!.unread).toBe(false);
+  });
+
+  it('our pool whose kLast did not answer marks the coin unread, never priced as ours', async () => {
+    const [leg] = await quoteEvmLegs(box({ pair: PAIR, fail: ['kLast'] }), BASE, legs);
+    expect(leg!.ours).toBeNull();
+    expect(leg!.unread).toBe(true);
   });
 
   it('no pair of ours is no pool, not a failure', async () => {

@@ -169,6 +169,17 @@ describe('Dashboard "TOWELI Price" card', () => {
     expect(within(card).getByText('Could not load')).toBeTruthy();
   });
 
+  it('rounds the price to the nearest digit shown: a price is not an amount you hold', () => {
+    // Under a cent, eight places: 0.001234567 is 0.00123457 to the nearest; cut it read 0.00123456.
+    Object.assign(price, { isLoaded: true, priceSettled: true, priceInUsd: 0.001234567 });
+    expect(priceCard().textContent).toContain('$0.00123457');
+  });
+
+  it('rounds the price to the nearest at six places too', () => {
+    Object.assign(price, { isLoaded: true, priceSettled: true, priceInUsd: 0.123456789 });
+    expect(priceCard().textContent).toContain('$0.123457');
+  });
+
   it('shows the price, with no failure mark, when one was read', () => {
     Object.assign(price, { isLoaded: true, priceSettled: true, priceInUsd: 0.00007 });
     const card = priceCard();

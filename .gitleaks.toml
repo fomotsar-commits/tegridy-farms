@@ -204,6 +204,16 @@ regexes = [
   # Reward vault: holds the rewards to be paid.
   '''\b3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1\b''',
   #
+  # \ BAYLA LIGHTHOUSE REWARD VAULT, added 2026-11-15 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # The BAYLA lighthouse staking pool's reward vault. getAccountInfo on mainnet,
+  # 2026-11-15: program owner TokenzQd…, parsed type "account", mint 7hmVkPXm…pump
+  # (BAYLA), account owner 3ysyH5py…. Already public on trunk in
+  # docs/BAYLA_BUNGALOW.md:270 and bungalowStakingRates.test.ts:70. Flagged by
+  # `generic-api-key` in the recorded read frontend/e2e/fixtures/word-budget-reads.json
+  # (commit d302d9d1, PR #1219), as a key "getTokenAccountBalance:<id>".
+  '''\b5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq\b''',
+  #
   # \ TOKEN-2022 NATIVE MINT, added 2026-10-02 \\\\\\\\\\\\\\\\\\\\\\\\@
   #
   # SOL under the Token-2022 program: @solana/spl-token's own NATIVE_MINT_2022

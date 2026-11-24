@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
+import { localeCut } from '../lib/formatting';
 import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
 import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
@@ -37,9 +38,10 @@ import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { IsoIsland } from '../components/farm/IsoIsland';
-import { venuePoolRows } from '../lib/venuePools';
-import { earnPoolPath } from '../lib/earnRoutes';
-import { EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT } from '../lib/editorial';
+import { rowTerms, venuePoolRows } from '../lib/venuePools';
+import { planAspect } from '../lib/isoPlan';
+import { EDITORIAL_GRAIN, EDITORIAL_GREEN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
+import { SheetRuler } from '../components/dwg/SheetRuler';
 import { HarvestCard } from '../components/farm/HarvestCard';
 import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
@@ -102,6 +104,9 @@ function VenueEarn() {
   const [active, setActive] = useState<string | null>(null);
   const pools = venuePoolRows();
   const chains = new Set(pools.map((r) => r.chain).filter((c) => c !== 'tbd')).size;
+  // The model takes 84% of the sheet, but never more than 66% of the screen's height, so on a
+  // short laptop screen the schedule is not pushed far down by the drawing.
+  const modelWidth = { '--model-w': `min(84%, calc(66vh * ${planAspect(pools).toFixed(3)}))` } as CSSProperties;
   return (
     <div className="relative">
       <PageArtBackdrop pageId="earn" />
@@ -116,20 +121,31 @@ function VenueEarn() {
           {/* One heading, one line (owner, 2026-10-14: as few words as possible).
               The island's name is in the list's own heading below. */}
           <header
-            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,57%)] md:items-end md:gap-x-4"
+            className="relative isolate overflow-hidden px-4 pt-5 pb-4 md:px-7 md:pt-6 lg:px-10 lg:pt-7 max-md:flex max-md:flex-col md:grid md:grid-cols-1"
             style={{ background: 'rgba(5,8,15,0.9)' }}
           >
             <div aria-hidden="true" className="absolute inset-0 -z-10 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
-            {/* A phone: the model stands behind the word and fades out above the line under it, so
-                the first row is no further down the screen and the line is read on plain black. */}
-            <div className="max-md:absolute max-md:-z-10 max-md:-right-10 max-md:-top-1 max-md:w-[74%] max-md:opacity-80 max-md:[mask-image:linear-gradient(to_bottom,#000_58%,transparent_96%)] md:order-2 md:-mr-5 lg:-mr-7 md:-mt-2">
-              <IsoIsland rows={pools} active={active} onActive={setActive} onOpen={(id) => navigate(earnPoolPath(id))} />
+            {/* The village takes most of the sheet (owner, 2026-11-14: the bungalows "much much
+                further"), and the words stand in the corners its plan leaves empty: the count top
+                left, the title bottom left. All three share one grid cell from 768px, so the sheet
+                is as tall as the taller of them. The word lets a pointer through to the houses
+                behind it, and the line under it takes it back on its own text. The small print has
+                a row of its own under that cell, so opening it makes the sheet taller below the
+                model rather than lifting the word onto the houses.
+                A phone: the model has a row of its own under the line, the sheet's full width, so
+                every house is whole and takes a tap (owner, 2026-11-15: it "doesnt fit the screen
+                properly"). Until then it stood behind the word, cut off at the screen's right edge
+                and under the word's letters, and seven of its eleven houses could not be tapped.
+                A press on a house enters its bungalow (`/<id>`), as its door on the front page
+                and the bungalow picker do; the row under it opens its pool. */}
+            <div className="max-md:order-2 max-md:-mx-4 max-md:mt-4 md:[grid-area:1/1] md:justify-self-end md:w-[var(--model-w)] md:-mr-6 lg:-mr-9 md:-mt-4 md:mb-2" style={modelWidth}>
+              <IsoIsland rows={pools} active={active} onActive={setActive} onOpen={(id) => navigate(`/${id}`)} />
             </div>
-            <div className="relative min-w-0 md:order-1 md:pb-3">
-              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60">
-                <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
-                {pools.length} pools · {chains} chains
-              </p>
+            <p className="relative flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60 md:[grid-area:1/1] md:self-start md:justify-self-start">
+              <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
+              {pools.length} pools · {chains} chains
+            </p>
+            <div className="relative min-w-0 md:[grid-area:1/1] md:self-end md:justify-self-start md:max-w-[46%] md:pointer-events-none md:[&>p]:pointer-events-auto">
               {/* The word rises from under a mask, as the menu's do; its outline stands a step
                   down and to the right of it, as a plan's projection does (drawn from `data-echo`,
                   so the heading holds the one word). */}
@@ -144,7 +160,8 @@ function VenueEarn() {
               <p className="mt-3 text-[14px] md:text-[15px] leading-snug text-[#f5e4b8]/80 max-w-[62ch]">
                 Pick a coin, open its pool, stake.
               </p>
-              <FinePrint summary="How it works" className="mt-1 max-w-[62ch]">
+            </div>
+            <FinePrint summary="How it works" className="relative mt-1 max-w-[62ch] max-md:order-3 md:[grid-area:2/1] md:max-w-[46%]">
                 <p>
                   Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
                 </p>
@@ -154,18 +171,39 @@ function VenueEarn() {
                   rewards.
                 </p>
                 <p>
-                  The drawing is the island&rsquo;s pools, one street per chain. A ramp is a pool with a lock
-                  ladder, drawn to scale: the longer the lock, the higher the share. A flat block has no ladder.
-                  It shows each pool&rsquo;s terms, never a rate.
+                  The drawing is the island&rsquo;s pools, one street per chain. Every pool is the same brick
+                  bungalow, wearing its own room&rsquo;s picture on its walls and its colour on its ridge and
+                  chimney. A ladder on its wall means the pool has a lock ladder, its rungs drawn to scale from
+                  0.40&times; at seven days to 4.00&times; at four years: the longer the lock, the higher the
+                  share. It shows each pool&rsquo;s terms, never a rate. Point at a bungalow, or its row, and its
+                  roof lifts off.
                 </p>
               </FinePrint>
-            </div>
           </header>
           {/* One press claims every pool's rewards (owner, 2026-10-24). */}
           <HarvestCard className="px-3 pb-5 md:px-7 lg:px-10 bg-[#05080f]/90" />
           <VenuePoolIndex activeId={active} onActive={setActive} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The TOWELI room's colour for its sheet (lib/bungalows.ts), as every room's sheet takes its own. */
+const TOWELI_SHEET = { '--s01-accent': BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID)?.accent ?? EDITORIAL_GREEN } as CSSProperties;
+
+/** The TOWELI sheet's foot: its place in Earn's schedule and its terms, drawn from data, no words. */
+function ToweliTitleBlock() {
+  const rows = venuePoolRows();
+  const at = rows.findIndex((r) => r.id === DEFAULT_BUNGALOW_ID);
+  const room = BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID);
+  return (
+    <div className="dwg-title s01-title" aria-hidden="true">
+      <div><div className="dwg-tcap" data-cap="Sheet" /><div className="dwg-sheetno" data-no="S-01" /></div>
+      <div><div className="dwg-tcap" data-cap="Room" /><div className="dwg-tval" data-ink="room" data-val={room?.symbol ?? 'TOWELI'} /></div>
+      <div><div className="dwg-tcap" data-cap="Chain" /><div className="dwg-tval" data-val="Ethereum" /></div>
+      {at >= 0 && <div><div className="dwg-tcap" data-cap="Pool" /><div className="dwg-tval" data-val={`${pad2(at + 1)} / ${pad2(rows.length)}`} /></div>}
+      {at >= 0 && <div><div className="dwg-tcap" data-cap="Terms" /><div className="dwg-tval" data-val={rowTerms(rows[at]!.terms)} /></div>}
     </div>
   );
 }
@@ -286,7 +324,7 @@ function ToweliFarm() {
   // means "could not read", and conflating the two was exactly the dry-day
   // display bug. isDry only flips once reads landed, so the distinction holds.
   const rewardsRemainingDisplay = pool.isDeployed && (rewardsRemainingNum > 0 || pool.isDry)
-    ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
+    ? `${localeCut(pool.rewardsRemaining, 0)} TOWELI`
     : '–';
 
   // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).
@@ -437,7 +475,7 @@ function ToweliFarm() {
   // when no wallet is connected. Keeps the scenery, swaps the content.
   if (!isConnected) {
     return (
-      <div className="-mt-14 relative min-h-screen">
+      <div className="-mt-14 relative min-h-screen dwg" data-sheet="S">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <ArtImg pageId="farm" idx={0} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
           <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
@@ -452,6 +490,11 @@ function ToweliFarm() {
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="page-column mx-auto px-4 md:px-6 pb-4">
             <BackToEarn />
+            {/* Sheet S-01 (styles/dwg-staking.css): the ruler, one band for the farm's blocks as they
+                stand, the title block. No heading is added here (a11y-routes pins this page's list). */}
+            <div className="dwg-sheet s01-sheet" style={TOWELI_SHEET}>
+            <SheetRuler />
+            <div className="dwg-band s01-classic">
             {/* The thing a logged-out visitor came to press is Connect, so the
                 action card is the FIRST card, not the last: on a 390px phone it
                 sat 6,400px down, under five sections of figures (the lead's
@@ -521,6 +564,9 @@ function ToweliFarm() {
                 See what you&rsquo;d earn before connecting &#8594;
               </Link>
             </div>
+            </div>
+            <ToweliTitleBlock />
+            </div>
           </div>
         </div>
       </div>
@@ -528,7 +574,7 @@ function ToweliFarm() {
   }
 
   return (
-    <div className="-mt-14 relative min-h-screen">
+    <div className="-mt-14 relative min-h-screen dwg" data-sheet="S">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="farm" idx={0} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
@@ -543,10 +589,13 @@ function ToweliFarm() {
           className="mb-4"
           message="Wrong network. Switch chains to stake, claim or withdraw."
         />
-        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
-          <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
+        <div className="dwg-sheet s01-sheet" style={TOWELI_SHEET}>
+        <SheetRuler />
+        <m.div className="mb-8 s01-hero dwg-grain" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className="dwg-word s01-word"><span data-echo="Farm">Farm</span></h1>
+          <p className="dwg-lede">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
+        <div className="dwg-band s01-classic">
 
         {/* THE STAKE FORM AND THE POSITION COME FIRST (owner, 2026-10-14: "not
             even see the stuff they are to interact with"). This grid sat at the
@@ -695,6 +744,9 @@ function ToweliFarm() {
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
 
+        </div>
+        <ToweliTitleBlock />
+        </div>
       </div>
       </ErrorBoundary>
     </div>
