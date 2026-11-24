@@ -2898,6 +2898,133 @@ describe("venue-sweep: a run", () => {
     expect(res).toMatchObject({ ok: true, stopped: null });
     expect(summary(res, { live: false })).not.toContain("The run stopped early");
   });
+
+  // ── Law 25's read, 2026-11-24: rules no test held before (each was a surviving mutant on 15e5616e4) ──
+  for (const c of [
+    { why: "its log lines are null, as a node that does not record them answers", answer: (tx) => ({ ...tx, meta: { ...tx.meta, logMessages: null } }) },
+    { why: "its meta is null", answer: (tx) => ({ ...tx, meta: null }) },
+  ]) {
+    it(`FABLE-1: a landed sweep whose transaction comes back without what the read back needs (${c.why}) is said as not read back, and keeps its signature and its fee: nothing is thrown`, async () => {
+      const kp = Keypair.generate();
+      let venueSig = null;
+      const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), txAnswer: (sig, tx) => ((venueSig ??= sig) === sig ? c.answer(tx) : tx) });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      const sent = chain.sentTxs();
+      expect(res.pools[0].venue).toMatchObject({
+        ok: false,
+        sent: true,
+        swept: true,
+        fee: true,
+        signature: sigOfTx(sent[0]),
+        notReadBack: "it shows 0 FeesSwept printed by the pool program in its own call, not one",
+      });
+      expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
+      expect(res.paid.sweeps).toBe(2);
+      expect(res.ok).toBe(false);
+    });
+  }
+
+  it("FABLE-2: when the daily read finds two things, one only named and one that fails the run, the run fails and the summary names both, in the order read", async () => {
+    // The venue holds 0.001 USDC of this pool, under the floor: no side is due.
+    const pool = quietDollar(USDC_MINT);
+    const [own0] = ownOf(pool);
+    const accounts = {
+      // The vault's SOL account frozen: only named.
+      ...accountsOf(VAULT, [[SOL_MINT, TOKEN_PROGRAM]], { [SOL_MINT]: { frozen: true } }),
+      // The pool's own USDC account frozen, where the venue holds USDC: fails the run.
+      [own0]: tokenAccount({ mint: USDC_MINT, owner: authority, program: TOKEN_PROGRAM, frozen: true }),
+    };
+    const chain = fakeChain({ pools: [pool], tiers, accounts });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    const vaultText = `the vault's account \`${VAULT_DAILY[0]}\` for ${SOL_MINT} is frozen`;
+    const poolText = `the pool \`${pool[0]}\`'s own account \`${own0}\` for ${USDC_MINT} is frozen`;
+    expect(res.daily?.named).toEqual([
+      { text: vaultText, red: false },
+      { text: poolText, red: true },
+    ]);
+    expect(chain.simulated()).toEqual([]);
+    expect(res.ok).toBe(false);
+    expect(exitCode(res)).toBe(1);
+    expect(summary(res, { live: false })).toContain(`\nRead today, as every day, whether or not a side was due: ${vaultText}; ${poolText}: read it.\n`);
+  });
+
+  it("FABLE-3: on mainnet the daily read is of the vault's own SOL, USDC and USDT accounts, whoever a fee tier names as its protocol owner", async () => {
+    const other = key();
+    const chain = fakeChain({ pools: [big], tiers: { [tierKey]: tierBytes(other, WORKSHOP) }, accounts: accountsOf(VAULT, [[USDC_MINT, TOKEN_PROGRAM]], { [USDC_MINT]: { delegate: true } }) });
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
+    expect(chain.calls.filter((c) => c.method === "getMultipleAccounts").map((c) => c.params[0])[1]).toEqual([BAYLA, ...VAULT_DAILY, vault0, vault1]);
+    expect(res.daily?.named).toEqual([{ text: `the vault's account \`${VAULT_DAILY[1]}\` for ${USDC_MINT} has a delegate`, red: true }]);
+    expect(res.pools[0].note).toMatch(/not the vault and the Workshop/);
+    expect(chain.simulated()).toEqual([]);
+    expect(res.ok).toBe(false);
+  });
+
+  it("FABLE-4: a coin frozen at the read before the send and thawed by the time the sweep lands is not listed as left: the row's list is its own record's", async () => {
+    const kp = Keypair.generate();
+    const f = legPool({ ...BOTH, frozen: { pool: [1] } });
+    const chain = fakeChain({ pools: [f.pool], tiers, accounts: f.accounts });
+    // Once the venue's sweep is simulated, the pool's own BAYLA account is thawed: the program then moves both coins.
+    const call = changing(chain, (m) => m === "simulateTransaction" && (f.accounts[f.own[1]] = tokenAccount({ mint: BAYLA, owner: authority, program: TOKEN_2022_PROGRAM })));
+    const res = await run(parseArgs(["--live"]), { call, fetchImpl: priced(72, { [BAYLA]: 0.001 }), env: live(kp), log: quiet, wait: async () => {} });
+    const v = res.pools[0].venue;
+    expect(v).toMatchObject({ ok: true, swept: true, event: { moved: [51_216_483n, 7_000_000_000n], left: [0n, 0n] } });
+    expect(v.left).toBeUndefined();
+    // The account is still named as the read before the send found it.
+    expect(v.result).toBe(`swept ${BIG_VENUE}; the pool's own account \`${f.own[1]}\` for ${BAYLA} is frozen`);
+    // The island's side, read again, sees no freeze and sweeps both.
+    expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
+    expect(res.pools[0].island.left).toBeUndefined();
+    expect(res.ok).toBe(true);
+  });
+
+  for (const [code, words] of [
+    [6018, "a Workshop account is not its own"],
+    [6020, "a Workshop account has a delegate or a close authority"],
+    [36, "a Workshop account requires a memo on every transfer in"],
+    [3012, "a Workshop account does not exist"],
+  ]) {
+    it(`FABLE-5: a refusal of the island's sweep with ${code} is said in that number's own words, in its simulation and on chain: ${words}`, async () => {
+      const refused = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), simErr: (tx) => (sweepsIn(tx).some((ix) => sideOf(ix) === "island") ? { InstructionError: [0, { Custom: code }] } : null) });
+      const res = await run(parseArgs(["--payer", payer]), { call: refused.call, fetchImpl: noPrice, env: {}, log: quiet });
+      expect(res.pools[0].island.result.startsWith(`held back, nothing sent: ${words} (${code}); the simulation refused it: `)).toBe(true);
+      const kp = Keypair.generate();
+      const failed = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: null }, { confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: code }] } }] });
+      const res2 = await run(parseArgs(["--live"]), { call: failed.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      expect(res2.pools[0].island.result).toBe(`sent, and it failed on chain: ${words} (${code})`);
+    });
+
+    it(`FABLE-6: the venue's sweep failing on chain with ${code} fails the run, and is not named as a Workshop account's: only the island's is`, async () => {
+      const kp = Keypair.generate();
+      const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: code }] } }, { confirmationStatus: "confirmed", err: null }] });
+      const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
+      expect(res.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: "sent, and it failed on chain" });
+      expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
+      expect(res.ok).toBe(false);
+      expect(exitCode(res)).toBe(1);
+    });
+  }
+
+  it("FABLE-7: the reader's layout of FeesSwept is the program's own: states/config.rs declares the pool, the side, the owner, then what moved and what was left of each coin, in that order", () => {
+    const src = readFileSync(join(here, "../../solana/tegridy-amm/programs/cp-swap/src/states/config.rs"), "utf8");
+    const at = src.indexOf("pub struct FeesSwept {");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(at - 12, at)).toContain("#[event]");
+    const body = src.slice(at, src.indexOf("}", at));
+    const fields = [...body.matchAll(/^\s*pub (\w+): (\w+),/gm)].map((m) => [m[1], m[2]]);
+    expect(fields).toEqual([
+      ["pool_state", "Pubkey"],
+      ["fund", "bool"],
+      ["owner", "Pubkey"],
+      ["token_0_amount", "u64"],
+      ["token_1_amount", "u64"],
+      ["token_0_left", "u64"],
+      ["token_1_left", "u64"],
+    ]);
+    // The reader reads a record laid out in exactly that order.
+    const e = { pool: key(), fund: true, owner: key(), moved: [1n, 2n], left: [3n, 4n] };
+    const program = key();
+    expect(feesSwept(invoked(program, [sweptLine(e)]), program, 0)).toEqual([e]);
+  });
 });
 
 describe("venue-sweep: the process, as the workflow runs it", () => {

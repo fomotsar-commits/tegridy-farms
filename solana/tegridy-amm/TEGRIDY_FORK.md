@@ -703,7 +703,9 @@ hand collects keep working exactly as before. The accounts are the same sizes, a
 and event number the program has on mainnet today is kept. New on chain, against today's
 program: errors 6016 to 6020, and the events `KeeperChanged`, `SwapGuardChanged` and
 `FeesSwept`. The first form's `FeesSwept` (both owners, four amounts) lived in source only and is
-never installed; nothing in the repo reads either shape.
+never installed. The daily job reads the installed form back after each sweep (pool, side, owner,
+then what moved and what was left of each coin), and a test holds its reader to the order
+`states/config.rs` declares: the event and the reader change together.
 
 **Who runs it.** A daily job (`.github/workflows/venue-sweep.yml`) with a wallet that holds only
 gas money, so neither the vault nor the island has to sign anything. It lists only real pools and
@@ -718,7 +720,7 @@ island's share only where the Workshop already holds both of that pool's account
 summary names the missing ones for the island to open.
 
 Every run reads the vault's own SOL, USDC and USDT accounts and every listed pool's own two in
-one paced request, and names a delegate, a close authority or a freeze on any of them that day,
+paced requests of up to 100 accounts each (one today), and names a delegate, a close authority or a freeze on any of them that day,
 whether or not a side is due (the owner's ruling, 2026-11-21). On the vault's, a delegate, a close
 authority or a frozen USDC or USDT fails the run, as does an account handed to another owner or
 one that requires a memo. A frozen pool account of USDC or USDT fails it in a pool where the venue
