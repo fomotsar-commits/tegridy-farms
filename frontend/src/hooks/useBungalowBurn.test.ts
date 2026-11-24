@@ -164,12 +164,12 @@ describe('useBungalowBurn on an EVM token', () => {
 
   it('is loading before the batch answers, and unread if the whole query errors', () => {
     wagmi.mode = 'pending';
-    const pending = renderHook(() => useBungalowBurn(room('qr')));
+    const pending = renderHook(() => useBungalowBurn(room('drb')));
     expect(pending.result.current.burn).toEqual({ status: 'loading' });
     expect(pending.result.current.isReading).toBe(true);
 
     wagmi.mode = 'errored';
-    const errored = renderHook(() => useBungalowBurn(room('qr')));
+    const errored = renderHook(() => useBungalowBurn(room('drb')));
     expect(errored.result.current.burn).toEqual({ status: 'unread' });
     expect(errored.result.current.isReading).toBe(false);
   });

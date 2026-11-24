@@ -86,6 +86,109 @@
      "sha256": "ae06d01dfe57d404d428b8470150bf9256a07f38b1061b9626f91316128f8588"
     }
    ]
+  },
+  "uniswap-protocol-fees": {
+   "repo": "Uniswap/protocol-fees",
+   "commit": "eacc9c013cf74316263cfae7a00b3361a1644795",
+   "pinnedAt": "2026-11-20",
+   "files": [
+    {
+     "path": "src/feeAdapters/V3OpenFeeAdapter.sol",
+     "vendored": "upstream/uniswap-protocol-fees/src/feeAdapters/V3OpenFeeAdapter.sol",
+     "sha256": "5d27bfa68f22a569a05a8e9c576fd716355ec73d0504d247c2280543344ff7cf"
+    },
+    {
+     "path": "src/interfaces/IV3OpenFeeAdapter.sol",
+     "vendored": "upstream/uniswap-protocol-fees/src/interfaces/IV3OpenFeeAdapter.sol",
+     "sha256": "933edf240c2647fc19d5d1296eaf2d9eab396b7e270f717ce89259866477c43c"
+    },
+    {
+     "path": "src/libraries/ArrayLib.sol",
+     "vendored": "upstream/uniswap-protocol-fees/src/libraries/ArrayLib.sol",
+     "sha256": "ed3fce0784666ac59a1ec48d4c08f4456df95e0822faf2ab80fee853b0b0a39f"
+    }
+   ]
+  },
+  "solmate": {
+   "repo": "transmissions11/solmate",
+   "commit": "e5e0ed64c75e74974151780884e59071d026d84e",
+   "pinnedAt": "2026-11-20",
+   "files": [
+    {
+     "path": "src/auth/Owned.sol",
+     "vendored": "upstream/solmate/src/auth/Owned.sol",
+     "sha256": "8ac2f2dc41ab8012e93adb3791326ffa1e4059a20c306a777109dd81816b9125"
+    }
+   ]
+  },
+  "v3-core": {
+   "repo": "Uniswap/v3-core",
+   "commit": "e3589b192d0be27e100cd0daaf6c97204fdb1899",
+   "pinnedAt": "2026-11-20",
+   "files": [
+    {
+     "path": "contracts/interfaces/IUniswapV3Factory.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/IUniswapV3Factory.sol",
+     "sha256": "17c72e89a7d0eecca7929ca08d97f46e80930ef7024e4ccbc7b294c588477107"
+    },
+    {
+     "path": "contracts/interfaces/IUniswapV3Pool.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/IUniswapV3Pool.sol",
+     "sha256": "b0f97121de74f3c916503f6ec37fa1ba196affd1cc02157e47ab00125dde91fe"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolImmutables.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol",
+     "sha256": "ac6332f7e174db7fa3852a6c5ae3da3bd013e72c2ff8fa1cf2ec37f6916e2951"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolState.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolState.sol",
+     "sha256": "d8d3937703d08d95f7f867a0f49c2aa73c3f3ef5508a54d431e829295f5175ea"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolDerivedState.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolDerivedState.sol",
+     "sha256": "9f670bdfed3a283e0557b208a5d4bc561afd2df771d67c4368dddaae2dc1b6e3"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolActions.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolActions.sol",
+     "sha256": "7fc763acbf5e7044d88cae4a6ed7b1c99b5268d647ae794ba5ee1085060e6a2c"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolOwnerActions.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolOwnerActions.sol",
+     "sha256": "5f4cd982d6abe55237bc770da3b667f96edf048c230cfe3d7f6309c92cc0e205"
+    },
+    {
+     "path": "contracts/interfaces/pool/IUniswapV3PoolEvents.sol",
+     "vendored": "upstream/v3-core/contracts/interfaces/pool/IUniswapV3PoolEvents.sol",
+     "sha256": "2c2b798ca4288dfdf746bca8516b4e725b79ca6636af3d38a5a64801e50020a7"
+    }
+   ]
+  },
+  "uniswap-contracts": {
+   "repo": "Uniswap/contracts",
+   "commit": "a677c0d4b5fb6e3357cf6d0f0315bcb135a1e1ee",
+   "pinnedAt": "2026-11-20",
+   "files": [
+    {
+     "path": "src/briefcase/deployers/v3-core/UniswapV3FactoryDeployer.sol",
+     "vendored": "upstream/uniswap-contracts/src/briefcase/deployers/v3-core/UniswapV3FactoryDeployer.sol",
+     "sha256": "212f3708a118387176384addf7c040f93a5bfedaa05d1ed1eb69f7fdffd12c54"
+    },
+    {
+     "path": "src/briefcase/deployers/DeployerHelper.sol",
+     "vendored": "upstream/uniswap-contracts/src/briefcase/deployers/DeployerHelper.sol",
+     "sha256": "f412bd62cc2da4f48d43bf2c12835279ced903ff8e07e02b7ce947346f8c72eb"
+    },
+    {
+     "path": "src/briefcase/protocols/v3-core/interfaces/IUniswapV3Factory.sol",
+     "vendored": "upstream/uniswap-contracts/src/briefcase/protocols/v3-core/interfaces/IUniswapV3Factory.sol",
+     "sha256": "5307dd70a8576f23b7ecceceeb40a6935fdbd717f0ab9c4dbd532cd421d9d6ab"
+    }
+   ]
   }
  }
 }

@@ -171,21 +171,26 @@ describe('sendSigned', () => {
 
   it('sends the signed bytes through the network’s own check first, then watches them to the chain’s answer', async () => {
     const c = conn({});
-    await expect(sendSigned(c as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    await expect(sendSigned(c as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed', slot: 9 });
     expect(c.sendRawTransaction).toHaveBeenCalledWith(raw, expect.objectContaining({ skipPreflight: false }));
   });
 
   it('a refusal at the first send never reached the chain: not sent, with why; a blockhash gone is a wallet left open too long', async () => {
     const refused = conn({ first: async () => { throw new Error('Transaction simulation failed: Error processing Instruction 3'); } });
-    await expect(sendSigned(refused as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'not-sent', why: BASKET_COPY.refusedFirst });
+    // The network's own words ride along (`reason`), for the swap to say them (walletSwapSend.ts).
+    await expect(sendSigned(refused as never, raw, 'SIG', 5_000)).resolves.toEqual({
+      kind: 'not-sent',
+      why: BASKET_COPY.refusedFirst,
+      reason: { message: 'Transaction simulation failed: Error processing Instruction 3', logs: [] },
+    });
     expect(refused.getSignatureStatuses).not.toHaveBeenCalled();
     const late = conn({ first: async () => { throw new Error('Transaction simulation failed: Blockhash not found'); } });
-    await expect(sendSigned(late as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'not-sent', why: BASKET_COPY.tooSlow });
+    await expect(sendSigned(late as never, raw, 'SIG', 5_000)).resolves.toMatchObject({ kind: 'not-sent', why: BASKET_COPY.tooSlow });
   });
 
   it('any other error at the first send may have come after it was passed on: it is watched, never called not sent', async () => {
     const dropped = conn({ first: async () => { throw new Error('fetch failed'); } });
-    await expect(sendSigned(dropped as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    await expect(sendSigned(dropped as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed', slot: 9 });
     expect(dropped.getSignatureStatuses).toHaveBeenCalled();
   });
 });

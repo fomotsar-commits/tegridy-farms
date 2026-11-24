@@ -460,7 +460,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
+    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -494,11 +494,11 @@ describe('the order of the section', () => {
   });
 
   // The vault's powers: the pool program's admin and its upgrade authority are both vault 0 of
-  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read 2026-10-20).
-  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait, and keeps the afford-to-lose clause', () => {
+  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read again 2026-11-14).
+  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait as read, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('48 hours after both its keys approve');
+    expect(line).toContain('48 hours after both its keys approve (as read on chain on 2026-11-14).');
     expect(line).not.toMatch(/no waiting period|at once/);
     expect(line).toContain('can pause removing');
     expect(line).toContain('change fees');
@@ -507,8 +507,9 @@ describe('the order of the section', () => {
     expect(line).toMatch(/Only add what you can afford to lose\.$/);
     // The line it replaced did not say that removing can be paused; it is gone from the page.
     expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
-    // One line, under the word budget the first screen has room for (e2e/word-budget.spec.ts).
-    expect(line.split(/\s+/).length).toBeLessThan(35);
+    // Behind a press, so e2e/word-budget.spec.ts does not count it; still held short: 40 words,
+    // the read date included.
+    expect(line.split(/\s+/).length).toBeLessThan(41);
     expect(line).not.toContain('—');
   });
 
@@ -527,12 +528,20 @@ describe('the order of the section', () => {
     expect(small!.querySelector('p')).toBe(sentence);
     expect(small).toHaveTextContent(/have not had their own independent review yet/);
     for (const fact of [
-      'Read on chain 2026-10-20',
+      'Read on chain 2026-11-14',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
       `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
       'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
       'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
       'The vault can switch off adding, removing or trading on any pool.',
+      // Since the pool program's upgrade of 2026-11: the fee ceilings, the island's share, the guard.
+      'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
+      'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
+      'It can switch the swap guard on or off for a fee tier',
+      // Since the keeper-fee upgrade: the vault can name a tier's keeper, who swaps there free.
+      'name a fee tier’s keeper',
+      'A fee tier’s named keeper pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers nothing.',
+      'On both fee tiers open today the vault names the venue’s own price robot, wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz. Everyone else pays as before.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
       'you could not take your money out of that pool until it switched removing back on',
@@ -551,6 +560,8 @@ describe('the order of the section', () => {
     expect(full).toHaveTextContent(
       'Jupiter does not send trades to these pools yet, so a pool earns fees only from trades sent to it by this site’s own swap, or by someone using the pool program directly.',
     );
+    // The swap guard, said as a route that is closed while it is on, with no trader named.
+    expect(full).toHaveTextContent('While the swap guard is on, directly means sent by the wallet itself: the pool refuses a trade that another program makes.');
     expect(full).toHaveTextContent('When the price moves, liquidity providers can end up with less than if they had just held both tokens.');
     expect(full).not.toHaveTextContent(/\bbots?\b|arbitrage|most trades|mostly/i);
   });
@@ -619,6 +630,18 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
+  });
+
+  // 40,117,440 lamports: what the five accounts keep at today's rent. The opening form and its
+  // disclosure round that cost up to 0.0402 SOL; the rates card says it the same way.
+  it('the deposits that never come back read 0.0402 SOL in the opening line and in the tier’s detail', async () => {
+    const split = splitFeeTiers();
+    if (split.kind !== 'ok') throw new Error('the recording did not read');
+    mount(readers({ feeTiers: vi.fn(async () => ({ ...split, openingDeposits: 40_117_440n })) }), '/pools');
+    const rates = await card();
+    expect(within(rates).getByTestId('lp-open-cost').textContent).toBe("Open a pool: 0.15 SOL + 0.0402 SOL setup + the share's name record, not refunded.");
+    const detail = within(rates).getAllByTestId('fee-tier-detail').find((d) => d.dataset.index === '1')!;
+    expect(detail).toHaveTextContent('0.15 SOL fee, plus about 0.0402 SOL of account deposits that are never refunded');
   });
 
   it('each number is the tier’s as read: another tier 1, other numbers and other sentences', async () => {

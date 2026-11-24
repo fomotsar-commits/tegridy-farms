@@ -10,7 +10,7 @@
 // from Gondi's own arithmetic (lib/gondi/loanMath.ts).
 import { useId, useState } from 'react';
 import { dayOf, lifeFraction, reminderMarks, scrubStep } from '../../lib/gondi/timeline';
-import { fmtWeth, formatDue } from './nftLendingShared';
+import { fmtWeth, fmtWethUp, formatDue, formatDuration } from './nftLendingShared';
 import { useDrawWidth } from '../../hooks/useDrawWidth';
 import { fitCentred, monoWidth } from '../../lib/markLabels';
 
@@ -68,7 +68,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
 
   const headline =
     side === 'borrower'
-      ? `Repay ${fmtWeth(cost.total, 6)} WETH`
+      ? `Repay ${fmtWethUp(cost.total, 6)} WETH`
       : `You keep ${fmtWeth(interestKept > 0n ? interestKept : 0n, 6)} WETH`;
   const when = `${exact ? '' : 'about '}${formatDue(at)}`;
   const valueText = `Day ${day} of ${of}, ${when}: ${headline}`;
@@ -89,7 +89,7 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
   );
 
   return (
-    <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline">
+    <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.10)' }} data-testid="loan-timeline" data-run={formatDuration(duration)}>
       {/* On a phone the date takes the next line, rather than the two squeezing each other. */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid="loan-timeline-top">
         <p className={`whitespace-nowrap text-[15px] font-semibold font-mono ${atWall ? 'text-amber-300' : 'text-emerald-300'}`} data-testid="loan-timeline-headline">
@@ -174,11 +174,11 @@ export function LoanTimeline({ side, start, duration, now, costAt, nft, exact = 
       <p className={`text-[12px] mt-1 ${atWall ? 'text-amber-300' : 'text-white/80'}`} aria-live="polite" data-testid="loan-timeline-line">
         {atWall
           ? side === 'borrower'
-            ? `Last moment to repay. After it the lender keeps ${nft}.`
+            ? `Repay before this moment. From then, the lender can take ${nft}.`
             : `Not repaid by now: you own ${nft}, and no interest.`
           : side === 'borrower'
-          ? `${fmtWeth(cost.interest, 6)} WETH of that is interest. Drag to try another day.`
-          : `The venue keeps ${fmtWeth(cost.toVenue, 6)} WETH of the interest. Drag to try another day.`}
+          ? `${fmtWethUp(cost.interest, 6)} WETH of that is interest. Drag to try another day.`
+          : `The venue keeps ${fmtWethUp(cost.toVenue, 6)} WETH of the interest. Drag to try another day.`}
       </p>
     </div>
   );

@@ -11,6 +11,8 @@
 // there and would fail `tsc -b`. Keeping env-dependent Solana config here keeps
 // it in the app project (types: ["vite/client"]) only.
 
+import { solanaFeeBpsFrom } from './solanaFeeEnv';
+
 // Same-origin proxy base. The browser calls our own origin; the proxy forwards
 // to https://lite-api.jup.ag server-side — so no Solana host needs a CSP
 // connect-src entry for quotes/swaps. (A Solana RPC WILL need one when the
@@ -44,12 +46,10 @@ export const SOLANA_FEE_ACCOUNT =
   (import.meta.env.VITE_SOLANA_FEE_ACCOUNT as string | undefined)?.trim() ?? '';
 
 // Platform fee in basis points (50 = 0.5%), half of Phantom's 0.85% (owner, 2026-10-18).
-// Disclosed in the UI. Clamped to [0, 1000] bps; falls back to 50 on bad input.
-export const SOLANA_PLATFORM_FEE_BPS = ((): number => {
-  const raw = (import.meta.env.VITE_SOLANA_PLATFORM_FEE_BPS as string | undefined)?.trim();
-  const n = raw ? Number(raw) : 50;
-  return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : 50;
-})();
+// Disclosed in the UI. Unset or out of [0, 1000] is 0, no fee: never a guessed rate. A
+// production build is refused unless this is 50 and the fee owner is the vault
+// (solanaFeeGuardPlugin.ts).
+export const SOLANA_PLATFORM_FEE_BPS = solanaFeeBpsFrom(import.meta.env.VITE_SOLANA_PLATFORM_FEE_BPS);
 
 // Between majors (SOL, USDC, USDT, staked SOL) the fee is 0.05%: jup.ag charges 0.02%
 // on SOL-stable, so 0.5% there would be 25x the leader (owner, 2026-10-18).
@@ -69,7 +69,8 @@ export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
  * when this is false). Whichever way it answers, the swap itself works.
  */
 export function isSolanaFeeConfigured(): boolean {
-  return SOLANA_FEE_ACCOUNT.length > 0;
+  // The same two conditions as jupiter.ts feeEnabled(): a rate of 0 charges nothing.
+  return SOLANA_FEE_ACCOUNT.length > 0 && SOLANA_PLATFORM_FEE_BPS > 0;
 }
 
 /**

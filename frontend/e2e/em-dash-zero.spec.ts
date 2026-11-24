@@ -58,7 +58,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/privacy': 7,
   '/trust': 5,
   '/pools': 0,
-  '/nft-finance': 6,
+  '/nft-finance': 5,
   '/developers': 10,
   '/risks': 3,
   '/copy-trading': 10,
@@ -66,7 +66,8 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 0,
   '/eth-curve': 6,
   '/alerts': 14,
-  '/yield': 21,
+  // Measured with Ethereum mainnet sealed (ETH_RPC_SEALED_ROUTES): the branch that read the chain carried 21.
+  '/yield': 14,
   '/launch': 0,
   // The lore tab of LearnPage. The census gives it TOWELI's voice (it is the TOWELI room's own story),
   // but its prose is held to the venue's law all the same: see TOWELI_PAGES_HELD_AT_ZERO below.
@@ -89,6 +90,13 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
  *  on every machine. A route that starts asking the RPC belongs here. /pools' live branch,
  *  read from a recording, is held in its own block below (POOLS_LIVE_DEBT). */
 const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/range-pools', '/curve-launch']);
+
+/** The routes that read Ethereum mainnet straight from public RPCs (src/lib/chains/viemChains.ts,
+ *  publicnode then drpc), not through the preview. Under a busy run those answer late or 408, and
+ *  /yield's count moved with them: 21 alone, 14 inside the whole spec, on the same build
+ *  (2026-11-15). Sealed, each is the branch that cannot reach the chain, on every machine: every
+ *  cross-origin JSON-RPC POST is aborted, whatever its host, so a new endpoint is sealed too. */
+const ETH_RPC_SEALED_ROUTES = new Set(['/yield']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
  *  needs the fixture's own driver rather than the standard mount probe. */
@@ -172,10 +180,26 @@ test.describe('element I: em dashes in venue-voice prose', () => {
         });
       }
 
+      let ethRpcSealed = 0;
+      if (ETH_RPC_SEALED_ROUTES.has(path)) {
+        // The preview is http://localhost, so https:// is every other origin.
+        await page.route(/^https:\/\//, (r) => {
+          const req = r.request();
+          if (req.method() === 'POST' && (req.postData() ?? '').includes('"jsonrpc"')) {
+            ethRpcSealed++;
+            return r.abort();
+          }
+          return r.fallback();
+        });
+      }
+
       await settle(page, path);
       // A seal that catches nothing measures nothing: the route must still ask the RPC.
       if (SOLRPC_SEALED_ROUTES.has(path)) {
         expect(solrpcSealed, `${path} no longer asks /api/solrpc: take it out of SOLRPC_SEALED_ROUTES`).toBeGreaterThan(0);
+      }
+      if (ETH_RPC_SEALED_ROUTES.has(path)) {
+        expect(ethRpcSealed, `${path} no longer asks an Ethereum RPC: take it out of ETH_RPC_SEALED_ROUTES`).toBeGreaterThan(0);
       }
 
       const hits = await proseDashes(page);
@@ -251,7 +275,6 @@ const ROOM_VOICE_DEBT: Record<string, number> = {
   '/towelie': 9,
   '/bayla': 0,
   '/pepe': 0,
-  '/qr': 0,
   '/mfer': 0,
   '/bnkr': 0,
   '/drb': 0,
@@ -302,7 +325,7 @@ test.describe('element I: em dashes in the rooms', () => {
     const doors = ROUTES
       .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
       .map(navigablePath);
-    expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
+    expect(doors.length, 'the app routes thirteen doors, twelve ids plus the towelie alias').toBe(13);
     expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
   });
 });
@@ -319,9 +342,8 @@ const ROOM_FARM_DEBT: Record<string, number> = {
   soy: 0,
   brainlet: 0,
   rizz: 0,
-  // The six EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
+  // The five EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
   pepe: 0,
-  qr: 0,
   mfer: 0,
   bnkr: 0,
   drb: 0,
@@ -367,7 +389,7 @@ test.describe("element I: em dashes on each room's farm", () => {
       .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
       .map((r) => navigablePath(r).slice(1))
       .filter((id) => id !== 'towelie');
-    expect(ids.length, 'thirteen registry ids').toBe(13);
+    expect(ids.length, 'twelve registry ids').toBe(12);
     expect(Object.keys(ROOM_FARM_DEBT).sort()).toEqual([...ids].sort());
   });
 });

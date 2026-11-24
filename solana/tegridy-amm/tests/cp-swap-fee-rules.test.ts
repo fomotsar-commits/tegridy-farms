@@ -9,11 +9,15 @@
  *  - Only a tier's fund owner collects the fund fee. The admin (the vault on mainnet) cannot.
  * Our own:
  *  - The admin hands a tier's fund fee over once, while it still holds it, and never again.
+ *  - No fee collection pays an account the pool program's vault authority owns, as it owns every
+ *    pool's vaults: a fee paid into a vault would become its LPs' (the Solana audit of 2026-11-15,
+ *    CPS-09).
  */
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAccount,
   createAssociatedTokenAccount,
   createMint,
   getAssociatedTokenAddressSync,
@@ -207,6 +211,152 @@ describe("cp-swap fee rules", () => {
     assert.equal(got.toString(), owed.toString(), "the fund owner collects exactly what built up");
     const left = BigInt((await (cpSwap.account as any).poolState.fetch(pool)).fundFeesToken0.toString());
     assert.equal(left.toString(), "0");
+  });
+
+  it("pays no fee collection into an account the pool program holds, its own vaults included", async () => {
+    const index = 33;
+    assert.equal(await makeTier(index, 10_000, 104_000, 56_000, 0), "", "the 1% tier's shape");
+    const tier = tierAt(index);
+    const fundOwner = Keypair.generate();
+    await cpSwap.methods
+      .updateAmmConfig(4, new BN(0))
+      .accountsPartial({ owner: wallet.publicKey, ammConfig: tier })
+      .remainingAccounts([{ pubkey: fundOwner.publicKey, isSigner: false, isWritable: false }])
+      .rpc();
+
+    const a = await createMint(conn, wallet, wallet.publicKey, null, 6);
+    const b = await createMint(conn, wallet, wallet.publicKey, null, 6);
+    const [m0, m1] = Buffer.compare(a.toBuffer(), b.toBuffer()) < 0 ? [a, b] : [b, a];
+    const own = (m: PublicKey, who: PublicKey) => getAssociatedTokenAddressSync(m, who);
+    for (const m of [m0, m1]) {
+      await createAssociatedTokenAccount(conn, wallet, m, wallet.publicKey);
+      await mintTo(conn, wallet, m, own(m, wallet.publicKey), wallet, 10_000_000_000);
+      await createAssociatedTokenAccount(conn, wallet, m, fundOwner.publicKey);
+    }
+    const pool = pda([POOL_SEED, tier.toBuffer(), m0.toBuffer(), m1.toBuffer()]);
+    const lp = pda([POOL_LP_MINT_SEED, pool.toBuffer()]);
+    const vault0 = pda([POOL_VAULT_SEED, pool.toBuffer(), m0.toBuffer()]);
+    const vault1 = pda([POOL_VAULT_SEED, pool.toBuffer(), m1.toBuffer()]);
+    const authority = pda([AUTH_SEED]);
+    const observationState = pda([OBSERVATION_SEED, pool.toBuffer()]);
+    await cpSwap.methods
+      .initialize(new BN(1_000_000_000), new BN(1_000_000_000), new BN(0))
+      .accountsPartial({
+        creator: wallet.publicKey,
+        ammConfig: tier,
+        authority,
+        poolState: pool,
+        token0Mint: m0,
+        token1Mint: m1,
+        lpMint: lp,
+        creatorToken0: own(m0, wallet.publicKey),
+        creatorToken1: own(m1, wallet.publicKey),
+        creatorLpToken: own(lp, wallet.publicKey),
+        token0Vault: vault0,
+        token1Vault: vault1,
+        createPoolFee: feeReceiver,
+        observationState,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token0Program: TOKEN_PROGRAM_ID,
+        token1Program: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+    const opens = Number((await (cpSwap.account as any).poolState.fetch(pool)).openTime);
+    for (let i = 0; i < 40 && ((await conn.getBlockTime(await conn.getSlot())) ?? 0) < opens; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    // One swap each way, so both coins owe the protocol and the fund a fee.
+    for (const [input, output] of [[m0, m1], [m1, m0]]) {
+      await cpSwap.methods
+        .swapBaseInput(new BN(100_000_000), new BN(0))
+        .accountsPartial({
+          payer: wallet.publicKey,
+          authority,
+          ammConfig: tier,
+          poolState: pool,
+          inputTokenAccount: own(input, wallet.publicKey),
+          outputTokenAccount: own(output, wallet.publicKey),
+          inputVault: input === m0 ? vault0 : vault1,
+          outputVault: output === m0 ? vault0 : vault1,
+          inputTokenProgram: TOKEN_PROGRAM_ID,
+          outputTokenProgram: TOKEN_PROGRAM_ID,
+          inputTokenMint: input,
+          outputTokenMint: output,
+          observationState,
+        })
+        .rpc();
+    }
+    const owed = async () => {
+      const p = await (cpSwap.account as any).poolState.fetch(pool);
+      return [p.protocolFeesToken0, p.protocolFeesToken1, p.fundFeesToken0, p.fundFeesToken1].map((n: BN) => BigInt(n.toString()));
+    };
+    const before = await owed();
+    assert.isTrue(before.every((n) => n > 0n), "both swaps built up both fees in both coins");
+
+    /** Collects the protocol fee (as the admin) or the fund fee (as its owner) into r0 and r1. */
+    const collect = async (fee: "protocol" | "fund", r0: PublicKey, r1: PublicKey) => {
+      const signer = fee === "protocol" ? wallet : fundOwner;
+      try {
+        await (fee === "protocol" ? cpSwap.methods.collectProtocolFee(U64_MAX, U64_MAX) : cpSwap.methods.collectFundFee(U64_MAX, U64_MAX))
+          .accountsPartial({
+            owner: signer.publicKey,
+            authority,
+            poolState: pool,
+            ammConfig: tier,
+            token0Vault: vault0,
+            token1Vault: vault1,
+            vault0Mint: m0,
+            vault1Mint: m1,
+            recipientToken0Account: r0,
+            recipientToken1Account: r1,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram2022: TOKEN_2022_PROGRAM_ID,
+          })
+          .signers([signer])
+          .rpc();
+        return "";
+      } catch (e) {
+        return failure(e) || "refused";
+      }
+    };
+    // A token account the program's signer holds that is no pool's vault: a fee there is lost.
+    const held0 = await createAccount(conn, wallet, m0, authority, Keypair.generate());
+    const held1 = await createAccount(conn, wallet, m1, authority, Keypair.generate());
+    // Each try is refused by the check on that receiver, which the refusal names; all eight are
+    // tried before the verdict, so a run without the checks lists every one that was paid.
+    const paid: string[] = [];
+    for (const fee of ["protocol", "fund"] as const) {
+      const signer = fee === "protocol" ? wallet.publicKey : fundOwner.publicKey;
+      const [mine0, mine1] = [own(m0, signer), own(m1, signer)];
+      for (const [what, r0, r1, n] of [
+        ["its token 0 vault", vault0, mine1, 0],
+        ["its token 1 vault", mine0, vault1, 1],
+        ["another token 0 account the program holds", held0, mine1, 0],
+        ["another token 1 account the program holds", mine0, held1, 1],
+      ] as [string, PublicKey, PublicKey, number][]) {
+        const why = await collect(fee, r0, r1);
+        if (!why.includes(`caused by account: recipient_token_${n}_account. Error Code: InvalidVault.`)) {
+          paid.push(`the ${fee} fee into ${what}: ${why || "paid"}`);
+        }
+      }
+    }
+    assert.deepEqual(paid, [], "no collection may pay an account the program holds");
+    assert.deepEqual(await owed(), before, "every fee is still owed");
+
+    // Controls: each collector is paid exactly what was owed, into its own accounts.
+    for (const fee of ["protocol", "fund"] as const) {
+      const signer = fee === "protocol" ? wallet.publicKey : fundOwner.publicKey;
+      const balances = async () =>
+        Promise.all([m0, m1].map(async (m) => BigInt((await conn.getTokenAccountBalance(own(m, signer))).value.amount)));
+      const was = await balances();
+      assert.equal(await collect(fee, own(m0, signer), own(m1, signer)), "");
+      const got = (await balances()).map((n, i) => n - was[i]);
+      assert.deepEqual(got, fee === "protocol" ? before.slice(0, 2) : before.slice(2, 4), `the ${fee} fee, both coins`);
+    }
+    assert.deepEqual(await owed(), [0n, 0n, 0n, 0n]);
   });
 
   // The admin hands a new tier's fund fee over once (create_amm_config makes the admin its fund

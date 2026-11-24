@@ -15,7 +15,16 @@ import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, loansPerOffer
 import { downloadIcs, loanDueIcs } from '../../lib/gondi/calendar';
 import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/gondi/loanMath';
 import { nextRepayStep, repayCovered, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
-import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
+import {
+  recordLoanTx,
+  syncOffer,
+  useBookLoans,
+  useBookOffers,
+  useRefreshBook,
+  useSyncClosedLoans,
+  type BookLoan,
+  type BookOffer,
+} from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
 import { LoanTimeline } from './LoanTimeline';
 import { FinePrint } from '../ui/FinePrint';
@@ -32,6 +41,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  fmtWethUp,
   formatDue,
   formatDuration,
   nowSeconds,
@@ -45,6 +55,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   repaid: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
   defaulted: { bg: 'rgba(239,68,68,0.12)', text: 'text-red-400', border: 'border-red-500/30' },
   closed: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
+  moved: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
   unknown: { bg: 'rgba(255,255,255,0.05)', text: 'text-white/80', border: 'border-white/20' },
 };
 
@@ -72,6 +83,8 @@ export function MyLoansTab() {
     }) as const),
     query: { enabled: LENDING_LIVE && openRows.length > 0, refetchInterval: 30_000 },
   });
+  // Closed on chain but open in the book (repaid elsewhere, claimed, taken over): ask how.
+  useSyncClosedLoans(openRows, hashes.data);
 
   if (!isConnected || !address) {
     return <Notice title="Connect your wallet to view your loans." />;
@@ -88,7 +101,7 @@ export function MyLoansTab() {
       ) : (
         <>
         <LoanTotals rows={openRows} hashes={hashes.data} wallet={address} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-dwg="loans-grid">
           {rows.map((row) => {
             const i = openRows.indexOf(row);
             const read = i >= 0 ? hashes.data?.[i] : undefined;
@@ -107,7 +120,7 @@ export function MyLoansTab() {
 
 function Notice({ title, line }: { title: string; line?: string }) {
   return (
-    <div className="relative isolate rounded-xl p-8 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+    <div className="relative isolate rounded-xl p-8 text-center" data-dwg="plate" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <CardArt pageId="nft-finance" idx={19} />
       <p className="text-white/70 text-[13px]">{title}</p>
       {line && <p className="text-white/70 text-[11px] mt-1">{line}</p>}
@@ -158,12 +171,13 @@ function LoanTotals({
   const tiles = unread
     ? [{ label: 'Totals', value: 'Unavailable' }]
     : [
-        ...(owe > 0n ? [{ label: 'You owe now', value: `${fmtWeth(owe)} WETH` }] : []),
+        ...(owe > 0n ? [{ label: 'You owe now', value: `${fmtWethUp(owe)} WETH` }] : []),
         ...(owed > 0n ? [{ label: 'Owed to you now', value: `${fmtWeth(owed)} WETH` }] : []),
         ...(nextDue !== null ? [{ label: 'Next due', value: formatDue(nextDue) }] : []),
       ];
   return (
     <div
+      data-dwg="totals"
       data-testid="loan-totals"
       className="relative isolate rounded-xl p-3 flex flex-wrap gap-x-8 gap-y-2"
       style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
@@ -180,7 +194,7 @@ function LoanTotals({
 }
 
 /* ─── Loan Card ─────────────────────────────────────────────────── */
-type LoanView = 'active' | 'overdue' | 'repaid' | 'defaulted' | 'closed' | 'unknown';
+type LoanView = 'active' | 'overdue' | 'repaid' | 'defaulted' | 'closed' | 'moved' | 'unknown';
 
 function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: Hex | 'unread' | undefined; userAddress: Address }) {
   const chainId = useChainId();
@@ -197,7 +211,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
   let view: LoanView;
   if (row.status === 'repaid') view = 'repaid';
   else if (row.status === 'liquidated') view = 'defaulted';
-  else if (row.status === 'refinanced') view = 'closed';
+  else if (row.status === 'refinanced') view = 'moved';
   else if (chainHash === undefined || chainHash === 'unread') view = 'unknown';
   else if (chainHash === ZERO_HASH) view = 'closed';
   else if (chainHash.toLowerCase() !== loanHash(loan).toLowerCase()) view = 'unknown';
@@ -315,7 +329,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       loanDueIcs({
         loanId: row.loanId,
         title: `Repay loan #${row.loanId} or lose ${nft}`,
-        description: `Loan #${row.loanId}: about ${fmtWeth(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
+        description: `Loan #${row.loanId}: about ${fmtWethUp(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
         dueSeconds: Number(end),
         nowSeconds: Number(nowSeconds()),
       }),
@@ -334,28 +348,28 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
     const mins = Math.floor((r % 3600) / 60);
     return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(r % 60).padStart(2, '0')}s`;
   })();
-  const label: Record<LoanView, string> = { active: 'Active', overdue: 'Overdue', repaid: 'Repaid', defaulted: 'Claimed', closed: 'Closed', unknown: 'Checking' };
+  const label: Record<LoanView, string> = { active: 'Active', overdue: 'Overdue', repaid: 'Repaid', defaulted: 'Claimed', closed: 'Closed', moved: 'Moved', unknown: 'Checking' };
 
   return (
-    <div className="relative isolate rounded-xl p-3 md:p-5 space-y-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+    <div className="relative isolate rounded-xl p-3 md:p-5 space-y-3" data-dwg="ticket" data-kind="loan" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <CardArt pageId="nft-finance" idx={20} />
       <div className="flex items-center justify-between">
-        <span className="text-white/70 text-[11px] font-mono">Loan #{row.loanId}</span>
+        <span data-dwg="no" className="text-white/70 text-[11px] font-mono">Loan #{row.loanId}</span>
         <div className="flex items-center gap-2">
-          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${colors.text} ${colors.border}`} style={{ background: colors.bg }}>
+          <span data-dwg="tag" className={`text-[11px] px-2 py-0.5 rounded-full border ${colors.text} ${colors.border}`} style={{ background: colors.bg }}>
             {label[view]}
           </span>
-          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${isBorrower ? 'text-blue-400 border-blue-500/30 bg-blue-500/10' : 'text-amber-400 border-amber-500/30 bg-amber-500/10'}`}>
+          <span data-dwg="tag" className={`text-[11px] px-2 py-0.5 rounded-full border ${isBorrower ? 'text-blue-400 border-blue-500/30 bg-blue-500/10' : 'text-amber-400 border-amber-500/30 bg-amber-500/10'}`}>
             {isBorrower ? 'Borrower' : 'Lender'}
           </span>
         </div>
       </div>
 
-      <div>
-        <p className="text-white text-xl font-semibold">{fmtWeth(loan.principalAmount)} WETH</p>
+      <div data-dwg="sum">
+        <p className="text-white text-xl font-semibold">{(isBorrower ? fmtWethUp : fmtWeth)(loan.principalAmount)} WETH</p>
         <p className="text-white/70 text-[11px]">Loan amount</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-dwg="perf">
         <div>
           <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(loan.tranche[0]!.aprBps))}%</p>
           <p className="text-white/70 text-[11px]">APR</p>
@@ -373,9 +387,24 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       {view === 'unknown' && (
         <p className="text-yellow-300 text-[11px]">Checking this loan on chain. No action until it reads back.</p>
       )}
+      {/* A takeover (refinanceFull) or a change of terms gives the loan a new number. */}
+      {view === 'moved' && (
+        <p className="text-white/80 text-[11px]" data-testid="loan-moved">
+          Moved to a new loan: another lender took it over, or its terms changed.{' '}
+          {isBorrower
+            ? 'Your NFT stays locked in the new loan, listed here with its own deadline.'
+            : "If you do not lend on the new loan, you were paid your WETH back plus the interest so far, less the venue's share."}
+        </p>
+      )}
+      {view === 'closed' && (
+        <p className="text-white/80 text-[11px]">
+          Closed on chain: repaid, claimed, or moved to a new loan. If it moved, the new loan shows here once found.
+        </p>
+      )}
 
       {open && (
         <div
+          data-dwg="clock"
           className="rounded-lg p-2 text-center"
           style={{
             background: view === 'overdue' ? 'rgba(234,179,8,0.08)' : 'var(--color-purple-08)',
@@ -400,15 +429,15 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       )}
 
       {open && (
-        <div className="rounded-lg p-2 text-center" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
+        <div className="rounded-lg p-2 text-center" data-dwg="owed" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
           <p className="text-white/70 text-[11px]">{isBorrower ? 'To repay now' : 'Owed to you now'}</p>
           <p className="text-emerald-400 text-[13px] font-semibold">
-            {fmtWeth(isBorrower ? owedNow.total : owedNow.toLenders, 6)} WETH
+            {(isBorrower ? fmtWethUp : fmtWeth)(isBorrower ? owedNow.total : owedNow.toLenders, 6)} WETH
           </p>
           <FinePrint summary="Where it goes">
             <p>
-              {fmtWeth(loan.principalAmount, 6)} WETH back to the lender, plus {fmtWeth(owedNow.interest, 6)} WETH interest so far. The venue keeps{' '}
-              {bpsToPercent(Number(loan.protocolFee))}% of the interest ({fmtWeth(owedNow.toVenue, 6)} WETH); the lender gets the rest.
+              {(isBorrower ? fmtWethUp : fmtWeth)(loan.principalAmount, 6)} WETH back to the lender, plus {(isBorrower ? fmtWethUp : fmtWeth)(owedNow.interest, 6)} WETH interest so far. The venue keeps{' '}
+              {bpsToPercent(Number(loan.protocolFee))}% of the interest ({fmtWethUp(owedNow.toVenue, 6)} WETH); the lender gets the rest.
             </p>
           </FinePrint>
         </div>
@@ -423,6 +452,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       )}
       {isBorrower && view === 'active' && (
         <button
+          data-dwg="act"
           onClick={handleRepayStep}
           disabled={busy || repayStep === null}
           className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
@@ -431,7 +461,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
           {busy
             ? 'Confirm in Wallet...'
             : repayStep === 'wrap'
-            ? `Wrap ${fmtWeth(wethShort!)} ETH to WETH`
+            ? `Wrap ${fmtWethUp(wethShort!)} ETH to WETH`
             : repayStep === 'approve'
             ? 'Approve WETH to repay'
             : repayStep === 'repay'
@@ -442,6 +472,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       {isBorrower && view === 'active' && (
         <>
           <button
+            data-dwg="quiet"
             type="button"
             onClick={handleCalendar}
             className="w-full min-h-[44px] rounded-xl text-[13px] font-medium text-white transition-all"
@@ -460,6 +491,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
 
       {isLender && view === 'overdue' && (
         <button
+          data-dwg="quiet"
           onClick={handleClaim}
           disabled={busy}
           className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -476,7 +508,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
 function MyOffers({ rows, loading, failed }: { rows: BookOffer[]; loading: boolean; failed: boolean }) {
   if (loading) return null;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-dwg="offers">
       <p className="text-white/90 text-[11px] uppercase tracking-wider" style={LABEL_STYLE}>Your open offers</p>
       {failed ? (
         <p className="text-white/70 text-[12px]">Couldn&apos;t load your offers right now.</p>
@@ -538,15 +570,16 @@ function MyOfferRow({ row }: { row: BookOffer }) {
       ? `${(usedRead.data / BigInt(o.principalAmount)).toString()} of ${loansPerOffer(o).toString()} taken · `
       : '';
   return (
-    <div className="rounded-xl p-3 flex items-center justify-between gap-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+    <div className="rounded-xl p-3 flex items-center justify-between gap-3" data-dwg="offer-row" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <div className="min-w-0">
         <p className="text-white text-[13px] font-semibold">
-          {fmtWeth(BigInt(o.principalAmount))} WETH · {bpsToPercent(Number(o.aprBps))}% · {formatDuration(Number(o.duration))}
+          {fmtWethUp(BigInt(o.principalAmount))} WETH · {bpsToPercent(Number(o.aprBps))}% · {formatDuration(Number(o.duration))}
         </p>
         <p className="text-white/70 text-[11px] truncate">{isWholeCollectionOffer(o) ? `${symbol} · any NFT` : `${symbol} #${o.nftCollateralTokenId}`}</p>
         <p className="text-white/70 text-[11px] truncate">{taken}open until {formatDue(BigInt(o.expirationTime))}</p>
       </div>
       <button
+        data-dwg="quiet"
         onClick={handleCancel}
         disabled={cancel.isPending || cancelQuery.isLoading || !LENDING_LIVE}
         className="min-h-[44px] px-3 rounded-xl text-[12px] font-medium text-white disabled:opacity-40"
@@ -587,10 +620,11 @@ function FindLoan() {
             onChange={(e) => setHash(e.target.value)}
             placeholder="0x... transaction hash"
             aria-label="Loan transaction hash"
-            className="flex-1 min-w-0 min-h-[44px] rounded-xl px-3 text-white text-[12px] font-mono bg-transparent outline-none"
+            className="dwg-field flex-1 min-w-0 min-h-[44px] rounded-xl px-3 text-white text-[12px] font-mono bg-transparent outline-none"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
           <button
+            data-dwg="quiet"
             onClick={() => void handleFind()}
             disabled={!valid || busy || !LENDING_LIVE}
             className="min-h-[44px] px-3 rounded-xl text-[12px] font-medium text-white disabled:opacity-40"

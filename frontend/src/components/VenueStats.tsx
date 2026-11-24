@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchVenueTvl, TVL_CHAINS, type TvlChain, type TvlStaking, type VenueTvl } from '../lib/venueTvl';
+import { fetchVenueTvl, TVL_CHAINS, type TvlChain, type TvlNfts, type TvlStaking, type VenueTvl } from '../lib/venueTvl';
 import { fetchVenueVolume, type VenueVolume } from '../lib/venueVolume';
 import { FinePrint } from './ui/FinePrint';
 
@@ -13,7 +13,7 @@ export const POLL_MS = 60_000;
 const TVL_OLD_MS = 3 * 60_000;
 
 /** One part of the TVL, chain by chain: "Solana $X · Base could not be read just now". */
-const byChain = (rows: (TvlChain | TvlStaking)[]) =>
+const byChain = (rows: (TvlChain | TvlStaking | TvlNfts)[]) =>
   rows.map((c) => (c.read ? `${TVL_CHAINS[c.chain]} ${usdFmt.format(c.usd)}` : `${TVL_CHAINS[c.chain]} could not be read just now`)).join(' · ');
 
 /** A failed refresh keeps the last figure that was read; its own time then says how old it is. */
@@ -100,23 +100,29 @@ export function VenueStats() {
             <>
               <p data-testid="venue-tvl-chains">Pools: {byChain(tvlRead.chains)}</p>
               <p data-testid="venue-tvl-staking">Staked: {byChain(tvlRead.staking)}</p>
+              <p data-testid="venue-tvl-nfts">NFTs held: {byChain(tvlRead.nfts)}</p>
               {tvlRead.chains.some((c) => c.read && c.unvalued > 0) && (
                 <p>Pools paired with an island coin are left out while none of our pools gives that coin a price.</p>
               )}
               {tvlRead.staking.some((c) => c.read && c.unvalued > 0) && <p>A staked coin with no market price just now is left out.</p>}
+              {tvlRead.nfts.some((c) => c.read && c.unvalued > 0) && <p>An NFT whose collection has no OpenSea floor just now is left out.</p>}
               <p>
-                TVL is what our pools hold plus what is staked in our staking pools, read from each chain every minute.
+                TVL is what our pools hold, what is staked in our staking pools, and the NFTs our contracts hold, read
+                from each chain every minute.
                 A pool counts at twice its SOL, USDC or ETH, or twice the island coin it is paired with (BAYLA, BOBO, SOY,
                 BRAINLET or RIZZ, each priced from our deepest pool of it against SOL or USDC); a range pool counts only
                 those coins; other tokens in a pool never add to it. A staked coin counts at its market price: Jupiter's on
-                Solana, DefiLlama's on Ethereum and Base.
+                Solana, DefiLlama's on Ethereum and Base. An NFT held as a loan's collateral on NFT Lending, in a liquidation
+                auction, or in the JBAC staking vault counts at its collection's OpenSea floor; the WETH lent against it is
+                in the borrower's wallet, not ours.
               </p>
             </>
           )}
           {volumeRead && (
             <p>
-              Volume: {volumeRead.swaps.toLocaleString('en-US')} swaps in our Solana pools, Jupiter swaps made here, and
-              our pools on Ethereum, Base and Robinhood. Each is valued in dollars when it is counted. Last counted{' '}
+              Volume: {volumeRead.swaps.toLocaleString('en-US')} trades: swaps in our Solana pools, Jupiter swaps made here,
+              our pools on Ethereum, Base and Robinhood, new loans on NFT Lending (the WETH lent) and sales on our own NFT
+              order book. Each is valued in dollars when it is counted. Last counted{' '}
               {whenFmt.format(volumeRead.asOf)}.
             </p>
           )}

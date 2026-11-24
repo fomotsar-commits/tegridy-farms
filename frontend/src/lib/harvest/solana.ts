@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../solanaPolyfill';
-import { Connection, PublicKey, TransactionMessage, VersionedTransaction, type TransactionInstruction } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 // Harvest on Solana: what the wallet can claim in every Streamflow pool and in the lock
 // ladder, and the claim for each. Loaded only once a Solana wallet is connected
@@ -11,39 +11,29 @@ import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 // Streamflow through readEntries/readPool and claimRewards (LighthousePoolLive), the
 // ladder through readLadderPool/readLadderWallet/readVaultBalances + earnedNow and
 // ladderClaim/ladderClaimCarried (SolanaLadderPoolLive). Each read is made once per load and
-// shared with the dashboard's board (wallet/poolReads.ts). One claim alone is one of those
-// calls. Several go on one prompt (sendClaimsTogether), each built from the same
-// instructions those calls send, in a transaction of its own.
+// shared with the dashboard's board (wallet/poolReads.ts). Each claim is one of those
+// calls: its own transaction, test-run first, on its own wallet approval, sent by us
+// (lib/solana/walletWrite.ts). Until 2026-11-17 several went on ONE approval
+// (signAllTransactions); Phantom asked for one approval per transaction (ticket #467471).
 import { solanaRpcEndpoint } from '../solana';
 import {
-  claimBrokenByRateChange, claimRefusal, claimRewards, claimRewardsInstructions,
+  claimBrokenByRateChange, claimRewards,
   type PoolView, type StakeEntryView,
 } from '../bungalowStaking';
 import type { LadderWalletView } from '../ladder/read';
 import { sharedEntries, sharedLadderPool, sharedLadderWallet, sharedPool, sharedVaultBalances } from '../wallet/poolReads';
-import { earnedNow, isLadderConfigured, ladderProgramId, type LadderPoolView } from '../ladder/program';
-import {
-  ladderClaim, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs, refusalReason,
-  type LadderWriteCtx, type WriteResult,
-} from '../ladder/write';
-import { holdReload } from '../reloadHold';
-import { sendSigned, signatureOf, stampBlockhash } from '../solana/swap/islandBasketSol';
+import { aprLabel, earnedNow, isLadderConfigured, ladderProgramId, perDayAtTodaysRate, sharePct, type LadderPoolView } from '../ladder/program';
+import { basisBehindWrite, lastWriteFence } from '../ladder/writeFence';
+import { ladderClaim, ladderClaimCarried, type LadderWriteCtx, type WriteResult } from '../ladder/write';
 import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
-import { signThrowCopy } from '../solana/walletThrow';
-import { v1SignAllOf } from '../solana/v1Signer';
-import { acceptSignedV1, prepareV1 } from '../solana/v1Send';
 import { ladderRooms, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, solanaStakePools, type StakeTarget } from '../wallet/walletRows';
-import type { ClaimResult, HarvestClaim, HarvestPlan, HarvestUnread } from './types';
+import type { ClaimResult, HarvestClaim, HarvestEarning, HarvestPlan, HarvestUnread } from './types';
 
 export interface SolanaClaim extends HarvestClaim {
   chain: 'solana';
-  /** This one claim, sent by the connected wallet. */
+  /** This one claim, on its own wallet approval. */
   send: (signer: SignerWalletAdapter) => Promise<ClaimResult>;
-  /** The instructions `send` sends, for `owner`, unsent. Throws when they cannot be built. */
-  build: (owner: PublicKey) => Promise<TransactionInstruction[]>;
-  /** A test run that refused it, in its pool card's own words. */
-  refused: (logs: readonly string[]) => string;
 }
 
 type Plan = HarvestPlan<SolanaClaim>;
@@ -112,21 +102,15 @@ export function planStreamflow(target: StakeTarget, pool: PoolView, entries: rea
         continue;
       }
       if (rp.fundedRaw !== null && pending > rp.fundedRaw) {
-        plan.held.push({ key, ...base, amountRaw: pending, decimals: rp.decimals, reason: 'The reward vault cannot cover this yet, so a claim would revert. Nothing is lost: it keeps accruing.' });
+        plan.held.push({ key, ...base, amountRaw: pending, decimals: rp.decimals, reason: 'The reward vault cannot cover this yet, so a claim would fail. Nothing is lost: it stays owed.' });
         continue;
       }
       const caution = claimBrokenByRateChange(e, rp)
-        ? 'This stake is older than the pool’s rate change, so this claim may not pay. If it does not, nothing moves.'
+        ? 'This stake was made before the pool changed its reward rate, so this claim may not pay. If it does not, nothing is claimed.'
         : null;
       plan.claims.push({
         key, ...base, detail, amountRaw: pending, decimals: rp.decimals, caution,
         send: async (signer) => streamflowResult(await claimRewards({ invoker: signer, pool, rewardPool: rp, entryNonce: e.nonce })),
-        build: async (owner) => {
-          const r = await claimRewardsInstructions({ claimant: owner, pool, rewardPool: rp, entryNonce: e.nonce });
-          if (!r.ok) throw new Error(r.reason);
-          return r.ixs;
-        },
-        refused: claimRefusal,
       });
     }
   }
@@ -137,12 +121,54 @@ export function planStreamflow(target: StakeTarget, pool: PoolView, entries: rea
 }
 
 /**
+ * What the wallet's open locks in one ladder earn a day at today's rate, and that as a yearly
+ * rate on the stake behind them: the two figures the ladder's own card prints under "You earn
+ * per day" (SolanaLadderPoolLive.tsx), worked out by the card's own rule, so Earn and the pool's
+ * page can never state two different numbers for one wallet.
+ *
+ *  - The share's two inputs come from ONE slot (`shareBasis`), and the separately read pool
+ *    total only bounds it: of the two readings the LOWER share is used, so the larger total
+ *    and the smaller daily figure. Either reading refused (a partial list, your weight above
+ *    the total, a zero total) is no figure.
+ *  - A read that may predate the wallet's own confirmed write (`stale`) is no figure.
+ *  - Each position's figure is its own weight's; the wallet's is their sum. One that cannot
+ *    be stated (no reward window, one that has ended, a pool under its weight floor) is no
+ *    figure for the wallet at all: a part left out would understate the rest.
+ * Null is "not stated", and the card draws nothing for it. Never a zero.
+ */
+export function ladderEarning(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, nowSecs: number, stale = false): HarvestEarning | null {
+  const stats = wallet.stats;
+  const basis = wallet.shareBasis;
+  if (!stats || !basis || stale || wallet.open.length === 0) return null;
+  if (pool.mint !== (room.address ?? '')) return null;
+  const partial = wallet.truncated || wallet.slots.some((s) => s.state === 'unreadable') || stats.openPositions > wallet.open.length;
+  const own = sharePct({ mineWeight: basis.mineWeight, totalWeighted: basis.totalWeighted, truncated: partial });
+  const bound = sharePct({ mineWeight: basis.mineWeight, totalWeighted: pool.totalWeighted, truncated: partial });
+  if (!own || !bound) return null;
+  const total = own.pct <= bound.pct ? basis.totalWeighted : pool.totalWeighted;
+  let perDayRaw = 0n;
+  let principalRaw = 0n;
+  for (const p of wallet.open) {
+    const day = perDayAtTodaysRate(p.weight, total, pool, nowSecs);
+    if (day === null) return null;
+    perDayRaw += day;
+    principalRaw += p.amountRaw;
+  }
+  const apr = aprLabel(perDayRaw, principalRaw);
+  if (apr === null) return null;
+  return {
+    key: `ladder:${pool.address}`, chain: 'solana', roomId: room.id, symbol: room.symbol, where: 'lock ladder',
+    decimals: pool.decimals, principalRaw, perDayRaw, apr, fundedToSecs: Number(pool.periodFinish),
+  };
+}
+
+/**
  * What the wallet's lock-ladder positions come to: one claim per open position with
  * something earned, plus one for rewards carried from a closed position. A ladder claim
  * pays `min(owed, reward vault)` and keeps the rest owed (invariant I-2), so an empty
  * vault is held and a short one is sent with a caution.
  */
-export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, vaultRewardRaw: bigint | null, nowSecs: number): Plan {
+export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderWalletView, vaultRewardRaw: bigint | null, nowSecs: number, stale = false): Plan {
   const sym = room.symbol;
   const where = 'lock ladder';
   const plan = empty();
@@ -153,16 +179,18 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
   }
   const stats = wallet.stats;
   if (!stats) return plan;
+  // What the open locks earn a day, whether or not anything is claimable right now.
+  const earning = ladderEarning(room, pool, wallet, nowSecs, stale);
+  if (earning) plan.earning = [earning];
+  else if (stale && wallet.open.length > 0) plan.settling = true;
   // A read can succeed and still be partial (read.ts): the positions it found are claimed,
   // and the rest are named as not read.
   if (wallet.truncated || wallet.slots.some((s) => s.state === 'unreadable') || stats.openPositions > wallet.open.length) {
     plan.unread.push({ key: `ladder:${pool.address}`, chain: 'solana', roomId: room.id, what: `some of your ${sym} locks`, detail: 'not every lock could be read just now' });
   }
-  type Accounts = Pick<LadderWriteCtx, 'programId' | 'pool' | 'poolAccounts'>;
   const owed: {
     key: string; detail: string; amountRaw: bigint;
     claim: (ctx: LadderWriteCtx) => Promise<WriteResult>;
-    ixs: (ctx: Accounts, owner: PublicKey) => TransactionInstruction[];
   }[] = [];
   for (const p of wallet.open) {
     const earned = earnedNow(p, pool, nowSecs);
@@ -170,7 +198,6 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
       owed.push({
         key: `ladder:${p.address}`, detail: `on ${fmtAmount(p.amountRaw, pool.decimals)} ${sym} locked`, amountRaw: earned,
         claim: (ctx) => ladderClaim(ctx, { positionNonce: p.nonce }),
-        ixs: (ctx, owner) => ladderClaimIxs(ctx, owner, { positionNonce: p.nonce }),
       });
     }
   }
@@ -178,7 +205,6 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
     owed.push({
       key: `ladder:${stats.address}:carried`, detail: 'carried from a closed lock', amountRaw: stats.rewardsCarriedRaw,
       claim: (ctx) => ladderClaimCarried(ctx),
-      ixs: ladderClaimCarriedIxs,
     });
   }
   if (!owed.length) return plan;
@@ -198,18 +224,19 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
       key: o.key, ...base, detail: o.detail, amountRaw: o.amountRaw, caution,
       send: async (signer) =>
         ladderResult(await o.claim({ connection: connection(), invoker: signer, programId: ladderProgramId(), pool: poolKey, poolAccounts: pool })),
-      build: async (owner) => o.ixs({ programId: ladderProgramId(), pool: poolKey, poolAccounts: pool }, owner),
-      refused: refusalReason,
     });
   }
   return plan;
 }
 
 function merge(plans: readonly Plan[]): Plan {
+  const earning = plans.flatMap((p) => p.earning ?? []);
   return {
     claims: plans.flatMap((p) => p.claims),
     held: plans.flatMap((p) => p.held),
     unread: plans.flatMap((p) => p.unread),
+    ...(earning.length ? { earning } : {}),
+    ...(plans.some((p) => p.settling) ? { settling: true as const } : {}),
   };
 }
 
@@ -242,7 +269,9 @@ async function readLadderHarvest(owner: string, room: Bungalow & { ladderPool: s
     if (!w.value.stats) return empty();
     if (!p.ok) return unread(p.reason);
     const vaults = await sharedVaultBalances(p.value);
-    return planLadder(room, p.value, w.value, vaults.rewardRaw, nowSecs);
+    // The wallet's own write on a ladder card fences the daily figure, as it does the card's share.
+    const stale = w.value.shareBasis !== null && basisBehindWrite(lastWriteFence(), owner, w.value.shareBasis.slot);
+    return planLadder(room, p.value, w.value, vaults.rewardRaw, nowSecs, stale);
   } catch (e) {
     return unread(clipReason(e));
   }
@@ -267,183 +296,4 @@ export async function readSolanaHarvest(owner: string, nowSecs = Math.floor(Date
   const stakes: Plan[] = [];
   for (const t of solanaStakePools()) stakes.push(await readStreamflowHarvest(owner, t));
   return merge([...stakes, ...(await ladders)]);
-}
-
-/** A wallet that signs several transactions on one prompt. Null: one prompt per claim. */
-export interface SignsAll {
-  publicKey: PublicKey | null;
-  signAllTransactions: (txs: VersionedTransaction[]) => Promise<VersionedTransaction[]>;
-}
-
-/** The connected wallet, when it can sign several transactions at once (the Buy-all order's test). */
-export function signsAll(signer: unknown): SignsAll | null {
-  const s = signer as Partial<SignsAll> | null;
-  return s && typeof s.signAllTransactions === 'function' ? (s as SignsAll) : null;
-}
-
-type ClaimConn = Pick<Connection, 'simulateTransaction' | 'getLatestBlockhash' | 'sendRawTransaction' | 'getSignatureStatuses'>;
-
-const NOT_SIGNED = 'Your wallet did not sign it, so nothing was sent for it.';
-// Stands in until the fresh one is stamped just before the prompt; a test run replaces it.
-const NO_BLOCKHASH = PublicKey.default.toBase58();
-const CONFIRM_MS = 60_000;
-
-/**
- * Several Solana claims on ONE wallet prompt (signAllTransactions), each still its own
- * transaction, so a claim refused (a stake from before the rate change, Streamflow 6000;
- * a short vault, 6012) takes no other claim with it. The Buy-all order's way
- * (IslandBasketSolana signAndSendAll):
- *
- *  - each built from its claim's own instructions and test-run, one at a time (the RPC
- *    throttles a burst). One the test run refuses is said in its pool's words and never
- *    put to the wallet. A test run that did not answer is no verdict: the first send
- *    runs the network's own check (sendSigned).
- *  - all on one fresh blockhash, set just before the prompt.
- *  - once signed, each sent and watched on its own through our RPC. A cancel settles
- *    every claim as cancelled; an outcome unknown says so and carries its signature.
- */
-export async function sendClaimsTogether(
-  claims: readonly SolanaClaim[],
-  wallet: SignsAll,
-  settle: (key: string, r: ClaimResult) => void,
-  conn: ClaimConn = connection(),
-  confirmMs = CONFIRM_MS,
-): Promise<'done'> {
-  const owner = wallet.publicKey;
-  if (!owner) {
-    for (const c of claims) settle(c.key, { kind: 'unconfirmed', reason: 'Your Solana wallet is not connected, so nothing was sent.' });
-    return 'done';
-  }
-  // A wallet that signs version 1 (Phantom's extension) gets version 1 claims, on the same
-  // one prompt (Phantom, ticket #455104). The rest keep the version 0 way below, unchanged.
-  const signAllV1 = v1SignAllOf(wallet, owner);
-  if (signAllV1) return sendClaimsTogetherV1(claims, owner, signAllV1, settle, conn, confirmMs);
-  const ready: { claim: SolanaClaim; tx: VersionedTransaction }[] = [];
-  for (const c of claims) {
-    let tx: VersionedTransaction;
-    try {
-      const instructions = await c.build(owner);
-      tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: NO_BLOCKHASH, instructions }).compileToV0Message());
-    } catch (e) {
-      settle(c.key, { kind: 'unconfirmed', reason: `Its transaction could not be built just now (${clipReason(e)}), so nothing was sent for it.` });
-      continue;
-    }
-    const run = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' }).catch(() => null);
-    if (run?.value.err) {
-      settle(c.key, { kind: 'unconfirmed', reason: c.refused(run.value.logs ?? []) });
-      continue;
-    }
-    ready.push({ claim: c, tx });
-  }
-  if (!ready.length) return 'done';
-  const fresh = await conn.getLatestBlockhash('confirmed').catch(() => null);
-  if (!fresh) {
-    for (const r of ready) settle(r.claim.key, { kind: 'unconfirmed', reason: 'The Solana network could not be reached just now, so nothing was sent.' });
-    return 'done';
-  }
-  stampBlockhash(ready.map((r) => r.tx), fresh.blockhash);
-  // Until every claim is answered the page does not reload itself (lib/staleBuild.ts).
-  const release = holdReload();
-  try {
-    let signed: VersionedTransaction[];
-    try {
-      signed = await wallet.signAllTransactions(ready.map((r) => r.tx));
-    } catch (e) {
-      // Signing alone: whatever the wallet says, nothing left the page.
-      const why = signThrowCopy(e);
-      for (const r of ready) settle(r.claim.key, why === DECLINED_IN_WALLET ? { kind: 'declined' } : { kind: 'unconfirmed', reason: why });
-      return 'done';
-    }
-    await Promise.allSettled(ready.map(async (r, k) => settle(r.claim.key, await sendSignedClaim(conn, signed[k], owner, confirmMs))));
-  } finally {
-    release();
-  }
-  return 'done';
-}
-
-async function sendSignedClaim(conn: ClaimConn, got: VersionedTransaction | undefined, owner: PublicKey, confirmMs: number): Promise<ClaimResult> {
-  let tx: VersionedTransaction;
-  let sig: string | null;
-  try {
-    // Read back from its bytes: a wallet bundling its own web3.js returns a lookalike class.
-    tx = VersionedTransaction.deserialize(got!.serialize());
-    sig = tx.message.staticAccountKeys[0]?.equals(owner) ? signatureOf(tx) : null;
-  } catch {
-    return { kind: 'unconfirmed', reason: NOT_SIGNED };
-  }
-  if (!sig) return { kind: 'unconfirmed', reason: NOT_SIGNED };
-  return sendAndWatch(conn, tx.serialize(), sig, confirmMs);
-}
-
-/**
- * Claim all for a wallet that signs version 1 (lib/solana/v1Send.ts): the same promises
- * as the version 0 way, in this format. One fresh blockhash, read first (a version 1
- * message carries it from its first test run); each claim built and test-run on its own,
- * its compute and data limits measured, one the test run refuses said in its pool's
- * words and never put to the wallet; every claim on ONE prompt; each signed message held
- * to the rules (acceptSignedV1), then sent and watched on its own through our RPC.
- */
-async function sendClaimsTogetherV1(
-  claims: readonly SolanaClaim[],
-  owner: PublicKey,
-  signAll: NonNullable<ReturnType<typeof v1SignAllOf>>,
-  settle: (key: string, r: ClaimResult) => void,
-  conn: ClaimConn,
-  confirmMs: number,
-): Promise<'done'> {
-  const fresh = await conn.getLatestBlockhash('confirmed').catch(() => null);
-  if (!fresh) {
-    for (const c of claims) settle(c.key, { kind: 'unconfirmed', reason: 'The Solana network could not be reached just now, so nothing was sent.' });
-    return 'done';
-  }
-  const ready: { claim: SolanaClaim; bytes: Uint8Array }[] = [];
-  for (const c of claims) {
-    let instructions: TransactionInstruction[];
-    try {
-      instructions = await c.build(owner);
-    } catch (e) {
-      settle(c.key, { kind: 'unconfirmed', reason: `Its transaction could not be built just now (${clipReason(e)}), so nothing was sent for it.` });
-      continue;
-    }
-    const prepared = await prepareV1(conn, owner, instructions, fresh);
-    if ('refusedRun' in prepared) {
-      settle(c.key, { kind: 'unconfirmed', reason: c.refused(prepared.refusedRun.logs) });
-      continue;
-    }
-    if ('tooLarge' in prepared) {
-      settle(c.key, { kind: 'unconfirmed', reason: 'Its transaction is too large for Solana, so nothing was sent for it.' });
-      continue;
-    }
-    ready.push({ claim: c, bytes: prepared.bytes });
-  }
-  if (!ready.length) return 'done';
-  // Until every claim is answered the page does not reload itself (lib/staleBuild.ts).
-  const release = holdReload();
-  try {
-    let signed: Uint8Array[];
-    try {
-      signed = await signAll(ready.map((r) => r.bytes), 'solana:mainnet');
-    } catch (e) {
-      // Signing alone: whatever the wallet says, nothing left the page.
-      const why = signThrowCopy(e);
-      for (const r of ready) settle(r.claim.key, why === DECLINED_IN_WALLET ? { kind: 'declined' } : { kind: 'unconfirmed', reason: why });
-      return 'done';
-    }
-    await Promise.allSettled(ready.map(async (r, k) => {
-      const accepted = await acceptSignedV1(conn, r.bytes, signed[k]!, owner);
-      settle(r.claim.key, 'refusal' in accepted ? { kind: 'unconfirmed', reason: accepted.refusal } : await sendAndWatch(conn, accepted.raw, accepted.signature, confirmMs));
-    }));
-  } finally {
-    release();
-  }
-  return 'done';
-}
-
-/** Send signed bytes through our RPC, preflight first, and say how the claim ended. */
-async function sendAndWatch(conn: ClaimConn, raw: Uint8Array, sig: string, confirmMs: number): Promise<ClaimResult> {
-  const sent = await sendSigned(conn, raw, sig, confirmMs);
-  if (sent.kind === 'not-sent') return { kind: 'unconfirmed', reason: sent.why };
-  if (sent.outcome === 'confirmed') return { kind: 'claimed', tx: sig };
-  if (sent.outcome === 'reverted') return { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: sig };
-  return { kind: 'unconfirmed', reason: 'Sent, but not confirmed within a minute, so it may still land. Check it on Solscan before claiming again.', tx: sig, stop: true };
 }

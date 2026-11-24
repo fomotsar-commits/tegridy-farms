@@ -32,15 +32,15 @@ const LOT_PLACE: Place = {
 };
 
 /** The ff-* markup the build's static frame paints (scripts/render-bungalow-doors.mjs), so
- *  React's first commit swaps it like for like. `aria-busy` keeps the e2e readiness probe
- *  waiting for the page. Wallet-free. */
+ *  React's first commit swaps it like for like. `data-route-loading` keeps the e2e readiness
+ *  probe (gotoRoute) waiting for the page. Wallet-free. */
 function Frame({ heading, art, place }: {
   heading: { heroTitle: string; heroLine: string };
   art: { src: string; objectPosition?: string };
   place: Place;
 }) {
   return (
-    <div className="ff-in-layout" aria-busy="true">
+    <div className="ff-in-layout" aria-busy="true" data-route-loading>
       <div className="ff-bg">
         <img
           src={art.src}

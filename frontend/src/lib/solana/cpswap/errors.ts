@@ -4,7 +4,7 @@
  *
  * The numbering is positional (Anchor numbers `#[error_code]` variants from 6000 in
  * declaration order), so this table is pinned against the fork's own committed IDL
- * by "cp-swap: 6000-6014, every code has plain-English copy" in
+ * by "cp-swap: 6000-6015, every code has plain-English copy" in
  * `lib/launcher/solana/write/idl.test.ts`: the names below must equal the IDL's names
  * at the same codes, and every IDL code must have a sentence.
  *
@@ -28,6 +28,9 @@ export const CP_SWAP_ERROR_CODES = {
   6012: 'InsufficientVault',
   6013: 'InvalidFeeModel',
   6014: 'NoFeeCollect',
+  // The swap guard (the pool program's upgrade of 2026-11): a fee setting the vault has switched
+  // the guard on for takes a swap only as an instruction of the transaction itself.
+  6015: 'SwapNotDirect',
 } as const;
 
 export type CpSwapErrorName = (typeof CP_SWAP_ERROR_CODES)[keyof typeof CP_SWAP_ERROR_CODES];
@@ -48,6 +51,8 @@ export const CP_SWAP_ERROR_COPY: Record<CpSwapErrorName, string> = {
   InsufficientVault: 'The pool does not hold enough to pay this out.',
   InvalidFeeModel: 'The pool has a fee setting it cannot use.',
   NoFeeCollect: 'There are no fees to collect.',
+  SwapNotDirect:
+    'This pool takes a swap only when your wallet sends it directly. This one was made through another program (a smart wallet, a multisig or a router), so the pool refused it.',
 };
 
 export function cpSwapErrorName(code: number): CpSwapErrorName | null {

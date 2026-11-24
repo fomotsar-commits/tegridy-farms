@@ -1,28 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { useEvmHarvest } from '../../hooks/useEvmHarvest';
 import { useSolanaSurface } from '../../lib/solanaSurface';
-import { getTxUrl } from '../../lib/explorer';
-import { fmtAmount } from '../../lib/wallet/walletRows';
-import { EVM_CHAIN_IDS, type EvmClaim } from '../../lib/harvest/evm';
+import type { EvmClaim } from '../../lib/harvest/evm';
 import type { SolanaClaim } from '../../lib/harvest/solana';
 import { promptCount, runHarvest, runSummary, type SendTogether } from '../../lib/harvest/run';
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { forgetHeldReads } from '../../lib/wallet/heldReads';
 import {
-  HARVEST_CHAIN_LABEL, orderClaims,
-  type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
+  orderClaims,
+  type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestEarning, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
-import { CardArt } from '../ui/CardArt';
-import { FinePrint } from '../ui/FinePrint';
-
-/** A claim as the run snapshot keeps it: what was sent, and what it came to. */
-type RunRow = { claim: HarvestClaim; state: ClaimState };
-
-const txUrl = (claim: HarvestClaim, tx: string) =>
-  claim.chain === 'solana' ? `https://solscan.io/tx/${tx}` : getTxUrl(EVM_CHAIN_IDS[claim.chain], tx);
+import { HarvestView, type RunRow } from './HarvestView';
 
 /**
  * The connected Solana wallet's harvest. The Earn list has NO Solana connection of its
@@ -58,7 +48,7 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
   // A read that came back partly unread is asked again, twice, a little later. Quiet (a pool
   // page, a dashboard) hides a card with nothing to claim, so an RPC that turned a burst away,
   // or a page caught mid-deploy, left Harvest hidden until a reload (owner's board, 2026-10-30).
-  const unreadNow = Boolean(plan && plan.unread.length > 0);
+  const unreadNow = Boolean(plan && (plan.unread.length > 0 || plan.settling));
   useEffect(() => {
     if (!address || !unreadNow) return;
     const key = `${address}:${nonce}`;
@@ -77,19 +67,16 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
 /** When a partly unread Solana read is asked again: twice, never more, so a dead RPC is not hammered. */
 const HARVEST_RETRY_MS: readonly number[] = [20_000, 60_000];
 
-/** The Solana wallet signs several transactions on one prompt (the Buy-all order's test, lib/harvest/solana.ts signsAll). */
-const signsAll = (signer: object | null | undefined) =>
-  typeof (signer as { signAllTransactions?: unknown } | null | undefined)?.signAllTransactions === 'function';
-
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
  * from every island pool, instead of opening each pool and claiming there.
  *
  * It reads every pool for the wallets connected (Solana: each lighthouse pool and the
  * lock ladder; Ethereum and Base: each lighthouse pool), lists what each can claim in its
- * own coin, and sends one claim per pool position, each its own transaction. A wallet
- * that can sign a chain's claims together is asked once for them (owner, 2026-10-29);
- * any other once per claim. A pool that could not be read is listed as not read, never
+ * own coin, and sends one claim per pool position, each its own transaction. An EVM
+ * wallet that can batch a chain's claims is asked once for them (owner, 2026-10-29); a
+ * Solana wallet is asked once per claim (Phantom, ticket #467471, 2026-11-16: one
+ * transaction per approval). A pool that could not be read is listed as not read, never
  * as nothing to claim; rewards a pool cannot pay yet are listed and left alone.
  *
  * With no wallet connected it draws nothing: there is nothing of the visitor's to show,
@@ -99,6 +86,9 @@ const signsAll = (signer: object | null | undefined) =>
  * it draws only while there is something to claim or a harvest on screen, so a page whose
  * own card already says everything gains no "Reading…" or "Nothing to claim" line. Any page
  * with a Solana connection can hold it: it signs with that page's one connection.
+ *
+ * This is the reading and the run. What it draws is HarvestView.tsx, which takes plain values
+ * (the claims drawn as storeys, HarvestGranary.tsx).
  */
 export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6' }: {
   quiet?: boolean;
@@ -128,10 +118,12 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   const claims: HarvestClaim[] = orderClaims([...(solPlan?.claims ?? []), ...(evmPlan?.claims ?? [])], evm.chain);
   const held: HarvestHeld[] = [...(solPlan?.held ?? []), ...(evmPlan?.held ?? [])];
   const unread: HarvestUnread[] = [...(solPlan?.unread ?? []), ...(evmPlan?.unread ?? [])];
+  // What the stake behind the claims earns a day, where a pool's reader could state it.
+  const earning: HarvestEarning[] = [...(solPlan?.earning ?? []), ...(evmPlan?.earning ?? [])];
   const running = run !== null && !run.done;
-  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? signsAll(surface?.signer) : evm.batchable[chain]);
+  // Solana: one wallet approval per claim, always (Phantom, ticket #467471).
+  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? false : evm.batchable[chain]);
   const asks = promptCount(claims, evm.chain, canTogether);
-  const Heading = headingLevel === 3 ? 'h3' : 'h2';
 
   if (!solAddress && !evm.address) return null;
   if (quiet && run === null && claims.length === 0) return null;
@@ -144,15 +136,8 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     setRun({ rows, done: false });
     const onState = (key: string, state: ClaimState) =>
       setRun((r) => (r ? { ...r, rows: r.rows.map((x) => (x.claim.key === key ? { ...x, state } : x)) } : r));
-    const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null => {
-      if (chain !== 'solana') return evm.together(chain) as SendTogether<HarvestClaim> | null;
-      if (!signer || !signsAll(signer)) return null;
-      return async (cs, settle) => {
-        const m = await import('../../lib/harvest/solana');
-        const wallet = m.signsAll(signer);
-        return wallet ? m.sendClaimsTogether(cs as SolanaClaim[], wallet, settle) : 'one-by-one';
-      };
-    };
+    const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null =>
+      chain === 'solana' ? null : (evm.together(chain) as SendTogether<HarvestClaim> | null);
     const states = await runHarvest(claims, evm.chain, {
       together,
       send: (c): Promise<ClaimResult> => {
@@ -175,12 +160,14 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     reread();
   };
 
+  // Nothing to claim but a pool not read: that is no zero, so the press reads again, as Try again does.
+  const recheck = run === null && !reading && claims.length === 0 && unread.length > 0;
   let label: string;
   let disabled = true;
   if (running) {
     const at = run!.rows.findIndex((r) => r.state.kind === 'sending' || r.state.kind === 'waiting');
     label = `Claiming ${Math.max(at, 0) + 1} of ${run!.rows.length}…`;
-  } else if (run?.done) {
+  } else if (run?.done || recheck) {
     label = 'Check again';
     disabled = false;
   } else if (reading) label = 'Reading your pools…';
@@ -195,145 +182,28 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
       reread();
       return;
     }
+    if (recheck) {
+      reread();
+      return;
+    }
     void start();
   };
 
   return (
-    <section aria-labelledby="harvest-heading" className={className}>
-      <div
-        className="relative isolate rounded-2xl overflow-hidden px-4 py-4"
-        style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
-      >
-        <CardArt pageId="earn" idx={2} />
-        <Heading id="harvest-heading" className="heading-luxury text-xl text-white mb-1">Harvest</Heading>
-        <p className="text-white/80 text-[13px] leading-relaxed m-0">Claim every pool&rsquo;s rewards at once.</p>
-        {/* How money moves, in view (owner, 2026-10-09). */}
-        <p className="text-white/60 text-[12px] leading-relaxed mt-1 mb-0">
-          Each pool pays you from its own reward vault. The venue takes nothing; you pay the network fees.
-        </p>
-
-        {run ? (
-          <ul className="list-none p-0 mt-3 mb-0 space-y-1.5" aria-label="This harvest">
-            {run.rows.map((r) => <ClaimRow key={r.claim.key} claim={r.claim} state={r.state} />)}
-          </ul>
-        ) : (
-          <>
-            {claims.length > 0 && (
-              <ul className="list-none p-0 mt-3 mb-0 space-y-1.5" aria-label="Ready to claim">
-                {claims.map((c) => <ClaimRow key={c.key} claim={c} state={null} />)}
-              </ul>
-            )}
-            {held.length > 0 && (
-              <ul className="list-none p-0 mt-2 mb-0 space-y-1.5" aria-label="Left alone">
-                {held.map((h) => <HeldRow key={h.key} held={h} />)}
-              </ul>
-            )}
-            {unread.length > 0 && (
-              <ul className="list-none p-0 mt-2 mb-0 space-y-1.5" aria-label="Not read">
-                {unread.map((u) => (
-                  <li key={u.key} className="text-[12px] leading-relaxed" style={{ color: '#f0b26b' }}>
-                    Could not read {u.what} ({u.detail.replace(/\.$/, '')}). Not a zero.{' '}
-                    <button type="button" onClick={reread} className="underline underline-offset-2 hover:text-white">Try again</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {!reading && claims.length === 0 && held.length === 0 && unread.length === 0 && (
-              <p className="text-white/70 text-[13px] mt-3 mb-0">Nothing to claim right now.</p>
-            )}
-          </>
-        )}
-
-        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <button type="button" onClick={press} disabled={disabled} className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-60">
-            {label}
-          </button>
-          {run?.done ? (
-            <span className="text-white/75 text-[12px]" role="status">Done: {runSummary(run.rows.map((r) => r.state))}.</span>
-          ) : claims.length > 1 && !running ? (
-            <span className="text-white/60 text-[12px]">{asks === 1 ? 'Your wallet asks once.' : `Your wallet asks ${asks} times.`}</span>
-          ) : null}
-        </div>
-
-        <FinePrint summary="How it works">
-          <p>
-            Harvest reads every island pool for the wallets you have connected: each lighthouse pool and the lock
-            ladder on Solana, and each lighthouse pool on Ethereum and Base. It claims every reward it read above
-            zero, one transaction per pool position: Solana first, then Ethereum and Base, switching network once
-            between them. A wallet that can sign several at once is asked once per network; any other, once per
-            claim. Claiming moves no stake and changes no lock.
-          </p>
-          <p>
-            A pool it could not read is listed as not read, never as nothing to claim. It leaves alone a reward the
-            pool cannot pay yet (its vault is short or empty; nothing is lost, it stays owed), a reward paid in
-            another coin, and the classic farm, whose claim can also extend a lock. Claim those on their own page.
-          </p>
-          <p>
-            On Solana each claim is test-run first, and one its pool would refuse is not put to your wallet. A claim
-            paid stays paid if another one does not go through, unless your wallet bundles the Ethereum or Base
-            claims into one transaction: then they are paid or refused together. If you cancel in your wallet,
-            Harvest stops and sends nothing more. A claim whose outcome could not be read also stops it, so you can
-            check before anything is sent twice.
-          </p>
-        </FinePrint>
-      </div>
-    </section>
-  );
-}
-
-function amountText(raw: bigint | null, decimals: number, symbol: string) {
-  return raw === null ? symbol : `${fmtAmount(raw, decimals)} ${symbol}`;
-}
-
-const STATE_WORDS: Record<ClaimState['kind'], { text: string; color: string }> = {
-  waiting: { text: 'Waiting', color: 'rgba(255,255,255,0.55)' },
-  sending: { text: 'At your wallet…', color: '#e3b341' },
-  claimed: { text: 'Claimed', color: 'var(--color-kyle)' },
-  reverted: { text: 'Refused on chain', color: '#f08a6b' },
-  unconfirmed: { text: 'Not confirmed', color: '#f0b26b' },
-  declined: { text: 'Cancelled', color: 'rgba(255,255,255,0.55)' },
-  'not-sent': { text: 'Not sent', color: 'rgba(255,255,255,0.55)' },
-};
-
-function ClaimRow({ claim, state }: { claim: HarvestClaim; state: ClaimState | null }) {
-  const words = state ? STATE_WORDS[state.kind] : null;
-  const tx = state && 'tx' in state ? state.tx : undefined;
-  const note = state && 'reason' in state ? state.reason : claim.caution;
-  return (
-    <li className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <span className="text-white text-[14px] font-semibold tabular-nums">{amountText(claim.amountRaw, claim.decimals, claim.symbol)}</span>
-        <span className="text-white/60 text-[12px]">
-          {claim.where} · {HARVEST_CHAIN_LABEL[claim.chain]}{claim.detail ? ` · ${claim.detail}` : ''}
-        </span>
-        {words && (
-          <span className="ml-auto text-[12px] font-semibold" style={{ color: words.color }}>
-            {tx ? (
-              <a href={txUrl(claim, tx)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2"
-                aria-label={`${words.text}: view the transaction (opens in new tab)`}>
-                {words.text} ↗
-              </a>
-            ) : words.text}
-          </span>
-        )}
-      </div>
-      {note && <p className="text-[12px] leading-relaxed mt-1 mb-0" style={{ color: '#f0b26b' }}>{note}</p>}
-    </li>
-  );
-}
-
-function HeldRow({ held }: { held: HarvestHeld }) {
-  return (
-    <li className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <span className="text-white/75 text-[13px] font-semibold tabular-nums">{amountText(held.amountRaw, held.decimals, held.symbol)}</span>
-        <span className="text-white/50 text-[12px]">{held.where} · {HARVEST_CHAIN_LABEL[held.chain]}</span>
-        <Link to={`/earn/${held.roomId}`} aria-label={`The ${held.symbol} pool's page`}
-          className="ml-auto text-[12px] underline underline-offset-2 text-white/75 hover:text-white">
-          Its page
-        </Link>
-      </div>
-      <p className="text-white/60 text-[12px] leading-relaxed mt-1 mb-0">{held.reason}</p>
-    </li>
+    <HarvestView
+      className={className}
+      headingLevel={headingLevel}
+      claims={claims}
+      held={held}
+      unread={unread}
+      earning={earning}
+      run={run}
+      reading={reading}
+      label={label}
+      disabled={disabled}
+      asks={asks}
+      onPress={press}
+      onReread={reread}
+    />
   );
 }

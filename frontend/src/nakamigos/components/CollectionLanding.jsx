@@ -7,7 +7,6 @@ import { IpfsImg } from "../../components/IpfsImg";
 import { formatMarketAmount } from "../lib/marketAmount";
 import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, descriptionSourceTag, supplyLabel } from "../lib/venue";
 import { fetchExternalStats } from "../lib/externalMarket";
-import { pageArt } from "../../lib/artConfig";
 import { FinePrint } from "../../components/ui/FinePrint";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
@@ -25,84 +24,32 @@ const START_ACTIONS = [
 // The chains the registry spans, in registry order ("Ethereum · Base · Solana").
 const CHAIN_LIST = [...new Set(COLLECTION_LIST.map(chainLabel).filter(Boolean))];
 
-/* ─── Shimmer placeholder for loading stats ─── */
-function StatShimmer({ width = "60%" }) {
+/* ─── Single stat cell: a small label over a figure ─── */
+function Stat({ label, value, loading, shimmerWidth = "60%", cached, wrap = false, note = null }) {
   return (
-    <div style={{
-      height: 14,
-      width,
-      borderRadius: 6,
-      background: "linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%)",
-      backgroundSize: "200% 100%",
-      animation: "shimmer 1.8s ease-in-out infinite",
-    }} />
-  );
-}
-
-/* ─── Single stat cell ─── */
-function Stat({ label, value, loading, shimmerWidth, cached, wrap = false, note = null }) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{
-        fontFamily: "var(--mono)",
-        fontSize: 9,
-        color: "var(--text-muted)",
-        letterSpacing: "0.08em",
-        marginBottom: 5,
-        textTransform: "uppercase",
-      }}>
+    <div className="mk-stat">
+      <div className="mk-stat-label">
         {label}
         {/* Marks a tile whose number is a stored constant rather than a
             measurement, so it is never read as this minute's figure. */}
         {cached && (
-          <span
-            title="Cached estimate — live stats unavailable right now"
-            style={{
-              marginLeft: 5, fontSize: 8, border: "1px solid var(--border)",
-              borderRadius: 3, padding: "0 3px",
-            }}
-          >
-            cached
-          </span>
+          <span className="mk-tag-cached" title="Cached estimate — live stats unavailable right now">cached</span>
         )}
       </div>
-      {loading ? <StatShimmer width={shimmerWidth} /> : (
-        <div style={{
-          fontFamily: "var(--mono)",
-          fontSize: 13,
-          color: "var(--text)",
-          fontWeight: 600,
-          ...(wrap
-            ? { fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" }
-            : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
-        }}>
-          {value}
-        </div>
-      )}
-      {!loading && note && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2, letterSpacing: "0.04em" }}>
-          {note}
-        </div>
-      )}
+      {loading
+        ? <div className="skeleton" style={{ height: 14, width: shimmerWidth, marginTop: 8 }} />
+        : <div className={`mk-stat-value${wrap ? " wrap" : ""}`}>{value}</div>}
+      {!loading && note && <div className="mk-stat-note">{note}</div>}
     </div>
   );
 }
 
-/* ─── Highlight badges (Commercial Rights, Generative Art, etc.) ─── */
+/* ─── Highlight chips (Commercial Rights, Generative Art, …): the colour is the
+       collection's own, so it rides on a dot and the words stay readable ─── */
 function HighlightBadge({ label, color }) {
   return (
-    <span style={{
-      fontFamily: "var(--pixel)",
-      fontSize: 7,
-      color: color,
-      background: `color-mix(in srgb, ${color} 10%, transparent)`,
-      border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`,
-      borderRadius: 6,
-      padding: "3px 8px",
-      letterSpacing: "0.04em",
-      lineHeight: 1,
-      whiteSpace: "nowrap",
-    }}>
+    <span className="mk-chip">
+      <i style={{ background: color }} aria-hidden="true" />
       {label}
     </span>
   );
@@ -111,22 +58,7 @@ function HighlightBadge({ label, color }) {
 /* ─── Where a view-only collection trades. A span, not a link: the card is
        itself a <button>, and a control nested in it would be invalid. ─── */
 function MarketBadge({ market }) {
-  return (
-    <span style={{
-      fontFamily: "var(--mono)",
-      fontSize: 9,
-      color: "var(--gold)",
-      background: "rgba(200,168,80,0.08)",
-      border: "1px solid rgba(200,168,80,0.25)",
-      borderRadius: 6,
-      padding: "3px 8px",
-      letterSpacing: "0.02em",
-      lineHeight: 1.2,
-      whiteSpace: "nowrap",
-    }}>
-      Trades on {market}
-    </span>
-  );
+  return <span className="mk-chip market">Trades on {market}</span>;
 }
 
 /* ─── Cross-Collection Search ─── */
@@ -223,22 +155,9 @@ function CrossCollectionSearch() {
   };
 
   return (
-    <div ref={wrapperRef} style={{ position: "relative", maxWidth: 480, margin: "0 auto 40px", zIndex: 20 }}>
-      {/* Search input */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        background: "var(--surface-glass)",
-        border: `1px solid ${focused ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
-        borderRadius: 14,
-        padding: "0 16px",
-        backdropFilter: "var(--glass-blur)",
-        transition: "border-color 0.3s ease, box-shadow 0.3s ease",
-        boxShadow: focused ? "0 0 24px rgba(111,168,220,0.08)" : "none",
-      }}>
-        {/* Search icon */}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.5 }}>
+    <div ref={wrapperRef} className="mk-search">
+      <div className={`mk-search-field${focused ? " focused" : ""}`}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="11" cy="11" r="8" />
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
@@ -255,119 +174,34 @@ function CrossCollectionSearch() {
           aria-autocomplete="list"
           aria-activedescendant={activeIndex >= 0 ? `landing-search-opt-${activeIndex}` : undefined}
           aria-label="Search collections or token ID"
-          style={{
-            flex: 1,
-            background: "transparent",
-            border: "none",
-            outline: "none",
-            color: "var(--text)",
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            padding: "12px 0",
-            letterSpacing: "0.02em",
-          }}
         />
         {query && (
-          <button
-            onClick={() => { setQuery(""); }}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              padding: 4,
-              fontSize: 14,
-              lineHeight: 1,
-              fontFamily: "var(--mono)",
-            }}
-            aria-label="Clear search"
-          >
+          <button className="mk-search-clear" onClick={() => { setQuery(""); }} aria-label="Clear search">
             ×
           </button>
         )}
       </div>
 
-      {/* Dropdown results */}
       {showDropdown && (
-        <div
-          id="landing-search-listbox"
-          role="listbox"
-          aria-label="Search results"
-          style={{
-          position: "absolute",
-          top: "calc(100% + 6px)",
-          left: 0,
-          right: 0,
-          background: "rgba(16, 16, 20, 0.95)",
-          backdropFilter: "blur(20px)",
-          border: "1px solid rgba(111,168,220,0.2)",
-          borderRadius: 14,
-          overflow: "hidden",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(111,168,220,0.06)",
-          maxHeight: 320,
-          overflowY: "auto",
-        }}>
+        <div id="landing-search-listbox" role="listbox" aria-label="Search results" className="mk-search-pop">
           {results.map((r, i) => (
             <button
               key={`${r.slug}-${r.type}-${r.id ?? i}`}
               id={`landing-search-opt-${i}`}
               role="option"
               aria-selected={i === activeIndex}
+              className="mk-search-opt"
               onClick={() => handleSelect(r)}
               onMouseMove={() => setActiveIndex(i)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                padding: "10px 16px",
-                background: i === activeIndex ? "rgba(111,168,220,0.12)" : "transparent",
-                border: "none",
-                borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                cursor: "pointer",
-                color: "var(--text)",
-                fontFamily: "var(--display)",
-                fontSize: 11,
-                textAlign: "left",
-                transition: "background 0.15s ease",
-              }}
             >
-              <IpfsImg
-                src={r.image}
-                alt=""
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 6,
-                  objectFit: "cover",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-                onExhausted={(img) => { img.style.display = "none"; }}
-              />
+              <IpfsImg src={r.image} alt="" onExhausted={(img) => { img.style.display = "none"; }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontFamily: "var(--display)",
-                  fontSize: 11,
-                  color: "var(--text)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}>
-                  {r.name}
-                </div>
-                <div style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 8,
-                  color: "var(--text-dim)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  marginTop: 2,
-                }}>
+                <div className="mk-search-opt-name">{r.name}</div>
+                <div className="mk-search-opt-kind">
                   {r.type === "token" ? (r.tentative ? "Token · may not exist" : "Token") : "Collection"}
                 </div>
               </div>
-              {/* Arrow icon */}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.4 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </button>
@@ -375,29 +209,9 @@ function CrossCollectionSearch() {
         </div>
       )}
 
-      {/* No results message */}
       {focused && query.length >= 2 && results.length === 0 && (
-        <div style={{
-          position: "absolute",
-          top: "calc(100% + 6px)",
-          left: 0,
-          right: 0,
-          background: "rgba(16, 16, 20, 0.95)",
-          backdropFilter: "blur(20px)",
-          border: "1px solid rgba(111,168,220,0.2)",
-          borderRadius: 14,
-          padding: "16px 20px",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
-        }}>
-          <div style={{
-            fontFamily: "var(--mono)",
-            fontSize: 10,
-            color: "var(--text-dim)",
-            textAlign: "center",
-            letterSpacing: "0.02em",
-          }}>
-            No results for "{query}"
-          </div>
+        <div className="mk-search-pop">
+          <div className="mk-search-none">No results for "{query}"</div>
         </div>
       )}
     </div>
@@ -409,7 +223,7 @@ function CrossCollectionSearch() {
    and a figure the read does not produce is the unread dash. A collection
    with no market read (Junglets) says that, never a zero. */
 function ViewOnlyStats({ collection, stats, loading, error }) {
-  const dash = "\u2014";
+  const dash = "—";
   const unread = !!error || !stats;
   const floorRead = unread ? null
     : stats.floor != null ? formatMarketAmount(stats.floor, stats.floorSymbol, collection)
@@ -418,8 +232,8 @@ function ViewOnlyStats({ collection, stats, loading, error }) {
     ? `Stats unavailable: this venue reads no market for ${collection.name}`
     : `Stats unavailable: ${collection.market?.name} could not be read`;
   return (
-    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
+    <>
+      <div className="mk-stats">
         <Stat label="Floor" loading={loading} shimmerWidth="55%" wrap value={floorRead ?? dash}
           note={!unread && floorRead == null ? "not read" : null} />
         <Stat label="Volume" loading={loading} shimmerWidth="70%" wrap
@@ -429,59 +243,30 @@ function ViewOnlyStats({ collection, stats, loading, error }) {
         <Stat label="Supply" loading={false} wrap value={supplyLabel(collection) ?? dash} />
       </div>
       {!loading && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 10, letterSpacing: "0.04em" }}>
+        <div className="mk-stats-source">
           {unread ? unavailableLine : `Stats from ${stats.source}`}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-/* ─── Collection Card ─── */
+/* ─── Collection plate ─── */
 function CollectionCard({ collection, stats, statsLoading, statsError, previewImage, onClick, index }) {
   const displayImage = collection.image || previewImage;
   // A collection that trades on its own market states its numbers in that
   // market's units and says where it trades.
   const viewOnly = !canTradeOnVenue(collection);
   // A view-only card's Supply stat carries its label, and the long ERC-1155
-  // labels would cover the picture, so only a venue card gets the badge.
+  // labels would crowd the strip, so only a venue card gets the count there.
   const venueSupply = stats?.supply ?? collection.supply;
   const supplyBadge = !viewOnly && venueSupply != null ? `${venueSupply.toLocaleString()} items` : null;
   const [imgError, setImgError] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const cardRef = useRef(null);
 
   useEffect(() => { setImgError(false); }, [displayImage]);
 
-  // Staggered entrance animation via IntersectionObserver
-  // Respects prefers-reduced-motion: skip stagger delay + show immediately
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (prefersReduced) {
-      setVisible(true);
-      return;
-    }
-    let obs;
-    const timer = setTimeout(() => {
-      obs = new IntersectionObserver(([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          obs.disconnect();
-        }
-      }, { threshold: 0.08 });
-      obs.observe(el);
-    }, index * 150); // stagger
-    return () => {
-      clearTimeout(timer);
-      if (obs) obs.disconnect();
-    };
-  }, [index]);
-
   const formatStat = (val, suffix = "") => {
-    if (val == null) return "\u2014";
+    if (val == null) return "—";
     if (typeof val === "number" && suffix === " ETH" && val < 1) return val.toFixed(4) + suffix;
     if (typeof val === "number" && suffix === " ETH") return val.toLocaleString(undefined, { maximumFractionDigits: 0 }) + suffix;
     if (typeof val === "number") return val.toLocaleString();
@@ -491,7 +276,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   const isLoading = statsLoading;
   // The error's reason ("no-market-read") or true; false once stats are read.
   const isError = !stats && statsError ? statsError : false;
-  const dash = "\u2014";
+  const dash = "—";
 
   // The card's own words (description, its source, the creator) live in the
   // small print under the card. A <details> cannot sit inside a <button>, so
@@ -502,285 +287,98 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   const hasSmallPrint = !!(collection.description || lore?.creator?.name);
 
   return (
-    <div
-      ref={cardRef}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        // Studio surface marketplace:2 under a scrim, so the words stay
-        // readable and the collection's own picture above keeps its frame.
-        background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.90) 100%), url(${pageArt("marketplace", 2).src}) center / cover no-repeat, ${hovered ? "rgba(20, 20, 24, 0.85)" : "var(--surface-glass)"}`,
-        border: `1px solid ${hovered ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
-        borderRadius: 20,
-        overflow: "hidden",
-        transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-        backdropFilter: "var(--glass-blur)",
-        textAlign: "left",
-        transform: visible
-          ? (hovered ? "translateY(-8px) scale(1.015)" : "translateY(0)")
-          : "translateY(32px)",
-        opacity: visible ? 1 : 0,
-        boxShadow: hovered
-          ? "0 20px 60px rgba(111,168,220,0.14), 0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px rgba(111,168,220,0.08), inset 0 1px 0 rgba(255,255,255,0.04)"
-          : "0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.02)",
-        position: "relative",
-        width: "100%",
-        textShadow: "0 1px 8px rgba(0,0,0,0.9)",
-      }}
-    >
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        flex: 1,
-        width: "100%",
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-        textAlign: "left",
-        padding: 0,
-        color: "inherit",
-        fontFamily: "inherit",
-        textShadow: "inherit",
-      }}
-    >
-      {/* ── Hover glow line at top ── */}
-      <div style={{
-        position: "absolute",
-        top: 0,
-        left: "10%",
-        right: "10%",
-        height: 1,
-        background: "linear-gradient(90deg, transparent, rgba(111,168,220,0.5), transparent)",
-        opacity: hovered ? 1 : 0,
-        transition: "opacity 0.4s ease",
-        zIndex: 10,
-      }} />
-
-      {/* ── Image area ── */}
-      <div style={{
-        height: 240,
-        background: "linear-gradient(145deg, var(--bg), var(--surface), var(--card))",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-        position: "relative",
-      }}>
-        {/* Subtle corner glow on hover */}
-        <div style={{
-          position: "absolute",
-          inset: 0,
-          background: hovered
-            ? "radial-gradient(ellipse at 30% 20%, rgba(111,168,220,0.08) 0%, transparent 60%)"
-            : "none",
-          transition: "background 0.5s ease",
-          pointerEvents: "none",
-          zIndex: 1,
-        }} />
-
-        {/* Bottom gradient fade for text readability */}
-        <div style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 60,
-          background: "linear-gradient(to top, rgba(16,16,18,0.9), transparent)",
-          pointerEvents: "none",
-          zIndex: 2,
-        }} />
-
-        {displayImage && !imgError ? (
-          <IpfsImg
-            src={displayImage}
-            alt={collection.name}
-            loading="lazy"
-            style={{
-              maxWidth: "75%",
-              maxHeight: "82%",
-              objectFit: "contain",
-              imageRendering: collection.pixelated ? "pixelated" : "auto",
-              borderRadius: collection.pixelated ? 4 : 12,
-              transition: "transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), filter 0.4s ease",
-              transform: hovered ? "scale(1.08)" : "scale(1)",
-              filter: hovered ? "brightness(1.1) saturate(1.05)" : "brightness(1)",
-              position: "relative",
-              zIndex: 1,
-            }}
-            onExhausted={() => setImgError(true)}
-          />
-        ) : (
-          <div style={{
-            width: 80,
-            height: 80,
-            borderRadius: 16,
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid var(--border)",
-            display: "grid",
-            placeItems: "center",
-            color: "var(--text-dim)",
-            fontSize: 28,
-          }}>
-            ?
-          </div>
-        )}
-
-        {/* Supply badge in top-right corner, only where a read produced one */}
-        {supplyBadge && (
-        <div style={{
-          position: "absolute",
-          top: 12,
-          right: 12,
-          fontFamily: "var(--mono)",
-          fontSize: 9,
-          color: "var(--text-dim)",
-          background: "rgba(0,0,0,0.5)",
-          backdropFilter: "blur(8px)",
-          padding: "4px 8px",
-          borderRadius: 6,
-          border: "1px solid rgba(255,255,255,0.05)",
-          letterSpacing: "0.04em",
-          zIndex: 3,
-        }}>
-          {supplyBadge}
+    <div className="mk-coll">
+      <button className="mk-coll-main" onClick={onClick}>
+        {/* The plate's strip: its number in the index, and how many pieces. */}
+        <div className="mk-coll-strip">
+          <b aria-hidden="true">{String(index + 1).padStart(2, "0")}</b>
+          {supplyBadge && <span>{supplyBadge}</span>}
         </div>
-        )}
-      </div>
 
-      {/* ── Content area ── */}
-      <div style={{ padding: "18px 22px 22px", flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* Name + highlight badges row */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 8,
-          flexWrap: "wrap",
-        }}>
+        <div className="mk-coll-media">
+          {displayImage && !imgError ? (
+            <IpfsImg
+              src={displayImage}
+              alt={collection.name}
+              loading="lazy"
+              style={{ imageRendering: collection.pixelated ? "pixelated" : "auto" }}
+              onExhausted={() => setImgError(true)}
+            />
+          ) : (
+            <div className="mk-coll-missing" aria-hidden="true">?</div>
+          )}
+        </div>
+
+        <div className="mk-coll-body">
           {/* div (not h3): headings are not valid content inside a <button> */}
-          <div role="heading" aria-level={3} style={{
-            fontFamily: "var(--pixel)",
-            fontSize: 14,
-            color: "var(--naka-blue)",
-            margin: 0,
-            letterSpacing: "0.04em",
-            lineHeight: 1.3,
-          }}>
+          <div role="heading" aria-level={3} className="mk-coll-name">
             {collection.name}
           </div>
-          {collection.highlights?.map((h) => (
-            <HighlightBadge key={h.label} label={h.label} color={h.color} />
-          ))}
-          {viewOnly && collection.market?.name && <MarketBadge market={collection.market.name} />}
-        </div>
 
-        {/* Tagline: the card's one line of prose. */}
-        {lore?.tagline && (
-          <div style={{
-            fontFamily: "var(--display)", fontSize: 10, color: "var(--gold)",
-            fontStyle: "italic", margin: "0 0 8px", opacity: 0.85,
-          }}>
-            {lore.tagline}
+          {/* Tagline: the card's one line of prose. */}
+          {lore?.tagline && <div className="mk-coll-tagline">{lore.tagline}</div>}
+
+          <div className="mk-chips">
+            {collection.highlights?.map((h) => (
+              <HighlightBadge key={h.label} label={h.label} color={h.color} />
+            ))}
+            {viewOnly && collection.market?.name && <MarketBadge market={collection.market.name} />}
+            {collection.tags?.map((tag) => (
+              <span key={tag} className="mk-chip">{tag}</span>
+            ))}
           </div>
-        )}
 
-        {/* Tags */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-          {collection.tags?.map((tag) => (
-            <span
-              key={tag}
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 8,
-                color: "var(--text-dim)",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 4,
-                padding: "3px 7px",
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-              }}
-            >
-              {tag}
-            </span>
-          ))}
+          {/* Pushes the numbers to the foot of the plate, so a row of plates lines up. */}
+          <div className="mk-coll-grow" />
+
+          {viewOnly ? (
+            <ViewOnlyStats collection={collection} stats={stats} loading={isLoading} error={isError} />
+          ) : (
+            <div className="mk-stats">
+              <Stat
+                label="Floor"
+                loading={isLoading}
+                shimmerWidth="55%"
+                value={isError ? dash : stats && stats.floor != null ? `${formatPrice(stats.floor)} ETH` : dash}
+              />
+              <Stat
+                label="Volume"
+                loading={isLoading}
+                shimmerWidth="70%"
+                cached={!isError && !!stats?.volumeFallback}
+                value={isError ? dash : stats ? formatStat(stats.volume, " ETH") : dash}
+              />
+              <Stat
+                label="Owners"
+                loading={isLoading}
+                shimmerWidth="50%"
+                value={isError ? dash : stats ? formatStat(stats.owners) : dash}
+              />
+              <Stat
+                label="Supply"
+                loading={isLoading}
+                shimmerWidth="45%"
+                value={
+                  stats?.supply != null
+                    ? formatStat(stats.supply)
+                    : collection.supply
+                      ? collection.supply.toLocaleString()
+                      : dash
+                }
+              />
+            </div>
+          )}
         </div>
-
-        {/* Spacer to push stats to bottom */}
-        <div style={{ flex: 1 }} />
-
-        {/* Stats grid */}
-        {viewOnly ? (
-          <ViewOnlyStats collection={collection} stats={stats} loading={isLoading} error={isError} />
-        ) : (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "10px 16px",
-          borderTop: "1px solid rgba(255,255,255,0.05)",
-          paddingTop: 14,
-          transition: "opacity 0.3s ease",
-        }}>
-          <Stat
-            label="Floor"
-            loading={isLoading}
-            shimmerWidth="55%"
-            value={isError ? dash : stats && stats.floor != null ? `${formatPrice(stats.floor)} ETH` : dash}
-          />
-          <Stat
-            label="Volume"
-            loading={isLoading}
-            shimmerWidth="70%"
-            cached={!isError && !!stats?.volumeFallback}
-            value={isError ? dash : stats ? formatStat(stats.volume, " ETH") : dash}
-          />
-          <Stat
-            label="Owners"
-            loading={isLoading}
-            shimmerWidth="50%"
-            value={isError ? dash : stats ? formatStat(stats.owners) : dash}
-          />
-          <Stat
-            label="Supply"
-            loading={isLoading}
-            shimmerWidth="45%"
-            value={
-              stats?.supply != null
-                ? formatStat(stats.supply)
-                : collection.supply
-                  ? collection.supply.toLocaleString()
-                  : dash
-            }
-          />
-        </div>
-        )}
-      </div>
-    </button>
+      </button>
 
       {/* The small print: the collection's own words, their source, the creator. */}
       {hasSmallPrint && (
-        <div style={{ padding: "0 22px 14px" }}>
+        <div className="mk-coll-fine">
           <FinePrint summary="About">
-            {collection.description && (
-              <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                {collection.description}
-              </p>
-            )}
+            {collection.description && <p>{collection.description}</p>}
             {/* A collection's own words name their source, so they never read as the venue's. */}
-            {sourceTag && (
-              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
-                {sourceTag.charAt(0).toUpperCase() + sourceTag.slice(1)}
-              </p>
-            )}
-            {lore?.creator?.name && (
-              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
-                by {lore.creator.name}
-              </p>
-            )}
+            {sourceTag && <p>{sourceTag.charAt(0).toUpperCase() + sourceTag.slice(1)}</p>}
+            {lore?.creator?.name && <p>by {lore.creator.name}</p>}
           </FinePrint>
         </div>
       )}
@@ -845,135 +443,52 @@ export default function CollectionLanding() {
   }, []);
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "56px 20px 96px", position: "relative" }}>
-      {/* ── Ambient background glow ── */}
-      <div style={{
-        position: "absolute",
-        top: -60,
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: 500,
-        height: 300,
-        background: "radial-gradient(ellipse, rgba(111,168,220,0.06) 0%, transparent 70%)",
-        pointerEvents: "none",
-        zIndex: 0,
-      }} />
+    <div className="mk-landing">
+      {/* ── The opening: the name, the one line, and what to press ── */}
+      <div className="mk-masthead mk-plane">
+        <div>
+          <div className="mk-eyebrow">NFT marketplace</div>
+          <h1 className="mk-display">TRADERMIGOS</h1>
+          <p className="mk-lede">Browse. Buy. Sell. Make offers.</p>
+        </div>
 
-      {/* ── Heading area ── */}
-      <div style={{ textAlign: "center", marginBottom: 56, position: "relative", zIndex: 1 }}>
-        {/* Decorative line */}
-        <div style={{
-          width: 48,
-          height: 2,
-          background: "linear-gradient(90deg, transparent, var(--naka-blue), transparent)",
-          margin: "0 auto 20px",
-          borderRadius: 2,
-        }} />
-
-        <h1 style={{
-          fontFamily: "var(--pixel)",
-          fontSize: 26,
-          color: "var(--naka-blue)",
-          letterSpacing: "0.1em",
-          margin: "0 0 14px",
-          lineHeight: 1.3,
-          textShadow: "0 0 40px rgba(111,168,220,0.15)",
-        }}>
-          TRADERMIGOS
-        </h1>
-
-        <p style={{
-          fontFamily: "var(--mono)",
-          fontSize: 12,
-          color: "var(--text-muted)",
-          maxWidth: 440,
-          margin: "0 auto 20px",
-          lineHeight: 1.6,
-          letterSpacing: "0.02em",
-        }}>
-          Browse. Buy. Sell. Make offers.
-        </p>
-
-        {/* Start card (studio surface marketplace:2 is the collection card;
-            this is marketplace:1): what to press, then the numbers, then the
-            money line. The explanations sit closed underneath. */}
-        <section
-          aria-label="Start here"
-          style={{
-            maxWidth: 720,
-            margin: "0 auto",
-            padding: "18px 18px 10px",
-            borderRadius: 16,
-            border: "1px solid var(--border)",
-            background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.88) 100%), url(${pageArt("marketplace", 1).src}) center / cover no-repeat, var(--surface-glass)`,
-            textShadow: "0 1px 8px rgba(0,0,0,0.9)",
-          }}
-        >
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 14 }}>
+        {/* Start panel: what to press, then the numbers, then the money line.
+            The explanations sit closed underneath. */}
+        <section aria-label="Start here" className="mk-start">
+          <div className="mk-start-actions">
             {START_ACTIONS.map(([label, tab, cls]) => (
               <button
                 key={label}
                 className={cls}
                 onClick={() => navigate(`/nakamigos/${DEFAULT_COLLECTION}/${tab}`)}
-                style={{ minHeight: 44, padding: "0 18px", fontSize: 11, whiteSpace: "nowrap" }}
               >
                 {label}
+                {/* Drawn, not typed: a typed arrow would count as a word on the page. */}
+                <svg className="mk-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="13 6 19 12 13 18" />
+                </svg>
               </button>
             ))}
           </div>
 
-        {/* The numbers: collection count, chains, how many trade here */}
-        <div style={{
-          display: "inline-flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          justifyContent: "center",
-          gap: 8,
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          color: "var(--text-muted)",
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          borderRadius: 20,
-          padding: "6px 16px",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-        }}>
-          <span>{COLLECTION_LIST.length} Collection{COLLECTION_LIST.length !== 1 ? "s" : ""}</span>
-          <span style={{
-            width: 3,
-            height: 3,
-            borderRadius: "50%",
-            background: "var(--text-dim)",
-            display: "inline-block",
-          }} />
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            {CHAIN_LIST.join(" \u00b7 ")}
-          </span>
-          <span style={{
-            width: 3,
-            height: 3,
-            borderRadius: "50%",
-            background: "var(--text-dim)",
-            display: "inline-block",
-          }} />
-          <span>{VENUE_COLLECTIONS.length} trade here</span>
-        </div>
+          <div className="mk-start-body">
+            {/* The numbers: collection count, chains, how many trade here */}
+            <div className="mk-facts">
+              <span>{COLLECTION_LIST.length} Collection{COLLECTION_LIST.length !== 1 ? "s" : ""}</span>
+              <i className="sep" aria-hidden="true" />
+              <span>{CHAIN_LIST.join(" · ")}</span>
+              <i className="sep" aria-hidden="true" />
+              <span>{VENUE_COLLECTIONS.length} trade here</span>
+            </div>
 
-        {/* The money line stays visible: what the venue takes (flat 0.5% to the
-            protocol treasury, on-chain Seaport settlement). The full sentence
-            it used to be sits in the small print below, word for word. */}
-        <div style={{
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          color: "var(--text-dim)",
-          marginTop: 12,
-          letterSpacing: "0.04em",
-        }}>
-          {`Flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
-        </div>
+            {/* The money line stays visible: what the venue takes (flat 0.5% to the
+                protocol treasury, on-chain Seaport settlement). The full sentence
+                it used to be sits in the small print below, word for word. */}
+            <div className="mk-fee">
+              {`Flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
+            </div>
 
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 2 }}>
             <FinePrint summary="Details">
               <p style={{ margin: 0 }}>
                 {`Browse, Buy, Sell / List and Make offer open the ${COLLECTIONS[DEFAULT_COLLECTION].name} collection. For another collection, open its card below.`}
@@ -987,22 +502,12 @@ export default function CollectionLanding() {
             </FinePrint>
           </div>
         </section>
-
-        {/* Decorative line below */}
-        <div style={{
-          width: 48,
-          height: 2,
-          background: "linear-gradient(90deg, transparent, var(--naka-blue), transparent)",
-          margin: "24px auto 0",
-          borderRadius: 2,
-          opacity: 0.4,
-        }} />
       </div>
 
       {/* ── Cross-collection search ── */}
       <CrossCollectionSearch />
 
-      {/* ── Cards grid ── */}
+      {/* ── The index of collections ── */}
       <div className="collection-landing-grid">
         {COLLECTION_LIST.map((col, i) => (
           <CollectionCard
@@ -1017,18 +522,6 @@ export default function CollectionLanding() {
           />
         ))}
       </div>
-
-      {/* ── Keyframes (injected once) ── */}
-      <style>{`
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        .collection-landing-grid button:focus-visible {
-          outline: 2px solid var(--naka-blue);
-          outline-offset: 2px;
-        }
-      `}</style>
     </div>
   );
 }

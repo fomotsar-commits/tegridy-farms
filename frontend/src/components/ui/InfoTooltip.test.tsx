@@ -15,6 +15,21 @@ describe('InfoTooltip', () => {
     expect(screen.getByText('?')).toBeInTheDocument();
   });
 
+  // Many call sites put the ? inside an uppercase, letter-spaced label (the stat tiles, the
+  // lending form). The bubble inherited both, so a whole explanation read in spaced capitals.
+  // A class pin: jsdom computes no Tailwind styles.
+  it('reads in sentence case even inside an uppercase label', () => {
+    renderWithTheme(
+      <p className="uppercase tracking-wider">
+        Venue Fee <InfoTooltip text="The venue keeps this share." />
+      </p>,
+    );
+    fireEvent.mouseEnter(screen.getByText('?').parentElement!);
+    const bubble = screen.getByRole('tooltip');
+    expect(bubble.className).toContain('normal-case');
+    expect(bubble.className).toContain('tracking-normal');
+  });
+
   it('shows tooltip text on hover', () => {
     renderWithTheme(<InfoTooltip text="Helpful info" />);
     fireEvent.mouseEnter(screen.getByText('?').parentElement!);
@@ -105,6 +120,21 @@ describe('HowItWorks', () => {
 });
 
 describe('StepIndicator', () => {
+  // jsdom lays nothing out: the fit itself is measured in e2e/phone-layout.spec.ts. This pins
+  // what makes it hold in any row: a step and its pill may shrink, and the name truncates.
+  it('lets a step be narrower than its name, so a tight row cuts the name and never the page', () => {
+    const { container } = render(<StepIndicator steps={['Wrap ETH', 'Approve WETH', 'Sign Offer']} currentStep={1} />);
+    const pills = [...container.querySelectorAll('[data-step]')];
+    expect(pills.map((p) => p.getAttribute('data-step'))).toEqual(['done', 'now', 'next']);
+    for (const pill of pills) {
+      expect(pill.className.split(/\s+/)).toContain('min-w-0');
+      expect(pill.parentElement!.className.split(/\s+/)).toContain('min-w-0');
+      expect(pill.lastElementChild!.className.split(/\s+/)).toContain('truncate');
+    }
+    // The step's number keeps its width while the name gives way.
+    expect(pills[1]!.firstElementChild!.className.split(/\s+/)).toContain('flex-shrink-0');
+  });
+
   it('shows correct step states', () => {
     render(<StepIndicator steps={['Approve', 'Stake', 'Done']} currentStep={1} />);
     expect(screen.getByText('Approve')).toBeInTheDocument();

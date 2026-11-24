@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 // THE VENUE OPENS STRAIGHT TO THE PAGE (answer ten, ruling 1): no arrival overlay
 // mounts on a cold visit. A MutationObserver stamps any arrival node ADDED, however
@@ -18,6 +18,11 @@ test.use({
 const WATCH_MS = 5_000;
 /** How long the overlay sweep lets a cold page settle before hit-testing. */
 const SETTLE_MS = 3_000;
+
+/** A press as the device makes it: a finger's tap where the project has touch. WebKit sends a
+ *  mouse press as two messages, and a card that lands between them sends the click elsewhere:
+ *  the tour's test lost its press so in 87 CI runs, 2026-10-21 to 11-12. A tap is one message. */
+const press = (target: Locator, hasTouch: boolean) => (hasTouch ? target.tap() : target.click());
 
 interface ArrivalClock {
   added?: number;
@@ -76,14 +81,14 @@ test.describe('the venue opens straight to the page (ruling 1)', () => {
 });
 
 test.describe('the film keeps its home on /island', () => {
-  test('the tap plays it, a stray key does not end it, and Escape clears it', async ({ page }) => {
+  test('the tap plays it, a stray key does not end it, and Escape clears it', async ({ page, hasTouch }) => {
     await armArrivalClock(page);
     await page.goto('/island');
     const tap = page.getByRole('button', { name: 'Watch the arrival' });
     await expect(tap).toBeVisible({ timeout: 20_000 });
     expect((await readClock(page)).added, 'the film played before anyone asked').toBeUndefined();
 
-    await tap.click();
+    await press(tap, hasTouch);
     const film = page.locator('[data-arrival="film"]');
     await expect(film).toBeAttached({ timeout: 10_000 });
     // "Skip intro" is allowed here, and only here: this is a viewing somebody chose.
@@ -100,7 +105,7 @@ test.describe('the film keeps its home on /island', () => {
 });
 
 test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes open on a tap', () => {
-  test('a cold /toweli opens no picker and no welcome, and its tour link opens the welcome', async ({ page }) => {
+  test('a cold /toweli opens no picker and no welcome, and its tour link opens the welcome', async ({ page, hasTouch }) => {
     // Truly cold: nothing stored, and the door writes its choice on its first render.
     // Every dialog insertion is stamped, so one that opened and closed still counts.
     await page.addInitScript(() => {
@@ -128,28 +133,27 @@ test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes op
       'a dialog opened unasked and left again on a cold TOWELI route',
     ).toBeNull();
 
-    await page.getByRole('button', { name: 'First time here? Take the tour' }).click();
+    await press(page.getByRole('button', { name: 'First time here? Take the tour' }), hasTouch);
     await expect(
       page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /^welcome to/i }) }),
     ).toBeVisible({ timeout: 5_000 });
   });
 
-  test('the venue tour opens the venue welcome on a tap', async ({ page }) => {
+  test('the venue tour opens the venue welcome on a tap', async ({ page, hasTouch }) => {
     await page.goto('/');
     const tour = page.getByRole('button', { name: 'First time on the island? Take the tour' });
     await expect(tour).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-    await tour.click();
+    await press(tour, hasTouch);
     await expect(page.locator('[role="dialog"]')).toHaveCount(1, { timeout: 5_000 });
   });
 });
 
 /**
- * Element E, measured as the island measures it, inside the page: does a finger on
- * each hero control get that control (elementFromPoint)? A backdrop that yields the
- * hit-test passes; anything opened over the page fails. `plant` puts a panel over the
- * first hero control instead, so the non-vacuity check and the sweep agree on what a
- * hero control is.
+ * Element E, measured as the island measures it: does a finger on each hero control get
+ * that control (elementFromPoint)? A backdrop that yields the hit-test passes; anything
+ * opened over the page fails. `plant` puts a panel over the first hero control instead,
+ * so the non-vacuity check and the sweep agree on what a hero control is.
  */
 function heroHitTest(plant: boolean): string[] {
   const fold = window.innerHeight / 2;

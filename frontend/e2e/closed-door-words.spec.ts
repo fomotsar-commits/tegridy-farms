@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
+import { AUDITABLE_ROUTES, ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence, waitForReads } from './fixtures/routes';
 
 // Island answer twenty-six (2026-11-03): no token launch is live on the venue until the island
 // says so, on any rail, and the venue never prints the word Drifter. Done means "the page text of
@@ -78,7 +78,10 @@ async function hits(page: Page): Promise<Hit[]> {
 /** Mount the route, let the whileInView sections arrive, then wait for the page to stop moving. */
 async function settle(page: Page, path: string) {
   if (path === '/nakamigos') await gotoNakamigos(page);
-  else await gotoRoute(page, path);
+  else {
+    await gotoRoute(page, path);
+    await waitForReads(page);
+  }
   for (let i = 0; i < 3; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);
@@ -156,8 +159,8 @@ test.describe('the launch door is closed, and Drifter is never printed, on every
     expect(labels.filter((label) => /\blaunch\b/i.test(label)), 'a curve pill says a launch is open').toEqual([]);
   });
 
-  test('the walk covers every route the census renders, the four launch addresses, and the thirteen farms', () => {
-    expect(DOOR_IDS.length, 'thirteen registry ids').toBe(13);
+  test('the walk covers every route the census renders, the four launch addresses, and the twelve farms', () => {
+    expect(DOOR_IDS.length, 'twelve registry ids').toBe(12);
     for (const route of AUDITABLE_ROUTES) expect(PATHS).toContain(navigablePath(route));
     for (const path of Object.keys(DEBT)) expect(PATHS, `${path} is owed but never walked`).toContain(path);
   });

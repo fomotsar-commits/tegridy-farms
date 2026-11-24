@@ -318,10 +318,13 @@ describe('the no-fee quote and build carry NO fee fields', () => {
     ].sort());
   });
 
-  it('with no rate set in the build, the standard rate is 50 bps (0.5%), not 1%', async () => {
+  // Trunk's money guards (#1286): an unset rate is 0, never a guessed rate, and a production
+  // build refuses to ship without 50. The major rate follows it down, never above it.
+  it('with no rate set in the build, no pair pays a fee, majors included', async () => {
     vi.stubEnv('VITE_SOLANA_PLATFORM_FEE_BPS', '');
     const { platformFeeBpsFor } = await load();
-    expect(platformFeeBpsFor(SOL, BAYLA)).toBe(50);
+    expect(platformFeeBpsFor(SOL, BAYLA)).toBe(0);
+    expect(platformFeeBpsFor(SOL, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')).toBe(0);
   });
 
   it('noPlatformFee: the quote request has no platformFeeBps at all, and is otherwise the same request', async () => {

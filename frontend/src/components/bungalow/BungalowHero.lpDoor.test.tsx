@@ -41,7 +41,7 @@ describe('bungalowLpDoor', () => {
     expect(new Set(named).size).toBe(named.length);
   });
 
-  it.each(['pepe', 'qr', 'toweli'])('%s has no pool on the venue, so no door', (id) => {
+  it.each(['pepe', 'toweli'])('%s has no pool on the venue, so no door', (id) => {
     expect(bungalowLpDoor(room(id))).toBeNull();
   });
 

@@ -29,10 +29,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'connect-prompt': '/earn/toweli',
   'token-select': '/trade',
   'typed-confirm': '/admin',
-  // Tradermigos pop-ups — the gallery is the host route for all three.
-  'wallet-modal': '/nakamigos',
-  'make-offer': '/nakamigos',
-  'nft-detail': '/nakamigos',
   // Page surfaces that rendered art but weren't registered in the studio (audit
   // 2026-07-25): trust tools, the launch rail, contracts + treasury + solana swap.
   contracts: '/contracts',
@@ -123,8 +119,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'wrong-chain': '/earn/toweli',
   island: '/island',
   gallery: '/gallery',
-  // The Tradermigos landing. Its three pop-ups above have the same host route.
-  marketplace: '/nakamigos',
   'heat-card': '/exposure',
   'clock-line': '/swap',
   'solana-swap': '/solana',
@@ -137,6 +131,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'venue-amm': '/solana-lp',
   // Listed and routed only while range pools show (clmm/programId.ts).
   'range-pools': '/range-pools',
+  // Listed and routed only while the venue's own Cardano pools show (lib/cardano/flags.ts).
+  'cardano-pools': '/cardano-pools',
   zap: '/zap',
   'venue-launch-lines': '/curve-launch',
   'gate-audit-panel': '/launch',
@@ -352,14 +348,9 @@ export const SURFACES: Surface[] = [
   { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
   { group: 'Pop-ups / Modals', pageId: 'token-select',   idx: 0, label: 'PU8 — Token-select modal' },
   { group: 'Pop-ups / Modals', pageId: 'typed-confirm',  idx: 0, label: 'PU9 — Type-to-confirm (admin)' },
-  // The three Tradermigos pop-ups. These rendered NO art at all until 2026-08-12
-  // — they were never a regression, they were simply never wired, so the
-  // "art on every popup" pass missed them (they live under src/nakamigos/, not
-  // src/components/). `nft-detail` backs ONLY the details column; the image side
-  // stays clean so the collection's own artwork remains the hero.
-  { group: 'Pop-ups / Modals', pageId: 'wallet-modal',   idx: 0, label: 'PU10 — Connect-wallet modal (Tradermigos)' },
-  { group: 'Pop-ups / Modals', pageId: 'make-offer',     idx: 0, label: 'PU11 — Make-offer modal (Tradermigos)' },
-  { group: 'Pop-ups / Modals', pageId: 'nft-detail',     idx: 0, label: 'PU12 — NFT detail modal, details column' },
+  // The marketplace (src/nakamigos/) paints no studio pictures since its
+  // 2026-11-14 redesign, so its pop-ups (connect-wallet, make-offer, NFT detail)
+  // and its landing are not surfaces here.
 
   // Page surfaces found rendering art but NOT registered in the studio (coverage
   // audit 2026-07-25: pageIds used by ArtImg/PageArtBackdrop vs the SURFACES list).
@@ -568,7 +559,7 @@ export const SURFACES: Surface[] = [
   { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 5, label: 'MO3e — Menu group: Swap' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Yield' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Earn' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
   // "Buy all bungalows" on the swap card (IslandBasket.tsx).
@@ -662,18 +653,11 @@ export const SURFACES: Surface[] = [
   { group: 'Island', pageId: 'island', idx: 1, label: 'Door card: Gallery' },
   { group: 'Island', pageId: 'island', idx: 3, label: 'Door card: Community' },
   { group: 'Island', pageId: 'island', idx: 5, label: 'Door card: Treasury & numbers' },
+  { group: 'Island', pageId: 'island', idx: 6, label: 'Door card: City' },
 
   // Island · Gallery
   { group: 'Island · Gallery', pageId: 'gallery', idx: 0, label: 'Page background' },
   { group: 'Island · Gallery', pageId: 'gallery', idx: 1, label: 'No gallery pieces card (empty)' },
-
-  // Island · Marketplace: the Tradermigos landing at /nakamigos. Owner 2026-10-14:
-  // "the bayla bungalow doesnt even show the marketplace". Until now only its
-  // three pop-ups (PU10 to PU12) were listed, so no skin could dress the page
-  // or its cards. The backdrop sits UNDER the marketplace's own collage.
-  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 0, label: 'Page backdrop behind the landing (under the collage)' },
-  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 1, label: 'Start card (Browse, Buy, Sell, Make offer, the numbers)' },
-  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 2, label: 'Collection card (one surface, every card in the grid)' },
 
   // Community
   { group: 'Community', pageId: 'community', idx: 7, label: 'Community chat link card' },
@@ -717,6 +701,11 @@ export const SURFACES: Surface[] = [
   { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 0, label: 'Page background' },
   { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 1, label: 'Swap card' },
   { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 2, label: 'Your order card (after an order is placed)' },
+
+  // Pools · Cardano (hidden until the venue's own Cardano pools open)
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 0, label: 'Page background' },
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 1, label: 'Pools card (positions, add, remove, open a pool)' },
+  { group: 'Pools · Cardano', pageId: 'cardano-pools', idx: 2, label: 'Your pool orders card (after an order is placed)' },
 
   // Pools · Add / Remove
   { group: 'Pools · Add / Remove', pageId: 'il-calculator', idx: 0, label: 'Impermanent loss calculator card (calculator opened)' },
@@ -855,6 +844,8 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
   { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 27, label: 'Floor bid and who buys it card (Lend tab, picked collection)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 28, label: 'Ask for a loan card (Borrow tab, once the request book is open)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 29, label: 'Borrowers asking card (Lend tab, once a borrower has asked)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 1, label: 'How this shield works notice' },
   { group: 'Earn · NFT Finance', pageId: 'shield', idx: 2, label: 'Not covered by this page notice' },

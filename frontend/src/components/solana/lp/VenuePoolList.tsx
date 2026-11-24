@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import { useEffect, type Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -7,6 +7,9 @@ import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolH
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { publishFieldPools, setFieldHot, setFieldView, useFieldHot } from '../../../lib/solana/lp/fieldStore';
+import { fieldPoolsOf } from '../../../lib/solana/lp/fieldPools';
+import { waterLevel } from '../../dwg/tankFarm';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { CoinName } from '../../ui/CoinName';
@@ -52,6 +55,14 @@ export function VenuePoolList({
   const live = useLivePoolList(readers, reloadKey);
   const read = live.read;
   const market = useMarketPrices(readers, read?.kind === 'ok' ? read.list.pools : null);
+  // The page's tank farm (components/dwg/PoolField.tsx) draws what this list read, in its rows' order.
+  const usd = market.prices?.kind === 'ok' ? market.prices.usd : null;
+  useEffect(() => {
+    if (read?.kind !== 'ok') return;
+    publishFieldPools(fieldPoolsOf(usd ? byWorth(read.list.pools, usd) : read.list.pools, usd, read.list.safety));
+  }, [read, usd]);
+  useEffect(() => () => publishFieldPools(null), []);
+  useEffect(() => setFieldView(onView), [onView]);
   if (!readers.listPools) return null;
   return (
     <>
@@ -184,10 +195,17 @@ function PoolRow({
   const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
   // What the pool holds in dollars, at Jupiter's listed prices: only when both coins have one, never $0.
   const worth = usd ? poolWorthUsd(view, usd) : null;
+  // The row's level gauge, as its tank's water: only when its dollars were read.
+  const level = waterLevel(worth);
   const refused = refusesDeposits(view, chainNow, safety);
+  const hot = useFieldHot() === view.address;
   return (
     <li
       data-testid="lp-all-pools-row"
+      data-pool={view.address}
+      data-hot={hot ? '' : undefined}
+      onPointerEnter={() => setFieldHot(view.address)}
+      onPointerLeave={() => setFieldHot(null)}
       className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg px-3 py-2.5"
       style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}
     >
@@ -230,6 +248,11 @@ function PoolRow({
           </ul>
         )}
       </div>
+      {level !== null && (
+        <span className="p01-gauge" aria-hidden="true">
+          <i style={{ height: `${Math.round(level * 100)}%` }} />
+        </span>
+      )}
       {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
       <div className="relative flex gap-2">
         {onAdd && (

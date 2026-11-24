@@ -100,6 +100,10 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   // `node --test`, not this project.
   // ci.yml runs them in the "Ops runner unit tests" step.
   { prefix: 'scripts/ops/', runner: "node --test (ci.yml 'Ops runner unit tests')" },
+  // The Cardano batcher. A service with its own package and Node's own test runner (its
+  // `npm test` is `node --test "test/**/*.test.ts"`), so not this project. cardano-ci.yml
+  // runs it in the batcher job, and fails it when tests are lost or a non-live one skips.
+  { prefix: 'cardano/batcher/', runner: "npm test (cardano-ci.yml 'Every test runs; only the live ones (they need a node) may skip')" },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];

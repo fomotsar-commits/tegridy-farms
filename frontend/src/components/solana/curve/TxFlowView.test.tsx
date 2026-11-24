@@ -80,8 +80,8 @@ describe('outcome copy', () => {
     );
     expect(screen.getByText('The price moved past your limit.')).toBeInTheDocument();
     const text = screen.getByTestId('tx-outcome').textContent ?? '';
-    // The amount is in the review's own format (5,000 + 12,000 lamports is under 0.0001 SOL).
-    expect(text).toMatch(/Nothing moved except the fees: <0\.0001 SOL \(the network fee and the priority fee\)\./);
+    // Said after the fact and compared with nothing, so to the lamport: 5,000 + 12,000 lamports.
+    expect(text).toMatch(/Nothing moved except the fees: 0\.000017 SOL \(the network fee and the priority fee\)\./);
     expect(text).not.toMatch(/only the network fee|except the network fee\./);
     expect(text.match(/fee/g)?.length).toBe(3);
   });
@@ -752,11 +752,12 @@ const lines = (p: PreparedTx): ReviewText => {
     market: [],
     warnings: [],
     fees: [`Priority fee: ${p.fees.priorityLamports}`],
+    clock: [],
   };
 };
 
 /** Every line of a review, in the order of its groups. */
-const allOf = (t: ReviewText) => [...t.lines, ...t.market, ...t.warnings, ...t.fees];
+const allOf = (t: ReviewText) => [...t.lines, ...t.market, ...t.warnings, ...t.fees, ...t.clock];
 
 const pastItsClock = () =>
   act(() => {
@@ -823,7 +824,7 @@ describe('a review left open past its blockhash', () => {
       },
     ],
     // Two empty readings agree with each other and say nothing about the review.
-    ['reads no lines at all', () => ({ lines: [], market: [], warnings: [], fees: [] })],
+    ['reads no lines at all', () => ({ lines: [], market: [], warnings: [], fees: [], clock: [] })],
   ])('a flow that %s never signs a rebuilt transaction unread', async (_what, read) => {
     vi.useFakeTimers();
     const fresh = again();
@@ -1247,6 +1248,20 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(signed(api)).toEqual([fresh]);
   });
 
+  // The fee lines are read at 0.0001 SOL: a priority fee that moved 100 lamports reads as it did,
+  // so they hold although the SOL the test run moved, fees aside, shifted 50 lamports.
+  it('a priority fee of 12,000 then 12,100 lamports: the fee lines read the same, and the wallet opens', async () => {
+    const first = prepared(buySummary(), CAP);
+    const fresh = again(buySummary(), {
+      ...CAP,
+      fees: { ...first.fees, priorityLamports: 12_100n },
+      simulated: { ...first.simulated, signerLamportsDelta: first.simulated.signerLamportsDelta - 150n },
+    });
+    expect(viewLines(fresh).fees).toEqual(viewLines(first).fees);
+    const { api } = await pressPastItsClock(first, fresh);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
   it.each<[string, Partial<PreparedTx>, bigint]>([
     ['the SOL the test run moved shifted by more than the fees', { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 36_000n, tokenDeltas: [] } }, 1_000_000n],
     ["the priority fee is above the page's cap", { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 35_000n, tokenDeltas: [] } }, 20_000n],
@@ -1332,6 +1347,51 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(state).toMatchObject({ step: 'review', prepared: fresh });
   });
 
+  // A collect of a running reward: the reward owed grows each second, and nothing else moves.
+  const collectOf = (paid: bigint, held = 10n ** 12n, mint = KEY(54)): TxSummary => ({
+    ...rangeOpen(),
+    kind: 'range-remove', position: KEY(53), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
+    fees: { token: 0n, quote: 0n }, unwrapsWsol: true, notices: [],
+    rewards: [{ mint, owed: paid, amount: paid < held ? paid : held, decimals: 6, feeOnTransfer: false }],
+  }) as TxSummary;
+
+  it('a collect whose running reward grew while it was read signs on the rebuild, and the reward is listed among what moved', async () => {
+    const fresh = again(collectOf(52_200_000n), CAP);
+    const { api } = await pressPastItsClock(prepared(collectOf(48_200_000n), CAP), fresh);
+    expect(signed(api)).toEqual([fresh]);
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    const open = fakeApi({ submitPrepared: vi.fn(() => new Promise<TxOutcome>(() => undefined)) });
+    render(<Flow api={open} build={builds(prepared(collectOf(48_200_000n), CAP), again(collectOf(52_200_000n), CAP))} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    pastItsClock();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+      await vi.waitFor(() => expect(open.submitPrepared).toHaveBeenCalled());
+    });
+    const moved = screen.getByTestId('tx-moved');
+    expect(moved).toHaveTextContent(`Rewards it pays: 52.2 Unknown token · ${KEY(54).toBase58()}`);
+    expect(moved).toHaveTextContent(`Rewards it pays: 48.2 Unknown token · ${KEY(54).toBase58()}`);
+  });
+
+  it('a clock line that changed more than its numbers (another coin): shut', async () => {
+    const fresh = again(collectOf(48_200_000n, 10n ** 12n, KEY(55)), CAP);
+    const { api, state } = await pressPastItsClock(prepared(collectOf(48_200_000n), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
+  });
+
+  it('a collect whose reward vault ran short since it was read: shut, and the new line is listed', async () => {
+    const fresh = again(collectOf(52_200_000n, 50_000_000n), CAP);
+    const { api, state } = await pressPastItsClock(prepared(collectOf(48_200_000n, 50_000_000n), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
+    const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
+    expect(now.some((l) => /holds less than the position is owed, so it pays 50/.test(l))).toBe(true);
+  });
+
   // Only the price gap differs here, over the same bytes: what the gap check alone decides.
   // A real rebuild of an opening always signs a fresh NFT key, so it is always shown again (next test).
   it('the price-gap check alone does not shut a range opening for a small move in the same words', async () => {
@@ -1377,7 +1437,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     });
     expect(screen.getByRole('status')).toHaveTextContent('Waiting for your wallet.');
     const moved = screen.getByTestId('tx-moved');
-    expect(moved).toHaveTextContent("These moved with the market or the network's fees since you read the review; every other line, and every instruction, is the same:");
+    expect(moved).toHaveTextContent("These moved with the market, the network's fees or the chain's clock since you read the review; every other line, and every instruction, is the same:");
     expect(moved).toHaveTextContent('Price check: 0.9% above the outside price (Jupiter), read just now');
     expect(moved).toHaveTextContent('In place of:');
     expect(moved).toHaveTextContent('Price check: 0.4% above the outside price (Jupiter), read just now');
@@ -1437,6 +1497,11 @@ describe('the review, sorted by what can move each line', () => {
     expect(got.lines).toContain('At most: 0.101 SOL and 10.1 tokens');
   });
 
+  it('a network fee and a priority fee are paid: from 0.0001 SOL up they read rounded up, 250,000 lamports as 0.0003 SOL', () => {
+    const p = prepared(buySummary(), { fees: { baseLamports: 105_000n, priorityLamports: 250_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n } });
+    expect(viewLines(p).fees.slice(0, 2)).toEqual(['Network fee: 0.0002 SOL', 'Priority fee: 0.0003 SOL (0.25% of this trade)']);
+  });
+
   it('a fee that could not be read: its notice is a fee line', () => {
     const p = prepared(buySummary(), { fees: { baseLamports: 5_000n, priorityLamports: 0n, priorityFeeRead: false, newAccountRentLamports: 0n } });
     expect(viewLines(p).fees).toContain('The current fee level could not be read, so no priority fee is added. It may take longer to land.');
@@ -1449,7 +1514,7 @@ describe('the review, sorted by what can move each line', () => {
         <p data-review-line="market">moved</p>
       </div>,
     );
-    expect(got).toEqual({ lines: ['kept'], market: ['moved'], warnings: [], fees: [] });
+    expect(got).toEqual({ lines: ['kept'], market: ['moved'], warnings: [], fees: [], clock: [] });
   });
 });
 

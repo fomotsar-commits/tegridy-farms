@@ -15,6 +15,512 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-20: Uniswap's SDK builds a deposit from the amount typed, even when the range cannot take that coin
+
+**Believed:** `Position.fromAmount0` (and `fromAmount1`) from `@uniswap/v3-sdk` 3.31.11 turns
+"I put in this much of token0" into a position that uses about that much token0.
+
+**Measured** (a unit test on a WHYPE / USD₮0 pool at 40, 2026-11-20): for a range wholly below
+the price, which holds only token1, `fromAmount0(1e18)` returned a position whose mint amounts
+were 0 token0 and an enormous token1. The SDK passes the other side as `MaxUint256` to
+`maxLiquidityForAmounts`, so when the range cannot take the coin typed, the other coin alone
+sets the liquidity, unbounded. The same holds above the price for `fromAmount1`.
+
+**Do:** before `fromAmount0`, refuse a range with `tick >= tickUpper`; before `fromAmount1`, one
+with `tick < tickLower`, and tell the visitor to type the other coin
+(`frontend/src/lib/hyperevm/positions.ts` `pairedAmount`).
+
+## 2026-11-20: vi.doMock reached none of the modules loaded together with Promise.all
+
+**Believed:** after `vi.resetModules()` and `vi.doMock('./x', ...)`, `await Promise.all([import(a),
+import(b), ...])` loads every module against the mock.
+
+**Measured** (`frontend/src/lib/chains/hyperEvm.test.ts`, vitest 5.0.3, 2026-11-20): with seven
+modules imported in one `Promise.all`, none saw the mocked record. The same imports awaited one
+at a time all saw it, and a lone `import()` did too.
+
+**Do:** after a `doMock`, await each dynamic import in turn.
+
+## 2026-11-20: on this PC a failed npm install can leave a package half-written, and a clean npm ci can skip native builds
+
+**Believed:** an `npm install` that dies on `ECONNRESET` leaves `node_modules` as it was, and a
+fresh `npm ci` from a lockfile that lists `@rolldown/binding-win32-x64-msvc` installs it.
+
+**Measured** (private installs under `C:\Users\jimbo\dev\wt\`, 2026-11-20): after two installs
+died on `ECONNRESET`, `@solana/kit` 8.3.0 had its `.d.ts` files and `index.browser.mjs` missing
+(tsc: "Cannot find module '@solana/kit'"), and the rolldown binding's `.node` file was "not a
+valid Win32 application". A clean `npm ci` into a new folder (exit 0) then had no
+`@rolldown/binding-win32-x64-msvc` and no `lightningcss-win32-x64-msvc` at all, so vitest
+would not start ("Cannot find native binding"). The lockfile still listed every platform's
+package (72 before and after).
+
+**Do:** after an install on a flaky network, run tsc and start vitest before trusting it. To mend
+one package without a reinstall: `npm pack <name>@<locked version>`, extract the tarball, copy
+`package/` over the folder, and `require()` it to prove it loads. Check the version against the
+lockfile: an unpinned `npm pack` fetched lightningcss 1.33.0 where the lock says 1.32.0.
+
+## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
+
+**Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
+them shrink: `min-width: 0` on each, and the label's own `truncate` does the rest.
+
+**Measured** (the Lend form's three steps, "Wrap ETH", "Approve WETH", "Sign Offer"; Chromium on a
+production build, 2026-11-18): each step was `flex: 1 1 0%` with the default `min-width: auto`, so
+none could be narrower than its name. The three names need 368px. A 390px phone gives the row
+328px, and the last step ended 9px past the screen. With `min-width: 0` added, the phone fitted.
+At 834px wide the row is 379px: the names had fitted there before with 11px to spare, and now
+"Approve WETH" was cut short, because equal shares of 379px ignore that one name is longer. Sized
+by content (`flex: 1 1 auto`) under a container query on the row's own width, with `min-width: 0`
+kept as the last guard, no name was cut at any of twelve widths from 360px to 1280px.
+
+**Do:** treat `min-width: 0` on equal flex items as a change to how the row is shared out, not
+only as a way out of an overflow. Where labels differ in length, size the items by their content
+in the narrow case. Decide "narrow" by the row's own width (`container-type: inline-size` and
+`@container`), not the screen's: this row is narrowest on a phone and again on a tablet, where its
+column is one of two. A rule inside `@container` cannot style the container itself, so a gap for
+the row goes on its children. Measure at tablet widths as well as phone widths before calling it
+fixed.
+
+## 2026-11-18: rounding a cost up can print it at twenty times its size, and an estimate rounded up can pass its own cap
+
+**Believed:** an amount the visitor pays is safe to round up at the digits shown, because the
+figure can then only read above the real amount, never below it.
+
+**Measured** (the amounts change, PR #1293; the site's own formatters, run from node and from
+tests):
+
+- A fee under the last digit shown. 50,000 lamports (0.00005 SOL) rounded up at four decimals
+  printed "0.0001 SOL", twice the fee. The 1% fee on a 0.001 SOL test buy read ten times its size,
+  and 5,000 lamports, the network's base fee, printed "0.0001 SOL", twenty times its size.
+- An estimate beside its own bound. Adding 0.7 tokens to a pool of 10 SOL and 1,000 tokens at 1%
+  slippage, "You put in about" rounded up to 0.007 SOL, above the row "At most 0.0069993 SOL",
+  which is the exact cap the transaction carries. The test written for it failed with `expected
+  7000000 to be less than or equal to 6999300`.
+
+**Do:** round up only from one unit of the last digit shown. Under that, print the "<0.0001" form:
+it is true of the amount and closer to it. Where an exact bound is printed beside an estimate,
+cut the estimate. The bound is the promise.
+
+## 2026-11-18: a row's printed text can be an input, so changing its digits changed when the wallet opens
+
+**Believed:** how many digits a row prints is display only, and cannot change what the page does.
+
+**Measured** (same change; `compare()` in `frontend/src/components/solana/curve/useTxFlow.ts`, run
+with the real formatters): a Solana review older than 30 seconds is rebuilt when Sign is pressed.
+The wallet opens without showing the review again only if the fee lines read the same as before,
+or the lamports match exactly. With the priority fee printed to the lamport, a move from 12,000 to
+12,100 lamports, while the SOL moved shifted by 50 lamports, gave "1 line reads differently:
+Priority fee: 0.0000121 SOL" and the wallet stayed shut. Printed at four decimals, as trunk does,
+both lines read "<0.0001 SOL" and the wallet opened. No test covered this until one was written
+and seen failing against the lamport form.
+
+**Do:** before changing how a row is written, search for whatever reads rendered text back: a
+comparison of two renders, a copy or an export, a screen reader's copy of the figure, a browser
+test that pins the string. Treat each one as a caller of the formatter.
+
+## 2026-11-18: a float difference rounded up reads one digit high, and a large amount rounded to nearest through a float changes its digits
+
+**Believed:** `Number(x).toFixed(n)` is good enough for a figure on screen, and the result of a
+subtraction can be rounded up as it stands.
+
+**Measured** (node 24.13):
+
+- `1.1 - 0.28` is `0.8200000000000001`. Rounded up at four decimals as it stands, it reads 0.8201
+  where the real difference is 0.82. Read through 15 significant digits first
+  (`toPrecision(15)`, which gives `0.820000000000000`), it rounds up to 0.82.
+- `Number('12345678901234.5678').toFixed(4)` is `12345678901234.5684`. A pool reserve of a
+  large-supply coin, rounded to nearest through a float, prints digits it never had. Cut from the
+  digit string, the same reserve printed `.5678`.
+
+**Do:** cut and round up on the digit string or on the raw integer. If a number is all there is,
+read it through 15 significant digits before rounding it up. Keep float rounding to nearest for
+prices and rates, whose size is modest.
+
+## 2026-11-18: tests each seen failing first still left one changed line in six unguarded, and a reverted line can fail a test for the wrong reason
+
+**Believed:** when every new test has been seen failing on the old code, every changed line is
+guarded: put any one of them back and some test fails.
+
+**Measured** (PR #1293, 2026-11-17): each of the 115 changed source lines was put back to trunk's
+form, one at a time, and the tests were run. 91 reverts failed a test and 24 did not. Of the 24, 20
+were real gaps: sibling call sites of a helper whose own behaviour was tested, a line that only
+sets a style, a line reached only by a coin with more than 6 decimals. 3 sat on a page that no
+test renders, and 1 was a type annotation. Two more things came out of the run:
+
+- One revert was counted as caught because its test failed with a ReferenceError: the old line
+  called a helper the change had removed. The test pinned nothing about the figure, and the figure
+  could not differ either way (compare the 2026-10-04 entry on lines that do nothing).
+- `vitest related <file>`, for a file that half the panels import, ran past 9 minutes for one
+  line. The file's own tests plus the tests the change had touched took about 47 seconds a line.
+
+**Do:** when a change repeats one edit across many call sites, revert each changed line by itself
+against a bounded set of tests, and write a test for every line nothing notices. Read why a
+revert failed before counting it. A script of about 130 lines does it: for each changed line in
+`git diff -U0 HEAD`, write the old line back, run the tests, restore the file and compare its
+sha256. It reads the working tree against HEAD, so it must run before the commit.
+
+## 2026-11-18: most conflicts an open pull request shows against a branch are already there against trunk
+
+**Believed:** when `git merge-tree` reports a conflict between my branch and an open pull request,
+my change caused it.
+
+**Measured** (2026-11-18; the heads of the 42 open pull requests that are not dependency bumps,
+each merged in memory with my commit and, separately, with trunk's head): 18 conflicted with my
+commit, and 17 of those 18 conflicted with trunk alone, most of them in CHANGELOG.md. Comparing
+the two lists file by file, my change added a conflict in three pull requests: a changelog
+heading, one loans file, and one panel where two of my new lines sat inside another draft's hunks.
+Moving those two lines by one statement each made that panel merge cleanly.
+
+**Do:** run the simulation twice, once from the branch and once from trunk's head, and count only
+the files the first list has and the second lacks. The command is `git merge-tree --write-tree
+--name-only --no-messages <mine> <their head>`: exit 0 is clean, exit 1 lists the files. Before
+committing, a throwaway commit made from a second index answers the same question
+(`GIT_INDEX_FILE=<tmp> git read-tree HEAD`, `git add -A`, `git write-tree`, `git commit-tree`),
+early enough to move a line out of a sibling's way before the tests run.
+
+## 2026-11-17: a build with none of a package's strings shows it is not shipped, and `npm explain` reads a lockfile
+
+**Believed:** to show a dependency never reaches the browser, search a production build for its
+strings, and any recent build from the same lockfile will do. And `npm explain <pkg>` reads the
+lockfile as `npm audit` does, so neither needs an install.
+
+**Measured** (triage of GHSA-fc5q-39xc-vjpf in picomatch, 2026-11-17; npm 11.6.2, Node 24.13):
+
+- The newest build on this PC from trunk's lockfile held none of picomatch's strings. It also held
+  none of WalletConnect's storage code, the only thing in `dependencies` that brings picomatch: it
+  was built without `VITE_WALLETCONNECT_PROJECT_ID`, so the chain under test had been compiled
+  away and the search could not have found anything. Of 37 builds here from that lockfile, 3 held
+  `WALLET_CONNECT_V2_INDEXED_DB`. Only those could answer.
+- `npm explain picomatch` in `frontend/` and in `indexer/`, with no `node_modules`, printed "No
+  dependencies found matching picomatch" and exited 1. Each lockfile has two copies. `npm audit
+  --json` in the same folders worked.
+- `npm audit` lists only the packages a lockfile names. In the indexer, vite 5.0.7 and rollup
+  4.60.1 each carry picomatch's code inside their own dist files; in the frontend, playwright-core
+  and rollup-plugin-visualizer do. No audit names any of them.
+
+**Do:** before reading "absent" from a build, pick a string from the package's nearest parent that
+must be there, and count the search only if that one is found. Read who brings a package from the
+lockfile's `packages` map, resolving each dependency name as Node does (the package's own
+`node_modules`, then each ancestor's), or run `npm explain` in an installed tree. To find the
+copies no audit lists, search the installed tree for a string from the flawed file:
+`grep -rl -F POSIX_REGEX_SOURCE node_modules`.
+
+## 2026-11-16: a partial `vi.mock` of a module breaks code that merely imports a new export from it
+
+**Believed:** `vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }))` matters only to
+code that calls `trackPageView`.
+
+**Measured** (full `npx vitest run`, Windows, 2026-11-16): adding one `trackSiteFeeWaived()` call
+inside `prepareJupiterSwap` turned 16 page tests red (SolanaSwapPage.feeRetry 7, .ownPool 9).
+Vitest throws when code reads an export the mock factory did not define, so the swap path threw,
+and the page reported a failed build. In production nothing throws.
+
+**Do:** before adding an import to a shared module, grep the tests for partial mocks of the module
+you import from. A side-effect-only call (a count, a log) on a money path goes in `try/catch`: it
+must never stop the trade it records.
+
+## 2026-11-16: a harness that answers every chain read with one value hides a new read from its tests
+
+**Believed:** a hook test whose `publicClient.readContract` is `mockResolvedValue([in, out])` keeps
+testing the same swap after the hook adds a read before it.
+
+**Measured** (same run): the limit-order and DCA hooks began reading `getPair` and `kLast` first.
+The array answered `getPair`, the new check called the pool unread, and 24 limit-order tests went
+red. The two DCA files stayed green but no longer tested our pool: ETH-in DCA quietly fell back to
+Uniswap.
+
+**Do:** answer reads by `functionName` (`mockImplementation`), and when a guard is added, look
+for tests that stayed green for the wrong reason, not just the ones that went red. A build guard in
+a Vite plugin is testable without bundling: `resolveConfig({ configFile }, 'build', 'production')`
+runs every plugin's `configResolved`, in about a second.
+
+## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
+
+**Believed:** keying the "new page opens at the top" jump on `${navType} ${pathname}` (null on
+POP) jumps only when the path changes, since a page's own `?mint=` push keeps the same key.
+
+**Measured** (memetics.finance/pools, Playwright, iPhone 14 and 1440x900, a scroll listener on the
+window): it keeps the same key only after a PUSH arrival. Opened from its address (a POP, key null),
+the first token pick (a PUSH on the same path) is a new key, and the window went to 0 before the
+answer scrolled it to 732 then 1873. A REPLACE after a PUSH on one page flips the key the same way.
+
+**Do:** key the jump on the arrival at a new path (`frontend/src/hooks/useNewPageKey.ts`), so a move
+that changes only the query never jumps whatever its type. Separately, a `scrollIntoView` run in a
+click handler measures the layout before that click's own re-render: run it in a layout effect when
+the click also draws something above the target.
+
+## 2026-11-15: a timer set for the time left can fire while `Date.now()` still shows time left
+
+**Believed:** `setTimeout(f, stopBy - Date.now())` runs `f` only once `Date.now() >= stopBy`, so
+whatever runs after `f` and reads `stopBy - Date.now()` finds no time left.
+
+**Measured** (`frontend/scripts/venue-volume.test.mjs`, PR #1219's CI run 43666499082, ubuntu,
+2026-11-15 02:14Z): the volume counter let a stuck source go on that timer, then started the next
+source because `stopBy - Date.now()` was still above zero, and a fake reader finished in the sliver
+and was saved. Node counts a timer on libuv's own clock, kept in whole milliseconds, so its verdict
+and Date.now()'s can disagree near the deadline. On this PC (Windows, Node 24.13) none of 2000 such
+timers fired before Date.now() reached its target: Windows timers fire late, which is why the test
+passed 79 of 79 here. The Linux rate was not measured; WSL here has no Node.
+
+**Do:** when a timer's firing decides that time is up, let that verdict end the work; do not read
+the clock again to decide it (the counter now ends the run on its first let-go, PR #1256). To
+reproduce, fake `setTimeout` and `Date` and put `Date.now()` one millisecond behind the timers'
+clock. Wait for the timer to be set by polling `vi.getTimerCount()` with `setImmediate`: under fake
+timers `vi.waitFor` advances the clock on every check, so it moved time before the timer existed.
+
+## 2026-11-14: `Pubkey::is_on_curve` panics inside a Solana program, and the Solana version moves a build's size
+
+**Believed:** a program can tell a wallet's key from a program-derived address with
+`Pubkey::is_on_curve()`, and a source change's size is the same whichever `cargo build-sbf`
+builds it.
+
+**Measured** (PR #1248, cp-swap's keeper check): solana-pubkey 2.4.0's `bytes_are_curve_point`
+is `unimplemented!()` under `target_os = "solana"`; only the host build has a body (curve25519-dalek).
+A program that calls it compiles, passes `cargo test`, and dies on chain. `solana-curve25519`
+2.3.13's `edwards::validate_edwards` has an on-chain body, the `sol_curve_validate_point` syscall,
+and a host body; it agreed with `is_on_curve` on 1,000 `Pubkey::new_unique()` keys, both kinds, and
+on a local validator it accepted generated keypairs and refused PDAs. Any program that depends on
+anchor-spl with Token-2022 already compiles that crate, so naming it adds one edge to `Cargo.lock`
+and no crate.
+
+The same cp-swap source built with `cargo build-sbf -- --locked` gave 731,520 bytes under Solana
+3.1.11 and 721,488 under 2.3.0 (CI's `SOLANA_VERSION`). Trunk under 2.3.0 gave `9f0150e3…`,
+#35's buffer, byte for byte. The live program's room was 725,176 bytes: the 3.1.11 build said an
+enlarge was needed, CI's toolchain said it was not.
+
+**Do:** never call `is_on_curve` in program code; use `solana_curve25519::edwards::validate_edwards`.
+Size a program upgrade against its room with the toolchain the upgrade binary is built with, and
+check that toolchain reproduces the live build's hash first.
+
+`key-guard.mjs` refuses `new_from_array`, `Pubkey::from(` and `[u8; 32]` in a copy's unit tests
+too. A test that needs keys on and off the curve can draw them from `Pubkey::new_unique()` and sort
+them with `is_on_curve` (host only).
+
+---
+
+## 2026-11-14: a local production build can be walked on live pool data, but not through the live RPC proxy
+
+**Believed:** `vite preview` can't show the Solana pool lists, because `/api/pools` and
+`/api/solrpc` are Vercel functions, so a UI change to them can only be seen after a deploy.
+
+**Measured** (PR #1245, the "Priced in X" card, Playwright 1.62.1 Chromium against
+`vite preview`): a `page.route('**/api/**')` that re-sends each call to
+`https://memetics.finance` with Node's `fetch` and no `Origin` header gets 200 for
+`/api/pools`, `/api/aggregator`, `/api/outside-prices` and the Jupiter quote. `/api/solrpc` alone
+answers **403** to a request with no site Origin, which stops the pool reads cold. Sending the
+RPC bodies to `https://api.mainnet-beta.solana.com` instead works, but one /pools load makes
+about 48 RPC calls, and the public RPC 429s after about 21 quick ones. The page then says "27
+more pools could not be read just now". That is the harness, not a site bug. Spacing the
+RPC calls 400 ms apart, retrying a 429 twice after 2.5 s, and waiting 60 s loaded the card whole.
+
+**Do:** for a client-only change to a page that reads pools, build, serve with `vite preview`,
+answer `/api/*` from the live site in a route, and send `/api/solrpc` to a public RPC at about 2
+calls a second. Open one page at a time and stop on `x-vercel-mitigated`. Read a "could not be
+read" line as rate limiting until a slower run says otherwise.
+
+## 2026-11-14: Jupiter's price/v3 answer carries each coin's market depth
+
+**Believed:** `https://lite-api.jup.ag/price/v3?ids=` gives a price and nothing to judge it by,
+so a thin coin's price has to be trusted or checked against another source.
+
+**Measured** (one read-only GET, 2026-11-14): each mint's entry carries `liquidity` in dollars
+beside `usdPrice`, `decimals`, `blockId`, `createdAt` and `priceChange24h`. It read BOBO about
+$146.7k, BAYLA $24.3k, BRAINLET $10.9k, RIZZ $8.8k, SOY $6.9k, SOL about $785M. A GET with 51 ids
+answered 200 and priced the real ones among them. Whether ids after the 50th are dropped
+silently was not tested.
+
+**Do:** gate any use of a Jupiter price that money or a trust mark depends on with its own
+`liquidity` (PR #1245 values a pool's island coin only at $5,000 or more). Send at most 50 ids a
+call and merge the answers.
+
+## 2026-11-14: a test that clicks a hover-to-open tooltip shuts it whenever the hover draws first
+
+**Believed:** `click()` on `InfoTooltip`'s "?" opens its bubble on every project. It did locally on
+all four and in CI's Chromium.
+
+**Measured** (PR #1222, e2e/lending.spec.ts, the stat tiles): CI's iphone-safari and ipad-safari
+found no tooltip on all three attempts, while the same test passed 6 of 6 on this PC's WebKit. A
+Playwright click first moves the mouse, which fires mouseenter and opens the bubble; the click then
+toggles from the state read at pointerdown. When React has drawn the hover before the press lands,
+the click shuts it. Hovering 150 ms before the click turned it red on all four projects, Chromium
+included. `launchOptions.slowMo: 150` did not: it spaces actions, not the move and the press inside
+one click. A tap cannot lose this way: traced in Chromium and WebKit, pointerdown(touch) comes before
+any mouseover, so the press reads the bubble shut and opens it.
+
+**Do:** open a hover-and-click control as its visitor does: `tap()` when `hasTouch`, `hover()`
+otherwise; close it with a second tap or a hover elsewhere. To reproduce a CI-only race like this,
+hover and wait before the press; slowMo will not split a click.
+
+## 2026-11-14: the range program on mainnet is not trunk's source, so who may start a reward differs
+
+**Believed:** `solana/tegridy-clmm` on `mvp-launch` is what mainnet runs, so a rule fixed in
+its source holds on chain.
+
+**Measured** (read-only, slot 469,259,180): the program data's first 1,527,072 bytes hash to
+`1e896e1e...` and the rest are zero, which is the open-fee build of 2026-10-25 (`af897c1cd`).
+The 2026-11-03 source fixes never shipped. On that build `initialize_reward` still accepts the
+pool's own opener (`reward_funder == pool_state.owner`), the clause the owner's CR-4 ruling
+deleted from source. It is dormant only because no operation account exists, and that account
+is the first step to any reward.
+
+**Do:** before reasoning from the program's source, hash the chain's program data against the
+build you read (`solana/clmm-deploy/ci-matches-chain.mjs`, or the first N bytes by hand) and
+read the deployed commit with `git show <commit>:<path>`.
+
+## 2026-11-14: a tooltip Playwright calls visible can be clipped to nothing by its card
+
+**Believed:** an open `InfoTooltip` (its bubble is `absolute z-50`) shows above the page, and a
+walk that finds its text with `isVisible()` has seen it.
+
+**Measured** (PR #1222, /nft-finance's four stat tiles): each tile was `overflow-hidden` so its
+art kept the rounded corners, and that clipped its own bubble. On desktop nothing showed; on a
+390px phone only the arrow peeked out. `isVisible()` returned true for the bubble's sentence on
+all three widths while the screenshots showed nothing. The fee tile's tooltip was the only place
+the page said how the venue earns.
+
+**Do:** read what the browser draws: `document.elementFromPoint` at the bubble's centre must be
+the bubble or inside it (e2e/lending.spec.ts, "each stat tile's explanation"). jsdom has no layout,
+so no unit test can see this. To fix, clip only the art layer (an `absolute inset-0
+overflow-hidden` wrapper) and lift the card with `[&:has([role=tooltip])]:z-20`.
+
+## 2026-11-14: Gondi's loan events carry no indexed loan id, so a closed loan is found by halving blocks
+
+**Believed:** finding how a Gondi loan closed (repaid, claimed, taken over) is an `eth_getLogs`
+filter on its id.
+
+**Measured** (PR #1225): `IMultiSourceLoan`'s events (`LoanRepaid`, `LoanLiquidated`,
+`LoanRefinanced`, `LoanRefinancedFromNewOffers`) declare no indexed parameters, so a log filter can
+only take the contract and the event, over every block since the loan opened. `getLoanHash(id)` is
+set while the loan is open and zero once it closes, and an archive `eth_call` reads it at any
+block. Halving the range from the opening block finds the closing block in about log2(blocks)
+reads (about 25 for a year), then one single-block `eth_getLogs` names the transaction. Read
+against mainnet on eth.drpc.org (the venue's loan contract, loan 1): set at block 26,399,833, zero
+at the block before, and the one-block log read returned exactly its opening transaction.
+
+**Do:** use `findCloseBlock` in `api/_lib/loanOffers.js` (action `loan-sync`). A lender takeover
+(`refinanceFull`) needs no borrower signature, so a loan can move with no transaction the site
+ever sees.
+
+## 2026-11-14: Smart App Control blocks `anvil.exe`, and `npm run e2e` says only "spawn UNKNOWN"
+
+**Believed:** a fork e2e on this PC needs the Windows `anvil` that `run-e2e-with-anvil.mjs`
+spawns.
+
+**Measured:** `npm run e2e` failed at once with `[e2e] orchestrator error: Error: spawn UNKNOWN`.
+`& anvil.exe --version` in PowerShell said "An Application Control policy has blocked this file",
+and `Microsoft-Windows-CodeIntegrity/Operational` logged events 3077 and 3033 for
+`.foundry\bin\anvil.exe` that minute. WebKit ran the same day, so it is not all unsigned binaries
+at once. WSL's `~/.foundry/bin/anvil` (1.7.1) worked: run with `--host 0.0.0.0 --port 8645
+--fork-url https://eth.drpc.org` and the test mnemonic, then point Playwright at it directly with
+`ANVIL_RPC_URL=http://127.0.0.1:8645 E2E_REQUIRE_ANVIL=1 npx playwright test e2e/lending.spec.ts`.
+`lending.spec.ts` passed 5 of 5 that way, the borrow-then-repay cycle included.
+
+**Do:** never switch Smart App Control off (the owner's security setting). Use the WSL anvil, and
+stop it afterwards with `pkill` run inside WSL (see 2026-10-19 on `pkill -f` through
+`wsl -e bash -lc`: it kills its own shell, but the anvil goes too; check the port is free).
+
+## 2026-11-14: a WebKit `click()` is two messages, and a page that moves between them loses the press
+
+**Believed:** Playwright's actionability and hit-target checks mean a `click()` that returns
+without error reached the element.
+
+**Measured** (PR #1219, e2e/arrival.spec.ts:137, the home's tour: 127 failed attempts in 87 CI
+runs from 2026-10-21 to 11-12, WebKit only, "toHaveCount: Expected 1, Received 0"): the WebKit
+click is a mouse down and a mouse up sent separately, and the hit check runs on the first event
+only. The home's cards land late and pushed the tour down from y 1077 to 1801. CI's traces showed
+the same race one step earlier: a card's `<details>` intercepted the first try and Playwright
+retried. A shift after the check gets no retry. With a 200px block made to land one task after
+the press began, `click()` lost the press in 16 of 24 WebKit runs with CI's message (Chromium in
+0); `tap()`, one message, in 0 of 48 on all four projects.
+
+**Do:** on a project with `hasTouch`, press with `tap()` (the `press` helper in
+arrival.spec.ts). To find this cause, make the shift certain with an init script on
+`pointerdown` + `setTimeout(0)`, rather than waiting for CI's timing.
+
+## 2026-11-14: stubbing outside hosts leaves a count moving with the network, because the preview's proxies are same-origin
+
+**Believed:** e2e/word-budget.spec.ts counted the page, not the network: it aborted the
+GeckoTerminal edge, and the rest of what it reads is on chain.
+
+**Measured** (PR #1219, 238 CI runs 2026-11-03 to 14, one build): the home counted 284 to 432
+words, /bayla 292 to 461, /pools 53 to 255. `vite preview` proxies `/api/solrpc` to the public
+Solana RPC and `/api/jupiter` and others to live services (vite.config.ts, the 2026-11-11 entry
+below). Those requests are same-origin, so a `url.host !== own` stub never sees them. Whatever
+the rate-limited RPC answered decided which cards drew. With every read fixed (Solana from
+mainnet recordings, the rest refused), all 18 counts were identical on 3 of 3 runs, and /pools
+read 330 against a ceiling of 325. It had passed only because its venue never read in CI.
+
+**Do:** to measure what a page shows, fix every read: refuse `**/api/**` and outside hosts, and
+answer `/api/solrpc` from a recording (em-dash-zero.spec.ts and word-budget.spec.ts do). A
+ceiling set from a run whose reads failed is a ceiling on the outage, not the page.
+
+## 2026-11-14: React Router 7's `BrowserRouter` applies every navigation as a transition
+
+**Believed:** a tab whose selection lives in the URL (`setSearchParams` in its click handler)
+shows the new selection on the next frame, like a `useState` tab.
+
+**Measured** (react-router 7.18.3, `BrowserRouter` in dist/development/chunk-BV7QT456.mjs: its
+history listener sets state inside `React.startTransition` unless `useTransitions={false}`). On
+/nft-finance at 390px on Playwright WebKit, from the click event to `aria-selected="true"`: 172 ms
+median, 296 ms at most, the same with every core busy. Holding the new section's code chunk for
+8 s did not delay it (185 ms): a newly mounted Suspense boundary shows its fallback. Not tested:
+whether `useTransitions={false}` shortens it, or whether CI's 14 unexplained strip failures
+(nft-finance-strip.spec.ts:467) are this.
+
+**Do:** wait for URL-driven selection with an assertion, never a frame count. If a press must
+show at once, keep the pressed tab in local state as well as in the URL.
+
+## 2026-11-13: `page.setViewportSize` returns before the page has the new width
+
+**Believed:** after `await page.setViewportSize({ width })` the next read lays out at `width`.
+
+**Measured** (PR #1214. wide-screen.spec.ts, the most frequent CI flake after the splash spec: 278 flaky
+attempts across its three tests from 2026-10-21 to 11-13, chromium only): the failing reads
+are two widths in one step. The market box read 864px (the 1919px layout) and the burn's
+496px (the 1920px one): 864/496 = 1.74194, CI printed 1.7419354838709677. 1024/562.67
+(2559px against 2560px) = 1.820, CI printed 1.8205 and 1.8199. On 11-13 the whole page still
+had the 1535px stack at 1536px. Playwright's Chromium code awaits only the CDP replies
+(`Emulation.setDeviceMetricsOverride`, `Browser.setWindowBounds`); the page gets the size on
+another channel. Its WebKit code even sleeps 500ms after a resize on Ubuntu 22.04 and Debian 12.
+It never reproduced here (Windows or WSL Linux, a busy page included: 0 stale of 528 reads); making
+the resize land 300ms late reproduced CI's messages in 12 of 12, and the wait below cleared
+them in 12 of 12.
+
+**Do:** resize with `resizeViewport` (e2e/fixtures/pageWidth.ts): it waits until
+`matchMedia('(width: Wpx) and (height: Hpx)')` matches. A ratio of two boxes that no layout
+can produce means the reads straddled a resize.
+
+## 2026-11-13: a readiness probe on `aria-busy` waits for the chain, not for the page
+
+**Believed:** gotoRoute's probe ("no `[aria-busy="true"]` in main") waits for the lazy chunk.
+
+**Measured:** a section reading the chain is busy too. With every outside host held, the probe
+could not mount /earn/toweli (the LP farm's read) or a connected /dashboard (inline Skeletons);
+the other 63 audited routes mounted. That is what failed gauge-voting.spec.ts and
+page-width.spec.ts three attempts in a row on ipad-safari on 2026-10-22: the live Ethereum
+RPC was slow that hour. Only route fallbacks now carry `data-route-loading`, and the probe
+waits on that (pinned by e2e/route-mount-probe.spec.ts, both ways).
+
+**Do:** a census beats a guess: hold every outside host (`page.route(u => u.host !== own,
+() => {})`) and run the probe over every route. Whatever it cannot mount is waiting on
+someone else's server.
+
+## 2026-11-13: to press mid-fade, hold the fade; do not try to catch it
+
+**Believed:** sampling a 200ms CSS fade once a frame lands at least one sample inside it.
+
+**Measured** (phone-layout.spec.ts, the corner stepping aside, iPhone WebKit): under load
+WebKit drew a frame every 200 to 970ms, so the fade often fell between two samples (1.00,
+then 0.00): 3 of 10 failed here at 100% CPU, 14 of 20 on WSL Linux WebKit. Injected costs did
+not reproduce it: a 250ms spin inside each frame made every sample land mid-fade (WebKit
+resolves a pending transition's start after the slow frame), and long tasks or late rAF
+callbacks did not either.
+
+**Do:** a MutationObserver on the element's ancestors fires in the microtask after React's
+commit, before any frame. `document.getAnimations()` there flushes style, so the new
+`CSSTransition` is already listed: `pause()` it and set `currentTime`. The moment under test
+then exists on every run, whatever the frame rate.
+
 ## 2026-11-11: a local `vite preview` of the build no longer reads /pools the way the site does, and its errors name the wrong cause
 
 **Believed:** `npm run build` then `vite preview` walks /pools against mainnet as production
@@ -263,6 +769,43 @@ proof in `submit.ts` would be wrong. Only a wallet whose feature lists 1 gets ve
 keep legacy.
 
 ---
+
+## 2026-11-07: a mutant that makes a service retry forever never fails its test, it hangs it
+
+**Wrong belief:** a mutation run reports each mutant as killed or survived, so a run that is taking
+long is just slow.
+
+**Measured:** on the Cardano batcher, a mutant that read the global setting with the wrong shape
+made `node --test test/main.test.ts` run 11 minutes with no verdict: the watcher catches the
+unreadable setting and retries, and those tests await a batch with no per-test timeout. Stopping
+the run also stopped the script's `finally`, so the mutant stayed in `src/select.ts` until it was
+restored by hand and checked with `git diff`. With `--test-timeout=120000` and only the fast test
+file that reads the setting, the same mutant failed in under a second.
+
+**Do:** give every mutation run `--test-timeout`, point each mutant at the fastest test that reads
+the mutated line, and after any run that was stopped, diff the file before trusting it.
+
+Aiken 1.0.24, met the same day: `aiken check -m <text>` keeps tests whose NAME contains the text
+(not the module), and the way to print a value is `trace` in a test that returns `False`: the
+report shows the trace under the failure.
+
+## 2026-11-07: a spend redeemer is passed to the script as written, but an Aiken 1.0.24 script with mint and spend handlers expects it wrapped
+
+**Wrong belief:** the redeemer you build is the value the validator's `action` argument receives.
+
+**Measured:** our role lock (`cardano/role-timelock`, one script with `mint` and `spend`) refused
+every `Announce` on preprod with `headList` of an empty list, whatever the announcement held.
+Aiken 1.0.24 compiles the two handlers into one program that branches on the constructor index
+of its second argument: 0 runs `mint` (a ScriptContext is constructor 0), anything else runs
+`spend` with that argument's first field. So a spend's redeemer must be `constr 1 [action]`;
+`plutus.json` says so (`RedeemerWrapper$...Action`). Unwrapped, `Announce` (constructor 0) ran
+the mint handler, and `Cancel` (constructor 1) reached the spend handler and failed decoding its
+bare integer. Wrapped, the Announce passed (tx fb17d866, 396,026 memory). The lock's Aiken tests
+call `lock.spend` directly, so they never see the wrapper.
+
+**Do:** before building a redeemer for any Aiken 1.0.x script, read its schema in `plutus.json`.
+A `RedeemerWrapper` there means `constr 1 [redeemer]`. Minswap's authen script (GlobalSetting
+spend) is built the same way.
 
 ## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
 
@@ -679,6 +1222,34 @@ owner's word; the owner's "merge it" then found nothing to merge. The tell was i
 `UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
 `mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
 `gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
+## 2026-10-30: CSL's `PlutusScript.from_bytes_v2` gave an Aiken script the wrong hash
+
+**Believed:** an Aiken `plutus.json` `compiledCode` loads into CSL 17 with
+`PlutusScript.from_bytes_v2(bytes)`. **Measured:** the batcher's test-world order script
+(`feat/cardano-batcher` `test/fixtures/test-deployment.json`) hashed to `53ed6f4e…` that way, not its
+real `e9690f33…`, so a reference UTxO made from it would have run nothing of ours.
+`PlutusScript.new_with_version(bytes, Language.new_plutus_v2())` gave `e9690f33…`, as the batcher's
+`test/world.ts` loads it. **Do:** load compiled code with `new_with_version`, and check the hash
+before trusting a simulate run against it (`aiken tx simulate`, Aiken 1.0.24, is in WSL at
+`/root/aiken-1.0.24/aiken`).
+
+## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
+
+**Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers
+are set. **Measured:** building our pool opening (one factory spend, one mint, both from
+reference scripts) in `ownPools/openPoolTx.ts`. Called before `add_inputs_from_and_change`, the
+hash covered redeemer index 0; the wallet's coins then sorted in ahead of the factory input,
+`build_tx` wrote the redeemer with its real index, and the hash no longer matched (our read-back
+caught it: "its script data does not match its own instructions"). Called only after, CSL's fee
+missed the hash's own bytes ("Fee is less than the minimum fee. Min fee: 534840, Fee: 533476").
+**Do:** call it before the coin selection (so the fee counts it) AND again after (the index is
+final only then); the hash is 32 bytes either way, so the fee holds.
+
+**Believed:** a developer-facing error string is not user-facing copy. **Measured:**
+`src/lib/heat/islandClaims.test.ts` "states no a formula line" reads every string literal in
+shipped source; `throw new Error('square root of a negative number')` in a Cardano maths file
+failed it. **Do:** name the contract function (`calculate_sqrt`) in error strings, never the maths.
 
 ## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
 

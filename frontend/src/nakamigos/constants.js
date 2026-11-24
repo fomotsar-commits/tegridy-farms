@@ -1,5 +1,5 @@
 import { isDeployed } from "../lib/constants";
-import { GONDI_LOAN_ADDRESS } from "../lib/gondi/loanOffer.js";
+import { GONDI_LOAN_ADDRESS, LENDING_COLLECTIONS } from "../lib/gondi/loanOffer.js";
 import { IPFS_GATEWAYS } from "../lib/ipfsGateways";
 
 // CREDIBILITY GATING (same rule as lib/navConfig.ts): loan-desk CTAs render
@@ -342,12 +342,10 @@ export const COLLECTIONS = {
 
 export const DEFAULT_COLLECTION = "nakamigos";
 
-// The collections TegridyNFTLending accepts: its constructor whitelists these
-// three and reverts CollectionNotWhitelisted for any other contract, so a loan
-// link is shown only for them (loanDeskScope.test.jsx pins the .sol list).
-export const NFT_LOAN_DESK_CONTRACTS = new Set(
-  [COLLECTIONS.junglebay, COLLECTIONS.nakamigos, COLLECTIONS.gnssart].map((c) => c.contract.toLowerCase()),
-);
+// The collections Gondi's loan contract takes here (lib/gondi/loanOffer.js, the list its
+// deploy whitelisted), so a loan link is shown only for them (loanDeskScope.test.jsx pins
+// it to contracts/script/DeployGondiLending.s.sol).
+export const NFT_LOAN_DESK_CONTRACTS = new Set(LENDING_COLLECTIONS.map((c) => c.address.toLowerCase()));
 
 /** True when a loan against this collection can be taken today. */
 export function loanDeskAccepts(collection) {

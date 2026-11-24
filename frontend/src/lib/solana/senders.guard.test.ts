@@ -65,28 +65,40 @@ type How =
 
 /** Every source file that moves a Solana transaction, and how the person is told what happened. */
 export const SENDERS: Record<string, How> = {
-  // The swap page: Jupiter's swap, DCA and limit orders. An unknown holds Buy in every tab until the chain answers.
-  'pages/SolanaSwapPage.tsx': { ends: 'pollConfirm' },
+  // The swap page: Jupiter's swap (walletSwapSend.ts), and DCA and limit orders (walletWrite.ts sendBuiltTx).
+  'pages/SolanaSwapPage.tsx': { passes: 'lib/solana/swap/walletSwapSend.ts' },
   // A swap in the venue's own pool, through the review screen.
   'components/swap/useVenueSwap.ts': { ends: 'submitPrepared' },
-  // The island basket: several buys, one prompt.
-  'components/swap/IslandBasketSolana.tsx': { ends: 'pollConfirm' },
-  'lib/solana/swap/islandBasketSol.ts': { ends: 'pollConfirm' },
+  // The island basket: each coin on its own approval, through the swap's send or the write layer's.
+  'components/swap/IslandBasketSolana.tsx': { passes: 'lib/solana/swap/walletSwapSend.ts' },
   // Add, remove, open a pool, range pools, the launch curve: the review screen's one writer.
   'lib/launcher/solana/write/submit.ts': { ends: 'submitPrepared' },
   'components/solana/curve/ports.ts': { ends: 'submitPrepared' },
   'components/solana/curve/useTxFlow.ts': { ends: 'submitPrepared' },
-  // Add with one coin: the swap leg is sent by the wallet and watched in oneCoinSwap.ts.
-  'components/solana/lp/AddOneCoinPanel.tsx': { passes: 'components/solana/lp/oneCoinSwap.ts' },
-  // The BAYLA ladder: stake, claim, extend, exit.
-  'lib/ladder/write.ts': { ends: 'pollConfirm' },
-  // Claim all: each claim sent and watched by the basket's sendSigned.
-  'lib/harvest/solana.ts': { ends: 'sendSigned' },
-  // The bungalow pools: Streamflow's client signs, test-runs and sends in one call.
-  'lib/bungalowStaking.ts': { sdk: 'Streamflow client.execute; writeFailure() never says "nothing moved" once the wallet signed' },
+  // Add with one coin: its swap leg (oneCoinSwap.ts) is signed by the wallet and sent and watched by the swap's own send.
+  'components/solana/lp/AddOneCoinPanel.tsx': { passes: 'lib/solana/swap/walletSwapSend.ts' },
+  // A Jupiter swap: the wallet signs, the page sends, sends again and watches (the swap, step 1 of a one-coin add, a basket coin).
+  'lib/solana/swap/walletSwapSend.ts': { ends: 'sendSigned' },
+  // Every write with no review screen: the BAYLA ladder, the lighthouse pools, each claim of
+  // Claim all, DCA and limit orders. Tested, SOL checked, signed only, sent by us.
+  'lib/solana/walletWrite.ts': { ends: 'sendSigned' },
+  // The send itself: preflight first, the same bytes again every 2 s, polled.
+  'lib/solana/sendSigned.ts': { ends: 'pollConfirm' },
   'lib/solana/v1Signer.ts': { plumbing: 'finds a wallet\'s version 1 signing feature; the caller sends' },
   'lib/solanaWallets.ts': { plumbing: 'wallet adapters; the page that asks sends' },
 };
+
+/**
+ * The files that may hand a Solana wallet its own send (`sendTransaction`), and why: only as
+ * the fallback for a wallet that cannot sign alone (walletSwapSend.ts `viaWalletSend`). Every
+ * other send is ours, after the wallet SIGNED (Phantom, ticket #467471).
+ */
+export const WALLET_SEND_FALLBACK: Record<string, string> = {
+  'pages/SolanaSwapPage.tsx': 'the swap\'s signAndSend, for a wallet with no signTransaction',
+  'components/swap/IslandBasketSolana.tsx': 'a basket coin\'s signAndSend, for a wallet with no signTransaction',
+  'components/solana/lp/AddOneCoinPanel.tsx': 'the one-coin add\'s swap step, for a wallet with no signTransaction',
+};
+const PLUMBING = new Set(Object.entries(SENDERS).filter(([, h]) => 'plumbing' in h).map(([f]) => f));
 
 const files = walk(SRC).map((f) => ({ file: relative(SRC, f).replace(/\\/g, '/'), src: code(readFileSync(f, 'utf8')) }));
 const senders = files.filter(({ src }) => sends(src));
@@ -149,6 +161,40 @@ describe('every Solana send ends on a proven ending', () => {
     const stillOut: TxOutcome['status'] = 'unknown';
     const safeToRetry: TxOutcome['status'] = 'expired';
     expect([unknown, unsure, stillOut, safeToRetry]).toEqual(['unknown', 'unsure', 'unknown', 'expired']);
+  });
+});
+
+// PHANTOM'S RULES (ticket #467471, 2026-11-16; docs.phantom.com "Domain and transaction
+// warnings"): one transaction per wallet approval, asked with signTransaction, and sent by
+// us with preflight on. A request carrying two or more transactions is one Phantom may
+// block outright as "Request blocked" (RELIABLE_SIMULATION_NOT_POSSIBLE).
+const SIGNS_SEVERAL = /\.signAllTransactions\(|\.signAndSendAllTransactions\(|\.signTransaction\(\s*\.\.\./;
+const WALLET_SENDS = /\bsendTransaction\(|\.signAndSendTransaction\(/;
+
+/** What breaks Phantom's rules in a sender, or null. */
+export function phantomFault(file: string, src: string): string | null {
+  if (PLUMBING.has(file)) return null;
+  if (SIGNS_SEVERAL.test(src)) return `${file}: asks a Solana wallet to sign several transactions on one approval`;
+  if (WALLET_SENDS.test(src) && !(file in WALLET_SEND_FALLBACK)) return `${file}: has a Solana wallet send a transaction itself`;
+  return null;
+}
+
+describe('every Solana send keeps Phantom\'s rules', () => {
+  it('asks no wallet to sign several transactions on one approval, and lets no wallet send but a wallet that cannot sign alone', () => {
+    const faults = senders.map(({ file, src }) => phantomFault(file, src)).filter((f): f is string => f !== null);
+    expect(faults).toEqual([]);
+  });
+
+  it('names a fallback only for a file that still has one', () => {
+    const gone = Object.keys(WALLET_SEND_FALLBACK).filter((f) => !WALLET_SENDS.test(srcOf(f)));
+    expect(gone).toEqual([]);
+  });
+
+  it('seen red: a batch and a wallet send are both caught', () => {
+    expect(phantomFault('lib/new/claim.ts', 'const s = await wallet.signAllTransactions(txs);')).toMatch(/several transactions/);
+    expect(phantomFault('lib/new/claim.ts', 'await feature.signTransaction(...list.map((t) => t));')).toMatch(/several transactions/);
+    expect(phantomFault('lib/new/claim.ts', 'const sig = await invoker.sendTransaction(tx, conn);')).toMatch(/send a transaction itself/);
+    expect(phantomFault('lib/new/claim.ts', 'const signed = await wallet.signTransaction(tx);')).toBeNull();
   });
 });
 

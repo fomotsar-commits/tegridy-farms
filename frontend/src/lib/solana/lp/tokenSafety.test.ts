@@ -210,17 +210,18 @@ describe('classifyToken', () => {
     expect(text).toContain('That is how USDC is built.');
   });
 
-  // The leave rule: the pool program takes these four by name, but this site cannot build
-  // an exact withdrawal for them, so it lets nobody in. The words say it is this site's limit.
-  it('blocks the four stablecoins the pool program lets in by name, as this site’s own limit', () => {
+  // The four stablecoins the pool program took by name until its upgrade of 2026-11, which
+  // dropped the list: they now meet the same check as every coin, and a permanent delegate
+  // fails it. The site lets nobody in, as before, and says why.
+  it('blocks the four stablecoins the pool program once took by name and no longer takes', () => {
     for (const m of RAYDIUM_WHITELISTED_MINTS) {
       const pk = new PublicKey(m);
       const s = classifyToken(m, acct(pk, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [tlv(ExtensionType.PermanentDelegate, key().toBytes())])), immutableName(pk));
       expect(reasons(s)).toMatchObject({ blocks: ['permanent-delegate-whitelist'], verdict: 'blocked' });
       const text = s.kind === 'read' ? s.blocks.map((b) => b.text).join(' ') : '';
-      expect(text).toMatch(/The pool program accepts it by name, but this site cannot build exact deposits and withdrawals for it, so it does not open or add to pools for it\./);
-      // The pool program DOES take these, so no sentence may say it does not.
-      expect(text).not.toMatch(/does not accept/);
+      expect(text).toMatch(/The pool program does not open a pool for a coin like that, and this site does not open or add to pools for it\./);
+      // The pool program no longer takes these by name, so no sentence may say it does.
+      expect(text).not.toMatch(/accepts it by name/);
     }
   });
 

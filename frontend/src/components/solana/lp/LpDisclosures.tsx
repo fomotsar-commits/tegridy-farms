@@ -8,28 +8,47 @@ import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
-// panel (always visible) and again on the review. No forecast of a return is made here:
+// panel's Risks drop-down and again on the review. No forecast of a return is made here:
 // what a pool or a position earned is measured elsewhere, and the one sentence that
 // stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
-// True of the pool program RUNNING on mainnet since its upgrade: that build has
-// create_lp_metadata, and its public initialize refuses fee tier 0. Before the upgrade this
-// said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
-// to the binary the local harness pins, so the two can only move together (a roll-back too).
+// True of the pool program RUNNING on mainnet since its keeper-fee upgrade: that build has
+// create_lp_metadata, refuses a public initialize on fee tier 0, holds a fee tier's fees
+// inside limits, has the swap guard, and lets a fee tier's keeper swap free of the fees.
+// src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness pins,
+// so the two can only move together (a roll-back too). The fork line names no trader.
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
- * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
- * what the team's vault can do, that each change waits 48 hours after both keys approve
- * (Squads #14's time lock, read on chain 2026-10-20), and that no outside firm has checked our
- * changes. LpDisclosure's small print (SolanaLpSection.tsx) says it in full, with the
- * addresses. It names no change to the program, so the pool program's upgrade leaves it true.
+ * Who pays no fee (states/config.rs swap_fee_rates): a tier's keeper, on the swaps it signs.
+ * The vault names it (proposal #34: the price robot, on both tiers). Said beside what LPs keep.
+ * The creator fee is named only where the pool charges one, as lpShareLine does.
+ */
+const KEEPER_PAYS = {
+  both: 'pays no trade fee and no creator fee on its own swaps',
+  trade: 'pays no trade fee on its own swaps',
+} as const;
+function KeeperLine({ creatorFee }: { creatorFee: boolean }) {
+  return (
+    <>
+      A fee tier&apos;s named keeper, the venue&apos;s own price robot (wallet{' '}
+      <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>),{' '}
+      {creatorFee ? KEEPER_PAYS.both : KEEPER_PAYS.trade}, so those swaps earn liquidity providers nothing. Everyone else pays as
+      before.
+    </>
+  );
+}
+/**
+ * The risk in one sentence, first in every Risks drop-down (owner, 2026-10-17). The wait is said
+ * as read: Squads multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock
+ * 172,800 s (2026-11-14 UTC, finalized slot 469,210,343); reword it when that changes. The small
+ * print (SolanaLpSection.tsx) says it in full. It names no program change, so an upgrade leaves it true.
  */
 export const RISK_SHORT =
-  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
+  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
@@ -40,7 +59,7 @@ const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if
 
 /** What the vault can do to a pool this site opens, and to the tier it opens on. */
 const CREATE_VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
@@ -93,6 +112,7 @@ export function LpBeforeYouAdd({
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
+        <li><KeeperLine creatorFee={config !== null && chargedCreatorFeeRate(config, enableCreatorFee) > 0n} /></li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
       </LpRisksDetails>
     </div>
@@ -132,14 +152,11 @@ export function CoinRiskNotice({ coin, id }: { coin: QuoteCoin; id?: string }) {
 }
 
 /**
- * Before opening a pool, always visible: the fork line, what the vault can do, how a new
- * pool earns (honestly), what opening costs and keeps for good, and that it will not be
- * "the" pool. `fee` and `neverRefunded` are read live; an unread deposit says so.
- *
- * The fee to open and the account deposits are SOL whatever the pool is paired with (the
- * pool program takes its fee in SOL, and every account's deposit is SOL). So those two
- * figures never follow the coin, and for a pool paired with another coin the line says so:
- * someone putting in USDC must not read "0.15" as USDC.
+ * Before opening a pool, in its Risks drop-down: the fork line, what the vault can do, how a new
+ * pool earns, what opening costs and keeps for good, and that it will not be "the" pool. `fee`
+ * and `neverRefunded` are read live; an unread deposit says so. The fee to open and the deposits
+ * are SOL whatever the pairing coin, so for another coin the line says so: someone putting in
+ * USDC must not read "0.15" as USDC.
  */
 export function LpBeforeYouOpen({
   fee,
@@ -162,7 +179,7 @@ export function LpBeforeYouOpen({
 }) {
   const deposits =
     neverRefunded !== null
-      ? `about ${solAbout(neverRefunded)} in account deposits that never come back`
+      ? `about ${solAbout(neverRefunded, true)} in account deposits that never come back`
       : walletConnected
         ? 'account deposits that never come back (their amount could not be read)'
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
@@ -173,6 +190,8 @@ export function LpBeforeYouOpen({
         {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
+        {/* A pool opened from this site charges no creator fee (CREATOR_FEE_SWITCH.publicOpen). */}
+        <li><KeeperLine creatorFee={false} /></li>
         <li>
           Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}{nameRecord !== null ? `, plus ${solExact(nameRecord)} for the pool share's name record (Metaplex's fee and the record's deposit)` : ''}.{' '}
           {!coin.native && `${nameRecord !== null ? 'All of it is' : 'Both are'} paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}

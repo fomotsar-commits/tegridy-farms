@@ -42,7 +42,8 @@ const PROTECTIONS = [
   { title: 'On-Chain TWAP Pricing', desc: 'A TWAP of our own pools with no external feed like Chainlink — depth-gated behind a minimum reserve floor and currently inactive until the native pool is deep enough, so no live valuation depends on it yet', icon: 'eye-off' },
   { title: 'No Flash Loans', desc: 'Flash swaps explicitly disabled at the pool level — a non-empty swap callback reverts', icon: 'zap-off' },
   { title: 'Ownership Protection', desc: '2-step ownership transfer, renouncement disabled', icon: 'lock' },
-  { title: 'Pausable', desc: 'Emergency pause mechanism on all core contracts', icon: 'pause' },
+  // Gondi's MultiSourceLoan (listed above) has no pause function at all.
+  { title: 'Pausable', desc: "Emergency pause on the venue's own core contracts. Gondi's loan contract has no pause.", icon: 'pause' },
 ];
 
 const BOUNTY_TIERS = [

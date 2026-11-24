@@ -1436,7 +1436,7 @@ test.describe('group B (chromium only)', () => {
     await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
     // And what leaves the wallet in all names the tokens too, not the SOL alone.
     const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
-    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4, { up: true })} SOL and 2 tokens, plus the network fee`);
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
     expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);

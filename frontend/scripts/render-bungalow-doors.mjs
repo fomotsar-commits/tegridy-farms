@@ -79,20 +79,6 @@ export const DOORS = [
     heroArt: '/art/pepe/8EE4313B-CCDC-427D-AF2E-7C8D9F38D207.jpg',
   },
   {
-    path: 'qr',
-    title: 'QR | Jungle Bay Island',
-    description: settledDesc('QR', 'Base'),
-    image: '/art/jungle-dark.jpg',
-    imageType: 'image/jpeg',
-    imageWidth: '238',
-    imageHeight: '240',
-    imageAlt: settledAlt('QR'),
-    heroTitle: 'QR.',
-    heroLine: SETTLED_LINE,
-    heroArt: '/art/qr/37C87BC2-E189-44D5-8738-CB827829842D.jpg',
-    heroPosition: '50% 77%',
-  },
-  {
     path: 'mfer',
     title: 'MFER | Jungle Bay Island',
     description: settledDesc('MFER', 'Base'),
@@ -220,20 +206,20 @@ export const DOORS = [
   // The island's open lot (answer sixteen, ruling 9: every door means every door). Its
   // first frame is its landing's heading (OPEN_LOT_HERO in lib/bungalows.ts) over the
   // owner's pick, in the landing's place (LOT_FRAME). No chain: the lot has none yet.
-  // "13" is typed here (no TS loader); bungalowDoors.test.ts pins it to BUNGALOW_COUNT + 1.
+  // "12" is typed here (no TS loader); bungalowDoors.test.ts pins it to BUNGALOW_COUNT + 1.
   {
     path: 'nb1',
-    title: 'Lot 13 | Jungle Bay Island',
+    title: 'Lot 12 | Jungle Bay Island',
     description:
-      'Lot 13 on Jungle Bay Island is unmarked: an open lot, for the next community. ' +
+      'Lot 12 on Jungle Bay Island is unmarked: an open lot, for the next community. ' +
       "The island's harbor says how a community gets a bungalow here. Dank Memes + Time = Memetic Finance.",
     image: '/splash/new/7.jpg',
     imageType: 'image/jpeg',
     imageWidth: '1536',
     imageHeight: '2048',
-    imageAlt: 'Lot 13 on Jungle Bay Island, unmarked: a monkey with a pick and a pack walks toward the hills at sunrise',
+    imageAlt: 'Lot 12 on Jungle Bay Island, unmarked: a monkey with a pick and a pack walks toward the hills at sunrise',
     heroTitle: 'Unmarked.',
-    heroLine: 'Lot 13, for the next community.',
+    heroLine: 'Lot 12, for the next community.',
     heroArt: '/splash/new/7.jpg',
     heroPosition: '50% 28%',
     frame: LOT_FRAME,

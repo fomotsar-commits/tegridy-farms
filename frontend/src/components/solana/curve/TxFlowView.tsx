@@ -9,6 +9,8 @@ import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeCreateRows, RangeRows } from './RangeRows';
+import { rewardCoin, siteCoin } from '../range/rangeText';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import type { ReviewState, TxFlow } from './useTxFlow';
@@ -28,8 +30,8 @@ import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHea
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
-function tokenText(v: bigint, d: number | null, maxFractionDigits?: number): string {
-  const f = formatTokenAmount(v, d, maxFractionDigits);
+function tokenText(v: bigint, d: number | null, maxFractionDigits?: number, up = false): string {
+  const f = formatTokenAmount(v, d, maxFractionDigits, { up });
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
 /** $BAYLA always has 6 decimals, whatever the launch token's are. */
@@ -92,14 +94,17 @@ export function SummaryRows({
   summary,
   decimals,
   display,
+  coinName,
 }: {
   summary: TxSummary;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** The launch mint's decimals, when read. `null` shows raw base units, never an assumed 9. */
   decimals: number | null;
   display: (s: string, max: number) => string;
 }) {
-  const tok = (v: bigint, d: number | null = decimals) => {
-    const f = formatTokenAmount(v, d);
+  const tok = (v: bigint, d: number | null = decimals, up = false) => {
+    const f = formatTokenAmount(v, d, undefined, { up });
     return f.isBaseUnits ? `${f.text} (base units)` : f.text;
   };
   switch (summary.kind) {
@@ -114,8 +119,8 @@ export function SummaryRows({
           <Row label="Decimals" value={String(summary.decimals)} />
           {summary.openingBuy ? (
             <>
-              <Row label="Your opening buy: you pay" value={SOL(summary.openingBuy.quote.lamportsIn)} />
-              <Row label="…of which trade fee" value={SOL(summary.openingBuy.quote.feeLamports)} />
+              <Row label="Your opening buy: you pay" value={`${formatSol(summary.openingBuy.quote.lamportsIn, 4, { up: true })} SOL`} />
+              <Row label="…of which trade fee" value={`${formatSol(summary.openingBuy.quote.feeLamports, 4, { up: true })} SOL`} />
               <Row label="You receive exactly" value={tok(summary.openingBuy.minTokensOut, 6)} />
             </>
           ) : (
@@ -131,12 +136,12 @@ export function SummaryRows({
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           {summary.fillsCurve && (
             <Notice tone="warn">
-              This buy fills the curve, so this transaction can take at most {SOL(summary.maxLamportsIn)} of the{' '}
+              This buy fills the curve, so this transaction can take at most {`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} of the{' '}
               {SOL(summary.requestedLamports)} you entered. The rest never leaves your wallet.
             </Notice>
           )}
-          <Row label="You pay (at most)" value={SOL(summary.maxLamportsIn)} />
-          <Row label="…of which trade fee" value={SOL(summary.quote.feeLamports)} />
+          <Row label="You pay (at most)" value={`${formatSol(summary.maxLamportsIn, 4, { up: true })} SOL`} />
+          <Row label="…of which trade fee" value={`${formatSol(summary.quote.feeLamports, 4, { up: true })} SOL`} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive (quoted)" value={tok(summary.quote.tokensOut)} />
           <Row label="You receive at least" value={tok(summary.minTokensOut)} />
@@ -147,9 +152,9 @@ export function SummaryRows({
       return (
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
-          <Row label="You sell" value={tok(summary.tokensIn)} />
+          <Row label="You sell" value={tok(summary.tokensIn, decimals, true)} />
           <Row label="You receive (quoted)" value={SOL(summary.quote.lamportsOut)} />
-          <Row label="Trade fee" value={SOL(summary.quote.feeLamports)} />
+          <Row label="Trade fee" value={`${formatSol(summary.quote.feeLamports, 4, { up: true })} SOL`} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive at least" value={SOL(summary.minLamportsOut)} />
           <ImpactRows bps={summary.priceImpactBps} />
@@ -174,14 +179,14 @@ export function SummaryRows({
         <>
           <Row label="Token address (mint)" value={summary.mint.toBase58()} />
           <Row label="Pool" value={summary.pool.toBase58()} />
-          <Row label="You pay" value={buying ? SOL(summary.amountIn) : tok(summary.amountIn)} />
+          <Row label="You pay" value={buying ? `${formatSol(summary.amountIn, 4, { up: true })} SOL` : tok(summary.amountIn, decimals, true)} />
           <Row label="You receive (quoted)" value={buying ? tok(summary.quote.outAmount) : SOL(summary.quote.outAmount)} />
           <Row label="You receive at least" value={buying ? tok(summary.minimumAmountOut) : SOL(summary.minimumAmountOut)} />
           <Row
             label="Pool fee (inside what you pay)"
-            value={buying ? SOL(summary.quote.result.tradeFee) : tok(summary.quote.result.tradeFee)}
+            value={buying ? `${formatSol(summary.quote.result.tradeFee, 4, { up: true })} SOL` : tok(summary.quote.result.tradeFee, decimals, true)}
           />
-          <PoolCreatorFeeRow quote={summary.quote} buying={buying} sol={SOL} tok={tok} />
+          <PoolCreatorFeeRow quote={summary.quote} buying={buying} sol={(v) => `${formatSol(v, 4, { up: true })} SOL`} tok={(v) => tok(v, decimals, true)} />
           <ImpactRows bps={fractionToBps(summary.quote.priceImpact)} />
           <Notice>
             {buying
@@ -205,7 +210,7 @@ export function SummaryRows({
     case 'range-open':
     case 'range-remove':
     case 'range-close':
-      return <RangeRows summary={summary} />;
+      return <RangeRows summary={summary} coinName={coinName} />;
     case 'range-create':
       return <RangeCreateRows summary={summary} />;
     case 'range-swap':
@@ -274,7 +279,7 @@ const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
  * usual rounding) and exact (to the last digit). SOL is `SOL` / `solExact`, to the
  * character; USDC and BAYLA are printed with their own 6 decimals and symbol.
  */
-const coinAbout = (v: bigint, q: QuoteCoin) => (q.native ? SOL(v) : `${formatTokenAmount(v, q.decimals).text} ${q.symbol}`);
+const coinAbout = (v: bigint, q: QuoteCoin, up = false) => (q.native ? `${formatSol(v, 4, { up })} SOL` : `${formatTokenAmount(v, q.decimals, 4, { up }).text} ${q.symbol}`);
 const coinExact = (v: bigint, q: QuoteCoin) => (q.native ? solExact(v) : `${formatTokenAmount(v, q.decimals, q.decimals).text} ${q.symbol}`);
 
 function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
@@ -445,7 +450,7 @@ function LpPoolRows({ summary }: { summary: LpSummary }) {
 }
 
 function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
-  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const tok = (v: bigint, up = false) => tokenText(v, s.tokenDecimals, undefined, up);
   const q = s.quote;
   const limited =
     s.limitedByBalance === 'token'
@@ -464,7 +469,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       {s.transferFee && (
         <Row
           label={TRANSFER_FEE_LABEL}
-          value={`about ${tok(s.transferFee.kept)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
+          value={`about ${tok(s.transferFee.kept, true)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
           mono={false}
         />
       )}
@@ -516,7 +521,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       {s.transferFee && (
         <Row
           label={TRANSFER_FEE_LABEL}
-          value={`about ${tok(s.transferFee.kept)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
+          value={`about ${tokenText(s.transferFee.kept, s.tokenDecimals, undefined, true)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
           mono={false}
         />
       )}
@@ -716,6 +721,9 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
   const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, s.tokenDecimals) : tokenText(v, s.tokenDecimals)} ${tokenName}`;
   const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
   const [pay, get] = s.paysCoin ? [coin, tok] : [tok, coin];
+  // A fee, or the token's own cut, is paid or taken out: rounded up at the last digit shown.
+  const tokUp = (v: bigint) => `${tokenText(v, s.tokenDecimals, undefined, true)} ${tokenName}`;
+  const coinUp = (v: bigint) => coinAbout(v, q, true);
   return (
     <>
       <Row label="Pool" value={s.pool.toBase58()} />
@@ -730,14 +738,14 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
           label={TRANSFER_FEE_LABEL}
           value={
             s.paysCoin
-              ? `${tok(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
-              : `${tok(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
+              ? `${tokUp(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
+              : `${tokUp(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
           }
           mono={false}
         />
       )}
-      <Row label="Pool fee (inside what you pay)" value={`${pay(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
-      <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
+      <Row label="Pool fee (inside what you pay)" value={`${(s.paysCoin ? coinUp : tokUp)(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
+      <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={coinUp} tok={tokUp} />
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
       <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
       <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} line="market" />
@@ -835,7 +843,7 @@ function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create'
  * is in that coin's decimals; every other account is in its own mint's decimals when the
  * builder knew them.
  */
-function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
+function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null, coinName?: (mint: string) => string | null) {
   const summary = prepared.summary;
   const sign = t.delta < 0n ? '-' : '+';
   const amount = t.delta < 0n ? -t.delta : t.delta;
@@ -850,6 +858,19 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : 'poolLine' in summary ? summary.poolLine.quote : null;
   const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
+  // A range take-out watches a reward's own account untagged: named by the reward's coin. A coin
+  // off the site's list carries its whole address, so its name goes beside the amount, not in the label.
+  if (!t.role && (summary.kind === 'range-remove' || summary.kind === 'range-close')) {
+    const mint = t.mint.toBase58();
+    const own = siteCoin(mint);
+    const paid = `${sign}${tokenText(amount, t.decimals ?? null)}`;
+    return own
+      ? { label: `Test run: your ${own} changes by`, value: paid }
+      : { label: 'Test run: your reward coin changes by', value: `${paid} ${rewardCoin(mint, coinName?.(mint))}`, words: true };
+  }
+  // A range pool's token, when it is one of the site's own coins: by its ticker.
+  const ownTicker = t.role === 'token' && 'poolLine' in summary && t.mint.equals(summary.poolLine.tokenMint) ? tokenTicker(t.mint.toBase58()) : null;
+  if (ownTicker) return { label: `Test run: your ${ownTicker} changes by`, value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
@@ -936,20 +957,20 @@ function rentRowLabel(prepared: PreparedTx): string {
   return RENT_ROW_LABEL[prepared.kind];
 }
 
-export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
+export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx; decimals: number | null; coinName?: (mint: string) => string | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
   const share = base !== null && base > 0n ? sharePercent(f.priorityLamports, base) : null;
   return (
     <>
-      <Row label="Network fee" value={SOL(f.baseLamports)} line="fee" />
+      <Row label="Network fee" value={`${formatSol(f.baseLamports, 4, { up: true })} SOL`} line="fee" />
       <Row
         line="fee"
         label="Priority fee"
         value={
           !f.priorityFeeRead
             ? 'none added'
-            : `${SOL(f.priorityLamports)}${share ? ` (${share} of this trade)` : ''}`
+            : `${formatSol(f.priorityLamports, 4, { up: true })} SOL${share ? ` (${share} of this trade)` : ''}`
         }
       />
       {!f.priorityFeeRead && (
@@ -958,7 +979,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row label={rentRowLabel(prepared)} value={SOL(f.newAccountRentLamports)} />
+        <Row label={rentRowLabel(prepared)} value={solExact(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
@@ -970,7 +991,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
-          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals)} />
+          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals, coinName)} />
         ))}
       {(prepared.simulated.solDeltas ?? []).map((t) => (
         <Row
@@ -1008,10 +1029,13 @@ export function TxReview({
   display,
   extra,
   headingRef,
+  coinName,
 }: {
   prepared: PreparedTx;
   decimals: number | null;
   display: (s: string, max: number) => string;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** Anything the kind needs on top, such as the create flow's public-forever list. */
   extra?: ReactNode;
   /** Focus lands here when the review appears. */
@@ -1025,14 +1049,18 @@ export function TxReview({
   return (
     <div className="space-y-2" data-testid="tx-review">
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
-        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim ? 'Review: claim fees' : TITLES[prepared.kind]}
+        {prepared.summary.kind === 'lp-withdraw' && prepared.summary.claim
+          ? 'Review: claim fees'
+          : prepared.summary.kind === 'range-remove' && prepared.summary.percent === 0
+            ? 'Review: collect'
+            : TITLES[prepared.kind]}
       </h3>
       {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
-      <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />
+      <SummaryRows summary={prepared.summary} decimals={decimals} display={display} coinName={coinName} />
       <div className="pt-2 space-y-1.5" style={DIVIDER}>
-        <FeeRows prepared={prepared} decimals={prepared.kind === 'create' ? 6 : decimals} />
+        <FeeRows prepared={prepared} decimals={prepared.kind === 'create' ? 6 : decimals} coinName={coinName} />
       </div>
       <Notice tone="good">Test run passed: the network ran this exact transaction without sending it.</Notice>
     </div>
@@ -1093,8 +1121,8 @@ function signStatus(s: ReviewState): string {
 }
 
 /**
- * While the wallet is open on a transaction built again at the press: what a market or
- * the network's fees moved since the review was read. Nothing else had changed.
+ * While the wallet is open on a transaction built again at the press: what a market, the
+ * network's fees or the chain's clock moved since the review was read. Nothing else had changed.
  */
 function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   const list = (items: string[]) => (
@@ -1106,7 +1134,7 @@ function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   );
   return (
     <div className="text-white/55 space-y-1" data-testid="tx-moved">
-      <p>Built again on fresh numbers before your wallet opened. These moved with the market or the network&apos;s fees since you read the review; every other line, and every instruction, is the same:</p>
+      <p>Built again on fresh numbers before your wallet opened. These moved with the market, the network&apos;s fees or the chain&apos;s clock since you read the review; every other line, and every instruction, is the same:</p>
       {moved.now.length > 0 && list(moved.now)}
       {moved.gone.length > 0 && <p>{moved.now.length > 0 ? 'In place of:' : 'No longer on it:'}</p>}
       {moved.gone.length > 0 && list(moved.gone)}
@@ -1122,7 +1150,7 @@ function SignatureRow({ signature }: { signature: string }) {
 function feesSpentText(fees: PreparedTx['fees'] | null | undefined): string {
   if (!fees) return 'Nothing moved except the fees (the network fee and any priority fee).';
   const which = fees.priorityLamports > 0n ? 'the network fee and the priority fee' : 'the network fee';
-  return `Nothing moved except the fees: ${SOL(fees.baseLamports + fees.priorityLamports)} (${which}).`;
+  return `Nothing moved except the fees: ${solExact(fees.baseLamports + fees.priorityLamports)} (${which}).`;
 }
 
 /** What not to do while a sent transaction is unconfirmed: each kind's own risk in repeating it. */
@@ -1303,8 +1331,11 @@ export function TxFlowView({
   onOutcomeReset,
   resetMeans,
   afterConfirmed,
+  coinName,
 }: {
   flow: TxFlow;
+  /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
+  coinName?: (mint: string) => string | null;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
   api: TxViewApi;
   cluster: SolanaCluster;
@@ -1363,7 +1394,7 @@ export function TxFlowView({
     const working = s.checking || s.renewing;
     // The panel's `extraReview` is its own and does not come from the prepared
     // transaction, so the lines compared are the review's alone.
-    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} />);
+    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
     return (
       <div className="space-y-3">
         <TxReview
@@ -1372,6 +1403,7 @@ export function TxFlowView({
           display={api.meta.displaySafe}
           extra={extraReview}
           headingRef={setFocus}
+          coinName={coinName}
         />
         {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
         {dead ? (

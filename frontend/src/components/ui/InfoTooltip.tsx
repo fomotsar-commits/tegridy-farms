@@ -120,7 +120,7 @@ export function InfoTooltip({
              mouseleave on the wrapper and yanked the tooltip away mid-read
              (WCAG 1.4.13 hoverable). The bubble is a child of the wrapper, so
              keeping events on it keeps the hover alive. */
-          className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal left-1/2 ${
+          className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal normal-case tracking-normal left-1/2 ${
             position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           }`}
           style={{
@@ -276,14 +276,17 @@ export function StepIndicator({
   currentStep: number; // 0-indexed
 }) {
   return (
-    <div className="flex items-center gap-1 mb-3">
+    <div className="flex items-center gap-1 mb-3" data-ui="steps">
       {steps.map((label, i) => {
         const isComplete = i < currentStep;
         const isActive = i === currentStep;
         return (
-          <div key={i} className="flex items-center gap-1 flex-1">
+          // min-w-0 on the step and its pill: a row too narrow for its labels cuts them short
+          // (the label truncates) and never pushes the page wider than the screen.
+          <div key={i} className="flex items-center gap-1 flex-1 min-w-0">
             <div
-              className={`flex items-center gap-1.5 flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${
+              data-step={isComplete ? 'done' : isActive ? 'now' : 'next'}
+              className={`flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${
                 isComplete
                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                   : isActive
@@ -296,7 +299,7 @@ export function StepIndicator({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
-                <span className="w-3 text-center">{i + 1}</span>
+                <span className="w-3 flex-shrink-0 text-center">{i + 1}</span>
               )}
               <span className="truncate">{label}</span>
             </div>
@@ -346,6 +349,7 @@ export function RiskBanner({
 
   return (
     <div
+      data-ui="risk"
       className={`${art ? 'relative isolate ' : ''}flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-[12px] text-white/80 leading-relaxed`}
       style={{ background: c.bg, border: `1px solid ${c.border}` }}
     >
@@ -374,6 +378,7 @@ export function RiskBanner({
 export function TxSummary({ children, art }: { children: React.ReactNode; art?: React.ReactNode }) {
   return (
     <div
+      data-ui="tx-summary"
       className={`${art ? 'relative isolate ' : ''}rounded-xl px-3.5 py-3 text-[12px] text-white/70 leading-relaxed`}
       style={{
         background: 'rgba(16, 185, 129, 0.06)',

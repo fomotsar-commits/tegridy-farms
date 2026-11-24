@@ -51,17 +51,22 @@ import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 import { useWalletCollectionNfts } from '../../lib/gondi/walletNfts';
-import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank } from '../../lib/gondi/lendDesk';
+import { FLOOR_SHARES, floorShareAmount, lendLinkCollection, lenderLink, rateRank, requestAsLendForm } from '../../lib/gondi/lendDesk';
 import { useLendingMarket } from '../../lib/gondi/lenderPitch';
 import { MyLoansTab } from './NFTLendingLoans';
 import { LoanTimeline } from './LoanTimeline';
 import { LenderMarketPanel } from './LenderMarketPanel';
+import { LoanWall } from '../dwg/LoanWall';
+import { AskForLoan, BorrowerRequests } from './LoanRequests';
+import { BoxHint, PresetRow } from './nftLendingBits';
+import { syncRequest, useRequestBookOpen } from '../../lib/gondi/requestBook';
 import { GONDI_OWN_LOAN_ADDRESSES, lowestOwnFeeBps, sameTakeHomeAprBps } from '../../lib/gondi/lenderPitch';
 import {
   CARD_BG,
   CARD_BORDER,
   COLLECTIONS,
   COLLECTION_ART,
+  DURATION_PRESETS,
   EASE,
   FADED,
   LABEL_STYLE,
@@ -71,6 +76,7 @@ import {
   bpsToPercent,
   collectionSymbol,
   fmtWeth,
+  fmtWethUp,
   formatDue,
   formatDuration,
   newOfferId,
@@ -80,15 +86,6 @@ import {
   parseTokenId,
   shortenAddress,
 } from './nftLendingShared';
-
-const DURATION_PRESETS = [
-  { label: '7d', seconds: 7 * 86400 },
-  { label: '14d', seconds: 14 * 86400 },
-  { label: '30d', seconds: 30 * 86400 },
-  { label: '90d', seconds: 90 * 86400 },
-  { label: '180d', seconds: 180 * 86400 },
-  { label: '365d', seconds: 365 * 86400 },
-];
 
 // How long a signed offer stays takeable. The book takes 30 days at most.
 const OPEN_PRESETS = [
@@ -134,9 +131,9 @@ export function NFTLendingSection() {
   const offerCount = book.data ? book.data.count : null;
 
   return (
-    <div className="space-y-6">
-      <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
-        <h2 className="heading-luxury text-xl md:text-2xl text-white mb-2">NFT Lending</h2>
+    <div className="space-y-6" data-dwg="lending">
+      <m.div data-dwg="head" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
+        <h2 className="dwg-h2">NFT Lending</h2>
         <p className="text-white/70 text-[13px]">Borrow WETH against your NFT, or lend WETH and earn the interest.</p>
       </m.div>
 
@@ -156,7 +153,7 @@ export function NFTLendingSection() {
       )}
 
       {/* Stats: two across on a phone so the tabs sit within one scroll of the top. */}
-      <m.div className="grid grid-cols-2 lg:grid-cols-4 gap-3" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE, delay: 0.03 }}>
+      <m.div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-dwg="labels" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE, delay: 0.03 }}>
         {[
           {
             label: 'Open Offers',
@@ -173,9 +170,11 @@ export function NFTLendingSection() {
           {
             label: 'Venue Fee',
             value: feeBps !== null ? `${bpsToPercent(feeBps)}%` : feeUnread ? 'Unavailable' : '–',
+            // The rate's basis stays on screen, not only behind the "?": a bare "5.00%" reads as 5% of the loan.
+            basis: feeBps !== null ? 'of the interest' : undefined,
             tooltip:
               feeBps !== null
-                ? 'The venue keeps this share of the interest a lender earns. The lender keeps the rest.'
+                ? 'The venue keeps this share of the interest a lender is paid, when a loan is repaid or another lender takes it over. The lender keeps the rest. A loan that is not repaid pays no interest, so the venue gets nothing from it.'
                 : 'The fee could not be read from the loan contract, so none is shown. It is unknown right now, not zero.',
             art: pageArt('nft-lending', 2),
           },
@@ -186,8 +185,12 @@ export function NFTLendingSection() {
             art: pageArt('nft-lending', 3),
           },
         ].map((s) => (
-          <div key={s.label} className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
-            <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+          // Only the art is clipped to the rounded tile: a clipping tile hid its own tooltip.
+          // The tile with a tooltip open sits above its neighbours.
+          <div key={s.label} className="relative rounded-xl [&:has([role=tooltip])]:z-20" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0 overflow-hidden rounded-[11px]">
+              <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+            </div>
             <div
               className="relative z-10 m-2 rounded-lg p-3 md:p-4"
               style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -196,9 +199,14 @@ export function NFTLendingSection() {
                 {s.label}
                 <InfoTooltip text={s.tooltip} />
               </p>
-              <p className="text-white text-xl font-semibold" style={LABEL_STYLE}>
+              <p className="text-white text-xl font-semibold" data-unread={s.value === '–' || s.value === 'Unavailable' ? '' : undefined} style={LABEL_STYLE}>
                 {s.value}
               </p>
+              {s.basis && (
+                <p className="text-white/80 text-[11px]" style={LABEL_STYLE}>
+                  {s.basis}
+                </p>
+              )}
             </div>
           </div>
         ))}
@@ -206,29 +214,32 @@ export function NFTLendingSection() {
 
       {/* Tabs: a solid black box so the labels stay readable over the art. */}
       <m.div
+        data-dwg="verbs"
         role="tablist"
         aria-label="NFT lending sections"
         onKeyDown={tabKeys.onKeyDown}
-        className="flex gap-1 rounded-xl p-1"
+        className="dwg-tabs flex gap-1 rounded-xl p-1"
         style={{ background: 'rgba(0, 0, 0, 0.85)', border: `1px solid ${CARD_BORDER}` }}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ease: EASE, delay: 0.05 }}
       >
-        {TABS.map((tab) => (
+        {TABS.map((tab, i) => (
           <button
+            data-n={String.fromCharCode(65 + i)}
             key={tab}
             role="tab"
             aria-selected={activeTab === tab}
             tabIndex={tabKeys.tabIndex(tab)}
             ref={tabKeys.ref(tab)}
             onClick={() => setActiveTab(tab)}
-            className={`relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
+            className={`dwg-tab relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
               activeTab === tab ? 'text-white' : 'text-white/70 hover:text-white/70'
             }`}
           >
             {activeTab === tab && (
               <m.div
+                data-dwg="pill"
                 layoutId="lending-tab-indicator"
                 className="absolute inset-0 rounded-lg"
                 style={{ background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }}
@@ -242,24 +253,24 @@ export function NFTLendingSection() {
 
       <AnimatePresence mode="wait">
         {activeTab === 'Lend' && (
-          <m.div key="lend" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="lend" data-dwg="pane" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <LendTab feeBps={feeBps} initialCollection={linked ? (linked.address as Address) : undefined} />
           </m.div>
         )}
         {activeTab === 'Borrow' && (
-          <m.div key="borrow" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="borrow" data-dwg="pane" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <BorrowTab />
           </m.div>
         )}
         {activeTab === 'My Loans' && (
-          <m.div key="myloans" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="myloans" data-dwg="pane" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <MyLoansTab />
           </m.div>
         )}
       </AnimatePresence>
 
       {/* How it works, one press away; the visible line is the risk line. */}
-      <div className="space-y-1">
+      <div className="space-y-1" data-dwg="foot">
         <p className="text-white/80 text-[13px]" style={LABEL_STYLE}>
           Lock NFT, get WETH. Repay on time or the lender keeps it.
         </p>
@@ -390,7 +401,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const handleWrap = () => {
     if (!preflight() || wethShort === null || wethShort === 0n) return;
     if (ethBalance && ethBalance.value < wethShort) {
-      toast.error(`You need ${fmtWeth(wethShort)} more ETH to wrap.`);
+      toast.error(`You need ${fmtWethUp(wethShort)} more ETH to wrap.`);
       return;
     }
     wrap(
@@ -489,9 +500,9 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
   const primary = !isConnected
     ? { label: 'Connect Wallet', onClick: openConnectModal ?? (() => {}) }
     : step === 0 && wethShort !== null && wethShort > 0n
-    ? { label: wrapping ? 'Confirm in Wallet...' : wrapQuery.isLoading ? 'Wrapping...' : `Wrap ${fmtWeth(wethShort)} ETH to WETH`, onClick: handleWrap }
+    ? { label: wrapping ? 'Confirm in Wallet...' : wrapQuery.isLoading ? 'Wrapping...' : `Wrap ${fmtWethUp(wethShort)} ETH to WETH`, onClick: handleWrap }
     : step === 1
-    ? { label: approving ? 'Confirm in Wallet...' : approveQuery.isLoading ? 'Approving...' : `Approve ${needed !== null ? fmtWeth(needed) : ''} WETH`, onClick: handleApprove }
+    ? { label: approving ? 'Confirm in Wallet...' : approveQuery.isLoading ? 'Approving...' : `Approve ${needed !== null ? fmtWethUp(needed) : ''} WETH`, onClick: handleApprove }
     : { label: signing ? 'Sign in Wallet...' : 'Sign Offer (no gas)', onClick: () => void handleSign() };
   // Every box the offer needs holds a valid value: the button is faded until then, so a
   // full-colour button always means a click goes to the wallet, not to an error toast.
@@ -504,12 +515,16 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
     : !openConnectModal;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-dwg="desk">
+      {/* Two groups, so a wide screen can stand the terms beside their result and the wall. */}
+      <div className="space-y-5" data-dwg="terms">
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Collection</label>
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3" data-dwg="frames">
           {COLLECTIONS.map((c) => (
             <button
+              data-dwg="frame"
+              data-picked={selectedCollection === c.address ? '' : undefined}
               key={c.address}
               onClick={() => setSelectedCollection(c.address)}
               className={`relative overflow-hidden aspect-square rounded-xl text-left transition-all ${
@@ -532,6 +547,22 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
 
       <LenderMarketPanel collection={selectedCollection} principalWei={principalWei} setPrincipal={setPrincipal} />
 
+      {/* Borrowers asking for a loan on this collection (nothing renders while there are none).
+          Pressing one fills the form below with their NFT and terms; the lender can still change them. */}
+      <BorrowerRequests
+        collection={selectedCollection}
+        onOffer={(r) => {
+          const f = requestAsLendForm(r);
+          setSelectedCollection(r.nftCollateralAddress);
+          setAnyToken(false);
+          setTokenId(f.tokenId);
+          setPrincipal(f.principal);
+          setAprPct(f.aprPct);
+          setDuration(f.duration);
+          setLoanCount('1');
+        }}
+      />
+
       {/* Lend against: any NFT in the collection (default) or one specific NFT. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
@@ -547,7 +578,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
               key={o.label}
               aria-pressed={anyToken === o.any}
               onClick={() => setAnyToken(o.any)}
-              className={`min-h-[44px] px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${
+              className={`dwg-chip min-h-[44px] px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${
                 anyToken === o.any ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/10 text-white/80 hover:border-white/25'
               }`}
               style={{ background: anyToken === o.any ? SELECTED_BG : CARD_BG }}
@@ -569,7 +600,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             aria-describedby={tokenBad ? `${hint}-token` : undefined}
             value={tokenId}
             onChange={(e) => setTokenId(e.target.value)}
-            className="mt-2 w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+            className="dwg-field mt-2 w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
         )}
@@ -589,7 +620,8 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             aria-describedby={typedBad.amount ? `${hint}-amount` : undefined}
             value={principal}
             onChange={(e) => setPrincipal(e.target.value)}
-            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+            data-dwg="amount"
+            className="dwg-field w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
           {typedBad.amount && <BoxHint id={`${hint}-amount`} testId="lend-hint-amount" text="An amount of WETH above 0, like 0.02." />}
@@ -602,7 +634,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
                   aria-pressed={principal === amount}
                   aria-label={`${pct}% of the floor: ${amount} WETH`}
                   onClick={() => setPrincipal(amount)}
-                  className={`flex-1 min-h-[44px] rounded-xl text-[13px] font-medium transition-all ${
+                  className={`dwg-chip flex-1 min-h-[44px] rounded-xl text-[13px] font-medium transition-all ${
                     principal === amount ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/10 text-white/80 hover:border-white/25'
                   }`}
                   style={{ background: principal === amount ? SELECTED_BG : CARD_BG }}
@@ -630,7 +662,8 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             aria-describedby={typedBad.apr ? `${hint}-apr` : undefined}
             value={aprPct}
             onChange={(e) => setAprPct(e.target.value)}
-            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+            data-dwg="rate"
+            className="dwg-field w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
           {typedBad.apr && (
@@ -663,14 +696,18 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           aria-describedby={typedBad.loans ? `${hint}-loans` : undefined}
           value={loanCount}
           onChange={(e) => setLoanCount(e.target.value)}
-          className="w-full sm:w-40 min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50"
+          data-dwg="count"
+          className="dwg-field w-full sm:w-40 min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50"
           style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
         />
         {typedBad.loans && <BoxHint id={`${hint}-loans`} testId="lend-hint-loans" text="A whole number from 1 to 100." />}
       </div>
 
+      </div>
+      <div className="space-y-5" data-dwg="result">
       {interestPerLoan !== null && principalWei !== null && (
         <m.div
+          data-dwg="run"
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           className="relative isolate rounded-xl p-3 md:p-5"
@@ -682,11 +719,11 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
             {venueCut !== null ? fmtWeth(interestPerLoan - venueCut, 6) : fmtWeth(interestPerLoan, 6)} WETH
           </p>
           <p className="text-white/70 text-[11px] mt-1">
-            {fmtWeth(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
+            {fmtWethUp(principalWei)} WETH at {bpsToPercent(Number(aprValue))}% APR for {formatDuration(duration)}
             {venueCut !== null && feeBps !== null ? `, after the venue's ${bpsToPercent(feeBps)}% of the interest` : ''}
           </p>
           <p className="text-amber-300 text-[12px] mt-2" data-testid="lend-default-outcome">
-            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWeth(principalWei)} WETH, and no interest.
+            Not repaid: you own {anyToken ? `a ${selectedSymbol}` : `${selectedSymbol} #${tokenId || '?'}`} for {fmtWethUp(principalWei)} WETH, and no interest.
           </p>
           {/* The offer as a loan you can drag through. Only with the fee read: without it
               "you keep" would be a guess. */}
@@ -724,9 +761,9 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
 
       {needed !== null && (
         <TxSummary art={<CardArt pageId="nft-finance" idx={25} />}>
-          You offer <span className="font-mono text-white font-semibold">{fmtWeth(principalWei!)} WETH</span>
+          You offer <span className="font-mono text-white font-semibold">{fmtWethUp(principalWei!)} WETH</span>
           {anyToken ? <> to anyone holding a {selectedSymbol}</> : <> to whoever holds {selectedSymbol} #{tokenId || '?'}</>}
-          {loansN !== null && loansN > 1n ? <>, up to {loansN.toString()} loans ({fmtWeth(needed)} WETH in all)</> : null}. Your WETH stays in your
+          {loansN !== null && loansN > 1n ? <>, up to {loansN.toString()} loans ({fmtWethUp(needed)} WETH in all)</> : null}. Your WETH stays in your
           wallet until a borrower takes the offer; then the loan contract sends it to them.
         </TxSummary>
       )}
@@ -734,6 +771,7 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
       {isConnected && needed !== null && <StepIndicator steps={['Wrap ETH', 'Approve WETH', 'Sign Offer']} currentStep={step} />}
 
       <button
+        data-dwg="act"
         onClick={primary.onClick}
         disabled={primaryDisabled}
         className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
@@ -746,53 +784,15 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
           The offer is a signature: posting it costs no gas and moves no WETH. It is checked by Gondi&apos;s loan contract
           when a borrower takes it. To withdraw it, cancel it on-chain from My Loans; that is the only cancel that binds.
         </p>
+        {/* Offers signed here leave lenderRefinanceDisabled false: Gondi's refinanceFull lets a
+            new lender take the loan over, unlocked from 15% to 85% of the term. */}
+        <p className="mt-1">
+          From 15% to 85% of a loan&apos;s term, another lender can take the loan over at a lower rate without asking you or the borrower. You then get
+          your WETH back plus the interest so far, less the venue&apos;s share of that interest.
+        </p>
       </FinePrint>
-    </div>
-  );
-}
-
-/** Under a box whose text the offer cannot use: the values it takes. */
-function BoxHint({ id, testId, text }: { id: string; testId: string; text: string }) {
-  return (
-    <p id={id} className="text-amber-300 text-[11px] mt-1" style={LABEL_STYLE} data-testid={testId}>
-      {text}
-    </p>
-  );
-}
-
-function PresetRow({
-  label,
-  tooltip,
-  presets,
-  value,
-  onChange,
-}: {
-  label: string;
-  tooltip?: string;
-  presets: { label: string; seconds: number }[];
-  value: number;
-  onChange: (s: number) => void;
-}) {
-  return (
-    <div>
-      <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
-      </label>
-      <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
-        {presets.map((d) => (
-          <button
-            key={d.seconds}
-            aria-pressed={value === d.seconds}
-            onClick={() => onChange(d.seconds)}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
-              value === d.seconds ? 'border border-emerald-500/60 text-emerald-300' : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
-            }`}
-            style={{ background: value === d.seconds ? SELECTED_BG : CARD_BG }}
-          >
-            {d.label}
-          </button>
-        ))}
+      {/* The wall: the picked collection hung, its levels and the typed loan as a level (aria-hidden). */}
+      <LoanWall collection={selectedCollection} market={market.data} loading={market.isLoading} principalWei={principalWei} shares={shares} />
       </div>
     </div>
   );
@@ -809,6 +809,8 @@ function BorrowTab() {
   const collection = filter === 'all' ? undefined : COLLECTIONS.find((c) => c.symbol === filter)?.address;
   const book = useBookOffers({ collection, enabled: LENDING_LIVE });
   const rows = useMemo(() => book.data?.offers ?? [], [book.data]);
+  // The ask card below shows only while the request book is open; the empty line follows it.
+  const bookOpen = useRequestBookOpen(LENDING_LIVE);
 
   // Every listed offer is re-read on chain: unused, and backed by WETH the lender still
   // holds and has approved. The book cannot vouch for either.
@@ -859,12 +861,14 @@ function BorrowTab() {
   return (
     <div className="space-y-5">
       {/* Collection filter, the same picker as the Lend tab; "All" uses the gallery collage. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-dwg="frames" data-cols="4">
         {(['all', ...COLLECTIONS.map((c) => c.symbol)] as const).map((f) => {
           const art = f === 'all' ? ART.galleryCollage.src : COLLECTION_ART[f] ?? ART.galleryCollage.src;
           const col = f === 'all' ? null : COLLECTIONS.find((c) => c.symbol === f) ?? null;
           return (
             <button
+              data-dwg="frame"
+              data-picked={filter === f ? '' : undefined}
               key={f}
               onClick={() => setFilter(f)}
               className={`relative overflow-hidden aspect-square rounded-xl text-left transition-all ${
@@ -886,10 +890,10 @@ function BorrowTab() {
       </div>
 
       {bestApr !== null && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl px-4 py-2.5" style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl px-4 py-2.5" data-dwg="highlights" style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}>
           <span className="text-[11px] text-white/85 uppercase tracking-wider">Highlights:</span>
           <span className="text-[12px] text-emerald-400 font-medium">Best APR: {bpsToPercent(bestApr)}%</span>
-          {largest !== null && <span className="text-[12px] text-blue-400 font-medium">Largest: {fmtWeth(largest, 2)} WETH</span>}
+          {largest !== null && <span className="text-[12px] text-blue-400 font-medium">Largest: {fmtWeth(largest)} WETH</span>}
         </div>
       )}
 
@@ -900,7 +904,7 @@ function BorrowTab() {
       ) : shown.length === 0 ? (
         <EmptyCard
           title={`No offers ${filter !== 'all' ? `for ${filter} ` : ''}yet.`}
-          line="Lenders make the offers. Send one this page."
+          line={bookOpen ? 'Lenders make the offers. Ask for one below, or send a lender this page.' : 'Lenders make the offers. Send one this page.'}
           action={{
             label: 'Copy link for a lender',
             onClick: () => {
@@ -913,7 +917,7 @@ function BorrowTab() {
           }}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-dwg="tickets">
           {shown.map(({ row, status }) => {
             const key = `${row.offer.lender}:${row.offer.offerId}`;
             return (
@@ -928,13 +932,15 @@ function BorrowTab() {
           })}
         </div>
       )}
+
+      {LENDING_LIVE && <AskForLoan filterCollection={collection} liveOffers={live} />}
     </div>
   );
 }
 
 function EmptyCard({ title, line, action }: { title: string; line: string; action?: { label: string; onClick: () => void } }) {
   return (
-    <div className="relative overflow-hidden rounded-xl" style={{ border: `1px solid ${CARD_BORDER}` }}>
+    <div className="relative overflow-hidden rounded-xl" data-dwg="empty" style={{ border: `1px solid ${CARD_BORDER}` }}>
       <ArtImg pageId="nft-lending" idx={4} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       <div className="relative z-10 m-2 rounded-lg p-6 md:p-8 text-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
         <p className="text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{title}</p>
@@ -969,6 +975,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
   const pledgedId = anyToken ? parseTokenId(pickedId) : BigInt(offer.nftCollateralTokenId);
   const takesIt = pledgedId !== null && acceptsToken(offer, pledgedId);
   const collateralLabel = pledgedId !== null ? `${symbol} #${pledgedId.toString()}` : `your ${symbol}`;
+  // The same words where they start a sentence ("your NAKA" before a token is picked).
+  const collateralAtStart = collateralLabel.charAt(0).toUpperCase() + collateralLabel.slice(1);
 
   const ownerQuery = useReadContract({
     address: offer.nftCollateralAddress,
@@ -1030,6 +1038,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
       .catch(() => toast.error('Loan opened, but it could not be saved to My Loans. Use "Find a loan" there with the transaction hash.'))
       .finally(() => {
         void syncOffer(offer.lender, offer.offerId).catch(() => undefined);
+        // The NFT is locked now, so a request the borrower had open on it is over.
+        if (pledgedId !== null) void syncRequest(offer.nftCollateralAddress, pledgedId.toString()).catch(() => undefined);
         refreshBook();
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per confirmed tx
@@ -1091,23 +1101,25 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
   return (
     <div
+      data-dwg="ticket"
+      data-kind="offer"
       className="relative isolate rounded-xl overflow-hidden cursor-pointer transition-all hover:border-purple-500/25"
       style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       onClick={onToggle}
     >
       <CardArt pageId="nft-finance" idx={18} />
-      <div className="p-3 md:p-5 space-y-3">
+      <div className="p-3 md:p-5 space-y-3" data-dwg="face">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-white/70 text-[11px] font-mono truncate">{perOffer > 1n ? `Up to ${perOffer.toString()} loans` : 'One loan'}</span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 whitespace-nowrap">
+          <span data-dwg="no" className="text-white/70 text-[11px] font-mono truncate">{perOffer > 1n ? `Up to ${perOffer.toString()} loans` : 'One loan'}</span>
+          <span data-dwg="tag" className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 whitespace-nowrap">
             {anyToken ? `${symbol} · any NFT` : `${symbol} #${offer.nftCollateralTokenId}`}
           </span>
         </div>
-        <div>
+        <div data-dwg="sum">
           <p className="text-white text-xl font-semibold">{fmtWeth(principal)} WETH</p>
           <p className="text-white/70 text-[11px]">Loan amount</p>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2" data-dwg="perf">
           <div>
             <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(apr))}%</p>
             <p className="text-white/70 text-[11px]">APR</p>
@@ -1117,7 +1129,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
             <p className="text-white/70 text-[11px]">Length</p>
           </div>
           <div className="truncate">
-            <p className="text-white/80 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
+            <p data-dwg="addr" className="text-white/80 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
             <p className="text-white/70 text-[11px]">Lender</p>
           </div>
         </div>
@@ -1135,7 +1147,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
             className="overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
+            <div data-dwg="body" className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
               {anyToken ? (
                 <div>
                   {owned.data && owned.data.tokens.length > 0 && (
@@ -1179,7 +1191,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                     aria-label={`Your ${symbol} to lock`}
                     value={pickedId}
                     onChange={(e) => setPickedId(e.target.value)}
-                    className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+                    className="dwg-field w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
                     style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
                   />
                 </div>
@@ -1202,7 +1214,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                     : ownsPledged
                     ? `You own ${collateralLabel}.`
                     : knownNotOwned
-                    ? `${collateralLabel} is not in your wallet.`
+                    ? `${collateralAtStart} is not in your wallet.`
                     : `Couldn't find ${collateralLabel}. Check the token ID.`}
                 </p>
               )}
@@ -1210,7 +1222,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
               <TxSummary>
                 You lock <span className="font-mono text-white font-semibold">{collateralLabel}</span> and receive{' '}
                 <span className="font-mono text-white font-semibold">{fmtWeth(principal)} WETH</span>. Repaid at the end it costs{' '}
-                <span className="font-mono text-emerald-400 font-semibold">{fmtWeth(atTerm, 6)} WETH</span>, due about{' '}
+                <span className="font-mono text-emerald-400 font-semibold">{fmtWethUp(atTerm, 6)} WETH</span>, due about{' '}
                 <span className="text-white font-semibold">{formatDue(nowSeconds() + duration)}</span>.
                 <span className="block text-[11px] text-white/70 mt-1">Repay early to pay less: interest counts only the days you borrow.</span>
               </TxSummary>
@@ -1231,8 +1243,13 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
                   <p>
-                    {collateralLabel} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
+                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
                     repaid by then, the lender can take it, permanently.
+                  </p>
+                  <p className="mt-1">
+                    From 15% to 85% of the term, another lender can take this loan over at a lower rate without asking you. The loan then
+                    has a new number and its deadline can only move later. If the new lender lends more, the extra WETH is sent to you
+                    and you owe it too.
                   </p>
                 </FinePrint>
               </RiskBanner>
@@ -1241,6 +1258,7 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
 
               {/* One button, two presses: approve the NFT, then take the loan. */}
               <button
+                data-dwg="act"
                 onClick={approvedForPledged ? handleBorrow : handleApprove}
                 disabled={stepDisabled}
                 className="btn-primary w-full min-h-[44px] rounded-xl transition-all disabled:cursor-not-allowed"
