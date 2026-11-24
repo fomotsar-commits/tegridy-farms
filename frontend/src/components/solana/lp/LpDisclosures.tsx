@@ -32,13 +32,14 @@ const KEEPER_PAYS = {
   trade: 'pays no trade fee on its own swaps',
 } as const;
 function KeeperLine({ creatorFee }: { creatorFee: boolean }) {
-  // The wallet comes last, on a line of its own: a 44-character address is wider than a
-  // Risks list at 390, so where it must break it breaks there, never mid-sentence.
+  // The wallet comes last, on a line of its own, never mid-sentence. At 10px, tight, its 44
+  // characters fit a Risks list at 390 (260px) in a 0.6em mono like an iPhone's (about 253px);
+  // a narrower screen breaks it there, at its end.
   return (
     <>
       A fee tier&apos;s named keeper, the venue&apos;s own price robot, {creatorFee ? KEEPER_PAYS.both : KEEPER_PAYS.trade}, so those swaps
       earn liquidity providers nothing. Everyone else pays as before. The robot&apos;s wallet:
-      <span className="block font-mono text-[11px] [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>
+      <span className="block font-mono text-[10px] tracking-tight [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>
     </>
   );
 }
