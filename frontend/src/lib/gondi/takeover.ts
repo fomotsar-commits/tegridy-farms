@@ -37,7 +37,9 @@ function source(w: TakeoverWindow): string {
   return `${w.kind === 'window' ? 'That window' : 'That'} is the loan contract's setting, read just now. ${safe}`;
 }
 
-const lead = (w: Exclude<TakeoverWindow, { kind: 'none' }>, term: string) => (w.kind === 'window' ? `From ${w.from} to ${w.to} of ${term}` : `For part of ${term}`);
+// A setting of 0 locks nothing at either end: said as any time, never "from 0% to 100%".
+const lead = (w: Exclude<TakeoverWindow, { kind: 'none' }>, term: string) =>
+  w.kind !== 'window' ? `For part of ${term}` : w.from === '0%' ? `At any time in ${term}` : `From ${w.from} to ${w.to} of ${term}`;
 
 /** For a lender, before signing: their loan can be taken over, and what they then get. */
 export function lenderTakeoverLine(w: TakeoverWindow): string {

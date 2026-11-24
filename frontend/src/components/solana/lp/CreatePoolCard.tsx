@@ -7,7 +7,7 @@ import { MIN_HISTORY_TEXT } from '../../../lib/solana/lp/ownPrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, orList, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
@@ -157,7 +157,6 @@ function CreateCard({
   const answer = answerKey(offer, pairs, facts, outside, search, healths);
   // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
   const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
-  const otherSide = otherSideLine(mint);
   // A pressed Refresh: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -252,9 +251,6 @@ function CreateCard({
             onReread={readAgain(onReread)}
             onRereadFacts={readAgain(writes.refreshCreateFacts)}
           />
-          {/* A pairing coin looked up as the token: where its pool with a lower coin is found
-              and opened, said before the Open a pool button and not only inside the form. */}
-          {offer === 'offer' && otherSide && <p data-testid="lp-create-other-side">{otherSide}</p>}
           {/* Warnings, never a stop: the buttons below stay. The same lead-in as the forms and the review. */}
           {cautions.length > 0 && (
             <div className="space-y-1" data-testid="lp-create-cautions">

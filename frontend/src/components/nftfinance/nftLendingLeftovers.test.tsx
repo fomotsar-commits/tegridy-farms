@@ -111,8 +111,9 @@ describe('the takeover window is the loan contract\'s, read now', () => {
     expect(text).toContain('From 25% to 75% of the term, another lender can take this loan over at a lower rate without asking you.');
     expect(text).toContain("The venue's Safe can change it at once, for open loans too.");
     expect(text).not.toMatch(/15% to 85%/);
-    // Gondi refuses a repayment at the deadline second: "by then" took that second in.
-    expect(text).toContain('If it is not repaid before then, the lender can take it, permanently.');
+    // Gondi refuses a repayment at the deadline second: "by then" took that second in. The loan is
+    // what gets repaid, the NFT what gets taken ("If it is not repaid" made the NFT the debt).
+    expect(text).toContain('If the loan is not repaid before then, the lender can take your NAKA, permanently.');
   });
 });
 
@@ -128,6 +129,9 @@ describe('"About signed offers" is a card over the art', () => {
     expect(card.className).toMatch(/\brelative\b/);
     expect(card.className).toMatch(/\bisolate\b/);
     expect(card.firstElementChild).toHaveAttribute('data-card-art');
+    // The card reads as one press, so its whole width is: FinePrint's own summary is inline.
+    expect(card.className).toContain('[&_summary]:flex');
+    expect(card.className).toContain('[&_summary]:w-full');
   });
 });
 

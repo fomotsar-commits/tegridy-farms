@@ -135,7 +135,6 @@ export default function PoolsPage() {
               No lock; the team&apos;s vault can switch off withdrawals.
             </p>
             <FinePrint summary="How it works" className="mt-2">
-              <p>Fees grow your share as the pool trades.</p>
               {!venueIsOpen && (
                 <p>
                   Depositing from this page waits on a live read of the venue. The status card

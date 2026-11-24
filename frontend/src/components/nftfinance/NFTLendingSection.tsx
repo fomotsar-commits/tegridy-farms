@@ -793,8 +793,9 @@ function LendTab({ feeBps, initialCollection }: { feeBps: number | null; initial
       >
         {primary.label}
       </button>
-      {/* A card like the ones above it, so the small print reads over the page's art. */}
-      <div className="relative isolate rounded-xl px-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }} data-testid="lend-about-offers">
+      {/* A card like the ones above it, so the small print reads over the page's art. It reads as one
+          press, so its summary takes the card's whole width (FinePrint's own is inline). */}
+      <div className="relative isolate rounded-xl px-3 [&_summary]:flex [&_summary]:w-full" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }} data-testid="lend-about-offers">
         <CardArt pageId="nft-finance" idx={30} />
         <FinePrint summary="About signed offers">
           <p>
@@ -1259,8 +1260,8 @@ function OfferCard({ row, status, isExpanded, onToggle }: { row: BookOffer; stat
                 <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
                   <p>
-                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If it is not
-                    repaid before then, the lender can take it, permanently.
+                    {collateralAtStart} is locked in Gondi&apos;s loan contract for up to {formatDuration(Number(duration))}. If the loan is
+                    not repaid before then, the lender can take {collateralLabel}, permanently.
                   </p>
                   <p className="mt-1">{borrowerTakeoverLine(takeover)}</p>
                 </FinePrint>

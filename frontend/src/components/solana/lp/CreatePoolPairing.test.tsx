@@ -269,14 +269,16 @@ describe('a pairing coin looked up as the token: the page names the coins that w
   const said = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const status = () => said(screen.getByTestId('lp-status'));
 
-  it('USDC with no pool: the list, the status line and the Open card say SOL, and point to the other side, with no form open', async () => {
+  it('USDC with no pool: the list, the status line and the Open card say SOL, the list points to the other side, with no form open', async () => {
     mount(readers(), { mint: USDC });
     const card = await offered();
     expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
     expect(status()).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
     expect(card).toHaveTextContent('There is no SOL pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
     expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
-    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+    // Said once on screen, by the list: the Open a pool card below it does not say it again.
+    expect(within(card).queryByTestId('lp-create-other-side')).toBeNull();
+    expect(card).not.toHaveTextContent(OTHER_SIDE);
     // Nothing says a pair that was never looked for has no pool.
     expect(document.body).not.toHaveTextContent(`${QUOTE_COINS_OR} found`);
     expect(document.body).not.toHaveTextContent('No pools found for this token.');
@@ -302,8 +304,12 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     const card = await offered();
     expect(screen.queryByTestId('lp-no-pools')).toBeNull();
     expect(said(screen.getByTestId('lp-other-side'))).toBe(OTHER_SIDE);
+    // At the cards' size: a Notice sets none, and the list's wrapper none, so it was drawn at the body's 16px.
+    expect(screen.getByTestId('lp-other-side')).toHaveClass('text-[12px]');
     expect(status()).toBe(`One pool found for this token. ${OTHER_SIDE}`);
-    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+    // Said once on screen, by the list: the Open a pool card below it does not say it again.
+    expect(within(card).queryByTestId('lp-create-other-side')).toBeNull();
+    expect(card).not.toHaveTextContent(OTHER_SIDE);
   });
 
   it('BAYLA: SOL or USDC were searched, and the four coins ranked below it are pointed to from the other side', async () => {
@@ -314,7 +320,7 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(status()).toBe(`No pools pairing this token with SOL or USDC found. ${BAYLA_OTHER_SIDE}`);
     expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
     expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
-    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(BAYLA_OTHER_SIDE);
+    expect(card).not.toHaveTextContent(BAYLA_OTHER_SIDE);
   });
 
   it('RIZZ: every coin but itself was searched. No coin ranks below RIZZ, so no other side is named', async () => {

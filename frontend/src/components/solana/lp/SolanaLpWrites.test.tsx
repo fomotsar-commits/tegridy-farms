@@ -329,7 +329,7 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While the vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\./);
     expect(before).toHaveTextContent(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
@@ -1217,7 +1217,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     });
     await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
     expect(within(panel).getByText('Fee tier', { exact: true }).nextElementSibling?.textContent).toBe(
-      'Tier 0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade',
+      'Tier 0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade, the venue 0.050%',
     );
   });
 });

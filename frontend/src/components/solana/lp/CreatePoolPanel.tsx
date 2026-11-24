@@ -861,7 +861,7 @@ function CreateInner({
                     ? `about ${solAbout(neverRefunded, true)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
                     : signer
                       ? 'could not be read'
-                      : 'read once a wallet is connected (the fee tiers list on this page has the amount)'
+                      : 'read once a wallet is connected (Rates, on this page, has the amount)'
                 }
                 mono={false}
               />

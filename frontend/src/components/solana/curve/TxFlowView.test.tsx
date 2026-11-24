@@ -1691,7 +1691,7 @@ describe('liquidity reviews', () => {
     expect(value('Pool')).toBe(KEY(30).toBase58());
     expect(value('Pool kind')).toBe('Standard address for fee tier 1');
     expect(value('Token (mint)')).toBe(KEY(31).toBase58());
-    expect(value('Fee tier')).toBe('Tier 1: traders pay 0.25% a trade; LPs keep 0.220% of each trade');
+    expect(value('Fee tier')).toBe('Tier 1: traders pay 0.25% a trade; LPs keep 0.220% of each trade, the venue 0.030%');
     expect(value('You put in about')).toBe('2 SOL and 5 tokens');
     expect(value('At most')).toBe('2.020000001 SOL and 5.050001 tokens');
     expect(value('You get')).toBe('123.456789012 pool shares, exactly');
@@ -1963,7 +1963,7 @@ describe('opening a pool: the review', () => {
     expect(value('Pool')).toBe(KEY(40).toBase58());
     expect(value('Pool kind')).toBe('Standard address for fee tier 1');
     expect(value('Token (mint)')).toBe(KEY(41).toBase58());
-    expect(value('Fee tier')).toMatch(/^Tier 1: traders pay 1% a trade; LPs keep \d+\.\d{3}% of each trade$/);
+    expect(value('Fee tier')).toMatch(/^Tier 1: traders pay 1% a trade; LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%$/);
     expect(value('You put in')).toBe('1 SOL and 5 tokens, exactly');
     expect(value('Opening price')).toBe('1 token = 0.2 SOL. Market (Jupiter, read just now): 0.195 SOL, 2.6% above');
     expect(value('Opens for trading')).toBe('At once (one second after it lands)');

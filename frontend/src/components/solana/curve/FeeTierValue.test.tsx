@@ -20,17 +20,17 @@ function value(config: AmmConfigView | null, enableCreatorFee = false) {
 describe('the fee tier row', () => {
   it('names the tier in words, and holds each phrase whole', () => {
     const v = value(TIER1);
-    expect(v.textContent).toBe('Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade');
+    expect(v.textContent).toBe('Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade, the venue 0.160%');
     expect(v.textContent).not.toMatch(/^\d+:/);
     const phrases = [...v.querySelectorAll(':scope > span.inline-block')].map((s) => s.textContent);
-    expect(phrases).toEqual(['Tier 1: traders pay 1% a trade;', 'LPs keep 0.840% of each trade']);
+    expect(phrases).toEqual(['Tier 1: traders pay 1% a trade;', 'LPs keep 0.840% of each trade, the venue 0.160%']);
   });
 
   it('keeps the creator fee inside the first phrase, on a tier that charges one', () => {
     const v = value({ ...TIER1, index: 0, tradeFeeRate: 2_500n, creatorFeeRate: 500n }, true);
     expect([...v.querySelectorAll(':scope > span.inline-block')].map((s) => s.textContent)).toEqual([
       'Tier 0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee);',
-      expect.stringMatching(/^LPs keep \d+\.\d{3}% of each trade$/),
+      expect.stringMatching(/^LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%$/),
     ]);
   });
 

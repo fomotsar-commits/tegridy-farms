@@ -21,7 +21,7 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // follows RISK_SHORT wherever it is drawn, so the no-outside-audit line and the
 // afford-to-lose clause are said there, once.
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper. While the vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes.";
 /**
  * Who pays no fee (states/config.rs swap_fee_rates): a tier's keeper, on the swaps it signs.
  * The vault names it (proposal #34: the price robot, on both tiers). Said beside what LPs keep.
@@ -32,12 +32,13 @@ const KEEPER_PAYS = {
   trade: 'pays no trade fee on its own swaps',
 } as const;
 function KeeperLine({ creatorFee }: { creatorFee: boolean }) {
+  // The wallet comes last, on a line of its own: a 44-character address is wider than a
+  // Risks list at 390, so where it must break it breaks there, never mid-sentence.
   return (
     <>
-      A fee tier&apos;s named keeper, the venue&apos;s own price robot (wallet{' '}
-      <span className="font-mono [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>),{' '}
-      {creatorFee ? KEEPER_PAYS.both : KEEPER_PAYS.trade}, so those swaps earn liquidity providers nothing. Everyone else pays as
-      before.
+      A fee tier&apos;s named keeper, the venue&apos;s own price robot, {creatorFee ? KEEPER_PAYS.both : KEEPER_PAYS.trade}, so those swaps
+      earn liquidity providers nothing. Everyone else pays as before. The robot&apos;s wallet:
+      <span className="block font-mono text-[11px] [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>
     </>
   );
 }
@@ -114,8 +115,8 @@ export function LpBeforeYouAdd({
     <div className="space-y-2" data-testid="lp-before-you-add">
       <LpRisksDetails>
         {!reviewing && <li>{RISK_SHORT}</li>}
-        {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{VAULT_LINE}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
@@ -204,13 +205,13 @@ export function LpBeforeYouOpen({
       ? `about ${solAbout(neverRefunded, true)} in account deposits that never come back`
       : walletConnected
         ? 'account deposits that never come back (their amount could not be read)'
-        : 'account deposits that never come back (the fee tiers list on this page has their amount)';
+        : 'account deposits that never come back (Rates, on this page, has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
       <LpRisksDetails anyonePool={NOT_THE_POOL_LINE}>
         {!reviewing && <li>{RISK_SHORT}</li>}
-        {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
         <li>{MONEY_LINE}</li>
         {/* A pool opened from this site charges no creator fee (CREATOR_FEE_SWITCH.publicOpen). */}
         <li><KeeperLine creatorFee={false} /></li>
@@ -225,9 +226,9 @@ export function LpBeforeYouOpen({
 }
 
 /**
- * On the review, above its rows. A deposit: the fork line, the vault line, and the
- * launch-pool line for a launch pool. An opening: the fork line, what the vault can do to
- * the new pool and its tier, and how a new pool earns.
+ * On the review, above its rows. A deposit: the vault line, the fork line, and the
+ * launch-pool line for a launch pool. An opening: what the vault can do to the new pool and
+ * its tier, the fork line, and how a new pool earns.
  */
 export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'standard' | 'other' } | { kind: 'create' }) {
   return (
@@ -236,8 +237,8 @@ export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'st
       <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
       <FinePrint summary="Risks">
         <p>{RISK_SHORT}</p>
-        <p>{FORK_LINE}</p>
         <p>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</p>
+        <p>{FORK_LINE}</p>
         {p.kind === 'add' && p.origin === 'launch-pool' && <p>{LAUNCH_POOL_LINE}</p>}
         {p.kind === 'create' && <p>{MONEY_NOTE}</p>}
       </FinePrint>

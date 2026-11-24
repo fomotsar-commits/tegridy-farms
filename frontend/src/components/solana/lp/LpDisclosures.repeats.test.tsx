@@ -85,3 +85,33 @@ describe('a closed Risks box on the forms says it opens', () => {
     }
   });
 });
+
+// Fresh-eyes read at 390, 2026-11-24: the vault line's "It can also" and "the same wait" point at
+// the first line, so it comes right after it; the program line follows. The keeper's wallet is
+// wider than a Risks list on a phone, so it comes last, on a line of its own, never mid-sentence.
+describe('each Risks list: the vault line follows the risk line it adds to', () => {
+  for (const where of ['the Add liquidity form', 'the Open a pool form', 'the review of an add', 'the review of an opening'] as const) {
+    it(`${where}: risk line, vault line, program line`, () => {
+      const view = render(LISTS[where]());
+      const lines = [...view.container.querySelectorAll('li, p')].map((e) => e.textContent ?? '');
+      const at = (start: string) => lines.findIndex((l) => l.startsWith(start));
+      expect(at(RISK_SHORT)).toBeGreaterThanOrEqual(0);
+      expect(at("The team's vault is a Squads multisig. It can also")).toBe(at(RISK_SHORT) + 1);
+      expect(at("Our pool program is Raydium's")).toBe(at(RISK_SHORT) + 2);
+      expect(view.container.textContent).toContain('While the vault has the guard switched on');
+      view.unmount();
+    });
+  }
+
+  it("the keeper's wallet ends its line, on a line of its own", () => {
+    for (const draw of [LISTS['the Add liquidity form'], LISTS['the Open a pool form']]) {
+      const view = render(draw());
+      const li = [...view.container.querySelectorAll('li')].find((e) => e.textContent?.startsWith("A fee tier's named keeper"))!;
+      expect(li.textContent).toMatch(/Everyone else pays as before\. The robot's wallet:9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz$/);
+      const wallet = li.querySelector('span.font-mono')!;
+      expect(wallet.className).toMatch(/\bblock\b/);
+      expect(wallet.className).toContain('[overflow-wrap:anywhere]');
+      view.unmount();
+    }
+  });
+});

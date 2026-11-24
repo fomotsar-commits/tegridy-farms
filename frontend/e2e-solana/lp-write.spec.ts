@@ -996,7 +996,7 @@ test.describe('group B (chromium only)', () => {
 
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
-      `Tier ${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+      `Tier ${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade, the venue ${feeSplit(f.ammConfig).venueTakesPct.toFixed(3)}%`;
     // Whole words, small print included, read without the addresses (guardText): a random
     // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
     const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;

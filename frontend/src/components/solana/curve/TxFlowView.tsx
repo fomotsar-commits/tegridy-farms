@@ -306,7 +306,10 @@ export function FeeTierValue({ config, enableCreatorFee }: { config: LpSummary['
       <span className="inline-block">
         Tier {config.index}: traders pay {tradeCostText(config, enableCreatorFee)};
       </span>{' '}
-      <span className="inline-block">LPs keep {feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade</span>
+      {/* What LPs keep and what the venue takes, together (owner, 2026-10-09: it stays in view). */}
+      <span className="inline-block">
+        LPs keep {feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade, the venue {feeSplit(config).venueTakesPct.toFixed(3)}%
+      </span>
     </>
   );
 }

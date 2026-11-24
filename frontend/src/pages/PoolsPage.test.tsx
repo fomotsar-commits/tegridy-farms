@@ -209,7 +209,10 @@ describe('when the venue is live', () => {
     const share = screen.getByRole('heading', { level: 2, name: 'Deposit a pair, hold your share' }).parentElement!;
     expect(share).toHaveTextContent("No lock; the team's vault can switch off withdrawals.");
     expect(within(share).queryByText(/^Nothing to claim\./)).toBeNull();
-    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares.").
+    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares."),
+    // and the card's second bullet says how: the small print does not open by saying it a third time.
+    expect(share).not.toHaveTextContent('Fees grow your share as the pool trades.');
+    expect(share).toHaveTextContent('Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.');
   });
 });
 

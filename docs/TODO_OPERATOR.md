@@ -200,7 +200,9 @@ deployed all three on 2026-11-08; the addresses are in [`CONTRACTS.md`](CONTRACT
     auction can start, so an overdue loan with several lenders stays stuck. The call sets it to 1,000
     WETH (`setMinBidForCurrency`, data in the sheet). That only caps the floor: each auction's floor
     stays 0.5% of its loan. Step by step, nonce 2 by hand, in repo-root
-    `SAFE-2026-11-14-accept-fee-contracts.md`.
+    `SAFE-2026-11-14-accept-fee-contracts.md`. Once it has run, the site's "auctions are not
+    switched on yet" words come out (`frontend/src/lib/faqData.ts`, `towelieKnowledge.ts`,
+    `pages/RisksPage.tsx`; `pages/lendingTruths.test.ts` pins them).
   - Base, multisig `0xBC4E…Be5B`: `0xdDFAE1EA323FAbf7cd64f3fde84472eE8f4dD7bd` and
     `0x939744f1719eE7427352EFAe8d17F9F3BdeDCc37`.
   - Robinhood, multisig `0xBC4E…Be5B`: `0x85AB297793e14283b54347C92C6AEFBaa20d1492` and

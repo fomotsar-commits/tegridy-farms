@@ -28,6 +28,12 @@ describe('takeoverWindow', () => {
 });
 
 describe('what each side is told', () => {
+  it('a setting of 0 is said as any time, not "from 0% to 100%"', () => {
+    expect(lenderTakeoverLine(takeoverWindow(0n))).toMatch(/^At any time in a loan's term, another lender can take the loan over/);
+    expect(borrowerTakeoverLine(takeoverWindow(0n))).toMatch(/^At any time in the term, another lender can take this loan over/);
+    expect(lenderTakeoverLine(takeoverWindow(0n))).not.toMatch(/0%/);
+  });
+
   it('a window read from the chain is printed, with where it comes from and who can move it', () => {
     const lender = lenderTakeoverLine(takeoverWindow(2000n));
     expect(lender).toBe(
