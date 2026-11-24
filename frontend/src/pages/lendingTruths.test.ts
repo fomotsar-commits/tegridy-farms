@@ -27,7 +27,7 @@ describe('the FAQ on NFT lending', () => {
     expect(a).toMatch(/at a lower rate without asking you/);
     // The window is the loan contract's setting (getMinLockPeriod), which the Safe can change at once.
     // ...with the date it was read, as every chain figure on the site (1500 bps on 2026-11-24).
-    expect(a).toMatch(/Between 15% and 85% of a loan's term \(read on chain 2026-11-24; the venue's Safe can change that window at once\), another lender/);
+    expect(a).toMatch(/Between 15% and 85% of a loan's term \(read on chain 2026‑11‑24; the venue's Safe can change that window at once\), another lender/);
     expect(a).toMatch(/an NFT from Jungle Bay Ape Club, Nakamigos or GNSS Art\./);
   });
 
@@ -38,7 +38,7 @@ describe('the FAQ on NFT lending', () => {
     for (const a of [faq('What is NFT Lending?'), faq('What happens if I default on a loan?')]) {
       expect(a).toMatch(/3-day auction/);
       expect(a).toContain(
-        "auctions are not switched on yet (read on chain 2026-11-24): until the venue's Safe switches them on, such a loan, once overdue, cannot be repaid or claimed, and the NFT stays locked.",
+        "auctions are not switched on yet (read on chain 2026‑11‑24): until the venue's Safe switches them on, such a loan, once overdue, cannot be repaid or claimed, and the NFT stays locked.",
       );
     }
   });
@@ -74,7 +74,7 @@ describe('Towelie on NFT lending', () => {
   it('says another lender can take a loan over, inside a window the Safe can change', () => {
     const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
     expect(entry?.answer).toContain(
-      "Between 15% and 85% of the term (read on chain 2026-11-24; the venue's Safe can change that window at once), another lender can take your loan over at a lower rate without asking you.",
+      "Between 15% and 85% of the term (read on chain 2026‑11‑24; the venue's Safe can change that window at once), another lender can take your loan over at a lower rate without asking you.",
     );
   });
 
@@ -84,7 +84,7 @@ describe('Towelie on NFT lending', () => {
     expect(entry?.answer).not.toMatch(/by the deadline/);
     // No auction can start while the liquidator's WETH min bid is 0 (read on 2026-11-24).
     expect(entry?.answer).toContain(
-      "With several lenders it goes to a 3-day auction, but auctions are not switched on yet (read on chain 2026-11-24): until the venue's Safe switches them on, the NFT stays locked.",
+      "With several lenders it goes to a 3-day auction, but auctions are not switched on yet (read on chain 2026‑11‑24): until the venue's Safe switches them on, the NFT stays locked.",
     );
   });
 });
@@ -118,7 +118,7 @@ describe('the Risks page on NFT lending', () => {
     expect(risks).toMatch(/then take the NFT once the loan is due, leaving the lender unpaid/);
     expect(risks).not.toMatch(/ends at auction/);
     expect(risks.replaceAll("\\'", "'")).toContain(
-      "with several lenders it goes to a 3-day auction, once the venue's Safe switches auctions on (not yet when read on chain 2026-11-24); until then the NFT stays locked",
+      "with several lenders it goes to a 3-day auction, once the venue's Safe switches auctions on (not yet when read on chain 2026‑11‑24); until then the NFT stays locked",
     );
   });
 
@@ -135,7 +135,7 @@ describe('the Risks page on NFT lending', () => {
   it('section 5 says another lender can take a loan over without the borrower, and repaying must come before the deadline', () => {
     // The window with its read date, and what a takeover changes for the borrower (the borrow tab's own words).
     expect(risks.replaceAll("\\'", "'")).toContain(
-      "Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term (read on chain 2026-11-24; the venue's Safe can change that window at once). The loan then has a new number and its deadline can only move later; if the new lender lends more, the extra WETH is sent to you and you owe it too.",
+      "Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term (read on chain 2026‑11‑24; the venue's Safe can change that window at once). The loan then has a new number and its deadline can only move later; if the new lender lends more, the extra WETH is sent to you and you owe it too.",
     );
     expect(risks).toMatch(/failure to repay the loan before the agreed-upon deadline/);
     expect(risks).not.toMatch(/repay the loan by the agreed-upon deadline/);

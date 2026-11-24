@@ -32,6 +32,9 @@ describe('what each side is told', () => {
     expect(lenderTakeoverLine(takeoverWindow(0n))).toMatch(/^At any time in a loan's term, another lender can take the loan over/);
     expect(borrowerTakeoverLine(takeoverWindow(0n))).toMatch(/^At any time in the term, another lender can take this loan over/);
     expect(lenderTakeoverLine(takeoverWindow(0n))).not.toMatch(/0%/);
+    // No window was named, so the next sentence does not point at one.
+    expect(lenderTakeoverLine(takeoverWindow(0n))).toContain("That is the loan contract's setting, read just now.");
+    expect(lenderTakeoverLine(takeoverWindow(1500n))).toContain("That window is the loan contract's setting, read just now.");
   });
 
   it('a window read from the chain is printed, with where it comes from and who can move it', () => {

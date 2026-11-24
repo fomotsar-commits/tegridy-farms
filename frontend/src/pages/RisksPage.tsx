@@ -158,7 +158,7 @@ const PROTOCOL_LIMITS: Array<{
       { label: 'Contract', value: "Gondi's v3.2, unchanged", why: "Byte for byte the code of Gondi's own loan contract on mainnet" },
       { label: 'Venue fee', value: '5% of the interest', why: "Taken from the lender's interest, to the venue's treasury. The borrower pays only the agreed interest" },
       { label: 'Interest', value: 'For the days used', why: 'Repay early and the interest stops that day' },
-      { label: 'Missed due date', value: 'No grace period', why: "The moment a loan is due and unpaid, one lender can take the NFT; with several lenders it goes to a 3-day auction, once the venue's Safe switches auctions on (not yet when read on chain 2026-11-24); until then the NFT stays locked" },
+      { label: 'Missed due date', value: 'No grace period', why: "The moment a loan is due and unpaid, one lender can take the NFT; with several lenders it goes to a 3-day auction, once the venue's Safe switches auctions on (not yet when read on chain 2026‑11‑24); until then the NFT stays locked" },
       { label: 'Admin', value: "Venue's 2-key Safe", why: 'With no wait, both keys together can stop a loan from being repaid, then take the NFT once the loan is due, leaving the lender unpaid' },
     ],
   },
@@ -192,7 +192,7 @@ const RISKS = [
   },
   {
     title: '5. Liquidation Risk (NFT Lending)',
-    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan before the agreed-upon deadline will result in the lender claiming your NFT collateral. From the deadline, the lender can take your NFT at any moment, and the smart contract enforces it. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment. Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term (read on chain 2026-11-24; the venue\'s Safe can change that window at once). The loan then has a new number and its deadline can only move later; if the new lender lends more, the extra WETH is sent to you and you owe it too.',
+    body: 'If you borrow against NFT collateral through the Protocol\'s lending feature, failure to repay the loan before the agreed-upon deadline will result in the lender claiming your NFT collateral. From the deadline, the lender can take your NFT at any moment, and the smart contract enforces it. Once liquidation occurs, it is final. The value of your NFT collateral may exceed the loan amount, but you will still lose the NFT if you default on repayment. Another lender can also take your loan over at a lower rate without asking you, between 15% and 85% of its term (read on chain 2026‑11‑24; the venue\'s Safe can change that window at once). The loan then has a new number and its deadline can only move later; if the new lender lends more, the extra WETH is sent to you and you owe it too.',
   },
   {
     title: '6. Oracle Risk',
