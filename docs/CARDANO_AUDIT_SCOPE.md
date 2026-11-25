@@ -50,8 +50,8 @@ Minswap's `deployed/mainnet/script.json` and the reference script on mainnet all
 ## 2. In scope: the two patches to Minswap's code
 
 Both are in one reviewed diff, `cardano/guards/upstream/minswap-dex-v2.diff` (sha256
-`9326b528bfd33fe59d4aa715e2fe2a84c71dc9bc3102bd39566bf3d068c2e9f9`, pinned in
-`cardano/guards/provenance.mjs`), 30 changed lines in four files. Below, each on its own.
+`ce05c041554529e01961eae6ea3acfa892bec407d55a66298c69df4bb817ab9d`, pinned in
+`cardano/guards/provenance.mjs`), 32 changed lines in four files. Below, each on its own.
 
 ### 2a. The fee-share floor (2026-10-24)
 
@@ -102,7 +102,7 @@ to open a pool, so this needs Minswap's code changed:
 ---
 >     let Transaction { inputs, mint, outputs, reference_inputs, .. } =
 >       transaction
-192a194,211
+192a194,213
 >     let global_setting =
 >       pool_validation.get_and_validate_global_setting(
 >         reference_inputs,
@@ -114,14 +114,16 @@ to open a pool, so this needs Minswap's code changed:
 >         0,
 >         fn(output, paid) {
 >           let Output { address: out_addr, value: out_value, .. } = output
->           if out_addr == global_setting.pool_creation_fee_receiver {
+>           // Only ADA alone counts: ADA bound to tokens is not the venue's to spend.
+>           let ada_only = value.without_lovelace(out_value) == value.zero()
+>           if out_addr == global_setting.pool_creation_fee_receiver && ada_only {
 >             paid + value.lovelace_of(out_value)
 >           } else {
 >             paid
 >           }
 >         },
 >       )
-231a251,252
+231a253,254
 >       // Transaction must pay the Global Setting's pool creation fee to its receiver
 >       pool_creation_fee_paid >= global_setting.pool_creation_fee,
 ```
@@ -135,7 +137,10 @@ after Minswap's six, so every field Minswap had keeps its index.
 **What it changes.** Pool Creation (the factory's one path) now also reads the GlobalSetting, with
 Minswap's own `get_and_validate_global_setting`: the first reference input at the authen script,
 holding the one `MSGS` token. It sums the lovelace of every output whose address equals the
-receiver exactly (payment and stake credential) and requires at least the fee. A fee of 0 opens
+receiver exactly (payment and stake credential) and that holds ADA alone, and requires at least
+the fee. An output that also carries a token does not count (2026-11-25 audit): its ADA could never
+be spent without carrying the token on, so an opener could otherwise pay most of the fee bound to
+worthless tokens. A fee of 0 opens
 pools free. Everything else the factory checks is Minswap's, unchanged. The authen policy only
 gains `..` where it destructures the GlobalSetting to check its six roles. Every validator that
 decodes a GlobalSetting now expects eight fields, so a six-field datum (Minswap's shape) is refused
@@ -143,12 +148,12 @@ everywhere. That decode is the only change to the authen policy, the pool valida
 fee-update and fee-withdrawal paths, and the pool batching (which reads the batchers).
 
 Script hashes, our copy as it stands (both patches) against Minswap's blueprint, from
-`prove-build.mjs` on 2026-10-25:
+`prove-build.mjs` on 2026-10-25 (the factory and the role timelock re-run on 2026-11-25):
 
 | Script | Unparameterised: Minswap → ours | With Minswap's mainnet parameters: mainnet → ours |
 |---|---|---|
 | Authen policy (and the GlobalSetting spend, the same script) | `c91bb7e2…` → `a80603d1…`, 4,651 → 5,223 bytes | `f5808c2c…` → `a4afc1d2…` |
-| Factory | `05097567…` → `6c73516d…`, 3,234 → 4,026 bytes | `7bc5fbd4…` → `cf7f9d22…` |
+| Factory | `05097567…` → `3ef5a05a…`, 3,234 → 4,049 bytes | `7bc5fbd4…` → `b2b7ee62…` |
 | Pool | `6df8eb96…` → `4d3f4fd6…`, 3,931 → 4,096 bytes | `ea07b733…` → `5427279f…` |
 | Pool batching | `5e2a216f…` → `6b22298f…`, 15,565 → 15,589 bytes | `1eae96ba…` → `cd1225c0…` |
 | Order | unchanged, `9fc0facf…` | `c3e28c36…` → `8f32fd6a…` (its parameter names the pool batching) |
@@ -178,20 +183,21 @@ the same code. Nothing is deployed, so no live hash moves.
 3. **The reference input.** An opener must now reference the GlobalSetting. A junk UTxO at the
    authen script referenced before it makes Minswap's lookup fail: the opener's own transaction
    fails, as with Minswap's batching today. Anything worse?
-4. **Cost.** The factory is 792 bytes larger and does one more search and one fold. Pool batching
+4. **Cost.** The factory is 815 bytes larger and does one more search and one fold. Pool batching
    decodes two more fields once per batch; the batcher re-measures its batch sizes against this
    build.
 
-**Tests.** `cardano/minswap-tests/factory_validator.ak`, 14 tests, run by `prove-build.mjs`
+**Tests.** `cardano/minswap-tests/factory_validator.ak`, 17 tests, run by `prove-build.mjs`
 appended to a staged copy of `validators/factory_validator.ak` (Aiken v1.0.24 tests can call a
 validator only from its own module). They call the real validator on a whole Pool Creation
-transaction: a pool opens paying 73 ADA, paying more, paying it in two outputs, or paying nothing
-when the fee is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
-treasury's script with another stake key, paid in a token instead of ADA, with no GlobalSetting,
+transaction: a pool opens paying 73 ADA, paying more, paying it in two outputs, beside a token sent to the
+treasury, or paying nothing when the fee is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
+treasury's script with another stake key, paid in a token instead of ADA, paid in an output that
+also holds a junk token, with no GlobalSetting,
 against a GlobalSetting without its token, with the GlobalSetting spent instead of referenced, and
 against Minswap's six-field GlobalSetting; and a test pins the datum's field order. Each refused
-case is a passing transaction with one thing changed. Run against Minswap's own factory, 9 of the
-14 fail. A mutation pass (2026-10-25) broke the factory check eight ways (the check removed, `>=`
+case is a passing transaction with one thing changed. Run against Minswap's own factory, 10 of the
+17 fail. A mutation pass (2026-10-25) broke the factory check eight ways (the check removed, `>=`
 made `>` or `==`, only the payment credential compared, no sum, the setting read from the spent
 inputs, tokens counted as lovelace, the two fields swapped): every mutant was caught by at least
 one test.

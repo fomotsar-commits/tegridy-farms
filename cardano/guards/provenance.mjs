@@ -33,10 +33,10 @@ export const MANIFEST = 'minswap-dex-v2.sha256';
 //   lovelace to an address, both named by the GlobalSetting, which the 48-hour lock changes.
 //   types.ak: the two fields, after Minswap's six; authen_minting_policy.ak: `..` where it
 //   reads the six; factory_validator.ak: the GlobalSetting read from the reference inputs and
-//   the payment checked.
+//   the payment checked, counting only outputs that hold ADA alone (2026-11-25 audit).
 export const DELTA = {
   file: 'minswap-dex-v2.diff',
-  sha256: '9326b528bfd33fe59d4aa715e2fe2a84c71dc9bc3102bd39566bf3d068c2e9f9',
+  sha256: 'ce05c041554529e01961eae6ea3acfa892bec407d55a66298c69df4bb817ab9d',
   patched: ['lib/amm_dex_v2/types.ak', 'lib/amm_dex_v2/utils.ak', 'validators/authen_minting_policy.ak', 'validators/factory_validator.ak'],
 };
 
@@ -224,7 +224,8 @@ function selfTest(root = process.cwd()) {
     ['a lower floor than reviewed', (d) => edit(d, 'cardano/minswap-dex-v2/lib/amm_dex_v2/utils.ak', 'min_fee_sharing_numerator = 1333', 'min_fee_sharing_numerator = 1')],
     ['an edited patch', (d) => edit(d, `cardano/guards/upstream/${DELTA.file}`, '= 1333', '= 1')],
     ['the opening fee check removed', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', '      pool_creation_fee_paid >= global_setting.pool_creation_fee,\n', '')],
-    ['the opening fee counted at any address', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', 'if out_addr == global_setting.pool_creation_fee_receiver {', 'if True {')],
+    ['the opening fee counted at any address', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', 'if out_addr == global_setting.pool_creation_fee_receiver && ada_only {', 'if True {')],
+    ['the opening fee counted with tokens beside it', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', 'let ada_only = value.without_lovelace(out_value) == value.zero()', 'let ada_only = True')],
     ['the opening fee fields out of step in one copy', (d) => edit(d, 'cardano/role-timelock/lib/amm_dex_v2/types.ak', 'pool_creation_fee: Int,', 'pool_creation_fee: Data,')],
     ['an added file beside the library copy', (d) => writeFileSync(join(d, 'cardano/role-timelock/lib/amm_dex_v2/extra.ak'), '')],
     ['an edited manifest', (d) => edit(d, `cardano/guards/upstream/${MANIFEST}`, '\n8', '\n0')],
