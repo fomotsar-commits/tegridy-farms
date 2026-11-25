@@ -37,15 +37,21 @@ import {
   latestBlock, makeRpc, pairOf, parseKey, poolsFor, programEvents, signaturesIn, transaction, txnIndexIn, vaultAfter,
 } from "./geckoterminal.js";
 
-/** Anchor's instruction tags for opening a pool: sha256("global:initialize") and sha256("global:initialize_with_permission"), first 8 bytes. */
-export const OPEN_TAGS = new Set(["afaf6d1f0d989bed", "3f37fe4131b25979"]);
+/**
+ * Anchor's instruction tags for opening a pool, sha256("global:initialize") and
+ * sha256("global:initialize_with_permission") first 8 bytes, each with the place of
+ * `pool_state` in its accounts (cp-swap instructions/initialize*.rs). Only that place counts:
+ * the program creates that account there (`init`), so it is new, while any account can be
+ * appended after the fixed ones, an existing pool's included.
+ */
+export const OPEN_TAGS = new Map([["afaf6d1f0d989bed", 3], ["3f37fe4131b25979", 4]]);
 /** eventIndex = txnIndex × this + the event's place in its transaction: unique in the block, in order. */
 export const EVENTS_PER_TXN = 1000;
 export const EXCHANGE = Object.freeze({ factoryAddress: VENUE_PROGRAM, name: "Memetics Finance", logoURL: "https://memetics.finance/apple-touch-icon.png" });
 
 /* ───────────────────────────────── events ──────────────────────────────── */
 
-/** Each instruction to our program that opens a pool (top level or inner, in that order), as its account keys. */
+/** The pool each instruction to our program that opens one creates (top level, then inner). */
 export function openings(tx) {
   const keys = accountKeysOf(tx);
   const m = tx.transaction.message;
@@ -59,23 +65,21 @@ export function openings(tx) {
     } catch {
       continue;
     }
-    if (OPEN_TAGS.has(tag)) out.push(ix.accounts.map((i) => keys[i]));
+    const at = OPEN_TAGS.get(tag);
+    if (at !== undefined && ix.accounts[at] !== undefined) out.push(keys[ix.accounts[at]]);
   }
   return out;
 }
 
-/** The pools a transaction opens, among those we hold (an opening whose pool we do not hold names none). */
+/** The pools a transaction opens, among those we hold. */
 export function openedPools(tx, pools) {
   const out = [];
-  for (const accounts of openings(tx)) {
-    const id = accounts.find((k) => pools.has(k));
-    if (id && !out.includes(pools.get(id))) out.push(pools.get(id));
-  }
+  for (const id of openings(tx)) if (pools.has(id) && !out.includes(pools.get(id))) out.push(pools.get(id));
   return out;
 }
 
-/** True when some opening names no pool we hold: a pool newer than the list. */
-const opensUnknown = (txs) => (pools) => txs.some((tx) => !tx?.meta?.err && openings(tx).some((accounts) => !accounts.some((k) => pools.has(k))));
+/** True when a transaction opens a pool we do not hold: one newer than the list. */
+const opensUnknown = (txs) => (pools) => txs.some((tx) => !tx?.meta?.err && openings(tx).some((id) => !pools.has(id)));
 
 /**
  * What a pool opened with: its vaults just before the first event of it in the same

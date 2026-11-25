@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, feeBpsOf } from "../_lib/geckoterminal.js";
+import { VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, eventsOf, feeBpsOf } from "../_lib/geckoterminal.js";
 import { EVENTS_PER_TXN, OPEN_TAGS, dexToolsEventsIn, dexToolsEventsOf, handleDexTools, openedPools, openings } from "../_lib/dextools.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,13 +32,24 @@ pool.feeBps = feeBpsOf(accounts.config.data, pool.creatorFeeOn);
 const pools = new Map([[POOL, pool]]);
 
 describe("a pool's opening, read from the instruction (our program logs no event for it)", () => {
-  it("knows cp-swap's two opening instructions by Anchor's tags", () => {
-    expect([...OPEN_TAGS]).toEqual(["afaf6d1f0d989bed", "3f37fe4131b25979"]);
+  it("knows cp-swap's two opening instructions by Anchor's tags, and where each puts the new pool", () => {
+    expect([...OPEN_TAGS]).toEqual([["afaf6d1f0d989bed", 3], ["3f37fe4131b25979", 4]]);
     expect(createTx.meta.logMessages.some((l) => l.startsWith("Program data: "))).toBe(false);
-    expect(openings(createTx)).toHaveLength(1);
+    expect(openings(createTx)).toEqual([POOL]);
     expect(openings(swapTx)).toEqual([]);
     expect(openedPools(createTx, pools)).toEqual([pool]);
     expect(openedPools(createTx, new Map())).toEqual([]);
+  });
+  it("an existing pool appended to someone else's opening is not opened again", () => {
+    // Instruction 14 is the opening; move a stranger's account into the pool's place and append ours after the fixed accounts.
+    const m = createTx.transaction.message;
+    const ix = m.instructions[14];
+    const poolAt = ix.accounts[3];
+    const spoof = structuredClone(createTx);
+    spoof.transaction.message.instructions[14] = { ...ix, accounts: [...ix.accounts.slice(0, 3), ix.accounts[0], ...ix.accounts.slice(4), poolAt] };
+    expect(openings(spoof)).toEqual([m.accountKeys[ix.accounts[0]]]);
+    expect(openedPools(spoof, pools)).toEqual([]);
+    expect(dexToolsEventsOf(spoof, pools, 0)).toEqual([]);
   });
   it("a creation, then a join of what the pool opened with: 1 SOL and 219,749.259037 BAYLA", () => {
     const events = dexToolsEventsOf(createTx, pools, 5);
@@ -50,7 +61,10 @@ describe("a pool's opening, read from the instruction (our program logs no event
   });
   it("when the same transaction then trades in the pool, the opening is the vaults that trade started from, not the vaults after it", () => {
     const swapLines = swapTx.meta.logMessages.filter((l) => l.startsWith("Program data: "));
-    const both = { ...createTx, meta: { ...createTx.meta, logMessages: [...createTx.meta.logMessages, ...swapLines] } };
+    // A swap in the same transaction, logged inside our program's own frame (after the opening's, as a second call would).
+    const logs = createTx.meta.logMessages;
+    const end = logs.lastIndexOf(`Program ${VENUE_PROGRAM} success`);
+    const both = { ...createTx, meta: { ...createTx.meta, logMessages: [...logs.slice(0, end), ...swapLines, ...logs.slice(end)] } };
     // The swap's own log line: input (SOL) vault at byte 40, output (BAYLA) vault at byte 48.
     const d = Buffer.from(swapLines[0].slice("Program data: ".length), "base64");
     const sol = d.readBigUInt64LE(40);
@@ -75,6 +89,21 @@ describe("events in DexTools' shape", () => {
     const twice = { ...swapTx, meta: { ...swapTx.meta, logMessages: [...swapTx.meta.logMessages, ...swapTx.meta.logMessages] } };
     expect(dexToolsEventsOf(twice, pools, 2).map((e) => e.eventIndex)).toEqual([2000, 2001]);
     expect(dexToolsEventsOf(swapTx, pools, 3)[0].eventIndex).toBe(3 * EVENTS_PER_TXN);
+  });
+  it("a swap line another program logs, naming our pool, is not a trade (both adapters)", () => {
+    const line = swapTx.meta.logMessages.find((l) => l.startsWith("Program data: "));
+    const other = "11111111111111111111111111111111";
+    const forged = (logs) => ({ ...swapTx, meta: { ...swapTx.meta, logMessages: logs } });
+    const inStranger = forged([`Program ${other} invoke [1]`, line, `Program ${other} success`]);
+    const afterOurs = forged([`Program ${VENUE_PROGRAM} invoke [1]`, `Program ${VENUE_PROGRAM} success`, line]);
+    const strangerInsideOurs = forged([`Program ${VENUE_PROGRAM} invoke [1]`, `Program ${other} invoke [2]`, line, `Program ${other} success`, `Program ${VENUE_PROGRAM} success`]);
+    for (const tx of [inStranger, afterOurs, strangerInsideOurs]) {
+      expect(dexToolsEventsOf(tx, pools, 0)).toEqual([]);
+      expect(eventsOf(tx, pools, 0)).toEqual([]);
+    }
+    // Our own line, after a call our program made returned, still counts.
+    const ours = forged([`Program ${VENUE_PROGRAM} invoke [1]`, `Program ${other} invoke [2]`, `Program ${other} success`, line, `Program ${VENUE_PROGRAM} success`]);
+    expect(eventsOf(ours, pools, 0)).toHaveLength(1);
   });
   it("a deposit is a join and a withdrawal an exit; a failed transaction has none", () => {
     expect(dexToolsEventsOf(depositTx, pools, 0)[0]).toMatchObject({ eventType: "join", amount0: "0.049676064", amount1: "8626.776509", reserves: { asset0: "76.703907385", asset1: "13318939.480744" } });
@@ -155,10 +184,18 @@ describe("a pool opened since the pool list was read is not lost (both adapters)
     expect((await eventsIn(c.rpc, 466405061, 466405061)).map((e) => e.eventType)).toEqual(["swap"]);
     expect(c.pgas()).toBe(2);
   });
-  it("another program's pool in an event line costs one extra read, then is remembered", async () => {
+  it("an id our program logs that a fresh list still lacks costs one extra read, then is remembered", async () => {
     const c = chain({ txs: [swapTx], poolLists: [[]] });
     for (let i = 0; i < 3; i++) expect(await eventsIn(c.rpc, 466405061, 466405061)).toEqual([]);
     expect(c.pgas()).toBe(2);
+  });
+  it("a stranger's line naming a pool costs no read at all", async () => {
+    const line = swapTx.meta.logMessages.find((l) => l.startsWith("Program data: "));
+    const other = "11111111111111111111111111111111";
+    const forged = { ...swapTx, meta: { ...swapTx.meta, logMessages: [`Program ${other} invoke [1]`, line, `Program ${other} success`] } };
+    const c = chain({ txs: [forged], poolLists: [[]] });
+    expect(await eventsIn(c.rpc, 466405061, 466405061)).toEqual([]);
+    expect(c.pgas()).toBe(1);
   });
 });
 

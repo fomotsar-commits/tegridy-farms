@@ -114,17 +114,43 @@ export function feeBpsOf(configData, creatorFeeOn) {
   return Number((trade + creator + 50n) / 100n);
 }
 
-/** The event lines of a transaction's logs that carry our program's events, decoded; others are skipped. */
-export function programEvents(tx, pools) {
+const INVOKE = /^Program (\S+) invoke \[\d+\]$/;
+const LEAVE = /^Program (\S+) (success|failed)/;
+
+/**
+ * The `Program data:` payloads OUR program logged, decoded: a line counts only while our
+ * program is the one running, by the runtime's own invoke/success/failed lines. Any program
+ * can log a line that looks like a SwapEvent naming one of our pools, and any transaction can
+ * name our program to be listed with its signatures; without this, a stranger's program
+ * could write fake trades into the chart sites, or a line with no vaults that stalls them.
+ */
+export function ourDataLines(tx) {
   const out = [];
+  const stack = [];
   for (const line of tx?.meta?.logMessages ?? []) {
-    if (!line.startsWith(PROGRAM_DATA)) continue;
-    let d;
+    const enter = INVOKE.exec(line);
+    if (enter) {
+      stack.push(enter[1]);
+      continue;
+    }
+    if (LEAVE.test(line)) {
+      stack.pop();
+      continue;
+    }
+    if (!line.startsWith(PROGRAM_DATA) || stack[stack.length - 1] !== VENUE_PROGRAM) continue;
     try {
-      d = Buffer.from(line.slice(PROGRAM_DATA.length), "base64");
+      out.push(Buffer.from(line.slice(PROGRAM_DATA.length), "base64"));
     } catch {
       continue;
     }
+  }
+  return out;
+}
+
+/** The event lines of a transaction's logs that carry our program's events, decoded; others are skipped. */
+export function programEvents(tx, pools) {
+  const out = [];
+  for (const d of ourDataLines(tx)) {
     if (d.length < 40) continue;
     const tag = d.subarray(0, 8).toString("hex");
     const poolId = key(d, 8);
@@ -148,17 +174,10 @@ export function programEvents(tx, pools) {
   return out;
 }
 
-/** The pool each swap or liquidity event line of a transaction names, known to us or not. */
+/** The pool each swap or liquidity event our program logged names, known to us or not. */
 export function eventPoolIds(tx) {
   const out = [];
-  for (const line of tx?.meta?.logMessages ?? []) {
-    if (!line.startsWith(PROGRAM_DATA)) continue;
-    let d;
-    try {
-      d = Buffer.from(line.slice(PROGRAM_DATA.length), "base64");
-    } catch {
-      continue;
-    }
+  for (const d of ourDataLines(tx)) {
     const tag = d.length >= 40 ? d.subarray(0, 8).toString("hex") : "";
     if ((tag === SWAP_EVENT_TAG && d.length >= 170) || (tag === LP_EVENT_TAG && d.length >= 97)) out.push(key(d, 8));
   }
