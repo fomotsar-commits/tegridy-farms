@@ -516,7 +516,7 @@ test('with no order to batch, the wallet and the settings are still checked: at 
   primary.chain.push({ ...rich, createdSlot: 0n, createdTxIndex: 0 });
   primary.slot = TIP + 600n;
   await watcher.round();
-  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace, above its cap of 100000000: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury \(sweep\) once it exists$/);
+  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace in plain ADA, above its cap of 100000000: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury \(sweep\) once it exists$/);
   // A process started over the cap (a redeploy) stops at its first round, order or not.
   const fresh = setup(0, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, rich] });
   await fresh.watcher.round();
@@ -822,4 +822,14 @@ test('a batch whose network fee is more than the batcher fees it collects is ref
   assert.deepEqual(events.filter((e) => e.kind === 'error'), []);
   const aside = events.find((e) => e.kind === 'set-aside');
   assert.ok(aside?.kind === 'set-aside' && !aside.alert && /network fee \(\d+ lovelace\) is more than the 1000 lovelace in batcher fees it collects/.test(aside.reason), aside?.kind);
+});
+
+test('with no treasury named, a gift carrying tokens never counts toward the float cap: only plain ADA does', async () => {
+  const w = world();
+  const gift = utxo(`${'b3'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA, [[TOK2.policyId, TOK2.assetName, 1n]]));
+  const { primary, watcher, events } = setup(1, { wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, gift] });
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  assert.equal(primary.submitted.length, 1);
+  assert.ok(events.some((e) => e.kind === 'wallet' && e.held === 125n * ADA && e.plain === 30n * ADA));
 });

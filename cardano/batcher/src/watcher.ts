@@ -289,9 +289,10 @@ export class Watcher {
     const collateral = plain.find((u) => coin(u) >= MIN_COLLATERAL);
     const others = plain.filter((u) => u !== collateral && !pledged.has(u.ref)).reverse();
     const sweep = this.#c.sweep;
-    if (!sweep && held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
+    // Counted on what it can spend, with a treasury named or not: a gift of tokens is never its to
+    // sweep, and never stops it (anyone can send one).
+    if (!sweep && plainHeld > this.#c.floatCap) return this.#stop(`the batcher holds ${plainHeld} lovelace in plain ADA, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
     if (sweep) {
-      // Counted on what it can spend: a gift of tokens is never its to sweep, and never stops it.
       // One sweep at a time: while one is in flight (or a dry run's is held, or one was just
       // refused as spent or expired), batching goes on, and the rest waits for the next.
       const going = [...this.inflight.values()].some((f) => f.sweep !== undefined);
