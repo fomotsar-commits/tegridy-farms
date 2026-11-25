@@ -106,6 +106,10 @@ export function refusedFirstCopy(reason: SendRefusal, signed: VersionedTransacti
   const program = ix ? signed.message.staticAccountKeys[ix.programIdIndex]?.toBase58() : undefined;
   const lighthouseFailed = program === LIGHTHOUSE_PROGRAM || logs.some((l) => l.startsWith(`Program ${LIGHTHOUSE_PROGRAM} failed`));
   if (lighthouseFailed) {
+    // Out of compute is not a price move: the same swap fails the same way every press (walletGuardRoom.ts).
+    if (/computational budget exceeded|exceeded CUs meter/i.test(`${message} ${logs.join(' ')}`)) {
+      return 'Your wallet’s own safety check ran out of room to finish. Nothing was sent. Press again.';
+    }
     return 'Your wallet’s own safety check stopped it: the swap no longer matches what your wallet checked, usually because the price moved. Nothing was sent. Press again for a fresh price.';
   }
   if (JUPITER_SLIPPAGE.test(message)) {
