@@ -436,12 +436,14 @@ export function parseArgs(argv) {
 /** A price only when it is a finite number above 0: JSON's 1e999 reads as Infinity, which is no price. */
 const usable = (v) => (Number.isFinite(v) && v > 0 ? v : null);
 
+/** SOL's price as { usd, error }: usd null, and error the reason, when it was not read. */
 async function solPrice(fetchImpl) {
   try {
     const r = await fetchImpl("https://api.coinbase.com/v2/prices/SOL-USD/spot", { signal: AbortSignal.timeout(10_000) });
-    return usable(Number((await r.json())?.data?.amount));
-  } catch {
-    return null;
+    const usd = usable(Number((await r.json())?.data?.amount));
+    return { usd, error: usd === null ? `Coinbase gave no price${r.ok === false ? ` (HTTP ${r.status})` : ""}` : null };
+  } catch (e) {
+    return { usd: null, error: e.message };
   }
 }
 
@@ -566,11 +568,12 @@ export async function run(opts, deps) {
     res.unvisited = listed?.length ?? 0;
     return res;
   }
-  const solUsd = await solPrice(fetchImpl);
+  const sol = await solPrice(fetchImpl);
+  const solUsd = sol.usd;
   const inPools = ISLAND_COINS.filter((c) => listed.some((l) => l.pool && (l.pool.mint0 === c.mint || l.pool.mint1 === c.mint)));
   const island = inPools.length ? await islandCoinPrices(fetchImpl) : { prices: {}, error: null };
   const prices = { sol: solUsd, island: island.prices };
-  res.prices = { ...prices, islandError: island.error, unpriced: inPools.filter((c) => island.prices[c.mint] == null).map((c) => c.symbol), floor: opts.minUsd };
+  res.prices = { ...prices, solError: sol.error, islandError: island.error, unpriced: inPools.filter((c) => island.prices[c.mint] == null).map((c) => c.symbol), floor: opts.minUsd };
   const islandText = !inPools.length
     ? "none in a pool"
     : island.error
@@ -686,7 +689,7 @@ export async function run(opts, deps) {
       const code = customError(failure, ixs.length - 1);
       // The Workshop's own account settings, changed since the simulation: named, never a failure.
       if (fund && WORKSHOP_REFUSALS.has(code)) return { ok: true, sent: true, fee: true, signature, result: `sent, and it failed on chain: ${WORKSHOP_REFUSALS.get(code)} (${code})${after}` };
-      return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain${after}` };
+      return { ok: false, sent: true, fee: true, signature, result: `sent, and it failed on chain: ${JSON.stringify(failure)}${after}` };
     }
     if (expired) {
       return {
@@ -946,12 +949,14 @@ export function summary(res, opts) {
     lines.push("", `The Workshop has no token account yet for these coins, so the island's share of their pools waits until it opens them: ${missing.map((m) => `${m.mint} (\`${m.address}\`)`).join(", ")}.`);
   }
   if (res.prices?.unpriced.length) {
-    const why = res.prices.islandError ? ` (${cell(res.prices.islandError)})` : "";
-    lines.push("", `No price today for ${res.prices.unpriced.join(", ")}${why}: their shares counted as nothing against the floor.`);
+    // Jupiter could not be read, or it answered with no price for these coins.
+    const why = cell(res.prices.islandError || "Jupiter gave no price");
+    lines.push("", `No price today for ${res.prices.unpriced.join(", ")} (${why}): their shares counted as nothing against the floor.`);
   }
   if (res.prices && res.prices.sol == null) {
     const sol = ((0.007 * res.prices.floor) / 0.5).toLocaleString("en-US", { maximumFractionDigits: 9 });
-    lines.push("", `SOL's price was not read today, so ${sol} SOL stood in for the $${res.prices.floor} floor.`);
+    const why = res.prices.solError ? ` (${cell(res.prices.solError)})` : "";
+    lines.push("", `SOL's price was not read today${why}, so ${sol} SOL stood in for the $${res.prices.floor} floor.`);
   }
   if (res.stopped) lines.push("", `The run stopped early (${cell(res.stopped)}); ${res.listed ? `${count(res.unvisited, "pool")} not looked at` : "the pools were not listed"}.`);
   const p = res.paid;

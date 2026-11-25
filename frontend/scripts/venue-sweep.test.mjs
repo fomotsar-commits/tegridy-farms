@@ -1757,7 +1757,7 @@ describe("venue-sweep: a run", () => {
     // The venue's failing on chain with the same number is a failure.
     const venue = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [failed(6018), { confirmationStatus: "confirmed", err: null }] });
     const res2 = await run(parseArgs(["--live"]), { call: venue.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
-    expect(res2.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: "sent, and it failed on chain" });
+    expect(res2.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: 'sent, and it failed on chain: {"InstructionError":[0,{"Custom":6018}]}' });
     expect(res2.ok).toBe(false);
   });
 
@@ -2071,6 +2071,7 @@ describe("venue-sweep: a run", () => {
     const chain = fakeChain({ pools: [pool], tiers, accounts: opened(VAULT, WORKSHOP) });
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(200), env: {}, log: quiet });
     expect(res.prices.sol).toBe(200);
+    expect(res.prices.solError).toBeNull();
     expect(res.pools[0].venue.result).toMatch(/simulated clean/);
     expect(chain.simulated().map((tx) => sweepsIn(tx).map(sideOf))).toEqual([["venue"]]);
     expect(summary(res, { live: false })).not.toContain("SOL's price was not read");
@@ -2083,9 +2084,10 @@ describe("venue-sweep: a run", () => {
     const huge = async (url) => (url.startsWith("https://api.coinbase.com/") ? { ok: true, json: async () => JSON.parse('{"data":{"amount":"1e999"}}') } : priced(null)(url));
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: huge, env: {}, log: quiet });
     expect(res.prices.sol).toBeNull();
+    expect(res.prices.solError).toBe("Coinbase gave no price");
     expect(res.pools[0].note).toBe("under the $0.5 floor: waits");
     expect(chain.simulated()).toEqual([]);
-    expect(summary(res, { live: false })).toContain("SOL's price was not read today, so 0.007 SOL stood in for the $0.5 floor.");
+    expect(summary(res, { live: false })).toContain("SOL's price was not read today (Coinbase gave no price), so 0.007 SOL stood in for the $0.5 floor.");
   });
 
   it("an island coin priced at JSON's 1e999 is no price: it counts nothing and is named, and the venue's real share of SOL still goes", async () => {
@@ -2095,7 +2097,7 @@ describe("venue-sweep: a run", () => {
     const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: priced(72, { [BAYLA]: Infinity }), env: {}, log: quiet });
     expect(res.prices.island[BAYLA]).toBeNull();
     expect(res.pools[0].venue.result).toMatch(/simulated clean/);
-    expect(summary(res, { live: false })).toContain("No price today for BAYLA: their shares counted as nothing against the floor.");
+    expect(summary(res, { live: false })).toContain("No price today for BAYLA (Jupiter gave no price): their shares counted as nothing against the floor.");
   });
 
   it("--min-usd sets each side's floor: at $2 a side worth $1.08 waits while one worth $2.16 goes, a pool with both under it waits whole, and so does what can move once a frozen coin is left out", async () => {
@@ -2123,7 +2125,31 @@ describe("venue-sweep: a run", () => {
   it("with no SOL price, the summary says what stood in for the floor, at the floor the run was given", async () => {
     const chain = fakeChain({ pools: [dust], tiers });
     const res = await run(parseArgs(["--payer", payer, "--min-usd", "2"]), { call: chain.call, fetchImpl: noPrice, env: {}, log: quiet });
-    expect(summary(res, { live: false })).toContain("SOL's price was not read today, so 0.028 SOL stood in for the $2 floor.");
+    expect(summary(res, { live: false })).toContain("SOL's price was not read today (Coinbase gave no price), so 0.028 SOL stood in for the $2 floor.");
+  });
+
+  it("when SOL's price cannot be read, the summary says why, and the run stays green (the owner's ruling, 2026-11-21)", async () => {
+    const chain = fakeChain({ pools: [dust], tiers });
+    const down = async (url) => {
+      if (url.startsWith("https://api.coinbase.com/")) throw new Error("socket hang up | ECONNRESET");
+      return priced(null)(url);
+    };
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: down, env: {}, log: quiet });
+    expect(res.prices.sol).toBeNull();
+    expect(res.prices.solError).toBe("socket hang up | ECONNRESET");
+    expect(summary(res, { live: false })).toContain("SOL's price was not read today (socket hang up \\| ECONNRESET), so 0.007 SOL stood in for the $0.5 floor.");
+    expect(res.ok).toBe(true);
+    expect(exitCode(res)).toBe(0);
+  });
+
+  it("when Coinbase answers an error status with no price, the summary gives the status", async () => {
+    const chain = fakeChain({ pools: [dust], tiers });
+    const limited = async (url) => (url.startsWith("https://api.coinbase.com/") ? { ok: false, status: 429, json: async () => ({ errors: [{ id: "rate_limit_exceeded" }] }) } : priced(null)(url));
+    const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: limited, env: {}, log: quiet });
+    expect(res.prices.sol).toBeNull();
+    expect(res.prices.solError).toBe("Coinbase gave no price (HTTP 429)");
+    expect(summary(res, { live: false })).toContain("SOL's price was not read today (Coinbase gave no price (HTTP 429)), so 0.007 SOL stood in for the $0.5 floor.");
+    expect(res.ok).toBe(true);
   });
 
   it("the run's first log line says how many pools, SOL's price or that it was not read, the island coins' prices, the payer, and dry run or live", async () => {
@@ -2157,7 +2183,7 @@ describe("venue-sweep: a run", () => {
     expect(row(twoIsland).island.result).toMatch(/under the \$0\.5 floor/); // 0.001 SOY
     expect(row(baylaOffList).venue.result).toMatch(/simulated clean/); // 1,000 BAYLA at $0.001; the other coin counts nothing
     expect(res.ok).toBe(true);
-    expect(summary(res, { live: false })).toContain("No price today for SOY: their shares counted as nothing against the floor.");
+    expect(summary(res, { live: false })).toContain("No price today for SOY (Jupiter gave no price): their shares counted as nothing against the floor.");
   });
 
   it("a pool with no priced coin is named as not swept by this job, and not counted as waiting; no coin off the list takes a price", async () => {
@@ -2338,15 +2364,17 @@ describe("venue-sweep: a run", () => {
   });
 
   // ── After a send ───────────────────────────────────────────────────────────
-  it("a sweep that failed on chain is said so and fails the run", async () => {
+  it("a sweep that failed on chain is said so, with the chain's own error, and fails the run", async () => {
     const kp = Keypair.generate();
     const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: 1 }] } }] });
     const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
-    for (const side of ["venue", "island"]) expect(res.pools[0][side]).toMatchObject({ ok: false, result: "sent, and it failed on chain" });
+    const failed = 'sent, and it failed on chain: {"InstructionError":[0,{"Custom":1}]}';
+    for (const side of ["venue", "island"]) expect(res.pools[0][side]).toMatchObject({ ok: false, result: failed });
     expect(res.ok).toBe(false);
     expect(exitCode(res)).toBe(1);
-    // A failed transaction still paid its fee.
+    // A failed transaction still paid its fee, and the summary, the sweep's only record, says the error.
     expect(summary(res, { live: true })).toContain("2 sweeps seen on chain (10,000 lamports of network fees)");
+    expect(summary(res, { live: true })).toContain(failed);
   });
 
   it("a sweep that failed on chain opened nothing: its accounts and their rent are not counted as paid", async () => {
@@ -2613,7 +2641,7 @@ describe("venue-sweep: a run", () => {
     };
     const call = solanaRpc({ fetchImpl: net, url: "http://rpc.invalid", pauseMs: 0, wait: async () => {} });
     const res = await run(parseArgs(["--live"]), { call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
-    expect(res.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: expect.stringMatching(/^sent, and it failed on chain \(its send answered: sendTransaction: .*already been processed/) });
+    expect(res.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: expect.stringMatching(/^sent, and it failed on chain: \{"InstructionError":\[0,\{"Custom":1\}\]\} \(its send answered: sendTransaction: .*already been processed/) });
     expect(res.paid.sweeps).toBe(1);
     expect(res.ok).toBe(false);
   });
@@ -2855,7 +2883,7 @@ describe("venue-sweep: a run", () => {
 
   // ── Three rules the suite held only in part ────────────────────────────────
   for (const c of [
-    { why: "failed on chain", statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: 1 }] } }, { confirmationStatus: "confirmed", err: null }], venue: /^sent, and it failed on chain$/ },
+    { why: "failed on chain", statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: 1 }] } }, { confirmationStatus: "confirmed", err: null }], venue: /^sent, and it failed on chain: \{"InstructionError":\[0,\{"Custom":1\}\]\}$/ },
     { why: "was not confirmed after its 40 looks", statuses: [...Array(40).fill({ confirmationStatus: "processed", err: null }), { confirmationStatus: "confirmed", err: null }], venue: /^sent, but not confirmed after 40 looks/ },
   ]) {
     it(`the island's side is read again after a venue sweep that was sent and ${c.why}, not only after one that landed`, async () => {
@@ -2884,7 +2912,7 @@ describe("venue-sweep: a run", () => {
       const res = await run(parseArgs(["--payer", payer]), { call: chain.call, fetchImpl: zero, env: {}, log: quiet });
       expect(res.prices.sol).toBeNull();
       expect(res.pools[0].venue.result).toMatch(/simulated clean/);
-      expect(summary(res, { live: false })).toContain("SOL's price was not read today, so 0.007 SOL stood in for the $0.5 floor.");
+      expect(summary(res, { live: false })).toContain("SOL's price was not read today (Coinbase gave no price), so 0.007 SOL stood in for the $0.5 floor.");
     });
   }
 
@@ -2997,7 +3025,7 @@ describe("venue-sweep: a run", () => {
       const kp = Keypair.generate();
       const chain = fakeChain({ pools: [big], tiers, accounts: opened(VAULT, WORKSHOP), statuses: [{ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: code }] } }, { confirmationStatus: "confirmed", err: null }] });
       const res = await run(parseArgs(["--live"]), { call: chain.call, fetchImpl: noPrice, env: live(kp), log: quiet, wait: async () => {} });
-      expect(res.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: "sent, and it failed on chain" });
+      expect(res.pools[0].venue).toMatchObject({ ok: false, sent: true, fee: true, result: `sent, and it failed on chain: {"InstructionError":[0,{"Custom":${code}}]}` });
       expect(res.pools[0].island).toMatchObject({ ok: true, swept: true, result: `swept ${BIG_ISLAND}` });
       expect(res.ok).toBe(false);
       expect(exitCode(res)).toBe(1);
