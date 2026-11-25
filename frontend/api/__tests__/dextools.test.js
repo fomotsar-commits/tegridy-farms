@@ -104,6 +104,10 @@ describe("events in DexTools' shape", () => {
     // Our own line, after a call our program made returned, still counts.
     const ours = forged([`Program ${VENUE_PROGRAM} invoke [1]`, `Program ${other} invoke [2]`, `Program ${other} success`, line, `Program ${VENUE_PROGRAM} success`]);
     expect(eventsOf(ours, pools, 0)).toHaveLength(1);
+    // And when another program (a router, the price robot) calls ours.
+    const called = forged([`Program ${other} invoke [1]`, `Program ${VENUE_PROGRAM} invoke [2]`, line, `Program ${VENUE_PROGRAM} success`, `Program ${other} success`]);
+    expect(eventsOf(called, pools, 0)).toHaveLength(1);
+    expect(dexToolsEventsOf(called, pools, 0)).toHaveLength(1);
   });
   it("a deposit is a join and a withdrawal an exit; a failed transaction has none", () => {
     expect(dexToolsEventsOf(depositTx, pools, 0)[0]).toMatchObject({ eventType: "join", amount0: "0.049676064", amount1: "8626.776509", reserves: { asset0: "76.703907385", asset1: "13318939.480744" } });
