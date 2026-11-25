@@ -813,3 +813,13 @@ test('a looked-up datum the library refuses to read is a miss for that order, ne
   await watcher.round();
   assert.equal(primary.calls.get('datum'), asked);
 });
+
+test('a batch whose network fee is more than the batcher fees it collects is refused as that batch’s failure: nothing sent, nothing stopped', async () => {
+  const { primary, watcher, events } = setup(1, { config: { policy: { ...POLICY, batcherFee: 1_000n } } });
+  await watcher.round();
+  assert.equal(primary.calls.get('submit') ?? 0, 0);
+  assert.equal(watcher.stopped, null);
+  assert.deepEqual(events.filter((e) => e.kind === 'error'), []);
+  const aside = events.find((e) => e.kind === 'set-aside');
+  assert.ok(aside?.kind === 'set-aside' && !aside.alert && /network fee \(\d+ lovelace\) is more than the 1000 lovelace in batcher fees it collects/.test(aside.reason), aside?.kind);
+});
