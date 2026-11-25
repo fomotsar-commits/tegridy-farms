@@ -189,13 +189,13 @@ describe('the market-swap appData document (2026-10-17)', () => {
   });
 
   // The live document, pinned literally with its hash: switching the rate is the
-  // owner's call (0.50%, 2026-10-17), and any change to it must edit this pin.
-  it('carries the 0.50% venue fee to the Treasury Safe', () => {
-    expect(COW_PARTNER_FEE_BPS).toBe(50);
+  // owner's call (0.25%, 2026-10-18), and any change to it must edit this pin.
+  it('carries the 0.25% venue fee to the Treasury Safe', () => {
+    expect(COW_PARTNER_FEE_BPS).toBe(25);
     expect(COW_SWAP_APP_DATA_DOC).toBe(
-      '{"appCode":"Tegridy Farms","metadata":{"orderClass":{"orderClass":"market"},"partnerFee":{"volumeBps":50,"recipient":"0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"}},"version":"1.15.0"}',
+      '{"appCode":"Tegridy Farms","metadata":{"orderClass":{"orderClass":"market"},"partnerFee":{"volumeBps":25,"recipient":"0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"}},"version":"1.15.0"}',
     );
-    expect(COW_SWAP_APP_DATA_HASH).toBe('0x7ae7089935a31801a4cf346e7f12a4797674428b44ecf0975ba53eb72b344b74');
+    expect(COW_SWAP_APP_DATA_HASH).toBe('0x5d6870d0b5a0f85a3542a6e6718345f2f6b090991d70fa6becdf5e94ba366c95');
     expect(COW_SWAP_APP_DATA_HASH).not.toBe(COW_APP_DATA_HASH);
   });
 

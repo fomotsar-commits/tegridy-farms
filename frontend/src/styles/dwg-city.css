@@ -45,6 +45,8 @@
 .c01-frame > .c01-next[data-in] { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .c01-frame > .c01-shot { transition: none; } }
 .c01-card .dwg-fact { margin: 0; font-size: 12px; }
+/* A gallery wall label's medium line, under the maker: what the model is made of. */
+.c01-medium { margin: -4px 0 2px; font-size: 13px; font-style: italic; line-height: 1.35; color: var(--dwg-soft); }
 .c01-addr { margin: 0; max-width: 100%; font: 500 11px/1.4 var(--font-family-mono); color: var(--dwg-soft); overflow-wrap: anywhere; }
 .c01-go { margin-top: 4px; }
 .c01-sq { flex: none; width: 10px; height: 10px; }

@@ -7,8 +7,33 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-24
+
+- Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
+- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
+- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
+
+### 2026-11-23
+
+- The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
+
+### 2026-11-22
+
+- EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
+- Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.
+- The city: each bungalow's garden corner is now real carved furniture on the island: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
+- The city is fully dressed with the owner's own models: the Treasury is a bank, Central Station a pavilion, NFT loans a market hall, Range a pool club and the Launch slip a harbour office flying three flags; a lighthouse lights the pier's head; a hotel, a café and a veranda house stand on open ground; sea grape, banana, rocks, benches, planters, bus shelters and a food stall fill the streets, and two small islands sit out at sea.
+
+### 2026-11-21
+
+- The city: its palms and street lamps are new, finer carved models, on the island and in every close-up, and the pier is now a lit little harbour, with a kayak rack, a dock cart, fishing gear and a boat moored alongside.
+- The city: a building's close-up now has a gallery's wall label under it, with the piece's name, its community, and what the model is made of (glazed tile, brass, basswood, card and the like).
+- The city: a visitor who had opened it before saw last week's island, the old grid, under the new layout's labels, because their browser kept the old picture for up to a week. The island and every close-up now load fresh the first time they change.
+
 ### 2026-11-20
 
+- The city's island is now one architect's model at night, like its close-ups: cork land on a pale beach, a sea of deep blue resin, card streets, wooden palms and trees, each room's art laid as tile, small white figures on every plot, lit by its own street lamps, windows and glowing pools in a dark gallery.
+- The city is no longer laid out on a grid: a ring road winds round the island, a boulevard runs from the pier through the plaza, and the buildings stand scattered along the streets at their own angles, with the island's greenery between them and the lighthouse alone on the far point.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19

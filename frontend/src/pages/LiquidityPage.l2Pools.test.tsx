@@ -46,7 +46,7 @@ describe("/liquidity off Ethereum lists that chain's own pools", () => {
     oneBrbPool();
     at('/liquidity?c=8453');
     const row = screen.getByRole('rowheader', { name: /BRB \/ ETH/ }).closest('tr')!;
-    expect(row).toHaveTextContent('0.3% fee, all to providers');
+    expect(row).toHaveTextContent('0.3% fee: 0.25% to providers');
     expect(row).toHaveTextContent('100,000.0000 BRB');
     expect(row).toHaveTextContent('0.0500 ETH');
 

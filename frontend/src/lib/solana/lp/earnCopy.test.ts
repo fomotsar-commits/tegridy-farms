@@ -11,7 +11,7 @@ import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import { RECORDING, recordedTier, splitTier } from '../cpswap/mainnetVenueReplay.fixture';
 import type { AmmConfigView } from '../cpswap/program';
-import { AGREED_SPLIT, EARN_TITLES, howVenueEarns, howYouEarn } from './earnCopy';
+import { AGREED_SPLIT, EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from './earnCopy';
 import { FORECAST_WORDS } from './format';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
@@ -21,7 +21,7 @@ const OTHER = '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa';
 const tier1 = (): AmmConfigView => recordedTier(1);
 /** Tier 1 as mainnet holds it since the split (2026-10-19). */
 const split1 = (): AmmConfigView => splitTier(1);
-const jupiter = { bps: 50, wallet: VAULT };
+const jupiter: JupiterFee = { bps: 50, wallet: VAULT, majorBps: 5 };
 const NOTHING_TO_CLAIM = 'You receive it when you remove liquidity.';
 const FEW_TRADES = 'Few trades means small fees.';
 const VAULT_ROW = { label: 'Team’s shared wallet', address: VAULT };
@@ -85,9 +85,15 @@ describe('How you earn', () => {
 });
 
 describe('How the venue earns', () => {
+  it('says the lower rate between majors only when it is lower', () => {
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 5 }).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 50 }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+  });
+
   it('on the public tier as mainnet holds it since the split: three sources, and each part of the cut said as a share of the fee and of the trade', () => {
     expect(howVenueEarns(split1(), jupiter)).toEqual({
-      sources: [`0.16% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
+      sources: [`0.16% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.'],
       where: `${SPLIT_WHERE} The swap fee goes to the team’s shared wallet.`,
       wallets: [VAULT_ROW, WORKSHOP_ROW],
       elsewhere: false,
@@ -214,7 +220,7 @@ describe('How the venue earns', () => {
     expect(v).toEqual({ sources: [`A cut of each trade in its pools${PAID_IN}${FEE_ON_COLLECT}`, 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
-    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
   });
 });
 
@@ -229,8 +235,8 @@ describe('short, and promising nothing', () => {
   // 100 with titles and labels, until the island split (2026-10-19) put two wallets' shares,
   // each of the fee and of the trade, in the sentence: 120 and 135 since. 2026-11-14: the coin
   // the cut is paid in (6 words) and what a transfer fee takes of it (18), spec 2026-11-14
-  // section 2: 139 and 151 measured, plus the 2 words open PR #877 adds to the Jupiter line
-  // ("(majors 0.05%)"), so neither merge turns this red: 141 and 153.
+  // section 2: 139 and 151 measured, plus the 2 words #877 added to the Jupiter line
+  // ("(majors 0.05%)"): 141 and 153, both texts merged.
   it('the two blocks as the live site prints them stay short', () => {
     const count = (lines: string[]) => lines.reduce((n, s) => n + words(s), 0);
     const v = howVenueEarns(split1(), jupiter);
