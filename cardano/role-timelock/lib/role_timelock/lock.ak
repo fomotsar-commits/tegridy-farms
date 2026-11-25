@@ -119,7 +119,9 @@ pub fn spend(
 /// The transaction moves one UTxO and leaves it as announced. The checks fail
 /// unless that UTxO is the one changed: the GlobalSetting token exists once,
 /// and a pool keeps its value here and its address in `pays_treasury`. A new
-/// GlobalSetting pays its pool creation fee to the treasury.
+/// GlobalSetting pays its pool creation fee to the treasury. Neither may gain
+/// a reference script, which every batch would pay for, and the GlobalSetting
+/// keeps its address: the announcement holds only the datum.
 fn makes(
   change: Change,
   moved: List<Input>,
@@ -129,7 +131,7 @@ fn makes(
   let authen = params.authen_policy_id
   when change is {
     SetGlobalSetting { setting } -> {
-      expect [_] = moved
+      expect [setting_in] = moved
       expect [setting_out] =
         list.filter(
           outputs,
@@ -138,6 +140,8 @@ fn makes(
       let expected: Data = setting
       and {
         setting_out.datum == InlineDatum(expected),
+        setting_out.address == setting_in.output.address,
+        setting_out.reference_script == None,
         setting.pool_creation_fee >= 0,
         setting.pool_creation_fee_receiver == params.treasury,
       }
@@ -163,6 +167,7 @@ fn makes(
         // A fee-sharing withdrawal goes only to the treasury, below.
         pool_out.value == pool_in.output.value,
         pool_out.address.stake_credential == stake_credential,
+        pool_out.reference_script == None,
         after.asset_a == asset_a,
         after.asset_b == asset_b,
         after.base_fee_a_numerator == base_fee_a_numerator,
@@ -174,8 +179,8 @@ fn makes(
   }
 }
 
-/// One pool, its address and datum unchanged, and the treasury receives at
-/// least everything that left it.
+/// One pool, its address and datum unchanged, no reference script added, and
+/// the treasury receives at least everything that left it.
 fn pays_treasury(
   moved: List<Input>,
   outputs: List<Output>,
@@ -201,6 +206,7 @@ fn pays_treasury(
   and {
     pool_out.address == pool_in.output.address,
     pool_out.datum == pool_in.output.datum,
+    pool_out.reference_script == None,
     list.all(
       value.flatten(taken),
       fn(asset) {

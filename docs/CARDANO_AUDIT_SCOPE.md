@@ -153,7 +153,7 @@ Script hashes, our copy as it stands (both patches) against Minswap's blueprint,
 | Pool batching | `5e2a216f…` → `6b22298f…`, 15,565 → 15,589 bytes | `1eae96ba…` → `cd1225c0…` |
 | Order | unchanged, `9fc0facf…` | `c3e28c36…` → `8f32fd6a…` (its parameter names the pool batching) |
 | Expired-order cancel | unchanged, `c8b0cc61…` | unchanged, `c8b0cc61…` |
-| Role timelock (ours, section 3) | `98ffcad7…` → `7f4fcc5e…`, 5,845 → 5,976 bytes | |
+| Role timelock (ours, section 3) | `98ffcad7…` → `9173414b…`, 5,845 → 6,065 bytes | |
 
 Our deploy has its own seed and stake key, so every deployed hash differs again from these, from
 the same code. Nothing is deployed, so no live hash moves.
@@ -205,8 +205,9 @@ Files: `cardano/role-timelock/validators/role_timelock.ak` (the entry points),
 patch (its `types.ak` and `utils.ak` parts), hash-pinned, compiled in for its types and constants
 and called by the tests. The lock does not read the patched constant; it does read the
 GlobalSetting type, so the two new fields are in its bytes. Plutus V2, the same compiler as
-Minswap. Unapplied script: 5,976 bytes, hash `7f4fcc5e0da7da4d0aafed0c14c46f7e148fa5ffa4f46ccf649bd4f6`
-(5,845 bytes, `98ffcad7…`, before the pool creation fee); one parameter.
+Minswap. Unapplied script: 6,065 bytes, hash `9173414b821ba548ef1d8923d713ed9b112b053c65bd85a796009385`
+(5,845 bytes, `98ffcad7…`, before the pool creation fee; 5,976 bytes, `7f4fcc5e…`, before the
+2026-11-25 audit's reference-script checks); one parameter.
 
 ### Why it has to inspect the whole transaction
 
@@ -236,8 +237,8 @@ differ).
 | Mint (once) | The seed UTxO is spent; exactly one lock token is minted; it goes into the lock with nothing announced. No later mint or burn is possible (the seed is gone). |
 | `Announce` | Adds one announcement whose `ready_at` is at least the transaction's upper time bound + 48 h. Moves no pool or GlobalSetting. At most 16 waiting. |
 | `Cancel { index }` | Removes one announcement. Moves no pool or GlobalSetting. |
-| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so while the lock is the admin the venue's opening fees go nowhere else. (A change the lock makes can still hand the admin itself to another key or script, as it can every role; that one is the 48-hour notice.) `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
-| `WithdrawFeeSharing` | One pool moved, its address and datum unchanged, the lock unchanged, and the outputs to the treasury hold at least everything that left the pool, asset by asset. No wait: this changes nothing. |
+| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, it keeps the input's address (stake part included) and carries no reference script, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so while the lock is the admin the venue's opening fees go nowhere else. (A change the lock makes can still hand the admin itself to another key or script, as it can every role; that one is the 48-hour notice.) `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), no reference script on it, and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
+| `WithdrawFeeSharing` | One pool moved, its address and datum unchanged, no reference script on it, the lock unchanged, and the outputs to the treasury hold at least everything that left the pool, asset by asset. No wait: this changes nothing. |
 
 A UTxO sent to the lock's address without the lock token can never be spent, so a forged
 "announced long ago" datum does nothing. The 48 hours and the 14-day window are Compound's
@@ -258,12 +259,13 @@ delay), so this pattern is our own code and the reason for this audit.
 
 ### Tests
 
-96 tests in `lock_test.ak`, run by `aiken check` in CI (with Minswap's own 31 library tests). Each
+106 tests in `lock_test.ak`, run by `aiken check` in CI (with Minswap's own 31 library tests). Each
 path passes once, then each way to act early (one millisecond before `ready_at`, one past the
 window, an announcement one millisecond short of 48 hours, no time bound at all), with one key,
 with a stranger's key, with a change other than the one announced (each pool field on its own,
 the GlobalSetting's fee taker, the stake key), with a second Minswap UTxO moved, with the lock
-token sent away, and with a forged or copied lock is refused. Where Minswap's own checks would let
+token sent away, with a reference script left on the pool or the GlobalSetting or the
+GlobalSetting given a new stake part, and with a forged or copied lock is refused. Where Minswap's own checks would let
 the same transaction through, a `minswap_` test runs them (the real `pool_validation` and `utils`
 functions) to show the lock is what stops it. The venue's 1333 share passes Minswap's patched check
 and 1332 is refused; on Minswap's unpatched floor, the three tests that set 1333 fail. The pool

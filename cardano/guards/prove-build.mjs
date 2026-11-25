@@ -283,7 +283,7 @@ async function main() {
     const tests = run(['check'], rt);
     const counts = testCounts(tests);
     const lockTests = counts.find((c) => c.module === 'role_timelock/lock_test');
-    if (!lockTests || lockTests.tests < 96 || counts.some((c) => c.failed)) problems.push(`role-timelock: aiken check did not pass the lock's tests:\n${tests}`);
+    if (!lockTests || lockTests.tests < 106 || counts.some((c) => c.failed)) problems.push(`role-timelock: aiken check did not pass the lock's tests:\n${tests}`);
     else console.log(`role-timelock: aiken fmt --check clean; aiken check: ${counts.map((c) => `${c.module} ${c.tests}`).join(', ')}, none failed`);
     const blueprint = build(rt);
     if (!same(blueprint, committed)) problems.push('role-timelock: the build is not the committed plutus.json; rebuild and commit it');
