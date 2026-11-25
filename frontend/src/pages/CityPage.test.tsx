@@ -89,7 +89,7 @@ describe('/city', () => {
     mount(base());
     expect(card().getByText('Glazed tile, brass, amber glass')).toBeTruthy();
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Every plot' })).getByRole('button', { name: 'TREASURY' }));
-    expect(card().getByText('Brass rod, card')).toBeTruthy();
+    expect(card().getByText('Carved basswood, card, light')).toBeTruthy();
   });
 
   it('has a medium line of five words or fewer for every building on the island: /city keeps under its word ceiling', () => {

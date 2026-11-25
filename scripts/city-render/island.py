@@ -1,7 +1,7 @@
 # The island as one architect's model at night in a gallery (owner, 2026-11-21: "ship it ... this is
 # daytime we need nighttime"), built in Blender from the site's own plan (plan.json) and rendered.
 # Its stock is the close-ups' (stock.py): cork land on a pale veneer beach, a sea of deep blue resin,
-# grey card streets on card pavements, basswood palms and beads for trees, every room's art laid as
+# grey card streets on card pavements, basswood palms, sea grape and banana, every room's art laid as
 # glazed tile, three white figures on every plot. The gallery is dark, a low warm spot on the middle
 # of the town and a cool moon over the whole model, so what lights it at night is its own: the street
 # lamps, the windows, the pools poured in their communities' colours and lit from within.
@@ -19,14 +19,15 @@ from mathutils import Matrix, Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import kit
-from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, patio, stones, put, inked
+from kit import V, box, cyl, sphere, tube, mesh, rects, slab_from, ring_between, stones, put, inked
 import buildings
 import stock
+import owners
 
 kit.ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 # every material the builders ask for, as the close-ups' stock; the island's cork at a coarser grain,
-# its beach a paler veneer, its streets grey card. The swap also hands kit the owner's palms and
-# street lamps (stock.palm, stock.lamp), so they are called as kit.palm and kit.lamp below.
+# its beach a paler veneer, its streets grey card. The swap also hands kit the owner's palms, street
+# lamps and garden corners (stock.palm, stock.lamp, stock.patio), so they are called through kit below.
 stock.swap(lawn=lambda: stock.cork(30.0), sand=stock.pale, asphalt=stock.grey)
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 MODE = argv[0] if argv else 'island'
@@ -127,7 +128,7 @@ for _i in range(len(lagoon.data.vertices)):
     _shore.data[_i].value = 0.0 if _i < len(coast['1.26']) else 1.0
 ring_between('beach', coast['1'], coast['0.95'], -0.3, 0.0, kit.sand())
 slab_from('land', coast['0.95'], -0.3, 0.0, kit.lawn())
-# the island's own growth, as a model maker plants it: turned basswood beads everywhere the town is not
+# the island's own growth: the owner's sea grape and banana (2026-11-22), carved, everywhere the town is not
 import random as _r
 def _inside(poly, x, y):
     c = False
@@ -139,25 +140,14 @@ def _inside(poly, x, y):
             c = not c
         j = i
     return c
-_shrub_meshes = []
-_tex = bpy.data.textures.new('shrub noise', 'CLOUDS')
-_tex.noise_scale = 0.3
-for k in range(4):
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3, radius=1.0)
-    t = bpy.context.active_object
-    dm = t.modifiers.new('d', 'DISPLACE')
-    dm.texture = _tex
-    dm.strength = 0.45
-    t.location = (k * 7.0, 0, 0)
-    bpy.ops.object.modifier_apply(modifier='d')
-    for poly in t.data.polygons:
-        poly.use_smooth = True
-    t.data.materials.append(stock.basswood())
-    _shrub_meshes.append(t.data)
-    bpy.data.objects.remove(t, do_unlink=True)
 _rnd = _r.Random(11)
 _land = coast['0.95']
-_plot_ground = [plot_ground(p, 0.6) for p in plan['plots']]
+# the owner's buildings on open ground (owners.GROUND) must still stand clear of every plot and street
+for _fp in owners.footprints():
+    for (_x, _y) in _fp:
+        assert _inside(_land, _x, _y) and road_d((_x, _y)) > ROAD_HALF + PAVE_W + 0.2, ('owners.GROUND no longer clear', _x, _y)
+        assert not any(_inside(plot_ground(p, 0.4), _x, _y) for p in plan['plots']), ('owners.GROUND on a plot', _x, _y)
+_plot_ground = [plot_ground(p, 0.6) for p in plan['plots']] + owners.footprints(0.5)
 _shrubs = 0
 for _ in range(2600):
     x = cx0 + _rnd.uniform(-36, 36)
@@ -170,12 +160,9 @@ for _ in range(2600):
         continue
     if road_d((x, y)) < ROAD_HALF + PAVE_W + 0.5:
         continue
-    o = bpy.data.objects.new('shrub', _shrub_meshes[_shrubs % 4])
-    put(o)
     s = _rnd.uniform(0.28, 0.75)
-    o.location = V(x, y, s * 0.3)
-    o.scale = tuple(v * 0.85 for v in (s * _rnd.uniform(0.9, 1.4), s, s * _rnd.uniform(0.55, 0.85)))
-    o.rotation_euler = (0, 0, _rnd.uniform(0, 6.3))
+    _rnd.uniform(0.9, 1.4), _rnd.uniform(0.55, 0.85)          # (the beads' stretch: kept, so every shrub stands where its bead did)
+    stock.place('sea-grape' if _shrubs % 10 < 7 else 'banana', x, y, 0.0, 1.9 * s, 'l', rot=_rnd.uniform(0, 6.3))
     _shrubs += 1
 print('shrubs', _shrubs)
 
@@ -283,17 +270,19 @@ pv = G['PIER_X']
 for k in range(int((G['PIER_Y1'] - G['PIER_Y0']) / 1.5) + 1):
     for dx in (-1.1, 1.1):
         cyl('pier post', pv + dx, G['PIER_Y0'] + k * 1.5, -0.6, 0.06, 0.75, kit.wood(), verts=8)
-# the harbour (owner, 2026-11-21: "Palms, lamps, harbour"): three lamps along the pier, so the night
-# shows it; a kayak rack, a dock cart, fishing gear and cleats on the deck; a tender moored alongside,
-# two buoys off the end. Only what a light falls on reads at night.
+# the harbour (owner, 2026-11-21: "Palms, lamps, harbour"): two lamps along the pier and the owner's
+# lighthouse lit at its head (2026-11-22), so the night shows it; a kayak rack, a dock cart, fishing gear
+# and cleats on the deck; a tender moored alongside, two buoys off the end. Only what a light falls on
+# reads at night.
 if ONLY is None:
     y0p, y1p, deck = G['PIER_Y0'], G['PIER_Y1'], 0.02
-    for (lx, ly) in ((pv - 0.95, y0p + 1.2), (pv + 0.95, y0p + 5.2), (pv - 0.95, y1p - 0.4)):
+    for (lx, ly) in ((pv - 0.95, y0p + 1.2), (pv + 0.95, y0p + 5.2)):
         kit.lamp(lx, ly)
+    owners.harbour_light(pv, y1p, deck)
     stock.place('kayak-rack', pv - 0.55, y0p + 2.6, deck, 1.0, 'l', rot=math.pi / 2)
     stock.place('dock-cart', pv + 0.5, y0p + 4.8, deck, 0.6, 'l', rot=0.3)
-    stock.place('fishing-gear', pv - 0.5, y1p - 1.3, deck, 0.62, 'l', rot=1.2)
-    for yy in (y0p + 1.5, y0p + 4.0, y0p + 6.5, y1p - 0.6):
+    stock.place('fishing-gear', pv - 0.5, y0p + 6.9, deck, 0.62, 'l', rot=1.2)
+    for yy in (y0p + 1.5, y0p + 4.0, y0p + 6.5):
         for xx in (pv - 1.08, pv + 1.08):
             stock.place('cleat', xx, yy, deck, 0.16, 'l', rot=math.pi / 2)
     stock.place('tender', pv + 2.4, y0p + 5.5, -0.3, 1.5, 'l', rot=math.pi / 2)
@@ -338,12 +327,12 @@ for p in plots:
     box('plot', x0, y0, 0.0, PW, PD, ZP, kit.terrazzo())
     inner = kit.lawn() if p['kind'] == 'room' else stock.scored()
     ground = box('plot inner', x0 + 0.3, y0 + 0.3, ZP, PW - 0.6, PD - 0.6, 0.004, inner)
-    if p['pool']:
+    if p['pool'] and p['piece'] not in owners.OWN_POOLS:
         pool(p)
     if p['garden']:
         stones(p['garden'])
     if p['kind'] == 'room':
-        patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
+        kit.patio(x0 + 2.5, y0 + 4.75, p['pool']['water'] if p['pool'] else p['acc'], p['id'])
     A = art.get(p['mural']) if p['mural'] else None
     tops[p['id']] = buildings.BUILDERS[p['piece']](p, A)
     # its own palms and lamps stand in its frame too
@@ -362,15 +351,62 @@ for p in plots:
     for o in bpy.data.objects:
         if o not in _before and o.parent is None:
             o.matrix_world = M @ o.matrix_world
-    print('built', p['id'], p['piece'])
+    print('built', p['id'], p['piece'], 'top', round(tops[p['id']], 2))
 
 if ONLY is None:
     # the streets' and the shore's palms, and the street lamps
-    for t in plan['palms']:
-        if t['plot'] is None:
-            kit.palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'])
+    # the streets' and the shore's palms (two in five the owner's young palm), and the street lamps
+    for i, t in enumerate(q for q in plan['palms'] if q['plot'] is None):
+        kit.palm(t['x'], t['y'], t['h'] * 0.95, t['lean'], t['ph'], young=i % 5 in (1, 3))
     for (x, y) in plan['streetLamps']:
         kit.lamp(x, y)
+    # the owner's hotel, café and veranda house on open ground, the two small islands at sea
+    owners.ground()
+    _clear_of = [plot_ground(p, 0.4) for p in plan['plots']] + owners.footprints(0.4)
+
+    def _verge(x, y, near, gap):
+        return _inside(_land, x, y) and not any(_inside(g, x, y) for g in _clear_of) and road_d((x, y)) > ROAD_HALF + PAVE_W + 0.15             and all(math.hypot(x - q[0], y - q[1]) > gap for q in near)
+
+    def _along(x, y):
+        best, tang = 1e9, 0.0
+        for r in ROADS:
+            pts = r['pts']
+            for i in range(len(pts) - 1):
+                dd = math.hypot(x - pts[i][0], y - pts[i][1])
+                if dd < best:
+                    best, tang = dd, math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0])
+        return tang
+
+    # limestone rocks along the beach, clear of the pier
+    _rk = _r.Random(7)
+    c1, c2 = coast['1'], coast['0.95']
+    for i in range(0, len(c1), max(1, len(c1) // 26)):
+        a, b = c1[i], c2[min(len(c2) - 1, round(i * len(c2) / len(c1)))]
+        x, y = a[0] * 0.45 + b[0] * 0.55, a[1] * 0.45 + b[1] * 0.55
+        if abs(x - G['PIER_X']) < 3.5 and y > G['PIER_Y0'] - 6:
+            continue
+        stock.place('rocks', x, y, -0.17, _rk.uniform(0.55, 1.0), 'l', rot=_rk.uniform(0, math.tau))
+    # by each street lamp, on the verge beyond the pavement: a bench, a bin, a planter, a bus shelter
+    placed = []
+    kinds = [('bench', 0.62, 'l'), ('bin', 0.34, 'h'), ('hibiscus', 0.5, 'h'), ('bench', 0.62, 'l'), ('bus-shelter', 1.05, 'l'), ('planter-palm', 1.0, 'h')]
+    for (lx, ly) in plan['streetLamps']:
+        spot = next(((lx + math.cos(k / 16 * math.tau) * rr, ly + math.sin(k / 16 * math.tau) * rr) for rr in (0.75, 1.0, 1.3) for k in range(16)
+                     if _verge(lx + math.cos(k / 16 * math.tau) * rr, ly + math.sin(k / 16 * math.tau) * rr, placed, 1.5)), None)
+        if spot:
+            name, size, along = kinds[len(placed) % len(kinds)]
+            stock.place(name, spot[0], spot[1], 0.0, size, along, rot=-_along(*spot))
+            placed.append(spot)
+    # a food stall at the plaza, where the boulevard meets the lane: a cart, an awning, crates, a scooter
+    mx, my = JUNCTIONS[2]
+    stall = [('food-cart', 0.78, 'h'), ('market-awning', 0.9, 'h'), ('market-crates', 0.42, 'h'), ('scooter', 0.58, 'l')]
+    at = [(mx + math.cos(k / 24 * math.tau) * rr, my + math.sin(k / 24 * math.tau) * rr, k) for rr in (JR + 1.6, JR + 2.4, JR + 3.2) for k in range(24)]
+    for (name, size, along) in stall:
+        spot = next(((x, y, k) for (x, y, k) in at if _verge(x, y, placed, 1.2)), None)
+        if spot:
+            stock.place(name, spot[0], spot[1], 0.0, size, along, rot=-spot[2] / 24 * math.tau + math.pi / 2)
+            placed.append(spot[:2])
+            if name == 'food-cart':
+                kit.light('POINT', 'stall light', (spot[0], spot[1], 0.75), 22, (1.0, 0.78, 0.5), shadow=False, soft=0.3)
 
 # palms, the lighthouse's brass, and every light the builders made, at a model's strength; the street
 # lamps' heads a little softer than in a close-up, where one stands close, so the island's many read as dots

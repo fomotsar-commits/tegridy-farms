@@ -7,12 +7,18 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-23
+
+- The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
+
 ### 2026-11-22
 
 - Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
 - Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.
+- The city: each bungalow's garden corner is now real carved furniture on the island: a sun umbrella over loungers, a fire pit ringed by its stools and burning, a pair of pool loungers by a floor lantern, or a hammock.
+- The city is fully dressed with the owner's own models: the Treasury is a bank, Central Station a pavilion, NFT loans a market hall, Range a pool club and the Launch slip a harbour office flying three flags; a lighthouse lights the pier's head; a hotel, a café and a veranda house stand on open ground; sea grape, banana, rocks, benches, planters, bus shelters and a food stall fill the streets, and two small islands sit out at sea.
 
 ### 2026-11-21
 

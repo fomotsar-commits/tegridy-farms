@@ -3,6 +3,7 @@
 # art laid as glazed tile, white figures for scale. Colour is kept for the art and the money. Its
 # palms, street lamps and harbour things are the owner's own models (props/), carved in the same wood.
 import bpy, bmesh, math, os
+import numpy as np
 from mathutils import Matrix, Vector
 import kit
 from kit import lin, hexrgb
@@ -95,12 +96,15 @@ def swap(**over):
     import buildings
     table = dict(wood=basswood, bamboo=basswood, thatch=jute, tin=zinc, stone=card, basalt=walnut, cream=card,
                  brass=brass, terrazzo=card, paving=card, lawn=cork, sand=cork, dark_glass=smoked,
-                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card(), palm=palm, lamp=lamp)
+                 shell=lambda acc: card(), painted=lambda acc, k=0.6: card(), palm=palm, lamp=lamp, patio=patio)
     table.update(over)
     for k, f in table.items():
         setattr(kit, k, f)
         if hasattr(buildings, k):
             setattr(buildings, k, f)
+    # the owner's own buildings stand in for the designed pieces they replace (owners.py)
+    import owners
+    buildings.BUILDERS.update(owners.BUILDERS)
 
 
 # ---------- the art as a glazed tile mosaic ----------
@@ -205,7 +209,8 @@ def open_ground(scene, P, ZP, PW, PD, inner, steps=(26, 22), n=3):
     """
     dg = bpy.context.evaluated_depsgraph_get()
     x0, y0 = P['x0'], P['y0']
-    FCX, FCY = (x0 + 5.4, y0 + 2.8) if P['piece'] == 'lifeguard' else (P['X'] + 1.6, P['Y'] + 1.4)
+    import owners
+    FCX, FCY = owners.centre(P) if P['piece'] in owners.PIECES else (P['X'] + 1.6, P['Y'] + 1.4)
 
     def ground(x, y):
         hit, loc, nrm, idx, ob, mw = scene.ray_cast(dg, kit.V(x, y, 30), Vector((0, 0, -1)))
@@ -237,11 +242,26 @@ def figures(scene, P, ZP, PW, PD, inner):
 
 # ---------- the owner's props (props/*.glb: made with Meshy AI, slimmed), in the same wood ----------
 PROPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'props')
+# folders read before props/, first match wins, each holding models by the same names: render_all.py
+# points it at the owner's originals (CITY_ORIGINALS)
+FROM = [d for d in os.environ.get('CITY_PROPS_FROM', '').split(';') if d]
 _props = {}
 
 
-def _carved(m):
-    """A prop's own picture read as basswood: its light and dark become the wood's, so detail stays and colour goes."""
+def _source(name):
+    for d in FROM + [PROPS]:
+        f = os.path.join(d, name + '.glb')
+        if os.path.exists(f):
+            return f
+    raise FileNotFoundError(f'no model {name!r} in {FROM + [PROPS]}')
+
+
+def _carved(m, water=None):
+    """
+    A prop's own picture read as basswood: its light and dark become the wood's, so detail stays and
+    colour goes. With `water` (colour, glow), the picture's water (where it is bluer than it is red or
+    green) is poured as resin in that colour, lit from within, as the plots' pools are.
+    """
     if not m or not m.use_nodes:
         return
     nt = m.node_tree
@@ -249,6 +269,10 @@ def _carved(m):
     if b is None:
         return
     tex = next((l.from_node for l in nt.links if l.to_node == b and l.to_socket.name == 'Base Color' and l.from_node.type == 'TEX_IMAGE'), None)
+    # an original brings its own metal, gloss and see-through pictures: wood is none of those (its
+    # surface picture, on Normal, stays: the carving's fine relief)
+    for l in [l for l in nt.links if l.to_node == b and l.to_socket.name in ('Metallic', 'Roughness', 'Alpha', 'Specular IOR Level', 'Emission Color', 'Emission Strength')]:
+        nt.links.remove(l)
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.elements[0].color = (0.28, 0.19, 0.11, 1)
     ramp.color_ramp.elements[1].color = (0.8, 0.66, 0.47, 1)
@@ -261,17 +285,49 @@ def _carved(m):
     nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
     b.inputs['Metallic'].default_value = 0.0
     b.inputs['Roughness'].default_value = 0.6
+    if not (water and tex):
+        return
+    colour, strength = water
+    pick = lambda node, name: next(x for x in node.inputs if x.name == name and x.type == 'RGBA')
+    out = lambda node: next(x for x in node.outputs if x.type == 'RGBA')
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(tex.outputs['Color'], sep.inputs[0])
+    most = nt.nodes.new('ShaderNodeMath'); most.operation = 'MAXIMUM'
+    nt.links.new(sep.outputs[0], most.inputs[0]); nt.links.new(sep.outputs[1], most.inputs[1])
+    blue = nt.nodes.new('ShaderNodeMath'); blue.operation = 'SUBTRACT'
+    nt.links.new(sep.outputs[2], blue.inputs[0]); nt.links.new(most.outputs[0], blue.inputs[1])
+    wet = nt.nodes.new('ShaderNodeMapRange'); wet.clamp = True
+    wet.inputs['From Min'].default_value = 0.04; wet.inputs['From Max'].default_value = 0.16
+    nt.links.new(blue.outputs[0], wet.inputs['Value'])
+    base = nt.nodes.new('ShaderNodeMix'); base.data_type = 'RGBA'
+    nt.links.new(wet.outputs['Result'], base.inputs['Factor'])
+    nt.links.new(ramp.outputs['Color'], pick(base, 'A'))
+    pick(base, 'B').default_value = (*colour, 1)
+    nt.links.new(out(base), b.inputs['Base Color'])
+    lit = nt.nodes.new('ShaderNodeMix'); lit.data_type = 'RGBA'
+    nt.links.new(wet.outputs['Result'], lit.inputs['Factor'])
+    pick(lit, 'A').default_value = (0, 0, 0, 1)
+    pick(lit, 'B').default_value = (*colour, 1)
+    nt.links.new(out(lit), b.inputs['Emission Color'])
+    b.inputs['Emission Strength'].default_value = strength
+    gloss = nt.nodes.new('ShaderNodeMapRange')
+    gloss.inputs['To Min'].default_value = 0.6; gloss.inputs['To Max'].default_value = 0.05
+    nt.links.new(wet.outputs['Result'], gloss.inputs['Value'])
+    nt.links.new(gloss.outputs['Result'], b.inputs['Roughness'])
 
 
-def prop(name):
+def prop(name, water=None):
     """
     One prop's mesh, read once per scene: every part joined, upright, its base at 0 and centred,
-    carved in basswood. Returns (mesh, its width / depth / height, the middle of its top, e.g. a lamp's head).
+    carved in basswood (its water poured as resin, with `water`: see _carved; the first read decides).
+    Returns (mesh, its width / depth / height, the middle of its top, e.g. a lamp's head).
     """
     if name in _props:
         return _props[name]
     before = set(bpy.data.objects)
-    bpy.ops.import_scene.gltf(filepath=os.path.join(PROPS, name + '.glb'))
+    src = _source(name)
+    print('model', name, 'from', os.path.basename(os.path.dirname(src)), flush=True)
+    bpy.ops.import_scene.gltf(filepath=src)
     new = [o for o in bpy.data.objects if o not in before]
     bpy.context.view_layer.update()
     bm = bmesh.new()
@@ -291,12 +347,17 @@ def prop(name):
     bm.free()
     for m in mats:
         me.materials.append(m)
-        _carved(m)
-    xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]; zs = [v.co.z for v in me.vertices]
-    me.transform(Matrix.Translation(Vector((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs)))))
-    dims = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
-    top = [v.co for v in me.vertices if v.co.z > dims[2] * 0.93]
-    head = sum(top, Vector()) / len(top) if top else Vector((0, 0, dims[2]))
+        _carved(m, water)
+    # read in bulk: an original has millions of points
+    co = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3)
+    lo, hi = co.min(axis=0), co.max(axis=0)
+    me.transform(Matrix.Translation(Vector((-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]))))
+    dims = tuple(float(v) for v in hi - lo)
+    co -= ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2])
+    top = co[co[:, 2] > dims[2] * 0.93]
+    head = Vector(top.mean(axis=0)) if len(top) else Vector((0, 0, dims[2]))
     me.use_fake_user = True                      # a scene's builder deletes every object first, never meshes
     for o in new:
         bpy.data.objects.remove(o, do_unlink=True)
@@ -316,14 +377,17 @@ def place(name, x, y, z, size, along='h', rot=0.0):
     return o, k
 
 
-def palm(x, y, h, lean, ph, coll=None, z=0.06):
+def palm(x, y, h, lean, ph, coll=None, z=0.06, young=False):
     """
     A palm `h` tall, the owner's coconut palm, turned by its phase `ph`: no two stand alike. Stands in
     for kit.palm everywhere (swap), so the island, every close-up and BNKR's roof get the same palms.
-    Its lean is the model's own. (The owner's young palm is 180,000 triangles that will not slim: its
-    leaves are loose pieces the decimator cannot merge.)
+    Its lean is the model's own. `young`: the owner's young palm, a little shorter (the island's
+    streets and shore mix them in; its leaves are loose pieces, so it keeps more triangles).
     """
-    place('coconut-palm', x, y, z - 0.06, h * 1.05, 'h', rot=ph)
+    if young:
+        place('palm-young', x, y, z - 0.06, h * 0.85, 'h', rot=ph)
+    else:
+        place('coconut-palm', x, y, z - 0.06, h * 1.05, 'h', rot=ph)
 
 
 def lamp(x, y):
@@ -335,6 +399,30 @@ def lamp(x, y):
     hx, hy, hz = o.location.x + off.x, -(o.location.y + off.y), hd.z * k      # back to the site's y
     kit.sphere('lamp head', hx, hy, hz - 0.08, 0.07, kit.glow(kit.WARM, 18.0, 'lamp glow'), seg=12)
     kit.light('POINT', 'lamp', (hx, hy, hz - 0.12), 48, kit.WARM, shadow=False, soft=0.1)
+
+
+def patio(x, y, colour, seed=''):
+    """
+    A room's own corner of its garden, one of four by the room as kit.patio chose it (UX review,
+    2026-11-19: every plot had the same parasol), now the owner's own furniture (2026-11-22: "Yes, add
+    them"): a sun umbrella over a pair of loungers; a fire pit ringed by its stools, burning; a pair of
+    pool loungers by a floor lantern; a hammock. Each stands where kit.patio's did, at its size. Its
+    colour is the model's wood: colour stays for the art and the money.
+    """
+    kind = sum(ord(c) for c in seed) % 4 if seed else 0
+    if kind == 0:
+        place('umbrella', x + 0.2, y - 0.05, 0.06, 1.1, 'h')
+        place('lounger', x - 0.15, y - 0.45, 0.06, 1.2, 'l', rot=0.2)
+    elif kind == 1:
+        place('fire-pit', x, y, 0.06, 1.8, 'l')
+        kit.cyl('embers', x, y, 0.08, 0.16, 0.02, kit.glow((1.0, 0.38, 0.08), 14.0, 'embers'), verts=20)
+        kit.light('POINT', 'fire', (x, y, 0.55), 60, (1.0, 0.55, 0.22), shadow=True, soft=0.25)
+    elif kind == 2:
+        place('lounge-set', x, y, 0.06, 1.3, 'l')
+        kit.sphere('lantern', x + 0.62, y + 0.42, 0.14, 0.06, kit.glow(kit.WARM, 16.0, 'lamp glow'), seg=10)
+        kit.light('POINT', 'daybed lantern', (x + 0.62, y + 0.42, 0.3), 14, kit.WARM, shadow=False, soft=0.1)
+    else:
+        place('hammock', x, y, 0.06, 1.7, 'l')
 
 
 # ---------- the lights the builders made, at a model's strength ----------
