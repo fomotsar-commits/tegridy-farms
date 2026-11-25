@@ -11,6 +11,12 @@ The site's Changelog tab shows both files.
 
 - HyperEVM is on the site: Swap and Pools screens for our own Uniswap V3 venue on HyperEVM (Uniswap's code unchanged, deployed under our own Safes), for HYPE, WHYPE, USD₮0 and USDC. The venue opens the pools; you can swap through them, add to them and manage your positions. A swap made here pays a 0.5% site fee; liquidity providers keep each pool's fee minus the venue's share, which is Uniswap's own (a quarter on the 0.01% and 0.05% pools, a sixth on the 0.3% and 1% pools). HyperEVM is counted in the venue's TVL and all-time volume.
 
+### 2026-11-24
+
+- Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
+- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
+- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
+
 ### 2026-11-23
 
 - The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
