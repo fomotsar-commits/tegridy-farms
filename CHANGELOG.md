@@ -7,6 +7,11 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- Cardano swap: when the read of a pair's pool comes back as long as one read can be (anyone can park a thousand entries at Minswap's pool address), the page now says the pool could not be read, never that there is no pool. A real pool's read is one entry.
+- The venue's own Cardano pools (not switched on yet): the batcher now leaves alone orders no batch could ever carry, alerts when it keeps trying batches and sending none, and never sends a batch whose network fee is more than it earns; the site reads the pool list whatever address a stranger gave an entry, writes new entries only at the venue's own address, and its pool code can no longer fall back to Minswap's contracts by a missing argument.
+
 ### 2026-11-24
 
 - Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
