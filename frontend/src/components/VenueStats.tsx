@@ -3,6 +3,9 @@ import { fetchVenueTvl, TVL_CHAINS, type TvlChain, type TvlNfts, type TvlStaking
 import { fetchVenueVolume, type VenueVolume } from '../lib/venueVolume';
 import { FinePrint } from './ui/FinePrint';
 
+/** Our HyperEVM pools count in both figures once the site shows them (the server's record is pinned to the site's). */
+const HYPEREVM_SHOWN = 'hyperevm' in TVL_CHAINS;
+
 const usdFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const whenFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -111,7 +114,7 @@ export function VenueStats() {
                 from each chain every minute.
                 A pool counts at twice its SOL, USDC or ETH, or twice the island coin it is paired with (BAYLA, BOBO, SOY,
                 BRAINLET or RIZZ, each priced from our deepest pool of it against SOL or USDC); a range pool counts only
-                those coins; other tokens in a pool never add to it. A staked coin counts at its market price: Jupiter's on
+                those coins; other tokens in a pool never add to it.{HYPEREVM_SHOWN && ' A HyperEVM pool counts its USD₮0 and USDC at a dollar and its WHYPE at HYPE\'s price.'} A staked coin counts at its market price: Jupiter's on
                 Solana, DefiLlama's on Ethereum and Base. An NFT held as a loan's collateral on NFT Lending, in a liquidation
                 auction, or in the JBAC staking vault counts at its collection's OpenSea floor; the WETH lent against it is
                 in the borrower's wallet, not ours.
@@ -121,7 +124,7 @@ export function VenueStats() {
           {volumeRead && (
             <p>
               Volume: {volumeRead.swaps.toLocaleString('en-US')} trades: swaps in our Solana pools, Jupiter swaps made here,
-              our pools on Ethereum, Base and Robinhood, new loans on NFT Lending (the WETH lent) and sales on our own NFT
+              our pools on {HYPEREVM_SHOWN ? 'Ethereum, Base, Robinhood and HyperEVM' : 'Ethereum, Base and Robinhood'}, new loans on NFT Lending (the WETH lent) and sales on our own NFT
               order book. Each is valued in dollars when it is counted. Last counted{' '}
               {whenFmt.format(volumeRead.asOf)}.
             </p>

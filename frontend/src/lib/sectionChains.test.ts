@@ -16,12 +16,15 @@ import {
   venueChainOfEvm,
 } from './sectionChains';
 
-describe('the five networks', () => {
-  // Build 2 (2026-11-01): Solana first, because the island's traffic is Solana.
-  it('are Solana, Base, Robinhood Chain, Ethereum and Cardano, named as the registry names them', () => {
-    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Solana', 'Base', 'Robinhood Chain', 'Ethereum', 'Cardano']);
+describe('the six networks', () => {
+  // Build 2 (2026-11-01): Solana first, because the island's traffic is Solana. HyperEVM since
+  // its venue was deployed (2026-11-25).
+  it('are Solana, Base, Robinhood Chain, HyperEVM, Ethereum and Cardano, named as the registry names them', () => {
+    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Solana', 'Base', 'Robinhood Chain', 'HyperEVM', 'Ethereum', 'Cardano']);
     for (const c of VENUE_CHAINS) {
-      if (c.evmChainId !== null) expect(getChainConfig(c.evmChainId)?.name).toBe(c.name);
+      // HyperEVM is named by lib/chains/hyperEvm.ts, never registry.ts's CHAINS (that record is the V2 venue's).
+      if (c.id === 'hyperevm') expect(c).toEqual({ id: 'hyperevm', name: 'HyperEVM', short: 'HyperEVM', evmChainId: 999 });
+      else if (c.evmChainId !== null) expect(getChainConfig(c.evmChainId)?.name).toBe(c.name);
     }
   });
 

@@ -471,23 +471,24 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/hyperevm',
-    voice: null,
+    voice: 'venue',
     owner: 'pages/HyperEvmSwapPage.tsx',
-    gate: 'not-yet-routed',
+    gate: null,
     why:
-      'The swap on our own Uniswap V3 pools on HyperEVM: routed only once every address in ' +
-      'lib/chains/hyperEvmDeployment.ts is set (hyperEvmLive). Nothing is deployed there yet.',
+      'The swap on our own Uniswap V3 pools on HyperEVM, routed since the venue was deployed (2026-11-25). ' +
+      'It reads our factory live from the HyperEVM RPC, so it audits whichever answer comes: a quote, or ' +
+      '"No pools are open on HyperEVM yet".',
     knownViolations: [],
   },
   {
     path: '/hyperevm-pools',
-    voice: null,
+    voice: 'venue',
     owner: 'pages/HyperEvmPoolsPage.tsx',
     tabOf: 'PoolsHostPage · hyperevm-pools',
-    gate: 'not-yet-routed',
+    gate: null,
     why:
-      'Our HyperEVM pools and your positions: routed only once every address in ' +
-      'lib/chains/hyperEvmDeployment.ts is set, as /hyperevm is.',
+      'Our HyperEVM pools and your positions, routed since the venue was deployed (2026-11-25). With no ' +
+      'wallet it audits the pool list read live (or "No pools are open yet") and the connect prompt.',
     knownViolations: [],
   },
   {

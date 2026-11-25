@@ -109,7 +109,9 @@ async function surfaces(record: HyperEvmDeployment | null) {
   };
 }
 
-describe('where HyperEVM shows', () => {
+// Each test re-imports seven modules from scratch (resetModules): the first is past 5 s on a
+// busy machine. 20 s, as the repo's other cold-import tests (lib/cardano/flags.test.ts).
+describe('where HyperEVM shows', { timeout: 20_000 }, () => {
   afterEach(() => {
     vi.doUnmock('./hyperEvmDeployment');
     vi.resetModules();
