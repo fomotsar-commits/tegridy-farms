@@ -274,12 +274,12 @@ describe("real accounts of the live range program whose layout the venue's copy 
   it("says how positions earn and how the venue earns, with the basis, from the tier's own rates and wallets", () => {
     const doc = docFor(agreed());
     expect(doc.description).toContain(
-      "Each swap through its range pays a 1% fee: positions in range share 84% of it (0.84% of the swap), split by their liquidity there, and the venue keeps 16% (0.16% of the swap): 10.4% of the fee (0.104% of the swap) to the team’s shared wallet, 5.6% of the fee (0.056% of the swap) to the island’s Workshop.",
+      "Each swap through its range pays a 1% fee: positions in range share 84% of it (0.84% of the swap), split by their liquidity there, and the venue keeps 16% (0.16% of the swap): 10.4% of the fee (0.104% of the swap) to the team’s vault, 5.6% of the fee (0.056% of the swap) to the island’s Workshop.",
     );
     expect(doc.description).not.toMatch(/WARNING/);
     const attr = attrsOf(doc);
     expect([attr["Positions’ share of the fee"], attr["Venue’s share of the fee"], attr["Venue’s cut follows the agreed split"]]).toEqual(["84%", "16%", "Yes"]);
-    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.104% of the swap)", "5.6% of the fee (0.056% of the swap)"]);
+    expect([attr["To the team’s vault"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.104% of the swap)", "5.6% of the fee (0.056% of the swap)"]);
     expect([attr["Fee tier owner"], attr["Fund owner"]]).toEqual([TEAM_VAULT, ISLAND_WORKSHOP]);
   });
 
@@ -287,10 +287,10 @@ describe("real accounts of the live range program whose layout the venue's copy 
     const doc = docFor(tierWith({ owner: STRANGER }));
     expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split")).toBe(true);
     expect(doc.description).toContain(
-      "As this fee tier stands: 0% of the fee (0% of the swap) to the team’s shared wallet, 5.6% of the fee (0.056% of the swap) to the island’s Workshop, 10.4% of the fee (0.104% of the swap) to " + STRANGER.toBase58() + ".",
+      "As this fee tier stands: 0% of the fee (0% of the swap) to the team’s vault, 5.6% of the fee (0.056% of the swap) to the island’s Workshop, 10.4% of the fee (0.104% of the swap) to " + STRANGER.toBase58() + ".",
     );
     const attr = attrsOf(doc);
-    expect(attr["To the team’s shared wallet"]).toBe("0% of the fee (0% of the swap)");
+    expect(attr["To the team’s vault"]).toBe("0% of the fee (0% of the swap)");
     expect(attr[`To another wallet, ${STRANGER.toBase58()}`]).toBe("10.4% of the fee (0.104% of the swap)");
     expect(attr["Venue’s cut follows the agreed split"]).toBe("NO: see the warning");
   });
@@ -298,10 +298,10 @@ describe("real accounts of the live range program whose layout the venue's copy 
   it("the vault as fund owner (the program's default) takes the island's share: said first, never as the agreed split", () => {
     const doc = docFor(tierWith({ fundOwner: PLATFORM_TREASURY_VAULT }));
     expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split")).toBe(true);
-    expect(doc.description).toContain("As this fee tier stands: 16% of the fee (0.16% of the swap) to the team’s shared wallet, 0% of the fee (0% of the swap) to the island’s Workshop.");
+    expect(doc.description).toContain("As this fee tier stands: 16% of the fee (0.16% of the swap) to the team’s vault, 0% of the fee (0% of the swap) to the island’s Workshop.");
     expect(doc.description).not.toContain("all to the team");
     const attr = attrsOf(doc);
-    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["16% of the fee (0.16% of the swap)", "0% of the fee (0% of the swap)"]);
+    expect([attr["To the team’s vault"], attr["To the island’s Workshop"]]).toEqual(["16% of the fee (0.16% of the swap)", "0% of the fee (0% of the swap)"]);
   });
 
   it("a pool with a dynamic fee pays the tier's rate and more: every share of the swap is said as a floor, with the program's ceiling", () => {
@@ -310,7 +310,7 @@ describe("real accounts of the live range program whose layout the venue's copy 
     expect([pool.dynamicFee, dynamicPool.dynamicFee]).toEqual([false, true]);
     const doc = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: agreed() });
     expect(doc.description).toContain(
-      "Each swap through its range pays a fee of at least 1% (more while the price moves fast, at most 4%): positions in range share 84% of it (at least 0.84% of the swap), split by their liquidity there, and the venue keeps 16% (at least 0.16% of the swap): 10.4% of the fee (at least 0.104% of the swap) to the team’s shared wallet,",
+      "Each swap through its range pays a fee of at least 1% (more while the price moves fast, at most 4%): positions in range share 84% of it (at least 0.84% of the swap), split by their liquidity there, and the venue keeps 16% (at least 0.16% of the swap): 10.4% of the fee (at least 0.104% of the swap) to the team’s vault,",
     );
     const attr = attrsOf(doc);
     expect([attr["Swap fee"], attr["To the island’s Workshop"]]).toEqual(["at least 1%, at most 4%", "5.6% of the fee (at least 0.056% of the swap)"]);
@@ -320,7 +320,7 @@ describe("real accounts of the live range program whose layout the venue's copy 
   it("a real share too small for four decimals of a percent is said as under that, never as 0%", () => {
     expect([perMillion(0), perMillion(1), perMillion(0.01), perMillion(8_400)]).toEqual(["0%", "0.0001%", "<0.0001%", "0.84%"]);
     const doc = docFor(tierWith({ protocol: 1 }));
-    expect(doc.description).toContain("0.0001% of the fee (<0.0001% of the swap) to the team’s shared wallet");
+    expect(doc.description).toContain("0.0001% of the fee (<0.0001% of the swap) to the team’s vault");
   });
 
   it("a share of the swap: what positions get rounds DOWN, what is taken from them rounds UP", () => {
@@ -340,14 +340,14 @@ describe("real accounts of the live range program whose layout the venue's copy 
       expect(got >= exact(share) && got < exact(share) + 0.0001, String(share)).toBe(true);
     }
     const attr = attrsOf(doc);
-    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.0347% of the swap)", "5.6% of the fee (0.0187% of the swap)"]);
+    expect([attr["To the team’s vault"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.0347% of the swap)", "5.6% of the fee (0.0187% of the swap)"]);
   });
 
   it("a dynamic pool on a 0% tier pays the dynamic part alone: each share reads from 0% up to the ceiling, never a flat 0%", () => {
     const b = dynamicPoolBytes();
     const doc = buildPositionMetadata({ id: FIX.position.address, position, pool: decodePool(b), tier: { ...agreed(), tradeFeeRate: 0 } });
     expect(doc.description).toContain("pays a fee of 0% to 4%, rising while the price moves fast: positions in range share 84% of it (0% to 3.36% of the swap)");
-    expect(doc.description).toContain("the venue keeps 16% (0% to 0.64% of the swap): 10.4% of the fee (0% to 0.416% of the swap) to the team’s shared wallet");
+    expect(doc.description).toContain("the venue keeps 16% (0% to 0.64% of the swap): 10.4% of the fee (0% to 0.416% of the swap) to the team’s vault");
     expect(doc.description).not.toMatch(/\(0% of the swap\)/);
     expect(attrsOf(doc)["Swap fee"]).toBe("0% to 4%");
   });
@@ -356,10 +356,10 @@ describe("real accounts of the live range program whose layout the venue's copy 
     const b = dynamicPoolBytes();
     const dynamicPool = decodePool(b);
     const stranger = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: tierWith({ owner: STRANGER }) });
-    expect(stranger.description).toContain("0% of the fee (0% of the swap) to the team’s shared wallet");
+    expect(stranger.description).toContain("0% of the fee (0% of the swap) to the team’s vault");
     expect(stranger.description).not.toMatch(/at least 0%|at least <0\.0001%/);
     const sliver = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: tierWith({ protocol: 1 }) });
-    expect(sliver.description).toContain("0.0001% of the fee (more than 0% of the swap) to the team’s shared wallet");
+    expect(sliver.description).toContain("0.0001% of the fee (more than 0% of the swap) to the team’s vault");
   });
 
   it("a 4% tier on a dynamic pool is already at the program's ceiling: said as a plain 4%, never 'at least 4% … at most 4%'", () => {
@@ -420,7 +420,7 @@ describe("real accounts of the live range program whose layout the venue's copy 
   it("the WARNING list at 0.3333%: each wallet's cut of the swap rounded UP", () => {
     const doc = docFor({ ...tierWith({ owner: STRANGER }), tradeFeeRate: 3_333 });
     expect(doc.description.startsWith("WARNING:")).toBe(true);
-    expect(doc.description).toContain("0% of the fee (0% of the swap) to the team’s shared wallet, 5.6% of the fee (0.0187% of the swap) to the island’s Workshop, 10.4% of the fee (0.0347% of the swap) to " + STRANGER.toBase58());
+    expect(doc.description).toContain("0% of the fee (0% of the swap) to the team’s vault, 5.6% of the fee (0.0187% of the swap) to the island’s Workshop, 10.4% of the fee (0.0347% of the swap) to " + STRANGER.toBase58());
   });
 
   it("the agreed wallets at other rates are not the agreed split either", () => {

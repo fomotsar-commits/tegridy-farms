@@ -616,17 +616,17 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
     expect(rates).toHaveTextContent(
-      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
     expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
     expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();
-    const wallet = within(rates).getByRole('group', { name: 'Team’s shared wallet' });
+    const wallet = within(rates).getByRole('group', { name: 'Team’s vault' });
     expect(wallet.closest('details')).not.toBeNull();
     expect(wallet).toHaveTextContent('GRMt…8osd');
     expect(wallet).not.toHaveTextContent(VAULT);
     fireEvent.click(within(wallet).getByRole('button', { name: /Show full address/ }));
-    expect(within(rates).getByRole('group', { name: 'Team’s shared wallet' })).toHaveTextContent(VAULT);
+    expect(within(rates).getByRole('group', { name: 'Team’s vault' })).toHaveTextContent(VAULT);
     // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
@@ -666,26 +666,26 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
     const flag = within(await card()).getByTestId('lp-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
-    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s shared wallet, 5\.6% to the island’s Workshop\)\. /);
+    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s vault, 5\.6% to the island’s Workshop\)\. /);
     return flag;
   };
 
   it('a tier that sends part of the venue’s cut to another wallet says so in plain sight, in bold, with the wallet', async () => {
     const flag = await flagged({ protocolOwner: OTHER });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s shared wallet, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s vault, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
     expect(within(flag).getByRole('group', { name: 'Another wallet, 10.4% of each trade’s fee' })).toHaveTextContent('Fu7m…tTb6');
   });
 
   it('a fund owner that is the team’s vault (the program’s default) keeps the island’s part: said in bold, not as the agreed split', async () => {
     const flag = await flagged({ fundOwner: VAULT });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s shared wallet and nothing to the island’s Workshop\./);
-    expect(within(flag).getByRole('group', { name: 'Team’s shared wallet, 16% of each trade’s fee' })).toBeInTheDocument();
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s vault and nothing to the island’s Workshop\./);
+    expect(within(flag).getByRole('group', { name: 'Team’s vault, 16% of each trade’s fee' })).toBeInTheDocument();
     expect(within(flag).getByRole('group', { name: 'Island’s Workshop' })).toBeInTheDocument();
   });
 
   it('the right wallets at other rates: said in bold too', async () => {
     const flag = await flagged({ protocolFeeRate: 120_000n, fundFeeRate: 40_000n });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s shared wallet and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s vault and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
   });
 
   it('still reading, a read that failed, tiers that are not there: each said, and none prints a pool rate or a wallet', async () => {
@@ -704,7 +704,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
       expect(rates).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
       expect(within(within(rates).getByTestId('lp-venue-sources')).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools.', 'A fee when a public pool is opened.']);
       expect(within(rates).queryByRole('group', { name: /wallet/i })).toBeNull();
-      expect(rates).not.toHaveTextContent(/shared wallet/);
+      expect(rates).not.toHaveTextContent(/team’s vault|shared wallet/);
       view.unmount();
     }
   });

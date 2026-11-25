@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- Solana range pools: the Risks box shows the open/closed arrow and says each risk once, in the pools' words. It now says the team's vault can also switch off collecting fees and rewards (48 hours after both keys approve, read on chain 2026-11-25), and it leaves out what the review already says. The range and pools pages call that vault by one name, the team's vault.
+
 ### 2026-11-24
 
 - Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
