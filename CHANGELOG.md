@@ -35,6 +35,7 @@ The site's Changelog tab shows both files.
 - The city's island is now one architect's model at night, like its close-ups: cork land on a pale beach, a sea of deep blue resin, card streets, wooden palms and trees, each room's art laid as tile, small white figures on every plot, lit by its own street lamps, windows and glowing pools in a dark gallery.
 - The city is no longer laid out on a grid: a ring road winds round the island, a boulevard runs from the pier through the plaza, and the buildings stand scattered along the streets at their own angles, with the island's greenery between them and the lighthouse alone on the far point.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
+- Harvest now claims your pool fees too. On Solana, wherever Pools would offer Claim fees on your share of an island coin's pool (BAYLA, BOBO, SOY, BRAINLET or RIZZ), that claim joins the staking claims under Harvest all, one wallet approval each. It gives back just the shares the fees added, so what you put in stays in the pool. Its row shows both coins it pays and says "about", because the split moves with the pool's price, and it is added to no total.
 
 ### 2026-11-19
 

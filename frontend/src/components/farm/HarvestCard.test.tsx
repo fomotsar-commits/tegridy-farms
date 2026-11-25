@@ -30,6 +30,9 @@ vi.mock('../../hooks/useEvmHarvest', () => ({
 vi.mock('../../lib/harvest/solana', () => ({
   readSolanaHarvest: sol.read,
 }));
+// The pool shares' fees, read after the staking pools (components/solana/lp/harvestFees.ts).
+const fees = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock('../solana/lp/harvestFees', () => ({ readFeeHarvest: fees.read }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
 // The pool reads Harvest shares with the dashboard's board (lib/wallet/heldReads.ts).
 const held = vi.hoisted(() => ({ forget: vi.fn() }));
@@ -59,6 +62,7 @@ beforeEach(() => {
   evm.switchTo.mockReset();
   evm.refetch.mockReset();
   sol.read.mockReset();
+  fees.read.mockReset().mockResolvedValue({ claims: [], held: [], unread: [] });
   resetSolanaSurfaceForTests();
 });
 
@@ -287,6 +291,56 @@ describe('Harvest card', () => {
     } finally {
       act(() => setSolanaSurface(owner, null));
     }
+  });
+
+  describe('pool fees (owner, 2026-11-20)', () => {
+    const feeClaim = (send: SolanaClaim['send']): SolanaClaim => ({
+      key: 'lp:share', chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'BAYLA/SOL pool', detail: 'fees your share earned',
+      amountRaw: 2_500_000n, decimals: 6, caution: null, about: true, also: { symbol: 'SOL', amountRaw: 25_000_000n, decimals: 9 }, send,
+    });
+    const withWallet = async (signer: object, body: () => Promise<void>) => {
+      const owner = {};
+      act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
+      try {
+        await body();
+      } finally {
+        act(() => setSolanaSurface(owner, null));
+      }
+    };
+
+    it('are read only once the staking pools answered, then claimed after them, each with the connected wallet', async () => {
+      const signer = { name: 'the top bar’s wallet' };
+      let answer!: (p: HarvestPlan<SolanaClaim>) => void;
+      const stake = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'S1' }));
+      const fee = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'S2' }));
+      sol.read.mockReturnValue(new Promise((r) => (answer = r)));
+      fees.read.mockResolvedValue({ claims: [feeClaim(fee)], held: [], unread: [] });
+      await withWallet(signer, async () => {
+        show();
+        await waitFor(() => expect(sol.read).toHaveBeenCalledWith('SoLAddr'));
+        // Two bursts at once are what the RPC turns away: the fees wait for the staking read.
+        expect(fees.read).not.toHaveBeenCalled();
+        await act(async () => answer({ claims: [solClaim('sf:1', stake)], held: [], unread: [] }));
+        await waitFor(() => expect(fees.read).toHaveBeenCalledWith('SoLAddr'));
+        fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 2 claims' }));
+        await screen.findByRole('button', { name: 'Check again' });
+        expect(stake).toHaveBeenCalledWith(signer);
+        expect(fee).toHaveBeenCalledWith(signer);
+        expect(stake.mock.invocationCallOrder[0]!).toBeLessThan(fee.mock.invocationCallOrder[0]!);
+        expect(within(screen.getByRole('list', { name: 'This harvest' })).getAllByRole('listitem')[1]!.querySelector('.hv-amt')!.textContent)
+          .toBe('about 2.5 BAYLA and 0.025 SOL');
+      });
+    });
+
+    it('a fee read that fails is named as not read, and the staking claims stay', async () => {
+      sol.read.mockResolvedValue({ claims: [solClaim('sf:1', vi.fn())], held: [], unread: [] });
+      fees.read.mockRejectedValue(new Error('the pool code could not load'));
+      await withWallet({}, async () => {
+        show();
+        expect(await screen.findByRole('button', { name: 'Harvest all · 1 claim' })).toBeTruthy();
+        expect(screen.getByRole('list', { name: 'Not read' }).textContent).toContain('Could not read your pool shares (the pool code could not load). Not a zero.');
+      });
+    });
   });
 
   describe('a Solana read that came back partly unread (owner’s board, 2026-10-30: hidden until a reload)', () => {
