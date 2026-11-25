@@ -38,8 +38,10 @@ describe('the FAQ on NFT lending', () => {
     for (const a of [faq('What is NFT Lending?'), faq('What happens if I default on a loan?')]) {
       expect(a).toMatch(/3-day auction/);
       expect(a).toContain(
-        "auctions are not switched on yet (read on chain 2026‑11‑24): until the venue's Safe switches them on, such a loan, once overdue, cannot be repaid or claimed, and the NFT stays locked.",
+        "auctions are not switched on yet (read on chain 2026‑11‑24): until the venue's Safe switches them on, nobody can repay or claim such a loan once it is overdue, and the NFT stays locked.",
       );
+      // The venue never tells a visitor "Cannot" (e2e/cannot-zero.spec.ts walks /toweli for it).
+      expect(a).not.toMatch(/\bcannot\b/i);
     }
   });
 
