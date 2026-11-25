@@ -114,10 +114,11 @@ export function VenueStats() {
                 from each chain every minute.
                 A pool counts at twice its SOL, USDC or ETH, or twice the island coin it is paired with (BAYLA, BOBO, SOY,
                 BRAINLET or RIZZ, each priced from our deepest pool of it against SOL or USDC); a range pool counts only
-                those coins; other tokens in a pool never add to it.{HYPEREVM_SHOWN && ' A HyperEVM pool counts its USD₮0 and USDC at a dollar and its WHYPE at HYPE\'s price.'} A staked coin counts at its market price: Jupiter's on
+                those coins; other tokens in a pool never add to it. A staked coin counts at its market price: Jupiter's on
                 Solana, DefiLlama's on Ethereum and Base. An NFT held as a loan's collateral on NFT Lending, in a liquidation
                 auction, or in the JBAC staking vault counts at its collection's OpenSea floor; the WETH lent against it is
                 in the borrower's wallet, not ours.
+                {HYPEREVM_SHOWN && ' A HyperEVM pool counts its USD₮0 and USDC at a dollar and its WHYPE at HYPE\'s price.'}
               </p>
             </>
           )}
