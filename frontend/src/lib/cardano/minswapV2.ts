@@ -50,8 +50,9 @@ export const MINSWAP_V2 = {
 
 /**
  * The three hashes that say WHOSE Minswap V2 deployment a pool or an order belongs to. Every
- * reader and writer below takes one; the default is Minswap's own (the swap's). The venue's
- * own pools pass theirs (ownPools/deployment.ts), so nothing of ours can fall back to Minswap's.
+ * reader and writer below takes one, always named, never a default: the swap passes MINSWAP_V2,
+ * the venue's own pools theirs (ownPools/deployment.ts), so nothing of ours can fall back to
+ * Minswap's contracts (nor its batcher fee) by a forgotten argument.
  */
 export interface DexScripts {
   orderScriptHash: string;
@@ -107,7 +108,7 @@ export function lpAssetName(a: CardanoAsset, b: CardanoAsset): string {
   return sha3Hex(sha3Hex(assetUnit(x)) + sha3Hex(assetUnit(y)));
 }
 
-export function lpAsset(a: CardanoAsset, b: CardanoAsset, dex: Pick<DexScripts, 'authenPolicy'> = MINSWAP_V2): CardanoAsset {
+export function lpAsset(a: CardanoAsset, b: CardanoAsset, dex: Pick<DexScripts, 'authenPolicy'>): CardanoAsset {
   return { policyId: dex.authenPolicy, assetName: lpAssetName(a, b) };
 }
 
@@ -192,14 +193,14 @@ function quantityOf(u: ChainUtxo, a: CardanoAsset): bigint {
 }
 
 /**
- * Reads a UTxO as `dex`'s pool for `pair` (Minswap's own unless told), or says why it is not one.
+ * Reads a UTxO as `dex`'s pool for `pair`, or says why it is not one.
  *
  * What makes it the pool, in the order the validator trusts them: it sits at the pool script,
  * it holds exactly one pool NFT (minted only into a real pool), it holds the pair's LP token,
  * and its datum names the pair. A pool that fails any of these is not a pool, whatever
  * anyone's list says.
  */
-export function readPool(csl: Csl, u: ChainUtxo, pair: [CardanoAsset, CardanoAsset], dex: Pick<DexScripts, 'poolScriptHash' | 'authenPolicy'> = MINSWAP_V2): PoolRead {
+export function readPool(csl: Csl, u: ChainUtxo, pair: [CardanoAsset, CardanoAsset], dex: Pick<DexScripts, 'poolScriptHash' | 'authenPolicy'>): PoolRead {
   const no = (reason: string): PoolRead => ({ kind: 'not-a-pool', reason });
   const header = parseInt(u.addressHex.slice(0, 2), 16);
   const paymentIsScript = (header >> 4) % 2 === 1;
@@ -273,8 +274,8 @@ export function feePercentText(numerator: bigint): string {
   return `${Number(pct.toFixed(3))}%`;
 }
 
-/** The order's address: the order script (Minswap's unless told), with the trader's own stake part (SDK buildOrderAddress). */
-export function orderAddressFor(trader: ParsedAddress, dex: Pick<DexScripts, 'orderScriptHash'> = MINSWAP_V2): ParsedAddress {
+/** The order's address: `dex`'s order script, with the trader's own stake part (SDK buildOrderAddress). */
+export function orderAddressFor(trader: ParsedAddress, dex: Pick<DexScripts, 'orderScriptHash'>): ParsedAddress {
   return composeAddress({ kind: 'script', hash: dex.orderScriptHash }, trader.stake, trader.network);
 }
 
@@ -377,12 +378,12 @@ export function encodeWithdrawStep(csl: Csl, lpAmount: bigint, minimumA: bigint,
   return constr(csl, 5, [constr(csl, 0, [int(csl, lpAmount)]), int(csl, minimumA), int(csl, minimumB), bool(csl, KILLABLE)]);
 }
 
-/** The swap order's datum: a SwapExactIn at Minswap's pool, with Minswap's batcher fee. */
-export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
+/** The swap order's datum: a SwapExactIn at the pool's deployment, with the batcher fee named (Minswap's: MINSWAP_V2.maxBatcherFee). */
+export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms, maxBatcherFee: bigint): string {
   if (t.trader.payment.kind !== 'key') throw new Error('A script wallet cannot sign an order cancel here.');
   const aToB = sameAsset(t.assetIn, t.pool.assetA);
   if (!aToB && !sameAsset(t.assetIn, t.pool.assetB)) throw new Error('The coin paid in is not in this pool.');
-  return encodeOrderDatum(csl, { trader: t.trader, lp: t.pool.lp, step: encodeSwapStep(csl, aToB, t.swapAmount, t.minimumReceive), maxBatcherFee: MINSWAP_V2.maxBatcherFee });
+  return encodeOrderDatum(csl, { trader: t.trader, lp: t.pool.lp, step: encodeSwapStep(csl, aToB, t.swapAmount, t.minimumReceive), maxBatcherFee });
 }
 
 /**
@@ -441,9 +442,9 @@ export function readOrderOwner(csl: Csl, datumHex: string): OrderOwner | null {
   return { cancellerKeyHash: key !== null && /^[0-9a-f]{56}$/.test(key) ? key : null, refundTo, refundHasDatum: constrOf(f[2]!, 0, 0) === null };
 }
 
-/** What the order locks: the swap, the batcher fee, and the deposit that comes back. */
-export function orderValue(t: Pick<SwapOrderTerms, 'assetIn' | 'swapAmount'>): { lovelace: bigint; token: { asset: CardanoAsset; quantity: bigint } | null } {
-  const ada = MINSWAP_V2.maxBatcherFee + MINSWAP_V2.orderDeposit;
+/** What the order locks: the swap, the batcher fee named (Minswap's: MINSWAP_V2.maxBatcherFee), and the deposit that comes back. */
+export function orderValue(t: Pick<SwapOrderTerms, 'assetIn' | 'swapAmount'>, maxBatcherFee: bigint): { lovelace: bigint; token: { asset: CardanoAsset; quantity: bigint } | null } {
+  const ada = maxBatcherFee + MINSWAP_V2.orderDeposit;
   return isAda(t.assetIn)
     ? { lovelace: t.swapAmount + ada, token: null }
     : { lovelace: ada, token: { asset: t.assetIn, quantity: t.swapAmount } };

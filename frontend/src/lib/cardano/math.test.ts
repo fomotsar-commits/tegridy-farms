@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calculateAmountOut, minimumReceive, priceImpactBps } from './math';
 import { quoteSwap } from './quote';
-import { ADA, lpAsset, type PoolState } from './minswapV2';
+import { ADA, lpAsset, MINSWAP_V2, type PoolState } from './minswapV2';
 import { composeAddress } from './address';
 import { ASCEND } from './testkit.fixture';
 
@@ -46,7 +46,7 @@ describe('quoteSwap', () => {
     ref: { txHash: '11'.repeat(32), index: 0 },
     assetA: ADA,
     assetB: ASCEND,
-    lp: lpAsset(ADA, ASCEND),
+    lp: lpAsset(ADA, ASCEND, MINSWAP_V2),
     reserveA: 1019463084218n,
     reserveB: 945869519487n,
     totalLiquidity: 807036682412n,
