@@ -5,10 +5,21 @@ import { HYPEREVM_TOKENS, MAX_SITE_FEE_BPS, WHYPE, hyperEvmLive, hyperEvmVenue, 
 
 /**
  * HyperEVM shows nowhere until every address of our V3 venue is set, and everywhere it should
- * once they are. Both halves are read off the same modules the site loads: the real record
- * (all null today), and a fake one swapped in under the same name. The fake addresses below
- * are NOT contracts; they only prove what the switch turns on.
+ * once they are. Both halves are read off the same modules the site loads, with a record
+ * swapped in under the same name: one all null, one fake. The fake addresses below are NOT
+ * contracts; they only prove what the switch turns on. The real record (deployed 2026-11-25)
+ * is held to the addresses read back on chain.
  */
+const UNSET: HyperEvmDeployment = Object.freeze({
+  factory: null,
+  positionManager: null,
+  quoterV2: null,
+  universalRouter: null,
+  feeAdapter: null,
+  treasury: null,
+  siteFeeBps: null,
+});
+
 const FAKE: HyperEvmDeployment = Object.freeze({
   factory: '0x1000000000000000000000000000000000000001',
   positionManager: '0x1000000000000000000000000000000000000002',
@@ -20,10 +31,19 @@ const FAKE: HyperEvmDeployment = Object.freeze({
 });
 
 describe('the HyperEVM record as committed', () => {
-  it('holds no address and no fee rate until the venue is deployed', () => {
-    expect(HYPEREVM_DEPLOYMENT).toEqual({ factory: null, positionManager: null, quoterV2: null, universalRouter: null, feeAdapter: null, treasury: null, siteFeeBps: null });
-    expect(hyperEvmVenue()).toBeNull();
-    expect(hyperEvmLive()).toBe(false);
+  it('holds the deployed venue, read back on chain 2026-11-25, and the owner\'s 0.5% site fee', () => {
+    expect(HYPEREVM_DEPLOYMENT).toEqual({
+      factory: '0xcaDc93E96De58EA554c71ca609974625615E046D',
+      positionManager: '0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2',
+      quoterV2: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
+      universalRouter: '0x8652f9389D1738598E8a732d122440cDA85FAF1A',
+      feeAdapter: '0x5f30Aa592fa4dB6AB62373666334E93772c28887',
+      // The HyperEVM treasury Safe, at the same address as Base's (rebuilt from its creation).
+      treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0',
+      siteFeeBps: 50,
+    });
+    expect(hyperEvmLive()).toBe(true);
+    expect(hyperEvmVenue()).toMatchObject({ chainId: 999, factory: HYPEREVM_DEPLOYMENT.factory, treasury: HYPEREVM_DEPLOYMENT.treasury, siteFeeBps: 50n });
   });
 
   it('lists HYPE, WHYPE and the two dollar coins by their own tickers and whole addresses', () => {
@@ -96,7 +116,7 @@ describe('where HyperEVM shows', () => {
   });
 
   it('nowhere while any address is null: no network row, tab, wallet chain, label or sheet', async () => {
-    const s = await surfaces(null);
+    const s = await surfaces(UNSET);
     expect(s.venueChains).not.toContain('hyperevm');
     expect(s.venueChainOf999).toBeNull();
     expect(s.swapItems).not.toContain('/hyperevm');

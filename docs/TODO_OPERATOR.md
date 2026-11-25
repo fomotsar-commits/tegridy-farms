@@ -1254,6 +1254,14 @@ nothing is lost.
   on our own NFT order book. Merged before 031, the home page's volume line reads "could not be
   read" until 031 is in. After the merge, the next five-minute count writes both rows; check
   with `select source, swaps, usd, unpriced, last_error from venue_volume order by source;`.
+- ⬜ **Migration 033, BEFORE the "HyperEVM on the site" PR merges** (free). Paste
+  `frontend/supabase/migrations/033_venue_volume_hyperevm.sql` in the SQL editor (it needs 031).
+  It lets the volume counter write one more row: swaps in our Uniswap V3 pools on HyperEVM.
+  Merged before 033, the home page shows no volume figure until 033 is in and the row is
+  written. Right after the merge, Actions > Venue Volume > Run workflow once, so the row is
+  written at once instead of at the next hourly run; check with
+  `select source, swaps, usd, counted_to, last_error from venue_volume order by source;`
+  (a `hyperevm` row, 0 swaps until a pool trades).
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568
