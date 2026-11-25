@@ -21,7 +21,7 @@ describe('the first range line, as the pools say it', () => {
   it('names the read date with non-breaking hyphens, the wait after both keys approve, and every money switch-off', () => {
     expect(RANGE_RISK_SHORT).toContain('48 hours after both keys approve (read on chain 2026‑11‑25)');
     expect(RANGE_RISK_SHORT).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-    expect(RANGE_RISK_SHORT).toContain('switch off withdrawals or the collection of fees and rewards');
+    expect(RANGE_RISK_SHORT).toContain('switch off withdrawals, stop you collecting fees and rewards, change fee rates');
     expect(RANGE_RISK_SHORT).toContain("Our changes to Raydium's program have no outside audit.");
     expect(RANGE_RISK_SHORT).not.toMatch(/2 of 2|two signatures|as read on chain on/);
     expect(RANGE_RISK_SHORT.split(/\s+/).length).toBeLessThanOrEqual(50);
@@ -47,8 +47,9 @@ describe('each range Risks list says each thing once, in one wording', () => {
       const l = lines(view.container);
       const at = (start: string) => l.findIndex((x) => x.startsWith(start));
       expect(at(RANGE_RISK_SHORT)).toBeGreaterThanOrEqual(0);
-      expect(at("The team's vault is a Squads multisig. It can also switch off deposits or swaps")).toBe(at(RANGE_RISK_SHORT) + 1);
+      expect(at("The team's vault is a Squads multisig. It can also switch off deposits or swaps on this pool")).toBe(at(RANGE_RISK_SHORT) + 1);
       expect(at("The range program is Raydium's")).toBe(at(RANGE_RISK_SHORT) + 2);
+      expect(l[at(RANGE_RISK_SHORT) + 2]).toContain('such as its fee limits and who holds its keys');
       expect(at("A change to a fee tier's rates")).toBe(at(RANGE_RISK_SHORT) + 3);
     });
 
@@ -63,7 +64,9 @@ describe('each range Risks list says each thing once, in one wording', () => {
     expect(text).not.toContain(RANGE_RISK_SHORT);
     expect(text).not.toMatch(/Squads multisig|The range program is Raydium's|A change to a fee tier's rates/);
     expect(text).toContain('Jupiter does not send trades to range pools.');
-    expect(text).toContain("If a pool runs a reward, the team's vault can lower its rate or end it early.");
+    expect(text).toContain("If a pool runs a reward, the team's vault can lower it or end it early.");
+    expect(text).toContain("Anyone can open a range pool for any pair, at any price, so a pool's price can be off the market price.");
+    expect(text).toContain("A coin's issuer may be able to freeze the account a pool keeps that coin in, which stops deposits and withdrawals.");
   });
 });
 

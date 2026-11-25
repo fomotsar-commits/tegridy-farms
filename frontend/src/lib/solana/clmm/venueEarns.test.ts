@@ -26,7 +26,7 @@ describe('where a range pool’s venue cut goes', () => {
     const v = rangeVenueEarns(tier());
     expect(v.cut).toBe('16% of each swap’s fee (0.16% of the swap)');
     expect(v.where).toBe(
-      'The venue’s cut is split: 10.4% of each fee (0.104% of the swap) to the team’s vault, which can change the pool rates if both keys approve, and 5.6% of each fee (0.056% of the swap) to the island’s Workshop, the island’s agreed share.',
+      'The venue’s cut is split: 10.4% of each fee (0.104% of the swap) to the team’s vault, which can change fee rates if both keys approve, and 5.6% of each fee (0.056% of the swap) to the island’s Workshop, the island’s agreed share.',
     );
     expect(v.wallets).toEqual([{ label: 'Team’s vault', address: VAULT }, { label: 'Island’s Workshop', address: WORKSHOP }]);
     expect(v.elsewhere).toBe(false);
@@ -118,7 +118,7 @@ describe('the pool-opening fee, as the range screens say it', () => {
     expect(CREATE_POOL_FEE_LAMPORTS).toBe(500_000_000n);
     expect(CREATE_POOL_FEE_RECEIVER.toBase58()).toBe(VAULT);
     // The opening card, the review, the split line and the Risks list all call it the team's vault.
-    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s vault.');
+    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5\u00A0SOL, to the team’s vault.');
     expect(rangeVenueEarns(tier()).where).toContain('to the team’s vault');
   });
 });

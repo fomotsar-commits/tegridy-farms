@@ -900,17 +900,17 @@ describe('the risks, beside the deposit and on the review', () => {
     const risks = within(open).getByTestId('range-risks');
     expect(risks).toHaveTextContent(RANGE_RISK_SHORT);
     expect(risks).toHaveTextContent(/48 hours after both keys approve \(read on chain 2026‑11‑25\)/);
-    expect(risks).toHaveTextContent(/switch off withdrawals or the collection of fees and rewards/);
-    expect(risks).toHaveTextContent(/It can also switch off deposits or swaps on a range pool/);
+    expect(risks).toHaveTextContent(/switch off withdrawals, stop you collecting fees and rewards/);
+    expect(risks).toHaveTextContent(/It can also switch off deposits or swaps on this pool/);
     expect(risks).toHaveTextContent(/replace the program/);
     expect(risks).toHaveTextContent(/Our changes to Raydium's program have no outside audit/);
     expect(risks).toHaveTextContent(/applies to positions already open in its pools/);
     expect(risks).toHaveTextContent(/Jupiter does not send trades to range pools/);
     // With range pools in the swap route, the site's own swap is where their trades come from.
-    expect(risks).toHaveTextContent(/This site's own swap sends a trade to one only when it pays the trader at least as much as Jupiter does/);
+    expect(risks).toHaveTextContent(/This site's own swap sends a trade to a range pool only when that pool pays the trader at least as much as Jupiter does/);
     // set_reward_params lets the vault lower a running reward's rate or move its end sooner, with
     // no 7-to-90-day floor; the rest goes back to whoever started it (collect_remaining_rewards).
-    expect(risks).toHaveTextContent(/If a pool runs a reward, the team's vault can lower its rate or end it early\. Rewards not yet earned go back to whoever started it\./);
+    expect(risks).toHaveTextContent(/If a pool runs a reward, the team's vault can lower it or end it early\. Rewards not yet earned go back to whoever started it\./);
     const earns = screen.getByTestId('range-earns');
     expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
     expect(earns).not.toHaveTextContent(/refundable/);

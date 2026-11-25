@@ -28,14 +28,15 @@ export interface RangeVenueEarns {
   elsewhere: boolean;
 }
 
-const VAULT_CAN = 'which can change the pool rates if both keys approve';
+const VAULT_CAN = 'which can change fee rates if both keys approve';
 
 /**
  * The venue's other take from range pools, said beside its cut of each swap: the program's
  * pool-opening fee (lib.rs CREATE_POOL_FEE, paid to the vault; owner, 2026-10-25).
  */
 // The opening card, the review, the split line and the Risks list all call it the team's vault.
-export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)} SOL, to the team’s vault.`;
+// A no-break space keeps "0.5 SOL" on one line at 390.
+export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)}\u00A0SOL, to the team’s vault.`;
 
 type Tier = Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'owner' | 'fundOwner'>;
 

@@ -49,7 +49,7 @@ export interface VenueEarns {
   elsewhere: boolean;
 }
 
-const VAULT_CAN = 'which can change the pool rates if both keys approve';
+const VAULT_CAN = 'which can change fee rates if both keys approve';
 const VAULT_LABEL = 'Team’s vault';
 const WORKSHOP_LABEL = 'Island’s Workshop';
 
