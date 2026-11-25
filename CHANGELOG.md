@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- The venue's own Cardano pools (built, not yet deployed): fixes from the 2026-11-25 internal audit. A pool's opening fee counts only ADA paid on its own, never ADA bound to tokens; the 48-hour lock refuses a change that would leave a script on a pool or the settings, or move the settings; and the deploy tools build only reviewed trunk code, check each deploy transaction from its own bytes before it is signed, and wait for the lock before handing it the pools' admin roles.
+
 ### 2026-11-24
 
 - Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
