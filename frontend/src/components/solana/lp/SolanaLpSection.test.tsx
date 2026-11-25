@@ -97,8 +97,8 @@ describe('the LP section', () => {
   it('always discloses the missing review and what the vault can do', async () => {
     mount(readers(), '/pools');
     const d = screen.getByTestId('lp-disclosure');
-    expect(d).toHaveTextContent(/have not had their own independent review yet/);
-    expect(d).toHaveTextContent(/switch off adding, removing or trading on any pool/);
+    expect(d).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
+    expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
     expect(d).toHaveTextContent(/only reads/);
     // Both tabs that mount this section end with "The program", so the pointer is plain text.
     expect(d).toHaveTextContent('(see “The program” below)');
@@ -460,7 +460,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
+    "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (read on chain 2026‑11‑14). Our changes to Raydium's program have no outside audit. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -498,12 +498,12 @@ describe('the order of the section', () => {
   it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait as read, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('48 hours after both its keys approve (as read on chain on 2026-11-14).');
+    expect(line).toContain('48 hours after both keys approve (read on chain 2026‑11‑14).');
     expect(line).not.toMatch(/no waiting period|at once/);
-    expect(line).toContain('can pause removing');
+    expect(line).toContain('can switch off withdrawals');
     expect(line).toContain('change fees');
     expect(line).toContain('replace the program');
-    expect(line).toContain('No outside firm has checked our changes.');
+    expect(line).toContain("Our changes to Raydium's program have no outside audit.");
     expect(line).toMatch(/Only add what you can afford to lose\.$/);
     // The line it replaced did not say that removing can be paused; it is gone from the page.
     expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
@@ -526,14 +526,14 @@ describe('the order of the section', () => {
     expect(small).not.toHaveAttribute('open');
     expect(small).toContainElement(sentence!);
     expect(small!.querySelector('p')).toBe(sentence);
-    expect(small).toHaveTextContent(/have not had their own independent review yet/);
+    expect(small).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     for (const fact of [
       'Read on chain 2026-11-14',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
       `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
       'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
       'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
-      'The vault can switch off adding, removing or trading on any pool.',
+      'The vault can switch off deposits, withdrawals or swaps on any pool.',
       // Since the pool program's upgrade of 2026-11: the fee ceilings, the island's share, the guard.
       'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
       'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
@@ -544,7 +544,7 @@ describe('the order of the section', () => {
       'On both fee tiers open today the vault names the venue’s own price robot, wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz. Everyone else pays as before.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
-      'you could not take your money out of that pool until it switched removing back on',
+      'you could not take your money out of that pool until it switched them back on',
     ]) {
       expect(small).toHaveTextContent(fact);
     }

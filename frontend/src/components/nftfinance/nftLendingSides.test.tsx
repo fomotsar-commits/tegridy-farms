@@ -228,7 +228,7 @@ describe('My Loans: each side reads its own rounding', () => {
     );
     expect(within(card).getByRole('button', { name: 'Wrap 0.1004 ETH to WETH' })).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: 'Add due date to calendar' }));
-    expect(vi.mocked(downloadIcs).mock.calls[0]![1]).toContain('about 0.100872 WETH is due by this moment.');
+    expect(vi.mocked(downloadIcs).mock.calls[0]![1]).toContain('repay about 0.100872 WETH before this event ends.');
     // The wallet's own open offer: WETH it would put up.
     await waitFor(() => expect(document.querySelector('[data-dwg="offer-row"] p')!.textContent).toBe('0.1001 WETH · 10.00% · 30d'));
   });

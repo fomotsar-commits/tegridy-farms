@@ -149,7 +149,9 @@ describe('the consequence states the real loss, not a liquidation penalty', () =
     expect(h.consequence).toMatch(/claim the collateral NFT/i);
   });
 
-  it('tells an urgent borrower that a repayment landing late is refused', () => {
-    expect(at(3600).consequence).toMatch(/lands after the deadline is refused/i);
+  // Gondi's _baseLoanChecks refuses a repayment AT the deadline second too (end <= now).
+  it('tells an urgent borrower that a repayment landing at the deadline or late is refused', () => {
+    expect(at(3600).consequence).toMatch(/lands at or after the deadline is refused/i);
+    expect(at(3600).consequence).not.toMatch(/lands after the deadline/i);
   });
 });

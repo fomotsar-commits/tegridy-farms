@@ -3,18 +3,18 @@ import { PublicKey } from '@solana/web3.js';
 import { formatSol, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { METAPLEX_CREATE_FEE_LAMPORTS, sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
+import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
 import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
-import { SOL_QUOTE, lowerCoins, orList, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, orList, otherSideLine, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { afterFee, feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
-import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { SHADOW, TOGGLE_CLS, baseUnitsToInput } from '../curve/uiFormat';
-import { TxFlowView } from '../curve/TxFlowView';
+import { FeeTierValue, TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/ports';
@@ -632,10 +632,8 @@ function CreateInner({
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
-  // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
-  const own = quoteCoin(mint);
-  const lower = orList(lowerCoins(mint).map((q) => q.symbol));
-  const otherSide = own && lower ? `. A pool of ${own.symbol} and ${lower} is opened from the other side: look up ${lower} and pair it with ${own.symbol}` : '';
+  // The card and the pool list say the same sentence before the form is opened.
+  const otherSide = otherSideLine(mint);
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
@@ -667,7 +665,7 @@ function CreateInner({
       {readyConfig !== null && flow.state.step === 'idle' && offerOffLine(offer) && <Notice tone="warn">{offerOffLine(offer)}</Notice>}
       {confirmedPool && (
         <Notice>
-          Your pool is open at <span className="font-mono break-all">{confirmedPool}</span>. Swaps can start one second after it landed.
+          Your pool is open at <span className="font-mono [overflow-wrap:anywhere]">{confirmedPool}</span>. Swaps can start one second after it landed.
         </Notice>
       )}
       {flow.state.step !== 'idle' ? (
@@ -706,7 +704,7 @@ function CreateInner({
             </div>
           ) : (
             // Nothing to choose: the coin is said, and no group is drawn.
-            <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
+            <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only.${otherSide ? ` ${otherSide}` : ''}`} mono={false} />
           )}
           <CoinRiskNotice coin={coin} id={coinRiskId} />
           {/* One pool per pair and fee tier (offers.ts `pairTaken`, owner ruling 2026-11-01):
@@ -715,7 +713,7 @@ function CreateInner({
             <div data-testid="lp-create-taken" data-coin={coin.symbol}>
               <Notice tone="warn">
                 This token already has a {coin.symbol} pool on the public fee tier that {pair.taken.warned ? 'takes deposits, with a warning' : 'passes the checks'}:{' '}
-                <span className="font-mono break-all">{pair.taken.pool.address}</span>. One pool per pair and fee tier, so a second is not opened here: add to
+                <span className="font-mono [overflow-wrap:anywhere]">{pair.taken.pool.address}</span>. One pool per pair and fee tier, so a second is not opened here: add to
                 that pool instead, from its card above.
                 {freeCoins.length > 0 && ` You can still open one paired with ${orList(freeCoins)}.`}
               </Notice>
@@ -863,7 +861,7 @@ function CreateInner({
                     ? `about ${solAbout(neverRefunded, true)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
                     : signer
                       ? 'could not be read'
-                      : 'read once a wallet is connected (the fee tiers list on this page has the amount)'
+                      : 'read once a wallet is connected (Rates, on this page, has the amount)'
                 }
                 mono={false}
               />
@@ -977,11 +975,7 @@ function CreateInner({
       )}
       <div className="space-y-1.5" data-testid="lp-create-terms">
         {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
-        <Row
-          label="Fee tier"
-          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
-          mono={false}
-        />
+        <Row label="Fee tier" value={<FeeTierValue config={config} enableCreatorFee={CREATOR_FEE_SWITCH.publicOpen} />} mono={false} />
         <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
         {/* Each pair has its own standard address: this row is the chosen coin's. */}
         <Row

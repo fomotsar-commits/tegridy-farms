@@ -18,8 +18,8 @@ function icsText(value: string): string {
 }
 
 export function loanDueIcs(input: { loanId: string; title: string; description: string; dueSeconds: number; nowSeconds: number }): string {
-  // The entry ENDS at the deadline and starts 30 minutes before it: the last moment to act
-  // is the end of the block, never its start.
+  // The entry ENDS at the deadline and starts 30 minutes before it: a repayment must land
+  // before the block ends, since Gondi refuses one at the deadline second itself.
   const start = input.dueSeconds - 30 * 60;
   const lines = [
     'BEGIN:VCALENDAR',

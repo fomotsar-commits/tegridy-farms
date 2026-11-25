@@ -296,10 +296,22 @@ function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
 /**
  * The pool's tier and what a trade on the pool costs: the trade fee, plus the creator fee
  * when the pool's own switch is on (`enableCreatorFee`, read with the pool while preparing).
+ * Two whole phrases: a phone breaks the row between them, never before its last word. Also
+ * the Open a pool form's own row (CreatePoolPanel.tsx).
  */
-function feeTierText(config: LpSummary['config'], enableCreatorFee: boolean): string {
-  if (!config) return 'not read';
-  return `${config.index}: traders pay ${tradeCostText(config, enableCreatorFee)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+export function FeeTierValue({ config, enableCreatorFee }: { config: LpSummary['config']; enableCreatorFee: boolean }) {
+  if (!config) return <>not read</>;
+  return (
+    <>
+      <span className="inline-block">
+        Tier {config.index}: traders pay {tradeCostText(config, enableCreatorFee)};
+      </span>{' '}
+      {/* What LPs keep and what the venue takes, together (owner, 2026-10-09: it stays in view). */}
+      <span className="inline-block">
+        LPs keep {feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade, the venue {feeSplit(config).venueTakesPct.toFixed(3)}%
+      </span>
+    </>
+  );
 }
 
 /** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
@@ -462,7 +474,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
   return (
     <>
       <LpPoolRows summary={s} />
-      <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={s.enableCreatorFee} />} mono={false} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
@@ -605,7 +617,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
-      <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={CREATOR_FEE_SWITCH.publicOpen} />} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       {s.transferFee && (
