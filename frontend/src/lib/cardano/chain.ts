@@ -42,16 +42,18 @@ function amount(v: unknown): bigint | null {
 
 /**
  * A Koios UTxO row as a ChainUtxo, or null when any field is missing or malformed. All or
- * nothing: a row with one unreadable asset is not shown with that asset missing.
+ * nothing: a row with one unreadable asset is not shown with that asset missing. The address is
+ * read by `addressHexOf`: the site-wide parser unless the caller reads outputs it knows by their
+ * payment part alone (ownPools/chainReads.ts, the factory's entries).
  */
-export function chainUtxoFromKoios(row: unknown): ChainUtxo | null {
+export function chainUtxoFromKoios(row: unknown, addressHexOf: (bech32: string) => string | null = (a) => parseAddressBech32(a)?.hex ?? null): ChainUtxo | null {
   if (!isRecord(row)) return null;
   const { tx_hash, tx_index, address, value, inline_datum, asset_list } = row;
   if (typeof tx_hash !== 'string' || !/^[0-9a-f]{64}$/.test(tx_hash)) return null;
   if (typeof tx_index !== 'number' || !Number.isInteger(tx_index) || tx_index < 0) return null;
   if (typeof address !== 'string') return null;
-  const parsed = parseAddressBech32(address);
-  if (!parsed) return null;
+  const addressHex = addressHexOf(address);
+  if (addressHex === null) return null;
   const lovelace = amount(value);
   if (lovelace === null) return null;
   const assets: ChainUtxo['assets'] = [];
@@ -71,7 +73,7 @@ export function chainUtxoFromKoios(row: unknown): ChainUtxo | null {
     if (!isRecord(inline_datum) || typeof inline_datum.bytes !== 'string' || !/^(?:[0-9a-f]{2})+$/.test(inline_datum.bytes)) return null;
     inlineDatumHex = inline_datum.bytes;
   }
-  return { txHash: tx_hash, index: tx_index, addressHex: parsed.hex, lovelace, assets, inlineDatumHex };
+  return { txHash: tx_hash, index: tx_index, addressHex, lovelace, assets, inlineDatumHex };
 }
 
 /** Minswap V2's pool NFT ("MSP" under the authen policy): minted only into a real pool. */

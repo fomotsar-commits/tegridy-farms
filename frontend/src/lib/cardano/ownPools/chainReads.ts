@@ -6,7 +6,7 @@
 import type { PlutusData } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
 import { chainUtxoFromKoios, getJson, isRecord, type Read } from '../chain';
-import { bytesToHex, type ParsedAddress } from '../address';
+import { bytesToHex, scriptSpentAddressHex, type ParsedAddress } from '../address';
 import { ADA, lpAssetName, MINSWAP_V2, readPool, type CardanoAsset, type ChainUtxo, type PoolState } from '../minswapV2';
 import type { OwnPools } from './deployment';
 
@@ -100,7 +100,11 @@ export interface FactoryEntry {
   tail: string;
 }
 
-/** A factory UTxO as the factory validator demands it: at our factory, holding only ADA and one MSF, with a FactoryDatum. */
+/**
+ * A factory UTxO as the factory validator demands it: at our factory, holding only ADA and one MSF,
+ * with a FactoryDatum. Known by its payment part alone, as the validator knows it: the stake part
+ * is whoever made the entry's choice (a key, a script, a pointer, none).
+ */
 export function readFactoryEntry(csl: Csl, dep: OwnPools, u: ChainUtxo): FactoryEntry | null {
   if (u.addressHex.slice(2, 58) !== dep.factoryScriptHash || (parseInt(u.addressHex.slice(0, 2), 16) >> 4) % 2 !== 1) return null;
   if (u.assets.length !== 1 || u.assets[0]!.policyId !== dep.authenPolicy || u.assets[0]!.assetName !== FACTORY_NFT_NAME || u.assets[0]!.quantity !== 1n) return null;
@@ -122,7 +126,7 @@ export async function readFactoryEntries(csl: Csl, dep: OwnPools, signal?: Abort
   if (r.data.length >= KOIOS_PAGE) return unread('the factory list is longer than one read');
   const out: FactoryEntry[] = [];
   for (const row of r.data.filter((x) => rowCarries(x, dep.authenPolicy, FACTORY_NFT_NAME))) {
-    const u = chainUtxoFromKoios(row);
+    const u = chainUtxoFromKoios(row, (a) => scriptSpentAddressHex(a)?.hex ?? null);
     const e = u ? readFactoryEntry(csl, dep, u) : null;
     if (!e) return unread('a factory row could not be read');
     out.push(e);

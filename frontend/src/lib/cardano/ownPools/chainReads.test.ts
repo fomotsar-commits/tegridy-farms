@@ -3,7 +3,9 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PlutusData } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
-import { composeAddress } from '../address';
+import { bech32 } from '@scure/base';
+import { composeAddress, hexToBytes } from '../address';
+import { chainUtxoFromKoios } from '../chain';
 import { testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import {
@@ -83,6 +85,36 @@ describe('the factory’s list', () => {
     expect(await readFactoryEntries(csl, dep)).toEqual({ status: 'unread', reason: 'the factory list is longer than one read' });
     // An MSF row somewhere else is not the factory: the whole read is unread, never one row short.
     answer([{ ...row, address: composeAddress({ kind: 'script', hash: '99'.repeat(28) }, null).bech32 }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+  });
+
+  it('reads an entry at our factory whatever its stake part, a pointer included, as the factory validator does', async () => {
+    const at = (hex: string) => bech32.encode('addr', bech32.toWords(hexToBytes(hex)), 200);
+    const f = dep.factoryScriptHash;
+    // Types 7 (no stake part, as the deploy and the site write it), 1 (a stake key), 3 (a stake script), 5 (a pointer: slot 1, tx 2, cert 3).
+    const addresses = [`71${f}`, `11${f}${'73'.repeat(28)}`, `31${f}${'74'.repeat(28)}`, `51${f}010203`];
+    const names = ['00', '10'.repeat(32), '20'.repeat(32), '30'.repeat(32), 'ff'.repeat(33)];
+    const rows = addresses.map((a, i) => ({
+      tx_hash: (i + 1).toString(16).repeat(64).slice(0, 64),
+      tx_index: 0,
+      address: at(a),
+      value: '2000000',
+      asset_list: [{ policy_id: dep.authenPolicy, asset_name: '4d5346', quantity: '1' }],
+      inline_datum: { bytes: factoryDatumHex(csl, names[i]!, names[i + 1]!) },
+    }));
+    // The site-wide parser still refuses a pointer address: only this read takes one.
+    expect(chainUtxoFromKoios(rows[3])).toBeNull();
+    answer(rows);
+    const r = await readFactoryEntries(csl, dep);
+    expect(r.status === 'ok' ? r.data.map((e) => [e.utxo.addressHex, e.head]) : r).toEqual(addresses.map((a, i) => [a, names[i]]));
+    // The entry at the pointer address holds the new pair's place: the site can open it.
+    if (r.status === 'ok') expect(factorySlotFor(r.data, '31'.repeat(32))).toEqual({ kind: 'slot', entry: r.data[3] });
+    // Still only at our factory, and only a whole address.
+    answer([{ ...rows[3], address: at(`51${'99'.repeat(28)}010203`) }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+    answer([{ ...rows[3], address: at(`51${f}`) }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+    answer([{ ...rows[1], address: at(`61${f}`) }]);
     expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
   });
 });
