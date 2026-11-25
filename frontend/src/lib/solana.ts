@@ -45,11 +45,15 @@ export function solanaRpcEndpoint(): string {
 export const SOLANA_FEE_ACCOUNT =
   (import.meta.env.VITE_SOLANA_FEE_ACCOUNT as string | undefined)?.trim() ?? '';
 
-// Platform fee in basis points (100 = 1.0%). Keep <= 100: above ~1% the quote
-// degrades vs free direct Jupiter and users bounce. Disclosed in the UI.
-// Unset or out of [0, 1000] is 0, no fee: never a guessed rate. A production build is
-// refused unless this is 50 and the fee owner is the vault (solanaFeeGuardPlugin.ts).
+// Platform fee in basis points (50 = 0.5%), half of Phantom's 0.85% (owner, 2026-10-18).
+// Disclosed in the UI. Unset or out of [0, 1000] is 0, no fee: never a guessed rate. A
+// production build is refused unless this is 50 and the fee owner is the vault
+// (solanaFeeGuardPlugin.ts).
 export const SOLANA_PLATFORM_FEE_BPS = solanaFeeBpsFrom(import.meta.env.VITE_SOLANA_PLATFORM_FEE_BPS);
+
+// Between majors (SOL, USDC, USDT, staked SOL) the fee is 0.05%: jup.ag charges 0.02%
+// on SOL-stable, so 0.5% there would be 25x the leader (owner, 2026-10-18).
+export const SOLANA_MAJOR_PAIR_FEE_BPS = Math.min(5, SOLANA_PLATFORM_FEE_BPS);
 
 // Canonical mainnet mints (the curated allowlist lands with the swap UI).
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';

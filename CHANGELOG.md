@@ -7,6 +7,12 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-24
+
+- Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
+- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
+- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
+
 ### 2026-11-23
 
 - The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.

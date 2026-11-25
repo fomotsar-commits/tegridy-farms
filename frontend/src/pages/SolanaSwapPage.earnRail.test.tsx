@@ -55,7 +55,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { LST_TOKENS } from '../lib/solanaTokenList';
-import { SOLANA_PLATFORM_FEE_BPS } from '../lib/solana';
+import { SOLANA_MAJOR_PAIR_FEE_BPS } from '../lib/solana';
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/solana');
@@ -102,7 +102,8 @@ describe('SolanaSwapPage: the Earn rail names each staking token and prints no r
     // printed twice: on the rail's visible line and in its small print (FinePrint).
     const percentages = text.match(/\d+(?:\.\d+)?\s*%/g) ?? [];
     expect(percentages.length).toBeGreaterThan(0);
-    expect([...new Set(percentages)]).toEqual([`${SOLANA_PLATFORM_FEE_BPS / 100}%`]);
+    // SOL, USDC and staked SOL are majors, so a staked-SOL buy pays the lower major rate.
+    expect([...new Set(percentages)]).toEqual([`${SOLANA_MAJOR_PAIR_FEE_BPS / 100}%`]);
     expect(text).toContain(`A ${percentages[0]} fee applies when the buy goes through Jupiter.`);
     // A buy that goes to one of our pools pays no platform fee, so the fee is never said of every buy.
     expect(text).toContain("A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.");
