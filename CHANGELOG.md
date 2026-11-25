@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- Our Solana pools can now be charted by DexTools too: the site serves the data feeds its indexer reads (`/api/dextools/latest-block`, `/block`, `/asset`, `/pair`, `/events`, `/exchange`), every number read from the chain, a pool's opening included. Both chart feeds also keep the first trades of a pool opened in the last minute, which they could drop before.
+
 ### 2026-11-23
 
 - The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
