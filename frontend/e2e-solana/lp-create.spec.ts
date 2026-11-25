@@ -484,8 +484,12 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held');
 
-    // Released: Check again settles it, and the tab now knows the pool it opened.
+    // Released: Check again settles it, and the tab now knows the pool it opened. The load
+    // checks the note once on its own; released before that check is refused, it settles
+    // the note and the card leaves before Check again can be pressed.
+    const loadBefore = a.rpc.failedCount('getSignatureStatuses');
     await openPools(p, A.t2);
+    await expect.poll(() => a.rpc.failedCount('getSignatureStatuses'), { timeout: 60_000 }).toBeGreaterThan(loadBefore);
     a.rpc.release('getSignatureStatuses');
     await press(ui.lp.pending(p).getByRole('button', { name: 'Check again' }), 'Check again');
     await expect(ui.lp.pending(p)).toHaveCount(0, { timeout: 60_000 });

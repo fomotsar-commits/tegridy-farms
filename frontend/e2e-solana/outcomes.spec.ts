@@ -120,6 +120,7 @@ test('sent, not confirmed, then a reload: no trade form until the chain answers'
   // Reload, and leave and come back: the note is there, it is checked (and still cannot
   // be read), and there is no trade form to press.
   for (const hop of ['reload', 'away and back'] as const) {
+    const loadBefore = t.rpc.failedCount('getSignatureStatuses');
     if (hop === 'reload') await t.page.reload();
     else {
       await t.page.goto('/curve-launch');
@@ -130,6 +131,9 @@ test('sent, not confirmed, then a reload: no trade form until the chain answers'
     await expect(card).toContainText('Sent, not confirmed yet');
     await expect(card).toContainText(signature);
     await expectNoWord(card, /fail/i);
+    // Each load checks the note once on its own. On the last one, released before that
+    // check is refused, it settles the note and the card leaves before Check again.
+    await expect.poll(() => t.rpc.failedCount('getSignatureStatuses'), { message: `${hop}: the note was checked`, timeout: 60_000 }).toBeGreaterThan(loadBefore);
     await expect(card.getByRole('button', { name: 'Check again' })).toBeEnabled({ timeout: 60_000 });
     await expect(ui.tradePanel(t.page)).toHaveCount(0);
   }
@@ -186,6 +190,10 @@ test('a reload WHILE the trade is still in the air: leaving asks first, and the 
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card).toContainText(signature);
   await expect(ui.tradePanel(t.page)).toHaveCount(0);
+  // The load checks the note once on its own; released first, that check settles it and
+  // the card leaves before Check again. Waited on by the card's own answer, not a count:
+  // the page before the reload was still polling, so a refused read may have been its.
+  await expect(card).toContainText('Could not check right now. Try again in a moment.', { timeout: 60_000 });
 
   // It landed; once the chain can be read, Check again settles it and the form comes back.
   expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
