@@ -8,7 +8,9 @@
 // wallet's checked signatures in <step>.witnesses.json, and assemble writes <step>.signed.tx.json.
 // The network is the inputs' (0 preprod, 1 mainnet): an address, a wallet or a chain endpoint on
 // any other is refused. A change through the 48-hour lock (scripts/lock.ts writes it here too) is
-// read with the deploy's <out>/scripts.json, and shown in plain words with when it can run.
+// read with the deploy's <out>/scripts.json, and shown in plain words with when it can run. A
+// deploy step is read from its bytes against scripts.json (compiled from exactly these inputs)
+// and listed in the order the steps run; init only once the chain holds the lock.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,9 +19,9 @@ import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME, PREPROD_TIME } from '../src/chain.ts';
 import { Koios } from '../src/koios.ts';
 import { rpc, submit, type Endpoint } from '../src/ogmios.ts';
-import { checkInputs, checkNothingPending, NAMES, type DeployInputs, type Scripts } from '../src/deploy.ts';
+import { checkInputs, checkLockReady, checkNothingPending, NAMES, scriptsFor, type DeployInputs, type Scripts } from '../src/deploy.ts';
 import type { LockDeployment } from '../src/lock.ts';
-import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, missing, networkName, outputOf, Refused, review, walletKeys, type LockView, type Resolver, type Review, type WitnessFile } from '../cosign/review.ts';
+import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, DEPLOY_STEPS, missing, networkName, outputOf, readDeployStep, Refused, review, runOrder, walletKeys, type LockView, type Resolver, type Review, type WitnessFile } from '../cosign/review.ts';
 
 const [cmd, inputsPath, outArg, stepArg] = process.argv.slice(2);
 if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/cosign.ts <serve|assemble|submit> <inputs.json> <out> [<step>] [--port 8737]');
@@ -46,13 +48,14 @@ async function checkKoios(): Promise<void> {
 }
 
 const STEP = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-/** The unsigned transactions deploy.ts wrote: <step>.tx.json, never a signed or draft one. */
+/** The unsigned transactions deploy.ts wrote: <step>.tx.json, never a signed or draft one; the deploy's in the order they run. */
 function steps(): string[] {
-  return readdirSync(out)
-    .filter((f) => f.endsWith('.tx.json') && !f.endsWith('.signed.tx.json') && !f.endsWith('.draft.tx.json'))
-    .map((f) => f.slice(0, -'.tx.json'.length))
-    .filter((s) => STEP.test(s))
-    .sort();
+  return runOrder(
+    readdirSync(out)
+      .filter((f) => f.endsWith('.tx.json') && !f.endsWith('.signed.tx.json') && !f.endsWith('.draft.tx.json'))
+      .map((f) => f.slice(0, -'.tx.json'.length))
+      .filter((s) => STEP.test(s)),
+  );
 }
 function envelope(step: string): string {
   if (!STEP.test(step) || !steps().includes(step)) throw new Refused(`no unsigned transaction ${step}.tx.json in ${out}`);
@@ -67,12 +70,21 @@ function writeAtomic(path: string, text: string): void {
   writeFileSync(`${path}.new`, text);
   renameSync(`${path}.new`, path);
 }
-/** The deploy's scripts (<out>/scripts.json), when there: lock transactions are read with them. */
-function deployment(): LockDeployment | undefined {
+/** The deploy's scripts (<out>/scripts.json), when there, compiled from exactly these inputs. */
+function deployScripts(): Scripts | undefined {
   const p = join(out, 'scripts.json');
   if (!existsSync(p)) return undefined;
-  const s = (JSON.parse(readFileSync(p, 'utf8')) as { scripts: Scripts }).scripts;
-  return { network, lock: s.lock.hash, authen: s.authen.hash, pool: s.pool.hash, ownerA: inputs.ownerA, ownerB: inputs.ownerB, treasury: inputs.treasury };
+  try {
+    return scriptsFor(JSON.parse(readFileSync(p, 'utf8')), inputs);
+  } catch (e) {
+    throw new Refused((e as Error).message);
+  }
+}
+deployScripts();
+/** The deployment lock transactions are read with, when scripts.json is there. */
+function deployment(): LockDeployment | undefined {
+  const s = deployScripts();
+  return s && { network, lock: s.lock.hash, authen: s.authen.hash, pool: s.pool.hash, ownerA: inputs.ownerA, ownerB: inputs.ownerB, treasury: inputs.treasury, batcher: inputs.batcherKeyHash };
 }
 /** For an Announce or a Cancel (which touch neither), the pool and the GlobalSetting as the chain holds them now. */
 async function current(d: LockDeployment, lp: string | undefined): Promise<NonNullable<LockView['current']>> {
@@ -112,6 +124,20 @@ async function reviewOf(step: string): Promise<{ hex: string; r: Review }> {
     const o = fromChain.get(ref);
     return o ? { outputHex: o, from: 'the chain' } : undefined;
   };
+  if (DEPLOY_STEPS.includes(step)) {
+    const s = deployScripts();
+    if (!s) throw new Refused(`${step} is a deploy step, and ${out} has no scripts.json to read it with`);
+    if (step === 'init') {
+      // The five roles go to the lock: the chain must hold it, with nothing announced.
+      try {
+        checkLockReady(await koios.utxosWithAsset(s.lock.hash, NAMES.lock), s, network);
+      } catch (e) {
+        throw new Refused(`init waits for the lock: ${(e as Error).message}`);
+      }
+    }
+    const words = readDeployStep(step, hex, s, inputs);
+    return { hex, r: { ...review(hex, network, resolve, labels), deploy: { step, words } } };
+  }
   const d = deployment();
   const r = review(hex, network, resolve, labels, d && { deployment: d });
   if (!d || !r.lock || r.lock.action === 'Execute') return { hex, r };

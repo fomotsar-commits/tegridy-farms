@@ -340,6 +340,14 @@ with another stake part is refused (`withdraw_to_the_treasury_restaked` in the l
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
+The deploy tools (`cardano/batcher/scripts/deploy.ts` and the co-signing page) compile only a clean
+trunk commit that provenance proves (a preprod rehearsal may skip the git checks, with a warning),
+record the parameters they applied in `scripts.json` and refuse inputs that differ, refuse
+`DexInitialization` until the chain holds the lock with nothing announced, and read every deploy
+step from its own bytes before it is signed (the first GlobalSetting shown in words). On mainnet
+they take only the treasury above, with its stake script as the pools' stake credential, and
+refuse Minswap's stake key and batcher key anywhere. The expired-order cancel is not published as a
+reference script: nothing of ours reads it, and Minswap's identical copy is on chain.
 Changing a key or the treasury later means a new lock and a 48-hour `SetGlobalSetting` to it. A new treasury takes two such changes, at least 96 hours: the old lock refuses any receiver but its own treasury, so first the GlobalSetting names the new lock with the old receiver, then the new lock re-points the receiver.
 
 ## 5. In scope later: the batcher
