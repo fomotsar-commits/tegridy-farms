@@ -92,6 +92,10 @@ under the finger and half of the next. 30 px round holds the measured double tap
 token through. And a look-up is not always a press: the island's sheet and the door's link call the
 same `lookUp()` with none, and a hold armed there sat on the spot of the press that opened the
 sheet, where Back now was, so a prompt Back did nothing once. Hold only where a press asked.
+What is left (narrow re-read, 2026-11-25): the token that slides under the finger still does not
+answer for the half second, its centre 6 to 28 px from the press on tall phones (12 of 17 sizes),
+because that is where a double tap's second tap lands; and a second tap 31 to 45 px off does what
+trunk does.
 
 **But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
 the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On
