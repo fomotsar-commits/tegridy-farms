@@ -429,6 +429,8 @@ fn open_ix(w: &World, p: &Person, a: OpenArgs, pool: Pubkey, observation: Pubkey
             input_token_program: program_of(&p.input_mint, w),
             output_token_program: program_of(&p.output_mint, w),
             system_program: system_program::ID,
+            pool_vault_0: w.vault_0,
+            pool_vault_1: w.vault_1,
         }
         .to_account_metas(None),
         data: vwap_order::instruction::OpenOrder { args: a }.data(),
@@ -502,6 +504,23 @@ fn close_ix(w: &World, p: &Person, owner: &Pubkey, to_in: &Pubkey, to_out: &Pubk
         }
         .to_account_metas(None),
         data: vwap_order::instruction::CloseOrder {}.data(),
+    }
+}
+
+/// The owner takes back one of the order's coin accounts.
+fn take_back_ix(w: &World, p: &Person, owner: &Pubkey, vault: &Pubkey, mint: &Pubkey, to: &Pubkey) -> Instruction {
+    Instruction {
+        program_id: vwap_order::ID,
+        accounts: vwap_order::accounts::TakeBack {
+            owner: *owner,
+            order: p.order,
+            vault: *vault,
+            mint: *mint,
+            owner_token: *to,
+            token_program: program_of(mint, w),
+        }
+        .to_account_metas(None),
+        data: vwap_order::instruction::TakeBack {}.data(),
     }
 }
 
@@ -756,6 +775,131 @@ fn a_price_pushed_just_before_the_slice_is_refused_by_the_pools_average() {
     slice(&mut w, &p, &attacker, 250_000_000).unwrap();
 }
 
+/// Audit 2026-11-24: a push made one second after a slice and left there was the next slice's
+/// whole average. The average since the order was opened still remembers the price before it.
+#[test]
+fn a_price_pushed_after_one_slice_and_held_is_refused_by_the_average_since_the_opening() {
+    let mut w = World::new();
+    let p = person(&mut w, true, 1_000_000_000);
+    open(&mut w, &p, args(1_000_000_000, START, 4)).unwrap(); // band 2%, worst price: half
+    let attacker = runner(&mut w);
+    let ak = attacker.pubkey();
+    let push_from = w.account(&p.input_mint.clone(), &ak, 10_000_000_000);
+    let push_to = w.account(&p.output_mint.clone(), &ak, 0);
+    w.at(START);
+    slice(&mut w, &p, &attacker, 250_000_000).unwrap();
+    w.at(START + 1);
+    w.swap_by(&attacker, &push_from, &push_to, &p.input_mint.clone(), 10_000_000_000).unwrap(); // 10% of depth
+    w.at(START + 600);
+    assert_eq!(code(&slice(&mut w, &p, &attacker, 250_000_000)), err(OrderError::BelowAverage));
+    assert_eq!(w.balance(&p.in_vault), 750_000_000);
+}
+
+/// The other average, since the previous slice, is the one that holds when the market ROSE
+/// after the opening: the average since the opening is then stale and low, and a runner could
+/// push the price down by the rise and keep it.
+#[test]
+fn a_market_that_rose_since_the_opening_is_measured_since_the_previous_slice() {
+    let mut w = World::new();
+    let p = person(&mut w, true, 1_000_000_000);
+    open(&mut w, &p, args(1_000_000_000, START, 4)).unwrap(); // band 2%
+    let r = runner(&mut w);
+    let rk = r.pubkey();
+    w.at(START);
+    slice(&mut w, &p, &r, 250_000_000).unwrap();
+    // A buyer lifts the coin being sold by about 20%, and it stays there.
+    let buyer = runner(&mut w);
+    let pays = w.account(&p.output_mint.clone(), &buyer.pubkey(), 10_000_000_000);
+    let gets = w.account(&p.input_mint.clone(), &buyer.pubkey(), 0);
+    w.at(START + 1);
+    w.swap_by(&buyer, &pays, &gets, &p.output_mint.clone(), 10_000_000_000).unwrap();
+    // The runner pushes it about 5% back down in the slice's own transaction: still far above
+    // the average since the opening, and refused by the average since the previous slice.
+    let push_from = w.account(&p.input_mint.clone(), &rk, 2_300_000_000);
+    let push_to = w.account(&p.output_mint.clone(), &rk, 0);
+    w.at(START + 600);
+    let ixs = [
+        w.swap_ix(&rk, &push_from, &push_to, &p.input_mint, 2_300_000_000),
+        begin_ix(&w, &p, &rk),
+        w.swap_ix(&rk, &p.in_vault, &p.out_vault, &p.input_mint, 250_000_000),
+        end_ix(&w, &p, &rk),
+    ];
+    assert_eq!(code(&w.send(&ixs, &[&r])), err(OrderError::BelowAverage));
+    // Unpushed, the slice runs at the higher price.
+    let before = w.balance(&p.out_vault);
+    slice(&mut w, &p, &r, 250_000_000).unwrap();
+    assert!(w.balance(&p.out_vault) - before > 290_000_000);
+}
+
+/// Audit 2026-11-24: the pool keeps its price in Q32.32, rounded down, so a coin with very many
+/// units per unit of the other has a price of a few steps, or none, and the average check
+/// would check nothing.
+#[test]
+fn a_pool_whose_price_is_too_coarse_to_check_is_refused_at_the_opening_and_at_a_slice() {
+    let mut w = World::new();
+    let p = person(&mut w, true, 1_000_000_000);
+    let pool_in = if p.input_mint == w.token_0 { w.vault_0 } else { w.vault_1 };
+    // 1e19 units of the coin sold against 1e11 of the other: about 43 steps of Q32.32.
+    w.set_balance(&pool_in, 10_000_000_000_000_000_000);
+    assert_eq!(code(&open(&mut w, &p, args(1_000_000_000, START, 4))), err(OrderError::PriceTooCoarse));
+    // The pool's other two accounts in place of its own coin accounts.
+    w.set_balance(&pool_in, RESERVE);
+    let who = p.who.insecure_clone();
+    let mut ix = open_ix(&w, &p, args(1_000_000_000, START, 4), w.pool, w.observation);
+    let n = ix.accounts.len();
+    ix.accounts.swap(n - 1, n - 2);
+    assert_eq!(code(&w.send(&[ix], &[&who])), err(OrderError::NotOurPool));
+
+    // Opened at a fine price; the price turns coarse before the first slice.
+    let mut a = args(1_000_000_000, START, 4);
+    a.min_out_total = 1;
+    open(&mut w, &p, a).unwrap();
+    w.set_balance(&pool_in, 10_000_000_000_000_000_000);
+    let r = runner(&mut w);
+    w.at(START);
+    assert_eq!(code(&slice(&mut w, &p, &r, 250_000_000)), err(OrderError::PriceTooCoarse));
+    assert_eq!(w.balance(&p.in_vault), 1_000_000_000);
+}
+
+/// Every account a slice is handed is the order's own: another order's proceeds account, another
+/// price record, another tier (audit 2026-11-24: nothing pinned these).
+#[test]
+fn a_slice_handed_another_orders_accounts_is_refused() {
+    let mut w = World::new();
+    let p = person(&mut w, true, 1_000_000_000);
+    let q = person(&mut w, true, 1_000_000_000);
+    open(&mut w, &p, args(1_000_000_000, START, 4)).unwrap();
+    open(&mut w, &q, args(1_000_000_000, START, 4)).unwrap();
+    let r = runner(&mut w);
+    let rk = r.pubkey();
+    w.at(START);
+    let swap = |w: &World| w.swap_ix(&rk, &p.in_vault, &p.out_vault, &p.input_mint, 250_000_000);
+    const SEEDS: Option<u32> = Some(2006); // Anchor's ConstraintSeeds
+    const ADDRESS: Option<u32> = Some(2012); // Anchor's ConstraintAddress
+    // begin: [runner, order, tier, escrow, proceeds, coin, token program, instructions]
+    for (at, other, want) in [(3, q.in_vault, SEEDS), (4, q.out_vault, SEEDS), (2, w.pool, ADDRESS), (5, p.output_mint, ADDRESS)] {
+        let mut begin = begin_ix(&w, &p, &rk);
+        begin.accounts[at].pubkey = other;
+        let ixs = [begin, swap(&w), end_ix(&w, &p, &rk)];
+        assert_eq!(code(&w.send(&ixs, &[&r])), want, "begin account {at}");
+    }
+    // end: [runner, order, price record, escrow, proceeds]
+    for (at, other, want) in [(3, q.in_vault, SEEDS), (4, q.out_vault, SEEDS), (2, w.pool, ADDRESS)] {
+        let mut end = end_ix(&w, &p, &rk);
+        end.accounts[at].pubkey = other;
+        let ixs = [begin_ix(&w, &p, &rk), swap(&w), end];
+        assert_eq!(code(&w.send(&ixs, &[&r])), want, "end account {at}");
+    }
+    // An end naming another runner, or another order, is not this slice's end.
+    let other = runner(&mut w);
+    let ixs = [begin_ix(&w, &p, &rk), swap(&w), end_ix(&w, &p, &other.pubkey())];
+    assert_eq!(code(&w.send(&ixs, &[&r, &other])), err(OrderError::EndMissing));
+    let ixs = [begin_ix(&w, &p, &rk), swap(&w), end_ix(&w, &q, &rk)];
+    assert_eq!(code(&w.send(&ixs, &[&r])), err(OrderError::EndMissing));
+    assert_eq!(w.balance(&p.in_vault), 1_000_000_000);
+    slice(&mut w, &p, &r, 250_000_000).unwrap();
+}
+
 // ── what the person signs ─────────────────────────────────────────────────────
 
 #[test]
@@ -794,7 +938,7 @@ fn the_order_refuses_a_schedule_it_cannot_keep() {
         (Box::new(|a| a.interval = 599), OrderError::IntervalTooShort),
         (Box::new(|a| a.start_at = i64::MAX - 100), OrderError::BadTimes),
         (Box::new(|a| a.min_out_total = 0), OrderError::ZeroAmount),
-        (Box::new(|a| a.band_bps = 3_001), OrderError::BandTooWide),
+        (Box::new(|a| a.band_bps = 501), OrderError::BandTooWide),
         (Box::new(|a| a.tip_lamports = 1_000_001), OrderError::TipTooHigh),
         (Box::new(|a| a.weights = vec![1, 2]), OrderError::BadWeights),
         (Box::new(|a| a.weights = vec![0, 0, 0, 0]), OrderError::BadWeights),
@@ -841,6 +985,61 @@ fn closing_returns_every_coin_and_every_lamport_to_the_owner_only() {
     assert_eq!(before - w.lamports(&owner), TIP, "all back but the one tip paid");
     // A slice that comes after the close finds no order.
     assert!(slice(&mut w, &p, &r, 250_000_000).is_err());
+}
+
+/// Audit 2026-11-24: `close_order` moves both coins or neither, so a coin whose issuer froze the
+/// order's account of it held the person's other coin too. `take_back` returns one coin alone.
+#[test]
+fn a_frozen_coin_does_not_hold_the_other_one_the_owner_takes_each_back_alone() {
+    let mut w = World::new();
+    // The classic coin gets a freeze authority, as USDC has: written into its mint.
+    let issuer = w.payer.pubkey();
+    let mut mint = w.svm.get_account(&w.classic).unwrap();
+    mint.data[46..50].copy_from_slice(&1u32.to_le_bytes());
+    mint.data[50..82].copy_from_slice(issuer.as_ref());
+    w.svm.set_account(w.classic, mint).unwrap();
+
+    let p = person(&mut w, true, 1_000_000_000); // sells the Token-2022 coin for the classic one
+    let owner = p.who.pubkey();
+    let who = p.who.insecure_clone();
+    open(&mut w, &p, args(1_000_000_000, START, 4)).unwrap();
+    let r = runner(&mut w);
+    w.at(START);
+    slice(&mut w, &p, &r, 250_000_000).unwrap();
+    let got = w.balance(&p.out_vault);
+    let freeze = spl_token::instruction::freeze_account(&spl_token::ID, &p.out_vault, &w.classic, &issuer, &[]).unwrap();
+    w.send(&[freeze], &[]).unwrap();
+
+    // The close cannot move the frozen coin, so it moves nothing.
+    let close = close_ix(&w, &p, &owner, &p.input, &p.output);
+    assert_eq!(code(&w.send(&[close], &[&who])), Some(17), "the token program's AccountFrozen");
+    // The other coin comes back alone, to the owner only, from the order's own accounts only.
+    let stranger = runner(&mut w);
+    let sk = stranger.pubkey();
+    let s_in = w.account(&p.input_mint.clone(), &sk, 0);
+    let ix = take_back_ix(&w, &p, &sk, &p.in_vault, &p.input_mint, &s_in);
+    assert_eq!(code(&w.send(&[ix], &[&stranger])), Some(2001), "Anchor's ConstraintHasOne");
+    let ix = take_back_ix(&w, &p, &owner, &p.in_vault, &p.input_mint, &s_in);
+    assert_eq!(code(&w.send(&[ix], &[&who])), Some(2015), "Anchor's ConstraintTokenOwner");
+    let planted = w.account(&p.input_mint.clone(), &p.order, 5);
+    let ix = take_back_ix(&w, &p, &owner, &planted, &p.input_mint, &p.input);
+    assert_eq!(code(&w.send(&[ix], &[&who])), err(OrderError::NotThisOrders));
+    let ix = take_back_ix(&w, &p, &owner, &p.in_vault, &p.input_mint, &p.input);
+    w.send(&[ix], &[&who]).unwrap();
+    assert_eq!(w.balance(&p.input), 750_000_000);
+    assert_eq!(w.balance(&p.in_vault), 0);
+    assert!(w.exists(&p.order), "the order stays open");
+    // With the escrow empty no slice can run.
+    w.at(START + 600);
+    assert!(slice(&mut w, &p, &r, 250_000_000).is_err());
+
+    // Thawed, the close returns the rest.
+    let thaw = spl_token::instruction::thaw_account(&spl_token::ID, &p.out_vault, &w.classic, &issuer, &[]).unwrap();
+    w.send(&[thaw], &[]).unwrap();
+    let close = close_ix(&w, &p, &owner, &p.input, &p.output);
+    w.send(&[close], &[&who]).unwrap();
+    assert_eq!(w.balance(&p.output), got);
+    assert!(!w.exists(&p.order) && !w.exists(&p.in_vault) && !w.exists(&p.out_vault));
 }
 
 // ── the program itself ────────────────────────────────────────────────────────

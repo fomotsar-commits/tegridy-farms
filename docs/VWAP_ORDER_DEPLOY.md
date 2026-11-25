@@ -65,9 +65,11 @@ goes to CI. Ask the chain the day of the deploy:
 solana rent <SIZE + 45> --url https://api.mainnet-beta.solana.com
 ```
 
-Read 2026-11-21 for today's build (341,976 bytes): 1,738,116,920 lamports for the program's data
-and 833,120 for the program account, so about 1.739 SOL. Send 1.76 SOL to leave room for the
-upload's transaction fees. Audit fixes change the size, so read it again.
+Read 2026-11-21 for that day's build (341,976 bytes): 1,738,116,920 lamports for the program's data
+and 833,120 for the program account, so about 1.739 SOL. The audit's fixes of 2026-11-24 made the
+build 358,512 bytes: at the same rate, 1,822,119,800 + 833,120 lamports, about 1.823 SOL (worked
+out, not read again). Read it again on the day, and send about 0.02 SOL more than it says to
+leave room for the upload's transaction fees.
 
 ### 5. Deploy (owner)
 

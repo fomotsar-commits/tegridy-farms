@@ -7,7 +7,8 @@ pub fn window_at(now: i64, start: i64, interval: i64, slices: u8) -> Option<u8> 
     if now < start || interval <= 0 {
         return None;
     }
-    let k = (now - start) / interval;
+    // A start far in the past must not overflow: it is simply past its last window.
+    let k = now.checked_sub(start)? / interval;
     if k < slices as i64 {
         Some(k as u8)
     } else {
@@ -41,6 +42,24 @@ pub fn limit_floor(min_out_total: u64, slice_in: u64, total_in: u64) -> Option<u
     u64::try_from(q).ok()
 }
 
+/// The pool keeps its price in Q32.32, rounded down. Below this many steps the rounding alone
+/// understates the average by more than 1 part in 65,536, and near zero the average check
+/// would check nothing: such a price is refused, never trusted (audit 2026-11-24).
+pub const MIN_PRICE_X32: u128 = 1 << 16;
+
+/// Whether the average price over `d_t` seconds is fine enough to hold a slice to.
+pub fn price_is_fine(d_cum: u128, d_t: u64) -> bool {
+    d_t > 0 && d_cum / d_t as u128 >= MIN_PRICE_X32
+}
+
+/// The pool's price now, output units per input unit in Q32.32, from its two balances.
+pub fn spot_x32(input_balance: u64, output_balance: u64) -> Option<u128> {
+    if input_balance == 0 {
+        return None;
+    }
+    Some(((output_balance as u128) << 32) / input_balance as u128)
+}
+
 /// The least a slice of `slice_in` may get against the pool's own average price over the
 /// last `d_t` seconds: `d_cum / d_t` is that price in Q32.32 (output units per input unit,
 /// the pool's observation format), less `band_bps` hundredths of a percent. Rounded down.
@@ -67,6 +86,7 @@ mod tests {
         assert_eq!(window_at(3_399, 1_000, 600, 4), Some(3));
         assert_eq!(window_at(3_400, 1_000, 600, 4), None);
         assert_eq!(window_at(1_000, 1_000, 0, 4), None);
+        assert_eq!(window_at(1_000, i64::MIN, 600, 4), None);
     }
 
     #[test]
@@ -113,6 +133,12 @@ mod tests {
         assert_eq!(twap_floor(1_000, d_cum, 600, 10_000), Some(0));
         assert_eq!(twap_floor(1_000, d_cum, 0, 150), None);
         assert_eq!(twap_floor(1_000, d_cum, 600, 10_001), None);
+        // A price too coarse to check, and one just fine enough.
+        assert!(!price_is_fine((MIN_PRICE_X32 - 1) * 300, 300));
+        assert!(price_is_fine(MIN_PRICE_X32 * 300, 300));
+        assert!(!price_is_fine(MIN_PRICE_X32 * 300, 0));
+        assert_eq!(spot_x32(1_000, 2_000), Some(2 << 32));
+        assert_eq!(spot_x32(0, 2_000), None);
         // A price below one unit: 0.005 out per in.
         let d_cum = ((5u128 << 32) / 1_000) * 300;
         assert_eq!(twap_floor(1_000_000, d_cum, 300, 0), Some(4_999));

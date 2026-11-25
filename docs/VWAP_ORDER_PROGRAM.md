@@ -13,14 +13,20 @@ the money waits in an escrow and anyone may send each slice when its time comes.
 - **What a person gets.** They put a big trade in once. It is sold (or bought) in slices across
   the day through our own pools, each slice in its own time window, sized by how busy that hour
   usually is. Every slice must get at least the person's worst price AND land close to our
-  pool's own recent average price, or it does not happen and the coins stay in the escrow. The
+  pool's own average price, or it does not happen and the coins stay in the escrow. The
   person can close at any time and gets back every coin and every lamport, less the tips
   already paid.
+- **What protects the person, said plainly.** Their own worst price is the wall: nothing fills
+  below it. The pool-average check stops a slice being robbed by a price pushed just before it,
+  but whoever runs a slice may still take up to the band from it (section 4a), so the band is
+  capped at 5% and the site should suggest a tight worst price.
 - **Where it stands.** Built on branch `feat/vwap-order-program` in `solana/vwap-order/`, with
-  15 tests that run it beside the exact program our pools run on mainnet (and beside the pool
+  20 tests that run it beside the exact program our pools run on mainnet (and beside the pool
   upgrade waiting for the vault), all seen failing first, plus a rehearsal on copies of our real
-  BAYLA/SOL pool's accounts. Not audited, not deployed, and no program address exists for it
-  (only a placeholder nobody can deploy to).
+  BAYLA/SOL pool's accounts. Audited in-house on 2026-11-24 (six reviewers; no way found to take
+  an escrow or to dodge the venue's fee); what that audit found in this program is fixed here,
+  each fix with a test that failed first (section 9). Not deployed, and no program address
+  exists for it (only a placeholder nobody can deploy to).
 - **Nothing proven could be copied** (checked 2026-11-19, section 1). Jupiter's order program
   is closed source and being retired; Kamino's is public but its licence forbids production use
   until 2028-12-04. So this is our own code, built from pieces we already run. It breaks the
@@ -58,12 +64,14 @@ copy (read, not changed), and Anchor's standard account checks.
 
 **How the person pays.**
 - Their coins go into the escrow when they open the order (one transaction, one signature).
-- About 0.0062 SOL of rent while the order is open (6,238,240 lamports on mainnet, read
+- About 0.0064 SOL of rent while the order is open (6,360,160 lamports at mainnet's rate as read
   2026-11-21: the order account and its two coin accounts). All of it comes back at close.
 - A tip per slice, set by the person, at most 0.001 SOL. The site would suggest 0.00001 SOL
   (10,000 lamports). Tips for slices that never ran come back at close.
 - The pool's normal fee on each slice, exactly as on any swap: 1% on the 1% tier, 0.75% on the
   launch tier (0.25% trade fee plus the coin creator's 0.5%).
+- Up to the band, to whoever runs the slice (section 4a). The band must cover the pool's fee and
+  the slice's own price move; what is left over is what a runner can take. At most 5%.
 
 **How the venue earns.** Its usual share of each slice's pool fee, nothing more:
 - 1% tier: the venue gets 10.4% of the fee, which is 0.104% of the slice; the island gets 5.6% of
@@ -82,7 +90,7 @@ no durable nonce, so neither of Phantom's two hard warnings (two or more transac
 request; a durable nonce) arises. The person never signs a slice.
 
 **How the runner earns.** The tip, minus its own network fee (5,000 lamports a signature, plus any
-priority fee). Anyone may run slices; our keeper would. Its key holds only SOL for fees and can
+priority fee); and, if it chooses to, what the band leaves it (section 4a). Anyone may run slices; our keeper would. Its key holds only SOL for fees and can
 take nothing from an order (section 5).
 
 **No venue money can leak:** a slice can only swap through the pool named in the order, one of
@@ -96,22 +104,23 @@ number the person picks.
 
 | Account | Address from | Size | Rent while open |
 |---|---|---|---|
-| Order | `["order", owner, id]` | 514 bytes | 4,468,320 lamports |
+| Order | `["order", owner, id]` | 538 bytes | 4,635,360 lamports |
 | The escrow (the coin being sold) | `["in", order]` | 165 bytes | 2,039,280 lamports |
 | The proceeds (the coin being bought) | `["out", order]` | 165 bytes | 2,039,280 lamports |
 
 The order holds: the owner; the pool, its fee tier and its price record; the two coins; the total,
 the worst price (as "at least this much out for the whole amount"), the start, the window length,
 the number of slices (1 to 96) and one weight per slice; the band (how far below the pool's
-average a slice may land, at most 30%); the tip; what has been spent and received; and the pool's
-running price total at the previous slice.
+average a slice may land, at most 5%); the tip; what has been spent and received; and the pool's
+running price total at the previous slice and at the opening.
 
 | Instruction | Who signs | What it does |
 |---|---|---|
-| `open_order` | the person | Checks the schedule (window at least 10 minutes), both coins (section 4b) and the pool (it must be our swap program's, trading exactly these two coins, with its own price record); takes the coins into the escrow and the tips into the order |
+| `open_order` | the person | Checks the schedule (window at least 10 minutes), both coins (section 4b) and the pool (it must be our swap program's, trading exactly these two coins, with its own price record, at a price fine enough to check, section 4a); takes the coins into the escrow and the tips into the order |
 | `begin_slice` | the runner | Only in the current slice's window, once per window, never by the pool's keeper, never from inside another program. Checks that the next instruction is our pool's `swap_base_input` for exactly this slice, from the escrow into the order's proceeds, signed by the runner, and that the one after is `end_slice` for this order. Then lets the runner spend exactly this slice from the escrow, for this transaction |
 | (our pool's own `swap_base_input`) | the runner | The ordinary swap. The pool's swap guard sees a swap of the transaction itself, and takes its usual fee |
-| `end_slice` | the runner | Checks the escrow lost exactly the slice and nothing is still lent; that the proceeds grew by at least the person's worst price and by at least the pool's average price less the band; pays the tip |
+| `end_slice` | the runner | Checks the escrow lost exactly the slice and nothing is still lent; that the proceeds grew by at least the person's worst price and by at least the pool's average price less the band, over both stretches of section 4a; pays the tip |
+| `take_back` | the person only | Sends the whole balance of ONE of the order's two coin accounts to the person's own account, the order staying open. For a coin whose issuer froze the order's account of the other one |
 | `close_order` | the person only | Sends both coins' whole balances to the person's own accounts, closes the three accounts, every lamport to the person |
 
 A slice is one transaction of these three instructions. If any check fails, all of it is undone.
@@ -131,11 +140,32 @@ rule). A late runner cannot bunch slices together.
   sized by volume. What the program must stop is a slice being robbed: someone pushing the price
   just before it, or the runner picking a bad moment.
 - **For that it reads our own pool's price record**, the running total of the pool's price over
-  time that the pool program keeps for every swap. The program takes the average over the time
-  since the previous slice (at least 5 minutes, since the order was opened for the first slice).
-  A price pushed in the same second counts for nothing in it, and a price held off for a minute
-  counts a minute's share, while our price robot trades the pool back. This is the Uniswap V2
-  time-weighted average pattern the venue's rules already name for prices.
+  time that the pool program keeps for every swap. A price pushed in the same second counts for
+  nothing in it, and a price held off for a minute counts a minute's share, while our price
+  robot trades the pool back. This is the Uniswap V2 time-weighted average pattern the venue's
+  rules already name for prices.
+- **Two averages, and a slice must meet the higher** (audit 2026-11-24):
+  - *Since the previous slice* (at least 5 minutes). On its own this one can be made: a price
+    pushed one second after a slice and left there IS the next slice's average. It is kept
+    because it is the one that holds when the market rose after the opening.
+  - *Since the order was opened.* This one still remembers the price before any push made
+    during the order. Its cost: when the price truly falls during the order, by the market or by
+    the order's own selling in a pool nobody trades back, later slices wait instead of selling
+    lower, and their coins stay in the escrow.
+  - For the first slice both start at the pool's last swap before the opening, not at the
+    opening itself, so a first slice may run at once in a pool that was quiet for 5 minutes.
+- **What the average does not stop, and why the band is small.** Push, slice and unwind can be
+  one transaction, with no risk to whoever sends it, and the same-second push is in no average:
+  so a runner can always land a slice at the average less the band and keep the difference, less
+  the pool fee it pays on its own two swaps. In the tests a 10% band on a slice of 2% of the
+  pool's depth cost the person 5.5% of the slice. The band is therefore capped at 5% (it was
+  30%), and an honest slice needs most of that for the pool's fee and its own price move: 1.25%
+  for a slice of 0.25% of depth on the 1% tier, about 3% for a slice of 2% of depth.
+- **A price too coarse to check is refused.** The pool keeps its price as a whole number of
+  2^-32 steps, rounded down. A coin with very many units per unit of the other has a price of a
+  few steps, or none, and an average of that checks nothing. An order cannot be opened on a pool
+  whose price is under 65,536 steps, and a slice is refused if the average is (BAYLA/SOL reads
+  about 26 million steps one way and 709 billion the other).
 - **A keeper that posts a VWAP on chain is not needed**, and would cost more than it saves: a
   server running all day, a hot key whose holder could post a low price and let every open order
   fill badly for a sandwicher to pocket, a second program to audit, and SOL for every update.
@@ -180,8 +210,11 @@ swaps (our own reading), which is the "feed" work of `docs/VWAP_PLAN.md` section
 
 | Attack | What stops it | Test |
 |---|---|---|
-| The runner pushes the price, runs the slice, pushes it back (front-running its own slice) | The slice must land within the band of the pool's average since the previous slice; a push in the same second is not in that average | `a_price_pushed_just_before_the_slice_is_refused_by_the_pools_average` |
-| Someone else sandwiches the runner's transaction in a thin pool | The same check, and the person's worst price under it. What is left: an attacker who holds the price off for minutes against our price robot, paying the pool fee both ways, can take at most the band on one slice | same |
+| The runner pushes the price, runs the slice, pushes it back (front-running its own slice) | Bounded, not stopped: the slice must land within the band of the pool's averages, and a push in the same second is in neither. Up to the band is the runner's, so the band is at most 5% | `a_price_pushed_just_before_the_slice_is_refused_by_the_pools_average`, `the_order_refuses_a_schedule_it_cannot_keep` |
+| Someone pushes the price right after a slice and leaves it there, so the next slice's own average is the pushed price | The average since the order was opened, which the slice must also meet | `a_price_pushed_after_one_slice_and_held_is_refused_by_the_average_since_the_opening` |
+| The market rose after the opening, and the runner pushes the price back down by the rise | The average since the previous slice | `a_market_that_rose_since_the_opening_is_measured_since_the_previous_slice` |
+| A pool whose price is a few steps of the pool's own arithmetic, or none, so the average checks nothing | Refused at the opening and at every slice | `a_pool_whose_price_is_too_coarse_to_check_is_refused_at_the_opening_and_at_a_slice` |
+| A slice handed another order's accounts (its proceeds account, another price record, another tier) | Every account is the order's own, by address | `a_slice_handed_another_orders_accounts_is_refused` |
 | The runner takes the lent slice with a plain transfer, or sends the swap's proceeds to itself | The very next instruction must be our pool's swap from the escrow into the order, for exactly the slice; the one after must be `end_slice`; `end_slice` checks the escrow lost exactly the slice and nothing is still lent | `the_runner_cannot_spend_the_slice_any_other_way` |
 | A slice swapped where the venue earns nothing: our keeper's free swaps, or another venue | The pool's keeper may not run a slice; only our pool's swap counts | `the_pools_keeper_pays_no_fee_so_it_may_not_run_a_slice` |
 | A cancel racing a slice | A slice is one transaction. If it lands first, the close returns the rest; if the close lands first, the slice finds no order and fails | `closing_returns_every_coin_and_every_lamport_to_the_owner_only` |
@@ -191,7 +224,7 @@ swaps (our own reading), which is the "feed" work of `docs/VWAP_PLAN.md` section
 | A slice wrapped inside another program | Refused: both slice instructions run only as instructions of the transaction itself | `a_slice_called_from_inside_another_program_is_refused` |
 | A runner running a slice early, twice, or bunching missed ones | One slice per window, in its own window only; at least 5 minutes after the previous one | `a_slice_runs_in_its_own_window_once_and_a_missed_window_stays_in_the_escrow`, `the_average_needs_five_minutes_since_the_previous_slice` |
 | Blocking an order by creating its accounts first | Only this program can create those addresses; lamports sent there first do not stop Anchor's creation | not tested |
-| A coin issuer freezes the escrow (USDC can) | Not stopped: the same power it has over the person's wallet. Said in the site's small print | none |
+| A coin issuer freezes one of the order's coin accounts (USDC can) | Not stopped for that coin: the same power it has over the person's wallet. The person's OTHER coin is not held with it: `take_back` returns it alone. The order's rent and unpaid tips wait for the thaw and the close | `a_frozen_coin_does_not_hold_the_other_one_the_owner_takes_each_back_alone` |
 | Whoever may upgrade this program replaces it and takes every escrow | The owner's choice in section 8 | none |
 
 ## 6. What is ours, and what is copied
@@ -210,14 +243,16 @@ price; dropping the weights leaves equal slices.
 Mainnet rent read 2026-11-21 (`solana rent`: 5,080 lamports a byte, counting 128 bytes more than
 the account holds; the tests' simulator charges the older 6,960, so its figures run higher):
 
-- **Deploying:** the program is 341,976 bytes when built with Solana 2.3.0, the version CI uses
-  (this machine's build: sha256 `38f7627d7fe36508c1b6ece762522d8f9287cfcfc93f9e89a558b89a0d0fd957`).
-  Rent: 1,738,116,920 lamports for its data at exactly that size, plus 833,120 for the program
-  account, about 1.739 SOL; plus a little for the upload's transaction fees. It comes back only if
+- **Deploying:** the program is 358,512 bytes when built with Solana 2.3.0, the version CI uses
+  (this machine's build of 2026-11-24: sha256
+  `f4e8692a3383d5611f6c693c0888520d23577568eaae3eacc7148e54925dcfa3`; the audited build was
+  341,976 bytes, `38f7627d...`). Rent at the rate read 2026-11-21: 1,822,119,800 lamports for its
+  data at exactly that size, plus 833,120 for the program account, about 1.823 SOL (worked out,
+  not read again: read `solana rent` on the day); plus a little for the upload's transaction fees. It comes back only if
   the program is closed, which needs whoever may upgrade it.
-- **Per order:** 6,238,240 lamports (0.0062 SOL) of rent while open, all back at close, plus the
-  person's tips. A slice's three instructions used about 74,000 compute units in the tests (73,851
-  on the test pool, 74,080 on copies of the real one), in one ordinary transaction (no lookup
+- **Per order:** 6,360,160 lamports (0.0064 SOL) of rent while open, all back at close, plus the
+  person's tips. A slice's three instructions used about 75,000 compute units in the tests (74,868
+  on the test pool, 75,121 on copies of the real one), in one ordinary transaction (no lookup
   table needed).
 - **Audit:** in-house on 2026-11-24, at the cost of our own reviewers' time. An outside audit was
   estimated, not quoted, at $15,000 to $40,000 for a program this size.
@@ -246,7 +281,7 @@ Each step, with its commands: `docs/VWAP_ORDER_DEPLOY.md`.
 `solana/vwap-order/litesvm-tests/` runs the order program beside our pool program's mainnet build
 (sha256 `9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146`, the build mainnet runs
 since proposal #35), with the swap guard on and a keeper named, as mainnet's 1% tier has them, in
-LiteSVM with the clock in hand. The same 15 pass beside the pool upgrade waiting for the vault
+LiteSVM with the clock in hand. The same 20 pass beside the pool upgrade waiting for the vault
 (trunk's build, sha256 `3f36e8adb9f541701f8b82df73ff07b76824fe3941381f7d95abdb9563dc7c48`), whose
 pool, price record and swap are unchanged. Seen red first (2026-11-19): against a copy whose four
 instructions do nothing, all 14 of that day fail; the 15th, `nobody_can_claim_the_programs_idl_record`,
@@ -271,9 +306,19 @@ Then each check was taken out in a copy of its own, and each copy fails the test
 | The pool must be our swap program's | `a_pool_that_is_not_the_venues_is_refused` |
 | Only the owner closes | `closing_returns_every_coin_and_every_lamport_to_the_owner_only` |
 | At most 96 slices | `the_order_refuses_a_schedule_it_cannot_keep` |
+| The band at most 5% | `the_order_refuses_a_schedule_it_cannot_keep` |
+| The average since the opening | `a_price_pushed_after_one_slice_and_held_is_refused_by_the_average_since_the_opening` |
+| The average since the previous slice | `a_market_that_rose_since_the_opening_is_measured_since_the_previous_slice` |
+| A price fine enough, at the opening | `a_pool_whose_price_is_too_coarse_to_check_is_refused_at_the_opening_and_at_a_slice` |
+| A price fine enough, at a slice | same |
+| The pool's own two coin accounts at the opening | same |
+| `take_back` only from the order's own two accounts | `a_frozen_coin_does_not_hold_the_other_one_the_owner_takes_each_back_alone` |
+| The proceeds account's address, in `begin_slice` and in `end_slice` | `a_slice_handed_another_orders_accounts_is_refused` |
+| The tier's and the price record's address | same |
 
 The arithmetic's own copies (the worst price rounded down, the band ignored, slice shares that do
-not add up, one window too many) each fail their test under a bare `rustc`. Two first runs taught
+not add up, one window too many, a start far in the past overflowing, a coarse price trusted)
+each fail their test under a bare `rustc`. Two first runs taught
 two tests: the swap's bytes sent to another program, and a third instruction that is not this
 order's end, both now in `the_runner_cannot_spend_the_slice_any_other_way`.
 
@@ -304,4 +349,5 @@ at their own addresses. The pool held 72.19 SOL and 11,917,857 BAYLA. Selling 1%
 the venue's and the island's shares grew, a slice after a 5% dump in the same second was refused
 by the pool's average, and the close returned the rest.
 
-Not covered: accounts created ahead of an order.
+Not covered: accounts created ahead of an order; a slice run by the pool's real keeper key (the
+test's tier is written by hand, with its own keeper).

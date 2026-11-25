@@ -1,8 +1,10 @@
 //! vwap-order: a big trade in timed slices, from a per-order escrow, through the venue's pools.
-//! NOT AUDITED, NOT DEPLOYED (docs/VWAP_ORDER_PROGRAM.md has the design and the threat list).
+//! Audited in-house only (2026-11-24), NOT DEPLOYED (docs/VWAP_ORDER_PROGRAM.md has the design
+//! and the threat list).
 //! A slice is one transaction: `begin_slice` lends the runner exactly the slice, the venue's own
 //! `swap_base_input` (signed by the runner, so the pool's guard and fee apply as for anyone),
-//! then `end_slice` checks the order got its worst price and the pool's average less the band.
+//! then `end_slice` checks the order got its worst price and the pool's average less the band,
+//! since the previous slice and since the order was opened.
 //! No admin, no fee, no pause; the owner may always close and take back everything.
 
 use anchor_lang::prelude::*;
@@ -37,7 +39,9 @@ pub const MAX_SLICES: usize = 96;
 pub const MIN_INTERVAL: i64 = 600;
 /// The shortest stretch the pool's average is taken over, since the previous slice.
 pub const MIN_AVERAGE_SECONDS: u64 = 300;
-pub const MAX_BAND_BPS: u16 = 3_000;
+/// The band is what a runner can take from a slice in one transaction (push, slice, unwind), so
+/// it is kept small: 5% (audit 2026-11-24; it was 30%).
+pub const MAX_BAND_BPS: u16 = 500;
 pub const MAX_TIP_LAMPORTS: u64 = 1_000_000;
 
 /// Where `end_slice` names the runner and the order (its accounts struct below).
@@ -87,6 +91,19 @@ pub mod vwap_order {
                 .filter(|(_, t)| *t > 0)
                 .ok_or(OrderError::NoPoolAverage)?;
 
+        // The pool's price now must be fine enough to check a slice against (math::MIN_PRICE_X32).
+        require_keys_eq!(a.pool_vault_0.key(), pool.token_0_vault, OrderError::NotOurPool);
+        require_keys_eq!(a.pool_vault_1.key(), pool.token_1_vault, OrderError::NotOurPool);
+        let (in_depth, out_depth) = if input_is_token_0 {
+            (a.pool_vault_0.amount, a.pool_vault_1.amount)
+        } else {
+            (a.pool_vault_1.amount, a.pool_vault_0.amount)
+        };
+        require!(
+            math::spot_x32(in_depth, out_depth).is_some_and(|p| p >= math::MIN_PRICE_X32),
+            OrderError::PriceTooCoarse
+        );
+
         let order_key = a.order.key();
         let o = &mut ctx.accounts.order;
         o.set_inner(Order {
@@ -111,6 +128,8 @@ pub mod vwap_order {
             received_out: 0,
             average_cumulative,
             average_at,
+            open_cumulative: average_cumulative,
+            open_at: average_at,
             pending_in: 0,
             pending_slice: 0,
             in_before: 0,
@@ -255,14 +274,22 @@ pub mod vwap_order {
             .ok_or(OrderError::NoPoolAverage)?;
         let seconds = at.saturating_sub(o.average_at);
         require_gte!(seconds, MIN_AVERAGE_SECONDS, OrderError::AverageTooShort);
-        let average = math::twap_floor(
+        // Two averages, and the slice must meet the higher: since the previous slice (a stale
+        // one would let a runner take the market's rise), and since the order was opened (one
+        // pushed after the previous slice and left there would be its own measure).
+        let since_slice = average_floor(
             amount,
             cumulative.wrapping_sub(o.average_cumulative),
             seconds,
             o.band_bps,
-        )
-        .ok_or(OrderError::MathOverflow)?;
-        require_gte!(got, average, OrderError::BelowAverage);
+        )?;
+        let since_open = average_floor(
+            amount,
+            cumulative.wrapping_sub(o.open_cumulative),
+            at.saturating_sub(o.open_at),
+            o.band_bps,
+        )?;
+        require_gte!(got, since_slice.max(since_open), OrderError::BelowAverage);
 
         let tip = o.tip_lamports;
         let slice = o.pending_slice;
@@ -296,6 +323,35 @@ pub mod vwap_order {
             amount_out: got,
             cranker: cranker_info.key(),
         });
+        Ok(())
+    }
+
+    /// The owner takes back the whole balance of ONE of the order's two coin accounts, the
+    /// order staying open. `close_order` moves both coins or neither, so a coin whose issuer
+    /// froze its account here would hold the other one too (audit 2026-11-24): this is the way
+    /// out for the other one.
+    pub fn take_back(ctx: Context<TakeBack>) -> Result<()> {
+        let a = &ctx.accounts;
+        let o = &a.order;
+        let order_key = o.key();
+        let vault = a.vault.key();
+        let is = |tag: &[u8], bump: u8| {
+            Pubkey::create_program_address(&[tag, order_key.as_ref(), &[bump]], &crate::ID) == Ok(vault)
+        };
+        require!(is(b"in", o.in_bump) || is(b"out", o.out_bump), OrderError::NotThisOrders);
+        let amount = a.vault.amount;
+        let seeds: &[&[u8]] = &[b"order", o.owner.as_ref(), &o.id.to_le_bytes(), &[o.bump]];
+        token::transfer(
+            o.to_account_info(),
+            a.vault.to_account_info(),
+            a.owner_token.to_account_info(),
+            a.mint.to_account_info(),
+            a.token_program.to_account_info(),
+            amount,
+            a.mint.decimals,
+            &[seeds],
+        )?;
+        emit!(CoinTakenBack { order: order_key, mint: a.mint.key(), amount });
         Ok(())
     }
 
@@ -350,6 +406,13 @@ pub mod vwap_order {
     }
 }
 
+/// The least `amount` may get at the pool's average over `seconds`, less the band; refused when
+/// that average is too coarse a number to check anything against.
+fn average_floor(amount: u64, d_cum: u128, seconds: u64, band_bps: u16) -> Result<u64> {
+    require!(math::price_is_fine(d_cum, seconds), OrderError::PriceTooCoarse);
+    Ok(math::twap_floor(amount, d_cum, seconds, band_bps).ok_or(OrderError::MathOverflow)?)
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OpenArgs {
     pub id: u64,
@@ -394,6 +457,10 @@ pub struct Order {
     /// The pool's running price total and its second, at the previous slice (or the opening).
     pub average_cumulative: u128,
     pub average_at: u64,
+    /// The same pair as the order was opened, never moved: a slice is held to the average since
+    /// then too, so a price pushed after one slice and left there is not the next one's measure.
+    pub open_cumulative: u128,
+    pub open_at: u64,
     /// Non-zero only between `begin_slice` and `end_slice`, inside one transaction.
     pub pending_in: u64,
     pub pending_slice: u8,
@@ -456,6 +523,9 @@ pub struct OpenOrder<'info> {
     pub input_token_program: Interface<'info, TokenInterface>,
     pub output_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
+    /// The pool's own two coin accounts, checked against the pool in the handler: its price now.
+    pub pool_vault_0: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub pool_vault_1: Box<InterfaceAccount<'info, TokenAccount>>,
 }
 
 #[derive(Accounts)]
@@ -496,6 +566,20 @@ pub struct EndSlice<'info> {
     pub in_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(seeds = [b"out", order.key().as_ref()], bump = order.out_bump)]
     pub out_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+}
+
+#[derive(Accounts)]
+pub struct TakeBack<'info> {
+    pub owner: Signer<'info>,
+    #[account(has_one = owner)]
+    pub order: Box<Account<'info, Order>>,
+    /// One of the order's two coin accounts: its address is checked in the handler.
+    #[account(mut, token::mint = mint, token::authority = order, token::token_program = token_program)]
+    pub vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut, token::mint = mint, token::authority = owner, token::token_program = token_program)]
+    pub owner_token: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -566,6 +650,13 @@ pub struct SliceFilled {
 }
 
 #[event]
+pub struct CoinTakenBack {
+    pub order: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
 pub struct OrderClosed {
     pub order: Pubkey,
     pub spent_in: u64,
@@ -584,7 +675,7 @@ pub enum OrderError {
     BadTimes,
     #[msg("the amount and the worst price must both be above zero")]
     ZeroAmount,
-    #[msg("the band is at most 30%")]
+    #[msg("the band is at most 5%")]
     BandTooWide,
     #[msg("the tip is at most 0.001 SOL a slice")]
     TipTooHigh,
@@ -630,4 +721,8 @@ pub enum OrderError {
     BelowAverage,
     #[msg("a number ran out of room")]
     MathOverflow,
+    #[msg("the pool's price is too coarse a number to check a slice against")]
+    PriceTooCoarse,
+    #[msg("not one of this order's two coin accounts")]
+    NotThisOrders,
 }

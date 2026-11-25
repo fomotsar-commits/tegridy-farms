@@ -29,6 +29,8 @@ pub const SWAP_ACCOUNTS: usize = 13;
 /// `PoolState`, zero-copy and packed: 8 + 10 keys + 5 bytes + ... = 637 bytes.
 pub const POOL_LEN: usize = 637;
 const POOL_AMM_CONFIG: usize = 8;
+const POOL_TOKEN_0_VAULT: usize = 72;
+const POOL_TOKEN_1_VAULT: usize = 104;
 const POOL_TOKEN_0_MINT: usize = 168;
 const POOL_TOKEN_1_MINT: usize = 200;
 const POOL_OBSERVATION: usize = 296;
@@ -71,6 +73,8 @@ fn owned<T>(info: &AccountInfo, len: usize, name: [u8; 8], read: impl FnOnce(&[u
 
 pub struct Pool {
     pub amm_config: Pubkey,
+    pub token_0_vault: Pubkey,
+    pub token_1_vault: Pubkey,
     pub token_0_mint: Pubkey,
     pub token_1_mint: Pubkey,
     pub observation: Pubkey,
@@ -80,6 +84,8 @@ pub fn read_pool(info: &AccountInfo) -> Option<Pool> {
     owned(info, POOL_LEN, POOL_STATE, |d| {
         Some(Pool {
             amm_config: key_at(d, POOL_AMM_CONFIG),
+            token_0_vault: key_at(d, POOL_TOKEN_0_VAULT),
+            token_1_vault: key_at(d, POOL_TOKEN_1_VAULT),
             token_0_mint: key_at(d, POOL_TOKEN_0_MINT),
             token_1_mint: key_at(d, POOL_TOKEN_1_MINT),
             observation: key_at(d, POOL_OBSERVATION),
