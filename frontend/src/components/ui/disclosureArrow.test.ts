@@ -49,33 +49,24 @@ function summaries(src: string): { tag: string; body: string; line: number }[] {
 const FLEX = /(^|[\s"'`{])(inline-)?flex(\s|["'`}]|$)|display:\s*["']flex/;
 /** An arrow the summary draws itself: the shared one, an icon, or a glyph. */
 const ARROW = /<DisclosureArrow\b|<svg\b|[▾▸▶]|&#9656;|&#9654;|>\+</;
-/** RangeRisks.tsx is another pull request's (#1242) to change today; its summary gets the arrow after it lands. */
-const NOT_YET = new Set(['components/solana/range/RangeRisks.tsx']);
 
 describe('a flex <summary> draws its own open/closed arrow', () => {
   const files = sourceFiles(SRC).map((f) => ({ rel: relative(SRC, f).replaceAll('\\', '/'), src: readFileSync(f, 'utf8') }));
 
-  it('every one in the app, but the one another pull request is changing', () => {
+  it('every one in the app', () => {
     const bare: string[] = [];
     for (const { rel, src } of files) {
       for (const s of summaries(src)) {
-        if (FLEX.test(s.tag) && !ARROW.test(s.body) && !NOT_YET.has(rel)) bare.push(`${rel}:${s.line}`);
+        if (FLEX.test(s.tag) && !ARROW.test(s.body)) bare.push(`${rel}:${s.line}`);
       }
     }
     expect(bare).toEqual([]);
   });
 
-  it('the exception is still bare: once it draws an arrow, take it off the list', () => {
-    for (const rel of NOT_YET) {
-      const src = files.find((f) => f.rel === rel)?.src ?? '';
-      expect(summaries(src).some((s) => FLEX.test(s.tag) && !ARROW.test(s.body)), rel).toBe(true);
-    }
-  });
-
   it('sees the LP forms\' summaries: the shared one in LpDisclosures.tsx draws the arrow, and the cards use it', () => {
     const lp = files.find((f) => f.rel === 'components/solana/lp/LpDisclosures.tsx')!.src;
     expect(summaries(lp).map((s) => ARROW.test(s.body))).toEqual([true]);
-    for (const rel of ['components/solana/lp/PoolCard.tsx', 'components/solana/lp/YourPositions.tsx']) {
+    for (const rel of ['components/solana/lp/PoolCard.tsx', 'components/solana/lp/YourPositions.tsx', 'components/solana/range/RangeRisks.tsx']) {
       const src = files.find((f) => f.rel === rel)!.src;
       expect(summaries(src), rel).toEqual([]);
       expect(src, rel).toMatch(/<LpSummary\b/);

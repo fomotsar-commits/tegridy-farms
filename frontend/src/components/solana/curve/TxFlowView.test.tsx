@@ -1333,7 +1333,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
     const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
-    expect(now.some((l) => /5\.6% of each fee .* to the team’s shared wallet/.test(l))).toBe(true);
+    expect(now.some((l) => /5\.6% of each fee .* to the team’s vault/.test(l))).toBe(true);
   });
 
   it('a range swap whose tier’s split moved between its wallets (the same 16%): shut, never signed unread', async () => {

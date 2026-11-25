@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- Solana range pools: the Risks box shows the open/closed arrow and says each risk once, in the pools' words. It now says the team's vault can also switch off collecting fees and rewards (48 hours after both keys approve, read on chain 2026-11-25), and it leaves out what the review already says. The range and pools pages call that vault by one name, the team's vault.
+
 ### 2026-11-24
 
 - Solana pools: the Risks boxes on Add liquidity and Open a pool show the small print's open/closed arrow, say each risk once in one wording (the team's vault can "switch off withdrawals"), and say our changes to Raydium's program have no outside audit. Open a pool's fee tier reads "Tier 1: traders pay 1% a trade; LPs keep 0.840% of each trade, the venue 0.160%" in two whole lines on a phone. An address inside a sentence moves to a line of its own before it breaks, and the price robot's wallet sits on a line of its own, after its sentence. A lookup of BAYLA says once, under the pool list, where its other pools are: "To find or open a pool of BAYLA with BOBO, SOY, BRAINLET or RIZZ, look up that coin and pair it with BAYLA".

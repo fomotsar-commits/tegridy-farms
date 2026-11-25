@@ -1008,7 +1008,7 @@ export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx
       {(prepared.simulated.solDeltas ?? []).map((t) => (
         <Row
           key={t.account.toBase58()}
-          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the venue’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
+          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the team’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
           value={signedSol(t.delta)}
           line="fee"
         />

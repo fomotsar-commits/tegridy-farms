@@ -9,7 +9,7 @@ import type { AmmConfigView } from './program';
 /**
  * Where a range pool's venue cut goes, by the wallet that ACTUALLY collects each part: the
  * tier's `owner` takes the protocol part, its `fundOwner` the fund part. The agreed split
- * (owner, 2026-10-20): of each fee, 10.4% to the team's shared wallet and 5.6% to the
+ * (owner, 2026-10-20): of each fee, 10.4% to the team's vault and 5.6% to the
  * island's Workshop. Anything else, other wallets or other rates, is `elsewhere`, said in
  * bold in plain sight (owner, 2026-10-10). The position link (api/_lib/position.js) agrees.
  */
@@ -28,15 +28,14 @@ export interface RangeVenueEarns {
   elsewhere: boolean;
 }
 
-const VAULT_CAN = 'which needs two signatures and can change the pool rates';
+const VAULT_CAN = 'which can change the pool rates if both keys approve';
 
 /**
  * The venue's other take from range pools, said beside its cut of each swap: the program's
  * pool-opening fee (lib.rs CREATE_POOL_FEE, paid to the vault; owner, 2026-10-25).
  */
-// The opening card and the review call this wallet the venue's vault and the split line the team's
-// shared wallet: this sentence names it both ways, so a stranger reads one wallet (law-25 read, #1040).
-export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)} SOL, to the venue’s vault, the team’s shared wallet.`;
+// The opening card, the review, the split line and the Risks list all call it the team's vault.
+export const RANGE_OPENING_FEE_TEXT = `Whoever opens a new range pool also pays the venue ${solOf(CREATE_POOL_FEE_LAMPORTS)} SOL, to the team’s vault.`;
 
 type Tier = Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'owner' | 'fundOwner'>;
 
@@ -52,14 +51,14 @@ export function rangeVenueEarns(t: Tier, ceiling: number | null = null): RangeVe
   const take = new Map<string, number>([[vault, 0], [workshop, 0]]);
   take.set(t.owner, (take.get(t.owner) ?? 0) + t.protocolFeeRate);
   take.set(t.fundOwner, (take.get(t.fundOwner) ?? 0) + t.fundFeeRate);
-  const name = (a: string) => (a === vault ? 'the team’s shared wallet' : a === workshop ? 'the island’s Workshop' : 'another wallet');
-  const label = (a: string) => (a === vault ? 'Team’s shared wallet' : a === workshop ? 'Island’s Workshop' : 'Another wallet');
+  const name = (a: string) => (a === vault ? 'the team’s vault' : a === workshop ? 'the island’s Workshop' : 'another wallet');
+  const label = (a: string) => (a === vault ? 'Team’s vault' : a === workshop ? 'Island’s Workshop' : 'Another wallet');
   const share = (rate: number) => `${perMillionPercent(rate)} of each fee (${ofSwap(rate)} of the swap)`;
   const agreed = t.owner === vault && t.fundOwner === workshop && t.protocolFeeRate === AGREED_PROTOCOL_RATE && t.fundFeeRate === AGREED_FUND_RATE;
   if (agreed) {
     return {
       cut,
-      where: `The venue’s cut is split: ${share(t.protocolFeeRate)} to the team’s shared wallet, ${VAULT_CAN}, and ${share(t.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`,
+      where: `The venue’s cut is split: ${share(t.protocolFeeRate)} to the team’s vault, ${VAULT_CAN}, and ${share(t.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`,
       wallets: [
         { label: label(vault), address: vault },
         { label: label(workshop), address: workshop },
@@ -70,7 +69,7 @@ export function rangeVenueEarns(t: Tier, ceiling: number | null = null): RangeVe
   const takes = [...take].filter(([a, rate]) => rate > 0 || a === vault || a === workshop);
   return {
     cut,
-    where: `The venue’s cut does not follow the agreed split (10.4% of each fee to the team’s shared wallet and 5.6% to the island’s Workshop). As this fee tier stands: ${takes.map(([a, rate]) => `${share(rate)} to ${name(a)}`).join(', ')}.`,
+    where: `The venue’s cut does not follow the agreed split (10.4% of each fee to the team’s vault and 5.6% to the island’s Workshop). As this fee tier stands: ${takes.map(([a, rate]) => `${share(rate)} to ${name(a)}`).join(', ')}.`,
     wallets: takes.filter(([, rate]) => rate > 0).map(([a, rate]) => ({ label: `${label(a)}, ${share(rate)}`, address: a })),
     elsewhere: true,
   };
