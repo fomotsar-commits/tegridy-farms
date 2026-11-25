@@ -9,7 +9,7 @@ import type { JupiterQuote } from '../../jupiter';
 import type { PairAverage } from './pairAverage';
 import type { WalletSwapEnd } from './walletSwapSend';
 import { LATE_SIGN_MS, RETRY_MS, planOrder, type VwapOrder } from './vwapOrder';
-import { DECLINED_COPY, LATE_COPY, UNCONFIRMED_COPY, WITHDRAWN_COPY, needsRunner, runOrder, sendSlice, type RunEnv } from './vwapRun';
+import { DECLINED_COPY, LATE_COPY, NOT_KEPT_COPY, UNCONFIRMED_COPY, WITHDRAWN_COPY, needsRunner, runOrder, sendSlice, type RunEnv } from './vwapRun';
 
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 // Synthetic keys (32 bytes of 3s and of 4s), not anyone's wallet.
@@ -30,11 +30,15 @@ function plan(): VwapOrder {
 }
 
 /** At the average: 1 SOL buys 200,000 BAYLA. */
-const atAverage = (amount: string) => ({ inAmount: amount, outAmount: ((BigInt(amount) * 200_000_000_000n) / 1_000_000_000n).toString() }) as unknown as JupiterQuote;
+const atAverage = (amount: string) => {
+  const out = ((BigInt(amount) * 200_000_000_000n) / 1_000_000_000n).toString();
+  return { inAmount: amount, outAmount: out, otherAmountThreshold: out } as unknown as JupiterQuote;
+};
+const HASH = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W';
 
 type WalletPlay = (sign: (tx: VersionedTransaction) => Promise<VersionedTransaction>, onSent: (s: string) => void) => Promise<WalletSwapEnd>;
 
-function world(opts: { wallet?: (env: RunEnv & { t: number }) => Promise<void>; play?: WalletPlay; saveFails?: boolean } = {}) {
+function world(opts: { wallet?: (env: RunEnv & { t: number }) => Promise<void>; play?: WalletPlay; saveFails?: boolean; saveFailsWhen?: (o: VwapOrder) => boolean } = {}) {
   let stored: VwapOrder | null = plan();
   const seen: Array<{ at: string; order: VwapOrder | null }> = [];
   let n = 0;
@@ -42,7 +46,7 @@ function world(opts: { wallet?: (env: RunEnv & { t: number }) => Promise<void>; 
     t: T0,
     read: () => (stored ? (JSON.parse(JSON.stringify(stored)) as VwapOrder) : null),
     save: (o: VwapOrder) => {
-      if (opts.saveFails) return false;
+      if (opts.saveFails || opts.saveFailsWhen?.(o)) return false;
       stored = JSON.parse(JSON.stringify(o)) as VwapOrder;
       return true;
     },
@@ -54,6 +58,7 @@ function world(opts: { wallet?: (env: RunEnv & { t: number }) => Promise<void>; 
       await opts.wallet?.(env as never);
       return tx;
     }),
+    signed: vi.fn(() => ({ signature: SIG as string | null, blockhash: HASH as string | null })),
     slice: {
       average: async () => AVG,
       quote: async (amount: string) => atAverage(amount),
@@ -72,7 +77,7 @@ function world(opts: { wallet?: (env: RunEnv & { t: number }) => Promise<void>; 
         return { kind: 'sent', signature: sig, outcome: 'confirmed' };
       }),
     },
-    settle: { holdsNow: () => false, status: vi.fn(async () => 'confirmed' as const), history: async () => null },
+    settle: { holdsNow: () => false, status: vi.fn(async () => 'confirmed' as const), history: async () => null, blockhashDead: async () => true },
     received: vi.fn(async () => 199_000_000_000n),
     onLanded: vi.fn(),
     holdReload: vi.fn(() => () => {}),
@@ -117,6 +122,27 @@ describe('sendSlice', () => {
     await sendSlice(w.env, w.env.read()!, 0, 1_000_000_000n);
     expect(w.env.walletSign).not.toHaveBeenCalled();
     expect(w.env.slice.send).not.toHaveBeenCalled();
+  });
+
+  it('a signature the browser will not keep is not sent: the record comes before the first send', async () => {
+    const w = world({ saveFailsWhen: (o) => o.slices[0]!.state === 'unconfirmed' });
+    await sendSlice(w.env, w.env.read()!, 0, 1_000_000_000n);
+    expect(w.env.walletSign).toHaveBeenCalledTimes(1);
+    expect(w.seen.some((s) => s.at === 'first send')).toBe(false);
+    expect(w.stored!.slices[0]).toMatchObject({ state: 'waiting', why: NOT_KEPT_COPY });
+    expect(w.stored!.slices[0]!.sig).toBeUndefined();
+    expect(w.env.onLanded).not.toHaveBeenCalled();
+  });
+
+  it('what the wallet signed is kept, with its blockhash, before anything is sent; a wallet that returned no signature sends nothing', async () => {
+    const w = world();
+    await sendSlice(w.env, w.env.read()!, 0, 1_000_000_000n);
+    expect(w.seen[1]!.order!.slices[0]).toMatchObject({ state: 'unconfirmed', blockhash: HASH });
+    const none = world();
+    none.env.signed.mockReturnValue({ signature: null, blockhash: null });
+    await sendSlice(none.env, none.env.read()!, 0, 1_000_000_000n);
+    expect(none.seen.some((s) => s.at === 'first send')).toBe(false);
+    expect(none.stored!.slices[0]!.state).toBe('waiting');
   });
 
   it('a no in the wallet skips the slice for its window', async () => {

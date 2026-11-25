@@ -70,13 +70,15 @@ Owner, 2026-11-19: "i want to be able to place order based on a volume weighted 
   top pool, `pairAverage.ts` `hourlyProfile`), each between half and twice an even slice; even
   slices when that cannot be read.
 - **Price.** A slice goes only while its quote, and the quote its transaction was built from, is
-  no worse than the person's limit (0.5%, 1% or 3%) from the 24h average in section 1. Otherwise
+  no worse than the person's limit (0.5%, 1% or 3%) from the 24h average in section 1, both at the
+  quoted amount and at the least the swap can pay out (the quote less its 1% slippage). Otherwise
   it waits and tries again each minute; what a slice does not spend goes with the next one.
 - **Safety.** A slice is recorded before the wallet is asked and its signature before the first
-  send; a signature after Stop, or more than 45 s after the wallet was asked, is not sent; a slice
+  send (a signature the browser will not keep is not sent); a signature after Stop, or more than 45 s after the wallet was asked, is not sent; a slice
   sent and not confirmed holds every other one until the chain answers ("did not land" only after
-  10 minutes, no note, no status and no history).
-- **Money.** Each slice pays the usual Jupiter platform fee to the venue. Our own pools are not
+  10 minutes, no note, no status, no history, and its blockhash too old to land).
+- **Money.** Each slice pays the usual Jupiter platform fee to the venue; a route that cannot carry
+  the fee is never sent as a slice (it waits and tries again). Our own pools are not
   used for slices: a swap there always shows its review first (owner, 2026-10-13).
 
 The rest of this section is the earlier comparison of order designs, kept as the record.

@@ -235,7 +235,9 @@ function OrderForm(p: VwapOrderTabProps & { wallet: string | null }) {
         </p>
         <p>
           Each slice is an ordinary Instant swap through Jupiter, with a 1% slippage floor, and pays the platform fee
-          above. Your money never leaves your wallet until you approve a slice. Our own pools are not used for slices.
+          above. Your limit is held at that floor too, so a slice goes only when the least it can receive is within
+          your limit. A route that cannot carry the platform fee waits. Your money never leaves your wallet until you
+          approve a slice. Our own pools are not used for slices.
         </p>
       </FinePrint>
     </>

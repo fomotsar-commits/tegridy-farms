@@ -8,7 +8,7 @@ import type { JupiterQuote } from '../../jupiter';
 import { refusedSaid, type PreparedJupiterSwap } from './jupiterFeeRetry';
 import type { PairAverage } from './pairAverage';
 import type { WalletSwapEnd } from './walletSwapSend';
-import { SLICE_SLIPPAGE_BPS, UNLANDED_AFTER_MS, sliceVerdict, type VwapOrder, type VwapSlice } from './vwapOrder';
+import { SLICE_SLIPPAGE_BPS, UNLANDED_AFTER_MS, sliceVerdict, type SliceVerdict, type VwapOrder, type VwapSlice } from './vwapOrder';
 
 export interface SliceDeps {
   average(): Promise<PairAverage>;
@@ -35,6 +35,21 @@ const REFUSED_ON_CHAIN = 'The network refused this slice. Only the network fee w
 
 export const SLICE_NOT_TEST_RUN = 'The test run of Jupiter’s transaction for this slice could not run just now, so nothing was sent. It tries again in a minute.';
 
+export const SLICE_NO_FEE_ROUTE = 'Jupiter’s route for this slice cannot carry the platform fee just now, so it was not sent. It tries again in a minute.';
+const NO_PRICE = 'Jupiter gave no price for this slice just now. It tries again in a minute.';
+
+/**
+ * The limit, held at the quoted amount and at the least the swap can pay out (the quote less
+ * its slippage, which is what the chain enforces): a slice may land anywhere between the two,
+ * so the person's limit is the worst of them (audit 2026-11-24). The figure said is the quoted one.
+ */
+function withinLimit(avg: PairAverage, o: Pick<VwapOrder, 'pay' | 'buy' | 'bandBps'>, amount: bigint, quoted: bigint, least: bigint): SliceVerdict {
+  const atQuote = sliceVerdict(avg, o, amount, quoted);
+  if (!atQuote.go) return atQuote;
+  const atLeast = sliceVerdict(avg, o, amount, least);
+  return atLeast.go ? atQuote : atLeast;
+}
+
 /** `onSent`: a signature exists and its note is written, with the out amount of the quote it was built from. */
 export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 'bandBps'>, amount: bigint, onSent: (signature: string, quotedOut: string) => void): Promise<SliceTry> {
   let avg: PairAverage;
@@ -55,8 +70,9 @@ export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 
     return { kind: 'wait', why: 'Jupiter’s price could not be read just now. This slice tries again in a minute.' };
   }
   const quoted = toBig(String(q.outAmount));
-  if (quoted === null || quoted <= 0n) return { kind: 'wait', why: 'Jupiter gave no price for this slice just now. It tries again in a minute.' };
-  const first = sliceVerdict(avg, o, amount, quoted);
+  const least = toBig(String(q.otherAmountThreshold));
+  if (quoted === null || quoted <= 0n || least === null || least <= 0n) return { kind: 'wait', why: NO_PRICE };
+  const first = withinLimit(avg, o, amount, quoted, least);
   if (!first.go) return { kind: 'wait', why: first.why, vsAveragePct: first.vsAveragePct };
 
   let prepared: PreparedJupiterSwap;
@@ -71,10 +87,15 @@ export async function trySlice(d: SliceDeps, o: Pick<VwapOrder, 'pay' | 'buy' | 
   if (prepared.status === 'moved') {
     return { kind: 'wait', why: 'The price moved while this slice was being built. It tries again in a minute.', vsAveragePct: first.vsAveragePct };
   }
-  // The quote the transaction was built from can be another (a no-fee re-quote): it is held to the limit too.
+  // A route that cannot carry the platform fee is rebuilt without it (jupiterFeeRetry.ts). The
+  // Instant swap stops and says so before the person presses again; a slice has nobody to ask,
+  // so it never goes without the fee (audit 2026-11-24).
+  if (prepared.siteFeeWaived) return { kind: 'wait', why: SLICE_NO_FEE_ROUTE, vsAveragePct: first.vsAveragePct };
+  // The quote the transaction was built from can be another: it is held to the limit too.
   const builtOut = toBig(String(prepared.quote.outAmount));
-  if (builtOut === null || builtOut <= 0n) return { kind: 'wait', why: 'Jupiter gave no price for this slice just now. It tries again in a minute.' };
-  const built = sliceVerdict(avg, o, amount, builtOut);
+  const builtLeast = toBig(String(prepared.quote.otherAmountThreshold));
+  if (builtOut === null || builtOut <= 0n || builtLeast === null || builtLeast <= 0n) return { kind: 'wait', why: NO_PRICE };
+  const built = withinLimit(avg, o, amount, builtOut, builtLeast);
   if (!built.go) return { kind: 'wait', why: built.why, vsAveragePct: built.vsAveragePct };
 
   const end = await d.send(prepared.swapTransaction, d.words(amount, builtOut), (signature) => onSent(signature, builtOut.toString()));
@@ -90,6 +111,8 @@ export interface SettleDeps {
   status(signature: string): Promise<'confirmed' | 'reverted' | null>;
   /** The transaction as the chain's history holds it: null when it holds none. Throws when it could not be read. */
   history(signature: string): Promise<'confirmed' | 'reverted' | null>;
+  /** True only when the chain says this blockhash is too old for any transaction to land with it. Throws when it could not be read. */
+  blockhashDead(blockhash: string): Promise<boolean>;
 }
 
 export type Settled =
@@ -105,9 +128,11 @@ export type Settled =
  * never left the page (the page sends; its signature is recorded before the first send), so
  * it is free once no note holds this wallet. One with a signature is "did not land" only when
  * the chain has no status for it, no note holds it, it was sent at least UNLANDED_AFTER_MS ago,
- * AND its history has no such transaction: an unread answer is never a failed one.
+ * its history has no such transaction, AND the blockhash it carries can no longer land (a
+ * clock alone proves nothing: a stalled chain or a clock set forward would free a slice that
+ * can still land, audit 2026-11-24). An unread answer is never a failed one.
  */
-export async function settleSlice(d: SettleDeps, s: Pick<VwapSlice, 'state' | 'sig' | 'sentAt'>, now: number): Promise<Settled> {
+export async function settleSlice(d: SettleDeps, s: Pick<VwapSlice, 'state' | 'sig' | 'sentAt' | 'blockhash'>, now: number): Promise<Settled> {
   if (s.state === 'sending' && !s.sig) {
     return d.holdsNow() ? { kind: 'open' } : { kind: 'free', why: 'The page closed before this slice was sent. Nothing was sent.' };
   }
@@ -120,6 +145,7 @@ export async function settleSlice(d: SettleDeps, s: Pick<VwapSlice, 'state' | 's
     const held = await d.history(s.sig);
     if (held === 'confirmed') return { kind: 'landed' };
     if (held === 'reverted') return { kind: 'free', why: REFUSED_ON_CHAIN };
+    if (!s.blockhash || !(await d.blockhashDead(s.blockhash))) return { kind: 'open' };
     return { kind: 'free', why: 'This slice never reached the chain. Nothing was spent.' };
   } catch {
     return { kind: 'open' };

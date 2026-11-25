@@ -52,6 +52,8 @@ export interface VwapSlice {
   /** Sent: its signature, and when. */
   sig?: string;
   sentAt?: number;
+  /** The blockhash the signed transaction carries: once the chain says it is too old, the slice can no longer land. */
+  blockhash?: string;
   /** Filled: what it paid, and what it received (read from the chain when `gotExact`, else the quote's). */
   paid?: string;
   got?: string;
@@ -320,6 +322,10 @@ function sliceOf(v: unknown): VwapSlice | null {
     s[k] = x;
   }
   if (s.state === 'unconfirmed' && s.sentAt === undefined) return null;
+  if (v.blockhash !== undefined) {
+    if (typeof v.blockhash !== 'string' || !BASE58.test(v.blockhash)) return null;
+    s.blockhash = v.blockhash;
+  }
   if (typeof v.gotExact === 'boolean') s.gotExact = v.gotExact;
   if (v.declined === true) s.declined = true;
   if (typeof v.why === 'string' && v.why.length <= 400) s.why = v.why;

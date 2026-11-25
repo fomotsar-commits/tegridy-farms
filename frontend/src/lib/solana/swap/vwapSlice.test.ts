@@ -8,7 +8,7 @@ import type { PreparedJupiterSwap } from './jupiterFeeRetry';
 import type { PairAverage } from './pairAverage';
 import type { WalletSwapEnd } from './walletSwapSend';
 import { UNLANDED_AFTER_MS } from './vwapOrder';
-import { settleSlice, trySlice, type SettleDeps, type SliceDeps } from './vwapSlice';
+import { SLICE_NO_FEE_ROUTE, settleSlice, trySlice, type SettleDeps, type SliceDeps } from './vwapSlice';
 
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const SIG = '5LJAXrtqJJXfsfDQvWPkvfD1xQF6E3RR21RPt1R6YwaCmk65QtTaahhebRYr4qaxQ4DmpWLwVvcDdWfyBd6ugQrw';
@@ -19,7 +19,10 @@ const ONE_SOL = 1_000_000_000n;
 const AT_AVERAGE = '200000000000';
 const PAST_LIMIT = '190000000000';
 
-const quote = (out: string) => ({ outAmount: out, inAmount: ONE_SOL.toString() }) as unknown as JupiterQuote;
+// 1 SOL for a guaranteed 197,000 BAYLA is 1.52% above the average: past a 1% limit.
+const MIN_PAST_LIMIT = '197000000000';
+
+const quote = (out: string, min: string = out) => ({ outAmount: out, otherAmountThreshold: min, inAmount: ONE_SOL.toString() }) as unknown as JupiterQuote;
 
 function deps(over: Partial<SliceDeps> = {}) {
   const send = vi.fn(async (_b64: string, _w: string, onSent: (s: string) => void): Promise<WalletSwapEnd> => {
@@ -70,9 +73,30 @@ describe('trySlice', () => {
   });
 
   it('the quote the transaction was built from is held to the limit too', async () => {
-    const d = deps({ prepare: vi.fn(async (): Promise<PreparedJupiterSwap> => ({ status: 'ready', quote: quote(PAST_LIMIT), swapTransaction: 'B64', siteFeeWaived: true })) });
+    const d = deps({ prepare: vi.fn(async (): Promise<PreparedJupiterSwap> => ({ status: 'ready', quote: quote(PAST_LIMIT), swapTransaction: 'B64', siteFeeWaived: false })) });
     expect((await trySlice(d, ORDER, ONE_SOL, vi.fn())).kind).toBe('wait');
     expect(d.send).not.toHaveBeenCalled();
+  });
+
+  it('a transaction rebuilt without the platform fee is never a slice: it waits, the wallet is not asked', async () => {
+    const d = deps({ prepare: vi.fn(async (q: JupiterQuote): Promise<PreparedJupiterSwap> => ({ status: 'ready', quote: q, swapTransaction: 'B64', siteFeeWaived: true })) });
+    const r = await trySlice(d, ORDER, ONE_SOL, vi.fn());
+    expect(r).toMatchObject({ kind: 'wait', why: SLICE_NO_FEE_ROUTE });
+    expect(d.send).not.toHaveBeenCalled();
+  });
+
+  it('the limit holds at the least the slice can receive, not only at the quoted amount', async () => {
+    const quoted = deps({ quote: vi.fn(async () => quote(AT_AVERAGE, MIN_PAST_LIMIT)) });
+    const r = await trySlice(quoted, ORDER, ONE_SOL, vi.fn());
+    expect(r.kind === 'wait' && r.why).toContain('1.52% above the 24h average');
+    expect(quoted.prepare).not.toHaveBeenCalled();
+    const built = deps({ prepare: vi.fn(async (): Promise<PreparedJupiterSwap> => ({ status: 'ready', quote: quote(AT_AVERAGE, MIN_PAST_LIMIT), swapTransaction: 'B64', siteFeeWaived: false })) });
+    expect((await trySlice(built, ORDER, ONE_SOL, vi.fn())).kind).toBe('wait');
+    expect(built.send).not.toHaveBeenCalled();
+    // A quote that names no least amount is not a price.
+    const none = deps({ quote: vi.fn(async () => ({ outAmount: AT_AVERAGE, inAmount: '1' }) as unknown as JupiterQuote) });
+    expect((await trySlice(none, ORDER, ONE_SOL, vi.fn())).kind).toBe('wait');
+    expect(none.prepare).not.toHaveBeenCalled();
   });
 
   it('a refused or unrun test run, a moved price, or a build that threw: waits, the wallet is not asked', async () => {
@@ -107,10 +131,12 @@ describe('settleSlice', () => {
       holdsNow: vi.fn(() => false),
       status: vi.fn(async (): Promise<'confirmed' | 'reverted' | null> => null),
       history: vi.fn(async (): Promise<'confirmed' | 'reverted' | null> => null),
+      blockhashDead: vi.fn(async () => true),
       ...over,
     };
   }
-  const out = (sentAgo: number) => ({ state: 'unconfirmed' as const, sig: SIG, sentAt: NOW - sentAgo });
+  const HASH = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W';
+  const out = (sentAgo: number) => ({ state: 'unconfirmed' as const, sig: SIG, sentAt: NOW - sentAgo, blockhash: HASH });
 
   it('a slice with no signature never left the page: free once no note holds the wallet', async () => {
     expect(await settleSlice(settle({ holdsNow: () => true }), { state: 'sending' }, NOW)).toEqual({ kind: 'open' });
@@ -133,6 +159,14 @@ describe('settleSlice', () => {
 
   it('old, held by nothing, and no history either: it did not land', async () => {
     expect(await settleSlice(settle(), out(UNLANDED_AFTER_MS), NOW)).toMatchObject({ kind: 'free', why: 'This slice never reached the chain. Nothing was spent.' });
+  });
+
+  it('old and unseen, but its blockhash can still land, is unknown, or was never kept: still out', async () => {
+    const live = settle({ blockhashDead: vi.fn(async () => false) });
+    expect(await settleSlice(live, out(UNLANDED_AFTER_MS * 3), NOW)).toEqual({ kind: 'open' });
+    expect(live.blockhashDead).toHaveBeenCalledWith(HASH);
+    expect(await settleSlice(settle({ blockhashDead: async () => { throw new Error('x'); } }), out(UNLANDED_AFTER_MS * 3), NOW)).toEqual({ kind: 'open' });
+    expect(await settleSlice(settle(), { state: 'unconfirmed', sig: SIG, sentAt: NOW - UNLANDED_AFTER_MS * 3 }, NOW)).toEqual({ kind: 'open' });
   });
 
   it('the history holds it after all: landed', async () => {

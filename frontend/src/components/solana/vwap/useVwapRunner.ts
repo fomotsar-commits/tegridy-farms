@@ -16,6 +16,8 @@ import { whileJupiterBusy } from '../../../lib/solana/swap/jupiterBusy';
 import { prepareJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { fetchPairAverage } from '../../../lib/solana/swap/pairAverage';
 import { sendWalletSwap, type SwapNote } from '../../../lib/solana/swap/walletSwapSend';
+import { signatureOf } from '../../../lib/solana/sendSigned';
+import { recentBlockhashOf } from '../../../lib/solana/blockhashWindow';
 import { amountText, receivedIn } from '../../../lib/solana/receiptRead';
 import { holdReload } from '../../../lib/reloadHold';
 import { SOL_MINT } from '../../../lib/solana';
@@ -136,6 +138,15 @@ export function useVwapRunner(a: {
       sleep,
       aborted: () => stop.signal.aborted,
       walletSign: (tx) => signTransaction(tx),
+      signed: (tx) => {
+        try {
+          // Read back from its bytes, as the send does: a wallet bundling its own web3.js returns a lookalike class.
+          const s = VersionedTransaction.deserialize(tx.serialize());
+          return { signature: signatureOf(s), blockhash: recentBlockhashOf(s) };
+        } catch {
+          return { signature: null, blockhash: null };
+        }
+      },
       slice: {
         average: () => fetchPairAverage(pinned.pay.mint, pinned.buy.mint),
         quote: (amount) => quoteBusy({ inputMint: pinned.pay.mint, outputMint: pinned.buy.mint, amount, slippageBps: SLICE_SLIPPAGE_BPS }),
@@ -174,6 +185,8 @@ export function useVwapRunner(a: {
           if (!tx) return null;
           return tx.meta?.err ? 'reverted' : 'confirmed';
         },
+        // Asked only ten minutes after the send, of a confirmed bank: "not valid" then is "too old".
+        blockhashDead: async (hash) => (await connection.isBlockhashValid(hash, { commitment: 'confirmed' })).value === false,
       },
       received: async (signature, o) => {
         // The node may not have indexed it yet: a few seconds at most.

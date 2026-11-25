@@ -27,7 +27,7 @@ export const WITHDRAWN_COPY = 'The order was stopped while your wallet was open.
 export const DECLINED_COPY = 'You said no in your wallet. This slice is skipped; its amount goes with the next one.';
 export const UNCONFIRMED_COPY = 'Sent, not confirmed yet. Nothing else is sent until the chain answers for it.';
 const REFUSED_COPY = 'The network refused this slice. Only the network fee was spent.';
-const NOT_KEPT_COPY = 'This browser would not keep the order’s record, so nothing was sent.';
+export const NOT_KEPT_COPY ='This browser would not keep the order’s record, so nothing was sent.';
 
 export interface RunEnv {
   /** The wallet's order as stored now. */
@@ -39,6 +39,8 @@ export interface RunEnv {
   aborted(): boolean;
   /** The wallet's own signature, nothing sent. */
   walletSign(tx: VersionedTransaction): Promise<VersionedTransaction>;
+  /** What the wallet handed back: its first signature and the blockhash it carries (a wallet may swap in its own), read from its bytes. */
+  signed(tx: VersionedTransaction): { signature: string | null; blockhash: string | null };
   /** Everything a slice reads, and the send: `sign` is the guarded signer, `onSent` runs once a signature exists. */
   slice: Omit<SliceDeps, 'send'> & {
     send(b64: string, words: string, sign: (tx: VersionedTransaction) => Promise<VersionedTransaction>, onSent: (signature: string) => void): Promise<WalletSwapEnd>;
@@ -80,6 +82,7 @@ export async function sendSlice(env: RunEnv, o: VwapOrder, k: number, amount: bi
   }
   let late = false;
   let withdrawn = false;
+  let unkept = false;
   const guardedSign = async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
     const asked = env.now();
     const signed = await env.walletSign(tx);
@@ -92,23 +95,31 @@ export async function sendSlice(env: RunEnv, o: VwapOrder, k: number, amount: bi
       withdrawn = true;
       throw new Error('order stopped');
     }
+    // Its signature and the blockhash it carries are kept HERE, while throwing still stops the
+    // send: a record written from `onSent` could fail and the slice would go anyway, to be
+    // called "nothing was sent" later and asked again (audit 2026-11-24).
+    const { signature, blockhash } = env.signed(signed);
+    if (!signature) throw new Error('not signed');
+    if (!update(env, id, (x) => withSlice(x, k, { state: 'unconfirmed', sig: signature, sentAt: env.now(), ...(blockhash ? { blockhash } : {}) }))) {
+      unkept = true;
+      throw new Error('record not kept');
+    }
     return signed;
   };
   const release = env.holdReload();
   try {
-    let recorded = false;
     const r = await trySlice({ ...env.slice, send: (b64, words, onSent) => env.slice.send(b64, words, guardedSign, onSent) }, o, amount, (signature, quotedOut) => {
-      // The signature exists and its note is written: kept before the first send.
-      recorded = update(env, id, (x) => withSlice(x, k, { state: 'unconfirmed', sig: signature, sentAt: env.now(), got: quotedOut, gotExact: false })) !== null;
+      // The signature is already kept (guardedSign); its note is written now: the quote's amount joins it.
+      update(env, id, (x) => withSlice(x, k, { state: 'unconfirmed', sig: signature, sentAt: x.slices[k]?.sentAt ?? env.now(), got: quotedOut, gotExact: false }));
     });
     const at = env.now();
     const back = (patch: Parameters<typeof withSlice>[2]) =>
-      update(env, id, (x) => withSlice(x, k, { state: 'waiting', paid: undefined, sig: undefined, sentAt: undefined, got: undefined, gotExact: undefined, ...patch }));
+      update(env, id, (x) => withSlice(x, k, { state: 'waiting', paid: undefined, sig: undefined, sentAt: undefined, blockhash: undefined, got: undefined, gotExact: undefined, ...patch }));
     if (r.kind === 'wait') {
       back({ triedAt: at, why: r.why, vsAveragePct: r.vsAveragePct });
     } else if (r.kind === 'not-sent') {
-      const why = late ? LATE_COPY : withdrawn ? WITHDRAWN_COPY : r.declined ? DECLINED_COPY : r.why;
-      back({ triedAt: late ? at - RETRY_MS : at, why, vsAveragePct: r.vsAveragePct, ...(r.declined && !late && !withdrawn ? { declined: true } : {}) });
+      const why = late ? LATE_COPY : withdrawn ? WITHDRAWN_COPY : unkept ? NOT_KEPT_COPY : r.declined ? DECLINED_COPY : r.why;
+      back({ triedAt: late ? at - RETRY_MS : at, why, vsAveragePct: r.vsAveragePct, ...(r.declined && !late && !withdrawn && !unkept ? { declined: true } : {}) });
     } else if (r.kind === 'lost') {
       update(env, id, (x) => ({ ...withSlice(x, k, { state: 'waiting', why: r.why }), stoppedAt: at }));
     } else if (r.outcome === 'reverted') {
@@ -117,7 +128,6 @@ export async function sendSlice(env: RunEnv, o: VwapOrder, k: number, amount: bi
       await fill(env, o, k, r.signature, amount, BigInt(r.quotedOut));
     } else {
       // Out and not confirmed: it stays "unconfirmed" and nothing else goes until the chain answers.
-      if (!recorded) update(env, id, (x) => withSlice(x, k, { state: 'unconfirmed', sig: r.signature, sentAt: at, got: r.quotedOut, gotExact: false }));
       update(env, id, (x) => withSlice(x, k, { why: UNCONFIRMED_COPY, vsAveragePct: r.vsAveragePct }));
     }
   } finally {
@@ -133,7 +143,7 @@ export async function settleOut(env: RunEnv, o: VwapOrder, k: number): Promise<v
     return;
   }
   if (end.kind === 'free') {
-    update(env, o.id, (x) => withSlice(x, k, { state: 'waiting', paid: undefined, sig: undefined, sentAt: undefined, got: undefined, gotExact: undefined, triedAt: env.now(), why: end.why }));
+    update(env, o.id, (x) => withSlice(x, k, { state: 'waiting', paid: undefined, sig: undefined, sentAt: undefined, blockhash: undefined, got: undefined, gotExact: undefined, triedAt: env.now(), why: end.why }));
     return;
   }
   await fill(env, o, k, s.sig!, BigInt(s.paid ?? '0'), BigInt(s.got ?? '0'));

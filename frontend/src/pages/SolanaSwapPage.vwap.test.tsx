@@ -109,7 +109,8 @@ const quoteAt = (perSol: number) => async (p: { amount: string }) => ({
   outputMint: USDC_MINT,
   inAmount: p.amount,
   outAmount: ((BigInt(p.amount) * BigInt(perSol)) / 1_000n).toString(),
-  otherAmountThreshold: '0',
+  // The least the swap can pay out: here the quote itself (no slippage), so the limit is tested at one figure.
+  otherAmountThreshold: ((BigInt(p.amount) * BigInt(perSol)) / 1_000n).toString(),
   slippageBps: 100,
   priceImpactPct: '0',
   routePlan: [],
