@@ -850,15 +850,23 @@ fn a_pool_whose_price_is_too_coarse_to_check_is_refused_at_the_opening_and_at_a_
     ix.accounts.swap(n - 1, n - 2);
     assert_eq!(code(&w.send(&[ix], &[&who])), err(OrderError::NotOurPool));
 
-    // Opened at a fine price; the price turns coarse before the first slice.
+    // Opened at a fine price, and the first slice runs. Then the price turns coarse, and a
+    // swap in that same second leaves it so for the whole stretch to the next slice (whichever
+    // way the pool feeds its price record: from its balances, or from what its last swap left).
     let mut a = args(1_000_000_000, START, 4);
     a.min_out_total = 1;
     open(&mut w, &p, a).unwrap();
-    w.set_balance(&pool_in, 10_000_000_000_000_000_000);
     let r = runner(&mut w);
     w.at(START);
+    slice(&mut w, &p, &r, 250_000_000).unwrap();
+    w.set_balance(&pool_in, 10_000_000_000_000_000_000);
+    let trader = runner(&mut w);
+    let from = w.account(&p.input_mint.clone(), &trader.pubkey(), 1_000_000_000);
+    let to = w.account(&p.output_mint.clone(), &trader.pubkey(), 0);
+    w.swap_by(&trader, &from, &to, &p.input_mint.clone(), 1_000_000_000).unwrap();
+    w.at(START + 600);
     assert_eq!(code(&slice(&mut w, &p, &r, 250_000_000)), err(OrderError::PriceTooCoarse));
-    assert_eq!(w.balance(&p.in_vault), 1_000_000_000);
+    assert_eq!(w.balance(&p.in_vault), 750_000_000);
 }
 
 /// Every account a slice is handed is the order's own: another order's proceeds account, another
