@@ -143,6 +143,12 @@ describe("a pool opened since the pool list was read is not lost (both adapters)
     expect(events.map((e) => e.eventType)).toEqual(["creation", "join", "swap"]);
     expect(c.pgas()).toBe(2);
   });
+  it("DexTools: an opening alone in the range (no event line at all) also reads the list again", async () => {
+    const c = chain({ txs: [createTx], poolLists: [[], [POOL]] });
+    expect(await dexToolsEventsIn(c.rpc, 1, 2)).toEqual([]);
+    expect((await dexToolsEventsIn(c.rpc, 453025316, 453025316)).map((e) => e.eventType)).toEqual(["creation", "join"]);
+    expect(c.pgas()).toBe(2);
+  });
   it("GeckoTerminal: the same, for a pool's first trade", async () => {
     const c = chain({ txs: [swapTx], poolLists: [[], [POOL]] });
     expect(await eventsIn(c.rpc, 1, 2)).toEqual([]);
