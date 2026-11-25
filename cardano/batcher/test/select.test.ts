@@ -272,3 +272,16 @@ test('an order paying the pool script is left alone up front: the contract allow
   assert.deepEqual(skipped.map((s) => s.ref), [bad.ref]);
   assert.match(skipped[0]!.reason, /a receiver at the pool script/);
 });
+
+test('a division by zero is the contract failing on that order: left alone, never thrown out of the round', () => {
+  // A pool whose datum counts no liquidity (no pool can come to this; the contract divides by it on a withdrawal).
+  const w = world();
+  const poolOut = CSL.TransactionOutput.from_hex(w.pool.outputHex);
+  const empty = withOutput(w.pool, (o) => o.set_plutus_data(withField(poolOut.plutus_data()!, 3, mkInt(0n))));
+  const { pools } = readPools(DEP, [aged(empty, 1n)]);
+  const out = order(`${'d6'.repeat(32)}#0`, 1, 5n * ADA, [[DEX.authenPolicy, LP_NAME, 1_000_000n]], step.withdraw(1_000_000n, 1n, 1n));
+  const { orders } = readOrders(DEP, POLICY, [aged(out.utxo, 1n)], new Map());
+  const r = chooseBatch(DEP, POLICY, pools, orders, new Set(), TIP);
+  assert.equal(r.candidate, null);
+  assert.deepEqual(r.skipped.map((s) => [s.ref, s.reason]), [[out.utxo.ref, 'the contract would refuse it now (the contract would fail: division by zero)']]);
+});

@@ -795,3 +795,21 @@ test('ten rounds in a row that try batches and send none raise an alert, through
   for (let i = 0; i < STALLED_ROUNDS_ALERT - 1; i++) await round();
   assert.equal(stallAlerts().length, 1);
 });
+
+test('a looked-up datum the library refuses to read is a miss for that order, never the end of the round', async () => {
+  const hidden = order(`${'92'.repeat(32)}#0`, 4, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), { byHash: true });
+  const { orders, primary, watcher, events } = setup(1, { extra: [hidden.utxo], backup: false });
+  oldest(primary, hidden.utxo.ref);
+  // Well-formed CBOR (a 65-byte string, unchunked) that EMURGO's library refuses, with a bare string.
+  primary.datums.set(CSL.hash_plutus_data(hidden.datum).to_hex(), `5841${'ab'.repeat(65)}`);
+  await watcher.round();
+  assert.deepEqual(events.filter((e) => e.kind === 'error'), []);
+  assert.deepEqual(ordersIn(primary.submitted[0]!, orders), [orders[0]!.utxo.ref]);
+  const skipped = events.find((e) => e.kind === 'skipped');
+  assert.ok(skipped?.kind === 'skipped' && skipped.items.some((s) => s.ref === hidden.utxo.ref && /not known/.test(s.reason)));
+  // A miss: not asked again for an hour.
+  const asked = primary.calls.get('datum');
+  primary.slot = TIP + 241n;
+  await watcher.round();
+  assert.equal(primary.calls.get('datum'), asked);
+});

@@ -493,8 +493,18 @@ export class Watcher {
       if ((this.#datumMisses.get(hash) ?? -1n) > slot || lookups >= MAX_DATUM_LOOKUPS) continue;
       lookups++;
       const bytes = await view.datum(hash);
-      const data = bytes && shallowCbor(bytes) ? blaming([u.ref], () => CSL.PlutusData.from_hex(bytes)) : null;
-      if (data && blaming([u.ref], () => CSL.hash_plutus_data(data).to_hex()) === hash) this.#datums.set(hash, data);
+      // Bytes a source names for a stranger's hash: any refusal to read them (but the library
+      // breaking, which names the UTxO) is a miss for this order, never the end of the round.
+      let data: CSL.PlutusData | null = null;
+      try {
+        if (bytes && shallowCbor(bytes)) {
+          const d = blaming([u.ref], () => CSL.PlutusData.from_hex(bytes));
+          if (blaming([u.ref], () => CSL.hash_plutus_data(d).to_hex()) === hash) data = d;
+        }
+      } catch (e) {
+        if (e instanceof LibraryTrapped) throw e;
+      }
+      if (data) this.#datums.set(hash, data);
       else this.#datumMisses.set(hash, slot + DATUM_MISS_SLOTS);
     }
     // Only the datums of orders still waiting are kept.
