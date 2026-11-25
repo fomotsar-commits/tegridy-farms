@@ -7,13 +7,15 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-24
+
+- Pools: a quick double tap no longer presses what the first tap moved under your finger in the cases we measured: a token, the address box and its keyboard, the token above the one you tapped, or a form you had just closed. For half a second after the page moves on its own, a second tap near the same spot is ignored unless it lands on what you first pressed. A tap anywhere else works at once.
+
 ### 2026-11-23
 
 - The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
 
 ### 2026-11-22
-
-- Pools: a quick double tap no longer presses whatever the page just moved under your finger (a token, or the address box and its keyboard). After the page moves on its own, a second tap on the same spot within half a second is ignored. A tap anywhere else works at once.
 
 - EVM pools (Liquidity, Swap, the island order, DCA, limit orders): a pool of ours whose venue cut is not switched on yet is no longer listed or traded through, and the pool list says how many it left out. A pool whose cut could not be read is listed as not read, with no Add or Remove.
 - Privacy: the list of analytics events now names one more, a count of Solana swaps sent without the site fee. It carries no coin, amount, route or wallet.

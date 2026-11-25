@@ -70,10 +70,22 @@ second landed on a token button (picked it: a lookup and a 1,951 px move) or on 
 label (focus, so a phone's keyboard). jsdom never moves anything, so no unit test could see it.
 
 **Do:** send every move a page makes on its own through one helper that, when the move shifts
-the target on screen, drops touchend, mousedown and click within 25 px of the press for 500 ms
+the target on screen, drops touchend, mousedown and click near the press for 500 ms
 (`frontend/src/lib/bringIntoView.ts`, with a source test that fails on a raw `scrollIntoView`).
-Measured with it: the same double tap pressed nothing; a tap on a token 38 px away 150 ms after
-the press, and the same spot 800 ms after, each picked the token.
+Measured with it at 25 px: the same double tap pressed nothing; a tap on a token 38 px away 150 ms
+after the press, and the same spot 800 ms after, each picked the token.
+
+**And a move is more than `scrollIntoView`** (Fable read at 390, 2026-11-24, same harness, Chromium
+and WebKit). A pick draws a line one row tall above the tokens before its answer scrolls: in WebKit
+a double tap on RIZZ picked the token above it. Close puts focus back on the form's opener, which
+scrolls the page ~900 px: the second tap of a double tap on Close opened the form again. Neither is
+a `scrollIntoView`, so the helper never saw them; each now calls `holdPress()` at the press. Two
+more: a finger down on the fixed bottom bar while a read landed lost its tap (one in ten to twenty),
+so a tap that lands on what its press pressed now goes through (a touch's events all go to what it
+began on, and a fixed bar does not move); and 25 px was narrower than a double tap's spread (a
+second tap 30 px off picked RIZZ), so the hold is now 45 px round, an iPhone's allowance for a
+double tap's second touch. The price: a tap on something else 38 px off, within half a second of
+the move, is held.
 
 **But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
 the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On

@@ -23,7 +23,7 @@ import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
-import { bringIntoView } from '../../../lib/bringIntoView';
+import { bringIntoView, holdPress } from '../../../lib/bringIntoView';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -377,6 +377,9 @@ export function PoolFinder({
     (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       // The door's link draws its answer at the top, where the visitor already is.
       asked.current = !ask.top;
+      // A look-up draws a line above the tokens before its answer moves the page: one row, so a
+      // double tap's second tap picked the token above (WebKit, Fable read 2026-11-24).
+      holdPress();
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });

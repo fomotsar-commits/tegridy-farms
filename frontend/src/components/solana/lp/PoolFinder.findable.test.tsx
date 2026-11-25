@@ -222,6 +222,24 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     }
   });
 
+  // A pick draws "Open a pool and Add liquidity act on the token in the box below." above the
+  // tokens before its answer moves the page, one row tall: in WebKit a double tap on RIZZ then
+  // picked the token above it (Fable read, 2026-11-24).
+  it('the second tap of a double tap on a token does not pick the token that slid under the finger', async () => {
+    const r = mount();
+    const [above, tapped] = within(within(await finder()).getByTestId('lp-site-tokens')).getAllByRole('button');
+    const finger = { clientX: 300, clientY: 700 };
+    fireEvent.pointerDown(tapped!, finger);
+    fireEvent.click(tapped!, finger);
+    fireEvent.pointerDown(above!, finger);
+    fireEvent.click(above!, finger);
+    await waitFor(() => expect(r.findPools).toHaveBeenCalled());
+    await act(async () => {});
+    expect(tapped).toHaveAttribute('aria-pressed', 'true');
+    expect(above).toHaveAttribute('aria-pressed', 'false');
+    expect(r.findPools).toHaveBeenCalledTimes(1);
+  });
+
   it('with adding paused, only Remove is offered and the card says so', async () => {
     mount('/pools', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');

@@ -343,6 +343,29 @@ describe('Add liquidity', () => {
     expect(add).toHaveFocus();
   });
 
+  // Close puts focus back on Add liquidity and the page jumps to it: a double tap's second tap on
+  // Close landed on Add liquidity and opened the form again (Fable read, 2026-11-24).
+  it('the second tap of a double tap on Close does not open the form again', async () => {
+    mount(readers());
+    const add = await within(await card()).findByRole('button', { name: 'Add liquidity' });
+    fireEvent.click(add);
+    const close = within(await screen.findByTestId('lp-add-panel')).getByRole('button', { name: 'Close' });
+    const finger = { clientX: 180, clientY: 420 };
+    // No wait between the two taps: the hold lasts half a second of real time.
+    fireEvent.pointerDown(close, finger);
+    fireEvent.click(close, finger);
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(add).toHaveFocus();
+    fireEvent.pointerDown(add, finger);
+    fireEvent.click(add, finger);
+    await act(async () => {});
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    // A tap on Add where it is drawn opens it.
+    fireEvent.pointerDown(add, { clientX: 120, clientY: 220 });
+    fireEvent.click(add, { clientX: 120, clientY: 220 });
+    expect(await screen.findByTestId('lp-add-panel')).toBeInTheDocument();
+  });
+
   it('a launch pool says its original shares were burned', async () => {
     mount(readers({ findPools: vi.fn(async () => search([view({ origin: 'launch-pool' })])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
