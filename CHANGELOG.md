@@ -7,7 +7,7 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-24
+### 2026-11-25
 
 - Pools: a quick double tap no longer presses what the first tap moved under your finger in the cases we measured: a token, the address box and its keyboard, the token above the one you tapped, or a form you had just closed. For half a second after the page moves on its own, a second tap near the same spot is ignored unless it lands on what you first pressed. A tap anywhere else works at once.
 

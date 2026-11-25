@@ -82,13 +82,15 @@ describe('a move the page makes holds a second tap on the same spot', () => {
     expect(tapAt()).toEqual({ pressed: true, blocked: false });
   });
 
-  // A double tap's second touch lands up to 45 points from the first on an iPhone. At 25 px a
-  // second tap 30 px off picked RIZZ at 430 and opened the keyboard at 390 (Fable read, 2026-11-24).
-  it('as far as a double tap spreads: 30 px off is held, 50 px off is not', () => {
+  // At 25 px a second tap 30 px off picked RIZZ at 430 and opened the keyboard at 390 (Fable read,
+  // 2026-11-24). At 45 px a tap on the token next over did nothing: SOY 39 px off after Add
+  // liquidity, BAYLA 44 px off after Open a pool, at 430x740 (Fable re-read, 2026-11-25).
+  it('as far as a double tap spreads, no further: 30 px off is held, a token 39 px off is not', () => {
     pressThatMoves();
-    expect(tapAt({ clientX: 105, clientY: 439 }).blocked).toBe(true);
-    expect(tapAt({ clientX: 75 + 30, clientY: 439 + 30 }).blocked).toBe(true);
-    expect(tapAt({ clientX: 75 + 36, clientY: 439 + 36 })).toEqual({ pressed: true, blocked: false });
+    expect(tapAt({ clientX: 75 + 30, clientY: 439 }).blocked).toBe(true);
+    expect(tapAt({ clientX: 75 + 20, clientY: 439 + 20 }).blocked).toBe(true);
+    expect(tapAt({ clientX: 75, clientY: 439 + 39 })).toEqual({ pressed: true, blocked: false });
+    expect(tapAt({ clientX: 75 + 22, clientY: 439 + 22 })).toEqual({ pressed: true, blocked: false });
   });
 
   // A finger down on the bottom bar while a read landed and moved the page: its tap did nothing,

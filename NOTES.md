@@ -83,9 +83,15 @@ a `scrollIntoView`, so the helper never saw them; each now calls `holdPress()` a
 more: a finger down on the fixed bottom bar while a read landed lost its tap (one in ten to twenty),
 so a tap that lands on what its press pressed now goes through (a touch's events all go to what it
 began on, and a fixed bar does not move); and 25 px was narrower than a double tap's spread (a
-second tap 30 px off picked RIZZ), so the hold is now 45 px round, an iPhone's allowance for a
-double tap's second touch. The price: a tap on something else 38 px off, within half a second of
-the move, is held.
+second tap 30 px off picked RIZZ), so the hold is now 30 px round.
+
+**Too wide is its own swallow** (Fable re-read at 390, 2026-11-25, same harness). At 45 px round the
+tokens a task press brings under the thumb did not answer for half a second: at 430x740, SOY 39 px
+off after Add liquidity and BAYLA 44 px off after Open a pool; on a 390x760 screen most of the token
+under the finger and half of the next. 30 px round holds the measured double tap and lets the next
+token through. And a look-up is not always a press: the island's sheet and the door's link call the
+same `lookUp()` with none, and a hold armed there sat on the spot of the press that opened the
+sheet, where Back now was, so a prompt Back did nothing once. Hold only where a press asked.
 
 **But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
 the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On

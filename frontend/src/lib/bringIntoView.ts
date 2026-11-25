@@ -9,7 +9,10 @@
  * drawn above what was pressed, focus going back after a form closes) calls holdPress() itself.
  */
 const HOLD_MS = 500; // a double tap's gap (300 ms on Android and iOS), then the second tap itself
-const NEAR_PX = 45; // how far from the first an iOS double tap's second touch may land, in points
+// How far from the press a second tap is held. 30 px off is held (at 25 px it picked RIZZ, Fable
+// read 2026-11-24); at 45 px the tokens a task press brings under the thumb, 39 and 44 px off,
+// did not answer for half a second (Fable re-read, 2026-11-25).
+const NEAR_PX = 30;
 
 let press: { x: number; y: number; on: Element | null } = { x: NaN, y: NaN, on: null };
 let held = { ...press, until: 0 };

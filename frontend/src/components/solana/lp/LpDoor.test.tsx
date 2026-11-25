@@ -355,6 +355,22 @@ describe('the door’s link', () => {
     expect(screen.getByTestId('lp-door')).toContainElement(panel);
   });
 
+  // A link (or the island's sheet) opens its form with no press. The hold armed then anyway, on
+  // the spot of the last press, the button that opened the sheet: Back there, 0.7 s later, did
+  // nothing the first time (Fable re-read at 390, 2026-11-25).
+  it('holds no tap: no press asked for it', () => {
+    const sol = view();
+    const finger = { clientX: 180, clientY: 120 };
+    const opener = document.body.appendChild(document.createElement('button'));
+    fireEvent.pointerDown(opener, finger);
+    opener.remove();
+    mount(readers([sol]), `/pools?mint=${M}&task=add&pool=${sol.address}`);
+    const back = document.body.appendChild(document.createElement('button'));
+    fireEvent.pointerDown(back, finger);
+    expect(fireEvent.click(back, finger)).toBe(true);
+    back.remove();
+  });
+
   it('with no pool named, ends in the SOL pool, never a deeper pool paired with another coin', async () => {
     const usdc = view({ quote: USDC_QUOTE, q: 100_000n * 10n ** 6n });
     const sol = view();

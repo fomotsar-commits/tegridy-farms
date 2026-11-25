@@ -377,9 +377,11 @@ export function PoolFinder({
     (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       // The door's link draws its answer at the top, where the visitor already is.
       asked.current = !ask.top;
-      // A look-up draws a line above the tokens before its answer moves the page: one row, so a
-      // double tap's second tap picked the token above (WebKit, Fable read 2026-11-24).
-      holdPress();
+      // A look-up a press asked for draws a line above the tokens before its answer moves the page:
+      // one row, so a double tap's second tap picked the token above (WebKit, Fable read 2026-11-24).
+      // A link's or the sheet's own look-up (`top`) has no press: held then, on the spot of the
+      // press that opened the sheet, it swallowed a prompt Back (Fable re-read, 2026-11-25).
+      if (!ask.top) holdPress();
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
