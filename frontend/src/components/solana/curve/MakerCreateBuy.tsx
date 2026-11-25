@@ -26,6 +26,12 @@ function plantLine(plant: Fact<PlantMoved>): string {
   return `Its launch transaction moved $BAYLA, but not as a plant: ${bayla(burned)} burned, ${bayla(toWorkshop)} to the island's Workshop.`;
 }
 
+/** A list row's plant line, in the page's words, for a launch that did not carry the plant (`null`: could not read). */
+export function RowPlantLine({ plant }: { plant: PlantMoved | null }) {
+  if (plant && plant.burned === PLANT_HALF_RAW && plant.toWorkshop === PLANT_HALF_RAW) return null;
+  return <p className="text-white/75">{plantLine(plant ? { kind: 'ok', value: plant } : { kind: 'unreadable', detail: '' })}</p>;
+}
+
 /** The maker's figure, the wallet when given, and apart from them what other wallets got in the same transaction. */
 export function MakerBuyLines({
   buy,

@@ -893,7 +893,7 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const row = positionRow(p, B.p15.address);
     await expect(row).toHaveAttribute('data-remove', 'dust', { timeout: 60_000 });
-    await expect(row).toContainText("This share is too small to take out at the pool's current size: one side would round to zero (the pool program's rule).");
+    await expect(row).toContainText('This share is too small to take out now: one side would round to zero. Waiting loses nothing; it can be taken out once that side of the pool grows.');
     await expect(ui.lp.removeButton(row)).toHaveCount(0);
 
     await transferLp(B.creator15, B.b15.publicKey, B.p15.lpMint, 3_000n);

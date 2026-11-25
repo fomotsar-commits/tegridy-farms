@@ -441,6 +441,15 @@ describe('prepareLpDeposit', () => {
     expect(s.tokenWarnings.map((x) => x.code)).toEqual(['no-metadata']);
   });
 
+  // CPS-11: at the least the pool takes, the scarce side rounds up to a whole unit it barely
+  // pays for, so naming that amount can cost the depositor a unit. It says to add more instead.
+  it('a deposit too small for one side says to add a larger amount, and names no least amount', async () => {
+    const thin = world({ sol: 1_000n, tokens: 10n ** 12n });
+    for (const o of [{ maxIn: 1n }, { driving: 'token' as const, maxIn: 1n }]) {
+      expect(refused(await deposit(thin, o))).toBe("Too small: at this pool's size one side would round to zero. Add a larger amount.");
+    }
+  });
+
   it('refused while adding is paused (withdraw-only); a withdrawal from the same pool still prepares', async () => {
     const w = holding();
     expect(refused(await deposit(w, {}, priced(), WITHDRAW_ONLY))).toBe(LP_COPY.depositPaused);
