@@ -279,7 +279,10 @@ creation fee: re-set from 73 to 100 ADA and to 0 passes; a receiver that is a st
 or the treasury's script with another stake key, and a negative fee are refused, though each was
 announced, waited for and signed by both keys. A mutation pass (2026-10-24) broke each of the 48
 checks in `lock.ak` one at a time, and another (2026-10-25) the 2 new ones four ways: every mutant
-was refused by at least one test.
+was refused by at least one test. The tests call `lock.spend` and `lock.mint` directly, so
+`prove-build.mjs` also runs the compiled lock (the built `plutus.json` with the tests' Params
+applied, `aiken uplc eval`): an Announce whose redeemer is wrapped as a spend passes, the same
+unwrapped is refused, and the lock token minted with the seed passes and without it is refused.
 
 ### Questions we have for the auditor
 

@@ -4,7 +4,8 @@
 // into the six deployed scripts byte for byte. Our copy as it stands changes exactly the
 // validators PATCH_CHANGES names and the type PATCH_TYPES names, every other one keeps Minswap's
 // bytes, and our tests of its Pool Creation pass. The role timelock builds with the same
-// compiler, passes its tests, and reproduces its committed plutus.json.
+// compiler, passes its tests, reproduces its committed plutus.json, and compiled, decides a few
+// transactions as its tests do (lockEvals). No Aiken run may fetch a package.
 //   node cardano/guards/prove-build.mjs [--chain] [--root <dir>]   (AIKEN=<path>, else aiken on PATH)
 //   --chain also reads each script from its mainnet reference UTxO (Koios) and compares.
 //   --root checks the cardano/ folder of another tree (the CI self-test hands it a tampered copy).
@@ -209,6 +210,70 @@ function applyMainnet(dir) {
   return JSON.parse(readFileSync(join(dir, 'plutus.json'), 'utf-8')).validators;
 }
 
+// Plutus Data in the text `aiken uplc eval` reads.
+const pd = {
+  c: (i, ...f) => `Constr ${i} [${f.join(', ')}]`,
+  b: (hex) => `B #${hex}`,
+  i: (n) => `I ${n}`,
+  l: (...xs) => `List [${xs.join(', ')}]`,
+  m: (...kvs) => `Map [${kvs.map(([k, v]) => `(${k}, ${v})`).join(', ')}]`,
+};
+
+/**
+ * The lock's tests call lock.spend and lock.mint directly. The multi-validator's dispatch (a spend
+ * redeemer arrives wrapped in Constr 1) and the run-time decoding of datum and redeemer exist only
+ * in the compiled script, so the built lock, with lock_test.ak's Params applied, must decide
+ * these as the tests do. Each refused case is a passing one with one thing changed; a refusal
+ * counts only if the script ran (aiken prints its costs), not if an argument failed to parse.
+ */
+export function lockEvals(dir) {
+  const { c, b, i, l, m } = pd;
+  const T = { lock: '10'.repeat(28), authen: '20'.repeat(28), a: 'a1'.repeat(28), b: 'b2'.repeat(28), seed: '01'.repeat(32), tx: '02'.repeat(32), name: '726f6c652d74696d656c6f636b' };
+  const treasury = { pay: '356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6', stake: '016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479' };
+  const params = cbor.constr(0, [
+    cbor.constr(0, [cbor.constr(0, [cbor.bytes(T.seed)]), cbor.int(0)]),
+    cbor.bytes(T.a),
+    cbor.bytes(T.b),
+    cbor.constr(0, [cbor.constr(1, [cbor.bytes(treasury.pay)]), cbor.constr(0, [cbor.constr(0, [cbor.constr(1, [cbor.bytes(treasury.stake)])])])]),
+    cbor.bytes(T.authen),
+  ]);
+  run(['blueprint', 'apply', '-m', 'role_timelock', '-v', 'spend', params, '-o', 'applied.json'], dir);
+  const v = JSON.parse(readFileSync(join(dir, 'applied.json'), 'utf-8')).validators.find((x) => x.title === 'role_timelock.spend');
+  if (!v || (v.parameters ?? []).length) return ['role-timelock evals: the Params did not apply'];
+  writeFileSync(join(dir, 'lock.cbor.hex'), v.compiledCode);
+
+  const now = 1793491200000;
+  const [none, no, yes] = [c(1), c(0), c(1)];
+  const ref = (tx, n) => c(0, c(0, b(tx)), i(n));
+  const ada = (n) => [b(''), m([b(''), i(n)])];
+  const state = (...announced) => c(0, l(...announced));
+  const lockOut = (s) => c(0, c(0, c(1, b(T.lock)), none), m(ada(2000000), [b(T.lock), m([b(T.name), i(1)])]), c(2, s), none);
+  const wallet = c(0, c(0, c(0, b(T.a)), none), m(ada(50000000)), c(0), none);
+  const bound = (t) => c(0, t === undefined ? c(0) : t === Infinity ? c(2) : c(1, i(t)), yes);
+  const tx = ({ inputs, outputs, mint = [], from, to }) =>
+    c(0, l(...inputs), l(), l(...outputs), m(), m(ada(0), ...mint), l(), m(), c(0, bound(from), bound(to)), l(b(T.a), b(T.b)), m(), m(), c(0, b('00'.repeat(32))));
+  // lock_test.ak's fee_on(): the pool's fee share switched on at 1333, ready 48 hours on.
+  const announcement = c(0, c(1, c(0, b(''), b('')), c(0, b('40'.repeat(28)), b('544f4b')), i(30), i(30), c(0, i(1333)), no, c(0, c(0, c(0, b('50'.repeat(28)))))), i(now + 172800000));
+  const announceCtx = c(0, tx({ inputs: [c(0, ref(T.tx, 0), lockOut(state())), c(0, ref(T.tx, 1), wallet)], outputs: [lockOut(state(announcement))], from: now - 600000, to: now }), c(1, ref(T.tx, 0)));
+  const mintCtx = (input) => c(0, tx({ inputs: [input], outputs: [lockOut(state())], mint: [[b(T.lock), m([b(T.name), i(1)])]], to: Infinity }), c(0, b(T.lock)));
+  const cases = [
+    ['an Announce, its redeemer wrapped as a spend', true, [state(), c(1, c(0, announcement)), announceCtx]],
+    ['the same Announce unwrapped', false, [state(), c(0, announcement), announceCtx]],
+    ['the lock token minted, the seed spent', true, [i(0), mintCtx(c(0, ref(T.seed, 0), wallet))]],
+    ['the lock token minted without the seed', false, [i(0), mintCtx(c(0, ref(T.tx, 1), wallet))]],
+  ];
+  const problems = [];
+  for (const [what, passes, args] of cases) {
+    const r = spawnSync(AIKEN, ['uplc', 'eval', '-c', 'lock.cbor.hex', ...args.map((a) => `(con data (${a}))`)], { cwd: dir, encoding: 'utf-8' });
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*m/g, '');
+    const ok = r.status === 0 && /"result": "\(con unit \(\)\)"/.test(out);
+    const ran = ok || (r.status !== 0 && /Costs/.test(out));
+    if (!ran || ok !== passes) problems.push(`role-timelock evals: the compiled lock ${ok ? 'accepts' : ran ? 'refuses' : 'could not evaluate'} ${what}, which it must ${passes ? 'accept' : 'refuse'}:\n${out}`);
+    else console.log(`role-timelock: the compiled lock ${passes ? 'accepts' : 'refuses'} ${what}`);
+  }
+  return problems;
+}
+
 async function chainScripts() {
   const res = await fetch('https://api.koios.rest/api/v1/utxo_info', {
     method: 'POST',
@@ -297,6 +362,7 @@ async function main() {
     const blueprint = build(rt);
     if (!same(blueprint, committed)) problems.push('role-timelock: the build is not the committed plutus.json; rebuild and commit it');
     else for (const v of blueprint.validators) console.log(`role-timelock: ${v.title} ${v.hash} = the committed plutus.json`);
+    problems.push(...lockEvals(rt));
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

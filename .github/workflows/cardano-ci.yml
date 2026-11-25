@@ -12,9 +12,10 @@ name: cardano-ci
 #   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy with the patch
 #      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the
 #      validators and the one type the proof names; our tests of the factory's Pool Creation
-#      (cardano/minswap-tests/) pass; the role timelock is formatted, passes its tests, and builds
-#      to its committed plutus.json. Every Aiken run refuses one that fetched a package. The
-#      proof first refuses a tampered copy, and a factory whose pool creation fee is not checked.
+#      (cardano/minswap-tests/) pass; the role timelock is formatted, passes its tests, builds
+#      to its committed plutus.json, and its compiled script decides a few transactions as its
+#      tests do. Every Aiken run refuses one that fetched a package. The proof first refuses a
+#      tampered copy, and a factory whose pool creation fee is not checked.
 # .github/scripts/diff-scope.mjs decides whether these gates run, so it is in scope too.
 on:
   push:
