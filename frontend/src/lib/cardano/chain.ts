@@ -14,6 +14,9 @@ export const CARDANO_PROXY_PATH = '/api/cardano';
 
 export type Read<T> = { status: 'ok'; data: T } | { status: 'unread'; reason: string };
 
+/** Koios answers at most this many rows a read: a list that long may have more behind it. */
+export const KOIOS_PAGE = 1000;
+
 const unread = (reason: string): { status: 'unread'; reason: string } => ({ status: 'unread', reason });
 
 /** One named read of /api/cardano, as JSON, or why it could not be read. */
@@ -92,12 +95,15 @@ function carriesPoolNft(row: unknown): boolean {
  * A row without the pool NFT is dropped unread: it can never be the pool, and anyone can park
  * such a row at the pool script for about 1.5 ADA (with an address this page cannot parse, it
  * would otherwise turn every quote for the pair into "unread", for good). A row WITH the NFT
- * that cannot be read is a real pool unread, and the whole read says so.
+ * that cannot be read is a real pool unread, and the whole read says so. A page as long as Koios
+ * answers is unread too: the pool may be past its end (a real pool's read is one row: ADA/MIN,
+ * 2026-11-25), and rows parked there by the thousand must not read as "no pool".
  */
 export async function readPoolCandidates(lpName: string, signal?: AbortSignal): Promise<Read<ChainUtxo[]>> {
   const r = await getJson('pool', { lp: lpName }, signal);
   if (r.status !== 'ok') return r;
   if (!Array.isArray(r.data)) return unread('the pool read was not a list');
+  if (r.data.length >= KOIOS_PAGE) return unread('the pool read is longer than one read');
   const out: ChainUtxo[] = [];
   for (const row of r.data.filter(carriesPoolNft)) {
     const u = chainUtxoFromKoios(row);

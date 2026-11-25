@@ -5,7 +5,7 @@
 
 import type { PlutusData } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
-import { chainUtxoFromKoios, getJson, isRecord, type Read } from '../chain';
+import { chainUtxoFromKoios, getJson, isRecord, KOIOS_PAGE, type Read } from '../chain';
 import { bytesToHex, scriptSpentAddressHex, type ParsedAddress } from '../address';
 import { ADA, lpAssetName, MINSWAP_V2, readPool, type CardanoAsset, type ChainUtxo, type PoolState } from '../minswapV2';
 import type { OwnPools } from './deployment';
@@ -13,8 +13,7 @@ import type { OwnPools } from './deployment';
 /** utils.ak: the factory's NFT ("MSF") and the global setting's ("MSGS"), under the authen policy. */
 export const FACTORY_NFT_NAME = '4d5346';
 export const GLOBAL_SETTING_NFT_NAME = '4d534753';
-/** Koios answers at most this many rows a read: a list that long may have more behind it. */
-export const KOIOS_PAGE = 1000;
+export { KOIOS_PAGE };
 
 const unread = (reason: string): { status: 'unread'; reason: string } => ({ status: 'unread', reason });
 
@@ -51,6 +50,8 @@ export async function readOwnPoolCandidates(dep: OwnPools, lpName: string, signa
   const r = await getJson('ownpool', { lp: lpName }, signal);
   if (r.status !== 'ok') return r;
   if (!Array.isArray(r.data)) return unread('the pool read was not a list');
+  // Koios answers one page: with that many rows (anyone can park them there), the pool may be past its end.
+  if (r.data.length >= KOIOS_PAGE) return unread('the pool read is longer than one read');
   const out: ChainUtxo[] = [];
   // A row without our pool NFT can never be the pool (anyone can park one there): dropped unread.
   for (const row of r.data.filter((x) => rowCarries(x, dep.authenPolicy, MINSWAP_V2.poolNftName))) {

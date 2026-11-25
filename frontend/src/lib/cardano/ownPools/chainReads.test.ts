@@ -6,11 +6,14 @@ import type { Csl } from '../csl';
 import { bech32 } from '@scure/base';
 import { composeAddress, hexToBytes } from '../address';
 import { chainUtxoFromKoios } from '../chain';
+import { ADA, lpAssetName } from '../minswapV2';
 import { testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import {
   factorySlotFor,
+  KOIOS_PAGE,
   readFactoryEntries,
+  readOwnPoolCandidates,
   readGlobalSetting,
   readGlobalSettingDatum,
   readPlutusParams,
@@ -116,6 +119,25 @@ describe('the factory’s list', () => {
     expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
     answer([{ ...rows[1], address: at(`61${f}`) }]);
     expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+  });
+});
+
+describe('the pool read', () => {
+  it('a page as long as Koios answers is unread: the pool may be past its end (1,000 rows parked at the pool script)', async () => {
+    const lp = lpAssetName(ADA, { policyId: '40'.repeat(28), assetName: '544f4b' });
+    const junk = (i: number) => ({
+      tx_hash: i.toString(16).padStart(64, '0'),
+      tx_index: 0,
+      address: dep.poolAddress.bech32,
+      value: '1100000',
+      inline_datum: null,
+      asset_list: [{ policy_id: dep.authenPolicy, asset_name: lp, quantity: '1' }],
+    });
+    answer(Array.from({ length: KOIOS_PAGE }, (_, i) => junk(i + 1)));
+    expect(await readOwnPoolCandidates(dep, lp)).toEqual({ status: 'unread', reason: 'the pool read is longer than one read' });
+    // One short of a page: the chain answered, and no row is a pool.
+    answer(Array.from({ length: KOIOS_PAGE - 1 }, (_, i) => junk(i + 1)));
+    expect(await readOwnPoolCandidates(dep, lp)).toEqual({ status: 'ok', data: [] });
   });
 });
 
