@@ -45,6 +45,15 @@ export const PINNED = {
   [MANIFEST]: '0257c362be04c162f2c2ddfd7759363cb99b0b95eede71517535bdd3528f77da',
 };
 
+// The role timelock's own project files name the stdlib it compiles against, so they are pinned
+// as the manifest pins Minswap's: its aiken.lock is Minswap's byte for byte, and its aiken.toml
+// asks for the same stdlib 1.7.0 that prove-build stages at the pinned commit. Any other would
+// make Aiken fetch, which every Aiken run refuses as well.
+export const LOCK_PROJECT = {
+  'cardano/role-timelock/aiken.toml': '74cf82faf5e545441d9168286c0904314b3503f36dfc657bbf4b5c5f6a746956',
+  'cardano/role-timelock/aiken.lock': '21bda2671e075927bbfcafb4b7585b1ff7cb9e44f50bc1bee84cb2c1673d8d01',
+};
+
 // What we take: the Aiken project, its compiled blueprint, the deploy record and the specs.
 // Not taken: the TypeScript tooling (the batcher's session takes src/ when it needs it), the
 // audit PDFs and the picture (linked at the pin instead).
@@ -94,6 +103,17 @@ export function checkPins(upDir = UP_DIR) {
   for (const [f, pin] of Object.entries(PINNED)) {
     const got = existsSync(join(upDir, f)) ? sha256(strip(readFileSync(join(upDir, f), 'utf-8'))) : 'nothing';
     if (got !== pin) problems.push(`upstream/${f} hashes to ${got}, not the pinned ${pin}: re-pin only what --regenerate reproduces`);
+  }
+  return problems;
+}
+
+/** The role timelock's aiken.toml and aiken.lock hash to their pins. */
+export function checkLockProject(root = process.cwd()) {
+  const problems = [];
+  for (const [f, pin] of Object.entries(LOCK_PROJECT)) {
+    const p = resolve(root, f);
+    const got = existsSync(p) ? sha256(strip(readFileSync(p, 'utf-8'))) : 'nothing';
+    if (got !== pin) problems.push(`${f} hashes to ${got}, not the pinned ${pin}: the lock would compile against another stdlib`);
   }
   return problems;
 }
@@ -162,6 +182,9 @@ export function checkAll(root = process.cwd(), upDir = UP_DIR) {
     out.problems.push(...r.problems.map((p) => `${name}: ${p}`));
     if (!r.problems.length) out.lines.push(`${name} = ${REPO} @ ${COMMIT.slice(0, 8)} plus the reviewed patch (${r.compared} upstream files compared, ${r.patched} patched, ${patch.changed} changed lines)`);
   }
+  const lock = checkLockProject(root);
+  out.problems.push(...lock);
+  if (!lock.length) out.lines.push(`role-timelock: ${Object.keys(LOCK_PROJECT).map((f) => f.split('/').pop()).join(' and ')} hash to their pins (stdlib 1.7.0)`);
   return out;
 }
 
@@ -229,12 +252,14 @@ function selfTest(root = process.cwd()) {
     ['the opening fee fields out of step in one copy', (d) => edit(d, 'cardano/role-timelock/lib/amm_dex_v2/types.ak', 'pool_creation_fee: Int,', 'pool_creation_fee: Data,')],
     ['an added file beside the library copy', (d) => writeFileSync(join(d, 'cardano/role-timelock/lib/amm_dex_v2/extra.ak'), '')],
     ['an edited manifest', (d) => edit(d, `cardano/guards/upstream/${MANIFEST}`, '\n8', '\n0')],
+    ['the lock asking for another stdlib', (d) => edit(d, 'cardano/role-timelock/aiken.toml', 'version = "1.7.0"', 'version = "1.8.0"')],
+    ['an edited lock aiken.lock', (d) => edit(d, 'cardano/role-timelock/aiken.lock', 'requirements = []', 'requirements = ["x"]')],
   ];
   let failed = 0;
   for (const [what, tamper] of tampers) {
     const d = mkdtempSync(join(tmpdir(), 'cardano-prov-'));
     try {
-      for (const p of ['cardano/minswap-dex-v2', 'cardano/role-timelock/lib/amm_dex_v2', 'cardano/guards/upstream']) cpSync(join(root, p), join(d, p), { recursive: true });
+      for (const p of ['cardano/minswap-dex-v2', 'cardano/role-timelock/lib/amm_dex_v2', 'cardano/guards/upstream', ...Object.keys(LOCK_PROJECT)]) cpSync(join(root, p), join(d, p), { recursive: true });
       tamper(d);
       const r = checkAll(d, join(d, 'cardano/guards/upstream'));
       if (r.problems.length) console.log(`refused ${what}: ${r.problems[0]}`);

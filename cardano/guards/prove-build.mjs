@@ -91,12 +91,22 @@ export function unwrapBytes(hex) {
   return b.subarray(at).toString('hex');
 }
 
-/** stdout and stderr together, colours stripped; a non-zero exit throws with both. */
-function run(args, cwd) {
+/**
+ * Aiken prints "Downloaded N package(s) ... from network" for a fetch, and "Fetched N
+ * package(s) ... from cache" when its package cache serves one. Either means it compiled against
+ * something other than the staged, pinned stdlib.
+ */
+export function refuseFetch(out, args, cwd) {
+  if (/\b(Downloaded|Fetched)\b/.test(out)) throw new Error(`aiken ${args.join(' ')} fetched a package in ${cwd} instead of using the pinned one:\n${out}`);
+  return out;
+}
+
+/** stdout and stderr together, colours stripped; a non-zero exit, or any fetch, throws with both. */
+export function run(args, cwd) {
   const r = spawnSync(AIKEN, args, { cwd, encoding: 'utf-8' });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*m/g, '');
   if (r.error || r.status !== 0) throw new Error(`aiken ${args.join(' ')} failed in ${cwd}:\n${r.error?.message ?? ''}${out}`);
-  return out;
+  return refuseFetch(out, args, cwd);
 }
 
 /** A project copied text-only with line endings stripped, the pinned stdlib in its packages. */
@@ -120,8 +130,7 @@ function stage(src, dst, stdlib) {
 }
 
 function build(dir) {
-  const out = run(['build'], dir);
-  if (/Downloaded/.test(out)) throw new Error(`aiken downloaded a package in ${dir} instead of building with the pinned one:\n${out}`);
+  run(['build'], dir);
   return JSON.parse(readFileSync(join(dir, 'plutus.json'), 'utf-8'));
 }
 

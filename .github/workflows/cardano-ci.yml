@@ -6,17 +6,19 @@ name: cardano-ci
 # two keys.
 # Gates:
 #   1. provenance - every copied file is upstream's at the pin, or upstream's plus exactly the
-#      reviewed patch, by hash, with no clone; the guard first refuses known-bad copies. It reads
-#      the patch with solana/guards/provenance.mjs, so that file is in scope too.
+#      reviewed patch, by hash, with no clone, and the role timelock's aiken.toml and aiken.lock
+#      are their pinned bytes; the guard first refuses known-bad copies. It reads the patch with
+#      solana/guards/provenance.mjs, so that file is in scope too.
 #   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy with the patch
 #      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the
 #      validators and the one type the proof names; our tests of the factory's Pool Creation
 #      (cardano/minswap-tests/) pass; the role timelock is formatted, passes its tests, and builds
-#      to its committed plutus.json. The proof first refuses a tampered copy, and a factory whose
-#      pool creation fee is not checked.
+#      to its committed plutus.json. Every Aiken run refuses one that fetched a package. The
+#      proof first refuses a tampered copy, and a factory whose pool creation fee is not checked.
+# .github/scripts/diff-scope.mjs decides whether these gates run, so it is in scope too.
 on:
   push:
-    paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml"]
+    paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml", ".github/scripts/diff-scope.mjs"]
   # No `paths:` here: the `scope` job decides, as in solana-ci.yml.
   pull_request:
 
@@ -70,7 +72,8 @@ jobs:
           verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
             'cardano/**' \
             'solana/guards/provenance.mjs' \
-            '.github/workflows/cardano-ci.yml')
+            '.github/workflows/cardano-ci.yml' \
+            '.github/scripts/diff-scope.mjs')
           case "$verdict" in
             true|false) say "$verdict" ;;
             *) echo "::warning::diff-scope returned '$verdict', running the real jobs"; say true ;;
