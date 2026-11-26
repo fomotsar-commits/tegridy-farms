@@ -237,17 +237,23 @@ minutes after it is built), sent or not. The rules:
 
 - **A source failing, a tip far from the clock, or a node that cannot see an input yet is never
   held against an order.** Only a script that ran and failed is (Ogmios's 3012 inside a 3010).
-- **Too big** (bytes, memory by the chain's own limit, or a fee the collateral cannot cover):
-  halved, oldest orders kept.
+- **Too big** (bytes, memory by the chain's own limit, a fee the collateral cannot cover, or a
+  network fee above the batcher fees the batch collects): halved, oldest orders kept. An order
+  too many bytes even alone is set aside for as long as it exists: no batch can ever carry it.
+- **Left alone when read**: a hash-only order whose datum is over 1,024 bytes (a batch carries
+  the datum whole; real ones are about 300), and an order paying the pool script (the contract
+  allows a batch one output there, the pool's).
 - **Refused for the batch itself** (by the scripts, by the read-back, or the node will not judge
   it): halved the same way; an order failing alone is set aside for `quarantineSlots`, the round
   goes on without it, and a refusal by the node or the read-back is an alert (our engine and the
-  contract disagree; five in a row raise a louder one). It never stops the batcher: that would
-  hand anyone who found such an order a switch that stops every pool.
+  contract disagree; five in a row raise a louder one). Ten rounds in a row that tried batches
+  and sent none raise an alert too. It never stops the batcher: that would hand anyone who found
+  such an order a switch that stops every pool.
 - **Refused at submission**: an input gone, the window passed, or the batching account changed is
   normal (ten in a row raise an alert); any other refusal counts, and `maxRefusalsInARow` of them
   in a row stop the batcher.
-- **Above the float cap**: with the treasury named, it sweeps (below); without, it stops.
+- **Above the float cap** (counted in plain ADA: a gift carrying tokens never counts): with the
+  treasury named, it sweeps (below); without, it stops.
 - **Its own wallet or settings wrong**, or without two plain ADA UTxOs (one of at least 5 ADA for
   collateral, a float of at least 10 ADA): it stops and says why. With no
   order to batch, these are still checked at the first round and every 10 minutes, so a stop
@@ -358,8 +364,9 @@ until a week of dry runs is clean.
   - `no round has reached a source for N minutes` names the last problem (Demeter or Koios down,
     a wrong key).
   - `ALERT (n): ...` is something to read (our engine and the contract disagreeing on an order,
-    every batch refused as expired): at most one such email an hour, and the next healthy ping
-    clears it.
+    every batch refused as expired, orders waiting while every batch tried fails: `N rounds in a
+    row tried batches and sent none`, with the set-aside lines in the logs saying why): at most
+    one such email an hour, and the next healthy ping clears it.
   - `could not start: ...`: a variable is wrong (it names which); fix it, and Railway retries.
   - `STOPPED (fatal ...)`: EMURGO's library broke; the container starts the batcher again by
     itself, with what broke it set aside.

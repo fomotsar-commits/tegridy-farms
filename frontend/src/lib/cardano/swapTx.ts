@@ -6,7 +6,7 @@
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import type { ParsedAddress } from './address';
-import { encodeSwapOrderDatum, isAda, orderAddressFor, orderValue, type CardanoAsset, type PoolState } from './minswapV2';
+import { encodeSwapOrderDatum, isAda, MINSWAP_V2, orderAddressFor, orderValue, type CardanoAsset, type PoolState } from './minswapV2';
 import type { VenueFee } from './venueFee';
 import { buildOrderTx, checkOrderTx, type OrderTxPlan, type OrderTxWords, type WalletUtxo } from './orderTx';
 
@@ -39,10 +39,10 @@ const SWAP_WORDS: OrderTxWords = {
 };
 
 function orderPlan(plan: SwapPlan, datumHex: string): OrderTxPlan {
-  const lock = orderValue(plan);
+  const lock = orderValue(plan, MINSWAP_V2.maxBatcherFee);
   return {
     trader: plan.trader,
-    order: { address: orderAddressFor(plan.trader), lovelace: lock.lovelace, tokens: lock.token ? [lock.token] : [], datumHex },
+    order: { address: orderAddressFor(plan.trader, MINSWAP_V2), lovelace: lock.lovelace, tokens: lock.token ? [lock.token] : [], datumHex },
     payments: plan.venueFee.kind === 'charged' ? [{ address: plan.venueFee.address, lovelace: plan.venueFee.lovelace }] : [],
     tipSlot: plan.tipSlot,
   };
@@ -50,7 +50,7 @@ function orderPlan(plan: SwapPlan, datumHex: string): OrderTxPlan {
 
 /** Builds the swap order transaction from the wallet's UTxOs (orderTx.ts buildOrderTx). */
 export function buildSwapTx(csl: Csl, params: ProtocolParams, utxos: WalletUtxo[], plan: SwapPlan): BuiltSwap {
-  const datumHex = encodeSwapOrderDatum(csl, plan);
+  const datumHex = encodeSwapOrderDatum(csl, plan, MINSWAP_V2.maxBatcherFee);
   const built = buildOrderTx(csl, params, utxos, orderPlan(plan, datumHex), SWAP_WORDS);
   return { ...built, datumHex };
 }
@@ -82,7 +82,7 @@ export function checkSwapTx(
 ): SwapCheck {
   let datumHex: string;
   try {
-    datumHex = encodeSwapOrderDatum(csl, plan);
+    datumHex = encodeSwapOrderDatum(csl, plan, MINSWAP_V2.maxBatcherFee);
   } catch {
     // The planned order is not one this site writes: nothing built from it can be checked.
     return { ok: false, problems: ['the planned order is not one this site writes'] };

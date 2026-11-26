@@ -10,9 +10,11 @@ import { quantityOf, valueOf } from '../src/value.ts';
 
 const MIN: Asset = { policyId: '29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6', assetName: '4d494e' };
 const LP: Asset = { policyId: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', assetName: '82e2b1fd27a7712a1a9cf750dfbea1a5778611b20e06dd6a611df7a643f8cb75' };
+/** Minswap V2's pool script (this pool's). */
+const POOL_SCRIPT = 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b';
 const TRADER: Address = { payment: { kind: 'key', hash: '02116dcc48a8db6b3321ea5be2012c4afc4bdbffb454b5ef5b9985d0' }, stake: null };
 // The ADA/MIN pool as it stood before the venue's 25 ADA buy (fill 075110cd...21e2).
-const ctx: PoolContext = { assetA: ADA, assetB: MIN, lpAsset: LP, tradingFeeA: 30n, tradingFeeB: 100n, feeSharing: 3333n };
+const ctx: PoolContext = { poolScriptHash: POOL_SCRIPT, assetA: ADA, assetB: MIN, lpAsset: LP, tradingFeeA: 30n, tradingFeeB: 100n, feeSharing: 3333n };
 const pool: PoolState = { datumReserveA: 3077452617980n, datumReserveB: 195134540787495n, valueReserveA: 3077486809819n - 4_500_000n, valueReserveB: 195136103738887n, totalLiquidity: 24_000_000_000_000n };
 const NOW = 1_792_864_100_000n;
 
@@ -78,6 +80,17 @@ test('leaves alone an order paying a pointer address (the ledger bounds them, CS
   const pointer: Address = { ...TRADER, stake: { kind: 'pointer', slot: 1n << 40n, txIndex: 0n, certIndex: 0n } };
   assert.throws(() => applyOrder(ctx, pool, buy({ successReceiver: pointer }), 2_000_000n, NOW), Unsupported);
   assert.throws(() => applyOrder(ctx, pool, buy({ refundReceiver: pointer }), 2_000_000n, NOW), Unsupported);
+});
+
+test('leaves alone an order paying the pool script: the contract allows a batch one output there, the pool’s (pool_validator.ak compare_list_length)', () => {
+  for (const stake of [null, { kind: 'inline' as const, credential: { kind: 'key' as const, hash: TRADER.payment.hash } }]) {
+    const atPool: Address = { payment: { kind: 'script', hash: POOL_SCRIPT }, stake };
+    assert.throws(() => applyOrder(ctx, pool, buy({ successReceiver: atPool }), 2_000_000n, NOW), (e) => e instanceof Unsupported && e.kind === 'PoolReceiver');
+    assert.throws(() => applyOrder(ctx, pool, buy({ refundReceiver: atPool }), 2_000_000n, NOW), (e) => e instanceof Unsupported && e.kind === 'PoolReceiver');
+  }
+  // Another script, or a key with the pool script's hash, is not the pool script.
+  assert.equal(applyOrder(ctx, pool, buy({ successReceiver: { payment: { kind: 'script', hash: '77'.repeat(28) }, stake: null } }), 2_000_000n, NOW).output.filled, true);
+  assert.equal(applyOrder(ctx, pool, buy({ successReceiver: { payment: { kind: 'key', hash: POOL_SCRIPT }, stake: null } }), 2_000_000n, NOW).output.filled, true);
 });
 
 test('the contract’s time: the midpoint of a window of at most 10 minutes, both ends set', () => {
