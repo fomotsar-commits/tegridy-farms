@@ -346,7 +346,7 @@ type LadderAccounts = Pick<LadderWriteCtx, 'programId' | 'pool' | 'poolAccounts'
  * an `AccountNotInitialized` revert, for anyone whose token account was closed
  * while their position was locked.
  */
-function withAta(ctx: LadderAccounts, owner: PublicKey, ix: TransactionInstruction): TransactionInstruction[] {
+function withAta(ctx: LadderAccounts, owner: PublicKey, ...ixs: TransactionInstruction[]): TransactionInstruction[] {
   return [
     createAtaIdempotentIx({
       payer: owner,
@@ -354,7 +354,7 @@ function withAta(ctx: LadderAccounts, owner: PublicKey, ix: TransactionInstructi
       mint: new PublicKey(ctx.poolAccounts.mint),
       tokenProgram: new PublicKey(ctx.poolAccounts.tokenProgram),
     }),
-    ix,
+    ...ixs,
   ];
 }
 
@@ -386,14 +386,50 @@ export async function ladderStake(
   );
 }
 
-/**
- * A claim's instructions, unsent: what `ladderClaim` and `ladderClaimCarried` send. For
- * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
- */
+/** A claim's instructions, unsent: what `ladderClaim` and `ladderClaimCarried` send. */
 export const ladderClaimIxs = (ctx: LadderAccounts, owner: PublicKey, args: { positionNonce: number }) =>
   withAta(ctx, owner, claimIx({ ...common(ctx, owner), ...args }));
 export const ladderClaimCarriedIxs = (ctx: LadderAccounts, owner: PublicKey) =>
   withAta(ctx, owner, claimCarriedIx(common(ctx, owner)));
+
+/**
+ * The most claims one transaction carries. Every claim in a pool names the same accounts
+ * but its own position, so each one past the first adds 50 bytes and about 17,000 compute
+ * units (measured on mainnet 2026-11-24: one claim 450 bytes as legacy, two 500, six 700).
+ * Phantom adds its Lighthouse guards before it signs, 325 bytes on a claim landed
+ * 2026-11-23, so six still fit Solana's 1,232 for a wallet that cannot sign version 1
+ * (version 1 allows 4,096). lib/ladder/write.test.ts holds the size. A wallet at the
+ * 20-lock limit, with carried rewards too, signs four.
+ */
+export const LADDER_CLAIMS_PER_TX = 6;
+
+/**
+ * Several of one pool's claims in ONE transaction, so ONE wallet approval (owner,
+ * 2026-11-24: "you just have to claim once and confirm once"). The program pays one
+ * position per `claim` and never merges positions (every stake is its own), so this is
+ * those claims, and the carried one, side by side behind one ATA create. One
+ * transaction lands whole or not at all; a ladder claim cannot fail for one position
+ * alone (a short vault pays what it holds and keeps the rest owed, I-2), and the test
+ * run before the wallet stops it either way.
+ */
+export function ladderClaimAllIxs(
+  ctx: LadderAccounts, owner: PublicKey, args: { positionNonces: readonly number[]; carried: boolean },
+): TransactionInstruction[] {
+  const claims = args.positionNonces.map((positionNonce) => claimIx({ ...common(ctx, owner), positionNonce }));
+  if (args.carried) claims.push(claimCarriedIx(common(ctx, owner)));
+  if (!claims.length) throw new Error('ladderClaimAllIxs: nothing to claim');
+  if (claims.length > LADDER_CLAIMS_PER_TX) throw new Error(`ladderClaimAllIxs: ${claims.length} claims, at most ${LADDER_CLAIMS_PER_TX} fit`);
+  return withAta(ctx, owner, ...claims);
+}
+
+/** Pay several positions' rewards, and any carried, on one wallet approval. */
+export async function ladderClaimAll(
+  ctx: LadderWriteCtx, args: { positionNonces: readonly number[]; carried: boolean },
+): Promise<WriteResult> {
+  const owner = ctx.invoker.publicKey;
+  if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
+  return submitLadder(ctx.connection, ctx.invoker, ladderClaimAllIxs(ctx, owner, args), ctx.deps);
+}
 
 /** Pay accrued rewards on one position. Reward vault only (invariant I-12). */
 export async function ladderClaim(
