@@ -37,6 +37,8 @@ export interface PoolState {
 
 /** What stays fixed for one pool across the batch (types.ak BatchingPool, less the states). */
 export interface PoolContext {
+  /** The pool script: the contract allows a batch exactly one output there, the pool's. */
+  poolScriptHash: string;
   assetA: Asset;
   assetB: Asset;
   lpAsset: Asset;
@@ -213,6 +215,10 @@ export function applyOrder(ctx: PoolContext, state: PoolState, order: OrderInput
   // The ledger bounds pointer addresses (32-bit slot, 16-bit indexes) where CSL does not, so
   // an output to one may not read back as the datum names it: such orders are left alone.
   if (d.successReceiver.stake?.kind === 'pointer' || d.refundReceiver.stake?.kind === 'pointer') throw new Unsupported('a receiver with a pointer address');
+  // pool_validator.ak counts the outputs at the pool script and wants as many as pool inputs: an
+  // order paying there makes a second, and every batch carrying it fails.
+  const atPool = (a: Address) => a.payment.kind === 'script' && a.payment.hash === ctx.poolScriptHash;
+  if (atPool(d.successReceiver) || atPool(d.refundReceiver)) throw new Unsupported('PoolReceiver', 'a receiver at the pool script: the contract allows a batch one output there, the pool’s');
   switch (d.step.kind) {
     case 'SwapExactIn':
       return swapExactIn(ctx, state, order, usedFee, d.step);

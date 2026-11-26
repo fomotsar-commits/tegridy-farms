@@ -66,6 +66,14 @@ export interface Candidate {
 
 const scriptCredOf = (u: Utxo) => CSL.TransactionOutput.from_hex(u.outputHex).address().payment_cred()?.to_scripthash()?.to_hex();
 
+/**
+ * The largest datum a hash-only order may have: a batch carries it whole in its witness set, and
+ * the contract and the ledger take any length, so a stranger's 15 KB datum makes an order no
+ * batch can carry. Real order datums are 226 to 321 bytes (test/fixtures/minswap-batches.json,
+ * mainnet Minswap V2), the site's about 300 (a base-address trader); this leaves three times that.
+ */
+export const MAX_WITNESS_DATUM_BYTES = 1_024;
+
 /** The global setting: exactly one output holding the settings token, at the authen script. */
 export function readGlobalSetting(dep: Deployment, utxos: ChainUtxo[]): { utxo: ChainUtxo; setting: GlobalSetting } {
   const found = utxos.filter((u) => scriptCredOf(u) === dep.dex.authenPolicy && quantityOf(valueFromCsl(CSL.TransactionOutput.from_hex(u.outputHex).amount()), { policyId: dep.dex.authenPolicy, assetName: GLOBAL_SETTING_TOKEN }) === 1n);
@@ -132,6 +140,7 @@ export function readOrders(dep: Deployment, policy: Policy, utxos: ChainUtxo[], 
       const d = outputDatum(o);
       const data = d.kind === 'inline' ? d.data : d.kind === 'hash' ? datums.get(d.hash) : undefined;
       if (!data) return skip(d.kind === 'hash' ? 'its datum is not known (hash only)' : 'no datum');
+      if (d.kind === 'hash' && data.to_bytes().length > MAX_WITNESS_DATUM_BYTES) return skip(`its datum is ${data.to_bytes().length} bytes, more than the ${MAX_WITNESS_DATUM_BYTES} a batch carries for one order`);
       let datum: OrderDatum;
       try {
         datum = decodeOrderDatum(data);

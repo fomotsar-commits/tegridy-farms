@@ -14,6 +14,9 @@ export const CARDANO_PROXY_PATH = '/api/cardano';
 
 export type Read<T> = { status: 'ok'; data: T } | { status: 'unread'; reason: string };
 
+/** Koios answers at most this many rows a read: a list that long may have more behind it. */
+export const KOIOS_PAGE = 1000;
+
 const unread = (reason: string): { status: 'unread'; reason: string } => ({ status: 'unread', reason });
 
 /** One named read of /api/cardano, as JSON, or why it could not be read. */
@@ -42,16 +45,18 @@ function amount(v: unknown): bigint | null {
 
 /**
  * A Koios UTxO row as a ChainUtxo, or null when any field is missing or malformed. All or
- * nothing: a row with one unreadable asset is not shown with that asset missing.
+ * nothing: a row with one unreadable asset is not shown with that asset missing. The address is
+ * read by `addressHexOf`: the site-wide parser unless the caller reads outputs it knows by their
+ * payment part alone (ownPools/chainReads.ts, the factory's entries).
  */
-export function chainUtxoFromKoios(row: unknown): ChainUtxo | null {
+export function chainUtxoFromKoios(row: unknown, addressHexOf: (bech32: string) => string | null = (a) => parseAddressBech32(a)?.hex ?? null): ChainUtxo | null {
   if (!isRecord(row)) return null;
   const { tx_hash, tx_index, address, value, inline_datum, asset_list } = row;
   if (typeof tx_hash !== 'string' || !/^[0-9a-f]{64}$/.test(tx_hash)) return null;
   if (typeof tx_index !== 'number' || !Number.isInteger(tx_index) || tx_index < 0) return null;
   if (typeof address !== 'string') return null;
-  const parsed = parseAddressBech32(address);
-  if (!parsed) return null;
+  const addressHex = addressHexOf(address);
+  if (addressHex === null) return null;
   const lovelace = amount(value);
   if (lovelace === null) return null;
   const assets: ChainUtxo['assets'] = [];
@@ -71,7 +76,7 @@ export function chainUtxoFromKoios(row: unknown): ChainUtxo | null {
     if (!isRecord(inline_datum) || typeof inline_datum.bytes !== 'string' || !/^(?:[0-9a-f]{2})+$/.test(inline_datum.bytes)) return null;
     inlineDatumHex = inline_datum.bytes;
   }
-  return { txHash: tx_hash, index: tx_index, addressHex: parsed.hex, lovelace, assets, inlineDatumHex };
+  return { txHash: tx_hash, index: tx_index, addressHex, lovelace, assets, inlineDatumHex };
 }
 
 /** Minswap V2's pool NFT ("MSP" under the authen policy): minted only into a real pool. */
@@ -90,12 +95,15 @@ function carriesPoolNft(row: unknown): boolean {
  * A row without the pool NFT is dropped unread: it can never be the pool, and anyone can park
  * such a row at the pool script for about 1.5 ADA (with an address this page cannot parse, it
  * would otherwise turn every quote for the pair into "unread", for good). A row WITH the NFT
- * that cannot be read is a real pool unread, and the whole read says so.
+ * that cannot be read is a real pool unread, and the whole read says so. A page as long as Koios
+ * answers is unread too: the pool may be past its end (a real pool's read is one row: ADA/MIN,
+ * 2026-11-25), and rows parked there by the thousand must not read as "no pool".
  */
 export async function readPoolCandidates(lpName: string, signal?: AbortSignal): Promise<Read<ChainUtxo[]>> {
   const r = await getJson('pool', { lp: lpName }, signal);
   if (r.status !== 'ok') return r;
   if (!Array.isArray(r.data)) return unread('the pool read was not a list');
+  if (r.data.length >= KOIOS_PAGE) return unread('the pool read is longer than one read');
   const out: ChainUtxo[] = [];
   for (const row of r.data.filter(carriesPoolNft)) {
     const u = chainUtxoFromKoios(row);

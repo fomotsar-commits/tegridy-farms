@@ -9,7 +9,8 @@ import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME } from '../src/chain.ts';
 import { LibraryTrapped } from '../src/cbor.ts';
 import type { Utxo } from '../src/plan.ts';
-import { batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Deployment, type Policy } from '../src/select.ts';
+import { MAX_WITNESS_DATUM_BYTES, batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Deployment, type Policy } from '../src/select.ts';
+import { fieldsOf, mkBytes, mkConstr, mkInt } from '../src/plutus.ts';
 import type { ChainUtxo } from '../src/view.ts';
 import { BATCHER_KEY, DEX, LP_NAME, NETWORK, PP, S, TOK, order, orderDatum, scriptRefOf, step, traderKey as orderDatumKey, utxo, value, world } from './world.ts';
 import { orderOutputProblem } from '../src/build.ts';
@@ -211,4 +212,76 @@ test('an order or a pool whose bytes break EMURGO’s library while they are rea
   });
   assert.throws(() => readOrders(DEP, POLICY, [aged(a.utxo, 1n), aged(b.utxo, 2n)], new Map()), (e: unknown) => e instanceof LibraryTrapped && e.refs.join() === b.utxo.ref);
   assert.throws(() => readPools(DEP, [aged(w.pool, 1n)]), (e: unknown) => e instanceof LibraryTrapped && e.refs.join() === w.pool.ref);
+});
+
+// ---- Orders no batch can ever carry, and the contract's own failures: left alone, never the round ----
+
+/** `d` with field `i` replaced. */
+const withField = (d: CSL.PlutusData, i: number, f: CSL.PlutusData) => mkConstr(0, fieldsOf(d, 0, d.as_constr_plutus_data()!.data().len(), 'test').map((x, j) => (j === i ? f : x)));
+
+/** A hash-only order whose datum's canceller field is padded with `pad` bytes. */
+function paddedByHash(ref: string, pad: number) {
+  const datum = withField(orderDatum(1, step.swapIn(true, 25n * ADA, 1n)), 0, mkConstr(0, [mkBytes('ab'.repeat(pad))]));
+  const o = CSL.TransactionOutput.from_hex(swap(ref).utxo.outputHex);
+  const byHash = CSL.TransactionOutput.new(o.address(), o.amount());
+  byHash.set_data_hash(CSL.hash_plutus_data(datum));
+  return { utxo: { ref, outputHex: byHash.to_hex() }, datum };
+}
+
+test('a hash-only order whose datum is over 1,024 bytes is left alone when read: a batch carries the datum whole', () => {
+  const datums = (os: { datum: CSL.PlutusData }[]) => new Map(os.map((o) => [CSL.hash_plutus_data(o.datum).to_hex(), o.datum]));
+  // The largest padding that stays within the cap, and the next one.
+  let pad = 0;
+  while (paddedByHash('x#0', pad + 1).datum.to_bytes().length <= MAX_WITNESS_DATUM_BYTES) pad++;
+  const fits = paddedByHash(`${'d1'.repeat(32)}#0`, pad);
+  const over = paddedByHash(`${'d2'.repeat(32)}#0`, pad + 1);
+  assert.equal(fits.datum.to_bytes().length <= MAX_WITNESS_DATUM_BYTES && over.datum.to_bytes().length > MAX_WITNESS_DATUM_BYTES, true);
+  const r = readOrders(DEP, POLICY, [aged(fits.utxo, 1n), aged(over.utxo, 2n)], datums([fits, over]));
+  assert.deepEqual(r.orders.map((o) => o.utxo.ref), [fits.utxo.ref]);
+  assert.deepEqual(r.skipped.map((s) => [s.ref, s.reason]), [[over.utxo.ref, `its datum is ${over.datum.to_bytes().length} bytes, more than the 1024 a batch carries for one order`]]);
+  // An inline datum, of any size, is in the order's own output, never in the batch: not counted.
+  const inline = withOutput({ ...fits.utxo, ref: `${'d3'.repeat(32)}#0` }, (o) => o.set_plutus_data(over.datum));
+  assert.equal(readOrders(DEP, POLICY, [aged(inline, 1n)], new Map()).orders.length, 1);
+  // Mainnet's own hash-only Minswap order, its datum from the batch that filled it (300 bytes), is read.
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/minswap-batches.json', import.meta.url), 'utf8')) as { batches: { cbor: string }[]; spent: Record<string, string> };
+  const witness = new Map<string, CSL.PlutusData>();
+  for (const b of fx.batches) {
+    const pd = CSL.Transaction.from_hex(b.cbor).witness_set().plutus_data();
+    for (let i = 0; pd && i < pd.len(); i++) witness.set(CSL.hash_plutus_data(pd.get(i)).to_hex(), pd.get(i));
+  }
+  const minswap: Deployment = { ...DEP, dex: { ...DEX, authenPolicy: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c' }, orderScriptHash: 'c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c' };
+  const hashOnly = Object.entries(fx.spent).filter(([, h]) => {
+    const o = CSL.TransactionOutput.from_hex(h);
+    return o.address().payment_cred()?.to_scripthash()?.to_hex() === minswap.orderScriptHash && !o.has_plutus_data() && o.data_hash();
+  });
+  assert.equal(hashOnly.length, 1);
+  const real = readOrders(minswap, { ...POLICY, batcherFee: 700_000n }, hashOnly.map(([ref, outputHex]) => aged({ ref, outputHex }, 1n)), witness);
+  assert.equal(real.orders.length, 1, JSON.stringify(real.skipped));
+  assert.ok(real.orders[0]!.witness!.data.to_bytes().length < MAX_WITNESS_DATUM_BYTES / 3);
+});
+
+test('an order paying the pool script is left alone up front: the contract allows a batch one output there, the pool’s', () => {
+  const w = world();
+  const { pools } = readPools(DEP, [aged(w.pool, 1n)]);
+  const atPool = mkConstr(0, [mkConstr(1, [mkBytes(S.pool.hash)]), mkConstr(1, [])]);
+  const bad = withOutput(swap(`${'d4'.repeat(32)}#0`).utxo, (o) => o.set_plutus_data(withField(orderDatum(1, step.swapIn(true, 25n * ADA, 1n)), 3, atPool)));
+  const good = swap(`${'d5'.repeat(32)}#0`, 2);
+  const { orders } = readOrders(DEP, POLICY, [aged(bad, 1n), aged(good.utxo, 2n)], new Map());
+  const { candidate, skipped } = chooseBatch(DEP, POLICY, pools, orders, new Set(), TIP);
+  assert.deepEqual(candidate!.orders.map((o) => o.utxo.ref), [good.utxo.ref]);
+  assert.deepEqual(skipped.map((s) => s.ref), [bad.ref]);
+  assert.match(skipped[0]!.reason, /a receiver at the pool script/);
+});
+
+test('a division by zero is the contract failing on that order: left alone, never thrown out of the round', () => {
+  // A pool whose datum counts no liquidity (no pool can come to this; the contract divides by it on a withdrawal).
+  const w = world();
+  const poolOut = CSL.TransactionOutput.from_hex(w.pool.outputHex);
+  const empty = withOutput(w.pool, (o) => o.set_plutus_data(withField(poolOut.plutus_data()!, 3, mkInt(0n))));
+  const { pools } = readPools(DEP, [aged(empty, 1n)]);
+  const out = order(`${'d6'.repeat(32)}#0`, 1, 5n * ADA, [[DEX.authenPolicy, LP_NAME, 1_000_000n]], step.withdraw(1_000_000n, 1n, 1n));
+  const { orders } = readOrders(DEP, POLICY, [aged(out.utxo, 1n)], new Map());
+  const r = chooseBatch(DEP, POLICY, pools, orders, new Set(), TIP);
+  assert.equal(r.candidate, null);
+  assert.deepEqual(r.skipped.map((s) => [s.ref, s.reason]), [[out.utxo.ref, 'the contract would refuse it now (the contract would fail: division by zero)']]);
 });
