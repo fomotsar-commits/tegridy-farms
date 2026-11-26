@@ -48,7 +48,7 @@ export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 11
 
 /**
  * The island's agreed split of the venue's cut (owner, 2026-10-20): of each fee, 10.4% (the
- * protocol part) to the team's shared wallet and 5.6% (the fund part) to the island's
+ * protocol part) to the team's vault and 5.6% (the fund part) to the island's
  * Workshop. position.test.js holds the wallets equal to the site's own constants. A tier
  * that differs in any way is said first, as a warning.
  */
@@ -183,7 +183,7 @@ export const perMillion = (rate) => {
   return rate > 0 && pct === 0 ? "<0.0001%" : `${pct}%`;
 };
 
-const walletName = (a) => (a === TEAM_VAULT ? "the team’s shared wallet" : a === ISLAND_WORKSHOP ? "the island’s Workshop" : a);
+const walletName = (a) => (a === TEAM_VAULT ? "the team’s vault" : a === ISLAND_WORKSHOP ? "the island’s Workshop" : a);
 
 /**
  * What each wallet collects of each fee, by the wallet that ACTUALLY collects it: the tier's
@@ -238,7 +238,7 @@ function feeShare(tier, pool) {
     where: agreed ? `: ${list}` : "",
     warning: agreed
       ? ""
-      : `WARNING: the venue’s cut of each swap does not follow the agreed split (10.4% of the fee to the team’s shared wallet and 5.6% to the island’s Workshop). As this fee tier stands: ${list}. `,
+      : `WARNING: the venue’s cut of each swap does not follow the agreed split (10.4% of the fee to the team’s vault and 5.6% to the island’s Workshop). As this fee tier stands: ${list}. `,
   };
 }
 

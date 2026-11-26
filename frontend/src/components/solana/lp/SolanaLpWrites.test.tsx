@@ -329,8 +329,8 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While our vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a fee exemption for a fee tier's keeper\. While the vault has the guard switched on, a pool takes a swap only when a wallet sends it directly, and refuses one that another program makes\./);
+    expect(before).toHaveTextContent(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
@@ -631,28 +631,68 @@ describe('Claim fees', () => {
       ledger: vi.fn(async () => read),
     });
 
-  it('is offered under Fees earned once the figures balance, opens without a percent, and sends the basis, never a percent', async () => {
+  it('is offered under Fees earned once the figures balance, and ONE press test-runs the claim on the basis, never a percent', async () => {
     const v = view();
     const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'x' } })) });
     mount(withLedger(v, ledgerRead(v)), { api });
     const row = await screen.findByTestId('lp-position');
     const claim = await within(row).findByRole('button', { name: 'Claim fees' });
-    fireEvent.click(claim);
+    await act(async () => {
+      fireEvent.click(claim);
+    });
     const panel = await screen.findByTestId('lp-claim-panel');
     expect(claim).toHaveAttribute('aria-expanded', 'true');
-    expect(within(panel).getByRole('heading', { name: 'Claim fees from this pool' })).toHaveFocus();
-    expect(within(panel).queryByRole('group', { name: 'How much to take out' })).toBeNull();
-    expect(panel).toHaveTextContent('Gives back just enough of your shares to pay out the fees they earned. The rest stay in the pool.');
+    expect(within(panel).getByRole('heading', { name: 'Claim fees from this pool' })).toBeInTheDocument();
     // Remove is one panel too: while the claim is open, it opens nothing beside it.
     expect(screen.queryByTestId('lp-remove-panel')).toBeNull();
-    const review = within(panel).getByRole('button', { name: 'Review: claim fees' });
-    expect(review).toBeEnabled();
-    await act(async () => {
-      fireEvent.click(review);
-    });
+    // No Review press: the row's Claim fees already asked for it.
+    await waitFor(() => expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(1));
     const args = vi.mocked(api.prepareLpWithdraw).mock.calls[0]![2];
     expect(args).toMatchObject({ owner: OWNER, pool: new PublicKey(v.address), lpAccount: expect.any(PublicKey), claim: { basis: basisIn(v), provenShares: HELD, heldAtRead: HELD } });
     expect(args.pctBps).toBeUndefined();
+    // Refused before the wallet: Start over shows the form, without a percent, and its one button asks again.
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'not-sent');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Start over' }));
+    expect(within(panel).queryByRole('group', { name: 'How much to take out' })).toBeNull();
+    expect(panel).toHaveTextContent('Gives back just enough of your shares to pay out the fees they earned. The rest stay in the pool.');
+    expect(within(panel).queryByRole('button', { name: /^Review/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Open my wallet to claim' }));
+    });
+    expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(2);
+  });
+
+  it('ONE press from Fees earned to the wallet: the claim that passed its test run is handed to the wallet with no Review or Sign press', async () => {
+    const v = view();
+    const p = position(v, { lpAmount: HELD });
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    const built = prepared(summary);
+    const api = fakeLpApi({
+      prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: built })),
+      submitPrepared: vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 })),
+    });
+    mount(withLedger(v, ledgerRead(v)), { api });
+    const row = await screen.findByTestId('lp-position');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(press);
+    });
+    const panel = await screen.findByTestId('lp-claim-panel');
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(api.submitPrepared).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.submitPrepared).mock.calls[0]![2]).toBe(built);
+  });
+
+  it('Remove liquidity is not one press: it still waits for Review and Sign in wallet', async () => {
+    const v = view();
+    const api = fakeLpApi();
+    mount(withLedger(v, ledgerRead(v)), { api });
+    const row = await screen.findByTestId('lp-position');
+    fireEvent.click(await within(row).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    expect(within(panel).getByRole('button', { name: 'Review: remove liquidity' })).toBeInTheDocument();
+    expect(api.prepareLpWithdraw).not.toHaveBeenCalled();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
   });
 
   it('is not offered with nothing claimable, no growth, figures that do not balance, or with adding and removing off', async () => {
@@ -705,14 +745,11 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
-    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(press);
+    });
     const panel = await screen.findByTestId('lp-claim-panel');
-    await act(async () => {
-      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
-    });
-    await act(async () => {
-      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
-    });
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
     expect(claimSentOn(p.lpAccount, HELD)).toBe(true);
     // Close on the outcome, then the panel's own Close: the positions are read again between the two.
@@ -731,12 +768,15 @@ describe('Claim fees', () => {
     const v = view();
     const p = position(v, { lpAmount: HELD });
     const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
+    // The blockhash runs out only when the test says so: a fixed delay raced the note's effect.
+    let runOut!: () => void;
+    const ranOut = new Promise<void>((r) => { runOut = r; });
     const api = fakeLpApi({
       prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })),
       // Sent first (the flow draws 'sent' and the claim is noted), then its blockhash runs out.
       submitPrepared: vi.fn(async (...args: unknown[]): Promise<TxOutcome> => {
         (args[3] as { onSent?: (signature: string, lastValidBlockHeight: number) => void } | undefined)?.onSent?.(SIG, 1_000);
-        await new Promise((r) => setTimeout(r, 30));
+        await ranOut;
         return { status: 'expired', signature: SIG, message: 'gone' };
       }),
     });
@@ -748,26 +788,28 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
-    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(press);
+    });
     const panel = await screen.findByTestId('lp-claim-panel');
-    await act(async () => {
-      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
-    });
-    await act(async () => {
-      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
-    });
     await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(true));
+    await act(async () => { runOut(); });
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'expired');
     await waitFor(() => expect(claimSentOn(p.lpAccount, HELD)).toBe(false));
     // Nothing is running now: the row's Claim fees is pressable again.
     expect(within(row).getByRole('button', { name: 'Claim fees' })).toBeEnabled();
   });
 
-  it('the review is titled a claim and says what stays in', async () => {
+  it('while the wallet is open, the review beside it is titled a claim and says what stays in', async () => {
     const v = view();
     const p = position(v, { lpAmount: HELD });
     const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount), { lpAmount: 2_500n, heldBefore: HELD, keep: HELD - 2_500n, claim: true });
-    const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })) });
+    const api = fakeLpApi({
+      prepareLpWithdraw: vi.fn(async (): Promise<Prepared> => ({ ok: true as const, prepared: prepared(summary) })),
+      // The wallet stays open: the person has not answered it yet.
+      submitPrepared: vi.fn(() => new Promise<TxOutcome>(() => undefined)),
+    });
     mount(
       readers({
         positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })),
@@ -776,11 +818,13 @@ describe('Claim fees', () => {
       { api },
     );
     const row = await screen.findByTestId('lp-position');
-    fireEvent.click(await within(row).findByRole('button', { name: 'Claim fees' }));
-    const panel = await screen.findByTestId('lp-claim-panel');
+    const press = await within(row).findByRole('button', { name: 'Claim fees' }, { timeout: 3000 });
     await act(async () => {
-      fireEvent.click(within(panel).getByRole('button', { name: 'Review: claim fees' }));
+      fireEvent.click(press);
     });
+    const panel = await screen.findByTestId('lp-claim-panel');
+    await waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(1));
+    expect(panel).toHaveTextContent('Waiting for your wallet. Approve it there if it matches what is below.');
     const review = await within(panel).findByTestId('tx-review');
     expect(within(review).getByRole('heading', { name: 'Review: claim fees' })).toBeInTheDocument();
     expect(review).toHaveTextContent('Just enough of your shares to pay out the fees they earned. The rest stay in the pool.');
@@ -1028,17 +1072,17 @@ describe('the review', () => {
     });
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
-    expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./);
+    expect(disclosure).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
+    expect(disclosure).toHaveTextContent(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./);
     // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
     // the panel said them again under the Sign button; it keeps its other lines.
-    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Every vault action waits 48 hours after both have signed, a switch-off too./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/Our changes to Raydium's program have no outside audit\./)).toHaveLength(1);
+    expect(within(panel).getAllByText(/It can also switch off deposits or swaps on this pool, and every action it takes has the same wait\./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.
     fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
-    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/have not had their own independent review yet/);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
   });
 });
 
@@ -1219,7 +1263,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     mount(readers({ findPools: vi.fn(async () => search([off])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const before = await screen.findByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change that tier's rates. A change waits 48 hours after both its keys approve");
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. If the vault changes that tier's rates, the change applies to what you put in too.");
     // The keeper's line names the trade fee alone here: this pool charges no creator fee.
     expect(before).toHaveTextContent("pays no trade fee on its own swaps, so those swaps earn liquidity providers nothing. Everyone else pays as before.");
     // ("creator" alone also names the token's creator, in the freeze-account risk line.)
@@ -1240,7 +1284,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     });
     await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
     expect(within(panel).getByText('Fee tier', { exact: true }).nextElementSibling?.textContent).toBe(
-      '0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade',
+      'Tier 0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade, the venue 0.050%',
     );
   });
 });

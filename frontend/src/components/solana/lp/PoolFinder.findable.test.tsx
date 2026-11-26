@@ -547,9 +547,9 @@ describe('the form starts with what a phone needs', () => {
     expect(before(review, terms)).toBe(true);
     expect(before(terms, notes)).toBe(true);
     // The notes are still on the page, whole, and the form says where.
-    expect(notes).toHaveTextContent('Put in only what you can afford to lose.');
+    expect(notes).toHaveTextContent('Only add what you can afford to lose.');
     // With no wallet the deposits are not called unread: they are read with the wallet, and the page has them.
-    expect(notes).toHaveTextContent('account deposits that never come back (the fee tiers list on this page has their amount)');
+    expect(notes).toHaveTextContent('account deposits that never come back (Rates, on this page, has their amount)');
     expect(notes).not.toHaveTextContent('could not be read');
     // The greyed Review says why, right above it.
     const why = within(panel).getByTestId('lp-review-why');

@@ -843,17 +843,23 @@ function SearchResults({
             </ul>
             </div>
           )}
+          {/* The notes under the list, at the cards' size (a Notice sets no size of its own). */}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
-            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+            <div className="text-[12px] leading-relaxed">
+              <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+            </div>
           )}
           {!only && pools.search.launchTierPools.length > 0 && (
-            <Notice tone="warn">
-              <strong>{launchTierLine(pools.search.launchTierPools.length)}</strong>
-            </Notice>
+            <div className="text-[12px] leading-relaxed">
+              <Notice tone="warn">
+                <strong>{launchTierLine(pools.search.launchTierPools.length)}</strong>
+              </Notice>
+            </div>
           )}
-          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
+          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list,
+              once: the Open a pool card below does not say it again. */}
           {pools.search.pools.length > 0 && otherSide && (
-            <div data-testid="lp-other-side">
+            <div data-testid="lp-other-side" className="text-[12px] leading-relaxed">
               <Notice>{otherSide}</Notice>
             </div>
           )}

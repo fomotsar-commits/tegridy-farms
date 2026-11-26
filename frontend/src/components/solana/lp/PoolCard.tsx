@@ -41,6 +41,7 @@ import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import { DoorPortal } from './LpDoorFrame';
+import { LpSummary } from './LpDisclosures';
 import { Link } from 'react-router-dom';
 import { pairSwapLink } from '../../../lib/solana/lp/poolList';
 import { bringIntoView } from '../../../lib/bringIntoView';
@@ -569,7 +570,7 @@ export function PoolCard({
 
         {/* The pool's other accounts, a press away, as a position keeps its own (YourPositions.tsx). */}
         <details data-testid="lp-pool-more" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-          <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75 text-[12px]">More about this pool</summary>
+          <LpSummary className="text-[12px]">More about this pool</LpSummary>
           <div className="space-y-2 px-3 pb-3">
             <PoolTradeDialWhenOpen view={view} creatorFeeRate={creatorRate} />
             <div className="space-y-3 pb-1">

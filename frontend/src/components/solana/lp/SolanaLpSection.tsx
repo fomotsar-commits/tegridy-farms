@@ -353,7 +353,8 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
   const risks = (
         <FinePrint summary="Risks">
-          {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
+          {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere").
+              It says the changes below have no outside audit and to add only what you can afford to lose, so they are not said twice. */}
           <p>{RISK_SHORT}</p>
           {/* True of the pool program RUNNING on mainnet since its keeper-fee upgrade, to the build that has
               create_lp_metadata, refuses a public opening on fee tier 0, holds a fee tier's fees inside limits,
@@ -363,8 +364,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
             Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
             share tokens, one added check that keeps the launch fee tier for launches, added fee limits, an added swap guard and a
             fee exemption for a fee tier’s keeper (see “The program”{' '}
-            {programBelow ? 'below' : 'on the Pools page'}).{' '}
-            <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
+            {programBelow ? 'below' : 'on the Pools page'}).
           </p>
           {/* Multisig read 2026-11-14, finalized slot 469,431,196: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
               no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
@@ -377,27 +377,27 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
               said in words: this page prints no fee figure that was not read from the chain (PoolsPage.test.tsx). */}
           <p>
             Read on chain 2026-11-14: one key is both the admin of pool program{' '}
-            <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
-            That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
-            of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
+            <span className="font-mono [overflow-wrap:anywhere]">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
+            That key is the team’s vault <span className="font-mono [overflow-wrap:anywhere]">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
+            of the Squads multisig <span className="font-mono [overflow-wrap:anywhere]">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
             needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time
             lock of 172,800 seconds) before it can run. Only those 2 keys, together, can change its rules, and such a change waits 48
             hours too.
           </p>
           <p>
-            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
+            The vault can switch off deposits, withdrawals or swaps on any pool. It can change any fee tier’s fees and who collects the
             venue’s share, and that applies to pools already open. The program holds those fees inside limits: a fee tier charges a
             trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together. On the
             two fee tiers open today the vault cannot collect the island’s share or send it anywhere else. It can switch the swap
             guard on or off for a fee tier, name a fee tier’s keeper, add fee tiers, collect the venue’s share of trading fees,
             and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move them.
-            If it switched off removing on a pool, you could not take your money out of that pool until it switched removing back
+            If it switched off withdrawals on a pool, you could not take your money out of that pool until it switched them back
             on.
           </p>
           <p>
             A fee tier’s named keeper pays no trade fee and no creator fee on its own swaps, so those swaps earn liquidity providers
             nothing. On both fee tiers open today the vault names the venue’s own price robot, wallet{' '}
-            <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>. Everyone else pays as before.
+            <span className="font-mono [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>. Everyone else pays as before.
           </p>
           <p>
             Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees

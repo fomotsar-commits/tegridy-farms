@@ -2,7 +2,7 @@
 // the real math; these mirror it so the screen never promises a different figure.
 //   interest   Interest._getInterest: principal * aprBps * seconds / (10000 * 365 days), up
 //   repay      MultiSourceLoan._processRepayments: each tranche's principal + accrued +
-//              new interest; the venue's cut (protocolFee of the interest, rounded up)
+//              new interest; the venue's cut (protocolFee of the new interest, rounded up)
 //              comes out of the lender's share, not on top
 import { hashStruct, type Address, type Hex } from 'viem';
 import { LOAN_TYPES } from './loanOffer.js';
@@ -47,19 +47,25 @@ export function interestFor(principal: bigint, aprBps: bigint, seconds: bigint):
   return mulDivUp(principal, aprBps * seconds, PRECISION * SECONDS_PER_YEAR);
 }
 
-/** What repaying at `timestamp` costs the borrower, and where it goes. */
-export function owedAt(loan: Loan, timestamp: bigint): { total: bigint; interest: bigint; toVenue: bigint; toLenders: bigint } {
+/**
+ * What repaying at `timestamp` costs the borrower, and where it goes. `carried`: the part of
+ * `interest` a tranche brought from the loan it replaced (`accruedInterest`). The venue's cut
+ * was taken from it at that move, so `toVenue` is the cut of the rest only.
+ */
+export function owedAt(loan: Loan, timestamp: bigint): { total: bigint; interest: bigint; carried: bigint; toVenue: bigint; toLenders: bigint } {
   let total = 0n;
   let interest = 0n;
+  let carried = 0n;
   let toVenue = 0n;
   for (const t of loan.tranche) {
     const fresh = interestFor(t.principalAmount, t.aprBps, timestamp - t.startTime);
     const fee = loan.protocolFee === 0n ? 0n : mulDivUp(fresh, loan.protocolFee, PRECISION);
     interest += fresh + t.accruedInterest;
+    carried += t.accruedInterest;
     toVenue += fee;
     total += t.principalAmount + t.accruedInterest + fresh;
   }
-  return { total, interest, toVenue, toLenders: total - toVenue };
+  return { total, interest, carried, toVenue, toLenders: total - toVenue };
 }
 
 export function loanFromJson(j: LoanJson): Loan {

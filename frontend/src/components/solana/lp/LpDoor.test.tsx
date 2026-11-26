@@ -571,7 +571,7 @@ describe('the screen the door opens', () => {
 
   it('says what the share is in one sentence, and the vault risk is one closed Risks under the button', async () => {
     const panel = await door();
-    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent("A share of the CORN/SOL pool and its fee on every trade. No lock, but the team's vault can pause removing.");
+    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent("A share of the CORN/SOL pool and its fee on every trade. No lock; the team's vault can switch off withdrawals.");
     const review = within(panel).getByRole('button', { name: 'Review: add with one coin' });
     // Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away.
     const risk = within(panel).getByTestId('lp-one-risk');
@@ -585,10 +585,12 @@ describe('the screen the door opens', () => {
 
   // The team's vault can switch removing off on any of our pools (update_pool_status, admin only),
   // so the panel may not promise a removal "any time", as the pools page may not (PoolsPage.test.tsx).
-  it('never promises withdrawing any time, and says the vault can pause removing', async () => {
+  it('never promises withdrawing any time, and says the vault can switch off withdrawals', async () => {
     const panel = await door();
     expect(panel.textContent).not.toMatch(/\bany ?time\b/i);
-    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent(/vault can pause removing/);
+    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent(/vault can switch off withdrawals/);
+    // The same words as the Risks line under it: one name for the one power.
+    expect(panel.textContent).not.toMatch(/pause removing/);
   });
 
   it('a percent fills the amount from the wallet: 50% is half of Max', async () => {
