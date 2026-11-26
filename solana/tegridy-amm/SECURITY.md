@@ -1,4 +1,4 @@
-# Security policy — Tegridy CP-AMM & tegridy-launch
+# Security policy: the venue's four Solana programs
 
 ## There is no bug bounty for this repository
 
@@ -35,13 +35,18 @@ one.
 |---|---|---|
 | `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06), and one added refusal in `initialize` (a public opening on fee tier 0; in source since 2026-10-19), both in the mainnet binary since the program's re-upgrade (and from its first upgrade, 2026-10-23, until its roll-back, 2026-10-24); and, in the mainnet binary since the upgrades of 2026-11, the fee rules of 2026-11-03, the swap guard of 2026-11-10 and the keeper's fee of 2026-11-11 (a fee tier's keeper swaps free of the trade and creator fees; `TEGRIDY_FORK.md`). CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction, the added refusal, the fee rules, the swap guard or the keeper's fee. |
 | `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
+| `programs/bayla-ladder/` | Novel: the venue's own lock-ladder staking program | **No.** No upstream to compare against. |
+| `../tegridy-clmm/programs/amm/` (range pools) | Fork of [raydium-clmm](https://github.com/raydium-io/raydium-clmm) @ `ed1eb41` (Apache-2.0) with one reviewed patch (`../tegridy-clmm/README.md`) | **No.** Upstream's audits do not cover this copy. |
 
-Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
+This policy covers all four. On Solana mainnet: `cp-swap` at
 `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and `tegridy-launch` at
-`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`.
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` (both since 2026-09-29), `bayla-ladder` at
+`EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` and the range-pool program at
+`7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`.
 
 ## If you are an auditor
 
-`AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap diff against
+`AUDIT_RFQ.md` covers `cp-swap` and `tegridy-launch` only. `bayla-ladder` and the range-pool
+program are covered by this policy but not by that request. The short version: `cp-swap` is a cheap diff against
 audited upstream (four constants, one small added instruction, `create_lp_metadata`, the
 program's own name and contact text, and since 2026-11 the fee rules, the swap guard and the keeper's fee); `tegridy-launch` is the real review.
