@@ -393,3 +393,32 @@ test("refused when read: an Announce moving the pool, a pool spent by another ad
   // No GlobalSetting read: whose fee-share taker would the share go to?
   assert.throws(() => readLockTx(lockTx({ ...spec, reads: [] }, plan(validity)).txHex, outputs(), D), /reads no GlobalSetting of ours/);
 });
+
+/** `o` again, with a reference script on it and 1 ADA more for its bytes. */
+function withScript(o: CSL.TransactionOutput, address = o.address()): CSL.TransactionOutput {
+  const p = CSL.TransactionOutput.new(address, o.amount().checked_add(CSL.Value.new(big(1_000_000n))));
+  p.set_plutus_data(o.plutus_data()!);
+  p.set_script_ref(CSL.ScriptRef.new_plutus_script(CSL.PlutusScript.new_v2(Buffer.from('4e4d01000033222220051200120011', 'hex'))));
+  return p;
+}
+
+test('refused, as lock.ak refuses: a pool or the GlobalSetting left with a reference script, or the GlobalSetting moved', () => {
+  // The fixtures' preprod lock is the build before these checks, so Aiken is not asked: the reading is.
+  const { spec, validity } = execute();
+  const isPool = (o: CSL.TransactionOutput) => o.address().payment_cred()?.to_scripthash()?.to_hex() === D.pool;
+  const pooled = lockTx({ ...spec, outputs: spec.outputs.map((o) => (isPool(o) ? withScript(o) : o)) }, plan(validity));
+  assert.throws(() => readLockTx(pooled.txHex, outputs(), D), /the pool after carries a reference script, which the lock refuses/);
+  const next = settingChange(settingNow(GS.outputHex), { openingFee: 80_000_000n }, D);
+  const lockNow = CSL.TransactionOutput.from_hex(LOCK.outputHex);
+  lockNow.set_plutus_data(encodeState([{ change: { kind: 'SetGlobalSetting', setting: next }, readyAt: READY }]));
+  const lock2: Utxo = { ref: LOCK.ref, outputHex: lockNow.to_hex() };
+  const xs = executeSpec(D, REFS, lock2, 0, GS, GS, FX.pp);
+  const w = executeWindow(slotOf(READY + 600_000n), 0, READY, 600n);
+  const gs = xs.outputs[0]!;
+  readLockTx(lockTx(xs, plan(w)).txHex, outputs([lock2]), D);
+  const scripted = lockTx({ ...xs, outputs: [withScript(gs), ...xs.outputs.slice(1)] }, plan(w));
+  assert.throws(() => readLockTx(scripted.txHex, outputs([lock2]), D), /the GlobalSetting after carries a reference script/);
+  const restaked = CSL.TransactionOutput.new(CSL.BaseAddress.new(0, gs.address().payment_cred()!, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(FX.deployment.ownerA))).to_address(), gs.amount().checked_add(CSL.Value.new(big(1_000_000n))));
+  restaked.set_plutus_data(gs.plutus_data()!);
+  assert.throws(() => readLockTx(lockTx({ ...xs, outputs: [restaked, ...xs.outputs.slice(1)] }, plan(w)).txHex, outputs([lock2]), D), /the GlobalSetting after is at another address than before/);
+});
