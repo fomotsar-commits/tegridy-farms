@@ -8,6 +8,7 @@ import {
   type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
 import { CardArt } from '../../ui/CardArt';
+import { DisclosureArrow } from '../../ui/FinePrint';
 import { Card, Notice, Row } from './ui';
 import { TxFlowView } from './TxFlowView';
 import { WalletNeeded } from './WalletNeeded';
@@ -104,7 +105,10 @@ export function GraduationPanel({
           <Notice tone="warn">Graduation cannot succeed until the pool side is set up. Not a problem with this launch.</Notice>
         )}
         <details className="text-white/60">
-          <summary className="cursor-pointer min-h-[44px] flex items-center">Technical details</summary>
+          <summary className="cursor-pointer min-h-[44px] flex items-center gap-1.5 list-none [&::-webkit-details-marker]:hidden">
+            <DisclosureArrow />
+            Technical details
+          </summary>
           <div className="space-y-1.5 pb-1">
             <Row label="Pool program lets this launch program open pools" value={yesNo(gate.graduation.permission)} mono={false} />
             <Row label="Pool creation fee account exists" value={yesNo(gate.graduation.createPoolFeeReceiver)} mono={false} />

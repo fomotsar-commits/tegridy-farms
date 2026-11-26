@@ -67,13 +67,40 @@ const draw = (over: Partial<Props> = {}) => render(
 
 const FINE = [
   'Harvest reads every island pool for the wallets you have connected: each lighthouse pool and the lock ladder on Solana, and each lighthouse pool on Ethereum and Base. It claims every reward it read above zero, one transaction per pool position: Solana first, then Ethereum and Base, switching network once between them. A wallet that can sign several at once is asked once per network; any other, once per claim. Claiming moves no stake and changes no lock.',
+  'On Solana it also claims the trading fees your shares of an island coin’s pools earned, wherever Pools would offer Claim fees: it gives back just the shares those fees added, so what you put in stays in the pool. That pays out both of the pool’s coins, and the split moves with the pool’s price, so those amounts say “about” and are added to no total.',
   'A pool it could not read is listed as not read, never as nothing to claim. It leaves alone a reward the pool cannot pay yet (its vault is short or empty; nothing is lost, it stays owed), a reward paid in another coin, and the classic farm, whose claim can also extend a lock. Claim those on their own page.',
   'On Solana each claim is test-run first, and one its pool would refuse is not put to your wallet. A claim paid stays paid if another one does not go through, unless your wallet bundles the Ethereum or Base claims into one transaction: then they are paid or refused together. If you cancel in your wallet, Harvest stops and sends nothing more. A claim whose outcome could not be read also stops it, so you can check before anything is sent twice.',
   'The drawing is this harvest as a street: one building for each room with something to claim, its ticker on its footing, in the order the claims are sent, and each network’s name on the ground where its buildings begin. Each claim is one storey in its room’s colours, with its row’s number. A caution mark on its front is its row’s caution: it may pay less than shown, or nothing. A room’s storeys stand in stacks of up to four, side by side on its footing, in the order the claims are sent. Every storey is the same size whatever it pays, so more storeys means more claims, never more money. From its building each claim has one lane to the glass building marked YOUR WALLET; every lane is the same width, and no lane goes anywhere else. Before you press, the storeys hang above their footing in the order they will be sent, and the lanes are empty. The one at your wallet lifts clear, ringed in amber, and its lane turns amber. A storey comes down onto its stack, its windows light, its lane turns green and one plate is set down in your wallet, only once its claim is paid; every plate is the same size. One drawn in dashes was refused, not confirmed, cancelled or not sent, as its row says: it is never part of the building, and nothing of it enters your wallet. Once every claim on a network was paid, refused or cancelled, a roof goes on each of its stacks that holds a paid storey, and a flag goes up; over a stack where none was paid the roof stays hung, in dashes. Until then every roof stays hung. A pool that could not be read, or a reward left alone, is not drawn; its row stays in the list.',
   'The totals bar adds one coin’s claims together; two coins are never added, because no price is read here. The line above its total is divided between that coin’s claims to scale, the one place an amount is drawn to size, which is fair because they are the same coin; it fills green as each claim goes through, in stripes where its row has a caution. After a run the total counts only the claims that went through. For a lock ladder on Solana the bar also says what your locks earn a day and that as a yearly rate on what you locked: your weight (each lock times its boost) over all stakers’ weight, times what the pool pays a day. Those two are the same figures as on the pool’s own page. They hold only at today’s rate: they fall when others lock, rise when they leave, and stop on the date shown unless the pool is refilled. Where they cannot be worked out they are left out, never shown as a zero.',
 ];
 
+/** A BAYLA/SOL pool share's fees: both coins, an estimate. */
+const FEES: HarvestClaim = {
+  key: 'lp:share', chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'BAYLA/SOL pool', detail: 'fees your share earned',
+  amountRaw: 2_500_000n, decimals: 6, caution: null, about: true, also: { symbol: 'SOL', amountRaw: 25_000_000n, decimals: 9 },
+};
+
 describe('Harvest view', () => {
+  it('a pool share’s fees: both coins on its row, said “about”, in no total, and the money line says where they come from', () => {
+    draw({ claims: [...CLAIMS, FEES], label: 'Harvest all · 4 claims' });
+    const row = within(screen.getByRole('list', { name: 'Ready to claim' })).getAllByRole('listitem')[3]!;
+    expect(row.querySelector('.hv-amt')!.textContent).toBe('about 2.5 BAYLA and 0.025 SOL');
+    expect(row.querySelector('.hv-where')!.textContent).toBe(`BAYLA/SOL pool${NBSP}· Solana${NBSP}· fees your share earned`);
+    // The two ladder claims still come to 100 BAYLA: the 2.5 BAYLA estimate is no part of the sum or its line.
+    const bar = screen.getByRole('group', { name: 'BAYLA total' });
+    expect(bar.textContent).toBe('BAYLA · 2 claims100BAYLA total, at most');
+    expect(bar.querySelector('[data-seg="lp:share"]')).toBeNull();
+    const heading = screen.getByRole('heading', { level: 2, name: 'Harvest' });
+    expect(heading.nextElementSibling?.textContent).toBe(
+      'Staking pools pay you from their reward vaults; your pool fees come out of your own share of the pool. The venue takes nothing; you pay the network fees.',
+    );
+  });
+
+  it('a share left alone for Pools links to Pools, not to a room’s page', () => {
+    draw({ held: [{ key: 'lp:long', chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'BAYLA/SOL pool', amountRaw: null, decimals: 6, reason: 'For Pools.', to: '/pools' }] });
+    expect(within(screen.getByRole('list', { name: 'Left alone' })).getByRole('link', { name: 'The Pools page' }).getAttribute('href')).toBe('/pools');
+  });
+
   it('keeps the pools it left alone and the ones it could not read listed under the run, mid-run and done', () => {
     for (const state of ['running', 'done'] as const) {
       const onReread = vi.fn();

@@ -24,6 +24,13 @@ describe("Harvest's totals bar", () => {
     expect(rows.map((r) => [r.symbol, r.totalRaw, r.claims])).toEqual([['BAYLA', 11n, 2], ['BOBO', 8n, 2]]);
   });
 
+  it('an estimate (a pool share’s fees, `about`) is added to no sum and counted as no claim of its coin', () => {
+    const fees = claim('lp', 'bayla', 'BAYLA', 1_000n, { about: true, also: { symbol: 'SOL', amountRaw: 9n, decimals: 9 } });
+    const [row] = harvestTally([claim('a', 'bayla', 'BAYLA', 5n), fees, claim('b', 'bayla', 'BAYLA', 6n)]);
+    expect(row).toMatchObject({ symbol: 'BAYLA', totalRaw: 11n, claims: 2 });
+    expect(harvestTally([claim('a', 'bayla', 'BAYLA', 5n), fees])).toEqual([]);
+  });
+
   it('a coin with one claim and no daily figure has no row: its claim already says it', () => {
     expect(harvestTally([claim('a', 'bayla', 'BAYLA', 5n), claim('b', 'bobo', 'BOBO', 7n)])).toEqual([]);
   });

@@ -155,13 +155,13 @@ describe('how a range position earns', () => {
     expect(card.textContent).toContain('share 84% of it (0.84% of the swap)');
     expect(card.textContent).toContain('The venue keeps 16% (0.16% of the swap)');
     // The venue's other take, the program's pool-opening fee: in plain sight, not in the fine print.
-    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the venue’s vault, the team’s shared wallet.');
+    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s vault.');
     expect(opening.closest('details')).toBeNull();
     // Visible, not folded into the fine print.
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
     expect(warning.closest('details')).toBeNull();
     // Where the venue's cut goes, as the Rates card says it: the agreed split, in the fine print.
-    const split = within(card).getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop, the island’s agreed share\./);
+    const split = within(card).getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s vault, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop, the island’s agreed share\./);
     expect(split.closest('details')).not.toBeNull();
     expect(card.textContent).toContain(PLATFORM_TREASURY_VAULT.toBase58());
     expect(card.textContent).toContain(WORKSHOP_WALLET.toBase58());
@@ -183,7 +183,7 @@ describe('how a range position earns', () => {
     show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [poolOn(t)] } }));
     const flag = await screen.findByTestId('range-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
-    expect(flag.querySelector('strong')?.textContent).toMatch(/16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+    expect(flag.querySelector('strong')?.textContent).toMatch(/16% of each fee \(0\.16% of the swap\) to the team’s vault, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
   });
 
   it('a pool with a dynamic fee: the card says the fee as a range and each share of the swap as a floor, as the position link does', async () => {
@@ -245,7 +245,7 @@ describe('opening a new pool', () => {
     expect(screen.getByTestId('range-pools').textContent).toContain('No range pool for BAYLA with SOL yet. Open it below.');
     expect(card.textContent).toContain(`BAYLA · ${BAYLA_MINT}`);
     expect(card.textContent).toContain(`SOL · ${WSOL_MINT}`);
-    const cost = within(card).getByText(/Opening this pool costs 0\.5 SOL, paid to the venue’s vault/);
+    const cost = within(card).getByText(/Opening this pool costs 0\.5 SOL, paid to the team’s vault/);
     expect(cost.textContent).toContain(`(${PLATFORM_TREASURY_VAULT.toBase58()}). It is not refunded.`);
     expect(cost.textContent).toContain('deposits for the pool’s own accounts and its first price bands, which never come back');
     expect(cost.closest('details')).toBeNull();
@@ -254,7 +254,7 @@ describe('opening a new pool', () => {
       'Positions whose range the price is in share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has there. The venue keeps 16% (0.16% of the swap).',
     );
     expect(earns.closest('details')).toBeNull();
-    expect(card.textContent).toMatch(/10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/);
+    expect(card.textContent).toMatch(/10\.4% of each fee \(0\.104% of the swap\) to the team’s vault, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/);
     // The opening price starts at the market's.
     await waitFor(() => expect((within(card).getByLabelText(/Opening price \(SOL per BAYLA\)/) as HTMLInputElement).value).toBe('0.0003'));
     expect(within(card).getByRole('button', { name: 'Use the market price (Jupiter): 0.0003 SOL per BAYLA' })).toBeInTheDocument();
@@ -694,11 +694,10 @@ describe('your positions', () => {
     expect(rows[1]!.textContent).toContain('Out of range (the price is below it): earning nothing until the price comes back into it.');
     expect(rows[1]!.textContent).toContain('could not be worked out just now; Collect pays them in full all the same');
     expect(card.textContent).toContain(`A position (${key(99).toBase58()}) could not be read just now`);
-    // Collect asks for a take-out of nothing; Close for the closing.
+    // Collect asks for a take-out of nothing, with no Review press (one press); Close for the closing.
     const claim = within(rows[0]!).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((claim as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(claim);
-    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Review: collect' }));
     await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0 });
   });
@@ -751,10 +750,33 @@ describe('your positions', () => {
     const collect = within(row).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(collect);
-    expect(within(row).getByText('Pays out what it has earned. The liquidity stays in.')).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole('button', { name: 'Review: collect' }));
     await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0, position: new PublicKey(w.position.address) });
+    // Refused before the wallet: Start over closes the panel (the positions are read again), and
+    // the row's Collect is the one press again.
+    expect(await within(row).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'not-sent');
+    fireEvent.click(within(row).getByRole('button', { name: 'Start over' }));
+    const again = await within(await screen.findByTestId('range-position')).findByRole('button', { name: 'Collect' });
+    await waitFor(() => expect((again as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(again);
+    await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(2));
+  });
+
+  it('Collect with no wallet that can sign yet opens its panel and waits: its one button says it opens the wallet', async () => {
+    // A wallet that is connected but cannot sign.
+    wallet.publicKey = ME;
+    wallet.signTransaction = undefined;
+    const rp = poolOn(tier(), { rewards: REWARD });
+    const api = fakeApi();
+    const w = positionOf({ n: 7, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 5n, fee1: 0n } }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }), api);
+    const row = await screen.findByTestId('range-position');
+    const collect = within(row).getByRole('button', { name: 'Collect' });
+    await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(collect);
+    expect(within(row).getByText('Pays out what it has earned. The liquidity stays in.')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Open my wallet to collect' })).toBeDisabled();
+    expect(api.prepareRangeRemove).not.toHaveBeenCalled();
   });
 
   it('a pool that runs no reward says so, never a bare 0', async () => {
@@ -899,17 +921,18 @@ describe('the risks, beside the deposit and on the review', () => {
     const open = await screen.findByTestId('range-open');
     const risks = within(open).getByTestId('range-risks');
     expect(risks).toHaveTextContent(RANGE_RISK_SHORT);
-    expect(risks).toHaveTextContent(/each of its actions waits 48 hours, as read on chain on 2026-10-21/);
-    expect(risks).toHaveTextContent(/switch off openings, withdrawals or swaps on a range pool/);
-    expect(risks).toHaveTextContent(/replace the range program/);
-    expect(risks).toHaveTextContent(/Those changes have not had an outside review/);
+    expect(risks).toHaveTextContent(/48 hours after both keys approve \(read on chain 2026‑11‑25\)/);
+    expect(risks).toHaveTextContent(/switch off withdrawals, stop you collecting fees and rewards/);
+    expect(risks).toHaveTextContent(/It can also switch off deposits or swaps on this pool/);
+    expect(risks).toHaveTextContent(/replace the program/);
+    expect(risks).toHaveTextContent(/Our changes to Raydium's program have no outside audit/);
     expect(risks).toHaveTextContent(/applies to positions already open in its pools/);
     expect(risks).toHaveTextContent(/Jupiter does not send trades to range pools/);
     // With range pools in the swap route, the site's own swap is where their trades come from.
-    expect(risks).toHaveTextContent(/This site’s own swap sends a trade to one only when it pays the trader at least as much as Jupiter does/);
+    expect(risks).toHaveTextContent(/This site's own swap sends a trade to a range pool only when that pool pays the trader at least as much as Jupiter does/);
     // set_reward_params lets the vault lower a running reward's rate or move its end sooner, with
     // no 7-to-90-day floor; the rest goes back to whoever started it (collect_remaining_rewards).
-    expect(risks).toHaveTextContent(/If a pool runs a reward, the team’s vault can lower its rate or end it early\. Rewards not yet earned go back to whoever started it\./);
+    expect(risks).toHaveTextContent(/If a pool runs a reward, the team's vault can lower it or end it early\. Rewards not yet earned go back to whoever started it\./);
     const earns = screen.getByTestId('range-earns');
     expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
     expect(earns).not.toHaveTextContent(/refundable/);
@@ -931,6 +954,11 @@ describe('the risks, beside the deposit and on the review', () => {
     const disclosure = await within(open).findByTestId('range-review-disclosure');
     expect(disclosure).toHaveTextContent(RANGE_RISK_SHORT);
     expect(disclosure).toHaveTextContent(/you could not take your money out until it switched them back on/);
+    // The deposit's own Risks box, still on screen, does not say the review's lines a second time.
+    const beside = within(open).getByTestId('range-risks');
+    await waitFor(() => expect(beside).not.toHaveTextContent(RANGE_RISK_SHORT));
+    expect(beside).not.toHaveTextContent(/Squads multisig/);
+    expect(beside).toHaveTextContent(/Jupiter does not send trades to range pools/);
   });
 });
 
