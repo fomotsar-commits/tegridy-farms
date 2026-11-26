@@ -1,5 +1,5 @@
 import type { PoolSnapshot } from '../cpswap/read';
-import { NO_FEES, planDeposit, planWithdrawShares, tooFewShares, type DepositPlan, type PlanProblem, type PoolFees, type WithdrawPlan } from './liquidityMath';
+import { LOCKED_LP, NO_FEES, planDeposit, planWithdrawShares, tooFewShares, type DepositPlan, type PlanProblem, type PoolFees, type WithdrawPlan } from './liquidityMath';
 import { afterFee, preFeeAmountOf } from './transferFee';
 
 const BPS = 10_000n;
@@ -34,6 +34,15 @@ const BPS = 10_000n;
  * here, so the deposit goes in at the market price or the whole transaction fails and only
  * the network fee is spent. What someone who moved the pool first can still take is at
  * most the top-up, which is said on the review.
+ *
+ * ONLY A POOL NOBODY OWNS ANY OF: its share count is exactly the locked 100 (`LOCKED_LP`).
+ * The top-up then belongs to those 100 shares, which nobody can take out, and the rule that
+ * the restart must lift the pool past 100,000 shares caps it at about 0.1% of the deposit.
+ * With any other share outstanding, the top-up would be its holder's to withdraw, and a
+ * holder can make it as large as they like by sending coins into the pool first: the review
+ * of 2026-11-26 ran one where a 0.05 SOL restart handed another holder about 1 SOL. The
+ * pool program counts every share ever minted and not withdrawn in `lp_supply` (shares
+ * burned without a withdrawal included), so a count of exactly 100 means no one holds any.
  */
 
 /** The fewest units the side worked out from the price holds after the top-up: its rounding moves the price at most 0.05%. */
@@ -166,7 +175,8 @@ function leastRestart(s: PoolSnapshot, a: RestartArgs): bigint | null {
 
 function restartAt(s: PoolSnapshot, a: RestartArgs): RestartPlan | RestartProblem {
   const fees = a.fees ?? NO_FEES;
-  if (!tooFewShares(s.pool.lpSupply)) return { problem: 'no-target' };
+  // A pool nobody owns any of, and nothing else (above).
+  if (s.pool.lpSupply !== LOCKED_LP) return { problem: 'no-target' };
   const t = restartTargets(s, a);
   if (!t) return { problem: 'no-target' };
 

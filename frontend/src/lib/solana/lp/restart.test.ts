@@ -125,6 +125,16 @@ describe('planRestart', () => {
     expect(restart(snap(18n, 567n, 100_000n), SOL_PRICE)).toEqual({ problem: 'no-target' });
   });
 
+  // The review of 2026-11-26: 99,000 shares, 98,900 of them held, 1 SOL and 0.099 tokens at
+  // 0.001 SOL a token. A 0.05 SOL restart would have topped up about 1 SOL of tokens, nearly
+  // all of it the holder's to take out. Only a pool whose shares are the locked 100 alone.
+  it('is never offered while anyone holds a share: the top-up would be theirs', () => {
+    const held = snap(1_000_000_000n, 99_000n, 99_000n);
+    const p = { quoteIsToken0: true, quoteDecimals: 9, tokenDecimals: 6, perToken: 0.001 };
+    expect(restart(held, p, { maxIn: 50_000_000n })).toEqual({ problem: 'no-target' });
+    expect(restart(snap(18n, 567n, 101n), SOL_PRICE)).toEqual({ problem: 'no-target' });
+  });
+
   it('counts the top-up against the wallet: a balance that covers the deposit but not both is short, said in its own figures', () => {
     const p = ok(restart(SOL_TBB, SOL_PRICE));
     const tokenNeed = p.deposit.max1 + p.topUpSent1;

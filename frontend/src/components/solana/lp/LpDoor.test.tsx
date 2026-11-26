@@ -556,8 +556,8 @@ describe('a pool that refuses deposits, for every reason', () => {
   // Owner, 2026-11-26: "allow the new person to use market price". The same almost empty pool,
   // with Jupiter's price read: its card opens the restart form, never an ordinary add.
   it('Almost empty, at a market price: the row’s press opens the card’s restart form', async () => {
-    // 10 SOL against 800 tokens: 0.0125 SOL a token, 25% above Jupiter's 0.01.
-    const v = view({ lpSupply: 1_100n, t: 800n * UNIT });
+    // Everyone has left (the locked 100 shares alone). 10 SOL against 800 tokens: 0.0125 SOL a token, 25% above Jupiter's 0.01.
+    const v = view({ lpSupply: 100n, t: 800n * UNIT });
     mountList(v, { ...okToken, mint: v.tokenMint });
     const [row] = await screen.findAllByTestId('lp-all-pools-row');
     fireEvent.click(within(row!).getByRole('button', { name: /^(Add to|Restart) / }));

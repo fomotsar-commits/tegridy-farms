@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { POOL_STATUS_DISABLE_DEPOSIT } from '../cpswap/program';
 import { NEARLY_EMPTY, assessPool } from './poolHealth';
+import { offersRestart } from './poolList';
 import type { PoolView } from './poolFinder';
 import { USDC_QUOTE } from './quotes';
 import { buildPool, key, viewOf } from './testkit.fixture';
@@ -60,7 +61,30 @@ describe('assessPool: a restart offered', () => {
     expect(assessPool({ ...base, safety: { ...OK_TOKEN, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'no' }] } as TokenSafety, view: dead(), outside: outside() }).restart).toBeNull();
   });
 
+  it('not while anyone holds a share, almost empty as it is: the top-up would be theirs', () => {
+    const h = assessPool({ ...base, view: dead({ lpSupply: 1_100n }), outside: outside() });
+    expect(h.deposits).toMatchObject({ verdict: 'refused', reasons: [NEARLY_EMPTY] });
+    expect(h.restart).toBeNull();
+    expect(assessPool({ ...base, view: dead({ lpSupply: 101n }), outside: outside() }).restart).toBeNull();
+  });
+
   it('not for a pool that is not almost empty', () => {
     expect(assessPool({ ...base, view: dead({ lpSupply: 100_000n }), outside: outside() }).restart).toBeNull();
+  });
+});
+
+// The All pools row says Restart from the list's own Jupiter prices; the card asks again on its own.
+describe('offersRestart: the row of All pools', () => {
+  const usd = (v: PoolView) => new Map([[v.tokenMint, 0.0000251 * 150], [v.quote.mint, 150]]);
+  it('for a pool everyone has left, with both its coins priced', () => {
+    const v = dead();
+    expect(offersRestart(v, 1_000n, OK_TOKEN, usd(v))).toBe(true);
+  });
+  it('not while anyone holds a share, nor without both prices', () => {
+    const held = dead({ lpSupply: 1_100n });
+    expect(offersRestart(held, 1_000n, OK_TOKEN, usd(held))).toBe(false);
+    const v = dead();
+    expect(offersRestart(v, 1_000n, OK_TOKEN, null)).toBe(false);
+    expect(offersRestart(v, 1_000n, OK_TOKEN, new Map([[v.tokenMint, 1]]))).toBe(false);
   });
 });

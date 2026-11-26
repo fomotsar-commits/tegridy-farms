@@ -823,7 +823,7 @@ function DepositOfferBlock({
 export const RESTART_LINE =
   'Everyone has taken their money out of this pool. You can restart it: a few units top it up to Jupiter’s price and stay in it for good, then your deposit goes in at that price.';
 const RESTART_FINE =
-  'A pool this empty can be pushed to any price for almost nothing, so the restart is one transaction. It tops the pool up to Jupiter’s price, adds your deposit, then takes a sliver of your new shares straight back out. If anyone changed the pool before it runs, the deposit or that sliver falls outside its limits and the whole transaction fails: nothing goes in and only the network fee is spent. The review shows the exact amounts.';
+  'A pool this empty can be pushed to any price for almost nothing, so the restart is one transaction. It tops the pool up to Jupiter’s price, adds your deposit, then takes a sliver of your new shares straight back out. If the pool changed by more than your price tolerance before it runs, the deposit or that sliver falls outside its limits and the whole transaction fails: nothing goes in and only the network fee is spent. The review shows the exact amounts.';
 
 function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth }) {
   switch (offer) {

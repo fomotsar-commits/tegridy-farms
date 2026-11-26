@@ -258,6 +258,11 @@ describe('prepareLpRestart: a dead pool, set to the market price', () => {
     expect(refused(await restart(w, {}, answering({ kind: 'no-route', detail: 'no route' })))).toContain(NEARLY_EMPTY);
   });
 
+  it('is not built while anyone holds a share of the pool: it stays refused, as almost empty', async () => {
+    const w = world({ lpSupply: 1_100n });
+    expect(refused(await restart(w))).toContain(NEARLY_EMPTY);
+  });
+
   it('is not built for a pool that takes ordinary deposits again', async () => {
     const w = world({ lpSupply: 1_000_000_000n, sol: 10n ** 10n, tokens: 4n * 10n ** 11n });
     expect(refused(await restart(w))).toBe(LP_COPY.restartNotNeeded);
