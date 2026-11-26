@@ -480,7 +480,7 @@ describe('checkLpCancelTx refuses every tamper', () => {
   });
 
   it('an order at Minswap’s order script, not the venue’s', () => {
-    expectRefused(txHex, /not an order of yours at the venue’s order script/, { ...p, order: { ...p.order, addressHex: orderAddressFor(owner).hex } });
+    expectRefused(txHex, /not an order of yours at the venue’s order script/, { ...p, order: { ...p.order, addressHex: orderAddressFor(owner, MINSWAP_V2).hex } });
   });
 
   it('an order of someone else’s', () => {

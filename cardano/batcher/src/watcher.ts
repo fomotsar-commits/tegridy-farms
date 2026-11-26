@@ -6,10 +6,11 @@
 //   - the source (down, behind, a tip far from the clock): try the next source; no order is blamed.
 //   - an input gone since the read (InputsGone): the round ends; the next block tries again.
 //   - the batch (too big, refused by the scripts, not judged, not buildable): halved, oldest
-//     orders kept; an order failing alone is set aside, and the round goes on without it. A set-aside
-//     the node or our read-back caused is an alert (our engine and the contract disagree), and five
-//     in a row raise a louder one; it never stops the batcher (that would hand anyone who found such
-//     an order a switch that stops every pool).
+//     orders kept; an order failing alone is set aside, and the round goes on without it (one too
+//     many bytes for any batch, for as long as it exists). A set-aside the node or our read-back
+//     caused is an alert (our engine and the contract disagree), and five in a row raise a louder
+//     one; ten rounds in a row that tried batches and sent none raise one too. It never stops the
+//     batcher (that would hand anyone who found such an order a switch that stops every pool).
 //   - the batcher's own wallet or settings (SetupError), or EMURGO's library broken: it stops.
 //     The library broken on a stranger's bytes names them (LibraryTrapped, src/cbor.ts), and the
 //     next process (src/main.ts keeps them on the volume) never reads a UTxO it broke on alone,
@@ -69,7 +70,7 @@ export type WatcherEvent =
   | { kind: 'inputs-gone'; source: string; error: string }
   | { kind: 'idle'; source: string; slot: bigint; orders: number; reason?: string }
   | { kind: 'skipped'; items: Skipped[] }
-  | { kind: 'set-aside'; ref: string; reason: string; alert: boolean }
+  | { kind: 'set-aside'; ref: string; reason: string; alert: boolean; forGood?: boolean }
   | { kind: 'prepared'; source: string; pool: string; orders: string[]; fee: bigint; dryRun: boolean }
   | { kind: 'sent'; txId: string; pool: string; orders: string[]; fee: bigint }
   | { kind: 'refused'; pool: string; error: string; inARow: number; benign: boolean }
@@ -111,6 +112,11 @@ const MAX_PREPARES_PER_ROUND = 12;
 const MAX_ALERTS_IN_A_ROW = 5;
 /** Benign refusals in a row that raise an alert (every batch refused as spent or expired). */
 const BENIGN_ALERT = 10;
+/**
+ * Rounds in a row that tried batches and sent none, that raise an alert (about 3 minutes of
+ * blocks): orders the batcher can fill are waiting, and something keeps every batch from going.
+ */
+export const STALLED_ROUNDS_ALERT = 10;
 /** The smallest fee UTxO a batch spends: the first build, on placeholder budgets, must still make change. */
 const MIN_FEE_UTXO = MIN_FLOAT;
 /** With no order to batch, the wallet and the settings are checked at least this often (10 minutes). */
@@ -130,6 +136,10 @@ export class Watcher {
   readonly #log: (e: WatcherEvent) => void;
   readonly inflight = new Map<string, InFlight>();
   readonly setAside = new Map<string, bigint>();
+  /** Orders too many bytes for any batch, even alone: never tried again while they exist. */
+  readonly tooBig = new Set<string>();
+  /** Rounds in a row that tried batches and sent none. */
+  #stalled = 0;
   #refusals = 0;
   #benign = 0;
   #alerts = 0;
@@ -244,12 +254,14 @@ export class Watcher {
     const orderUtxos = [...(await view.utxosAtCredential(dep.orderScriptHash))].sort(compareAge);
     await this.#lookUpDatums(view, orderUtxos, tip.slot);
     const orders = readOrders(dep, policy, orderUtxos, this.#datums);
-    const exclude = () => new Set([...[...this.inflight.values()].flatMap((f) => f.refs), ...this.setAside.keys()]);
+    const here = new Set(orderUtxos.map((u) => u.ref));
+    for (const r of this.tooBig) if (!here.has(r)) this.tooBig.delete(r);
+    const exclude = () => new Set([...[...this.inflight.values()].flatMap((f) => f.refs), ...this.setAside.keys(), ...this.tooBig]);
     const waiting = () => orders.orders.some((o) => !exclude().has(o.utxo.ref));
     // An order of a batch in flight gone: the batch landed, or another spent the order first.
-    const here = new Set(orderUtxos.map((u) => u.ref));
     const spentInFlight = [...this.inflight.values()].some((f) => f.orders.some((r) => !here.has(r)));
     if (!waiting() && !spentInFlight && this.#checkedAt !== null && tip.slot - this.#checkedAt < SETUP_CHECK_SLOTS) {
+      this.#stalled = 0;
       this.#skipped(orders.skipped, orderUtxos);
       return this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length });
     }
@@ -277,9 +289,10 @@ export class Watcher {
     const collateral = plain.find((u) => coin(u) >= MIN_COLLATERAL);
     const others = plain.filter((u) => u !== collateral && !pledged.has(u.ref)).reverse();
     const sweep = this.#c.sweep;
-    if (!sweep && held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
+    // Counted on what it can spend, with a treasury named or not: a gift of tokens is never its to
+    // sweep, and never stops it (anyone can send one).
+    if (!sweep && plainHeld > this.#c.floatCap) return this.#stop(`the batcher holds ${plainHeld} lovelace in plain ADA, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
     if (sweep) {
-      // Counted on what it can spend: a gift of tokens is never its to sweep, and never stops it.
       // One sweep at a time: while one is in flight (or a dry run's is held, or one was just
       // refused as spent or expired), batching goes on, and the rest waits for the next.
       const going = [...this.inflight.values()].some((f) => f.sweep !== undefined);
@@ -311,18 +324,23 @@ export class Watcher {
     this.#checkedAt = tip.slot;
     this.#releaseOutrun(here, new Set(poolUtxos.map((u) => u.ref)));
     if (!waiting()) {
+      this.#stalled = 0;
       this.#skipped(orders.skipped, orderUtxos);
       return this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length });
     }
 
     const roundSkipped: Skipped[] = [...pools.skipped, ...orders.skipped];
-    for (let prepares = 0; prepares < MAX_PREPARES_PER_ROUND; ) {
+    let prepares = 0;
+    while (prepares < MAX_PREPARES_PER_ROUND) {
       const chosen = chooseBatch(dep, policy, pools.pools, orders.orders, exclude(), tip.slot, (o) => orderOutputProblem(o, dep.network, pp));
       roundSkipped.push(...chosen.skipped);
       if (!chosen.candidate) break;
       // Never a stranger's dust: the first build, on placeholder budgets, could not make change.
       const fee = others.find((u) => !exclude().has(u.ref) && coin(u) >= MIN_FEE_UTXO);
-      if (!fee) return this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length, reason: 'every fee UTxO is in a batch still in flight' });
+      if (!fee) {
+        this.#stalled = 0;
+        return this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length, reason: 'every fee UTxO is in a batch still in flight' });
+      }
       let candidate: Candidate = chosen.candidate;
       // An order of a batch the library broke on, in an earlier process: alone, so the next break names it.
       const suspect = candidate.orders.findIndex((o) => this.#suspects.has(o.utxo.ref));
@@ -368,8 +386,12 @@ export class Watcher {
           const ref = candidate.orders[0]!.utxo.ref;
           this.#cleared(candidate);
           const alert = !(e instanceof ContractFailure || e instanceof Unsupported || e instanceof BatchTooBig || e instanceof DecodeError);
-          this.setAside.set(ref, tip.slot + this.#c.quarantineSlots);
-          this.#log({ kind: 'set-aside', ref, reason: message(e), alert });
+          // Too many bytes alone: no batch can ever carry it (its size is its own), so it is never
+          // tried again while it exists, and never first in line again.
+          const forGood = e instanceof BatchTooBig && e.bytes;
+          if (forGood) this.tooBig.add(ref);
+          else this.setAside.set(ref, tip.slot + this.#c.quarantineSlots);
+          this.#log({ kind: 'set-aside', ref, reason: forGood ? `${message(e)}: no batch can carry it, so it is never tried again while it exists` : message(e), alert, ...(forGood ? { forGood } : {}) });
           if (alert && ++this.#alerts === MAX_ALERTS_IN_A_ROW) this.#log({ kind: 'alert', reason: `${this.#alerts} orders in a row were refused on their own by the node or the read-back: our engine and the contract disagree` });
           break;
         }
@@ -380,7 +402,12 @@ export class Watcher {
     }
     this.#skipped(roundSkipped, orderUtxos);
     // Orders waiting, none batchable now (a limit order's price, a pool that does not exist): the
-    // source answered all the same.
+    // source answered all the same. Batches tried and none sent: said once it has lasted (a
+    // set-aside alone is quiet, and the alarm counts this round as a good one).
+    if (prepares === 0) this.#stalled = 0;
+    else if (++this.#stalled === STALLED_ROUNDS_ALERT) {
+      this.#log({ kind: 'alert', reason: `${this.#stalled} rounds in a row tried batches and sent none: ${orders.orders.length} orders are waiting, ${this.setAside.size + this.tooBig.size} set aside (the set-aside lines say why)` });
+    }
     this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length, reason: 'no order can be batched now' });
   }
 
@@ -467,8 +494,18 @@ export class Watcher {
       if ((this.#datumMisses.get(hash) ?? -1n) > slot || lookups >= MAX_DATUM_LOOKUPS) continue;
       lookups++;
       const bytes = await view.datum(hash);
-      const data = bytes && shallowCbor(bytes) ? blaming([u.ref], () => CSL.PlutusData.from_hex(bytes)) : null;
-      if (data && blaming([u.ref], () => CSL.hash_plutus_data(data).to_hex()) === hash) this.#datums.set(hash, data);
+      // Bytes a source names for a stranger's hash: any refusal to read them (but the library
+      // breaking, which names the UTxO) is a miss for this order, never the end of the round.
+      let data: CSL.PlutusData | null = null;
+      try {
+        if (bytes && shallowCbor(bytes)) {
+          const d = blaming([u.ref], () => CSL.PlutusData.from_hex(bytes));
+          if (blaming([u.ref], () => CSL.hash_plutus_data(d).to_hex()) === hash) data = d;
+        }
+      } catch (e) {
+        if (e instanceof LibraryTrapped) throw e;
+      }
+      if (data) this.#datums.set(hash, data);
       else this.#datumMisses.set(hash, slot + DATUM_MISS_SLOTS);
     }
     // Only the datums of orders still waiting are kept.
@@ -490,6 +527,7 @@ export class Watcher {
     const refs = [c.pool.utxo.ref, ...orders, ...walletRefs];
     const held: InFlight = { refs, pool: c.pool.utxo.ref, orders, validToSlot: c.validToSlot, collateral };
     if (!this.#signer) {
+      this.#stalled = 0;
       this.#log({ kind: 'prepared', source: view.name, pool: c.pool.lpName, orders, fee: b.fee, dryRun: true });
       this.inflight.set(`dry-run:${c.pool.utxo.ref}`, held);
       return;
@@ -519,6 +557,7 @@ export class Watcher {
     this.#refusals = 0;
     this.#benign = 0;
     this.#alerts = 0;
+    this.#stalled = 0;
     if (this.#c.checkLanding && this.#syncUp) this.#awaiting.set(txId, { validToSlot: c.validToSlot, landedSlot: null });
     this.#log({ kind: 'sent', txId, pool: c.pool.lpName, orders, fee: b.fee });
   }
