@@ -137,11 +137,11 @@ describe('planRestart', () => {
 
   it('counts the top-up against the wallet: a balance that covers the deposit but not both is short, said in its own figures', () => {
     const p = ok(restart(SOL_TBB, SOL_PRICE));
-    const tokenNeed = p.deposit.max1 + p.topUpSent1;
+    const bothNeeded = p.deposit.max1 + p.topUpSent1;
     // Enough for the deposit's own maximum, but not for the top-up as well.
     const short = restart(SOL_TBB, SOL_PRICE, { availableQuote: 10n ** 9n, availableToken: p.deposit.cost1 + p.topUpSent1 - 1n });
     expect(short).toMatchObject({ problem: 'over-balance', side: 'token', have: p.deposit.cost1 + p.topUpSent1 - 1n });
-    expect(ok(restart(SOL_TBB, SOL_PRICE, { availableQuote: 10n ** 9n, availableToken: tokenNeed })).deposit.max1).toBe(p.deposit.max1);
+    expect(ok(restart(SOL_TBB, SOL_PRICE, { availableQuote: 10n ** 9n, availableToken: bothNeeded })).deposit.max1).toBe(p.deposit.max1);
   });
 
   it('sends a transfer fee on top of the top-up, so what reaches the vault is still the market price', () => {
@@ -169,17 +169,19 @@ function run(start: Pool, p: RestartPlan): { ok: true; pool: Pool; paid: [bigint
   pool.r1 += p.targets.topUp1;
   // 2. deposit.rs: ceiling cost, refused above a maximum (6005).
   const c = lpTokensToTradingTokens(p.deposit.lp, pool.s, pool.r0, pool.r1, 'ceiling')!;
-  if (c.token0Amount > p.deposit.max0 || c.token1Amount > p.deposit.max1) return { ok: false, at: 'deposit' };
-  pool.r0 += c.token0Amount;
-  pool.r1 += c.token1Amount;
+  const paid: [bigint, bigint] = [c.token0Amount, c.token1Amount];
+  if (paid[0] > p.deposit.max0 || paid[1] > p.deposit.max1) return { ok: false, at: 'deposit' };
+  pool.r0 += paid[0];
+  pool.r1 += paid[1];
   pool.s += p.deposit.lp;
   // 3. withdraw.rs: floor payout, refused below a minimum (6005).
   const o = lpTokensToTradingTokens(p.check.lp, pool.s, pool.r0, pool.r1, 'floor')!;
-  if (o.token0Amount < p.check.min0 || o.token1Amount < p.check.min1) return { ok: false, at: 'check-back' };
-  pool.r0 -= o.token0Amount;
-  pool.r1 -= o.token1Amount;
+  const back: [bigint, bigint] = [o.token0Amount, o.token1Amount];
+  if (back[0] < p.check.min0 || back[1] < p.check.min1) return { ok: false, at: 'check-back' };
+  pool.r0 -= back[0];
+  pool.r1 -= back[1];
   pool.s -= p.check.lp;
-  return { ok: true, pool, paid: [c.token0Amount, c.token1Amount], back: [o.token0Amount, o.token1Amount] };
+  return { ok: true, pool, paid, back };
 }
 
 /** Someone's own deposit of `lp` shares at the pool's price as it stands. */
