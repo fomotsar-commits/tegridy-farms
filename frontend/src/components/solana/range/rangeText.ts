@@ -72,7 +72,7 @@ export function utcClock(unix: bigint): string {
 /** A pause the team's vault set on a pool, as a position row says it (pool.rs `PoolStatusBitIndex`). */
 export const PAUSED_TEXT = {
   removal:
-    'Taking liquidity out of this pool is switched off by the venue’s vault right now, so Collect pays only what the position’s record held at its last change. What it earned since stays owed to it.',
-  fees: 'Collecting fees from this pool is switched off by the venue’s vault right now. Its fees stay owed to it.',
-  rewards: 'Collecting rewards from this pool is switched off by the venue’s vault right now. Its rewards stay owed to it.',
+    'Taking liquidity out of this pool is switched off by the team’s vault right now, so Collect pays only what the position’s record held at its last change. What it earned since stays owed to it.',
+  fees: 'Collecting fees from this pool is switched off by the team’s vault right now. Its fees stay owed to it.',
+  rewards: 'Collecting rewards from this pool is switched off by the team’s vault right now. Its rewards stay owed to it.',
 } as const;

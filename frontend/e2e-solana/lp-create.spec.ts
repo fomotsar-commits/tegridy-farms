@@ -82,7 +82,7 @@ async function tierView(index: 0 | 1): Promise<AmmConfigView> {
 }
 const tierText = (c: AmmConfigView) =>
   // A pool this site opens goes through `initialize`, which switches its creator fee off.
-  `${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
+  `Tier ${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade, the venue ${feeSplit(c).venueTakesPct.toFixed(3)}%`;
 
 /**
  * What Metaplex keeps for making a record, on top of its rent: a flat 0.01 SOL, measured on

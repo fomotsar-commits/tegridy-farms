@@ -5,7 +5,8 @@
 //     lender taking the loan over). A loan that is not repaid pays no interest, so the venue
 //     gets nothing from it.
 //   - Every offer signed here lets another lender take the loan over (lenderRefinanceDisabled
-//     false): between 15% and 85% of the term, at a better rate, without the borrower signing.
+//     false): in the window the loan contract sets (15% to 85% of the term, read 2026-11-14), at
+//     a better rate, without the borrower signing.
 //     The first lender is paid principal plus interest so far; the borrower's deadline can
 //     only move later, and the amount owed can grow if the new lender lends more.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -65,6 +66,8 @@ beforeEach(() => {
   wagmiMock.setChainId(1);
   wagmiMock.setAccount({ address: '0x1111111111111111111111111111111111111111', isConnected: true });
   wagmiMock.setReadResult({ functionName: 'getProtocolFee', address: LOAN, result: { recipient: LOAN, fraction: 500n } });
+  // The takeover window as mainnet's loan contract read on 2026-11-14 (nftLendingLeftovers.test.tsx reads others).
+  wagmiMock.setReadResult({ functionName: 'getMinLockPeriod', address: LOAN, result: 1500n });
   wagmiMock.setReadResult({ functionName: 'isOfferCancelled', address: LOAN, result: false });
   wagmiMock.setReadResult({ functionName: 'getUsedCapacity', address: LOAN, result: 0n });
   wagmiMock.setReadResult({ functionName: 'balanceOf', address: WETH_ADDRESS, result: parseEther('5') });

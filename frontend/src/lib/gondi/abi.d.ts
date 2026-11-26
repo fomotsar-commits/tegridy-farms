@@ -793,6 +793,19 @@ export declare const GONDI_LOAN_ABI: [
   },
   {
     "inputs": [],
+    "name": "getMinLockPeriod",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getProtocolFee",
     "outputs": [
       {

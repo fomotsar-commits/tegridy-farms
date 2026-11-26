@@ -1,6 +1,7 @@
 // Harvest: one button that claims a wallet's staking rewards from every island pool
 // (owner, 2026-10-24: "currently you have to click each pool, i would like a harvest
-// feature that claims rewards across the apps").
+// feature that claims rewards across the apps"), and since 2026-11-20 the fees its shares
+// of an island coin's pools earned on Solana, beside them.
 //
 // Pure: no chain code here, so the Earn page can import it without loading Solana.
 //
@@ -30,6 +31,17 @@ export interface HarvestClaim {
   decimals: number;
   /** Said beside the amount when the claim may pay less than it, or may not pay. Null = none. */
   caution: string | null;
+  /**
+   * A pool share's fees (components/solana/lp/harvestFees.ts) pay out both of the pool's coins:
+   * `amountRaw` is the room's coin, this the coin it is paired with.
+   */
+  also?: { symbol: string; amountRaw: bigint; decimals: number };
+  /**
+   * The amounts are an estimate at the pool as last read: a pool share's fees come out as a split
+   * of the two coins, and the split moves with the pool's price. Said "about", and never added
+   * into a total (tally.ts).
+   */
+  about?: true;
 }
 
 /** Rewards seen in a pool that the button leaves alone, and why. Claimed on the pool's own page. */
@@ -43,6 +55,8 @@ export interface HarvestHeld {
   amountRaw: bigint | null;
   decimals: number;
   reason: string;
+  /** Where to claim it, when that is not the room's own pool page (`/earn/<room>`). */
+  to?: string;
 }
 
 /** A pool whose rewards could not be read. Never a zero. */
@@ -98,6 +112,11 @@ export interface HarvestPlan<C extends HarvestClaim = HarvestClaim> {
 }
 
 export const EMPTY_PLAN: HarvestPlan<never> = { claims: [], held: [], unread: [] };
+
+/** The staking plan with the pool fees' claims, held and unread after its own; the daily figures are the staking pools' alone. */
+export function withFees<C extends HarvestClaim>(stakes: HarvestPlan<C>, fees: HarvestPlan<C>): HarvestPlan<C> {
+  return { ...stakes, claims: [...stakes.claims, ...fees.claims], held: [...stakes.held, ...fees.held], unread: [...stakes.unread, ...fees.unread] };
+}
 
 /** What one claim came to. */
 export type ClaimResult =

@@ -194,8 +194,9 @@ export function lowerCoins(tokenMint: string): QuoteCoin[] {
  */
 export function otherSideLine(tokenMint: string): string | null {
   const own = quoteCoin(tokenMint);
-  const lower = orList(lowerCoins(tokenMint).map((q) => q.symbol));
-  return own && lower ? `A pool of ${own.symbol} and ${lower} is found and opened from the other side: look up ${lower} and pair it with ${own.symbol}.` : null;
+  const lower = lowerCoins(tokenMint).map((q) => q.symbol);
+  if (!own || lower.length === 0) return null;
+  return `To find or open a pool of ${own.symbol} with ${orList(lower)}, look up ${lower.length === 1 ? lower[0] : 'that coin'} and pair it with ${own.symbol}.`;
 }
 
 /** Is a `tokenMint`/`quote` pool one this site reads that way round? */

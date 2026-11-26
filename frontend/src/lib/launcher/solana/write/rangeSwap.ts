@@ -40,7 +40,7 @@ import type { CurveWriteConfig, IntentStep, Prepared, RangeIntent, TxSummary, Wa
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 export const RANGE_SWAP_COPY = {
-  swapsPaused: 'Swaps in this range pool are switched off by the venue’s vault right now.',
+  swapsPaused: 'Swaps in this range pool are switched off by the team’s vault right now.',
   notOpenYet: 'This range pool does not take swaps yet.',
   tooLarge: `This trade would walk through more than ${MAX_SWAP_BANDS} price bands of the pool, more than one swap here carries. Try a smaller amount.`,
   partFill: 'This pool cannot fill the whole trade at any price. Try a smaller amount.',
