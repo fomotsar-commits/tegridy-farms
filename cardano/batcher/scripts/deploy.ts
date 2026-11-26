@@ -1,24 +1,29 @@
 // Deploys our pools (src/deploy.ts), one step at a time, each step's transaction written to
 // <out>/<step>.tx.json (cardano-cli's text envelope) before anything is signed:
-//   AIKEN=<aiken 1.0.24> node scripts/deploy.ts compile <inputs.json> <out>
+//   AIKEN=<aiken 1.0.24> node scripts/deploy.ts compile <inputs.json> <out> [--unproven]
 //   node scripts/deploy.ts <lock|init|refs|register> <inputs.json> <out> [--sign <a.skey,b.skey>] [--submit]
 //   node scripts/deploy.ts records <inputs.json> <out>
 // Chain: OGMIOS_URL (protocol parameters, evaluation, submission), KOIOS_URL (the deployer's
-// UTxOs). --sign takes key files and is for preprod's throwaway keys: on mainnet every signature
-// comes from the owner's own wallets on the co-signing page (scripts/cosign.ts), which submits.
+// UTxOs; before init, the lock). --sign takes key files and is for preprod's throwaway keys: on
+// mainnet every signature comes from the owner's own wallets on the co-signing page
+// (scripts/cosign.ts), which submits. compile builds only a clean trunk commit whose copy
+// provenance proves (scripts/deploy-compile.mjs); --unproven, preprod only, skips the git checks.
+// Every later step refuses inputs that differ from what compile applied (scripts.json's params).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
+import { MAINNET_TIME, PREPROD_TIME } from '../src/chain.ts';
+import { Koios } from '../src/koios.ts';
 import { budgetsFromOgmios, protocolParams, rpc, submit, type Endpoint } from '../src/ogmios.ts';
 import { keyFromFile } from '../src/signer.ts';
-import { REF_ORDER, addresses, checkInputs, checkNothingPending, initTx, plainFunds, lockTx, records, refTx, registerTx, type Built, type DeployInputs, type Scripts, type TxPlan, type Utxo } from '../src/deploy.ts';
+import { NAMES, REF_ORDER, addresses, checkInputs, checkLockReady, checkNothingPending, initTx, plainFunds, lockTx, records, refTx, registerTx, scriptsFor, type Built, type DeployInputs, type DeployState, type TxPlan, type Utxo } from '../src/deploy.ts';
 
 const [cmd, inputsPath, outArg] = process.argv.slice(2);
 const flag = (f: string) => {
   const at = process.argv.indexOf(f);
   return at < 0 ? undefined : (process.argv[at + 1] ?? '');
 };
-if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/deploy.ts <compile|lock|init|refs|register|records> <inputs.json> <out> [--sign a.skey,b.skey] [--submit]');
+if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/deploy.ts <compile|lock|init|refs|register|records> <inputs.json> <out> [--sign a.skey,b.skey] [--submit] [--unproven]');
 const out: string = outArg;
 const raw = JSON.parse(readFileSync(inputsPath, 'utf8'));
 checkNothingPending(raw);
@@ -26,24 +31,24 @@ const inputs: DeployInputs & { batcherFee: string } = { ...raw, openingFee: BigI
 checkInputs(inputs);
 mkdirSync(out, { recursive: true });
 const statePath = join(out, 'state.json');
-const state: { refs: Record<string, string>; txs: Record<string, string>; locked: Record<string, string>; fees: Record<string, string>; refSizes: Record<string, number> } = existsSync(statePath)
+const state: DeployState & { locked: Record<string, string>; fees: Record<string, string> } = existsSync(statePath)
   ? JSON.parse(readFileSync(statePath, 'utf8'))
   : { refs: {}, txs: {}, locked: {}, fees: {}, refSizes: {} };
 const save = () => writeFileSync(statePath, `${JSON.stringify(state, null, 1)}\n`);
 
 if (cmd === 'compile') {
   const { compileDeployment } = await import('./deploy-compile.mjs');
-  const c = compileDeployment(inputs);
+  const c = compileDeployment(inputs, { unproven: process.argv.includes('--unproven') });
   writeFileSync(join(out, 'scripts.json'), `${JSON.stringify(c, null, 1)}\n`);
-  for (const [k, s] of Object.entries(c.scripts as Scripts)) console.log(`${k}: ${s.hash} (${s.compiledCode.length / 2} bytes)`);
+  for (const [k, s] of Object.entries(c.scripts)) console.log(`${k}: ${s.hash} (${s.compiledCode.length / 2} bytes)`);
   console.log(JSON.stringify(addresses(inputs, c.scripts), null, 1));
   process.exit(0);
 }
 
-const scripts: Scripts = JSON.parse(readFileSync(join(out, 'scripts.json'), 'utf8')).scripts;
+const scripts = scriptsFor(JSON.parse(readFileSync(join(out, 'scripts.json'), 'utf8')), inputs);
 if (cmd === 'records') {
   // openPoolBudget: a pool opening's two scripts as the node measured them on a real one, with headroom (state.json, set by hand).
-  const r = records(inputs, scripts, state.refs, { batcherFee: BigInt(inputs.batcherFee), refSizes: state.refSizes, openPoolBudget: (state as { openPoolBudget?: Parameters<typeof records>[3]['openPoolBudget'] }).openPoolBudget });
+  const r = records(inputs, scripts, state, BigInt(inputs.batcherFee));
   console.log(JSON.stringify({ ...r, txs: state.txs, locked: state.locked, fees: state.fees }, null, 1));
   process.exit(0);
 }
@@ -95,6 +100,9 @@ if (cmd === 'lock') {
   const f = await funds([inputs.seedTxIn]);
   await finish('lock', await judged((p) => lockTx(inputs, scripts, p), plan(f), true));
 } else if (cmd === 'init') {
+  // The five roles go to the lock: it must be on chain, holding its token, nothing announced.
+  const chain = new Koios({ url: koios, time: inputs.network === 1 ? MAINNET_TIME : PREPROD_TIME });
+  console.log(`the lock: ${checkLockReady(await chain.utxosWithAsset(scripts.lock.hash, NAMES.lock), scripts, inputs.network)}, nothing announced`);
   const f = await funds([inputs.lockSeedTxIn]);
   await finish('init', await judged((p) => initTx(inputs, scripts, p), plan(f), true));
 } else if (cmd === 'refs') {

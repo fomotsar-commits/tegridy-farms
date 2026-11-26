@@ -44,6 +44,7 @@ import { DoorPortal } from './LpDoorFrame';
 import { LpSummary } from './LpDisclosures';
 import { Link } from 'react-router-dom';
 import { pairSwapLink } from '../../../lib/solana/lp/poolList';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -277,7 +278,7 @@ function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefine
     shown.current = showNow;
     heading.current?.focus({ preventScroll: true });
     // The door's reason is drawn in the door, at the top, where the visitor already is.
-    if (!atTop) card.current?.scrollIntoView?.({ block: 'start' });
+    if (!atTop) bringIntoView(card.current, { block: 'start' });
     onActed?.(showNow);
   }, [showNow, onActed, card, heading, atTop]);
 }
@@ -720,7 +721,7 @@ function DepositOfferBlock({
     acted.current = openNow;
     // Already open, or another form is mid-flow: the press still shows where its form is.
     if (writes.active?.key !== wishKey && !busy) openPanel('add', wishKey, addButton.current);
-    else (blockRef.current?.querySelector('h4') ?? addButton.current)?.scrollIntoView?.({ block: 'start' });
+    else bringIntoView(blockRef.current?.querySelector('h4') ?? addButton.current, { block: 'start' });
     onActed?.(openNow);
   }, [openNow, offer, writes.active?.key, wishKey, busy, openPanel, onActed]);
   // Another panel's flow is running: this one cannot open over it.

@@ -75,6 +75,7 @@ export function planBatch(
     totalLiquidity: datum.totalLiquidity,
   };
   const ctx: PoolContext = {
+    poolScriptHash: k.poolScriptHash,
     assetA: datum.assetA,
     assetB: datum.assetB,
     lpAsset,

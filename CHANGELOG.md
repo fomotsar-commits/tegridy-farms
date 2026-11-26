@@ -7,9 +7,16 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-26
+
+- Pools: a quick double tap no longer presses what the first tap moved under your finger in the cases we measured: a token, the address box and its keyboard, the token above the one you tapped, or a form you had just closed. For half a second after the page moves on its own, a second tap near the same spot is ignored unless it lands on what you first pressed. A tap anywhere else works at once.
+
 ### 2026-11-25
 
 - HyperEVM is on the site: Swap and Pools screens for our own Uniswap V3 venue on HyperEVM (Uniswap's code unchanged, deployed under our own Safes), for HYPE, WHYPE, USD₮0 and USDC. The venue opens the pools; you can swap through them, add to them and manage your positions. A swap made here pays a 0.5% site fee; liquidity providers keep each pool's fee minus the venue's share, which is Uniswap's own (a quarter on the 0.01% and 0.05% pools, a sixth on the 0.3% and 1% pools). HyperEVM is counted in the venue's TVL and all-time volume.
+- Cardano swap: when the read of a pair's pool comes back as long as one read can be (anyone can park a thousand entries at Minswap's pool address), the page now says the pool could not be read, never that there is no pool. A real pool's read is one entry.
+- The venue's own Cardano pools (not switched on yet): the batcher now leaves alone orders no batch could ever carry, alerts when it keeps trying batches and sending none, and never sends a batch whose network fee is more than it earns; the site reads the pool list whatever address a stranger gave an entry, writes new entries only at the venue's own address, and its pool code can no longer fall back to Minswap's contracts by a missing argument.
+- The venue's own Cardano pools (built, not yet deployed): fixes from the 2026-11-25 internal audit. A pool's opening fee counts only ADA paid on its own, never ADA bound to tokens; the 48-hour lock refuses a change that would leave a script on a pool or the settings, or move the settings; and the deploy tools build only reviewed trunk code, check each deploy transaction from its own bytes before it is signed, and wait for the lock before handing it the pools' admin roles.
 - Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
 - CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
 - The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
@@ -22,6 +29,7 @@ The site's Changelog tab shows both files.
 - Solana range pools: the Risks box shows the open/closed arrow and says each risk once, in the pools' words. It now says the team's vault can also switch off collecting fees and rewards (48 hours after both keys approve, read on chain 2026-11-25), and it leaves out what the review already says. The range and pools pages call that vault by one name, the team's vault.
 - Solana swap: a new VWAP tab. Pick a total, a time (1 hour to 1 day), how many slices, and a price limit against the pair's 24h average traded price (0.5%, 1% or 3%). The page buys or sells one slice at a time, bigger slices in the hours the pair usually trades most, and a slice whose price is past your limit waits and tries again each minute; what it does not spend goes with the next slice. Each slice is an ordinary Instant swap through Jupiter that your wallet approves, with the usual platform fee, so the money stays in your wallet and the page must stay open. Stop ends it at any time; a slice approved after Stop, or more than 45 seconds after it was asked, is not sent.
 - Our Solana pools can now be charted by DexTools too: the site serves the data feeds its indexer reads (`/api/dextools/latest-block`, `/block`, `/asset`, `/pair`, `/events`, `/exchange`), every number read from the chain, a pool's opening included. Both chart feeds also keep the first trades of a pool opened in the last minute, which they could drop before.
+- Harvest on Solana: your claims now go in one transaction, so your wallet asks once instead of once per stake. Several locks in one lock ladder are claimed together, and so are your lighthouse stakes beside them. A stake that may not pay is still asked for on its own, after the rest, so it can never stop the others.
 
 ### 2026-11-23
 
