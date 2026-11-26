@@ -29,6 +29,51 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-26: the fee sweep, so the venue's fees reach the vault by themselves (two sittings; the pack is ready, nothing sent)
+
+Your word on 2026-11-15: "all funds for the venue land in the treasury". On 2026-11-24 and again
+on 2026-11-26 you asked for it on this list. Your paper is `START-HERE.md` in
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-sweep-fees-upgrade-2026-11`.
+
+**Not done yet (read on mainnet 2026-11-26 03:15 UTC).** The vault's newest proposal is still #35,
+the upgrade of 2026-11-17. The pool program has not changed since then (last deploy slot
+470,581,826), and its account is still 725,221 bytes, too small for this build.
+
+**What it is.** One vault proposal: upgrade the pool program to `3f36e8ad…` (747,272 bytes), the
+build of pull request #1309 (merged 2026-11-21, `c6332412f`). The program is enlarged by 22,096
+bytes first. Everything #35 installed stays: the swap guard, the fee rules, the price robot's free
+swaps. New: anyone may call `sweep_fees`, which moves the venue's share of a pool's fees (10.4% of
+each trade fee) to the vault's own accounts, and the island's share (5.6%) to the Workshop's own
+accounts. Nobody can point a share anywhere else. The caller pays 5,000 lamports a sweep. About
+$14.25 of the venue's and $7.29 of the island's shares were waiting on 2026-11-20. It also carries
+#1248's fixes (the keeper can resign, a fee setting can charge at most 1 SOL to open a pool).
+
+**The SOL.** The paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 3.913 SOL at
+its peak: 0.1122 SOL locked in the program for good (the enlarge), 3.797 SOL parked for the upload
+and returned to it when the upgrade executes, and about 0.004 SOL of network fees. It held 3.692 SOL
+on 2026-11-26, and that day you chose to send 3.68 SOL of it to the price robot
+`9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz`. After that send, **send the paying wallet about
+3.91 SOL** (not the paper's 0.25). Member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` needs
+**0.01 SOL**. Step 2's check prints what each still lacks: trust it over these figures.
+
+**Sitting 1, about an hour:** the paper's steps 1 to 13. One `REFUSED` line is expected in step 2,
+about your own #30. Do not execute #30 between step 11 and step 14. Never approve or execute any of
+it in the Squads app, and read back the proposal number on the page before every press (the next
+one is #36 unless another proposal takes it first).
+
+**Sitting 2, 48 hours after member B's approval:** steps 14 to 19. Step 15's first line must name
+`3f36e8ad`. Step 18 is the site's release the same day: a session opens it, you merge it.
+
+**Only after both sittings AND your merge of pull request #1316** (the daily job's own fix, a
+draft): switch the daily sweep on. Send about 0.05 SOL to its gas wallet
+`58vdJy9DfMBow7wChdTgAjb1JBNpJFoXy7P33S8gYvJn`, add its key as the GitHub secret
+`VENUE_SWEEPER_KEYPAIR`, run the job once by hand without "live" and read its summary with a
+session, then set `VENUE_SWEEP_LIVE` to `true`. Until then keep `VENUE_SWEEP_LIVE` off, and make no
+change of the venue's owner (`update_amm_config` param 3).
+
+**If draft pull request #1321 merges first**, it changes this build's bytes: the pack must be
+remade before Sitting 1.
+
 ## 🔴 2026-11-14: the robot's zero fee, sitting 2 (from 2026-11-16 05:14 UTC)
 
 Your word on 2026-11-11: "charge 0 fees for our bot". Sitting 1 is done: on 2026-11-14 you
