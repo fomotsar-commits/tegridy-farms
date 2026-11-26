@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-25: a test that lifts a fault after a reload can lose to the page's own check of it
+
+**Believed:** once a reloaded page shows its "may still be landing" card, a test can stop failing
+`getSignatureStatuses` and press Check again: nothing else asks the chain in between.
+
+**Measured** (CI run 45554002434, `frontend/e2e-solana/lp-create.spec.ts` P2, 2026-11-25): in a
+run of 1h11m (a passing one: 48m, P2 1.6m), P2 waited out its 12 minutes on chromium and
+mobile-chrome at the press, after the card had passed its visibility check. The page checks a
+standing note once on each load, when its config has arrived (`usePendingTrades`). That check
+went out after the release, settled the note and took the card away under the press.
+
+**Do:** after a load with a fault in place, wait for the page's own attempt to be refused before
+lifting it: count refusals from before the load and poll past that. Where the page before the
+load was still asking the same thing, a count can be that page's: wait for the card's answer.
+
 ## 2026-11-20: Uniswap's SDK builds a deposit from the amount typed, even when the range cannot take that coin
 
 **Believed:** `Position.fromAmount0` (and `fromAmount1`) from `@uniswap/v3-sdk` 3.31.11 turns
