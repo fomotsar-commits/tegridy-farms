@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-25
+
+- Harvest on Solana: your claims now go in one transaction, so your wallet asks once instead of once per stake. Several locks in one lock ladder are claimed together, and so are your lighthouse stakes beside them. A stake that may not pay is still asked for on its own, after the rest, so it can never stop the others.
+
 ### 2026-11-23
 
 - The city is now rendered from the owner's own models at full detail: every close-up's building, palms and street lamps are crisp and finely carved where they had looked cracked, and the island picture is sharper too.
