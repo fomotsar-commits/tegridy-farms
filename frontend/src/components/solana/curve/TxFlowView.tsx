@@ -539,7 +539,7 @@ function LpRestartRows({ summary: s, restart: r }: { summary: Extract<TxSummary,
       <Row label="You get" value={`${shares(r.keep)} pool shares, exactly`} mono={false} />
       <Row
         label="Check-back"
-        value={`${shares(r.checkLp)} of the new shares come straight back out, as at least ${coinExact(r.checkMin.quote, q)} and ${unitsExact(r.checkMin.token, s.tokenDecimals)} tokens. If anyone changed the pool first, this fails and nothing goes in.`}
+        value={`${shares(r.checkLp)} pool shares come straight back out, as at least ${coinExact(r.checkMin.quote, q)} and ${unitsExact(r.checkMin.token, s.tokenDecimals)} tokens. If anyone changed the pool first, this fails and nothing goes in.`}
         mono={false}
       />
     </>

@@ -35,7 +35,7 @@ describe('the review of a restart', () => {
     const has = (re: RegExp) => expect(got.some((l) => re.test(l)), `${re}\n${got.join('\n')}`).toBe(true);
     has(/^Also goes in, for good: 0\.000000018 SOL and 0\.000867 tokens \(worth under 0\.0001 SOL\), to set the pool to that price\. They stay in the pool: nobody can take them out\.$/);
     has(/^You get: 0\.025 pool shares, exactly$/);
-    has(/^Check-back: 0\.000002778 of the new shares come straight back out, as at least 0\.00000099 SOL and 0\.0394 tokens\. If anyone changed the pool first, this fails and nothing goes in\.$/);
+    has(/^Check-back: 0\.000002778 pool shares come straight back out, as at least 0\.00000099 SOL and 0\.0394 tokens\. If anyone changed the pool first, this fails and nothing goes in\.$/);
   });
 
   // A line read against the market, as a deposit's price check is: a rebuild compares it as one (useTxFlow).

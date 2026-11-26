@@ -556,7 +556,8 @@ describe('a pool that refuses deposits, for every reason', () => {
   // Owner, 2026-11-26: "allow the new person to use market price". The same almost empty pool,
   // with Jupiter's price read: its card opens the restart form, never an ordinary add.
   it('Almost empty, at a market price: the row’s press opens the card’s restart form', async () => {
-    const v = view({ lpSupply: 1_100n });
+    // 10 SOL against 800 tokens: 0.0125 SOL a token, 25% above Jupiter's 0.01.
+    const v = view({ lpSupply: 1_100n, t: 800n * UNIT });
     mountList(v, { ...okToken, mint: v.tokenMint });
     const [row] = await screen.findAllByTestId('lp-all-pools-row');
     fireEvent.click(within(row!).getByRole('button', { name: /^(Add to|Restart) / }));
@@ -564,7 +565,10 @@ describe('a pool that refuses deposits, for every reason', () => {
     expect(panel).toHaveTextContent('Restart this pool at the market price');
     expect(within(panel).getByRole('button', { name: 'Review: restart this pool' })).toBeInTheDocument();
     const card = cardOf(v.address);
-    expect(within(card).getByTestId('lp-pool-deposits')).toHaveTextContent('Deposits: only as a restart at the market price');
+    const deposits = within(card).getByTestId('lp-pool-deposits');
+    expect(deposits).toHaveTextContent('Deposits: only as a restart at the market price');
+    // The pool's own price is off the market, and a restart sets it: that gap is no warning on this card.
+    expect(deposits).not.toHaveTextContent('the outside price');
     expect(screen.queryByTestId('lp-wish-why')).toBeNull();
     expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
   }, 20_000);

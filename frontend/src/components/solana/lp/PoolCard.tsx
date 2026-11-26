@@ -396,6 +396,7 @@ export function PoolCard({
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
   const depositsHead = depositHeading(health.deposits, health.restart !== null);
+  const cardWarnings = health.restart ? health.restart.warnings : health.deposits.warnings;
   // The room's own pool tells Bayla's line its price and how old its outside price is (answer twenty-four, build 4).
   useEffect(() => {
     if ((price.state !== 'agrees' && price.state !== 'disagrees') || price.readAtMs === undefined) return;
@@ -557,10 +558,11 @@ export function PoolCard({
               ))}
             </div>
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
-            {health.deposits.warnings.length > 0 && (
+            {/* A restart sets the pool's price (restart.ts), so its gap to the market is no warning there: only the token's are said. */}
+            {cardWarnings.length > 0 && (
               <div data-testid="lp-pool-warnings" className="space-y-1">
                 {health.deposits.verdict !== 'allowed' && <p className="text-amber-300/90 font-semibold">Warnings about this pool, apart from that:</p>}
-                {health.deposits.warnings.map((w) => (
+                {cardWarnings.map((w) => (
                   <Notice key={w} tone="warn">{w}</Notice>
                 ))}
               </div>
