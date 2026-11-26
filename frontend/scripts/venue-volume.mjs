@@ -16,7 +16,6 @@ import { pathToFileURL } from "node:url";
 import { volumeSources } from "../api/_lib/venueVolumePolicy.js";
 import {
   EVM_CHAINS,
-  HYPEREVM_V3,
   ISLAND_COINS,
   ISLAND_DECIMALS,
   SOLANA_BOTS,
@@ -24,6 +23,7 @@ import {
   USDC_MINT,
   USDT_MINT,
   evmRpc,
+  evmRpcsFor,
   hyperEvmCounted,
   readEvmChain,
   readHyperEvm,
@@ -324,7 +324,7 @@ function pricer(fetchImpl) {
 function defaultDeps(fetchImpl) {
   return {
     solana: solanaRpc({ fetchImpl }),
-    evm: (name) => evmRpc({ fetchImpl, rpcs: name === "hyperevm" ? HYPEREVM_V3.rpcs : EVM_CHAINS[name].rpcs, pauseMs: 200 }),
+    evm: (name) => evmRpc({ fetchImpl, rpcs: evmRpcsFor(name), pauseMs: 200 }),
     fetchImpl,
   };
 }

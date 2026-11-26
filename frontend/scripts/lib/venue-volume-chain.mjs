@@ -105,6 +105,18 @@ export function hyperEvmCounted(v3 = HYPEREVM_V3) {
   return typeof v3.factory === "string" && /^0x[0-9a-fA-F]{40}$/.test(v3.factory) && !/^0x0{40}$/.test(v3.factory) && Number.isInteger(v3.startBlock);
 }
 
+/**
+ * The RPCs an EVM volume source is read through: HyperEVM's own list (it is not in EVM_CHAINS),
+ * else its chain's. Both counters take it from here, the hourly GitHub job (venue-volume.mjs)
+ * and the five-minute Vercel cron (api/venue-volume-count.js): on 2026-11-26 the cron kept its
+ * own copy, which knew only EVM_CHAINS, and failed HyperEVM on every run.
+ */
+export function evmRpcsFor(name) {
+  const rpcs = name === "hyperevm" ? HYPEREVM_V3.rpcs : EVM_CHAINS[name]?.rpcs;
+  if (!rpcs?.length) throw new Error(`no RPC list for the EVM source ${name}`);
+  return rpcs;
+}
+
 // keccak256("Swap(address,address,int256,int256,uint160,uint128,int24)"), Uniswap V3's.
 export const V3_SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67";
 const pad = (hex) => hex.toLowerCase().replace(/^0x/, "").padStart(64, "0");

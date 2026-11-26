@@ -4,7 +4,7 @@
 // to the site's, so the two sides never disagree on whether HyperEVM is counted.
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters } from "viem";
-import { HYPEREVM_V3, V3_SWAP_TOPIC, hyperEvmCounted, listV3Pools, readHyperEvm, v3SwapLeg } from "../../../scripts/lib/venue-volume-chain.mjs";
+import { EVM_CHAINS, HYPEREVM_V3, V3_SWAP_TOPIC, evmRpcsFor, hyperEvmCounted, listV3Pools, readHyperEvm, v3SwapLeg } from "../../../scripts/lib/venue-volume-chain.mjs";
 import { legUsd } from "../../../scripts/venue-volume.mjs";
 import { VOLUME_SOURCES, summarize, volumeSources } from "../venueVolumePolicy.js";
 import { readHyperEvmTvl, tvlChainNames } from "../venueTvl.js";
@@ -111,6 +111,12 @@ describe("reading HyperEVM", () => {
     expect(got.cursor).toEqual({ block: 2500 });
     const reads = asked.filter((a) => a.method === "eth_getLogs").map((a) => [Number(a.params[0].fromBlock), Number(a.params[0].toBlock), a.params[0].topics[0]]);
     expect(reads).toEqual([[100, 1099, V3_SWAP_TOPIC], [1100, 2099, V3_SWAP_TOPIC], [2100, 2500, V3_SWAP_TOPIC]]);
+  });
+
+  it("is read through HyperEVM's own RPCs by both counters, and an EVM source with none is refused by name", () => {
+    expect(evmRpcsFor("hyperevm")).toBe(HYPEREVM_V3.rpcs);
+    for (const name of ["ethereum", "base", "robinhood"]) expect(evmRpcsFor(name)).toBe(EVM_CHAINS[name].rpcs);
+    expect(() => evmRpcsFor("solana-pools")).toThrow(/no RPC list for the EVM source solana-pools/);
   });
 
   it("refuses to run while not deployed", async () => {

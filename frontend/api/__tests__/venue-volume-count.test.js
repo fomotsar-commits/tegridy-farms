@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import handler from "../venue-volume-count.js";
 import { DB_TIMEOUT_MS } from "../../scripts/venue-volume.mjs";
+import { EVM_CHAINS, HYPEREVM_V3 } from "../../scripts/lib/venue-volume-chain.mjs";
 
 function makeReq(headers = {}, method = "GET") {
   return { method, query: {}, headers };
@@ -72,6 +73,26 @@ describe("venue-volume-count", () => {
     const vercel = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "vercel.json"), "utf-8"));
     expect(opts.runMs + 2 * DB_TIMEOUT_MS).toBeLessThan(vercel.functions["api/venue-volume-count.js"].maxDuration * 1000);
     expect(String(fetchImpl.mock.calls[0][0])).toBe("https://keyed.test/?api-key=k");
+  });
+
+  // 2026-11-26: the cron read each EVM source through EVM_CHAINS[name], which has no
+  // HyperEVM, so every five-minute run failed it and the home page's volume read "behind".
+  it("reads every EVM source through its own chain's RPCs, HyperEVM's included", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }), { status: 200 }));
+    const run = vi.fn(async (opts) => {
+      for (const name of ["ethereum", "base", "robinhood", "hyperevm"]) await opts.deps.evm(name)("eth_blockNumber", []);
+      return 0;
+    });
+    const { res, out } = makeRes();
+    await handler(makeReq(bearer), res, { run, fetchImpl });
+    expect(out.status).toBe(200);
+    expect(fetchImpl.mock.calls.map(([u]) => String(u))).toEqual([
+      EVM_CHAINS.ethereum.rpcs[0],
+      EVM_CHAINS.base.rpcs[0],
+      EVM_CHAINS.robinhood.rpcs[0],
+      HYPEREVM_V3.rpcs[0],
+    ]);
   });
 
   it("answers 502 when a source did not finish, and logs no secret", async () => {
