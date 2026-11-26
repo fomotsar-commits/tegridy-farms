@@ -33,7 +33,7 @@ describe('the review of a restart', () => {
   it('says the price, what goes in for good, the shares kept and the check-back', () => {
     const got = lines();
     const has = (re: RegExp) => expect(got.some((l) => re.test(l)), `${re}\n${got.join('\n')}`).toBe(true);
-    has(/^Also goes in, for good: 0\.000000018 SOL and 0\.000867 tokens \(worth under 0\.0001 SOL\), to set the pool to that price\. They stay in the pool: nobody can take them out\.$/);
+    has(/^Also goes in, for good: 0\.000000018 SOL and 0\.000867 tokens \(worth under 0\.0001 SOL\), to set the pool to that price\. They stay in the pool, and you cannot take them back out\.$/);
     has(/^You get: 0\.025 pool shares, exactly$/);
     has(/^Check-back: 0\.000002778 pool shares come straight back out, as at least 0\.00000099 SOL and 0\.0394 tokens\. If the pool changed by more than your tolerance before this runs, it fails and nothing goes in\.$/);
   });

@@ -230,7 +230,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in an island coin never gets this tag).');
     // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent(
-      'Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no ordinary deposit here. When Jupiter prices both its coins, Restart adds to it at Jupiter’s price instead.',
+      'Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no ordinary deposit here. When everyone has taken their money out of it and Jupiter prices both its coins, Restart adds to it at Jupiter’s price instead.',
     );
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });

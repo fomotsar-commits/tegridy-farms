@@ -533,7 +533,7 @@ function LpRestartRows({ summary: s, restart: r }: { summary: Extract<TxSummary,
       <Row label="Restarts at" value={`${pricePerToken(r.perToken, q)}, Jupiter’s price read just now`} mono={false} line="market" />
       <Row
         label="Also goes in, for good"
-        value={`${coinExact(r.topUp.quote, q)} and ${unitsExact(r.topUp.token, s.tokenDecimals)} tokens (${worthText(coinAbout(r.costQuote, q, true))}), to set the pool to that price. They stay in the pool: nobody can take them out.`}
+        value={`${coinExact(r.topUp.quote, q)} and ${unitsExact(r.topUp.token, s.tokenDecimals)} tokens (${worthText(coinAbout(r.costQuote, q, true))}), to set the pool to that price. They stay in the pool, and you cannot take them back out.`}
         mono={false}
       />
       <Row label="You get" value={`${shares(r.keep)} pool shares, exactly`} mono={false} />
