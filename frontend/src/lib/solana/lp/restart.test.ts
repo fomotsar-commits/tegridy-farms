@@ -109,6 +109,18 @@ describe('planRestart', () => {
     expect(restart(SOL_TBB, SOL_PRICE, { maxIn: 20_000n })).toMatchObject({ problem: 'too-small-to-restart' });
   });
 
+  it('refuses a check-back that would take back more than a tenth, though the pool would no longer be almost empty', () => {
+    // One lamport a hundred shares: 5,000 lamports buy about 495,000 shares, well past 100,000,
+    // but 1,000 lamports back out take about a fifth of them.
+    const small = restart(ONE_LAMPORT, ONE_LAMPORT_PRICE, { maxIn: 5_000n });
+    expect(small).toMatchObject({ problem: 'too-small-to-restart' });
+    const least = 'problem' in small && small.problem === 'too-small-to-restart' ? small.least : null;
+    expect(least).not.toBeNull();
+    const p = ok(restart(ONE_LAMPORT, ONE_LAMPORT_PRICE, { maxIn: least! }));
+    expect(p.check.lp * 10_000n).toBeLessThanOrEqual(p.deposit.lp * CHECK_BACK_MAX_BPS);
+    expect(tooFewShares(100n + p.keep)).toBe(false);
+  });
+
   it('is never offered for a pool that is not almost empty', () => {
     expect(restart(snap(18n, 567n, 100_000n), SOL_PRICE)).toEqual({ problem: 'no-target' });
   });
