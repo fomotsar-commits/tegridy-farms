@@ -74,6 +74,50 @@ one package without a reinstall: `npm pack <name>@<locked version>`, extract the
 `package/` over the folder, and `require()` it to prove it loads. Check the version against the
 lockfile: an unpinned `npm pack` fetched lightningcss 1.33.0 where the lock says 1.32.0.
 
+## 2026-11-19: a press that scrolls the page makes a double tap's second tap press what moved under the finger
+
+**Believed:** a scroll that brings the next step onto the screen is harmless to the finger: the
+button that was pressed has already done its job.
+
+**Measured** (Playwright, Chromium and WebKit touch, 430x740 and 390x664, two taps at one point
+300 ms apart on /pools "Open a pool"): the first tap moved the page 179 / 255 px in one frame. The
+second landed on a token button (picked it: a lookup and a 1,951 px move) or on the address box's
+label (focus, so a phone's keyboard). jsdom never moves anything, so no unit test could see it.
+
+**Do:** send every move a page makes on its own through one helper that, when the move shifts
+the target on screen, drops touchend, mousedown and click near the press for 500 ms
+(`frontend/src/lib/bringIntoView.ts`, with a source test that fails on a raw `scrollIntoView`).
+Measured with it at 25 px: the same double tap pressed nothing; a tap on a token 38 px away 150 ms
+after the press, and the same spot 800 ms after, each picked the token.
+
+**And a move is more than `scrollIntoView`** (Fable read at 390, 2026-11-24, same harness, Chromium
+and WebKit). A pick draws a line one row tall above the tokens before its answer scrolls: in WebKit
+a double tap on RIZZ picked the token above it. Close puts focus back on the form's opener, which
+scrolls the page ~900 px: the second tap of a double tap on Close opened the form again. Neither is
+a `scrollIntoView`, so the helper never saw them; each now calls `holdPress()` at the press. Two
+more: a finger down on the fixed bottom bar while a read landed lost its tap (one in ten to twenty),
+so a tap that lands on what its press pressed now goes through (a touch's events all go to what it
+began on, and a fixed bar does not move); and 25 px was narrower than a double tap's spread (a
+second tap 30 px off picked RIZZ), so the hold is now 30 px round.
+
+**Too wide is its own swallow** (Fable re-read at 390, 2026-11-25, same harness). At 45 px round the
+tokens a task press brings under the thumb did not answer for half a second: at 430x740, SOY 39 px
+off after Add liquidity and BAYLA 44 px off after Open a pool; on a 390x760 screen most of the token
+under the finger and half of the next. 30 px round holds the measured double tap and lets the next
+token through. And a look-up is not always a press: the island's sheet and the door's link call the
+same `lookUp()` with none, and a hold armed there sat on the spot of the press that opened the
+sheet, where Back now was, so a prompt Back did nothing once. Hold only where a press asked.
+What is left (narrow re-read, 2026-11-25): the token that slides under the finger still does not
+answer for the half second, its centre 6 to 28 px from the press on tall phones (12 of 17 sizes),
+because that is where a double tap's second tap lands; and a second tap 31 to 45 px off does what
+trunk does.
+
+**But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
+the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On
+#1301's first CI run three specs failed with a press that did nothing ("Pair with SOL" stayed on
+USDC; Review: remove liquidity never enabled). A mouse counts its own clicks (`detail` is 2 on a
+double click's second), so a mouse is held only at `detail >= 2`; touch keeps the spot and time.
+
 ## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
 
 **Believed:** a row that runs past its box because its children cannot shrink is fixed by letting
