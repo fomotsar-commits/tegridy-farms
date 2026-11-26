@@ -944,6 +944,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'venue-swap': 'One-time deposit for your new token account (it stays in that account)',
   'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-restart': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
   'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
@@ -1028,6 +1029,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'lp-restart': 'Review: restart this pool',
   'range-open': 'Review: open a range position',
   'range-remove': 'Review: take out of your range position',
   'range-close': 'Review: close your range position',

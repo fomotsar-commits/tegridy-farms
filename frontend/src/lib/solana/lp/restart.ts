@@ -135,7 +135,7 @@ export type RestartArgs = RestartPrice & {
 
 export function planRestart(s: PoolSnapshot, a: RestartArgs): RestartPlan | RestartProblem {
   const p = restartAt(s, a);
-  if (!('problem' in p) || p.problem !== 'too-small-to-restart') return p;
+  if (!('problem' in p) || (p.problem !== 'too-small-to-restart' && p.problem !== 'too-small')) return p;
   return { problem: 'too-small-to-restart', least: leastRestart(s, a) };
 }
 

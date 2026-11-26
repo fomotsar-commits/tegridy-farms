@@ -87,6 +87,8 @@ const LP_SIDE: Readonly<Record<LpKind, 'add' | 'remove' | 'create'>> = {
   'lp-deposit': 'add',
   'lp-withdraw': 'remove',
   'lp-create': 'create',
+  // A restart is an add: it holds the pool's Add form while it can still land.
+  'lp-restart': 'add',
 };
 
 /**

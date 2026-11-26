@@ -38,7 +38,7 @@
 // pays into it (opened with create-if-missing, under the coin's own token program).
 
 import { Buffer } from 'buffer';
-import { createAssociatedTokenAccountIdempotentInstruction, getCpiGuard, getMemoTransfer, unpackAccount } from '@solana/spl-token';
+import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getCpiGuard, getMemoTransfer, unpackAccount } from '@solana/spl-token';
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -56,11 +56,12 @@ import {
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { claimSentOn } from '../../../solana/lp/claimed';
-import { claimableShares, isPlanProblem, planDeposit, planWithdraw, planWithdrawShares, poolFeesOf, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
+import { claimableShares, isPlanProblem, planDeposit, planWithdraw, planWithdrawShares, poolFeesOf, solSetAside, spendableSol, type PlanProblem, type PoolFees } from '../../../solana/lp/liquidityMath';
+import { planRestart, type RestartProblem } from '../../../solana/lp/restart';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, LAUNCH_TIER_POOL, chainEpochOf, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
-import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../../solana/lp/poolHealth';
+import { REFERENCE_NAME, assessPool, formatWhen, type PoolHealth, type PriceCheck } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type MintFacts, type TokenSafety } from '../../../solana/lp/tokenSafety';
@@ -70,7 +71,7 @@ import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, TxVersion, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
+import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
 
@@ -152,6 +153,11 @@ export const LP_COPY = {
   // A token with a transfer fee has two fee settings, and the network's epoch says which applies.
   noEpoch: "We could not read the network's clock, which says which of this token's transfer fees applies now, so nothing was built. Try again in a moment.",
   transferFeeRefused: "The pool program would refuse this token's transfer fee at exactly this amount. Change the amount a little and press Review again.",
+  // A restart (restart.ts).
+  restartNotNeeded: 'Someone has added to this pool since the page read it, so it no longer needs a restart. Read the pool again and add the usual way.',
+  restartNoTarget: 'We could not work out how to set this pool to the market price just read, so nothing was built. Try again in a moment.',
+  restartTooSmall: (least: string | null) =>
+    least ? `Too small to restart this pool. Put in at least ${least}.` : 'Too small to restart this pool. Put in more.',
 } as const;
 
 /**
@@ -673,22 +679,41 @@ function depositProblemCopy(p: PlanProblem, ctx: { driving: 'quote' | 'token'; d
   }
 }
 
-export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared> {
+/** What an ordinary deposit and a restart both read and check before either is built: steps 1 to 7 of `prepareLpDeposit`. */
+interface DepositReads {
+  cfg: CurveWriteConfig;
+  snap: WriteSnapshot;
+  view: PoolView;
+  p: PoolStateView;
+  quote: QuoteCoin;
+  quoteMintKey: PublicKey;
+  quoteIsToken0: boolean;
+  tokenProgram: PublicKey;
+  safety: Extract<TokenSafety, { kind: 'read' }>;
+  decimals: number;
+  tokenFee: TransferFee | null;
+  fees: PoolFees;
+  /** Stage 1's own check on reads seconds old. Each builder holds it to its own gate. */
+  health: PoolHealth;
+}
+
+async function readForDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<DepositReads | { fail: Prepared }> {
+  const no = (why: string) => ({ fail: notSent('build', why) });
   // 1. Inputs.
   const bad = slippageProblem(a.slippageBps);
-  if (bad) return notSent('build', bad);
-  if (a.maxIn <= 0n) return notSent('build', 'Enter an amount above zero.');
-  if (gate.kind !== 'open' || gate.mode !== 'on') return notSent('build', LP_COPY.depositPaused);
+  if (bad) return no(bad);
+  if (a.maxIn <= 0n) return no('Enter an amount above zero.');
+  if (gate.kind !== 'open' || gate.mode !== 'on') return no(LP_COPY.depositPaused);
   const quote = quoteCoin(a.quoteMint.toBase58());
-  if (!quote) return notSent('build', LP_COPY.notAPairingCoin);
+  if (!quote) return no(LP_COPY.notAPairingCoin);
   const cfg = gate.cfg;
 
   // 2-4. One fresh read; the pool is the pool.
   const snap = await readPoolForWrite(rpc, cfg, { pool: a.pool, tokenMint: a.tokenMint, quote, owner: a.owner });
-  if (snap === POOL_READ_FAILED) return notSent('build', LP_COPY.depositPoolUnread);
-  if (typeof snap === 'string') return notSent('build', snap);
+  if (snap === POOL_READ_FAILED) return no(LP_COPY.depositPoolUnread);
+  if (typeof snap === 'string') return no(snap);
   const { view } = snap;
-  if (view.launchTierWithoutLaunch) return notSent('build', LP_COPY.launchTier);
+  if (view.launchTierWithoutLaunch) return no(LP_COPY.launchTier);
   const p = view.snapshot.pool;
   const quoteIsToken0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);
@@ -696,21 +721,21 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
 
   // 5. The token, read again.
   const safety = classifyToken(a.tokenMint.toBase58(), snap.mint, snap.metaplex);
-  if (safety.kind !== 'read') return notSent('build', LP_COPY.tokenUnread);
-  if (safety.verdict === 'blocked') return notSent('build', LP_COPY.tokenBlocked(safety.blocks[0]?.text ?? 'see the token check'));
+  if (safety.kind !== 'read') return no(LP_COPY.tokenUnread);
+  if (safety.verdict === 'blocked') return no(LP_COPY.tokenBlocked(safety.blocks[0]?.text ?? 'see the token check'));
   const facts = safety.facts;
-  if (!facts) return notSent('build', LP_COPY.tokenUnread);
-  if (snap.mint.owner !== tokenProgram.toBase58()) return notSent('build', LP_COPY.poolChanged("the token's program"));
+  if (!facts) return no(LP_COPY.tokenUnread);
+  if (snap.mint.owner !== tokenProgram.toBase58()) return no(LP_COPY.poolChanged("the token's program"));
   const decimals = facts.decimals;
-  if (decimals !== (quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals)) return notSent('build', LP_COPY.poolChanged("the token's decimals"));
+  if (decimals !== (quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals)) return no(LP_COPY.poolChanged("the token's decimals"));
   // A second guard, on purpose, against the ONE set of extensions this site builds for
   // (the same set the withdrawal below reads): a verdict loosened by mistake still cannot
   // let in a token this site could not let back out.
   const outsideSet = facts.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
-  if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
+  if (outsideSet !== undefined) return no(LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
   // 5b. The token's transfer fee now: the deposit sends it on top of what the pool takes.
   const tokenFee = tokenFeeAt(facts, snap.chainEpoch);
-  if (typeof tokenFee === 'string') return notSent('build', tokenFee);
+  if (typeof tokenFee === 'string') return no(tokenFee);
   const fees = poolFeesOf(quoteIsToken0, tokenFee);
 
   // 6. The outside price, read again: the token's, and the pairing coin's own when the
@@ -731,27 +756,34 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   const launchPrice =
     outside.kind === 'no-route' && view.origin !== 'launch-pool' ? await readLaunchPoolPrice(rpc, cfg, { tokenMint: a.tokenMint, decimals, outside, safety }) : null;
 
-  // 7. The gate: stage 1's own check, on reads seconds old. 'allowed' may carry warnings
-  // (a price that is off, no market price, a copied name, a freezable token): they do not
-  // stop the build, and go on the summary below for the review to say.
+  // 7. Stage 1's own check, on reads seconds old. Each builder holds it to its own gate.
   const health = assessPool({ view, tokenDecimals: decimals, chainNow: snap.chainNow, outside, coinOutside, launchPrice, safety });
-  if (health.deposits.verdict !== 'allowed') return notSent('build', LP_COPY.gateSaysNo(health.deposits.reasons));
+  return { cfg, snap, view, p, quote, quoteMintKey, quoteIsToken0, tokenProgram, safety, decimals, tokenFee, fees, health };
+}
 
+/** The wallet's side of a deposit or a restart: steps 8 to 10 of `prepareLpDeposit`. */
+function walletForDeposit(
+  r: DepositReads,
+  owner: PublicKey,
+  tokenMint: PublicKey,
+): { lpMint: PublicKey; plan: WsolPlan | null; notices: string[]; availableQuote: bigint; availableToken: bigint } | { fail: Prepared } {
+  const { snap, quote, tokenProgram, decimals, p } = r;
+  const no = (why: string) => ({ fail: notSent('build', why) });
   // 8. The wallet's accounts.
-  if (!snap.tokenAccount.account) return notSent('build', LP_COPY.noTokenAccount(snap.tokenAccount.address.toBase58()));
+  if (!snap.tokenAccount.account) return no(LP_COPY.noTokenAccount(snap.tokenAccount.address.toBase58()));
   const lpMint = new PublicKey(p.lpMint);
-  const source = accountCheck(snap.tokenAccount.account, { owner: a.owner, mint: a.tokenMint, program: tokenProgram, use: 'source', what: 'token', decimals });
-  if (source.refuse) return notSent('build', source.refuse);
+  const source = accountCheck(snap.tokenAccount.account, { owner, mint: tokenMint, program: tokenProgram, use: 'source', what: 'token', decimals });
+  if (source.refuse) return no(source.refuse);
   // A coin that is not SOL is spent from the signer's own account for it, which must exist.
-  if (!quote.native && !snap.quoteAccount.account) return notSent('build', LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
-  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(a.owner, quote, 'source'));
-  if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
-  const lpCheck = accountCheck(snap.lp.account, { owner: a.owner, mint: lpMint, program: TOKEN_PROGRAM_ID, use: 'destination', what: 'pool-share', decimals: p.lpMintDecimals });
-  if (lpCheck.refuse) return notSent('build', lpCheck.refuse);
+  if (!quote.native && !snap.quoteAccount.account) return no(LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
+  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(owner, quote, 'source'));
+  if (wsolCheck.refuse) return no(wsolCheck.refuse);
+  const lpCheck = accountCheck(snap.lp.account, { owner, mint: lpMint, program: TOKEN_PROGRAM_ID, use: 'destination', what: 'pool-share', decimals: p.lpMintDecimals });
+  if (lpCheck.refuse) return no(lpCheck.refuse);
 
   // 9. Wrapped SOL: only a SOL pool has a plan for it. `null` = nothing is wrapped.
-  const plan = quote.native ? wsolPlanFrom(a.owner, snap.quoteAccount.account) : null;
-  if (typeof plan === 'string') return notSent('build', plan);
+  const plan = quote.native ? wsolPlanFrom(owner, snap.quoteAccount.account) : null;
+  if (typeof plan === 'string') return no(plan);
   // Said on the review: an approved spender on an account this spends from (the way out
   // pays into it, and is refused while the approval stands), and what the pool-share account's check found.
   const notices = [...source.notices, ...wsolCheck.notices, ...lpCheck.notices];
@@ -772,9 +804,27 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
     // Any other coin: what the wallet holds of it. Its SOL only has to cover the network
     // fee, the pool-share account's deposit and the wallet's own floor.
     const setAside = solSetAside({ walletFloor: snap.rents.walletFloor, feeReserve: LP_FEE_RESERVE, lpAccountRent, wsolCreateRent: 0n });
-    if (snap.signerLamports < setAside) return notSent('build', LP_COPY.needSol(sol(setAside), sol(snap.signerLamports)));
+    if (snap.signerLamports < setAside) return no(LP_COPY.needSol(sol(setAside), sol(snap.signerLamports)));
     availableQuote = amountOf(snap.quoteAccount.account);
   }
+  return { lpMint, plan, notices, availableQuote, availableToken };
+}
+
+export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared> {
+  // 1-7. Inputs, one fresh read, the token, the outside price and the pool's own check.
+  const r = await readForDeposit(rpc, gate, reads, a);
+  if ('fail' in r) return r.fail;
+  const { cfg, snap, view, p, quote, quoteMintKey, quoteIsToken0, safety, decimals, tokenFee, fees, health } = r;
+
+  // 7. The gate: stage 1's own check, on reads seconds old. 'allowed' may carry warnings
+  // (a price that is off, no market price, a copied name, a freezable token): they do not
+  // stop the build, and go on the summary below for the review to say.
+  if (health.deposits.verdict !== 'allowed') return notSent('build', LP_COPY.gateSaysNo(health.deposits.reasons));
+
+  // 8-10. The wallet's accounts, wrapped SOL, and what can go in.
+  const w = walletForDeposit(r, a.owner, a.tokenMint);
+  if ('fail' in w) return w.fail;
+  const { lpMint, plan, notices, availableQuote, availableToken } = w;
 
   // 11. The plan.
   const planned = planDeposit(view.snapshot, { quoteIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableQuote, availableToken, fees });
@@ -916,6 +966,232 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
         notices,
+      };
+    },
+  });
+}
+
+// ── restart (restart.ts) ─────────────────────────────────────────────────────
+
+/**
+ * The decoded steps of a restart must be exactly the plan: the deposit's own rule
+ * (`depositStepsProblem`, with the SOL wrapped for the deposit AND the top-up), then exactly
+ * one check-back with the planned shares and minima out of the pool-share account the
+ * deposit paid into, and exactly the planned top-ups, each into its own vault.
+ */
+export function restartStepsProblem(
+  steps: IntentStep[],
+  want: Parameters<typeof depositStepsProblem>[1] & {
+    check: { lp: bigint; min0: bigint; min1: bigint };
+    topUps: ReadonlyArray<{ vault: PublicKey; amount: bigint }>;
+  },
+): string | null {
+  const deposit = depositStepsProblem(steps, want);
+  if (deposit) return deposit;
+  const body = bodySteps(steps);
+  const checks = body.filter((s) => s.kind === 'pool-withdraw');
+  const c = checks[0];
+  if (checks.length !== 1 || !c || c.kind !== 'pool-withdraw') return 'The check-back is missing from the transaction.';
+  if (!c.pool.equals(want.pool) || !c.lpAccount.equals(want.lpAta) || c.lpAmount !== want.check.lp || c.min0 !== want.check.min0 || c.min1 !== want.check.min1) {
+    return 'The check-back in the transaction does not match the amounts worked out.';
+  }
+  const ups = body.flatMap((s) => (s.kind === 'pool-topup' ? [s] : []));
+  if (ups.length !== want.topUps.length || want.topUps.some((t) => !ups.some((u) => u.vault.equals(t.vault) && u.amount === t.amount))) {
+    return 'The top-up in the transaction does not match the amounts worked out.';
+  }
+  return null;
+}
+
+function restartProblemCopy(p: RestartProblem, ctx: Parameters<typeof depositProblemCopy>[1]): string {
+  switch (p.problem) {
+    case 'no-target':
+      return LP_COPY.restartNoTarget;
+    case 'too-small-to-restart':
+      return LP_COPY.restartTooSmall(p.least === null ? null : ctx.driving === 'quote' ? coin(p.least, ctx.s.quote) : tokens(p.least, ctx.decimals));
+    case 'too-small':
+      return LP_COPY.restartTooSmall(null);
+    default:
+      return depositProblemCopy(p, ctx);
+  }
+}
+
+/**
+ * Restarting an almost empty pool at the market price (restart.ts): the top-up, the deposit
+ * and the check-back, in ONE transaction. The same reads, checks and test runs as a deposit
+ * (`readForDeposit`, `walletForDeposit`, `buildAndSimulate`); only the gate differs. The
+ * pool's own check, on reads seconds old, must offer a restart (poolHealth.ts `restart`):
+ * the one thing refusing a deposit is that the pool is almost empty, and the outside price
+ * was read fresh. That price, never the pool's own, is where the pool is set.
+ */
+export async function prepareLpRestart(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared> {
+  const r = await readForDeposit(rpc, gate, reads, a);
+  if ('fail' in r) return r.fail;
+  const { cfg, snap, view, p, quote, quoteMintKey, quoteIsToken0, safety, decimals, tokenFee, fees, health } = r;
+
+  // The gate. A pool that takes ordinary deposits again is not restarted: someone has put
+  // money in since the page read it.
+  const offer = health.restart;
+  if (!offer) return notSent('build', health.deposits.verdict === 'allowed' ? LP_COPY.restartNotNeeded : LP_COPY.gateSaysNo(health.deposits.reasons));
+
+  const w = walletForDeposit(r, a.owner, a.tokenMint);
+  if ('fail' in w) return w.fail;
+  const { lpMint, plan, notices, availableQuote, availableToken } = w;
+
+  // The plan: the top-up, the deposit on the pool as it leaves it, and the check-back.
+  const planned = planRestart(view.snapshot, {
+    quoteIsToken0,
+    quoteDecimals: quote.decimals,
+    tokenDecimals: decimals,
+    perToken: offer.perToken,
+    driving: a.driving,
+    maxIn: a.maxIn,
+    bps: a.slippageBps,
+    availableQuote,
+    availableToken,
+    fees,
+  });
+  if ('problem' in planned) return notSent('build', restartProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps, tokenFee }));
+  const d = planned.deposit;
+  const c = planned.check;
+  const bySide = (v0: bigint, v1: bigint) => (quoteIsToken0 ? { quote: v0, token: v1 } : { quote: v1, token: v0 });
+  const max = bySide(d.max0, d.max1);
+  const topUp = bySide(planned.topUpSent0, planned.topUpSent1);
+  const checkMin = bySide(c.min0, c.min1);
+  const quoted = bySide(d.cost0, d.cost1);
+  const tokenKept = quoteIsToken0 ? d.fee1 : d.fee0;
+
+  // Moved since shown, as for a deposit.
+  const otherMax = a.driving === 'quote' ? max.token : max.quote;
+  if (a.shownOtherMax !== null && otherMax > a.shownOtherMax + (a.shownOtherMax * a.slippageBps) / 10_000n) {
+    const fmt = (v: bigint) => (a.driving === 'quote' ? tokens(v, decimals) : coin(v, quote));
+    return notSent('build', LP_COPY.moved(fmt(otherMax), fmt(a.shownOtherMax)));
+  }
+
+  // Pins. The check-back takes its shares from the account the deposit pays them into.
+  const lpAta = associatedTokenAddress(lpMint, a.owner, TOKEN_PROGRAM_ID);
+  const pins = poolPins(cfg, view, { tokenMint: a.tokenMint, lpAccount: lpAta });
+  if (typeof pins === 'string') return notSent('build', pins);
+
+  // The body: SOL wrapped for the deposit and the top-up; the pool-share account; the
+  // top-ups, each from the signer's own account for its coin into that coin's vault, under
+  // the coin's program; the deposit; the check-back; the wrapped-SOL account closed.
+  const mine = (mint: PublicKey, program: PublicKey) => associatedTokenAddress(mint, a.owner, program);
+  const sides = [
+    { mint: pins.token0Mint, program: pins.token0Program, vault: pins.vault0, amount: planned.topUpSent0, decimals: quoteIsToken0 ? quote.decimals : decimals },
+    { mint: pins.token1Mint, program: pins.token1Program, vault: pins.vault1, amount: planned.topUpSent1, decimals: quoteIsToken0 ? decimals : quote.decimals },
+  ].filter((t) => t.amount > 0n);
+  const topUps = sides.map((t) => createTransferCheckedInstruction(mine(t.mint, t.program), t.mint, t.vault, a.owner, t.amount, t.decimals, [], t.program));
+  const accounts = {
+    programId: cfg.cpSwapProgram,
+    owner: a.owner,
+    poolState: pins.address,
+    ownerLpToken: pins.lpAccount,
+    token0Account: mine(pins.token0Mint, pins.token0Program),
+    token1Account: mine(pins.token1Mint, pins.token1Program),
+    token0Vault: pins.vault0,
+    token1Vault: pins.vault1,
+    vault0Mint: pins.token0Mint,
+    vault1Mint: pins.token1Mint,
+    lpMint: pins.lpMint,
+  };
+  const deposit = depositIx({ ...accounts, lpTokenAmount: d.lp, maximumToken0Amount: d.max0, maximumToken1Amount: d.max1 });
+  const checkBack = withdrawIx({ ...accounts, lpTokenAmount: c.lp, minimumToken0Amount: c.min0, minimumToken1Amount: c.min1 });
+  const wrapSol = max.quote + topUp.quote;
+  const openLp = createAssociatedTokenAccountIdempotentInstruction(a.owner, lpAta, a.owner, lpMint, TOKEN_PROGRAM_ID);
+  const body: TransactionInstruction[] = plan
+    ? [openWsolIx(a.owner), ...wrapIxs(a.owner, wrapSol), openLp, ...topUps, deposit, checkBack, ...closeWsolIxs(plan, a.owner)]
+    : [openLp, ...topUps, deposit, checkBack];
+
+  const tokenAddress = snap.tokenAccount.address;
+  const quoteAddress = snap.quoteAccount.address;
+  const lpHeldBefore = amountOf(snap.lp.account);
+  const S = p.lpSupply;
+  const pct = (n: bigint, dd: bigint) => (dd > 0n ? (Number(n) / Number(dd)) * 100 : 0);
+
+  return buildAndSimulate(rpc, {
+    kind: 'lp-restart',
+    version: a.txVersion,
+    body,
+    extraSigners: [],
+    intent: { kind: 'lp-restart', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
+    watch: {
+      signer: a.owner,
+      tokenAccounts: [
+        { account: tokenAddress, mint: a.tokenMint, role: 'token', decimals },
+        { account: lpAta, mint: lpMint, role: 'lp', decimals: p.lpMintDecimals },
+        { account: quoteAddress, mint: quoteMintKey, role: plan ? 'wsol' : 'quote', decimals: quote.decimals },
+      ],
+    },
+    expect: (pre, rents) => {
+      const lpExists = pre.tokens.get(lpAta.toBase58())?.exists ?? false;
+      // The shares kept after the check-back, at least; no upper bound, as for a deposit.
+      const lpRow = { account: lpAta, mint: lpMint, minDelta: planned.keep, maxDelta: 2n ** 64n };
+      // The token leaves for the top-up and the deposit, and a little comes back from the check-back.
+      const tokRow = { account: tokenAddress, mint: a.tokenMint, minDelta: -(max.token + topUp.token) + checkMin.token, maxDelta: -1n };
+      if (!plan) {
+        return {
+          maxSolOut: lpExists ? 0n : rents.tokenAccount,
+          tokens: [lpRow, tokRow, { account: quoteAddress, mint: quoteMintKey, minDelta: -(max.quote + topUp.quote) + checkMin.quote, maxDelta: 2n ** 64n }],
+        };
+      }
+      const kept = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
+      return {
+        // Closed, what the check-back paid comes home as SOL; kept, it stays wrapped.
+        maxSolOut: (plan.closeAfter ? wrapSol - checkMin.quote : wrapSol) + (lpExists ? 0n : rents.tokenAccount),
+        tokens: [lpRow, tokRow, { account: plan.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan.closeAfter ? 0n : wrapSol - 1n + kept }],
+      };
+    },
+    newAccountRent: (pre, rents) => ((pre.tokens.get(lpAta.toBase58())?.exists ?? false) ? 0n : rents.tokenAccount),
+    summarize: (steps): TxSummary | string => {
+      const topUpsWanted = sides.map((t) => ({ vault: t.vault, amount: t.amount }));
+      const check = { lp: c.lp, min0: c.min0, min1: c.min1 };
+      const problem = restartStepsProblem(
+        steps,
+        plan
+          ? { pool: pins.address, lp: d.lp, max0: d.max0, max1: d.max1, maxSol: wrapSol, closeAfter: plan.closeAfter, wsolAta: plan.ata, lpAta, check, topUps: topUpsWanted }
+          : { pool: pins.address, lp: d.lp, max0: d.max0, max1: d.max1, lpAta, quoteNative: false, check, topUps: topUpsWanted },
+      );
+      if (problem) return problem;
+      const decoded = bodySteps(steps);
+      const dep = decoded.find((s) => s.kind === 'pool-deposit');
+      const chk = decoded.find((s) => s.kind === 'pool-withdraw');
+      if (!dep || dep.kind !== 'pool-deposit' || !chk || chk.kind !== 'pool-withdraw') return 'The deposit is missing from the transaction.';
+      const sent = (mint: PublicKey) => decoded.reduce((n, s) => (s.kind === 'pool-topup' && s.mint.equals(mint) ? n + s.amount : n), 0n);
+      return {
+        kind: 'lp-deposit',
+        pool: pins.address,
+        origin: pins.origin,
+        config: view.config,
+        enableCreatorFee: p.enableCreatorFee,
+        tokenMint: a.tokenMint,
+        tokenDecimals: decimals,
+        quote,
+        quoteIsToken0,
+        lpAmount: dep.lpAmount,
+        lpDecimals: p.lpMintDecimals,
+        quoted,
+        max: bySide(dep.max0, dep.max1),
+        transferFee: feeLine(tokenFee, tokenKept),
+        limitedByBalance: d.limitedByBalance,
+        sharePct: { before: pct(lpHeldBefore, S), after: pct(lpHeldBefore + planned.keep, S + planned.keep) },
+        // After the top-up the pool stands at the market price, so that is what it is checked against.
+        price: { state: 'agrees', pool: offer.perToken, reference: offer.perToken, against: 'outside', diff: 0, ...(offer.readAtMs !== undefined ? { readAtMs: offer.readAtMs } : {}) },
+        tokenWarnings: safety.warnings,
+        warnings: [...offer.warnings],
+        priceGap: null,
+        unwrapsWsol: decoded.some((s) => s.kind === 'close-wsol'),
+        wsolHeldBefore: plan ? plan.heldBefore : 0n,
+        notices,
+        restart: {
+          perToken: offer.perToken,
+          ...(offer.readAtMs !== undefined ? { readAtMs: offer.readAtMs } : {}),
+          topUp: { quote: sent(quoteMintKey), token: sent(a.tokenMint) },
+          costQuote: planned.costQuote,
+          checkLp: chk.lpAmount,
+          checkMin: bySide(chk.min0, chk.min1),
+          checkOut: bySide(c.out0, c.out1),
+          keep: planned.keep,
+        },
       };
     },
   });

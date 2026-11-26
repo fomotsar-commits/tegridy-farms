@@ -161,8 +161,12 @@ export interface ActionAvailability {
   poolSwap: boolean;
 }
 
-/** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
-export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
+/**
+ * Adding and removing liquidity in one of our cp-swap pools, and opening a new one.
+ * `lp-restart`: adding to an almost empty pool at the market price (restart.ts): a
+ * top-up, the deposit and a check-back withdrawal in one transaction.
+ */
+export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create' | 'lp-restart';
 
 /**
  * The venue's range program (solana/tegridy-clmm): opening a position with its Token-2022
@@ -248,6 +252,11 @@ export type IntentStep =
   | { kind: 'pool-deposit'; pool: PublicKey; lpAmount: bigint; max0: bigint; max1: bigint }
   /** cp-swap `withdraw`: `lpAmount` pool shares out of `lpAccount`, at least `min0` / `min1` back. */
   | { kind: 'pool-withdraw'; pool: PublicKey; lpAccount: PublicKey; lpAmount: bigint; min0: bigint; min1: bigint }
+  /**
+   * A restart's top-up (restart.ts): `amount` of `mint` from the signer's own account for it
+   * straight into `vault`, that coin's vault in `pool`. Only a restart holds one.
+   */
+  | { kind: 'pool-topup'; pool: PublicKey; mint: PublicKey; vault: PublicKey; amount: bigint }
   /**
    * cp-swap `initialize`: open `pool` on fee tier `ammConfig` (always tier 1) with exactly
    * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
@@ -609,6 +618,30 @@ export interface LpDepositSummary {
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
+  /** Set on a restart of an almost empty pool (restart.ts); absent on an ordinary deposit. */
+  restart?: LpRestartFacts;
+}
+
+/**
+ * What a restart adds to the deposit's review. Amounts by side, in each side's own base
+ * units. `topUp` and the check-back's `checkLp` / `checkMin` are decoded from the bytes.
+ */
+export interface LpRestartFacts {
+  /** The market price the pool is set to: whole pairing coins per whole token. */
+  perToken: number;
+  /** When the shared list read that price; absent for a fresh read. */
+  readAtMs?: number;
+  /** What leaves the wallet for the top-up. It stays in the pool for good. */
+  topUp: { quote: bigint; token: bigint };
+  /** What the top-up is worth at that price, in the pairing coin's base units. Display only. */
+  costQuote: bigint;
+  /** The check-back: these shares come straight back out, paying at least `checkMin`. */
+  checkLp: bigint;
+  checkMin: { quote: bigint; token: bigint };
+  /** What the check-back pays at the fresh read. Display only. */
+  checkOut: { quote: bigint; token: bigint };
+  /** The shares the wallet keeps: the deposit's less the check-back's. */
+  keep: bigint;
 }
 
 /** Removing liquidity, as the review shows it. `min` is decoded from the bytes. */
