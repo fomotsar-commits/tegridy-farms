@@ -211,6 +211,14 @@ export interface PoolHealth {
    * (empty when there are none) and do not change the verdict: `allowed` may carry them.
    */
   deposits: { verdict: 'allowed' | 'refused' | 'unchecked'; reasons: string[]; warnings: string[] };
+  /**
+   * Set when the ONE thing refusing a deposit is that the pool is almost empty, and the
+   * outside price was read: the pool can be restarted at that price instead (restart.ts).
+   * `perToken` is that price in the pool's own coin, as `PriceCheck.reference` is. Its
+   * `warnings` are the token's only: a restart sets the pool's price, so how far off it
+   * was costs nothing. Null in every other case.
+   */
+  restart: { perToken: number; readAtMs?: number; warnings: string[] } | null;
 }
 
 /**
@@ -485,8 +493,9 @@ export function assessPool(input: {
     const listed = reference?.kind === 'unread' && reference.row === true;
     price = { state: 'unread', pool: poolPrice, detail: listed ? reference.detail : 'Outside price not read yet', outside: true };
   }
+  const nearlyEmpty = price.state !== 'empty-pool' && tooFewShares(pool.lpSupply);
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
-  else if (tooFewShares(pool.lpSupply)) refused.push(NEARLY_EMPTY);
+  else if (nearlyEmpty) refused.push(NEARLY_EMPTY);
   if (price.state === 'unread' && !price.outside) {
     unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
   }
@@ -514,10 +523,17 @@ export function assessPool(input: {
   if (price.state === 'reserves-moved') warnings.push(RESERVES_MOVED_WARNING);
   if (price.state === 'too-quiet') warnings.push(TOO_QUIET_WARNING);
 
+  // A restart (restart.ts) replaces only the almost-empty refusal, and only at a price that was read.
+  const restart =
+    nearlyEmpty && reference?.kind === 'ok' && unchecked.length === 0 && refused.every((r) => r === NEARLY_EMPTY)
+      ? { perToken: reference.perToken, ...(reference.readAtMs !== undefined ? { readAtMs: reference.readAtMs } : {}), warnings: [...token.warned] }
+      : null;
+
   return {
     swaps,
     withdrawals,
     price,
+    restart,
     deposits: refused.length
       ? { verdict: 'refused', reasons: [...refused, ...unchecked], warnings }
       : unchecked.length
