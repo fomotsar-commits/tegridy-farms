@@ -9,7 +9,7 @@ import { feeRateText, pctText } from './format';
  * The LP section's two short blocks: how a liquidity provider earns, and how the venue
  * does. Every pool rate is the public fee tier's as the page just read it; with no tier
  * read, no number is said. The swap fee is the swap's own build setting (lib/solana.ts).
- * A wallet is called the team's shared wallet only when the chain names that vault.
+ * A wallet is called the team's vault only when the chain names that address.
  */
 
 export const EARN_TITLES = { you: 'How you earn', venue: 'How the venue earns' } as const;
@@ -45,7 +45,7 @@ export function howYouEarn(tier: AmmConfigView | null): string[] {
 
 /**
  * The split agreed with the island (2026-10-18), per fee tier index, per million of the
- * trade fee: the protocol part to the team's shared wallet, the fund part to the island's
+ * trade fee: the protocol part to the team's vault, the fund part to the island's
  * Workshop. Squads #13 set both tiers this way on 2026-10-19. A tier with no row has none.
  */
 export const AGREED_SPLIT: Readonly<Record<number, { protocol: bigint; fund: bigint }>> = {
@@ -68,8 +68,8 @@ export interface VenueEarns {
   elsewhere: boolean;
 }
 
-const VAULT_CAN = 'which needs two signatures and can change the pool rates';
-const VAULT_LABEL = 'Team’s shared wallet';
+const VAULT_CAN = 'which can change fee rates if both keys approve';
+const VAULT_LABEL = 'Team’s vault';
 const WORKSHOP_LABEL = 'Island’s Workshop';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
@@ -90,7 +90,7 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
   const takes = [...take].filter(([a, rate]) => rate > 0n || a === vault || a === workshop);
   const ofTrade = (rate: bigint) => pctText(Number(tier.tradeFeeRate * rate) / Number(10_000n * FEE_RATE_DENOMINATOR));
   const share = (rate: bigint) => `${feeRateText(rate)} (${ofTrade(rate)} of the trade)`;
-  const name = (a: string) => (a === vault ? 'the team’s shared wallet' : a === workshop ? 'the island’s Workshop' : 'another wallet');
+  const name = (a: string) => (a === vault ? 'the team’s vault' : a === workshop ? 'the island’s Workshop' : 'another wallet');
   const label = (a: string) => (a === vault ? VAULT_LABEL : a === workshop ? WORKSHOP_LABEL : 'Another wallet');
   const agreed = AGREED_SPLIT[tier.index];
   const isAgreed =
@@ -106,7 +106,7 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
   let swapTo = '';
   if (jupiter) {
     const paid = wallets.find((w) => w.address === jupiter.wallet);
-    if (jupiter.wallet === vault) swapTo = ' The swap fee goes to the team’s shared wallet.';
+    if (jupiter.wallet === vault) swapTo = ' The swap fee goes to the team’s vault.';
     else if (paid) paid.label = `${paid.label}, and swap fee wallet`;
     else {
       wallets.push({ label: 'Swap fee wallet', address: jupiter.wallet });
@@ -114,11 +114,11 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
     }
   }
   if (isAgreed) {
-    const where = `Of each trade’s fee, ${share(tier.protocolFeeRate)} goes to the team’s shared wallet, ${VAULT_CAN}, and ${share(tier.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`;
+    const where = `Of each trade’s fee, ${share(tier.protocolFeeRate)} goes to the team’s vault, ${VAULT_CAN}, and ${share(tier.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`;
     return { sources, where: `${where}${swapTo}`, wallets, elsewhere: false };
   }
   const head = agreed
-    ? `The venue’s cut does not follow the agreed split (${feeRateText(agreed.protocol)} of each trade’s fee to the team’s shared wallet, ${feeRateText(agreed.fund)} to the island’s Workshop).`
+    ? `The venue’s cut does not follow the agreed split (${feeRateText(agreed.protocol)} of each trade’s fee to the team’s vault, ${feeRateText(agreed.fund)} to the island’s Workshop).`
     : 'This fee tier has no split agreed with the island.';
   const parts = takes.map(([a, rate]) => `${rate > 0n ? share(rate) : 'nothing'} to ${name(a)}`);
   const sends = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];

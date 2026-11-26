@@ -9,7 +9,7 @@ import { promptCount, runHarvest, runSummary, type SendTogether } from '../../li
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { forgetHeldReads } from '../../lib/wallet/heldReads';
 import {
-  orderClaims,
+  orderClaims, withFees,
   type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestEarning, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
 import { HarvestView, type RunRow } from './HarvestView';
@@ -29,16 +29,21 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
   useEffect(() => {
     if (!address) return;
     let live = true;
-    void import('../../lib/harvest/solana')
-      .then((m) => m.readSolanaHarvest(address))
-      .catch((e: unknown): HarvestPlan<SolanaClaim> => ({
-        claims: [],
-        held: [],
-        unread: [{ key: 'sol', chain: 'solana', roomId: '', what: 'your Solana pools', detail: e instanceof Error ? e.message : 'the Solana code could not load' }],
-      }))
-      .then((plan) => {
-        if (live) setRead({ owner: address, plan });
-      });
+    const failed = (key: string, what: string) => (e: unknown): HarvestPlan<SolanaClaim> => ({
+      claims: [],
+      held: [],
+      unread: [{ key, chain: 'solana', roomId: '', what, detail: e instanceof Error ? e.message : 'the Solana code could not load' }],
+    });
+    void (async () => {
+      const stakes = await import('../../lib/harvest/solana')
+        .then((m) => m.readSolanaHarvest(address))
+        .catch(failed('sol', 'your Solana pools'));
+      // The pool fees after the staking pools, never alongside: two bursts at once are what the RPC turns away.
+      const fees = live
+        ? await import('../solana/lp/harvestFees').then((m) => m.readFeeHarvest(address)).catch(failed('lp', 'your pool shares'))
+        : null;
+      if (live) setRead({ owner: address, plan: fees ? withFees(stakes, fees) : stakes });
+    })();
     return () => {
       live = false;
     };
@@ -69,7 +74,9 @@ const HARVEST_RETRY_MS: readonly number[] = [20_000, 60_000];
 
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
- * from every island pool, instead of opening each pool and claiming there.
+ * from every island pool, instead of opening each pool and claiming there. Since 2026-11-20
+ * it also claims the fees the Solana wallet's shares of island coins' pools earned, each
+ * where its Pools row would offer Claim fees (components/solana/lp/harvestFees.ts).
  *
  * It reads every pool for the wallets connected (Solana: each lighthouse pool and the
  * lock ladder; Ethereum and Base: each lighthouse pool), lists what each can claim in its

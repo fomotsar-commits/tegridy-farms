@@ -155,6 +155,21 @@ export async function readTx(rpc: Rpc, signature: string, waitsMs: readonly numb
   }
 }
 
+/**
+ * What `wallet` received of a coin in a transaction that landed without an error: its token
+ * accounts' gain, or for native SOL the payer's lamports with the network fee given back
+ * (receivedBy's reading). Null when the transaction cannot say.
+ */
+export function receivedIn(tx: Tx, wallet: string, got: { mint: string; native: boolean }): bigint | null {
+  const meta = tx.meta as Meta | null | undefined;
+  if (!meta || meta.err) return null;
+  if (!got.native) return ownerDelta(meta, wallet, got.mint);
+  const payer = tx.transaction.message.staticAccountKeys[0]?.toBase58();
+  const pre = tx.meta?.preBalances[0];
+  const post = tx.meta?.postBalances[0];
+  return payer === wallet && pre !== undefined && post !== undefined ? BigInt(post) - BigInt(pre) + BigInt(meta.fee) : null;
+}
+
 export interface Coin {
   mint: string;
   symbol: string;
@@ -206,15 +221,7 @@ export async function settleSwapReceipt(
     return;
   }
   const e = ask.route.kind === 'pool' ? eventsOf(meta.logMessages).swaps.find((s) => ask.route.kind === 'pool' && s.pool === ask.route.pool) : undefined;
-  let got: bigint | null = e ? e.outputAmount : null;
-  if (got === null && !ask.got.native) got = ownerDelta(meta, ask.wallet, ask.got.mint);
-  if (got === null && ask.got.native) {
-    // Native SOL out: the payer's lamports, the network fee given back (receivedBy's reading).
-    const payer = tx.transaction.message.staticAccountKeys[0]?.toBase58();
-    const pre = tx.meta?.preBalances[0];
-    const post = tx.meta?.postBalances[0];
-    got = payer === ask.wallet && pre !== undefined && post !== undefined ? BigInt(post) - BigInt(pre) + BigInt(meta.fee) : null;
-  }
+  const got: bigint | null = e ? e.outputAmount : receivedIn(tx, ask.wallet, ask.got);
   const paidAmount = e ? e.inputAmount : ask.sent;
   const bought = ask.action === 'bought';
   const coinAmount = bought ? got : paidAmount;
