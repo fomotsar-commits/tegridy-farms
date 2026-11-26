@@ -132,10 +132,9 @@ export default function PoolsPage() {
             </h2>
             {/* How fees reach a share is the section's own first line, above; here only what the vault can do. */}
             <p className="text-white/80 text-[13px] leading-relaxed">
-              No lock, but the team&apos;s vault can pause removing.
+              No lock; the team&apos;s vault can switch off withdrawals.
             </p>
             <FinePrint summary="How it works" className="mt-2">
-              <p>Fees grow your share as the pool trades.</p>
               {!venueIsOpen && (
                 <p>
                   Depositing from this page waits on a live read of the venue. The status card
@@ -147,8 +146,8 @@ export default function PoolsPage() {
                 <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.</li>
                 <li>
                   Burning the LP token returns your share of both sides. Pools have no lock, but the
-                  team&apos;s vault can switch removing off on a pool, and then no one can take money out
-                  until it is switched back on.
+                  team&apos;s vault can switch off withdrawals on a pool, and then no one can take money out
+                  until they are switched back on.
                 </li>
                 <li>
                   Impermanent loss is real: a constant-product pool rebalances against you when

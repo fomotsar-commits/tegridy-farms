@@ -11,8 +11,7 @@ import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { LEDGER_COPY, LEDGER_LABELS, ledgerFigures, ledgerText, ledgerUnits, type LedgerEntry, type LedgerLine, type LedgerRead } from '../../../lib/solana/lp/ledger';
-import { claimSentOn } from '../../../lib/solana/lp/claimed';
-import { isPlanProblem, planWithdrawShares, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import { feeClaimOf } from '../../../lib/solana/lp/feeClaim';
 import { DEFAULT_SLIPPAGE_BPS } from '../curve/uiFormat';
 import { poolDays } from '../../../lib/solana/lp/poolDays';
 import { TRENCHER_WORDS } from '../../../lib/arrival';
@@ -27,7 +26,7 @@ import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import { AddressRow } from './AddressRow';
-import { LeaveWithoutThisSite } from './LpDisclosures';
+import { LeaveWithoutThisSite, LpSummary } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
 import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
@@ -303,9 +302,7 @@ function PositionsList({
       )}
       {aside.length > 0 && (
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-          <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
-            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside
-          </summary>
+          <LpSummary>{plural(aside.length, 'other pool share', 'other pool shares')}, set aside</LpSummary>
           <p className="px-3 text-white/70">
             Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with{' '}
             {QUOTE_COINS_OR}, or pools we could not confirm.
@@ -566,7 +563,7 @@ function PositionRow({
         onAllPools={onAllPools}
       />
       <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-        <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about this share</summary>
+        <LpSummary>More about this share</LpSummary>
         <div className="space-y-1.5 px-3 pb-3">
           {view && shareRows}
           {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
@@ -786,14 +783,13 @@ function LedgerBlock({
   const writes = useLpWrites();
   // Fees to claim: figures that balance for every share, a trade on the pool's record, shares that are
   // growth alone and pay out on both sides, and no claim already sent on this balance.
-  const claimable = (() => {
-    if (!canClaim || !writes || r?.kind !== 'ok' || r.case !== 'A' || trade.kind === 'none') return null;
-    const f = r.figures;
-    if (f.growth.kind !== 'amount' || f.growth.coin <= 0n || f.claimShares <= 0n || claimSentOn(p.lpAccount, p.lpAmount)) return null;
-    const fee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
-    const plan = planWithdrawShares(view.snapshot, { held: p.lpAmount, lp: f.claimShares, bps: DEFAULT_SLIPPAGE_BPS, fees: poolFeesOf(view.quoteIsToken0, fee) });
-    return isPlanProblem(plan) ? null : f;
-  })();
+  // The one rule Harvest asks too (feeClaim.ts).
+  const claimable = !writes
+    ? null
+    : feeClaimOf({
+        read: r, trade, canClaim, lpAccount: p.lpAccount, lpAmount: p.lpAmount, snapshot: view.snapshot, quoteIsToken0: view.quoteIsToken0,
+        tokenFee: feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null), slippageBps: DEFAULT_SLIPPAGE_BPS,
+      })?.figures ?? null;
   // A deposit or withdrawal the chain has not finalized yet is said so on its own line.
   const notFinal = (line: LedgerLine, kinds: LedgerEntry['kind'][]): LedgerLine =>
     shown?.entries.some((e) => kinds.includes(e.kind) && 'final' in e && !e.final) ? { ...line, note: `${line.note} ${LEDGER_COPY.notFinal}` } : line;
