@@ -296,10 +296,22 @@ function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
 /**
  * The pool's tier and what a trade on the pool costs: the trade fee, plus the creator fee
  * when the pool's own switch is on (`enableCreatorFee`, read with the pool while preparing).
+ * Two whole phrases: a phone breaks the row between them, never before its last word. Also
+ * the Open a pool form's own row (CreatePoolPanel.tsx).
  */
-function feeTierText(config: LpSummary['config'], enableCreatorFee: boolean): string {
-  if (!config) return 'not read';
-  return `${config.index}: traders pay ${tradeCostText(config, enableCreatorFee)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+export function FeeTierValue({ config, enableCreatorFee }: { config: LpSummary['config']; enableCreatorFee: boolean }) {
+  if (!config) return <>not read</>;
+  return (
+    <>
+      <span className="inline-block">
+        Tier {config.index}: traders pay {tradeCostText(config, enableCreatorFee)};
+      </span>{' '}
+      {/* What LPs keep and what the venue takes, together (owner, 2026-10-09: it stays in view). */}
+      <span className="inline-block">
+        LPs keep {feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade, the venue {feeSplit(config).venueTakesPct.toFixed(3)}%
+      </span>
+    </>
+  );
 }
 
 /** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
@@ -462,7 +474,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
   return (
     <>
       <LpPoolRows summary={s} />
-      <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={s.enableCreatorFee} />} mono={false} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
@@ -605,7 +617,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
-      <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={CREATOR_FEE_SWITCH.publicOpen} />} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       {s.transferFee && (
@@ -996,7 +1008,7 @@ export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx
       {(prepared.simulated.solDeltas ?? []).map((t) => (
         <Row
           key={t.account.toBase58()}
-          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the venue’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
+          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the team’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
           value={signedSol(t.delta)}
           line="fee"
         />
@@ -1332,8 +1344,16 @@ export function TxFlowView({
   resetMeans,
   afterConfirmed,
   coinName,
+  signWhenReady = false,
 }: {
   flow: TxFlow;
+  /**
+   * One press (owner, 2026-11-19: "claiming yield from lps is 3 different clicks just to
+   * harvest"): a review whose test run passed goes to the wallet with no Sign press, and
+   * stays on screen beside the wallet. Only for a claim, where nothing is picked. A review
+   * built again that reads differently still waits for Sign in wallet.
+   */
+  signWhenReady?: boolean;
   /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
   coinName?: (mint: string) => string | null;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
@@ -1380,6 +1400,17 @@ export function TxFlowView({
   const setFocus = (el: HTMLElement | null) => {
     focusRef.current = el;
   };
+  // The panel's `extraReview` is its own and does not come from the prepared
+  // transaction, so the lines compared are the review's alone.
+  const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
+  // One press: each build's first review goes to the wallet by itself, once.
+  const signedBy = useRef<PreparedTx | null>(null);
+  const autoReview = signWhenReady && s.step === 'review' && !s.replaced && !s.expired && !s.checking && !s.renewing ? s.prepared : null;
+  useEffect(() => {
+    if (!autoReview || !signer || signedBy.current === autoReview) return;
+    signedBy.current = autoReview;
+    void flow.confirm(signer, lines);
+  });
   if (s.step === 'idle') return null;
   if (s.step === 'preparing') {
     return (
@@ -1392,9 +1423,6 @@ export function TxFlowView({
     // Too old to sign, and its build may not run twice (the launch): only Start over is left.
     const dead = s.expired && !s.renewable;
     const working = s.checking || s.renewing;
-    // The panel's `extraReview` is its own and does not come from the prepared
-    // transaction, so the lines compared are the review's alone.
-    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
     return (
       <div className="space-y-3">
         <TxReview
@@ -1440,14 +1468,20 @@ export function TxFlowView({
   if (s.step === 'submitting') {
     const waiting = (
       <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
-        Waiting for your wallet. Approve the transaction there to send it.
+        {signWhenReady
+          ? 'Waiting for your wallet. Approve it there if it matches what is below.'
+          : 'Waiting for your wallet. Approve the transaction there to send it.'}
       </p>
     );
-    if (!s.moved) return waiting;
+    // One press: the review was not read before the wallet opened, so it stays beside it.
+    if (!s.moved && !signWhenReady) return waiting;
     return (
       <div className="space-y-2">
         {waiting}
-        <MovedLines moved={s.moved} />
+        {s.moved && <MovedLines moved={s.moved} />}
+        {signWhenReady && (
+          <TxReview prepared={s.prepared} decimals={decimals} display={api.meta.displaySafe} extra={extraReview} coinName={coinName} />
+        )}
       </div>
     );
   }

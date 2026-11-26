@@ -97,8 +97,8 @@ describe('the LP section', () => {
   it('always discloses the missing review and what the vault can do', async () => {
     mount(readers(), '/pools');
     const d = screen.getByTestId('lp-disclosure');
-    expect(d).toHaveTextContent(/have not had their own independent review yet/);
-    expect(d).toHaveTextContent(/switch off adding, removing or trading on any pool/);
+    expect(d).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
+    expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
     expect(d).toHaveTextContent(/only reads/);
     // Both tabs that mount this section end with "The program", so the pointer is plain text.
     expect(d).toHaveTextContent('(see “The program” below)');
@@ -460,7 +460,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve (as read on chain on 2026-11-14). No outside firm has checked our changes. Only add what you can afford to lose.";
+    "The team's vault can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve (read on chain 2026‑11‑14). Our changes to Raydium's program have no outside audit. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -498,12 +498,12 @@ describe('the order of the section', () => {
   it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait as read, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('48 hours after both its keys approve (as read on chain on 2026-11-14).');
+    expect(line).toContain('48 hours after both keys approve (read on chain 2026‑11‑14).');
     expect(line).not.toMatch(/no waiting period|at once/);
-    expect(line).toContain('can pause removing');
+    expect(line).toContain('can switch off withdrawals');
     expect(line).toContain('change fees');
     expect(line).toContain('replace the program');
-    expect(line).toContain('No outside firm has checked our changes.');
+    expect(line).toContain("Our changes to Raydium's program have no outside audit.");
     expect(line).toMatch(/Only add what you can afford to lose\.$/);
     // The line it replaced did not say that removing can be paused; it is gone from the page.
     expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
@@ -526,14 +526,14 @@ describe('the order of the section', () => {
     expect(small).not.toHaveAttribute('open');
     expect(small).toContainElement(sentence!);
     expect(small!.querySelector('p')).toBe(sentence);
-    expect(small).toHaveTextContent(/have not had their own independent review yet/);
+    expect(small).toHaveTextContent(/Our changes to Raydium's program have no outside audit\./);
     for (const fact of [
       'Read on chain 2026-11-14',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
       `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
       'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
       'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
-      'The vault can switch off adding, removing or trading on any pool.',
+      'The vault can switch off deposits, withdrawals or swaps on any pool.',
       // Since the pool program's upgrade of 2026-11: the fee ceilings, the island's share, the guard.
       'a fee tier charges a trader at most four percent of a swap, and at most a fifth of that trading fee goes to the venue and the island together',
       'On the two fee tiers open today the vault cannot collect the island’s share or send it anywhere else.',
@@ -544,7 +544,7 @@ describe('the order of the section', () => {
       'On both fee tiers open today the vault names the venue’s own price robot, wallet 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz. Everyone else pays as before.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
-      'you could not take your money out of that pool until it switched removing back on',
+      'you could not take your money out of that pool until it switched them back on',
     ]) {
       expect(small).toHaveTextContent(fact);
     }
@@ -616,17 +616,17 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
     expect(rates).toHaveTextContent(
-      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
     expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
     expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();
-    const wallet = within(rates).getByRole('group', { name: 'Team’s shared wallet' });
+    const wallet = within(rates).getByRole('group', { name: 'Team’s vault' });
     expect(wallet.closest('details')).not.toBeNull();
     expect(wallet).toHaveTextContent('GRMt…8osd');
     expect(wallet).not.toHaveTextContent(VAULT);
     fireEvent.click(within(wallet).getByRole('button', { name: /Show full address/ }));
-    expect(within(rates).getByRole('group', { name: 'Team’s shared wallet' })).toHaveTextContent(VAULT);
+    expect(within(rates).getByRole('group', { name: 'Team’s vault' })).toHaveTextContent(VAULT);
     // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
@@ -666,26 +666,26 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
     const flag = within(await card()).getByTestId('lp-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
-    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s shared wallet, 5\.6% to the island’s Workshop\)\. /);
+    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s vault, 5\.6% to the island’s Workshop\)\. /);
     return flag;
   };
 
   it('a tier that sends part of the venue’s cut to another wallet says so in plain sight, in bold, with the wallet', async () => {
     const flag = await flagged({ protocolOwner: OTHER });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s shared wallet, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s vault, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
     expect(within(flag).getByRole('group', { name: 'Another wallet, 10.4% of each trade’s fee' })).toHaveTextContent('Fu7m…tTb6');
   });
 
   it('a fund owner that is the team’s vault (the program’s default) keeps the island’s part: said in bold, not as the agreed split', async () => {
     const flag = await flagged({ fundOwner: VAULT });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s shared wallet and nothing to the island’s Workshop\./);
-    expect(within(flag).getByRole('group', { name: 'Team’s shared wallet, 16% of each trade’s fee' })).toBeInTheDocument();
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s vault and nothing to the island’s Workshop\./);
+    expect(within(flag).getByRole('group', { name: 'Team’s vault, 16% of each trade’s fee' })).toBeInTheDocument();
     expect(within(flag).getByRole('group', { name: 'Island’s Workshop' })).toBeInTheDocument();
   });
 
   it('the right wallets at other rates: said in bold too', async () => {
     const flag = await flagged({ protocolFeeRate: 120_000n, fundFeeRate: 40_000n });
-    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s shared wallet and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s vault and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
   });
 
   it('still reading, a read that failed, tiers that are not there: each said, and none prints a pool rate or a wallet', async () => {
@@ -704,7 +704,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
       expect(rates).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
       expect(within(within(rates).getByTestId('lp-venue-sources')).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools.', 'A fee when a public pool is opened.']);
       expect(within(rates).queryByRole('group', { name: /wallet/i })).toBeNull();
-      expect(rates).not.toHaveTextContent(/shared wallet/);
+      expect(rates).not.toHaveTextContent(/team’s vault|shared wallet/);
       view.unmount();
     }
   });
