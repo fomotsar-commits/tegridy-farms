@@ -495,7 +495,8 @@ describe('the list of every pool', () => {
 // once, under "Deposits: refused here". A pool on the launch tier without a launch is in neither.
 describe('a pool that refuses deposits, for every reason', () => {
   const T22 = new PublicKey(TOKEN_2022_NATIVE_MINT);
-  const cases: { name: string; pool: () => PoolView; safety?: (mint: string) => TokenSafety; reason: string }[] = [
+  // `noPrice`: Jupiter answers that the token has no route, so nothing can stand in for its market price.
+  const cases: { name: string; pool: () => PoolView; safety?: (mint: string) => TokenSafety; reason: string; noPrice?: true }[] = [
     { name: 'Adding off', pool: () => view({ status: POOL_STATUS_DISABLE_DEPOSIT }), reason: 'Deposits are switched off on this pool.' },
     { name: 'Removing off', pool: () => view({ status: POOL_STATUS_DISABLE_WITHDRAW }), reason: 'Withdrawals are switched off on this pool, so money put in now could not be taken out.' },
     { name: 'Trading off', pool: () => view({ status: POOL_STATUS_DISABLE_SWAP }), reason: 'Swaps are switched off on this pool, so liquidity here earns nothing.' },
@@ -504,7 +505,8 @@ describe('a pool that refuses deposits, for every reason', () => {
     { name: 'Trading not open yet', pool: () => view({ openTime: 2_000n }), reason: 'Deposits wait until then.' },
     { name: 'Trading blocked for years', pool: () => view({ openTime: 10n ** 10n }), reason: 'Liquidity added before then earns nothing.' },
     { name: 'empty on one side', pool: () => view({ t: 0n }), reason: 'The pool is empty on one side, so it has no price.' },
-    { name: 'Almost empty', pool: () => view({ lpSupply: 1_100n }), reason: NEARLY_EMPTY },
+    // With a market price it is restarted instead (restart.ts): the test after these.
+    { name: 'Almost empty, with no market price', pool: () => view({ lpSupply: 1_100n }), reason: NEARLY_EMPTY, noPrice: true },
     { name: 'SOL under the newer token program', pool: () => view({ mint: T22 }), reason: 'This is SOL under the newer token program. This site does not add to a pool for it.' },
     { name: 'a token that does not exist', pool: () => view(), safety: (mint) => ({ kind: 'absent', mint }), reason: 'The token does not exist.' },
     {
@@ -515,15 +517,16 @@ describe('a pool that refuses deposits, for every reason', () => {
     },
   ];
 
-  function mountList(v: PoolView, safety: TokenSafety) {
+  function mountList(v: PoolView, safety: TokenSafety, noPrice = false) {
     const r = readers([v], { kind: 'ok', list: { pools: [v], unread: 0, truncated: false, chainNow: 1_000n, safety: new Map([[v.tokenMint, safety]]) } });
     r.safety = vi.fn(async () => new Map([[v.tokenMint, safety]]));
+    if (noPrice) r.outsidePrice = vi.fn(async () => ({ kind: 'no-route' as const, detail: 'Jupiter has no route for this token' }));
     mount(r, '/pools');
   }
 
   it.each(cases)('$name: the row’s Add looks off and opens the card, which says the reason once', async (c) => {
     const v = c.pool();
-    mountList(v, c.safety?.(v.tokenMint) ?? { ...okToken, mint: v.tokenMint });
+    mountList(v, c.safety?.(v.tokenMint) ?? { ...okToken, mint: v.tokenMint }, c.noPrice);
     const [row] = await screen.findAllByTestId('lp-all-pools-row');
     const add = within(row!).getByRole('button', { name: /^Add to / });
     expect(add).toHaveAttribute('aria-disabled', 'true');
@@ -548,6 +551,22 @@ describe('a pool that refuses deposits, for every reason', () => {
     expect(described.join(' ')).toContain(c.reason);
     expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+  }, 20_000);
+
+  // Owner, 2026-11-26: "allow the new person to use market price". The same almost empty pool,
+  // with Jupiter's price read: its card opens the restart form, never an ordinary add.
+  it('Almost empty, at a market price: the row’s press opens the card’s restart form', async () => {
+    const v = view({ lpSupply: 1_100n });
+    mountList(v, { ...okToken, mint: v.tokenMint });
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    fireEvent.click(within(row!).getByRole('button', { name: /^(Add to|Restart) / }));
+    const panel = await screen.findByTestId('lp-add-panel', {}, { timeout: 8_000 });
+    expect(panel).toHaveTextContent('Restart this pool at the market price');
+    expect(within(panel).getByRole('button', { name: 'Review: restart this pool' })).toBeInTheDocument();
+    const card = cardOf(v.address);
+    expect(within(card).getByTestId('lp-pool-deposits')).toHaveTextContent('Deposits: only as a restart at the market price');
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
   }, 20_000);
 
   it('a pool that takes deposits keeps its green Add', async () => {

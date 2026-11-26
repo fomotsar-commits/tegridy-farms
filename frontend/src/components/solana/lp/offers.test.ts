@@ -187,12 +187,15 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(view({ sol: 0n })))).toBe('dust');
   });
 
-  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no ordinary deposit (poolHealth.ts).
+  // With the market price read it can be restarted at that price instead (restart.ts, owner 2026-11-26).
   // Whoever holds its last shares can still take them out.
-  it('a pool almost everyone has left: Add is refused by its checks, and Remove is still offered', () => {
+  it('a pool almost everyone has left: Add is a restart at a read price, refused without one, and Remove is still offered', () => {
     // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units: 0.01 SOL a token.
     const v = view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n });
-    expect(add(v)).toBe('checks');
+    expect(add(v)).toBe('restart');
+    expect(add(v, { price: 'unread' })).toBe('checks');
+    expect(add(v, { price: 'no-route' })).toBe('checks');
     expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
   });
 

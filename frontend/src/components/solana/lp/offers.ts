@@ -27,21 +27,23 @@ import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { LpGate, LpKind } from '../curve/ports';
 
-export type DepositOffer = 'offer' | 'paused-here' | 'held' | 'checks' | 'gate' | 'off';
+export type DepositOffer = 'offer' | 'restart' | 'paused-here' | 'held' | 'checks' | 'gate' | 'off';
 
 /**
  * Add liquidity, in this order: LP switched off → the gate is not open → adding is
  * paused ('withdraw-only') → a deposit to this pool is still pending → the pool's
  * deposit checks do not say 'allowed' → offer. 'unchecked' never deposits. An 'allowed'
  * pool is offered whatever warnings it carries (poolHealth.ts): a warning is told, and
- * never takes the button away.
+ * never takes the button away. A pool whose ONE refusal is that it is almost empty, with
+ * the outside price read, is offered a restart at that price instead (`restart`,
+ * restart.ts): never an ordinary deposit, and never suggested by itself anywhere else.
  */
 export function depositOffer(a: { mode: LpWriteMode; gate: LpGate | null; health: PoolHealth; held: boolean }): DepositOffer {
   if (a.mode === 'off') return 'off';
   if (!a.gate || a.gate.kind !== 'open') return 'gate';
   if (a.mode === 'withdraw-only' || a.gate.mode === 'withdraw-only') return 'paused-here';
   if (a.held) return 'held';
-  if (a.health.deposits.verdict !== 'allowed') return 'checks';
+  if (a.health.deposits.verdict !== 'allowed') return a.health.restart ? 'restart' : 'checks';
   return 'offer';
 }
 

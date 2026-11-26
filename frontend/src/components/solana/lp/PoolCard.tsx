@@ -31,6 +31,7 @@ import { CardArt } from '../../ui/CardArt';
 import { PoolTradeDialWhenOpen } from './PoolTradeDial';
 import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
+import { FinePrint } from '../../ui/FinePrint';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
 import { PriceFlip } from './PriceFlip';
@@ -99,7 +100,8 @@ function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad'
  * name or can be frozen) is never called a clean pass: the heading says there are
  * warnings, in the warning colour, and they are listed under it.
  */
-function depositHeading(d: PoolHealth['deposits']): { title: string; tone: string } {
+function depositHeading(d: PoolHealth['deposits'], restart: boolean): { title: string; tone: string } {
+  if (d.verdict === 'refused' && restart) return { title: 'Deposits: only as a restart at the market price', tone: 'text-amber-300/90' };
   if (d.verdict === 'refused') return { title: 'Deposits: refused here', tone: 'text-rose-300/90' };
   if (d.verdict === 'unchecked') return { title: 'Deposits: a check did not run', tone: 'text-amber-300/90' };
   return d.warnings.length > 0
@@ -296,6 +298,8 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth, listedBelow: bool
       return 'adding liquidity from this site is paused right now.';
     case 'held':
       return 'a deposit you sent to this pool is not confirmed yet.';
+    case 'restart':
+      return 'this pool is almost empty, so it can only be restarted at the market price (under Deposits, below).';
     case 'checks':
       return health.deposits.verdict === 'refused'
         ? `this pool does not pass the checks a deposit needs${reasons}`
@@ -391,7 +395,7 @@ export function PoolCard({
   const quoteFees = view.quoteIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
-  const depositsHead = depositHeading(health.deposits);
+  const depositsHead = depositHeading(health.deposits, health.restart !== null);
   // The room's own pool tells Bayla's line its price and how old its outside price is (answer twenty-four, build 4).
   useEffect(() => {
     if ((price.state !== 'agrees' && price.state !== 'disagrees') || price.readAtMs === undefined) return;
@@ -549,7 +553,7 @@ export function PoolCard({
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
             <div id={reasonsId}>
               {health.deposits.reasons.map((r) => (
-                <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
+                <Notice key={r} tone={health.deposits.verdict === 'refused' && !health.restart ? 'bad' : 'warn'}>{r}</Notice>
               ))}
             </div>
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
@@ -715,9 +719,9 @@ function DepositOfferBlock({
   // transfers do not move exactly what is sent (EXACT_EXTENSIONS) is added with both coins.
   const oneCoinOff = safety?.kind === 'read' && (safety.facts?.extensions ?? []).some((e) => !EXACT_EXTENSIONS.has(e));
   // The LP door asks for Add with one coin (`openForm`); every other wish, Add liquidity.
-  const wishKey = openForm === 'one' && !oneCoinOff ? `one:${view.address}` : key;
+  const wishKey = openForm === 'one' && !oneCoinOff && offer === 'offer' ? `one:${view.address}` : key;
   useEffect(() => {
-    if (!openNow || acted.current === openNow || offer !== 'offer') return;
+    if (!openNow || acted.current === openNow || (offer !== 'offer' && offer !== 'restart')) return;
     acted.current = openNow;
     // Already open, or another form is mid-flow: the press still shows where its form is.
     if (writes.active?.key !== wishKey && !busy) openPanel('add', wishKey, addButton.current);
@@ -788,10 +792,36 @@ function DepositOfferBlock({
           {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
       )}
+      {offer === 'restart' && (
+        <>
+          <p className="text-white/75 text-[12px]">{RESTART_LINE}</p>
+          <button
+            ref={addButton}
+            type="button"
+            data-testid="lp-pool-restart"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            disabled={blockedByOther}
+            aria-expanded={open}
+            onClick={(e) => writes.open('add', key, e.currentTarget)}
+          >
+            Restart at market price
+          </button>
+          <FinePrint summary="How a restart keeps your deposit safe">
+            <p>{RESTART_FINE}</p>
+          </FinePrint>
+          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
+        </>
+      )}
       {inDoor ? <DoorPortal>{panel}</DoorPortal> : panel}
     </div>
   );
 }
+
+/** A restart (restart.ts), in one line on the card; how it is kept safe, in the small print under it. */
+export const RESTART_LINE =
+  'Everyone has taken their money out of this pool. You can restart it: a few units top it up to Jupiter’s price and stay in it for good, then your deposit goes in at that price.';
+const RESTART_FINE =
+  'A pool this empty can be pushed to any price for almost nothing, so the restart is one transaction. It tops the pool up to Jupiter’s price, adds your deposit, then takes a sliver of your new shares straight back out. If anyone changed the pool before it runs, the deposit or that sliver falls outside its limits and the whole transaction fails: nothing goes in and only the network fee is spent. The review shows the exact amounts.';
 
 function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth }) {
   switch (offer) {
@@ -807,6 +837,7 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
         <Notice>Adding is off: a check above could not be run just now.</Notice>
       ) : null;
     case 'offer':
+    case 'restart':
     case 'gate':
     case 'off':
       return null;

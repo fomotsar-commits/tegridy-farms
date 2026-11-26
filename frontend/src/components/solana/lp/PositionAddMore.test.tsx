@@ -427,7 +427,7 @@ describe('it goes to that pool or to nowhere', () => {
   // Each of these has a deeper pool that takes deposits right beside it, and an
   // Open-a-pool card that can offer: both are what the press must NOT end in.
   // `reason`: a failed check's, said once on the card, under Deposits; the line under the heading points there.
-  const cases: { name: string; mine: () => PoolView; lp?: bigint; hold?: boolean; offer: string; says: RegExp; why: RegExp; reason?: string }[] = [
+  const cases: { name: string; mine: () => PoolView; lp?: bigint; hold?: boolean; noPrice?: true; offer: string; says: RegExp; why: RegExp; reason?: string }[] = [
     {
       name: 'refuses deposits (it cannot trade yet)',
       mine: () => view({ openTime: 10n ** 10n }),
@@ -438,10 +438,12 @@ describe('it goes to that pool or to nowhere', () => {
     },
     // Audit CM-2, 2026-11-03: everyone else has left. 1,100 shares, the locked 100 among them
     // and the holder's 1,000, over 3,480 lamports and 348 units: the market's own 0.01 SOL a token.
+    // Jupiter has no route for it here, so it cannot be restarted either (restart.ts).
     {
-      name: 'is almost empty (at the market price, too)',
+      name: 'is almost empty (with no market price to restart it at)',
       mine: () => view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n }),
       lp: 1_000n,
+      noPrice: true,
       offer: 'checks',
       says: /Deposits: refused here/,
       why: /this pool does not pass the checks a deposit needs \(see Deposits, below\)\.$/,
@@ -463,6 +465,14 @@ describe('it goes to that pool or to nowhere', () => {
     if (c.hold) savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-deposit', signature: SIG, lastValidBlockHeight: 50, pool: mine.address });
     const api = openApi({ recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'Not found yet.' })) });
     const r = readers({ findPools: vi.fn(async () => search([deep, mine])), positions: held(position(mine, c.lp === undefined ? {} : { lpAmount: c.lp })) });
+    // No route for the position's token alone: the deep pool beside it is another token's.
+    if (c.noPrice) {
+      r.outsidePrice = vi.fn(async (mint: string) =>
+        mint === mine.tokenMint
+          ? { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' }
+          : { kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const },
+      ) as LpReaders['outsidePrice'];
+    }
     mount(r, { api });
     fireEvent.click(await addMore(mine.address));
     await waitFor(() => expect(scrolledTo()).toContain(card(mine.address)));
