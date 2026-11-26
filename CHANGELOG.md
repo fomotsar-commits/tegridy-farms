@@ -7,11 +7,8 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-25
+### 2026-11-26
 
-- Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
-- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
-- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
 - Solana swaps through Jupiter: a small swap, like a BIG BRAIN buy, now goes through from every wallet. Phantom adds its own safety check to each swap it signs, and that check runs on the computing room the swap leaves; for about 1 wallet in 16 a small swap left too little, so every press failed (on chain, costing the network fee, until this morning; "Not sent", wrongly blamed on the price, since). Each Jupiter swap now asks for 30,000 more computing units, under 0.0001 SOL at today's prices and still within the 0.005 SOL priority-fee cap. If the check ever runs out of room again, "Not sent" says that rather than that the price moved.
 - Harvest now claims your pool fees too. On Solana, wherever Pools would offer Claim fees on your share of an island coin's pool (BAYLA, BOBO, SOY, BRAINLET or RIZZ), that claim joins the staking claims under Harvest all, one wallet approval each. It gives back just the shares the fees added, so what you put in stays in the pool. Its row shows both coins it pays and says "about", because the split moves with the pool's price, and it is added to no total.
 - Pools, your positions: Claim fees is one press. It test-runs the claim and opens your wallet when the test passes, with the claim's figures on screen beside it; it used to take Claim fees, then Review, then Sign in wallet. Collect on a range position works the same way. Remove liquidity, Close and every add still show a review first.
@@ -21,6 +18,12 @@ The site's Changelog tab shows both files.
 - Solana range pools: the Risks box shows the open/closed arrow and says each risk once, in the pools' words. It now says the team's vault can also switch off collecting fees and rewards (48 hours after both keys approve, read on chain 2026-11-25), and it leaves out what the review already says. The range and pools pages call that vault by one name, the team's vault.
 - Solana swap: a new VWAP tab. Pick a total, a time (1 hour to 1 day), how many slices, and a price limit against the pair's 24h average traded price (0.5%, 1% or 3%). The page buys or sells one slice at a time, bigger slices in the hours the pair usually trades most, and a slice whose price is past your limit waits and tries again each minute; what it does not spend goes with the next slice. Each slice is an ordinary Instant swap through Jupiter that your wallet approves, with the usual platform fee, so the money stays in your wallet and the page must stay open. Stop ends it at any time; a slice approved after Stop, or more than 45 seconds after it was asked, is not sent.
 - Our Solana pools can now be charted by DexTools too: the site serves the data feeds its indexer reads (`/api/dextools/latest-block`, `/block`, `/asset`, `/pair`, `/events`, `/exchange`), every number read from the chain, a pool's opening included. Both chart feeds also keep the first trades of a pool opened in the last minute, which they could drop before.
+
+### 2026-11-25
+
+- Solana swaps through Jupiter between two of SOL, USDC, USDT and staked SOL now pay memetics.finance 0.05% of the trade instead of 0.5%; every other Solana swap that pays the venue stays at 0.5%.
+- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
+- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
 
 ### 2026-11-23
 
