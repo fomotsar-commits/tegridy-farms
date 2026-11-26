@@ -135,7 +135,10 @@ const BROADCAST = join(HERE, '..', '..', 'contracts', 'broadcast');
  * broadcast/<script>/<chainId>/, and a registry row names its chain through the section
  * it sits in (ROW_SECTIONS) or, in `ethereum`, through its own `chainId`.
  */
-const EVM_CHAINS = { 1: 'mainnet', 8453: 'Base', 4663: 'Robinhood' };
+// HyperEVM since 2026-11-25 (our Uniswap V3 venue). Its deploy receipts live in the kit's own
+// contracts/hyperevm/broadcast and Uniswap's clone, not contracts/broadcast, so check 6 warns
+// that it read no HyperEVM CREATE; its rows are still read on chain.
+const EVM_CHAINS = { 1: 'mainnet', 8453: 'Base', 4663: 'Robinhood', 999: 'HyperEVM' };
 const MAINNET = 1;
 
 /**
@@ -143,15 +146,16 @@ const MAINNET = 1;
  * missing from here is a section no check reads, so check 0 fails on any top-level key
  * that is neither a row section nor one of NON_ROW_KEYS.
  *
- * In `base` and `robinhood` the section IS the chain. In `ethereum` the row says: a
- * `chainId` (number or array, default 1) is how the CREATE2-twin L2 Safes name both
- * chains from one row.
+ * In `base`, `robinhood` and `hyperevm` the section IS the chain. In `ethereum` the row
+ * says: a `chainId` (number or array, default 1) is how the CREATE2-twin L2 Safes name
+ * every chain they live on from one row.
  */
 const ROW_SECTIONS = {
   solana: { kind: 'solana' },
   ethereum: { kind: 'evm' },
   base: { kind: 'evm', chainId: 8453 },
   robinhood: { kind: 'evm', chainId: 4663 },
+  hyperevm: { kind: 'evm', chainId: 999 },
   // Cardano mainnet. No chain read here: its rows are checked offline (1-3, 5c) only.
   cardano: { kind: 'cardano' },
 };

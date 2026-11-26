@@ -1,5 +1,5 @@
 /**
- * The network drop-down: all five networks listed, the lit one marked, a network the section
+ * The network drop-down: all six networks listed, the lit one marked, a network the section
  * has nothing on greyed with its reason and never picked, and a keyboard way in and out.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -10,6 +10,7 @@ const OPTIONS: ChainPickerOption[] = [
   { chain: 'ethereum', enabled: true, note: 'Uniswap / CoW' },
   { chain: 'base', enabled: false, note: 'No swap here' },
   { chain: 'robinhood', enabled: false, note: 'No swap here' },
+  { chain: 'hyperevm', enabled: true, note: 'Our pools' },
   { chain: 'solana', enabled: true, note: 'Our pools + Jupiter' },
   { chain: 'cardano', enabled: true, note: 'Minswap pools' },
 ];
@@ -22,7 +23,7 @@ const mount = (onPick = vi.fn()) => {
 const button = () => screen.getByRole('button', { name: 'Swap network: Ethereum' });
 
 describe('ChainPicker', () => {
-  it('is closed until pressed, then lists all five networks with the lit one selected', () => {
+  it('is closed until pressed, then lists all six networks with the lit one selected', () => {
     mount();
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveAttribute('aria-expanded', 'false');
@@ -34,6 +35,7 @@ describe('ChainPicker', () => {
       'SolanaOur pools + Jupiter',
       'BaseNo swap here',
       'Robinhood ChainNo swap here',
+      'HyperEVMOur pools',
       'EthereumUniswap / CoW',
       'CardanoMinswap pools',
     ]);

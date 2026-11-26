@@ -146,7 +146,7 @@ describe('TopNav: Connect, off the Solana pages, asks which network', () => {
       expect(dialog).toHaveTextContent('Pick a network. Each one connects on its own.');
       expect(rows()).toEqual([
         'SolanaPhantom, Coinbase, Trust, Jupiter, Solflare and more',
-        'Ethereum, Base, Robinhood ChainMetaMask, Coinbase, Trust and more',
+        'Ethereum, Base, Robinhood Chain, HyperEVMMetaMask, Coinbase, Trust and more',
       ]);
       expect(rk.openConnectModal).not.toHaveBeenCalled();
     },
@@ -222,7 +222,7 @@ describe('TopNav: Connect, off the Solana pages, asks which network', () => {
     openSheet();
     expect(rows()).toEqual([
       'SolanaPhantom, Coinbase, Trust, Jupiter, Solflare and more',
-      'Ethereum, Base, Robinhood ChainMetaMask, Coinbase, Trust and more',
+      'Ethereum, Base, Robinhood Chain, HyperEVMMetaMask, Coinbase, Trust and more',
     ]);
     fireEvent.click(solanaRow());
     expect(cardsOpen).toHaveBeenCalledTimes(1);
@@ -454,7 +454,7 @@ describe('TopNav: the chip, off the Solana pages, lists both networks', () => {
     expect(sheet()).not.toHaveTextContent('Pick a network');
     expect(rows()).toEqual([
       'SolanaPhantom, Coinbase, Trust, Jupiter, Solflare and more',
-      'Ethereum, Base, Robinhood ChainAccount and disconnect0x71…5788',
+      'Ethereum, Base, Robinhood Chain, HyperEVMAccount and disconnect0x71…5788',
     ]);
     fireEvent.click(ethereumRow());
     expect(rk.openAccountModal).toHaveBeenCalledTimes(1);
@@ -506,7 +506,7 @@ describe('TopNav: the chip, off the Solana pages, lists both networks', () => {
     fireEvent.click(chip);
     expect(rows()).toEqual([
       'SolanaSwitch wallet or disconnectSo11…1112',
-      'Ethereum, Base, Robinhood ChainMetaMask, Coinbase, Trust and more',
+      'Ethereum, Base, Robinhood Chain, HyperEVMMetaMask, Coinbase, Trust and more',
     ]);
     fireEvent.click(solanaRow());
     expect(solOpen).toHaveBeenCalledTimes(1);
@@ -521,7 +521,7 @@ describe('TopNav: the chip, off the Solana pages, lists both networks', () => {
     expect(within(banner()).getByRole('button', { name: 'Your wallets' })).toHaveTextContent('0x71…5788');
     expect(rows()).toEqual([
       'SolanaSwitch wallet or disconnectSo11…1112',
-      'Ethereum, Base, Robinhood ChainAccount and disconnect0x71…5788',
+      'Ethereum, Base, Robinhood Chain, HyperEVMAccount and disconnect0x71…5788',
     ]);
   });
 

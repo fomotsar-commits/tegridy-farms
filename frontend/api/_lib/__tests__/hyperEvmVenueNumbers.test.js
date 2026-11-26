@@ -19,16 +19,23 @@ const USDT0 = HYPEREVM_V3.coins[1];
 const POOL = "0x2000000000000000000000000000000000000002";
 
 describe("the server's HyperEVM record", () => {
-  it("is the site's: the same factory (null today) and the same pool coins", () => {
+  it("is the site's: the same factory and the same pool coins", () => {
     expect(HYPEREVM_V3.factory).toBe(HYPEREVM_DEPLOYMENT.factory);
     expect(HYPEREVM_V3.coins.map((c) => [c.address, c.decimals])).toEqual(HYPEREVM_TOKENS.filter((t) => !t.isNative).map((t) => [t.address, t.decimals]));
   });
 
   it("is not counted until the factory and its first block are set", () => {
-    expect(hyperEvmCounted()).toBe(false);
-    expect(hyperEvmCounted({ ...HYPEREVM_V3, factory: FACTORY })).toBe(false);
-    expect(hyperEvmCounted({ ...HYPEREVM_V3, startBlock: 1 })).toBe(false);
+    expect(hyperEvmCounted({ ...HYPEREVM_V3, factory: null, startBlock: null })).toBe(false);
+    expect(hyperEvmCounted({ ...HYPEREVM_V3, factory: FACTORY, startBlock: null })).toBe(false);
+    expect(hyperEvmCounted({ ...HYPEREVM_V3, factory: null, startBlock: 1 })).toBe(false);
+    expect(hyperEvmCounted({ ...HYPEREVM_V3, factory: "0x" + "0".repeat(40), startBlock: 1 })).toBe(false);
     expect(hyperEvmCounted(DEPLOYED)).toBe(true);
+  });
+
+  it("is counted as committed: deployed 2026-11-25, from the factory's own block", () => {
+    expect(HYPEREVM_V3.factory).toBe("0xcaDc93E96De58EA554c71ca609974625615E046D");
+    expect(HYPEREVM_V3.startBlock).toBe(52183228);
+    expect(hyperEvmCounted()).toBe(true);
   });
 });
 
@@ -107,7 +114,7 @@ describe("reading HyperEVM", () => {
   });
 
   it("refuses to run while not deployed", async () => {
-    await expect(readHyperEvm(chain().call, null)).rejects.toThrow(/not deployed/);
+    await expect(readHyperEvm(chain().call, null, { v3: { ...HYPEREVM_V3, factory: null, startBlock: null } })).rejects.toThrow(/not deployed/);
   });
 });
 
@@ -120,12 +127,14 @@ describe("HyperEVM in the TVL", () => {
     expect(tvlChainNames()).toEqual(Object.keys(tvlChains()));
   });
 
-  it("an answer naming HyperEVM before the site shows it is not trusted, so the two must move together", () => {
+  it("an answer that disagrees with the site about HyperEVM is not trusted, so the two must move together", () => {
     const rows = (names) => names.map((chain) => ({ chain, read: true, usd: 1, pools: 1, unvalued: 0 }));
     // No staking or NFT rows: an older answer's shape, which still parses (as partial).
     const body = (names) => ({ state: "current", usd: 5, readAt: "2026-11-20T00:00:00Z", chains: rows(names) });
-    expect(parseVenueTvl(body(tvlChainNames(false))).state).toBe("partial");
-    expect(parseVenueTvl(body(tvlChainNames(true))).state).toBe("unread");
+    // As committed (deployed 2026-11-25) the site shows HyperEVM: an answer without its row,
+    // such as one cached from before the deploy, is unread; one with it is read.
+    expect(parseVenueTvl(body(tvlChainNames(true))).state).toBe("partial");
+    expect(parseVenueTvl(body(tvlChainNames(false))).state).toBe("unread");
   });
 
   it("values what our pools hold: dollars at a dollar, WHYPE at HYPE's price, neither side doubled", async () => {
