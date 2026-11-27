@@ -77,6 +77,30 @@ re-proven against the live program build on 2026-11-07 (branch
 checks pass). Still missing: the Scope A audit report (`AUDIT_RFQ.md` has the quote request
 ready to send) and traction, which listings 1 and 2 are meant to build.
 
+## 4. DexTools (free; the adapter is built)
+
+DexTools reads a DEX it does not parse itself through its own HTTP API standard
+(github.com/dextools-io/integration-sdk, `http-adapter`, v0.0.1). Ours, beside the
+GeckoTerminal one and from the same chain reads, at `https://memetics.finance/api/dextools`:
+`/latest-block`, `/block?number=`, `/asset?id=`, `/pair?id=`, `/events?fromBlock=&toBlock=`,
+`/exchange?id=EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`. Code and tests:
+`frontend/api/_lib/dextools.js`, `frontend/api/__tests__/dextools.test.js`.
+
+Where it differs from GeckoTerminal's: eventIndex is unique in the block; a pool's opening
+is a `creation` and a `join` of what it opened with (read from the `initialize`
+instruction, since the program logs no event for it); errors are `{code, message, issues}`.
+Not served: `/asset/holders` (a Solana holder list needs a scan of every token account of
+the mint; DexTools has its own Solana index) and `/block?timestamp=` (the spec asks for it
+only on sharded chains).
+
+Requests are GitHub issues on `dextools-io/community-requests`; ours is #163.
+
+## Sent
+
+- 2026-11-25: GeckoTerminal form (queue up to 3 months, Express USD 15,000 declined),
+  DexScreener's `#dex-listing` forum (one post per DEX; follow up inside the thread),
+  DexTools issue #163.
+
 ## What each listing does for the money
 
 - Venue fees: every routed trade pays the pool's 1% trade fee; LPs keep 84% of it, the venue

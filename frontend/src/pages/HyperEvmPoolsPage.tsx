@@ -17,7 +17,7 @@ export default function HyperEvmPoolsPage() {
       <PageArtBackdrop pageId="liquidity" />
       <div className="relative max-w-md mx-auto px-4 py-8">
         <Suspense fallback={<p role="status" className="text-white/70 text-[13px] py-3">Reading our pools…</p>}>
-          <HyperEvmPoolsSection />
+          <HyperEvmPoolsSection pageHeading />
         </Suspense>
       </div>
     </>

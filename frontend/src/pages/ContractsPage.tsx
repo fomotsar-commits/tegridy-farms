@@ -229,7 +229,7 @@ const GROUPS: ContractGroup[] = [
         note: "Retired: replaced by Gondi's loan contract. It never held an offer or a loan.",
       },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TegridyTokenURIReader.sol' },
-      { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
+      { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay)' },
       { label: 'JBAY Gold', address: JBAY_GOLD_ADDRESS, source: 'external (Jungle Bay Gold)' },
     ],
   },

@@ -484,7 +484,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
           <p>If a pool runs a reward, positions in range share it by their liquidity. Whoever starts a reward pays for all of it up front, and the venue takes no cut of it.</p>
           <p>Your position is an NFT in your wallet. Whoever holds the NFT can take the position out, so keep it as you would the coins.</p>
           <p>Opening a position pays deposits for its record and its NFT, which come back when you close it. A band of prices nobody has used yet also takes a deposit that never comes back, about 0.072 SOL each at today’s rent.</p>
-          <p>Your coins sit in the pool’s vaults, which only the range program moves. The team’s vault can switch that program’s pools off or replace it: see Risks beside the deposit.</p>
+          <p>Your coins sit in accounts the pool owns, which only the range program moves. The team’s vault can switch that program’s pools off or replace it: see Risks beside the deposit.</p>
         </div>
       </FinePrint>
     </Card>

@@ -7,7 +7,7 @@ import { MIN_HISTORY_TEXT } from '../../../lib/solana/lp/ownPrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, orList, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
@@ -18,6 +18,7 @@ import { MONEY_NOTE } from './LpDisclosures';
 import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
 import { coinAbout, solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
@@ -157,7 +158,6 @@ function CreateCard({
   const answer = answerKey(offer, pairs, facts, outside, search, healths);
   // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
   const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
-  const otherSide = otherSideLine(mint);
   // A pressed Refresh: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -190,7 +190,7 @@ function CreateCard({
     // A token that already has a pool to add to is not taken straight into the open-a-pool
     // form either: the card comes onto the screen with both choices (add to that pool, or
     // open another), so the pool it points to is seen before a second one is opened.
-    if (offer !== 'offer' || pointsTo || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
+    if (offer !== 'offer' || pointsTo || open || busy) bringIntoView(sectionRef.current?.querySelector('h4') ?? sectionRef.current, { block: 'start' });
     else openPanel('create', key, openButton.current, headingRef.current);
     onActed?.(openNow);
   }, [openNow, settled, offer, pointsTo, open, busy, openPanel, key, onActed]);
@@ -252,9 +252,6 @@ function CreateCard({
             onReread={readAgain(onReread)}
             onRereadFacts={readAgain(writes.refreshCreateFacts)}
           />
-          {/* A pairing coin looked up as the token: where its pool with a lower coin is found
-              and opened, said before the Open a pool button and not only inside the form. */}
-          {offer === 'offer' && otherSide && <p data-testid="lp-create-other-side">{otherSide}</p>}
           {/* Warnings, never a stop: the buttons below stay. The same lead-in as the forms and the review. */}
           {cautions.length > 0 && (
             <div className="space-y-1" data-testid="lp-create-cautions">
@@ -563,7 +560,7 @@ function OfferLines({
             const aPool = several || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
-                You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
+                You opened {aPool} for this token just now (<span className="font-mono [overflow-wrap:anywhere]">{pool.address}</span>). Your share is under
                 &apos;Your positions&apos;. {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'Adding to it keeps your liquidity in one place.'}
               </p>
             ) : (
@@ -573,7 +570,7 @@ function OfferLines({
                     after it is about the price alone (`adviceCaveat`). */}
                 This token already has {aPool} on the public fee tier{' '}
                 {warned ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
-                <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
+                <span className="font-mono [overflow-wrap:anywhere]">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
                 {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
             );

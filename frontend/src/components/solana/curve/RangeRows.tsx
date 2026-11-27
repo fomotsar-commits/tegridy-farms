@@ -128,7 +128,7 @@ export function RangeCreateRows({ summary: s }: { summary: RangeCreateSummary })
       {(s.price.state === 'agrees' || s.price.state === 'disagrees') && (
         <Row label="Market price (Jupiter), read just now" value={`${formatSolPrice(s.price.reference)} ${per}`} mono={false} />
       )}
-      <Row label="Fee to open the pool" value={`${sol(s.createFee)}, to the venue’s vault (${s.feeReceiver.toBase58()}). Not refunded.`} mono={false} />
+      <Row label="Fee to open the pool" value={`${sol(s.createFee)}, to the team’s vault (${s.feeReceiver.toBase58()}). Not refunded.`} mono={false} />
       <Row
         label="Deposits that never come back"
         value={`${sol(s.neverBack)}: the pool, its two vaults, its price record, its far-band map and its new price bands. A pool cannot be closed.`}

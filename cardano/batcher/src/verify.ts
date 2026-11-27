@@ -198,6 +198,7 @@ export function verifySinglePoolBatch(txHex: string, spentHex: Readonly<Record<s
   // Apply the orders.
   check(redeemer.volFees.length === 1, 'a single-pool batch carries one vol fee');
   const ctx: PoolContext = {
+    poolScriptHash: k.poolScriptHash,
     assetA: pin.assetA,
     assetB: pin.assetB,
     lpAsset,

@@ -8,8 +8,8 @@ import { LP_KINDS, isLpKind } from './lpKinds';
 import type { LpKind, TxKind } from './types';
 
 describe('LP_KINDS and isLpKind', () => {
-  it('holds exactly the three liquidity kinds', () => {
-    const all: LpKind[] = ['lp-deposit', 'lp-withdraw', 'lp-create'];
+  it('holds exactly the four liquidity kinds', () => {
+    const all: LpKind[] = ['lp-deposit', 'lp-withdraw', 'lp-create', 'lp-restart'];
     expect(Object.keys(LP_KINDS).sort()).toEqual([...all].sort());
     for (const k of all) expect(isLpKind(k)).toBe(true);
   });

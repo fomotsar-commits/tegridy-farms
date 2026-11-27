@@ -45,6 +45,7 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
     // that opens pools passes `readyFacts()`.
     readCreateFacts: vi.fn(async () => notOpenFacts()),
     prepareLpDeposit: vi.fn(),
+    prepareLpRestart: vi.fn(),
     prepareLpWithdraw: vi.fn(),
     prepareLpCreate: vi.fn(),
     submitPrepared: vi.fn(),

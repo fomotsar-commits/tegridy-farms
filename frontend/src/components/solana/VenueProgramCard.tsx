@@ -45,7 +45,7 @@ export function VenueProgramCard() {
           liquidity providers, the venue or the island, and the guard lets them through.
           Everyone else pays as before. On both fee tiers open today the keeper is the
           venue&rsquo;s own price robot, wallet{' '}
-          <span className="font-mono break-all">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>.
+          <span className="font-mono [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>.
           The curve, the swap maths, the deposit and withdraw paths and the fee maths are
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.

@@ -4,7 +4,8 @@
 // Pure, like types.ts: no chain code, so the Earn page can import it without loading Solana.
 //
 // ⚠️ ONE COIN, ONE SUM. Claims are added only to claims in the same coin: no price is read
-// here, so a BAYLA amount and a PEPE amount have no sum. The daily figure and its yearly rate
+// here, so a BAYLA amount and a PEPE amount have no sum. A claim whose amounts are an estimate
+// (`about`: a pool share's fees) is in no sum at all; its row says it. The daily figure and its yearly rate
 // are not worked out here either: they arrive as the pool's reader stated them (HarvestEarning),
 // or not at all.
 import type { HarvestChain, HarvestClaim, HarvestEarning } from './types';
@@ -43,6 +44,8 @@ export function harvestTally(claims: readonly HarvestClaim[], earning: readonly 
     return coin;
   };
   for (const c of claims) {
+    // An estimate (a pool share's fees) is never added to a sum of amounts that are exact.
+    if (c.about) continue;
     const coin = coinOf(c);
     coin.totalRaw = (coin.totalRaw ?? 0n) + c.amountRaw;
     coin.claims += 1;

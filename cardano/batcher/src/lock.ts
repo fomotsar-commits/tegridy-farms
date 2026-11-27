@@ -51,6 +51,8 @@ export interface LockDeployment {
   ownerB: string;
   /** The lock's treasury (bech32): the only fee-share and opening-fee receiver. */
   treasury: string;
+  /** Our batcher's key hash (inputs.batcherKeyHash): any other batcher is marked as not ours. */
+  batcher?: string;
 }
 
 /** SetPool: the pool trading assetA for assetB, stated as the parameters it leaves. */
@@ -284,6 +286,15 @@ export interface SettingAsk {
   openingFee?: bigint;
   batchers?: AuthorizationMethod[];
 }
+/**
+ * A setting change an Announce may carry: every batcher is our own key. The rest of the setting
+ * is copied from the chain's read, so a wrong read could otherwise slip a stranger's key in.
+ */
+export function checkBatchers(s: Setting, ours: string): void {
+  const other = s.batchers.filter((b) => b.kind !== 'signature' || b.hash !== ours);
+  if (other.length) throw new LockRefused(`the setting's batchers hold ${other.map((b) => `${b.kind} ${b.hash}`).join(', ')}, NOT our batcher key ${ours} (inputs.json): pass --other-batcher only if that is meant`);
+}
+
 /** The SetGlobalSetting the owner asks for: the setting now, with only what is asked changed. */
 export function settingChange(now: Setting, ask: SettingAsk, d: LockDeployment): Setting {
   const s: Setting = { ...now, ...(ask.openingFee !== undefined ? { openingFee: ask.openingFee } : {}), ...(ask.batchers ? { batchers: ask.batchers } : {}) };
@@ -603,7 +614,8 @@ export function changeWords(c: Change, before: PoolChange | Setting | null, d: L
   }
   const b = before as Setting | null;
   const s = c.setting;
-  const batchers = (x: Setting) => x.batchers.map((a) => authWords(a)).join(', ');
+  const batcherWords = (a: AuthorizationMethod) => `${authWords(a)}${d.batcher && (a.kind !== 'signature' || a.hash !== d.batcher) ? ' (NOT our batcher key)' : ''}`;
+  const batchers = (x: Setting) => x.batchers.map(batcherWords).join(', ');
   return [
     `GlobalSetting${b ? '' : ' (not read from the chain: its values now are not shown)'}`,
     line('opening fee', b ? `${adaWords(b.openingFee)}` : undefined, `${adaWords(s.openingFee)}`) + (same(encAddress(s.receiver), treasuryData(d)) ? ', paid to the treasury' : ', paid to an address that is NOT the treasury'),
@@ -653,6 +665,9 @@ export interface LockReading {
  * money rules above; `current` gives the pool's and the setting's outputs now (for an Announce
  * or a Cancel, which touch neither), to say what the change changes.
  */
+/** lock.ak refuses a pool or GlobalSetting left with a reference script: every batch reading it would pay for its bytes. */
+const SCRIPT_LEFT = (what: string) => `the ${what} after carries a reference script, which the lock refuses: every batch would pay for its bytes`;
+
 export function readLockTx(txHex: string, output: (ref: string) => string | undefined, d: LockDeployment, current: { pool?: string; setting?: string } = {}): LockReading | undefined {
   const t = timeOf(d.network);
   const tx = CSL.FixedTransaction.from_hex(txHex);
@@ -732,6 +747,7 @@ export function readLockTx(txHex: string, output: (ref: string) => string | unde
     // Nothing is minted (above), so the one pool token moved is in one output: the pool after.
     const po = outs.find((o) => holds(o, d.authen, NAMES.pool));
     if (!po || po.address().to_bech32(undefined) !== m.o.address().to_bech32(undefined)) throw new LockRefused("the pool's address changes: a withdrawal leaves the pool where it is");
+    if (po.has_script_ref()) throw new LockRefused(SCRIPT_LEFT('pool'));
     const pd = po.plutus_data();
     if (!pd || !same(pd, m.o.plutus_data()!)) throw new LockRefused("the pool's datum changes: a withdrawal leaves its reserves, liquidity and fees exactly as they were");
     const share = shareOf(m.o.to_hex());
@@ -819,6 +835,7 @@ export function readLockTx(txHex: string, output: (ref: string) => string | unde
     if (poolOuts.length !== 1) throw new LockRefused(`${poolOuts.length} outputs hold the pool token, not one`);
     const po = poolOuts[0]!;
     if (scriptOf(po) !== d.pool) throw new LockRefused("the pool token leaves the pool's script");
+    if (po.has_script_ref()) throw new LockRefused(SCRIPT_LEFT('pool'));
     if (po.amount().to_hex() !== m.o.amount().to_hex()) throw new LockRefused("the pool's value changes: its earned fee share would leave the pool, and only the lock's WithdrawFeeSharing, paying the treasury, may take it");
     const was = poolNow(m.o.to_hex());
     const now = poolNow(po.to_hex());
@@ -838,6 +855,8 @@ export function readLockTx(txHex: string, output: (ref: string) => string | unde
     if (scriptOf(m.o) !== d.authen || !holds(m.o, d.authen, NAMES.globalSetting)) throw new LockRefused('the Execute moves no GlobalSetting of ours');
     const first = outs[0]!;
     if (!holds(first, d.authen, NAMES.globalSetting) || scriptOf(first) !== d.authen) throw new LockRefused('the new GlobalSetting must be output #0 (Minswap reads the head)');
+    if (first.address().to_bech32(undefined) !== m.o.address().to_bech32(undefined)) throw new LockRefused('the GlobalSetting after is at another address than before: the announcement holds only its datum, and the lock keeps it where it is');
+    if (first.has_script_ref()) throw new LockRefused(SCRIPT_LEFT('GlobalSetting'));
     const fd = first.plutus_data();
     if (!fd || !same(fd, encodeSetting(c.setting))) throw new LockRefused('the GlobalSetting after differs from the announced change');
     checkSetting(c.setting, d);

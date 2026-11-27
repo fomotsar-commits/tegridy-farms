@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { associatedTokenAddress } from '../../../lib/launcher/solana/curve/ix';
@@ -54,7 +54,9 @@ const BASE_FEE_LAMPORTS = 5_000n;
  * growth alone (liquidityMath.ts `claimableShares`, from the ledger's basis): no percent to
  * pick, and what was put in stays in the pool. The pool program has no claim step of its
  * own; this is its ordinary withdraw, sized so. Shares that changed since the ledger was
- * worked out are said, and nothing is offered for review.
+ * worked out are said, and nothing is offered for review. ONE PRESS: the row's Claim fees
+ * test-runs the claim at once and opens the wallet when it passes, the review on screen
+ * beside it; no Review or Sign press.
  */
 export function RemoveLiquidityPanel(p: {
   position: Position;
@@ -267,6 +269,16 @@ function RemoveInner({
       claim ? api.prepareLpWithdraw(writes.rpc, gate, { ...base, claim }) : api.prepareLpWithdraw(writes.rpc, gate, { ...base, pctBps: pct as bigint });
     void flow.prepare(build, { repeatable: true });
   };
+  // ONE PRESS (owner, 2026-11-19): the row's Claim fees opens this panel already test-running
+  // the claim, and the wallet opens when it passes (TxFlowView `signWhenReady`). Only when it
+  // could go the moment the panel opened; otherwise the form says why, and its Claim fees
+  // button is the one press.
+  const firstLook = useRef(true);
+  useEffect(() => {
+    if (!firstLook.current) return;
+    firstLook.current = false;
+    if (claim && canReview) review();
+  });
 
   const callsItself = !setAside && safety?.kind === 'read' && (safety.name || safety.symbol)
     ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
@@ -344,8 +356,13 @@ function RemoveInner({
           cluster={gate.cfg.cluster}
           decimals={decimals}
           signer={signer}
-          preparingText={claim ? 'Reading the pool again and test-running your claim on the network…' : 'Reading the pool again and test-running your withdrawal on the network…'}
+          preparingText={
+            claim
+              ? 'Reading the pool again and test-running your claim on the network. Your wallet opens next…'
+              : 'Reading the pool again and test-running your withdrawal on the network…'
+          }
           afterConfirmed={removed}
+          signWhenReady={!!claim}
         />
       ) : (
         <>
@@ -432,7 +449,7 @@ function RemoveInner({
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
-              {claim ? 'Review: claim fees' : 'Review: remove liquidity'}
+              {claim ? 'Open my wallet to claim' : 'Review: remove liquidity'}
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>
               Close

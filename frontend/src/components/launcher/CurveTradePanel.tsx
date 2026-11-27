@@ -542,7 +542,7 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
           <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             Nothing launched from this chain&apos;s Memetics curve lives at{' '}
-            <span className="font-mono break-all">{token}</span>. Double-check the address and the
+            <span className="font-mono [overflow-wrap:anywhere]">{token}</span>. Double-check the address and the
             chain.
           </p>
         </div>

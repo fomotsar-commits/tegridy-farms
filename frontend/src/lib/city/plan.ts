@@ -46,17 +46,20 @@ export const SETBACK = ROAD_HALF + PAVE_W + 0.3;
 export const JUNCTION_R = 2.3;
 
 export type PieceId =
-  | 'wing' | 'pads' | 'blade' | 'balance' | 'ghost'
+  | 'wing' | 'pads' | 'market' | 'balance' | 'ghost'
   | 'slouch' | 'monolith' | 'gridshell' | 'wave' | 'lantern'
-  | 'lighthouse' | 'canopy' | 'hourglass' | 'lifeguard' | 'lift'
-  | 'halo' | 'stack' | 'villa' | 'bloom' | 'slip';
+  | 'lighthouse' | 'pavilion' | 'bank' | 'poolclub' | 'lift'
+  | 'halo' | 'stack' | 'villa' | 'bloom' | 'marina';
 
-/** What each piece is called on the sheet. */
+/**
+ * What each piece is called on the sheet. The market, pavilion, bank, pool club and marina are the
+ * owner's own models (2026-11-22), carved like the rest (scripts/city-render/owners.py).
+ */
 export const PIECE_NAME: Record<PieceId, string> = {
-  wing: 'The Saddle', pads: 'The Lily Pads', blade: 'The Blade', balance: 'The Balance', ghost: 'The Ghost',
+  wing: 'The Saddle', pads: 'The Lily Pads', market: 'The Market Hall', balance: 'The Balance', ghost: 'The Ghost',
   slouch: 'The Slouch', monolith: 'The Monolith', gridshell: 'The Gridshell', wave: 'The Surf', lantern: 'The Lantern',
-  lighthouse: 'The Lighthouse', canopy: 'The Umbrellas', hourglass: 'The Hourglass', lifeguard: 'The Diving Tower', lift: 'The Raising',
-  halo: 'The Halo', stack: 'The Wrong Way Up', villa: 'The Villa', bloom: 'The Bloom', slip: 'The Slip',
+  lighthouse: 'The Lighthouse', pavilion: 'The Pavilion', bank: 'The Bank', poolclub: 'The Pool Club', lift: 'The Raising',
+  halo: 'The Halo', stack: 'The Wrong Way Up', villa: 'The Villa', bloom: 'The Bloom', marina: 'The Harbour Office',
 };
 
 export type PoolShape = 'rect' | 'lap' | 'round' | 'oct' | 'hex' | 'kidney' | 'pond' | 'lagoon' | 'blob' | 'peanut' | 'L' | 'pixel' | 'lanes' | 'fountain';
@@ -138,7 +141,7 @@ const ROADS: readonly RoadDef[] = [
 export const SLOTS: readonly Slot[] = [
   { c: 0, r: 0, at: { road: 'ring', s: 25.5 }, room: 'toweli', piece: 'wing', water: '#2bbf6a', shape: 'pond' },
   { c: 1, r: 0, at: { road: 'ring', s: 36 }, room: 'pepe', piece: 'pads', water: '#a6e83a', shape: 'kidney', lilies: true },
-  { c: 2, r: 0, at: { x: 51, y: 4.5, deg: -110 }, civic: 'loans', piece: 'blade', name: 'NFT loans', tick: 'LOANS', acc: '#b49cff', href: '/nft-finance' },
+  { c: 2, r: 0, at: { x: 51, y: 4.5, deg: -110 }, civic: 'loans', piece: 'market', name: 'NFT loans', tick: 'LOANS', acc: '#b49cff', href: '/nft-finance' },
   { c: 3, r: 0, at: { x: 55.5, y: 18, deg: -85 }, civic: 'keeper', piece: 'balance', name: 'Price keeper', tick: 'KEEPER', acc: '#9aa6b2' },
   { c: 4, r: 0, at: { x: -1.5, y: 4.7, deg: -14 }, civic: 'lot', piece: 'ghost', name: 'Open lot', tick: 'OPEN LOT', acc: '#f5e4b8', shape: 'rect' },
 
@@ -149,16 +152,16 @@ export const SLOTS: readonly Slot[] = [
   { c: 4, r: 1, at: { road: 'ring', s: 102.5 }, room: 'qr', piece: 'lantern', water: '#cfefff', shape: 'pixel' },
 
   { c: 0, r: 2, at: { road: 'ring', s: 47.5 }, room: 'bayla', piece: 'lighthouse', water: '#2fe0c8', shape: 'lagoon' },
-  { c: 1, r: 2, at: { x: 10.5, y: 21, deg: -54 }, civic: 'station', piece: 'canopy', name: 'Central Station', tick: 'VENUE', acc: '#c9b88a', href: '/pools' },
-  { c: 2, r: 2, at: { x: 30, y: 24, deg: -54 }, civic: 'treasury', piece: 'hourglass', name: 'Treasury', tick: 'TREASURY', acc: '#e3b341', water: '#ffd76a', shape: 'fountain' },
-  { c: 3, r: 2, at: { x: 45.5, y: 39, deg: -21 }, civic: 'range', piece: 'lifeguard', name: 'Range pools', tick: 'RANGE', acc: '#5ad1e6', water: '#47b5ff', shape: 'lanes', href: '/range-pools' },
+  { c: 1, r: 2, at: { x: 10.5, y: 21, deg: -54 }, civic: 'station', piece: 'pavilion', name: 'Central Station', tick: 'VENUE', acc: '#c9b88a', href: '/pools' },
+  { c: 2, r: 2, at: { x: 30, y: 24, deg: -54 }, civic: 'treasury', piece: 'bank', name: 'Treasury', tick: 'TREASURY', acc: '#e3b341', water: '#ffd76a', shape: 'fountain' },
+  { c: 3, r: 2, at: { x: 45.5, y: 39, deg: -21 }, civic: 'range', piece: 'poolclub', name: 'Range pools', tick: 'RANGE', acc: '#5ad1e6', water: '#47b5ff', shape: 'lanes', href: '/range-pools' },
   { c: 4, r: 2, at: { road: 'boulevard', s: 26 }, room: 'bobo', piece: 'lift', water: '#d08b2c', shape: 'peanut' },
 
   { c: 0, r: 3, at: { road: 'boulevard', s: 13 }, room: 'soy', piece: 'halo', water: '#ff4fc8', shape: 'rect' },
   { c: 1, r: 3, at: { road: 'ring', s: 133 }, room: 'brainlet', piece: 'stack', water: '#9a63ff', shape: 'blob' },
   { c: 2, r: 3, at: { road: 'ring', s: 6.5 }, civic: 'wallet', piece: 'villa', name: 'Your wallet', tick: 'YOUR WALLET', acc: '#8ef0d8' },
   { c: 3, r: 3, at: { road: 'ring', s: 119.5 }, room: 'rizz', piece: 'bloom', water: '#ff5a5a', shape: 'hex' },
-  { c: 4, r: 3, at: { x: 1, y: 37, deg: -28 }, civic: 'launch', piece: 'slip', name: 'Launch slip', tick: 'LAUNCHER', acc: '#e3b341' },
+  { c: 4, r: 3, at: { x: 1, y: 37, deg: -28 }, civic: 'launch', piece: 'marina', name: 'Launch slip', tick: 'LAUNCHER', acc: '#e3b341' },
 ];
 /** Each quarter's name, painted along one of its streets. */
 export const DISTRICTS: readonly { name: string; road: string; s: number }[] = [

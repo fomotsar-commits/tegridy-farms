@@ -3,7 +3,8 @@
 // source is "behind" with the time it was last complete, a failed read is never zero, and
 // a good answer carries the edge cache header that makes it free.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { summarize, VOLUME_SOURCES, STALE_AFTER_MS } from "../venueVolumePolicy.js";
+import { summarize, VOLUME_SOURCES, STALE_AFTER_MS, volumeSources } from "../venueVolumePolicy.js";
+import { hyperEvmCounted } from "../../../scripts/lib/venue-volume-chain.mjs";
 
 vi.mock("../ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -22,6 +23,8 @@ const row = (source, over = {}) => ({
   ...over,
 });
 const allRows = () => VOLUME_SOURCES.map((s) => row(s));
+// What the served handler sums: every source as committed, HyperEVM included since 2026-11-25.
+const servedRows = () => volumeSources(hyperEvmCounted()).map((s) => row(s));
 
 describe("summarize", () => {
   it("sums every source, as of the oldest source's count", () => {
@@ -100,11 +103,12 @@ describe("handleVenueVolume", () => {
   });
 
   it("serves the sum with an edge cache header, reading only the public columns", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(allRows()), { status: 200 }));
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(servedRows()), { status: 200 }));
     const { res, out } = makeRes();
     await handleVenueVolume(makeReq(), res, { nowMs: NOW, fetchImpl });
     expect(out.status).toBe(200);
-    expect(out.body).toMatchObject({ state: "current", usd: 703.5, swaps: 70 });
+    // Eight sources of 100.5 each: the seven, and HyperEVM.
+    expect(out.body).toMatchObject({ state: "current", usd: 804, swaps: 80 });
     // A minute: the count lands every five minutes, and the home page asks every minute.
     expect(out.headers["Cache-Control"]).toMatch(/s-maxage=60,/);
     const url = String(fetchImpl.mock.calls[0][0]);

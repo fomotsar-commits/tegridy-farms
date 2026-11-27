@@ -32,6 +32,12 @@ export const RENT_EXEMPT_EMPTY_LAMPORTS = 890_880n;
  * none. 0.0001 SOL.
  */
 export const WALLET_FEE_ROOM_LAMPORTS = 100_000n;
+/**
+ * Room a wallet's own guards take as it signs: Phantom's Lighthouse assertions came to 325
+ * bytes on a ladder claim landed 2026-11-23 (`2csQUSTN…`, 797 bytes against our 472). A
+ * transaction that packs several claims leaves this much under Solana's size limit.
+ */
+export const WALLET_GUARD_ROOM_BYTES = 325;
 const LAMPORTS_PER_SIGNATURE = 5_000n;
 
 export const WRITE_COPY = {
