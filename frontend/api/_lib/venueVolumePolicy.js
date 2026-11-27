@@ -9,7 +9,10 @@
  */
 export const VOLUME_SOURCES = Object.freeze(["solana-pools", "jupiter", "ethereum", "base", "robinhood", "nft-lending", "nft-orderbook"]);
 
-/** The sources, with our HyperEVM pools once they are deployed (hyperEvmCounted, venue-volume-chain.mjs). */
+/**
+ * The sources, with our HyperEVM pools once they are deployed (hyperEvmCounted,
+ * venue-volume-chain.mjs; deployed 2026-11-25). Its row needs migration 033.
+ */
 export function volumeSources(hyperEvm = false) {
   return hyperEvm ? Object.freeze([...VOLUME_SOURCES, "hyperevm"]) : VOLUME_SOURCES;
 }

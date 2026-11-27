@@ -52,7 +52,7 @@ function stubPool(assetB: typeof ASCEND): PoolState {
     ref: { txHash: '00'.repeat(32), index: 0 },
     assetA: ADA,
     assetB,
-    lp: lpAsset(ADA, assetB),
+    lp: lpAsset(ADA, assetB, MINSWAP_V2),
     reserveA: 1n,
     reserveB: 1n,
     totalLiquidity: 1n,
@@ -73,7 +73,7 @@ describe('LP token name', () => {
 
 describe('readPool', () => {
   it('reads the live ADA/ASCEND pool', () => {
-    const r = readPool(csl, row('113c21f8'), [ADA, ASCEND]);
+    const r = readPool(csl, row('113c21f8'), [ADA, ASCEND], MINSWAP_V2);
     expect(r.kind).toBe('pool');
     if (r.kind !== 'pool') return;
     expect(r.pool.reserveA).toBe(1019463084218n);
@@ -85,7 +85,7 @@ describe('readPool', () => {
   });
 
   it('reads the live ADA/TOOLS pool, with its own 2% fee', () => {
-    const r = readPool(csl, row('47e34445'), [TOOLS, ADA]);
+    const r = readPool(csl, row('47e34445'), [TOOLS, ADA], MINSWAP_V2);
     expect(r.kind).toBe('pool');
     if (r.kind === 'pool') expect(r.pool.feeANumerator).toBe(200n);
   });
@@ -93,38 +93,38 @@ describe('readPool', () => {
   it('refuses the real pool that holds the ASCEND LP token as its coin', () => {
     // 02db9d9b is a genuine Minswap pool, NFT and all, for ADA and the ADA/ASCEND LP token.
     // Looked up by that LP token it comes back too: only the datum says it is another pair.
-    const r = readPool(csl, row('02db9d9b'), [ADA, ASCEND]);
+    const r = readPool(csl, row('02db9d9b'), [ADA, ASCEND], MINSWAP_V2);
     expect(r).toEqual({ kind: 'not-a-pool', reason: 'datum names another pair' });
   });
 
   it('refuses a pool read for a pair it is not', () => {
-    expect(readPool(csl, row('113c21f8'), [ADA, TOOLS]).kind).toBe('not-a-pool');
+    expect(readPool(csl, row('113c21f8'), [ADA, TOOLS], MINSWAP_V2).kind).toBe('not-a-pool');
   });
 
   it('refuses a UTxO that is not at the pool script', () => {
     const u = row('113c21f8');
     const other = { ...u, addressHex: u.addressHex.slice(0, 2) + MINSWAP_V2.orderScriptHash + u.addressHex.slice(58) };
-    expect(readPool(csl, other, [ADA, ASCEND])).toEqual({ kind: 'not-a-pool', reason: 'not at the Minswap V2 pool script' });
+    expect(readPool(csl, other, [ADA, ASCEND], MINSWAP_V2)).toEqual({ kind: 'not-a-pool', reason: 'not at the Minswap V2 pool script' });
   });
 
   it('refuses a UTxO without exactly one pool NFT', () => {
     const u = row('113c21f8');
     const none = { ...u, assets: u.assets.filter((a) => a.assetName !== MINSWAP_V2.poolNftName) };
-    expect(readPool(csl, none, [ADA, ASCEND])).toEqual({ kind: 'not-a-pool', reason: 'no pool NFT' });
+    expect(readPool(csl, none, [ADA, ASCEND], MINSWAP_V2)).toEqual({ kind: 'not-a-pool', reason: 'no pool NFT' });
     const two = { ...u, assets: u.assets.map((a) => (a.assetName === MINSWAP_V2.poolNftName ? { ...a, quantity: 2n } : a)) };
-    expect(readPool(csl, two, [ADA, ASCEND])).toEqual({ kind: 'not-a-pool', reason: 'no pool NFT' });
+    expect(readPool(csl, two, [ADA, ASCEND], MINSWAP_V2)).toEqual({ kind: 'not-a-pool', reason: 'no pool NFT' });
   });
 
   it('refuses a datum that claims more than the pool holds', () => {
     const u = row('113c21f8');
-    expect(readPool(csl, { ...u, lovelace: 1019463084217n }, [ADA, ASCEND])).toEqual({
+    expect(readPool(csl, { ...u, lovelace: 1019463084217n }, [ADA, ASCEND], MINSWAP_V2)).toEqual({
       kind: 'not-a-pool',
       reason: 'datum reserves exceed what the pool holds',
     });
   });
 
   it('refuses a UTxO with no datum', () => {
-    expect(readPool(csl, { ...row('113c21f8'), inlineDatumHex: null }, [ADA, ASCEND]).kind).toBe('not-a-pool');
+    expect(readPool(csl, { ...row('113c21f8'), inlineDatumHex: null }, [ADA, ASCEND], MINSWAP_V2).kind).toBe('not-a-pool');
   });
 });
 
@@ -136,7 +136,7 @@ describe('the order', () => {
       [ORDER_TXS.tokenInKillable, 2],
     ] as const) {
       const { order, trader } = realOrder(hash, change);
-      expect(orderAddressFor(trader).hex).toBe(bytesToHex(order.address().to_bytes()));
+      expect(orderAddressFor(trader, MINSWAP_V2).hex).toBe(bytesToHex(order.address().to_bytes()));
     }
   });
 
@@ -148,7 +148,7 @@ describe('the order', () => {
       assetIn: TOOLS,
       swapAmount: 9117548040425n,
       minimumReceive: 103218165n,
-    });
+    }, MINSWAP_V2.maxBatcherFee);
     expect(ours).toBe(datumHex);
   });
 
@@ -161,7 +161,7 @@ describe('the order', () => {
       const { trader, datumHex } = realOrder(c.hash, 1);
       // The ADA-in order pays into a pool whose token this test does not need: take its LP from the datum.
       const pool = c.asset ? stubPool(c.asset) : { ...stubPool(ASCEND), lp: { policyId: MINSWAP_V2.authenPolicy, assetName: 'e74c52975908a612d5ce68327040d449aae99f8b463bb6de046a1b23c5713169' } };
-      const ours = encodeSwapOrderDatum(csl, { trader, pool, assetIn: c.assetIn, swapAmount: c.swap, minimumReceive: c.min });
+      const ours = encodeSwapOrderDatum(csl, { trader, pool, assetIn: c.assetIn, swapAmount: c.swap, minimumReceive: c.min }, MINSWAP_V2.maxBatcherFee);
       // Minswap's site writes killable = False (d87980); this rail writes True (d87a80).
       const tail = 'ff1a001e8480d87a80ff';
       expect(datumHex.endsWith(`d87980${tail}`)).toBe(true);
@@ -171,17 +171,17 @@ describe('the order', () => {
 
   it('locks what Minswap’s own orders lock: the swap, 2 ADA batcher fee, 2 ADA deposit', () => {
     const ada = realOrder(ORDER_TXS.adaIn, 1).order.amount();
-    expect(orderValue({ assetIn: ADA, swapAmount: 750000000n })).toEqual({ lovelace: BigInt(ada.coin().to_str()), token: null });
+    expect(orderValue({ assetIn: ADA, swapAmount: 750000000n }, MINSWAP_V2.maxBatcherFee)).toEqual({ lovelace: BigInt(ada.coin().to_str()), token: null });
     const tok = realOrder(ORDER_TXS.tokenIn, 1).order.amount();
-    expect(orderValue({ assetIn: ASCEND, swapAmount: 104749799n }).lovelace).toBe(BigInt(tok.coin().to_str()));
+    expect(orderValue({ assetIn: ASCEND, swapAmount: 104749799n }, MINSWAP_V2.maxBatcherFee).lovelace).toBe(BigInt(tok.coin().to_str()));
   });
 
   it('refuses a script wallet, a zero amount and a coin not in the pool', () => {
     const { trader } = realOrder(ORDER_TXS.tokenIn, 1);
     const base = { trader, pool: stubPool(ASCEND), assetIn: ASCEND, swapAmount: 1n, minimumReceive: 1n };
-    expect(() => encodeSwapOrderDatum(csl, { ...base, trader: { ...trader, payment: { kind: 'script', hash: trader.payment.hash } } })).toThrow();
-    expect(() => encodeSwapOrderDatum(csl, { ...base, swapAmount: 0n })).toThrow();
-    expect(() => encodeSwapOrderDatum(csl, { ...base, minimumReceive: 0n })).toThrow();
-    expect(() => encodeSwapOrderDatum(csl, { ...base, assetIn: TOOLS })).toThrow();
+    expect(() => encodeSwapOrderDatum(csl, { ...base, trader: { ...trader, payment: { kind: 'script', hash: trader.payment.hash } } }, MINSWAP_V2.maxBatcherFee)).toThrow();
+    expect(() => encodeSwapOrderDatum(csl, { ...base, swapAmount: 0n }, MINSWAP_V2.maxBatcherFee)).toThrow();
+    expect(() => encodeSwapOrderDatum(csl, { ...base, minimumReceive: 0n }, MINSWAP_V2.maxBatcherFee)).toThrow();
+    expect(() => encodeSwapOrderDatum(csl, { ...base, assetIn: TOOLS }, MINSWAP_V2.maxBatcherFee)).toThrow();
   });
 });

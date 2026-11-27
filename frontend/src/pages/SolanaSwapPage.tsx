@@ -35,7 +35,7 @@ import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
-import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import { clockFor, holdersFor, raiseReceipt } from '../lib/receipt';
 import { lastReading } from '../lib/heat/heatStore';
 import { amountText, settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
@@ -81,6 +81,7 @@ import {
   NoRouteError,
   buildSwapTransaction,
   pickFeeMint,
+  platformFeeBpsFor,
   getUsdPrices,
   routeLabels,
   getShield,
@@ -129,6 +130,8 @@ import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
+import { VwapOrderTab } from '../components/solana/vwap/VwapOrderTab';
+import { useVwapRunner } from '../components/solana/vwap/useVwapRunner';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
 import { markLanded } from '../lib/landed';
@@ -839,7 +842,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
       {/* One line: how the holder earns, and what the venue takes. The rest is small print. */}
       <p className="text-white/55 text-[11px] mt-1.5">
         Its SOL value is built to rise with staking rewards.{' '}
-        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_PLATFORM_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
+        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
       </p>
       <FinePrint summary="Details">
         <p>
@@ -847,7 +850,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
           so it shows none: each provider publishes its own.{' '}
           {isSolanaFeeConfigured()
-            ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
+            ? `A ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
             : 'No platform fee is charged on the buy.'}
         </p>
       </FinePrint>
@@ -1539,7 +1542,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   const quoteSeenAt = useRef(new WeakMap<JupiterQuote, number>());
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
-  const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
+  const [mode, setMode] = useState<'swap' | 'limit' | 'dca' | 'vwap'>('swap');
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
@@ -1816,6 +1819,25 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
   const { hold: holdNote, release: releaseNote, holdsNow } = venueSwap.pending;
+  // A VWAP order of this wallet runs from here, whichever tab of the form is open (not on
+  // the home card). Its slices are Jupiter swaps under this wallet's swap notes, so a slice
+  // and the Instant swap hold each other (components/solana/vwap/useVwapRunner.ts).
+  const vwapScope = publicKey ? swapPendingScope(publicKey.toBase58()) : null;
+  const vwapWhere = useVwapRunner({
+    enabled: !home,
+    priority: speed,
+    notes: {
+      holdsNow: () => vwapScope === null || holdsNow(vwapScope),
+      hold: (n) => { if (vwapScope) holdNote({ kind: 'jupiter-swap', ...n }, vwapScope); },
+      stillHeld: (n) => vwapScope !== null && readPendingTrades(vwapScope).some((x) => noteKey(x) === noteKey(n)),
+      release: (s) => { if (vwapScope) releaseNote(s, vwapScope); },
+    },
+    onLanded: (sig, o, paid) => {
+      const done = CASH_MINTS.has(o.buy.mint) && !CASH_MINTS.has(o.pay.mint) ? 'Sold' : 'Bought';
+      raiseSwapReceipt(connection, sig, { wallet: o.wallet, done, pay: o.pay, buy: o.buy, sent: paid, route: { kind: 'site', feeOwner: SOLANA_FEE_ACCOUNT || null } });
+      recordActivity(o.wallet, { sig, ts: Date.now(), kind: 'swap', summary: `VWAP slice: ${amountText(paid, o.pay.decimals)} ${o.pay.symbol} → ${o.buy.symbol}` });
+    },
+  });
   // A note that stands up while a review is open (another tab sent from this wallet) closes
   // it: the hold card takes its place. Not under a Sign already pressed: the send path
   // reads the notes again before the wallet (useVenueSwap).
@@ -1882,7 +1904,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       }}
     />
   ) : null;
-  const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
+  // The pair's own rate: 0.05% when both sides are majors, else the standard rate.
+  const feePct = (platformFeeBpsFor(payToken.mint, buyToken.mint) / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL, USDC or USDT (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
@@ -2951,7 +2974,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           {/* Mode tabs: not on the home's card, which is an instant swap only. */}
           {!home && (
           <div className="flex gap-1 mb-4">
-            {(['swap', 'limit', 'dca'] as const).map((mTab) => (
+            {(['swap', 'limit', 'dca', 'vwap'] as const).map((mTab) => (
               <button
                 key={mTab}
                 type="button"
@@ -2964,7 +2987,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                   border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
                 }}
               >
-                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : 'DCA'}
+                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : mTab === 'dca' ? 'DCA' : 'VWAP'}
               </button>
             ))}
           </div>
@@ -3291,12 +3314,31 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
-                : `A ${feePct}% platform fee applies on pairs that include SOL, USDC or USDT.`}
+                : `A ${SOLANA_PLATFORM_FEE_BPS / 100}% platform fee applies on pairs that include SOL, USDC or USDT, and ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% between SOL, USDC, USDT and staked SOL.`}
               </>
             )}
           </p>
             </fieldset>
             </>
+          ) : mode === 'vwap' ? (
+            <VwapOrderTab
+              payToken={payToken}
+              buyToken={buyToken}
+              payBalance={payBalance.raw}
+              feePct={feePct}
+              feeMintSymbol={feeMintSymbol}
+              warnings={shieldWarnings.map((w, i) => (
+                <p key={`vsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
+                  <span aria-hidden="true">⚠</span><span>{w.message}</span>
+                </p>
+              ))}
+              needsAck={needsAck}
+              ack={ack}
+              setAck={onAck}
+              onPickPay={() => setPicker('pay')}
+              onPickBuy={() => setPicker('buy')}
+              where={vwapWhere}
+            />
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (

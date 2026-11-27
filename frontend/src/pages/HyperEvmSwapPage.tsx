@@ -17,7 +17,7 @@ export default function HyperEvmSwapPage() {
       <PageArtBackdrop pageId="trade" />
       <div className="relative max-w-md mx-auto px-4 py-8">
         <ChainSwitch />
-        <HyperEvmSwapCard />
+        <HyperEvmSwapCard pageHeading />
       </div>
     </>
   );

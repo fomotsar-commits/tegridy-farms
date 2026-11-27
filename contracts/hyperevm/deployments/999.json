@@ -1,0 +1,17 @@
+{
+  "UnsupportedProtocol": "0x06d2c296f84df77afaac0bdf26dd63a6b91b9a8e",
+  "deployers": [
+    "0x14898258122c0740106391e6e8e4f17f3b6d456e"
+  ],
+  "chainId": 999,
+  "UniswapV3Factory": "0xcadc93e96de58ea554c71ca609974625615e046d",
+  "QuoterV2": "0x4b134c08aaf86b6e2a8e097d1039c4e7638806f3",
+  "TickLens": "0xb021651dacad5dabf83ef587297e093dfa0c95ec",
+  "NonfungibleTokenPositionDescriptorImpl": "0xa24c7287ec56a7defdc70033803451240e267a52",
+  "NonfungibleTokenPositionDescriptorProxy": "0xe9f83a07b071748e795d2489651d5310fa098db8",
+  "NonfungiblePositionManager": "0xcb03207ae13076f520b8c81ea4fe6f08f8bc63b2",
+  "UniversalRouter": "0x8652f9389d1738598e8a732d122440cda85faf1a",
+  "NonfungibleTokenPositionDescriptorProxyAdmin": "0x885d37970e17bf28afe79b1bff7401799d641e78",
+  "HyperEVMFeeAdapterDeployer": "0xf01574122a97281444369020e5d314cd99cc8781",
+  "V3OpenFeeAdapter": "0x5f30aa592fa4db6ab62373666334e93772c28887"
+}

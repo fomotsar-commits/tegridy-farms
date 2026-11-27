@@ -1334,6 +1334,9 @@ input, textarea, select {
 .hv-amt { display: block; font-family: var(--font-family-heading); font-weight: 900; line-height: 1; letter-spacing: -0.035em; font-size: 23px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; transition: color 500ms ease; }
 .hv-row[data-state='claimed'] .hv-amt { color: #22c55e; }
 .hv-row[data-held] .hv-amt { font-size: 19px; color: rgba(245, 228, 184, 0.75); }
+/* A pool share's fees: "about" in small type before the room's coin, the paired coin on its own line under it. */
+.hv-about { font-size: 0.56em; font-weight: 700; letter-spacing: 0; }
+.hv-also { display: block; margin-top: 4px; font-size: 0.72em; }
 .hv-where { display: block; margin-top: 6px; font-family: var(--font-family-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.35; color: rgba(245, 228, 184, 0.6); }
 /* No word left alone on a last line. */
 .hv-money, .hv-note, .hv-where { text-wrap: balance; }

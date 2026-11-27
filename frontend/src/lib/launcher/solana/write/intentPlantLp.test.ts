@@ -54,7 +54,13 @@ describe('the plant is a create’s alone', () => {
         for (const opts of [{}, { allowWalletGuards: true }]) {
           const r = decodeIntent([ix], { kind, signer: ME, cfg: cfgLocal, maxPriorityLamports: 1_000_000n, pins: pins() }, opts);
           expect(r.ok).toBe(false);
-          expect(!r.ok && r.reason).toMatch(/a program this page never uses \(TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\)/);
+          // A restart reaches Token-2022 for its own top-up alone (intent.ts familyOf): the
+          // plant's burn is not one, and its transfer moves a coin this pool does not hold.
+          const why =
+            kind === 'lp-restart'
+              ? /a Token-2022 instruction other than a restart’s top-up|the top-up moves a coin this pool does not hold/
+              : /a program this page never uses \(TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\)/;
+          expect(!r.ok && r.reason).toMatch(why);
         }
       }
     }

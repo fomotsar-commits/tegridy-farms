@@ -335,6 +335,12 @@ export default async function handler(req, res) {
     const { handleGeckoTerminal } = await import("./_lib/geckoterminal.js");
     return handleGeckoTerminal(req, res);
   }
+  // `?resource=dextools&endpoint=…`: DexTools' indexer endpoints for the same program, behind
+  // the /api/dextools/:endpoint rewrites (api/_lib/dextools.js). Above `const provider`.
+  if (req.query.resource === "dextools") {
+    const { handleDexTools } = await import("./_lib/dextools.js");
+    return handleDexTools(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);

@@ -1319,31 +1319,33 @@
       "id": "l2-treasury-safe",
       "chainId": [
         8453,
-        4663
+        4663,
+        999
       ],
       "address": "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
-      "role": "TREASURY role Safe for Base 8453 AND Robinhood 4663 — identical CREATE2 address on both chains (per-role keccak salt, canonical Safe 1.4.1 factory). Feeds DeployBase/RobinhoodMVP as the treasury env.",
+      "role": "TREASURY role Safe for Base 8453 AND Robinhood 4663 — identical CREATE2 address on both chains (per-role keccak salt, canonical Safe 1.4.1 factory). Feeds DeployBase/RobinhoodMVP as the treasury env. Also HyperEVM 999 since 2026-11-25: rebuilt there by replaying its Base creation (same factory, setup data and salt, so the same address and owners). On HyperEVM it is the V3 venue's treasury: hyperevm/v3-fee-adapter's TOKEN_JAR (the pool cut) and the site fee's recipient.",
       "custody": "2-of-2 Safe: 0x14898258122C0740106391E6e8E4F17F3b6d456E (operator) + 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8 (mainnet signer)",
       "status": "⚠️ live on BOTH chains but Safe-internal nonce()==0 on all instances — has NEVER executed. Prove it signs (1 trivial tx per chain) BEFORE any M.2+ ceremony depends on it; this exact never-proven shape cost 8.4 SOL on Solana.",
       "expect": {
         "type": "contract"
       },
-      "evidence": "contracts/broadcast/DeployRoleSafes.s.sol/8453/run-latest.json CREATE2; 2026-08-25 sweep RPC read-back on both chains: code present, 2-of-2, correct owners, nonce 0."
+      "evidence": "contracts/broadcast/DeployRoleSafes.s.sol/8453/run-latest.json CREATE2; 2026-08-25 sweep RPC read-back on both chains: code present, 2-of-2, correct owners, nonce 0. HyperEVM: created 2026-11-25 by the deployer through the Safe 1.4.1 proxy factory with the Base creation's own calldata (deploy pack step 1); read back the same day: code present, owners 0x14898258122C0740106391E6e8E4F17F3b6d456E + 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8, threshold 2."
     },
     {
       "id": "l2-multisig-safe",
       "chainId": [
         8453,
-        4663
+        4663,
+        999
       ],
       "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
-      "role": "MULTISIG role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains). Owner slot for the L2 contract legs, and the MVP factories' feeToSetter.",
+      "role": "MULTISIG role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains). Owner slot for the L2 contract legs, and the MVP factories' feeToSetter. Also HyperEVM 999 since 2026-11-25 (rebuilt from its Base creation, same address and owners): there it is the V3 venue's admin, owner and fee setter of hyperevm/v3-fee-adapter and owner of the position-NFT descriptor's ProxyAdmin.",
       "custody": "2-of-2 Safe: 0x14898258122C0740106391E6e8E4F17F3b6d456E + 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8",
       "status": "⚠️ live both chains, NOT symmetric. Read 2026-09-17: on Base nonce() is 5, so it has signed, and it is feeToSetter of base/tegridy-factory (pendingFeeToSetter 0). On Robinhood nonce() is 0, and robinhood/tegridy-factory still has feeToSetter = the deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E with this Safe only as pendingFeeToSetter: the accept is still owed there. Smoke-test on Robinhood before use (see l2-treasury-safe).",
       "expect": {
         "type": "contract"
       },
-      "evidence": "Same broadcast + 2026-08-25 RPC read-back as l2-treasury-safe."
+      "evidence": "Same broadcast + 2026-08-25 RPC read-back as l2-treasury-safe. HyperEVM: created 2026-11-25 like l2-treasury-safe there; its first transaction (nonce 0, safeTxHash 0xc9b898649cd411eec84670bcad8411fc60c40740b49ca057b515a051d9ef48da, signed 2 of 2) handed hyperevm/v3-factory to hyperevm/v3-fee-adapter, read back the same day (factory owner() = the adapter, Safe nonce 1)."
     },
     {
       "id": "l2-pause-guardian-safe",
@@ -2956,6 +2958,132 @@
       "evidence": "Cast replay via 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 25; code read back at the predicted address 2026-11-08."
     }
   ],
+  "hyperevm": [
+    {
+      "$comment": "OUR UNISWAP V3 VENUE ON HYPEREVM (chain 999), deployed 2026-11-25 by the deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E with contracts/hyperevm (Uniswap's own Deploy-all at Uniswap/contracts a677c0d4b5fb6e3357cf6d0f0315bcb135a1e1ee, then Uniswap's V3OpenFeeAdapter). The record the kit wrote is contracts/hyperevm/deployments/999.json. Read back the same day by `kit.mjs check`: every contract byte-identical to Uniswap's own HyperEVM deployment (addresses masked), all four fee tiers on, the factory owned by v3-fee-adapter, whose TOKEN_JAR is ethereum/l2-treasury-safe and whose owner and fee setter is ethereum/l2-multisig-safe (both Safes rebuilt on 999 at their Base addresses). Several addresses here are ALSO other contracts on Base, Robinhood or Ethereum: the same deployer at the same nonce is a different contract on each chain (e.g. v3-position-manager is base/swap-fee-router-admin's address). The site reads these from frontend/src/lib/chains/hyperEvmDeployment.ts, the volume and TVL jobs from frontend/scripts/lib/venue-volume-chain.mjs."
+    },
+    {
+      "id": "v3-unsupported-protocol",
+      "address": "0x06D2C296F84Df77aFaAC0bDF26dD63A6B91b9a8e",
+      "role": "Uniswap's UnsupportedProtocol (HyperEVM), Deploy-all run A: the stand-in the Universal Router calls for every protocol this chain does not have. Reverts every call with UnsupportedProtocolError().",
+      "custody": "none — no owner, no state",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "kit.mjs check 2026-11-25: 53 bytes, reverts every call with UnsupportedProtocolError()."
+    },
+    {
+      "id": "v3-factory",
+      "address": "0xcaDc93E96De58EA554c71ca609974625615E046D",
+      "role": "UniswapV3Factory (HyperEVM): our V3 venue's pool factory. Fee tiers 0.01% (tick spacing 1), 0.05% (10), 0.3% (60) and 1% (200). The volume job counts from its deploy block, 52,183,228.",
+      "custody": "owner() = hyperevm/v3-fee-adapter (handed over 2026-11-25 by ethereum/l2-multisig-safe's first transaction); the adapter alone can set a pool's venue cut",
+      "status": "live, 2026-11-25; no pools yet",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,228, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0xf0db7b58379503491d857db50ac9ece64c653918 (addresses masked); owner() = 0x5f30Aa592fa4dB6AB62373666334E93772c28887."
+    },
+    {
+      "id": "v3-quoter-v2",
+      "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
+      "role": "Uniswap's QuoterV2 (HyperEVM) for v3-factory: the site's price quotes.",
+      "custody": "none — no owner",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,411, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0x7dfd4f31be6814d2906bde155c3e1b146eac1468 (addresses masked); factory() = v3-factory, WETH9() = WHYPE 0x5555555555555555555555555555555555555555."
+    },
+    {
+      "id": "v3-tick-lens",
+      "address": "0xB021651dACaD5dabf83ef587297E093DfA0c95Ec",
+      "role": "Uniswap's TickLens (HyperEVM): reads a pool's initialized ticks.",
+      "custody": "none — no owner",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,472, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0x9eb8600665b55d10c1eb2316ca5127a9ca6e2e76 (addresses masked)."
+    },
+    {
+      "id": "v3-position-descriptor-impl",
+      "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52",
+      "role": "Uniswap's NonfungibleTokenPositionDescriptor implementation (HyperEVM): draws the position NFTs, behind v3-position-descriptor-proxy.",
+      "custody": "none — the proxy's admin decides which implementation is used",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,533, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0x6f84dae9c064ff453e5c8af51efb819f8f610225 (addresses masked)."
+    },
+    {
+      "id": "v3-position-descriptor-proxy",
+      "address": "0xE9F83A07b071748E795d2489651d5310fA098Db8",
+      "role": "TransparentUpgradeableProxy (HyperEVM) in front of v3-position-descriptor-impl; v3-position-manager has it baked in as its token descriptor.",
+      "custody": "upgradeable by v3-position-descriptor-proxy-admin only",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,594, receipt status 1. kit.mjs check 2026-11-25: NonfungiblePositionManager has our descriptor proxy baked in."
+    },
+    {
+      "id": "v3-position-descriptor-proxy-admin",
+      "address": "0x885d37970e17bF28AFe79B1Bff7401799D641E78",
+      "role": "ProxyAdmin (HyperEVM) of v3-position-descriptor-proxy, created by the proxy's constructor: the one key that can change how position NFTs are drawn. It cannot touch pools, positions or money.",
+      "custody": "owner() = ethereum/l2-multisig-safe 0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Created inside the proxy's transaction (block 52,183,594). kit.mjs check 2026-11-25: NFT descriptor ProxyAdmin owner = 0xbc4e8abe4b0f16fc65c5bcadd018b3c44c47be5b."
+    },
+    {
+      "id": "v3-position-manager",
+      "address": "0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2",
+      "role": "Uniswap's NonfungiblePositionManager (HyperEVM) for v3-factory: opens pools, adds and removes liquidity, collects LP fees. SAME ADDRESS as base/swap-fee-router-admin, a different contract on Base (same deployer, same nonce).",
+      "custody": "none — no owner",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, block 52,183,655, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0x39654a85a4c05127f5fd6ed22caec077a0fb1377 (addresses masked); factory() = v3-factory, WETH9() = WHYPE."
+    },
+    {
+      "id": "v3-universal-router",
+      "address": "0x8652f9389D1738598E8a732d122440cDA85FAF1A",
+      "role": "Uniswap's Universal Router 2.2.0 (HyperEVM) for v3-factory: the site's swaps, which pay the 0.5% site fee to ethereum/l2-treasury-safe through PAY_PORTION. Its V3 swap takes six fields (frontend/src/lib/evm/universalRouter.ts).",
+      "custody": "none — no owner",
+      "status": "live, 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Deploy-all run B, receipt status 1. kit.mjs check 2026-11-25: byte-identical to Uniswap's 0x9afe3c497e19501db228f28cdbdd29bc98f65dba (addresses and EIP-712 domain separator masked); our factory, position manager, WHYPE and Permit2 baked in."
+    },
+    {
+      "id": "v3-fee-adapter-deployer",
+      "address": "0xF01574122A97281444369020e5D314CD99Cc8781",
+      "role": "HyperEVMFeeAdapterDeployer (contracts/hyperevm/src): a one-shot CREATE2 deployer whose constructor deployed v3-fee-adapter with Uniswap's fee schedule and our Safes. Holds nothing afterwards.",
+      "custody": "none — no owner, no state",
+      "status": "live (spent), 2026-11-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/hyperevm/broadcast/DeployFeeAdapter.s.sol/999 (run C), CREATE2 through 0x4e59b44847b379578588920ca78fbf26c0b4956c, deployer nonce 13, receipt status 1, 1,951,957 gas."
+    },
+    {
+      "id": "v3-fee-adapter",
+      "address": "0x5f30Aa592fa4dB6AB62373666334E93772c28887",
+      "role": "Uniswap's V3OpenFeeAdapter (HyperEVM): owns v3-factory and sets each pool's venue cut: 1/4 of the pool fee on the 0.01% and 0.05% pools, 1/6 on the 0.3% and 1% pools (Uniswap's own mainnet schedule). Anyone may trigger or collect; the cut can only go to TOKEN_JAR = ethereum/l2-treasury-safe.",
+      "custody": "owner() and feeSetter() = ethereum/l2-multisig-safe 0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B; TOKEN_JAR (immutable) = ethereum/l2-treasury-safe 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
+      "status": "live, 2026-11-25; owns v3-factory",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "Created inside v3-fee-adapter-deployer's transaction (run C). check-adapter-bytes.mjs 2026-11-25: byte-identical to Uniswap's V3OpenFeeAdapter (7,266 bytes, 7 immutable slots masked); FACTORY() = v3-factory, TOKEN_JAR() = 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0."
+    }
+  ],
   "solanaFields": {
     "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. The two range tiers (range-clmm-amm-config-0 and -1, tegridy-clmm's own AmmConfig layout, whose `owner` field is read as protocolOwner) were read 2026-10-27 at finalized slot 462,122,645. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
@@ -3034,5 +3162,17 @@
     "notAsserted": {
       "tegridy-launch-global": "The closed 2026-08 tegridy-launch's global account. Its program's data account is gone (tegridy-launch-programdata is expected absent), so no code can act on it and no field of it can move money."
     }
-  }
+  },
+  "cardano": [
+    {
+      "$comment": "Cardano mainnet. Checked offline only, by verify-addresses.mjs: bech32 checksum, mainnet, the payload size the header names (check 1), and every address literal in src/lib/cardano/venueFee.ts is a row here (check 5c). Nothing reads Cardano on chain, so no row here may carry an expect."
+    },
+    {
+      "id": "cardano-venue-fee-treasury",
+      "address": "addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat",
+      "role": "The venue's Cardano fee address. Every Cardano swap on the site pays its venue fee (CARDANO_VENUE_FEE_BPS = 50, 0.5% of the ADA side) here, as its own output in the trader's transaction; a fee below the minimum output is not charged. Set in code, never from a build setting: CARDANO_VENUE_FEE_ADDRESS in frontend/src/lib/cardano/venueFee.ts, which check 5c holds to this row. The same address is the role timelock's `treasury` and the DEX settings' pool_creation_fee_receiver (cardano/role-timelock, cardano/batcher, docs/CARDANO_AUDIT_SCOPE.md).",
+      "custody": "Two signatures, both the owner's: the Eternl multi-sig wallet \"memetics.finance\" (Eternl Pro, made 2026-10-31). Address type 3, both parts scripts. Payment part: native script 356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6, all of the keys 47901a27b081437abaeb2e6a16762388f68f3eb40de056a529e9dc39 and 063f7b2abbf1cb581516c5b4a78929a118752cc3672c10709bb8bc21. Stake part: native script 016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479, all of the keys a91f2db69b8b44ef8355a53e648d052680d009c70d07bc9017292b5a and f9824d0d357d21b5b12b1b83e0d1f567d6076aa74481cb1741f0be7c. No single key can move the fees or redirect their staking rewards. Both scripts are published in Eternl's registration tx 4774ad698f1df93b3a09d1942b0ff1001b87b9788d50fd2a13820576fbe42762 (metadata label 1854).",
+      "status": "IN USE as the Cardano venue fee address. Proven on mainnet 2026-11-07 by tx 06c0fc163e49d1b3486c37c8c56727df85e88e4d73209be800531ce17037d4da, a spend from it carrying exactly the two payment keys' signatures. Registered 2026-11-16 (money audit 2026-11-15, LC-7). The two script hashes above were decoded from this address on 2026-11-16 and match docs/CARDANO_AUDIT_SCOPE.md."
+    }
+  ]
 }

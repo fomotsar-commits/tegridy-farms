@@ -64,6 +64,8 @@ function chain(magic: { koios: string; ogmios: number; answers?: string }) {
     req.on('end', () => {
       res.setHeader('content-type', 'application/json');
       if (req.url === '/genesis') return res.end(JSON.stringify([{ networkmagic: magic.koios }]));
+      // No UTxO holds any asset asked for (the lock token, before the lock step is sent).
+      if (req.url?.startsWith('/asset_utxos')) return res.end('[]');
       if (req.url === '/utxo_info') {
         const refs = JSON.parse(b)._utxo_refs as string[];
         return res.end(JSON.stringify(refs.filter((r) => r === `${IN}#0`).map(() => ({ tx_hash: IN, tx_index: 0, address: INPUTS.deployer, value: '10000000', asset_list: [], datum_hash: null, inline_datum: null, reference_script: null, block_time: 1_700_000_000, is_spent: false }))));
@@ -234,6 +236,43 @@ test('a failure that is not a refusal stays in the terminal: the page gets a pla
     // The owner still reads why, where the server runs.
     await new Promise((ok) => setTimeout(ok, 200));
     assert.match(s.log(), /Deserialization failed/, 'the terminal shows the error');
+  } finally {
+    s?.p.kill();
+    c.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the deploy on the page: its steps in the order they run, init refused until the lock is on chain, inputs other than compile\'s refused', async () => {
+  const c = await chain({ koios: '1', ogmios: 1 });
+  const dir = runDir();
+  // What compile applied; the scripts themselves are not read until a step is opened.
+  const params = { network: INPUTS.network, seedTxIn: INPUTS.seedTxIn, lockSeedTxIn: INPUTS.lockSeedTxIn, ownerA: INPUTS.ownerA, ownerB: INPUTS.ownerB, treasury: INPUTS.treasury, poolStake: INPUTS.poolStake };
+  const h = (b: string) => ({ hash: b.repeat(28), compiledCode: '' });
+  writeFileSync(join(dir, 'out', 'scripts.json'), JSON.stringify({ params, scripts: { authen: h('a1'), globalSetting: h('a1'), pool: h('a2'), poolBatching: h('a3'), order: h('a4'), factory: h('a5'), lock: h('a6'), expiredOrderCancel: h('a7') } }));
+  const tx = readFileSync(join(dir, 'out', 'proof.tx.json'), 'utf8');
+  for (const s of ['register', 'ref-pool', 'init', 'lock-announce-1', 'ref-order', 'lock']) writeFileSync(join(dir, 'out', `${s}.tx.json`), tx);
+  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  let s: Awaited<ReturnType<typeof serve>> | undefined;
+  try {
+    s = await serve(dir, c.url, port);
+    const listed = (await call(port, 'GET', '/api/run', { host: `127.0.0.1:${port}` })).json;
+    assert.deepEqual(listed.steps.map((x: { step: string }) => x.step), ['lock', 'init', 'ref-order', 'ref-pool', 'register', 'lock-announce-1', 'proof']);
+    // No UTxO on chain holds the lock token: init would hand every role to a script no one can spend.
+    const init = await call(port, 'GET', '/api/tx?step=init', { host: `127.0.0.1:${port}` });
+    assert.equal(init.status, 422);
+    assert.match(init.json.error, /init waits for the lock: 0 UTxOs on chain hold the lock token a6a6/);
+    // A deploy step's bytes are read against scripts.json: this one is not a lock mint.
+    const lock = await call(port, 'GET', '/api/tx?step=lock', { host: `127.0.0.1:${port}` });
+    assert.equal(lock.status, 422);
+    assert.match(lock.json.error, /lock is refused: it does not mint exactly one lock token/);
+    s.p.kill();
+    s = undefined;
+    // scripts.json compiled for another owner key than inputs.json names: the page does not start.
+    writeFileSync(join(dir, 'out', 'scripts.json'), JSON.stringify({ params: { ...params, ownerB: 'ee'.repeat(28) }, scripts: {} }));
+    const r = await run(['serve', join(dir, 'inputs.json'), join(dir, 'out'), '--port', String(port)], { KOIOS_URL: c.url });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /scripts.json was compiled with ownerB/);
   } finally {
     s?.p.kill();
     c.close();

@@ -19,7 +19,7 @@ export const LOAN_CHAIN_ID = 1;
 
 /** The collections the loan contract allows (its collection allow-list, set at deploy). */
 export const LENDING_COLLECTIONS = Object.freeze([
-  Object.freeze({ name: 'Jungle Bay Ape Club', symbol: 'JBAC', address: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' }),
+  Object.freeze({ name: 'Jungle Bay', symbol: 'JBAC', address: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' }),
   Object.freeze({ name: 'Nakamigos', symbol: 'NAKA', address: '0xd774557b647330C91Bf44cfEAB205095f7E6c367' }),
   Object.freeze({ name: 'GNSS Art', symbol: 'GNSS', address: '0xa1De9f93c56C290C48849B1393b09eB616D55dbb' }),
 ]);

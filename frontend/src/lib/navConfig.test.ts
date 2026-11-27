@@ -165,6 +165,8 @@ describe('the drawer', () => {
       ['/liquidity', 'Add / Remove'],
       ['/pools', 'Add / Remove'],
       ['/range-pools', 'Range'],
+      // Our own Uniswap V3 pools on HyperEVM, shown since the venue was deployed (2026-11-25).
+      ['/hyperevm-pools', 'HyperEVM'],
       ['/zap', 'Zap'],
     ]);
   });
@@ -178,7 +180,7 @@ describe('the drawer', () => {
     }));
     try {
       const { POOLS_SECTION: withRange } = await import('./navConfig');
-      expect(withRange.items.map((i) => i.tabLabel ?? i.label)).toEqual(['Add / Remove', 'Add / Remove', 'Range', 'Zap']);
+      expect(withRange.items.map((i) => i.tabLabel ?? i.label)).toEqual(['Add / Remove', 'Add / Remove', 'Range', 'HyperEVM', 'Zap']);
       expect(withRange.items.some((i) => i.to === '/solana-lp')).toBe(false);
     } finally {
       vi.doUnmock('./solana/clmm/programId');
@@ -743,6 +745,7 @@ describe("the menu's index", () => {
     expect(pools.items.map((i) => [i.to, indexName(pools, i)])).toEqual([
       ['/pools', 'Add / Remove'],
       ...(rangePoolsVisible() ? [['/range-pools', 'Range']] : []),
+      ['/hyperevm-pools', 'HyperEVM'],
     ]);
   });
 

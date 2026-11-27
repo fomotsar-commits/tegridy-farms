@@ -31,7 +31,7 @@ export interface EthYieldState {
 const JBAC_BENEFIT: GoldCardBenefit = {
   icon: '\u{1F451}',
   title: 'JBAC Lifetime Access',
-  desc: 'Jungle Bay Ape Club holders get permanent Gold Card access — no subscription needed.',
+  desc: 'Jungle Bay NFT holders get permanent Gold Card access — no subscription needed.',
 };
 
 /**

@@ -19,6 +19,7 @@ kit.INK = None                 # a model is a photograph: no drawn line
 from kit import V
 import buildings
 import stock
+import owners
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 PID = argv[0]
@@ -28,7 +29,7 @@ SAMPLES = int(argv[3]) if len(argv) > 3 else 200
 
 # Per plot: BAYLA's picture is a busy one, so its tiles are bigger (pixels of the picture per tile;
 # the rest get 128 tiles down the picture's height). The treasury's gold pool, lit low and darker,
-# so the hourglass over it reads.
+# so the bank beside it reads.
 TILE = {'bayla': 16}
 POOL = {'treasury': (0.12, 0.3)}           # (glow, base): the default is (0.15, 0.38)
 
@@ -70,8 +71,8 @@ def pool(p):
 
 
 x0, y0 = P['x0'], P['y0']
-# the building's middle; Range's diving tower stands at the far side of its pool
-FCX, FCY = (x0 + 5.4, y0 + 2.8) if P['piece'] == 'lifeguard' else (P['X'] + 1.6, P['Y'] + 1.4)
+# the building's middle; the owner's own stand where owners.py fits them
+FCX, FCY = owners.centre(P) if P['piece'] in owners.PIECES else (P['X'] + 1.6, P['Y'] + 1.4)
 
 
 def front(x, y, margin=0.6):
@@ -81,7 +82,7 @@ def front(x, y, margin=0.6):
 
 kit.box('plot', x0, y0, 0.0, PW, PD, ZP, stock.card())
 kit.box('plot inner', x0 + 0.3, y0 + 0.3, ZP, PW - 0.6, PD - 0.6, 0.004, stock.cork() if P['kind'] == 'room' else stock.scored())
-if P['pool']:
+if P['pool'] and P['piece'] not in owners.OWN_POOLS:
     pool(P)
 if P['garden']:
     kit.stones(P['garden'])
@@ -117,12 +118,6 @@ if PID == 'bayla':
     figure(5.5, 24.55, math.radians(0), basket=P['acc'])                            # staking pay, out in the open,
     figure(6.75, 24.75, math.radians(0), basket=P['acc'], stride=-0.06)             # walking off toward the wallet
     figure(8.95, 23.1, math.radians(180), stride=0.0)                               # at the pool's edge
-elif PID == 'treasury':
-    cx, cy = P['X'] + 1.6, P['Y'] + 1.3
-    figure(cx + 1.15, cy + 1.95, math.radians(-120), stride=0.0)
-    figure(cx + 1.5, cy + 1.75, math.radians(-140), stride=0.02)
-    figure(cx - 1.5, cy + 2.2, math.radians(10))
-    figure(25.6, 23.8, math.radians(150), stride=0.0)
 else:
     # three figures on open ground, the nearest first, apart from each other and from the building
     print('figures', stock.figures(scene, P, ZP, PW, PD, lambda ob: ob.name.startswith('plot inner')))
@@ -191,12 +186,16 @@ _d = [q.dot(toward) for q in BPTS]
 w_b, d_b = max(_r) - min(_r), max(_d) - min(_d)
 lens = 50
 hh, vh = math.atan(18 * 0.8 / lens), math.atan(18 / lens)
-dist = max((w_b / 2) * 1.16 / math.tan(hh), (top / 2) * 1.14 / math.tan(vh), 6.0) + d_b / 2
+# a low, wide piece (Range's pool club) is seen from higher up, so its pools show rather than their edges;
+# the frame then holds what it sees of the piece's height and depth together
+low = top < 2.0
+elev = math.radians(30 if low else 9)
+seen = top * math.cos(elev) + d_b * math.sin(elev) if low else top
+dist = max((w_b / 2) * 1.16 / math.tan(hh), (seen / 2) * 1.14 / math.tan(vh), 6.0) + d_b / 2
 tz = top * 0.5
 _c = V(FCX, FCY, 0)
 _c = _c + across * ((max(_r) + min(_r)) / 2 - _c.dot(across)) + toward * ((max(_d) + min(_d)) / 2 - _c.dot(toward))
 target = V(_c.x, -_c.y, tz)
-elev = math.radians(9)
 camd = bpy.data.cameras.new('cam')
 camd.lens = lens
 camd.sensor_fit = 'AUTO'

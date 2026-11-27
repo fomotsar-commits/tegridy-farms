@@ -1,6 +1,6 @@
 # The mainnet builds solana-ci makes (build, launch-curve, clmm-build), in sha256sum's format.
 # Each job compares its file with its line here and fails on any difference, so a change to a
 # program, its dependencies or its tools changes this file in the same pull request.
-3f36e8adb9f541701f8b82df73ff07b76824fe3941381f7d95abdb9563dc7c48  raydium_cp_swap.so
+4082fcfbdab6fab9e84af2d0aa6c91cbed680a7e5fa36e7f7ef15dee67429022  raydium_cp_swap.so
 028701a016b12fd2cc2298c76e2b00541989ddfa7fc12f512ca860c69c6bfe72  tegridy_launch.so
 d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56  raydium_clmm.so
