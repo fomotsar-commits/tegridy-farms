@@ -82,8 +82,9 @@ Raydium (its cp-swap program, the one behind Raydium's CPMM pools)
 
 - Volume: what traders sent into each swap of program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, before fees, read from the `SwapEvent` the program logs. Counted in SOL, USDC or USDT wherever the pool holds one of them; when a swap sends the pool's other token, that amount is valued at the price the swap itself traded at. Swaps by the protocol's own price-keeping bot are left out (see below).
 - Fees: the trade fee each swap paid, which the same event carries (1% of the amount sent in on every pool today), plus the flat fee in SOL to open a pool.
-- Revenue and protocol revenue: the protocol owner's share of each trade fee, 10.4%, and the pool creation fee. Both go to the multisig treasury.
-- Supply side revenue: 84% of each trade fee stays in the pool for its liquidity providers, and 5.6% is set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.
+- Revenue: 16% of each trade fee, and the pool creation fee. Of the 16%, 10.4% goes to the protocol's multisig treasury and 5.6% is set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.
+- Protocol revenue: the multisig treasury's part alone: 10.4% of each trade fee, and the pool creation fee.
+- Supply side revenue: 84% of each trade fee, which stays in the pool for its liquidity providers.
 
 ##### Github org/user (Optional, if your code is open source, we can track activity):
 
@@ -103,30 +104,31 @@ Not on these Solana pools.
 - **Why this differs from the site.** The site's volume figure counts every swap in the pools, the keeper's included, and covers the protocol's other programs and chains. This adapter counts fee-paying swaps of this one program.
 - **Is a zero correct?** An hour with no swap is common. Whole days without one happened in October 2026, while the first pools were opening (the first pool on 2026-10-03, the first swap on 2026-10-08), and are not expected now.
 - **Did the fee or the split change?** The trade fee has been 1% since the fee tier was created on 2026-10-01. The split changed once: until 2026-10-19 07:58:54 UTC the whole 16% that is not the liquidity providers' went to the treasury; since then 10.4% goes to the treasury and 5.6% to the fund owner (transaction `3v8upWGzBvmfsC9nnGpV8CLFhzCnbaDoMsQM3hzupT68k4aqqhnrCQgo5V1bu5bhDdTSADPLA2NKdtm9RJf78yje`). The adapter has that second as a time guard. Rates are read from the fee tier accounts.
-- **Does fees over volume make sense?** Swap fees are 1.00% of volume on every day tested.
+- **Why revenue is larger than protocol revenue.** Revenue is everything that does not go to liquidity providers: 16% of each trade fee, and the pool creation fee. Protocol revenue is only what the multisig treasury collects: 10.4% of each trade fee, and the pool creation fee. The other 5.6% is set aside for the fund owner's wallet, which is not the treasury, and it is not a payout to holders of a token, so it is in neither protocol revenue nor holders revenue. It has its own label, "Swap Fees To Fund Owner". If you would rather see it under supply side revenue, say so and we will move it.
+- **Does fees over volume make sense?** Swap fees are 1.00% of volume on every day tested, and fees equal revenue plus supply side revenue.
 - **Pool creation fees.** 0.15 SOL per pool, read from the transfer the program makes into the treasury's wrapped SOL account, only while a call of the program is running.
 - **Refill.** New adapter. `start` is 2026-10-03; every day since can be refilled.
 
 **Test output** (`pnpm test dexs memetics-finance`, the last 24 hours, public endpoint)
 
 ```
-Start Date:	Thu, 26 Nov 2026 04:00:00 GMT
-End Date:	Fri, 27 Nov 2026 04:00:00 GMT
+Start Date:	Thu, 26 Nov 2026 06:00:00 GMT
+End Date:	Fri, 27 Nov 2026 06:00:00 GMT
 
 SOLANA
-End timestamp: 1795751999 (2026-11-27T03:59:59.000Z)
-Daily volume: 178.93
-Daily fees: 1.79
-Daily revenue: 0.19
-Daily protocol revenue: 0.19
-Daily supply side revenue: 1.60
+End timestamp: 1795759199 (2026-11-27T05:59:59.000Z)
+Daily volume: 124.73
+Daily fees: 1.25
+Daily revenue: 0.20
+Daily protocol revenue: 0.13
+Daily supply side revenue: 1.05
 
 label                   | Daily fees         | Daily supply side revenue | Daily revenue
 ---                     | ---                | ---                       | ---
-Token Swap Fees         | 1.7860000000000003 |                           |
-Swap Fees To LPs        |                    | 1.5003                    |
-Swap Fees To Fund Owner |                    | 0.1                       |
-Swap Fees To Treasury   |                    |                           | 0.1858
+Token Swap Fees         | 1.2510000000000001 |                           |
+Swap Fees To LPs        |                    | 1.0509                    |
+Swap Fees To Treasury   |                    |                           | 0.13000000000000003
+Swap Fees To Fund Owner |                    |                           | 0.07
 ```
 
 **Three past days** (`pnpm test dexs memetics-finance <the day after>`), each held against a separate script that reads the same transactions and prices SOL once, at noon:
@@ -137,4 +139,6 @@ Swap Fees To Treasury   |                    |                           | 0.185
 | 2026-10-22 | $236.37 | $2.3622 | $1.9842 | $0.1323 | $0.2456 | $16 | $236.15, $2.3615, one (0.15 SOL) |
 | 2026-11-06 | $455.08 | $4.5454 | $3.8158 | $0.2544 | $0.4723 | $14 | $456.23, $4.5623, one (0.15 SOL) |
 
-For the last 24 hours the separate script reads $175.99 of volume in pools that hold SOL, USDC or USDT. The adapter's figure is $2.94 higher: it also counts 13 swaps in pools that hold none of the three, which DefiLlama prices, and it prices SOL hour by hour.
+Revenue for a day is the fund owner and treasury columns plus the pool creation fees; protocol revenue is the treasury column plus the pool creation fees. The test rounds each hourly figure of $10 or more to whole dollars (`adapters/utils/runAdapter.ts`), which is why a pool creation fee prints as a whole number and why, in the hour a pool opens, the printed totals can differ by under a dollar.
+
+For the last 24 hours the separate script reads $122.03 of volume in pools that hold SOL, USDC or USDT. The adapter's figure is $2.70 higher: it also counts 4 swaps in pools that hold none of the three, which DefiLlama prices, and it prices SOL hour by hour.

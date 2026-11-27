@@ -20,23 +20,28 @@ output is in each `PR.md`.
   between them is fees set aside in the pools for the vault and the Workshop, which DefiLlama's
   rule leaves out (about $25 to $30), our one range pool ($1.54, a different program) and the
   SOL price each side used.
-- **Volume: only what fee-paying traders did: $178.93** in the 24 hours to 2026-11-27 04:00
+- **Volume: only what fee-paying traders did: $124.73** in the 24 hours to 2026-11-27 06:00
   UTC. Our own price robot's swaps are not in it. See the first decision below.
 - **How the money is shown.** A swap pays the pool's 1% trade fee. Liquidity providers keep 84%
-  of it (0.84% of the swap). The vault gets 10.4% of it (0.104% of the swap): DefiLlama shows
-  that as our revenue. The Workshop gets 5.6% of it (0.056% of the swap): shown as paid out, not
-  as our revenue. Opening a pool pays the vault 0.15 SOL: shown as revenue.
+  of it (0.84% of the swap). The other 16% (0.16% of the swap) is shown as revenue: 10.4% of the
+  fee to the vault and 5.6% to the Workshop, each under its own label. Only the vault's part is
+  also shown as protocol revenue, DefiLlama's name for what a treasury collects. Opening a pool
+  pays the vault 0.15 SOL: shown as revenue and as protocol revenue.
 
-## Decisions before sending: one settled, two open
+## Decisions before sending: two settled, one open
 
 1. **Settled by the owner, 2026-11-27: the price robot's swaps stay out of volume, and both
    listings go.** DefiLlama's written rule is that a protocol's own trades are never volume,
    and our robot trades free of fees. The adapter leaves out every swap that paid no fee,
    which is exactly the robot's. So DefiLlama's figure will be lower than the one figure our
    site shows, and the pull request says why. Our site keeps its one figure, robot included.
-2. **The Workshop's share is shown as paid out, not as revenue.** DefiLlama counts as revenue
-   only what a protocol's own treasury or token holders keep. This is a labelling choice; the
-   amounts are the chain's either way.
+2. **Settled by the owner, 2026-11-27: the Workshop's share counts as revenue.** The adapter
+   shows it under revenue with its own label, "Swap Fees To Fund Owner", and keeps it out of
+   protocol revenue, which stays the vault's part alone, so every figure is true as labelled.
+   A reviewer may still ask to move it: DefiLlama's written rule counts as revenue what the
+   protocol keeps, and puts a share paid to a partner beside the liquidity providers'. The
+   pull request says where the 5.6% goes and offers the move. The amounts are the chain's
+   either way.
 3. **Fields only the owner can settle**, marked in each `PR.md`: the logo file to attach
    (`frontend/public/icons/a5bed999/icon-512.png` is 512 by 512), whether to name TOWELI as the
    protocol's token (the text says "None on Solana"), the CoinGecko and CoinMarketCap ids (left

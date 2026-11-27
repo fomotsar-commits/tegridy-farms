@@ -198,6 +198,7 @@ const fetch = async (options: FetchOptions) => {
   const dailyVolume = options.createBalances();
   const dailyFees = options.createBalances();
   const dailyRevenue = options.createBalances();
+  const dailyProtocolRevenue = options.createBalances();
   const dailySupplySideRevenue = options.createBalances();
 
   // One transaction at a time: a few hundred a day, and the public endpoint allows little more.
@@ -241,16 +242,19 @@ const fetch = async (options: FetchOptions) => {
       dailyVolume.add(token, valued(inputAmount));
 
       // The program books the protocol and fund shares of the trade fee rounded down (curve/fees.rs)
-      // and leaves the rest in the pool for its liquidity providers.
+      // and leaves the rest in the pool for its liquidity providers. Both shares are revenue; only the
+      // protocol owner's, which the multisig treasury collects, is protocol revenue.
       const shares = await feeSharesOf(pool);
       const fee = valued(tradeFee);
       const protocolFee = valued((tradeFee * shares.protocol) / RATE_DENOMINATOR);
       const fundFee = valued((tradeFee * shares.fund) / RATE_DENOMINATOR);
       const fundOwnerPaid = tx.blockTime >= FUND_SHARE_START;
+      const treasuryFee = fundOwnerPaid ? protocolFee : protocolFee + fundFee;
       dailyFees.add(token, fee, LABEL.SwapFees);
       dailySupplySideRevenue.add(token, fee - protocolFee - fundFee, LABEL.SwapFeesToLps);
-      dailyRevenue.add(token, fundOwnerPaid ? protocolFee : protocolFee + fundFee, LABEL.SwapFeesToTreasury);
-      if (fundOwnerPaid) dailySupplySideRevenue.add(token, fundFee, LABEL.SwapFeesToFundOwner);
+      dailyRevenue.add(token, treasuryFee, LABEL.SwapFeesToTreasury);
+      dailyProtocolRevenue.add(token, treasuryFee, LABEL.SwapFeesToTreasury);
+      if (fundOwnerPaid) dailyRevenue.add(token, fundFee, LABEL.SwapFeesToFundOwner);
 
       // No pool charges a creator fee today; one that does is counted in the token it is charged in.
       if (creatorFee > 0n) {
@@ -264,6 +268,7 @@ const fetch = async (options: FetchOptions) => {
     if (creationFees > 0n) {
       dailyFees.add(ADDRESSES.solana.SOL, creationFees, LABEL.PoolCreationFees);
       dailyRevenue.add(ADDRESSES.solana.SOL, creationFees, LABEL.PoolCreationFeesToTreasury);
+      dailyProtocolRevenue.add(ADDRESSES.solana.SOL, creationFees, LABEL.PoolCreationFeesToTreasury);
     }
   }
 
@@ -271,7 +276,7 @@ const fetch = async (options: FetchOptions) => {
     dailyVolume,
     dailyFees,
     dailyRevenue,
-    dailyProtocolRevenue: dailyRevenue.clone(),
+    dailyProtocolRevenue,
     dailySupplySideRevenue,
   };
 };
@@ -279,9 +284,9 @@ const fetch = async (options: FetchOptions) => {
 const methodology = {
   Volume: "What traders sent into every swap in Memetics Finance pools, before fees, counted in SOL, USDC or USDT wherever the pool holds one of them. Swaps by the protocol's own price-keeping bot, which the program charges no fee, are not counted.",
   Fees: "The trade fee every swap pays (1% of the amount swapped in on every pool today), any creator fee a pool charges on top of it, and the flat fee in SOL to open a pool.",
-  Revenue: "10.4% of each trade fee (16% before 19 October 2026) and the flat fee in SOL to open a pool.",
+  Revenue: "16% of each trade fee and the flat fee in SOL to open a pool. Since 19 October 2026 the 16% is split: 10.4% of each trade fee goes to the protocol's multisig treasury and 5.6% is set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.",
   ProtocolRevenue: "10.4% of each trade fee (16% before 19 October 2026) and the flat fee in SOL to open a pool, both collected by the protocol's multisig treasury.",
-  SupplySideRevenue: "84% of each trade fee, left in the pool for its liquidity providers; since 19 October 2026, 5.6% of each trade fee, set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with; and any creator fee, paid to the pool's creator.",
+  SupplySideRevenue: "84% of each trade fee, left in the pool for its liquidity providers, and any creator fee, paid to the pool's creator.",
 };
 
 const breakdownMethodology = {
@@ -292,6 +297,7 @@ const breakdownMethodology = {
   },
   Revenue: {
     [LABEL.SwapFeesToTreasury]: "The protocol owner's share of each trade fee: 10.4% (16% before 19 October 2026).",
+    [LABEL.SwapFeesToFundOwner]: "5.6% of each trade fee since 19 October 2026, set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.",
     [LABEL.PoolCreationFeesToTreasury]: "The flat fee in SOL to open a pool.",
   },
   ProtocolRevenue: {
@@ -300,7 +306,6 @@ const breakdownMethodology = {
   },
   SupplySideRevenue: {
     [LABEL.SwapFeesToLps]: "84% of each trade fee, left in the pool for its liquidity providers.",
-    [LABEL.SwapFeesToFundOwner]: "5.6% of each trade fee since 19 October 2026, set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.",
     [LABEL.CreatorFeesToCreators]: "Creator fees, paid to the creator of the pool that charges them.",
   },
 };
