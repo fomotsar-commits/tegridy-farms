@@ -11,7 +11,7 @@
 // it ends inside vercel.json's 120-second maxDuration, whatever an RPC does.
 import { timingSafeEqual } from "node:crypto";
 import { main } from "../scripts/venue-volume.mjs";
-import { EVM_CHAINS, evmRpc, solanaRpc } from "../scripts/lib/venue-volume-chain.mjs";
+import { EVM_CHAINS, HYPEREVM_V3, evmRpc, solanaRpc } from "../scripts/lib/venue-volume-chain.mjs";
 import { logSafe } from "./_lib/logSafe.js";
 
 const SOURCE_BUDGET_MS = 20_000;
@@ -44,7 +44,8 @@ export default async function handler(req, res, { run = main, fetchImpl = global
     // The keyed RPC when there is one: Vercel's shared addresses are throttled on the public one.
     deps: {
       solana: solanaRpc({ fetchImpl, url: process.env.SOLANA_RPC_URL || undefined, pauseMs: 100 }),
-      evm: (name) => evmRpc({ fetchImpl, rpcs: EVM_CHAINS[name].rpcs, pauseMs: 100 }),
+      // HyperEVM's RPCs live in HYPEREVM_V3, not EVM_CHAINS: the same choice as the hourly job's.
+      evm: (name) => evmRpc({ fetchImpl, rpcs: name === "hyperevm" ? HYPEREVM_V3.rpcs : EVM_CHAINS[name].rpcs, pauseMs: 100 }),
       fetchImpl,
     },
     budgetMs: SOURCE_BUDGET_MS,

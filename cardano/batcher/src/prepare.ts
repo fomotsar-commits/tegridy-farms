@@ -62,6 +62,10 @@ export async function prepareBatch(input: PrepareInput, pp: ProtocolParams, eval
   // so every script runs again on it. Neither evaluator holds a script to the budget the
   // transaction declares, so that is checked here, redeemer by redeemer.
   const exact = buildBatchTx({ ...request, budgets }, pp);
+  // The batcher pays the network fee from the batcher fees it collects: a batch costing more than
+  // it earns (a heavy order alone, a fee rate read wrong) is refused, never sent at a loss.
+  const collected = input.fees.reduce((s, f) => s + f, 0n);
+  if (exact.fee > collected) throw new BatchTooBig(`the batch's network fee (${exact.fee} lovelace) is more than the ${collected} lovelace in batcher fees it collects`);
   const sim2 = await evaluate(exact.txHex, input.spent);
   if (!sim2.ok) throw new SimulationFailed('with exact budgets', sim2.error);
   for (const b of sim2.budgets) {

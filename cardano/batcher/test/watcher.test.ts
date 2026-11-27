@@ -12,8 +12,9 @@ import type { Utxo } from '../src/plan.ts';
 import type { Evaluator } from '../src/prepare.ts';
 import { lpAssetName } from '../src/verify.ts';
 import { Heartbeat } from '../src/heartbeat.ts';
-import { Watcher, type Signer, type WatcherConfig, type WatcherEvent } from '../src/watcher.ts';
-import { BATCHER_ADDRESS, BATCHER_KEY, NETWORK, makePool, order, step, traderAddress, utxo, value, world } from './world.ts';
+import { STALLED_ROUNDS_ALERT, Watcher, type Signer, type WatcherConfig, type WatcherEvent } from '../src/watcher.ts';
+import { fieldsOf, mkBytes, mkConstr } from '../src/plutus.ts';
+import { BATCHER_ADDRESS, BATCHER_KEY, NETWORK, PP, makePool, order, orderDatum, step, traderAddress, utxo, value, world } from './world.ts';
 import { ADA, DEP, FakeView, POLICY, SIGNER, TIP, TREASURY, evaluator, inputsOf, swapOn } from './fake-view.ts';
 
 const TOK2 = { policyId: '71'.repeat(28), assetName: '544f4b32' };
@@ -515,7 +516,7 @@ test('with no order to batch, the wallet and the settings are still checked: at 
   primary.chain.push({ ...rich, createdSlot: 0n, createdTxIndex: 0 });
   primary.slot = TIP + 600n;
   await watcher.round();
-  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace, above its cap of 100000000: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury \(sweep\) once it exists$/);
+  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace in plain ADA, above its cap of 100000000: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury \(sweep\) once it exists$/);
   // A process started over the cap (a redeploy) stops at its first round, order or not.
   const fresh = setup(0, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, rich] });
   await fresh.watcher.round();
@@ -705,4 +706,130 @@ test('ten sweeps in a row refused as spent or expired raise an alert (is the sou
   assert.equal(events.filter((e) => e.kind === 'sweep-refused').length, 10);
   assert.equal(events.filter((e) => e.kind === 'alert' && /10 sweeps in a row were refused as spent or expired/.test(e.reason)).length, 1);
   assert.equal(watcher.stopped, null);
+});
+
+// ---- Orders no batch can carry, rounds that send nothing, the network fee, the cap (audit 2026-11-25) ----
+
+/** A hash-only order whose datum's canceller field is padded with `pad` bytes (its datum must travel in the batch). */
+function paddedByHash(ref: string, trader: number, pad: number) {
+  const d = orderDatum(trader, step.swapIn(true, 25n * ADA, 1n));
+  const datum = mkConstr(0, fieldsOf(d, 0, 9, 'test').map((f, i) => (i === 0 ? mkConstr(0, [mkBytes('ab'.repeat(pad))]) : f)));
+  const o = CSL.TransactionOutput.from_hex(swapOn(ref, trader).utxo.outputHex);
+  const byHash = CSL.TransactionOutput.new(o.address(), o.amount());
+  byHash.set_data_hash(CSL.hash_plutus_data(datum));
+  return { utxo: { ref, outputHex: byHash.to_hex() }, datum };
+}
+
+/** The stand-in chain with `ref` made the oldest UTxO on it. */
+const oldest = (view: FakeView, ref: string) => {
+  view.chain = [...view.chain.filter((u) => u.ref === ref).map((u) => ({ ...u, createdSlot: -1n })), ...view.chain.filter((u) => u.ref !== ref)];
+};
+
+test('an order too many bytes for any batch, even alone, is set aside for as long as it exists: never tried again, never first in line again', async () => {
+  // A 892-byte datum (under the read-time cap) on a chain whose transactions may be 1,600 bytes:
+  // its batch is 1,917 bytes alone, where an order with an inline datum makes a 1,019-byte one.
+  const big = paddedByHash(`${'90'.repeat(32)}#0`, 1, 600);
+  const tried: string[][] = [];
+  const { orders, primary, watcher, events } = setup(1, { extra: [big.utxo], backup: false, evaluate: evaluator((inputs) => (tried.push(inputs), null)) });
+  oldest(primary, big.utxo.ref);
+  primary.datums.set(CSL.hash_plutus_data(big.datum).to_hex(), big.datum.to_hex());
+  primary.protocolParams = async () => ({ ...PP, maxTxSize: 1_600 });
+  await watcher.round();
+  assert.deepEqual(ordersIn(primary.submitted[0]!, orders), [orders[0]!.utxo.ref], 'the order behind it went in the same round');
+  assert.ok(watcher.tooBig.has(big.utxo.ref));
+  assert.ok(!watcher.setAside.has(big.utxo.ref));
+  const aside = events.find((e) => e.kind === 'set-aside');
+  assert.ok(aside?.kind === 'set-aside' && aside.forGood && !aside.alert && /more bytes than one transaction may be.*never tried again while it exists/.test(aside.reason), aside?.kind === 'set-aside' ? aside.reason : 'no set-aside');
+  // Long past any quarantine: never built or judged again while it exists.
+  const triedBefore = tried.length;
+  for (const slot of [TIP + 241n, TIP + 3_601n, TIP + 100_000n]) {
+    primary.slot = slot;
+    await watcher.round();
+  }
+  assert.ok(tried.slice(triedBefore).every((ins) => !ins.includes(big.utxo.ref)), 'it was tried again');
+  assert.equal(events.filter((e) => e.kind === 'set-aside').length, 1);
+  // Gone (cancelled by its owner): forgotten.
+  primary.chain = primary.chain.filter((u) => u.ref !== big.utxo.ref);
+  await watcher.round();
+  assert.equal(watcher.tooBig.size, 0);
+});
+
+test('a one-order batch over its scripts’ budget is set aside for a while only: a budget is not the order’s own size', async () => {
+  const { watcher } = setup(1, { evaluate: evaluator(() => ({ ok: false, error: 'overspending the budget', overBudget: true })) });
+  await watcher.round();
+  assert.equal(watcher.tooBig.size, 0);
+  assert.equal(watcher.setAside.size, 1);
+});
+
+test('ten rounds in a row that try batches and send none raise an alert, through the alarm; a batch sent ends it', async () => {
+  let refusing = true;
+  const { watcher, events, primary } = setup(1, { backup: false, config: { quarantineSlots: 1n }, evaluate: evaluator(() => (refusing ? { ok: false, error: 'overspending the budget', overBudget: true } : null)) });
+  let now = 0;
+  const pings: { kind: string; body: string }[] = [];
+  const hb = new Heartbeat({ alive: 'https://hc.invalid/alive', alerts: 'https://hc.invalid/alerts', everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000, dryRun: false, now: () => now, send: async (p) => (pings.push({ kind: p.url.endsWith('alerts') ? `alerts:${p.kind}` : `alive:${p.kind}`, body: p.body }), { ok: true }) }, () => {});
+  const stallAlerts = () => events.filter((e) => e.kind === 'alert' && /rounds in a row tried batches and sent none/.test(e.reason));
+  const round = async () => {
+    now += 20_000;
+    primary.slot += 20n;
+    const before = events.length;
+    await watcher.round();
+    for (const e of events.slice(before)) hb.observe(e);
+  };
+  for (let i = 1; i < STALLED_ROUNDS_ALERT; i++) await round();
+  assert.equal(stallAlerts().length, 0);
+  await round();
+  assert.equal(stallAlerts().length, 1);
+  assert.match((stallAlerts()[0] as { reason: string }).reason, /^10 rounds in a row tried batches and sent none: 1 orders are waiting, 1 set aside/);
+  await hb.flush();
+  assert.ok(pings.some((p) => p.kind === 'alerts:fail' && /rounds in a row tried batches and sent none/.test(p.body)), 'the alarm was not told');
+  // Said once a stall, not every round after.
+  for (let i = 0; i < 5; i++) await round();
+  assert.equal(stallAlerts().length, 1);
+  // A batch sent ends the stall: a new one needs ten rounds again.
+  refusing = false;
+  await round();
+  assert.equal(primary.submitted.length, 1);
+  refusing = true;
+  primary.chain.push({ ...swapOn(`${'91'.repeat(32)}#0`, 3).utxo, createdSlot: 0n, createdTxIndex: 0 });
+  primary.slot += 300n;
+  for (let i = 0; i < STALLED_ROUNDS_ALERT - 1; i++) await round();
+  assert.equal(stallAlerts().length, 1);
+});
+
+test('a looked-up datum the library refuses to read is a miss for that order, never the end of the round', async () => {
+  const hidden = order(`${'92'.repeat(32)}#0`, 4, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), { byHash: true });
+  const { orders, primary, watcher, events } = setup(1, { extra: [hidden.utxo], backup: false });
+  oldest(primary, hidden.utxo.ref);
+  // Well-formed CBOR (a 65-byte string, unchunked) that EMURGO's library refuses, with a bare string.
+  primary.datums.set(CSL.hash_plutus_data(hidden.datum).to_hex(), `5841${'ab'.repeat(65)}`);
+  await watcher.round();
+  assert.deepEqual(events.filter((e) => e.kind === 'error'), []);
+  assert.deepEqual(ordersIn(primary.submitted[0]!, orders), [orders[0]!.utxo.ref]);
+  const skipped = events.find((e) => e.kind === 'skipped');
+  assert.ok(skipped?.kind === 'skipped' && skipped.items.some((s) => s.ref === hidden.utxo.ref && /not known/.test(s.reason)));
+  // A miss: not asked again for an hour.
+  const asked = primary.calls.get('datum');
+  primary.slot = TIP + 241n;
+  await watcher.round();
+  assert.equal(primary.calls.get('datum'), asked);
+});
+
+test('a batch whose network fee is more than the batcher fees it collects is refused as that batch’s failure: nothing sent, nothing stopped', async () => {
+  const { primary, watcher, events } = setup(1, { config: { policy: { ...POLICY, batcherFee: 1_000n } } });
+  await watcher.round();
+  assert.equal(primary.calls.get('submit') ?? 0, 0);
+  assert.equal(watcher.stopped, null);
+  assert.deepEqual(events.filter((e) => e.kind === 'error'), []);
+  const aside = events.find((e) => e.kind === 'set-aside');
+  assert.ok(aside?.kind === 'set-aside' && !aside.alert && /network fee \(\d+ lovelace\) is more than the 1000 lovelace in batcher fees it collects/.test(aside.reason), aside?.kind);
+});
+
+test('with no treasury named, a gift carrying tokens never counts toward the float cap: only plain ADA does', async () => {
+  const w = world();
+  const gift = utxo(`${'b3'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA, [[TOK2.policyId, TOK2.assetName, 1n]]));
+  const { primary, watcher, events } = setup(1, { wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, gift] });
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  assert.equal(primary.submitted.length, 1);
+  assert.ok(events.some((e) => e.kind === 'wallet' && e.held === 125n * ADA && e.plain === 30n * ADA));
 });

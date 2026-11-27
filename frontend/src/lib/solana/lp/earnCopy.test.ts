@@ -11,7 +11,7 @@ import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import { RECORDING, recordedTier, splitTier } from '../cpswap/mainnetVenueReplay.fixture';
 import type { AmmConfigView } from '../cpswap/program';
-import { AGREED_SPLIT, EARN_TITLES, howVenueEarns, howYouEarn } from './earnCopy';
+import { AGREED_SPLIT, EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from './earnCopy';
 import { FORECAST_WORDS } from './format';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
@@ -21,14 +21,14 @@ const OTHER = '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa';
 const tier1 = (): AmmConfigView => recordedTier(1);
 /** Tier 1 as mainnet holds it since the split (2026-10-19). */
 const split1 = (): AmmConfigView => splitTier(1);
-const jupiter = { bps: 50, wallet: VAULT };
+const jupiter: JupiterFee = { bps: 50, wallet: VAULT, majorBps: 5 };
 const NOTHING_TO_CLAIM = 'You receive it when you remove liquidity.';
 const FEW_TRADES = 'Few trades means small fees.';
-const VAULT_ROW = { label: 'Team’s shared wallet', address: VAULT };
+const VAULT_ROW = { label: 'Team’s vault', address: VAULT };
 const WORKSHOP_ROW = { label: 'Island’s Workshop', address: WORKSHOP };
 const SPLIT_WHERE =
-  'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.';
-const NOT_AGREED = 'The venue’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s shared wallet, 5.6% to the island’s Workshop).';
+  'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.';
+const NOT_AGREED = 'The venue’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s vault, 5.6% to the island’s Workshop).';
 
 describe('the recorded chain says what the sentences say', () => {
   it('tier 1 on 2026-10-03: traders pay 1%, 16% of that is the venue’s, 0.15 SOL to open; its owner is the team’s 2-of-2 vault', () => {
@@ -81,10 +81,16 @@ describe('How you earn', () => {
 });
 
 describe('How the venue earns', () => {
+  it('says the lower rate between majors only when it is lower', () => {
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 5 }).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 50 }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+  });
+
   it('on the public tier as mainnet holds it since the split: three sources, and each part of the cut said as a share of the fee and of the trade', () => {
     expect(howVenueEarns(split1(), jupiter)).toEqual({
-      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
-      where: `${SPLIT_WHERE} The swap fee goes to the team’s shared wallet.`,
+      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.'],
+      where: `${SPLIT_WHERE} The swap fee goes to the team’s vault.`,
       wallets: [VAULT_ROW, WORKSHOP_ROW],
       elsewhere: false,
     });
@@ -95,7 +101,7 @@ describe('How the venue earns', () => {
     const v = howVenueEarns(splitTier(0), null);
     expect(v.elsewhere).toBe(false);
     expect(v.where).toBe(
-      'Of each trade’s fee, 13% (0.0325% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 7% (0.0175% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of each trade’s fee, 13% (0.0325% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 7% (0.0175% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     // Tier 0's rates on tier 1 are not tier 1's agreed split.
     expect(howVenueEarns({ ...split1(), protocolFeeRate: 130_000n, fundFeeRate: 70_000n }, null).elsewhere).toBe(true);
@@ -106,21 +112,21 @@ describe('How the venue earns', () => {
   it('a fund owner that is the team’s vault keeps the island’s part: said in bold, with the whole cut summed on the vault', () => {
     const v = howVenueEarns({ ...split1(), fundOwner: VAULT }, jupiter);
     expect(v.elsewhere).toBe(true);
-    expect(v.where).toBe(`${NOT_AGREED} Of each trade’s fee, this tier sends 16% (0.16% of the trade) to the team’s shared wallet and nothing to the island’s Workshop. The swap fee goes to the team’s shared wallet.`);
-    expect(v.wallets).toEqual([{ label: 'Team’s shared wallet, 16% of each trade’s fee', address: VAULT }, WORKSHOP_ROW]);
+    expect(v.where).toBe(`${NOT_AGREED} Of each trade’s fee, this tier sends 16% (0.16% of the trade) to the team’s vault and nothing to the island’s Workshop. The swap fee goes to the team’s vault.`);
+    expect(v.wallets).toEqual([{ label: 'Team’s vault, 16% of each trade’s fee', address: VAULT }, WORKSHOP_ROW]);
     // The tier as it stood before the split (no fund part at all) says the same.
     expect(howVenueEarns(tier1(), null)).toMatchObject({
       elsewhere: true,
-      where: `${NOT_AGREED} Of each trade’s fee, this tier sends 16% (0.16% of the trade) to the team’s shared wallet and nothing to the island’s Workshop.`,
+      where: `${NOT_AGREED} Of each trade’s fee, this tier sends 16% (0.16% of the trade) to the team’s vault and nothing to the island’s Workshop.`,
     });
   });
 
   it('the right wallets at other rates are not the agreed split either: said in bold, each part as set', () => {
     const v = howVenueEarns({ ...split1(), protocolFeeRate: 120_000n, fundFeeRate: 40_000n }, null);
     expect(v.elsewhere).toBe(true);
-    expect(v.where).toBe(`${NOT_AGREED} Of each trade’s fee, this tier sends 12% (0.12% of the trade) to the team’s shared wallet and 4% (0.04% of the trade) to the island’s Workshop.`);
+    expect(v.where).toBe(`${NOT_AGREED} Of each trade’s fee, this tier sends 12% (0.12% of the trade) to the team’s vault and 4% (0.04% of the trade) to the island’s Workshop.`);
     expect(v.wallets).toEqual([
-      { label: 'Team’s shared wallet, 12% of each trade’s fee', address: VAULT },
+      { label: 'Team’s vault, 12% of each trade’s fee', address: VAULT },
       { label: 'Island’s Workshop, 4% of each trade’s fee', address: WORKSHOP },
     ]);
     // More to the island is still not what was agreed, and neither is the fund part switched off.
@@ -132,7 +138,7 @@ describe('How the venue earns', () => {
     const v = howVenueEarns({ ...split1(), index: 2 }, null);
     expect(v.elsewhere).toBe(true);
     expect(v.where).toBe(
-      'This fee tier has no split agreed with the island. Of each trade’s fee, this tier sends 10.4% (0.104% of the trade) to the team’s shared wallet and 5.6% (0.056% of the trade) to the island’s Workshop.',
+      'This fee tier has no split agreed with the island. Of each trade’s fee, this tier sends 10.4% (0.104% of the trade) to the team’s vault and 5.6% (0.056% of the trade) to the island’s Workshop.',
     );
   });
 
@@ -140,19 +146,19 @@ describe('How the venue earns', () => {
     const fund = howVenueEarns({ ...split1(), fundOwner: OTHER }, null);
     expect(fund.elsewhere).toBe(true);
     expect(fund.where).toBe(
-      `${NOT_AGREED} Of each trade’s fee, this tier sends 10.4% (0.104% of the trade) to the team’s shared wallet, nothing to the island’s Workshop and 5.6% (0.056% of the trade) to another wallet.`,
+      `${NOT_AGREED} Of each trade’s fee, this tier sends 10.4% (0.104% of the trade) to the team’s vault, nothing to the island’s Workshop and 5.6% (0.056% of the trade) to another wallet.`,
     );
     expect(fund.wallets).toEqual([
-      { label: 'Team’s shared wallet, 10.4% of each trade’s fee', address: VAULT },
+      { label: 'Team’s vault, 10.4% of each trade’s fee', address: VAULT },
       WORKSHOP_ROW,
       { label: 'Another wallet, 5.6% of each trade’s fee', address: OTHER },
     ]);
     const protocol = howVenueEarns({ ...split1(), protocolOwner: OTHER }, null);
-    expect(protocol.where).toMatch(/this tier sends nothing to the team’s shared wallet, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\.$/);
+    expect(protocol.where).toMatch(/this tier sends nothing to the team’s vault, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\.$/);
     // One wallet collecting both parts collects their sum.
     const both = howVenueEarns({ ...split1(), protocolOwner: OTHER, fundOwner: OTHER }, null);
     expect(both.wallets).toEqual([VAULT_ROW, WORKSHOP_ROW, { label: 'Another wallet, 16% of each trade’s fee', address: OTHER }]);
-    expect(both.where).toMatch(/nothing to the team’s shared wallet, nothing to the island’s Workshop and 16% \(0\.16% of the trade\) to another wallet\.$/);
+    expect(both.where).toMatch(/nothing to the team’s vault, nothing to the island’s Workshop and 16% \(0\.16% of the trade\) to another wallet\.$/);
   });
 
   it('every number is read: the cut, the fee to open and the swap fee each follow what they are given', () => {
@@ -184,11 +190,11 @@ describe('How the venue earns', () => {
     ]);
     // A swap fee paid to a wallet of its own gets its own row and its own sentence.
     const apart = howVenueEarns({ ...split1(), protocolOwner: OTHER }, { bps: 50, wallet: third });
-    expect(apart.wallets.map((w) => w.label)).toEqual(['Team’s shared wallet', 'Island’s Workshop, 5.6% of each trade’s fee', 'Another wallet, 10.4% of each trade’s fee', 'Swap fee wallet']);
+    expect(apart.wallets.map((w) => w.label)).toEqual(['Team’s vault', 'Island’s Workshop, 5.6% of each trade’s fee', 'Another wallet, 10.4% of each trade’s fee', 'Swap fee wallet']);
     expect(apart.where).toMatch(/ The swap fee goes to its own wallet\.$/);
     // Fund fee 0: the fund owner takes nothing, so it is not shown.
     expect(howVenueEarns({ ...split1(), fundFeeRate: 0n, fundOwner: OTHER }, jupiter).wallets).toEqual([
-      { label: 'Team’s shared wallet, 10.4% of each trade’s fee', address: VAULT },
+      { label: 'Team’s vault, 10.4% of each trade’s fee', address: VAULT },
       WORKSHOP_ROW,
     ]);
   });
@@ -198,7 +204,7 @@ describe('How the venue earns', () => {
     expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
-    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
   });
 });
 

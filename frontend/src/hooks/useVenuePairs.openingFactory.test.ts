@@ -2,7 +2,8 @@
  * useVenuePairs lists our pools on both factories: the old one, then the one that charges
  * 0.006 ETH to open a pool (owner ruling 2026-10-25). The list may say "no pools" only when
  * every factory answered 0, and says "unread" when any did not answer: a list that quietly
- * drops a factory would read as complete.
+ * drops a factory would read as complete. A pool whose kLast() reads 0 (the venue's cut off) is
+ * left out and counted; one whose kLast() did not answer stays, unread (leak audit EVM-3).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
@@ -29,7 +30,8 @@ const NEW_PAIR = '0x0e30000000000000000000000000000000000022' as const;
 const A = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
 const B = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
 
-function factoryWith(factory: string, pairs: readonly string[] | 'unread') {
+/** Every pool here reads `kLast`: non-zero (the cut on, as every live pool's is) unless told. */
+function factoryWith(factory: string, pairs: readonly string[] | 'unread', kLast: bigint | 'unread' = 7n) {
   if (pairs === 'unread') {
     wagmiMock.setReadResult({ functionName: 'allPairsLength', address: factory, result: undefined, status: 'failure' });
     return;
@@ -40,7 +42,9 @@ function factoryWith(factory: string, pairs: readonly string[] | 'unread') {
     wagmiMock.setReadResult({ functionName: 'token0', address: pair, result: A });
     wagmiMock.setReadResult({ functionName: 'token1', address: pair, result: B });
     wagmiMock.setReadResult({ functionName: 'getReserves', address: pair, result: [10n, 20n, 0] });
-    wagmiMock.setReadResult({ functionName: 'kLast', address: pair, result: 0n });
+    wagmiMock.setReadResult(kLast === 'unread'
+      ? { functionName: 'kLast', address: pair, result: undefined, status: 'failure' }
+      : { functionName: 'kLast', address: pair, result: kLast });
   });
 }
 
@@ -62,6 +66,7 @@ describe('useVenuePairs: both factories', () => {
     expect(read.status).toBe('listed');
     if (read.status !== 'listed') return;
     expect(read.total).toBe(2);
+    expect(read.hidden).toBe(0);
     expect(read.pairs.map((p) => [p.index, p.factory, p.address])).toEqual([
       [0, TEGRIDY_FACTORY_ADDRESS, OLD_PAIR],
       [1, OPENING_FACTORY, NEW_PAIR],
@@ -94,5 +99,26 @@ describe('useVenuePairs: both factories', () => {
     const read = renderHook(() => useVenuePairs(CHAIN_ID)).result.current;
     expect(read.status).toBe('listed');
     if (read.status === 'listed') expect(read.pairs.map((p) => p.address)).toEqual([OLD_PAIR]);
+  });
+
+  it('leaves out a pool whose venue cut reads off (kLast 0), counts it, and keeps the rest numbered as read', () => {
+    factoryWith(TEGRIDY_FACTORY_ADDRESS, [OLD_PAIR], 0n);
+    factoryWith(OPENING_FACTORY, [NEW_PAIR]);
+    const read = renderHook(() => useVenuePairs(CHAIN_ID)).result.current;
+    expect(read.status).toBe('listed');
+    if (read.status !== 'listed') return;
+    expect(read.total).toBe(2);
+    expect(read.hidden).toBe(1);
+    expect(read.pairs.map((p) => [p.index, p.address, p.kLast])).toEqual([[1, NEW_PAIR, 7n]]);
+  });
+
+  it('keeps a pool whose kLast did not answer, as unread: never dropped as if it read 0', () => {
+    opening.on = false;
+    factoryWith(TEGRIDY_FACTORY_ADDRESS, [OLD_PAIR], 'unread');
+    const read = renderHook(() => useVenuePairs(CHAIN_ID)).result.current;
+    expect(read.status).toBe('listed');
+    if (read.status !== 'listed') return;
+    expect(read.hidden).toBe(0);
+    expect(read.pairs.map((p) => [p.address, p.kLast])).toEqual([[OLD_PAIR, null]]);
   });
 });

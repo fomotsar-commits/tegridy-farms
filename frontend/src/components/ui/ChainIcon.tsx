@@ -42,6 +42,14 @@ export function ChainIcon({ chain, size = 20 }: { chain: VenueChain; size?: numb
           />
         </svg>
       );
+    case 'hyperevm':
+      // A mint wave on near-black: the network's colours, simplified.
+      return (
+        <svg {...common} data-chain-icon="hyperevm">
+          <rect width="32" height="32" rx="8" fill="#0F1A1F" />
+          <path d="M6 19c3.5 0 4.5-6 8-6s4.5 6 8 6 3-3 4-3" fill="none" stroke="#97FCE4" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      );
     case 'solana':
       return (
         <svg {...common} data-chain-icon="solana">

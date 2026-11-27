@@ -239,6 +239,8 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
   // Ticks with the countdown, so the figure moves as interest accrues.
   const now = nowSeconds();
   const owedNow = owedAt(loan, now);
+  // Written from your side: what a borrower pays is rounded up, what a lender is owed is cut.
+  const fmtSide = isBorrower ? fmtWethUp : fmtWeth;
   // Wrap what is short, approve, repay: the same steps the loan shield builds (lib/gondi/repay.ts).
   const owedPadded = repayNeeded(loan, now);
   const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded, repayCovered(loan, now)) : null;
@@ -329,7 +331,8 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
       loanDueIcs({
         loanId: row.loanId,
         title: `Repay loan #${row.loanId} or lose ${nft}`,
-        description: `Loan #${row.loanId}: about ${fmtWethUp(owedAt(loan, end).total, 6)} WETH is due by this moment. After it the loan cannot be repaid and the lender can take ${nft}.`,
+        // Gondi refuses repayment AT the deadline second (_baseLoanChecks: end <= now), and a claim is open from it.
+        description: `Loan #${row.loanId}: repay about ${fmtWethUp(owedAt(loan, end).total, 6)} WETH before this event ends. From then, the loan cannot be repaid and the lender can take ${nft}.`,
         dueSeconds: Number(end),
         nowSeconds: Number(nowSeconds()),
       }),
@@ -435,9 +438,13 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
             {(isBorrower ? fmtWethUp : fmtWeth)(isBorrower ? owedNow.total : owedNow.toLenders, 6)} WETH
           </p>
           <FinePrint summary="Where it goes">
+            {/* Interest carried over from the loan this one replaced already paid the venue's cut at that move (Gondi
+                _processOldTranche), so the cut shown is of the interest since then: the figure and its words agree. */}
             <p>
-              {(isBorrower ? fmtWethUp : fmtWeth)(loan.principalAmount, 6)} WETH back to the lender, plus {(isBorrower ? fmtWethUp : fmtWeth)(owedNow.interest, 6)} WETH interest so far. The venue keeps{' '}
-              {bpsToPercent(Number(loan.protocolFee))}% of the interest ({fmtWethUp(owedNow.toVenue, 6)} WETH); the lender gets the rest.
+              {fmtSide(loan.principalAmount, 6)} WETH back to the lender, plus {fmtSide(owedNow.interest, 6)} WETH interest so far
+              {owedNow.carried > 0n ? `, ${fmtSide(owedNow.carried, 6)} WETH of it carried over when the loan moved` : ''}. The venue keeps{' '}
+              {bpsToPercent(Number(loan.protocolFee))}% of the interest{owedNow.carried > 0n ? ' since then' : ''} ({fmtWethUp(owedNow.toVenue, 6)} WETH)
+              {owedNow.carried > 0n ? ', and took its share of the carried part at the move' : ''}; the lender gets the rest.
             </p>
           </FinePrint>
         </div>
@@ -483,7 +490,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
           <FinePrint summary="About reminders">
             <p>
               The site cannot message you. The calendar file reminds you a week, three days, a day and two hours before the
-              deadline, from your own calendar. Past the deadline the loan can no longer be repaid.
+              deadline, from your own calendar. From the deadline on, the loan can no longer be repaid.
             </p>
           </FinePrint>
         </>

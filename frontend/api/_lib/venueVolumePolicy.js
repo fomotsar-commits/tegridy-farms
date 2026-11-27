@@ -10,6 +10,14 @@
 export const VOLUME_SOURCES = Object.freeze(["solana-pools", "jupiter", "ethereum", "base", "robinhood", "nft-lending", "nft-orderbook"]);
 
 /**
+ * The sources, with our HyperEVM pools once they are deployed (hyperEvmCounted,
+ * venue-volume-chain.mjs; deployed 2026-11-25). Its row needs migration 033.
+ */
+export function volumeSources(hyperEvm = false) {
+  return hyperEvm ? Object.freeze([...VOLUME_SOURCES, "hyperevm"]) : VOLUME_SOURCES;
+}
+
+/**
  * The job is scheduled hourly, but GitHub ran this repo's hourly jobs up to 7.8 h apart
  * (10-14..10-22), and an EVM count ends at the finalized block, ~16 min back. Nine hours
  * without a count is behind; a failed run is behind at once.
@@ -22,14 +30,14 @@ export const STALE_AFTER_MS = 9 * 60 * 60 * 1000;
  * is then the time every source was last complete. `staleAt` lets a cached answer
  * turn itself behind in the browser.
  */
-export function summarize(rows, nowMs) {
+export function summarize(rows, nowMs, sources = VOLUME_SOURCES) {
   const bySource = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.source, r]));
   let usd = 0;
   let swaps = 0;
   let unpriced = 0;
   let asOfMs = Infinity;
   let failing = false;
-  for (const source of VOLUME_SOURCES) {
+  for (const source of sources) {
     const r = bySource.get(source);
     const countedTo = Date.parse(r?.counted_to ?? "");
     const okAt = Date.parse(r?.last_ok_at ?? "");

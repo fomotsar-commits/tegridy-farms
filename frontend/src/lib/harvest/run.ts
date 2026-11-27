@@ -6,11 +6,13 @@ import { orderClaims, type ClaimResult, type ClaimState, type HarvestChain, type
 export type SwitchResult = { kind: 'ok' } | { kind: 'declined' } | { kind: 'failed'; reason: string };
 
 /**
- * One chain's claims on ONE wallet prompt, each still its own transaction. `settle` takes
- * each claim's answer as it comes. 'one-by-one': the wallet would not take them together
- * and nothing was sent, so each goes through `send` on a prompt of its own.
+ * One chain's claims on ONE wallet prompt. `settle` takes each claim's answer as it comes.
+ * 'one-by-one': the wallet would not take them together and nothing was sent, so each goes
+ * through `send` on a prompt of its own. `{ alone }`: the others went together and were
+ * settled; these were not sent, and each goes on a prompt of its own after them (Solana's
+ * "may not pay" claims, lib/harvest/solana.ts `solanaTogether`).
  */
-export type SendTogether<C> = (claims: readonly C[], settle: (key: string, r: ClaimResult) => void) => Promise<'done' | 'one-by-one'>;
+export type SendTogether<C> = (claims: readonly C[], settle: (key: string, r: ClaimResult) => void) => Promise<'done' | 'one-by-one' | { alone: readonly C[] }>;
 
 export interface RunDeps<C extends HarvestClaim> {
   /** Sends one claim. Resolves with what it came to. */
@@ -59,7 +61,7 @@ export async function runHarvest<C extends HarvestClaim>(claims: readonly C[], e
     const together = group.length > 1 ? deps.together?.(group[0]!.chain) ?? null : null;
     if (together) {
       for (const c of group) set(c.key, { kind: 'sending' });
-      let how: 'done' | 'one-by-one';
+      let how: 'done' | 'one-by-one' | { alone: readonly C[] };
       try {
         how = await together(group, (key, r) => {
           if (states.get(key)?.kind === 'sending') set(key, r);
@@ -69,16 +71,24 @@ export async function runHarvest<C extends HarvestClaim>(claims: readonly C[], e
         how = 'done';
         for (const c of group) if (states.get(c.key)?.kind === 'sending') set(c.key, stoppedEarly(e));
       }
-      if (how === 'done') {
+      if (how !== 'one-by-one') {
+        const alone = new Set((how === 'done' ? [] : how.alone).map((c) => c.key));
         for (const c of group) {
-          if (states.get(c.key)?.kind === 'sending') {
+          if (alone.has(c.key)) set(c.key, { kind: 'waiting' });
+          else if (states.get(c.key)?.kind === 'sending') {
             set(c.key, { kind: 'unconfirmed', reason: 'No answer came back for it. Check your wallet before trying again.', stop: true });
           }
         }
-        return group.some((c) => stops(states.get(c.key)));
+        if (group.some((c) => !alone.has(c.key) && stops(states.get(c.key)))) return true;
+        return sendEach(group.filter((c) => alone.has(c.key)));
       }
       for (const c of group) set(c.key, { kind: 'waiting' });
     }
+    return sendEach(group);
+  };
+
+  /** Each claim on its own prompt. True when the run stops here. */
+  const sendEach = async (group: readonly C[]): Promise<boolean> => {
     for (let k = 0; k < group.length; k++) {
       const c = group[k]!;
       set(c.key, { kind: 'sending' });
@@ -137,12 +147,25 @@ export function runSummary(states: readonly ClaimState[]): string {
 
 /**
  * How many times the wallets will ask: one per chain whose claims go together, one per
- * claim elsewhere, and one per network switch. For the line under the button.
+ * claim elsewhere, and one per network switch. A claim `alone` says goes on its own prompt
+ * even on a chain that sends together. For the line under the button.
  */
-export function promptCount(claims: readonly HarvestClaim[], evmChain: HarvestChain | null, canTogether: (chain: HarvestChain) => boolean): number {
-  const per = new Map<HarvestChain, number>();
-  for (const c of claims) per.set(c.chain, (per.get(c.chain) ?? 0) + 1);
+export function promptCount(
+  claims: readonly HarvestClaim[], evmChain: HarvestChain | null, canTogether: (chain: HarvestChain) => boolean,
+  alone: (claim: HarvestClaim) => boolean = () => false,
+): number {
+  const per = new Map<HarvestChain, { together: number; alone: number }>();
+  for (const c of claims) {
+    const n = per.get(c.chain) ?? { together: 0, alone: 0 };
+    if (alone(c)) n.alone++;
+    else n.together++;
+    per.set(c.chain, n);
+  }
   let asks = 0;
-  for (const [chain, n] of per) asks += (n > 1 && canTogether(chain) ? 1 : n) + (chain !== 'solana' && chain !== evmChain ? 1 : 0);
+  for (const [chain, n] of per) {
+    // Together needs two: one claim that could have gone together asks alone anyway.
+    const together = canTogether(chain) && n.together > 1 ? 1 : n.together;
+    asks += together + n.alone + (chain !== 'solana' && chain !== evmChain ? 1 : 0);
+  }
   return asks;
 }

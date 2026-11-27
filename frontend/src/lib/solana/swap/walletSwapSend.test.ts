@@ -218,10 +218,20 @@ describe('a refusal at the first send: not sent, in the network’s words', () =
     return end.kind === 'not-sent' ? end.message : '';
   };
 
-  it('names Phantom’s own guard when its instruction is the one that failed', async () => {
-    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: Computational budget exceeded'));
+  it('names Phantom’s own guard when its check failed, as a price move, never as our slippage', async () => {
+    // Lighthouse's AssertionFailed is 6001 (0x1771), the same number as Jupiter's slippage error.
+    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: custom program error: 0x1771'));
     expect(said).toMatch(/wallet’s own safety check stopped it/);
     expect(said).toMatch(/Nothing was sent/);
+  });
+
+  it('says the guard ran out of room when it did, not that the price moved (BIG BRAIN buys, 11-15)', async () => {
+    // The words the network gave for GFzq6H's BIG BRAIN buy: the guard's derivation check ran out of compute.
+    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: Computational budget exceeded', [
+      `Program ${LIGHTHOUSE_PROGRAM} consumed 8782 of 8782 compute units`,
+      `Program ${LIGHTHOUSE_PROGRAM} failed: Computational budget exceeded`,
+    ]));
+    expect(said).toBe('Your wallet’s own safety check ran out of room to finish. Nothing was sent. Press again.');
   });
 
   it('names it from the logs too', async () => {
