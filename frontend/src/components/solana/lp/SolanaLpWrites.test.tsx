@@ -52,10 +52,10 @@ const MINT = key();
 const M = MINT.toBase58();
 const SIG = '5'.repeat(88);
 
-function view(o: { address?: PublicKey; sol?: bigint; tok?: bigint; openTime?: bigint; origin?: PoolView['origin']; status?: number } = {}): PoolView {
+function view(o: { address?: PublicKey; sol?: bigint; tok?: bigint; openTime?: bigint; origin?: PoolView['origin']; status?: number; lpSupply?: bigint } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = o.tok ?? 1_000n * 10n ** 6n;
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status });
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status, lpSupply: o.lpSupply });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
   const quoteIsToken0 = pool.token0Mint.startsWith('So111');
@@ -370,6 +370,46 @@ describe('Add liquidity', () => {
     mount(readers({ findPools: vi.fn(async () => search([view({ origin: 'launch-pool' })])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     expect(await screen.findByTestId('lp-before-you-add')).toHaveTextContent(/burned the launch's own pool shares/);
+  });
+
+  // Owner, 2026-11-26: "allow the new person to use market price". A pool everyone has left
+  // (18 lamports, 567 units, the locked 100 shares, as mainnet's dead SOL / TBB pool) is added
+  // to as a restart at Jupiter's price (restart.ts): never an ordinary deposit at its own.
+  it('an almost empty pool is restarted at the market price: its own form, Jupiter’s ratio, and Review builds a restart', async () => {
+    const v = view({ sol: 18n, tok: 567n, lpSupply: 100n });
+    const api = fakeLpApi({ prepareLpRestart: vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'moved' } })) });
+    // Jupiter: 39.83 units of the token a lamport. The pool's own dust says 31.5.
+    const r = readers({ findPools: vi.fn(async () => search([v])), outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 1e6 / 39.83 / 1e9, source: 'Jupiter' as const })) });
+    mount(r, { api });
+    const c = await card();
+    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'Add with one coin' })).toBeNull();
+    fireEvent.click(await within(c).findByRole('button', { name: 'Restart at market price' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(within(panel).getByRole('heading', { name: 'Restart this pool at the market price' })).toBeInTheDocument();
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Max SOL' })).toBeInTheDocument());
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.01' } });
+    // The typed 0.01 SOL is the most that may leave, so the deposit costs 0.01 / 1.01 SOL (1% tolerance), as
+    // every add: at Jupiter's 39.83 units a lamport about 394.4 tokens; at the pool's own 31.5 it would be 311.9.
+    const tokens = Number((within(panel).getByLabelText('Tokens to add') as HTMLInputElement).value);
+    expect(Math.abs(tokens / (398.3 / 1.01) - 1)).toBeLessThan(0.002);
+    const preview = within(panel).getByTestId('lp-add-preview');
+    expect(preview).toHaveTextContent('Restarts at');
+    expect(preview).toHaveTextContent('Also goes in, for good');
+    // The pool's old price is not a warning here: the restart sets it.
+    expect(within(panel).queryByTestId('lp-add-warnings')).toBeNull();
+    const review = within(panel).getByRole('button', { name: 'Review: restart this pool' });
+    expect(review).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review);
+    });
+    expect(api.prepareLpRestart).toHaveBeenCalledWith(
+      conn.connection,
+      expect.objectContaining({ kind: 'open' }),
+      r,
+      expect.objectContaining({ owner: OWNER, pool: new PublicKey(v.address), driving: 'quote', maxIn: 10_000_000n, slippageBps: 100n }),
+    );
+    expect(api.prepareLpDeposit).not.toHaveBeenCalled();
   });
 
   it('typing SOL works out the token side from the pool, and Review sends the typed number as that side\'s limit', async () => {

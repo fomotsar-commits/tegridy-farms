@@ -739,7 +739,9 @@ function SearchResults({
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
       if (quote !== null && p.view.quote.mint !== quote) continue;
       const health = healths.get(p.view.address);
-      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      const offer = health ? depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) : null;
+      // A restart (restart.ts) only when the wish named this very pool: never picked for a visitor.
+      if (!health || (offer !== 'offer' && !(offer === 'restart' && named !== null))) continue;
       if (!priceWarned(health)) return p.view.address;
       warned ??= p.view.address;
     }

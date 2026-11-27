@@ -438,6 +438,7 @@ describe('it goes to that pool or to nowhere', () => {
     },
     // Audit CM-2, 2026-11-03: everyone else has left. 1,100 shares, the locked 100 among them
     // and the holder's 1,000, over 3,480 lamports and 348 units: the market's own 0.01 SOL a token.
+    // Not restarted either, at a price read (restart.ts): a restart's top-up would be the holder's.
     {
       name: 'is almost empty (at the market price, too)',
       mine: () => view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n }),

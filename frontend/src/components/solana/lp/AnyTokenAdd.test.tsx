@@ -611,6 +611,7 @@ describe('a launch pool whose price is off its own average', () => {
       withdrawals: 'open',
       price: { state: 'disagrees', pool: 0.01, reference: 0.008, against: 'own-average', diff: 0.25 },
       deposits: { verdict: 'allowed', reasons: [], warnings: [OWN] },
+      restart: null,
     };
     const r = readers(v);
     render(

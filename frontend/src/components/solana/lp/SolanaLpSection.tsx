@@ -332,6 +332,7 @@ const NOTE_WHAT: Record<LpKind, string> = {
   'lp-deposit': 'adding liquidity',
   'lp-withdraw': 'removing liquidity',
   'lp-create': 'opening a pool. Opening another pool stays off until this is checked.',
+  'lp-restart': 'restarting a pool at the market price',
 };
 
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */
