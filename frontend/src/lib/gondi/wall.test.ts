@@ -5,7 +5,7 @@ import { barZone } from './floorBar';
 import type { LendingMarket } from './lenderPitch';
 import { spreadTags, wallElevation, wallFacts, type WallFacts } from './wall';
 
-const JBAC = { name: 'Jungle Bay Ape Club', symbol: 'JBAC', address: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' };
+const JBAC = { name: 'Jungle Bay', symbol: 'JBAC', address: '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' };
 const read: LendingMarket = { floor: 0.05, sales30d: 76, bids: { bestBid: 0.0394, nearFloor: 0 } };
 const SHARES = [
   { pct: 60, amount: '0.0300' },
@@ -135,7 +135,7 @@ describe('the levels (wallElevation)', () => {
 
   it('labels the wall with the whole address, and never a rate word', () => {
     const d = wallElevation(600, facts({ principal: 0.045 }), JBAC);
-    expect(d.labels.find((l) => l.k === 'plate')).toMatchObject({ t: 'JUNGLE BAY APE CLUB · JBAC', v: JBAC.address });
+    expect(d.labels.find((l) => l.k === 'plate')).toMatchObject({ t: 'JUNGLE BAY · JBAC', v: JBAC.address });
     const words = d.labels.map((l) => `${l.t} ${l.v ?? ''}`).join(' ');
     expect(words).not.toMatch(/APR|APY|annual|daily|per day/i);
   });

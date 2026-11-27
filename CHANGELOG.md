@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-27
+
+- Jungle Bay: the collection once listed as Jungle Bay Ape Club is now called Jungle Bay across the site (the marketplace, NFT lending, the Gold Card, the FAQ and Towelie), and its marketplace page opens with a wide banner picture chosen by the Jungle Bay curator. Nine new Jungle Bay pieces now hang behind the Pools page, on the menu's Swap, Earn and Records pictures, behind NFT Finance in the Bayla room, and in every Bayla room spot that showed the picture of the apes around the bed, the onboarding screens included.
+
 ### 2026-11-26
 
 - Solana pools: a pool everyone has taken their money out of (only the 100 locked shares and a few units of each coin left, worth under a cent) can now be restarted at Jupiter's price. Where its Add was switched off, its row says Restart and its card offers Restart at market price. One transaction tops the pool up to Jupiter's price with a few more units, which stay in it for good, adds your deposit at that price, then takes a sliver of your new shares straight back out as a check: if anyone changed the pool before it runs, the whole transaction fails and only the network fee is spent. A restart pays no pool fee; the venue earns its usual share of every trade the pool carries afterwards. A pool with no market price still takes no deposit.
@@ -404,20 +408,6 @@ The site's Changelog tab shows both files.
 - The Changelog tab (/changelog) now shows this list.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 - Pool prices flip with a press: press any pool's price and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA".
-
-### 2026-10-17
-
-- The menu (the ☰ button) is redesigned: it opens full screen, as a circle from the button, with big numbered rows and a picture for each (on a computer, one large picture that changes with the row under the pointer). On phones its last rows are no longer covered by the bottom bar.
-- The home's row of three cards is NFT Finance, Marketplace and Launch; Hold and Provide LP left it.
-- Inside a room, Heat (top bar and phone bar) opens that room's own page, such as /bayla, instead of leaving for the venue home. Inside the BAYLA room (any Solana room): Pools opens Solana LP on BAYLA, the scanner offers "Try BAYLA" instead of TOWELI, and when Add SOL + BAYLA cannot open its form the card says "This pool's Add form was not opened", no longer "your position's pool".
-- Every pool card (Solana LP, Pools and the home): in view are the pool, what LPs keep and what the venue takes, whether swaps and withdrawals are open, the deposit check and Add. What the pool earned, its last 20 transactions, what each trade pays, its price and its address are under "More about this pool". A pool that charges a creator fee still shows the wallet it pays.
-- Solana LP, Pools and the home's liquidity card: the amber line about what the team's vault can do is no longer on the page or on the add, open and review forms. The same sentence, word for word, now leads each "Risks" drop-down.
-- The home page has three short cards in one row under the Heat reader: Swap (SOL to BAYLA), Lock BAYLA and Add SOL + BAYLA, with one wallet connection for all three; a phone stacks them.
-- One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Swap and Pools run on Base and Robinhood Chain (Swap: our pools or Uniswap V2, whichever pays more); a network with nothing there is greyed, with why.
-- Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.
-- Heat is the only number a person has here now: points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone. A room whose reward vault is empty shows no rate and says it pays nothing until funded.
-- Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool.
-- Solana wallet list on phones: on Android, Phantom opens this page in its own app; inside a wallet's own browser, that wallet is listed once; the whole list fits a small screen.
 
 ## Earlier
 
