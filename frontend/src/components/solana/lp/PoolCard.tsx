@@ -32,7 +32,6 @@ import { FinePrint } from '../../ui/FinePrint';
 import { PoolTradeDialWhenOpen } from './PoolTradeDial';
 import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
-import { FinePrint } from '../../ui/FinePrint';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
 import { PriceFlip } from './PriceFlip';
