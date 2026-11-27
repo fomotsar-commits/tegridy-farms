@@ -12,7 +12,8 @@ below. Nothing in this folder sends anything.
 
 GeckoTerminal lists a DEX that is not one of its known forks through four HTTP endpoints the
 DEX hosts, which its indexer polls every 2 s ("GeckoTerminal Integration API Standards"
-v0.1). Ours are live once this branch deploys, at:
+v0.1, Nov 2024: https://docs.google.com/document/d/1ufjAJUa6rGO9PBGJGwfBMn-XMk9NE0ow3_iMYrS3drk,
+linked from https://support.coingecko.com/hc/en-us/articles/41889080628889). Ours are live at:
 
 | GeckoTerminal calls | Ours |
 |---|---|
@@ -40,14 +41,31 @@ and does not skip the criteria). Answers:
   `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`).
 - Integration: non-EVM, via the Integration API Standards; base URL above.
 - Rate limit we allow: 120 requests a minute from their indexer. Ask for a chunk of at most
-  50,000 slots (`/events` refuses a wider range) — at our volume that is a dozen transactions.
+  50,000 slots (`/events` refuses a wider range, and a range holding more transactions than
+  `MAX_TXS_PER_CALL`; see "A replay of our history" below).
 - Contact: the owner's email and Telegram handle (the form requires both).
 - Logo: the site's; links: Twitter/Discord if any.
 
-GeckoTerminal's FAQ says a request is reviewed in 3–5 working days, and that approval "remains
-subject to GeckoTerminal's listing criteria", which it does not publish. Once live, our pools
-get a chart page each and appear in CoinGecko's on-chain data, which is where
-DexScreener-style bots and Jupiter's "traction" reviewers look.
+GeckoTerminal's FAQ says a request is reviewed in 3–5 working days, its non-EVM article says
+5–10, and the form says the free queue can take up to 3 months. Approval "remains subject to
+GeckoTerminal's listing criteria", which it does not publish. Once live, our pools get a
+chart page each and appear in CoinGecko's on-chain data, which is where DexScreener-style
+bots and Jupiter's "traction" reviewers look.
+
+What its own pages say (read 2026-11-26):
+
+- Listing is free. Express Listing is the only paid route: "from $10,000", a 10-day
+  turnaround, not refundable, and it "does not influence or guarantee the outcome". It is
+  asked for by a support ticket ("Coingecko/GeckoTerminal Fast Pass") after the form, never
+  by a stranger's offer.
+- It already lists 40 Solana DEXes, small ones among them, so size alone is not the bar.
+- Its indexer asks `/latest-block`, then `/events` from its last block to that one, every
+  2 s; each block is asked for once, and a bad schema, a `priceNative` of 0 or a swap with
+  two coins in stops it. Three-coin pools must be left out (we have none).
+- "Raydium" is on its list of forks it reads without an adapter. Our form says "Not a Fork"
+  so that it asks for the adapter's address, with "Raydium CPMM fork" in the text. If its
+  team would sooner read our program the way it reads Raydium's, the account layouts and
+  event layouts are the same; only the program id differs.
 
 **Following up:** if the pool is still missing after 5 working days, GeckoTerminal asks for a
 ticket, not a second form (https://support.coingecko.com/hc/en-us/articles/22611791394585):
@@ -68,6 +86,12 @@ all". The forum's pinned rules (read 2026-11-25) put DEXes with $500k liquidity 
 day of volume first. Listing a DEX there is free and staff never DM: a reply linking another
 Discord invite, or a member who moves to DMs and asks for SOL, is a scam
 (both seen on our thread, 2026-11-25 and 11-26; the second had only the Member role).
+
+The pinned post asks for seven things, and ours has all seven: DEX name, website, swap URL,
+chain, factory address, a transparent PNG or SVG logo (64x64 at least), estimated daily
+volume. Staff answer by changing the thread's tag (`pending`, `not supported`), seldom in
+words, so the tag is what to watch. Their docs site is the authority; the old help centre
+(help.dexscreener.com) no longer loads.
 
 DexScreener also publishes an adapter a DEX can host for its indexer, "Adapter Specs" v1.1
 (https://docs.dexscreener.com/contact-us/adapter-specs): `/latest-block`, `/asset?id=`,
@@ -131,7 +155,22 @@ Not served: `/asset/holders` (a Solana holder list needs a scan of every token a
 the mint; DexTools has its own Solana index) and `/block?timestamp=` (the spec asks for it
 only on sharded chains).
 
-Requests are GitHub issues on `dextools-io/community-requests`; ours is #163.
+Requests are GitHub issues on `dextools-io/community-requests`; ours is #163, in the same
+fields as the two exchange requests that were added (#118, #108). Both of those took about
+four months from "team will work on it" to "added" (2024). One staff member, `Sanher`,
+answers there; the newest staff reply on any issue is from 2026-07-20, and the nine requests
+opened since September 2026 have none (read 2026-11-26). So this one is slow whatever we do.
+
+## A replay of our history (what an indexer does on its first day)
+
+A site that takes us reads every slot since our first pool once, in chunks of a size it
+sets, and stops on a chunk we refuse. The program had 5,659 transactions over 58 days on
+2026-11-26; the busiest 50,000 slots held 125 of them (471834753 to 471884752) and the
+busiest 5,000 held 56. `/events` used to refuse a range holding more than 60, so a replay in
+the 50,000-slot chunks we told all three sites to use stopped on 14 chunks; chunks of 5,000
+never did. The fix (#1348) reads up to 300 transactions a call, two at a time, takes each
+transaction's place in its block from the signature list where the node gives it (half the
+chain reads), and makes a history too deep to walk an error instead of a short list.
 
 ## Sent
 
