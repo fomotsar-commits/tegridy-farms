@@ -32,7 +32,8 @@ browser; `/pair?id=ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4` should show `fe
 
 **The form:** https://docs.google.com/forms/d/e/1FAIpQLSeOAlwKZKTj6LFJfukUWSYS9XUIwtvITX9W5C5ZgUIC4NgX0Q/viewform
 (linked from https://about.geckoterminal.com/dex-chain-listing). Pick **DEX Addition**,
-**Regular Listing** (free; Express is $10,000 and does not skip the criteria). Answers:
+**Regular Listing** (free, a queue of up to 3 months; Express was USD 15,000 on 2026-11-25
+and does not skip the criteria). Answers:
 
 - DEX name: Memetics. Website: https://memetics.finance. Chain: Solana.
 - DEX type: constant-product AMM (a fork of Raydium's audited cp-swap, program
@@ -43,19 +44,40 @@ browser; `/pair?id=ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4` should show `fe
 - Contact: the owner's email and Telegram handle (the form requires both).
 - Logo: the site's; links: Twitter/Discord if any.
 
-GeckoTerminal says 5–10 working days for a non-EVM DEX, and that approval "remains subject to
-GeckoTerminal's listing criteria", which it does not publish. Once live, our pools get a
-chart page each and appear in CoinGecko's on-chain data, which is where DexScreener-style
-bots and Jupiter's "traction" reviewers look.
+GeckoTerminal's FAQ says a request is reviewed in 3–5 working days, and that approval "remains
+subject to GeckoTerminal's listing criteria", which it does not publish. Once live, our pools
+get a chart page each and appear in CoinGecko's on-chain data, which is where
+DexScreener-style bots and Jupiter's "traction" reviewers look.
 
-## 2. DexScreener (free; a request in their Discord)
+**Following up:** if the pool is still missing after 5 working days, GeckoTerminal asks for a
+ticket, not a second form (https://support.coingecko.com/hc/en-us/articles/22611791394585):
+"Submit a request" at the top of support.coingecko.com, issue type **GeckoTerminal Related**,
+page URL empty, subject **Follow up on GeckoTerminal's DEX/Chain addition request**, a
+description naming the DEX (Memetics Finance) and the email the form was sent from, and the
+form response attached as a PDF. Listed = this answers 200 instead of 404:
+`https://api.geckoterminal.com/api/v2/networks/solana/pools/ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4`.
 
-DexScreener has no adapter: its own indexer parses the programs it knows, and a new DEX is
-added by request in their Discord (https://discord.gg/wpV9vZsbR4, per
-https://docs.dexscreener.com/dex-listing). Their stated criteria are "a significant amount of
+## 2. DexScreener (free; a request in their Discord; our feed already fits its adapter)
+
+A new DEX is added by request in DexScreener's Discord (https://discord.gg/wpV9vZsbR4, per
+https://docs.dexscreener.com/dex-listing): the `#dex-listing` forum, one post per DEX, and
+every follow-up inside that post's thread. Their stated criteria are "a significant amount of
 liquidity and daily volume", "open-sourced and audited smart contracts", and "an active
 community", with no numbers, and a warning that low-liquidity DEXes "may not be listed at
-all". Suggested request text:
+all". The forum's pinned rules (read 2026-11-25) put DEXes with $500k liquidity and $50k a
+day of volume first. Staff never DM; a reply linking another Discord invite is a scam.
+
+DexScreener also publishes an adapter a DEX can host for its indexer, "Adapter Specs" v1.1
+(https://docs.dexscreener.com/contact-us/adapter-specs): `/latest-block`, `/asset?id=`,
+`/pair?id=`, `/events?fromBlock=&toBlock=`. GeckoTerminal's standard is a copy of it, so our
+feed at `https://memetics.finance/api/gt` already meets it. Checked 2026-11-26 against a real
+BAYLA/SOL swap and withdrawal: one coin in and one out per swap; `priceNative` is asset0 in
+asset1 and never 0; `txnIndex` + `eventIndex` are unique in a block; reserves are the vaults
+after each event; amounts are decimal strings of at most 50 places; `/latest-block` is the
+newest finalized slot, so `/events` already holds it; `pair.feeBps` is 100 for 1%. The only
+field beyond their schema is `asset.decimals`, an extra.
+
+Suggested text for the first post:
 
 > Hi — DEX listing request for Solana. Memetics (https://memetics.finance) runs a
 > constant-product AMM at program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, a fork of
@@ -67,6 +89,20 @@ all". Suggested request text:
 
 Expect "not yet" until the audit is done and volume is visible on GeckoTerminal; ask again
 after both.
+
+Follow-up for the same thread (a reply, never a new post), naming their own spec:
+
+> Update: we host your Adapter Specs (v1.1) for this DEX, live on mainnet data, so your
+> indexer can read us without a custom parser. Base URL: https://memetics.finance/api/gt
+> (the same endpoints serve GeckoTerminal).
+> - /latest-block → https://memetics.finance/api/gt/latest-block
+> - /asset → https://memetics.finance/api/gt/asset?id=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump
+> - /pair → https://memetics.finance/api/gt/pair?id=ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4
+> - /events → https://memetics.finance/api/gt/events?fromBlock=474377383&toBlock=474377383
+>
+> Blocks are finalized Solana slots, times UNIX seconds, amounts decimal strings; up to
+> 50,000 slots per /events call, 120 requests a minute. Program
+> `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (Raydium cp-swap fork, same account layouts).
 
 ## 3. Jupiter (free; the SDK is rebuilt, the audit is the blocker)
 
@@ -100,6 +136,8 @@ Requests are GitHub issues on `dextools-io/community-requests`; ours is #163.
 - 2026-11-25: GeckoTerminal form (queue up to 3 months, Express USD 15,000 declined),
   DexScreener's `#dex-listing` forum (one post per DEX; follow up inside the thread),
   DexTools issue #163.
+- 2026-11-26: the live DexTools feed URLs, as a comment on #163.
+- Read 2026-11-26: no reply yet on #163; GeckoTerminal still 404; DexScreener still no pair.
 
 ## What each listing does for the money
 
