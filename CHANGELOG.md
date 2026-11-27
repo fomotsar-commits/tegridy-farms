@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-27
+
+- Jungle Bay: the collection once listed as Jungle Bay Ape Club is now called Jungle Bay across the site (the marketplace, NFT lending, the Gold Card, the FAQ and Towelie), and its marketplace page opens with a wide banner picture chosen by the Jungle Bay curator. Nine new Jungle Bay pieces now hang behind the Pools page, on the menu's Swap, Earn and Records pictures, behind NFT Finance in the Bayla room, and in every Bayla room spot that showed the picture of the apes around the bed, the onboarding screens included.
+
 ### 2026-11-26
 
 - Solana pools: a pool everyone has taken their money out of (only the 100 locked shares and a few units of each coin left, worth under a cent) can now be restarted at Jupiter's price. Where its Add was switched off, its row says Restart and its card offers Restart at market price. One transaction tops the pool up to Jupiter's price with a few more units, which stay in it for good, adds your deposit at that price, then takes a sliver of your new shares straight back out as a check: if anyone changed the pool before it runs, the whole transaction fails and only the network fee is spent. A restart pays no pool fee; the venue earns its usual share of every trade the pool carries afterwards. A pool with no market price still takes no deposit.
