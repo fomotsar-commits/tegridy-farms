@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-27
+
+- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana at most a minute old; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
+
 ### 2026-11-26
 
 - Solana pools: a pool everyone has taken their money out of (only the 100 locked shares and a few units of each coin left, worth under a cent) can now be restarted at Jupiter's price. Where its Add was switched off, its row says Restart and its card offers Restart at market price. One transaction tops the pool up to Jupiter's price with a few more units, which stay in it for good, adds your deposit at that price, then takes a sliver of your new shares straight back out as a check: if anyone changed the pool before it runs, the whole transaction fails and only the network fee is spent. A restart pays no pool fee; the venue earns its usual share of every trade the pool carries afterwards. A pool with no market price still takes no deposit.
