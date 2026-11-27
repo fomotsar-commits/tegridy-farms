@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-27
 
+- HyperEVM pools: anyone can open a pool, for any coin paired with HYPE, USDC or USD₮0, once the opener contract is deployed (until then nothing changes and only the venue opens pools). Opening pays the venue 0.23 HYPE, sent to the treasury Safe in the same transaction that opens the pool and switches the venue's cut on; a pool someone opened straight on Uniswap's factory can be listed for the same fee. Buying such a coin with USDC or USD₮0 pays the 0.5% site fee in the coin you pay with. A coin off the site's list shows its own ticker and its whole address; a copy of HYPE, USDC or USD₮0 reads "fake USDC". The wallet needs Hyperliquid's big-block setting on, which the site reads and explains.
 - Jungle Bay: the collection once listed as Jungle Bay Ape Club is now called Jungle Bay across the site (the marketplace, NFT lending, the Gold Card, the FAQ and Towelie), and its marketplace page opens with a wide banner picture chosen by the Jungle Bay curator. Nine new Jungle Bay pieces now hang behind the Pools page, on the menu's Swap, Earn and Records pictures, behind NFT Finance in the Bayla room, and in every Bayla room spot that showed the picture of the apes around the bed, the onboarding screens included.
 
 ### 2026-11-26

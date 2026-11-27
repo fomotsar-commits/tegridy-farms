@@ -26,6 +26,8 @@ export interface HyperEvmVenue {
   readonly feeAdapter: `0x${string}`;
   readonly treasury: `0x${string}`;
   readonly siteFeeBps: bigint;
+  /** Where anyone opens a pool for its fee; null until deployed (the open form stays hidden). */
+  readonly poolOpener: `0x${string}` | null;
 }
 
 /** The site never charges more than this on a swap, whatever the record says (Base's SwapFeeRouter cap). */
@@ -51,6 +53,7 @@ export function hyperEvmVenueFrom(d: HyperEvmDeployment): HyperEvmVenue | null {
     feeAdapter,
     treasury,
     siteFeeBps: BigInt(siteFeeBps),
+    poolOpener: d.poolOpener && set(d.poolOpener) ? d.poolOpener : null,
   });
 }
 
@@ -82,6 +85,13 @@ export interface HyperEvmToken {
   readonly decimals: number;
   /** HYPE itself: sent as the call's value, wrapped to WHYPE by the router. */
   readonly isNative?: true;
+  /**
+   * Not on the site's list: a coin someone opened a pool for. Its `symbol` is its own claim,
+   * cleaned for the screen ("fake USDC" for a copy, coins.ts), and its whole address always shows.
+   */
+  readonly unlisted?: true;
+  /** An unlisted coin whose ticker contains a listed one's ("USDC.e"): the screens warn, never rename. */
+  readonly lookalike?: string;
 }
 
 /** HYPE has no contract; this is the pseudo-address the site's token lists use for a chain's own coin. */
