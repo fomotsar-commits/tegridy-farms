@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { raiseAddReceipt } from './addReceipt';
+import { momentWanted } from '../../../hooks/useMomentShare';
+import { askMoment, momentClip } from '../../../lib/momentShare';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { ownTicker, tokenTicker } from '../../../lib/solana/lp/identity';
 import { PublicKey } from '@solana/web3.js';
@@ -131,6 +133,14 @@ function AddInner({
     [record, onSettled, connection, owner, view, ticker, named, decimals, leg, writes.readers.holders],
   );
   const flow = useTxFlow(api, writes.rpc, settled, writes.pending.sent);
+  // The moment for every coin (the island, 11-19): the review signed, the add's clip is asked of the island, so the
+  // receipt's first tap carries the GIF even when the island is making it for the first time.
+  useEffect(() => {
+    if (flow.state.step !== 'submitting' || !momentWanted()) return;
+    askMoment(momentClip({ action: 'added', coin: { symbol: ticker, mint: view.tokenMint }, pairing: coin.symbol, unnamed: !named }));
+    // One ask a signing: the step is what moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow.state.step]);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   const reread = useCallback(() => setFactsNonce((n) => n + 1), []);
   useFlowReports(writes, flow.state.step, flow.locked, reread);

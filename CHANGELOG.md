@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-20
 
+- Sharing a buy or an add on X: every coin now posts its own moving moment, the shore for a buy and the flash for an add, where only the five rooms did; any other coin posted words alone. A coin's first clip takes the island about two minutes to make for a buy and three and a half for an add; it is asked for as your wallet signs, and the card waits up to six minutes for it. Every later share of that coin is instant. An add paired with USDC or an island coin names that coin in its clip.
 - Sharing your heat on X: the link in the post now carries the number it states, and so does the card's picture, so X draws a fresh card under every new number instead of the card it kept from an earlier share of the same link.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 

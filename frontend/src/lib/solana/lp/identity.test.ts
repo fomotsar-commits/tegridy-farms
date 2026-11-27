@@ -3,7 +3,7 @@
 // address; every other coin by the ticker it gives itself, and a copy of a well-known
 // ticker as "fake X".
 import { describe, it, expect } from 'vitest';
-import { claimedTicker, ownTicker, pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
+import { claimedTicker, ownTicker, ownTickerOf, pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
 import { BAYLA_MINT, USDC_MINT, USDT_MINT, WSOL_MINT, type TokenSafety } from './tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from './quotes';
 import type { PoolView } from './poolFinder';
@@ -222,5 +222,25 @@ describe('ownTicker: the ticker a coin may be named by', () => {
     expect(ownTicker(OTHER, { kind: 'unread', mint: OTHER, detail: 'HTTP 429' })).toBeNull();
     // A check read for another mint says nothing of this one.
     expect(ownTicker(OTHER, claims(FAKE_BAYLA, 'CRYING'))).toBeNull();
+  });
+});
+
+// The moment for every coin (11-19): a buy's moment is posted only under a ticker of the coin's own, read from the
+// swap's own list's ticker the way ownTicker reads a check's.
+describe('ownTickerOf', () => {
+  const BIG_BRAIN = 'J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump';
+  it('the coin’s own ticker, cleaned for the screen', () => {
+    expect(ownTickerOf(BIG_BRAIN, 'BIG BRAIN')).toBe('BIG BRAIN');
+    expect(ownTickerOf(BIG_BRAIN, 'ABCDEFGHIJKLMNOP')).toBe('ABCDEFGHIJK…');
+  });
+  it('ours and the pairing coins by the site’s own names, whatever the list says', () => {
+    expect(ownTickerOf(BAYLA_MINT, 'something else')).toBe('BAYLA');
+    expect(ownTickerOf(USDC_MINT, null)).toBe('USDC');
+  });
+  it('none for a copy of a well-known coin, or for no ticker at all', () => {
+    expect(ownTickerOf(BIG_BRAIN, 'BAYLA')).toBeNull();
+    expect(ownTickerOf(BIG_BRAIN, 'USDC')).toBeNull();
+    expect(ownTickerOf(BIG_BRAIN, '')).toBeNull();
+    expect(ownTickerOf(BIG_BRAIN, undefined)).toBeNull();
   });
 });
