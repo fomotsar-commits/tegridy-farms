@@ -338,7 +338,7 @@ describe('range pools in the route', () => {
     // The review is the range pool's own, with its fee and the venue's share from the tier.
     expect(screen.getByText('Range pool')).toBeInTheDocument();
     expect(screen.getByText(/it keeps 16% of each swap’s fee \(0\.16% of the swap\)/)).toBeInTheDocument();
-    expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet/)).toBeInTheDocument();
+    expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s vault/)).toBeInTheDocument();
     expect(screen.getByText('Pool fee (inside what you pay)')).toBeInTheDocument();
     expect(screen.getByText(/^1% of what you pay\./)).toBeInTheDocument();
     await signOnReview();
@@ -374,7 +374,7 @@ describe('range pools in the route', () => {
     fireEvent.click(buy);
     expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
     const first = screen.getByTestId('tx-review-venue-elsewhere');
-    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s vault, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
     // First: above every row of the review, said once.
     const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(before(first, screen.getByText('Range pool'))).toBe(true);

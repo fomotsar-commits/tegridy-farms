@@ -167,7 +167,7 @@ async function checkOpeningRows(rows: Record<string, string>, o: Opening & { mar
   expect(rows['Pool kind']).toBe('Standard address for fee tier 1');
   expect(rows['Token (mint)']).toBe(token.mint.toBase58());
   expect(rows['Paired with']).toBe(coin.symbol);
-  expect(rows['Fee tier']).toMatch(/^1: traders pay /);
+  expect(rows['Fee tier']).toMatch(/^Tier 1: traders pay /);
   expect(rows['You put in']).toBe(`${coinExact(o.coinIn, coin)} and ${units(o.tokenIn, d)} tokens, exactly`);
   const price = `1 token = ${formatSolPrice(priceOf(o.coinIn, o.tokenIn, d, coin))} ${coin.symbol}. Market (Jupiter, read just now): ${formatSolPrice(o.market)} ${coin.symbol}, `;
   if (o.gap) {
@@ -318,7 +318,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
     // Its pools with the island coins ranked below it are found from their side, and the
     // sentence says so.
-    await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found. A pool of BAYLA and BOBO, SOY, BRAINLET or RIZZ is found and opened from the other side: look up BOBO, SOY, BRAINLET or RIZZ and pair it with BAYLA.');
+    await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found. To find or open a pool of BAYLA with BOBO, SOY, BRAINLET or RIZZ, look up that coin and pair it with BAYLA.');
 
     const panel = await openCreateForm(p, USDC_COIN);
     // BAYLA is priced in the coins that outrank it: SOL and USDC, never itself.

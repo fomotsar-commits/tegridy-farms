@@ -3,7 +3,7 @@ import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/lau
 import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
-import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice, priceText as pricePerToken, tradeCostText, worthText } from '../../../lib/solana/lp/format';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
@@ -296,10 +296,22 @@ function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
 /**
  * The pool's tier and what a trade on the pool costs: the trade fee, plus the creator fee
  * when the pool's own switch is on (`enableCreatorFee`, read with the pool while preparing).
+ * Two whole phrases: a phone breaks the row between them, never before its last word. Also
+ * the Open a pool form's own row (CreatePoolPanel.tsx).
  */
-function feeTierText(config: LpSummary['config'], enableCreatorFee: boolean): string {
-  if (!config) return 'not read';
-  return `${config.index}: traders pay ${tradeCostText(config, enableCreatorFee)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+export function FeeTierValue({ config, enableCreatorFee }: { config: LpSummary['config']; enableCreatorFee: boolean }) {
+  if (!config) return <>not read</>;
+  return (
+    <>
+      <span className="inline-block">
+        Tier {config.index}: traders pay {tradeCostText(config, enableCreatorFee)};
+      </span>{' '}
+      {/* What LPs keep and what the venue takes, together (owner, 2026-10-09: it stays in view). */}
+      <span className="inline-block">
+        LPs keep {feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade, the venue {feeSplit(config).venueTakesPct.toFixed(3)}%
+      </span>
+    </>
+  );
 }
 
 /** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
@@ -462,7 +474,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
   return (
     <>
       <LpPoolRows summary={s} />
-      <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={s.enableCreatorFee} />} mono={false} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
@@ -473,9 +485,13 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
           mono={false}
         />
       )}
-      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
+      {s.restart ? (
+        <LpRestartRows summary={s} restart={s.restart} />
+      ) : (
+        <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
+      )}
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
-      <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />
+      {!s.restart && <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />}
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
@@ -500,6 +516,32 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
             ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
             : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
       </Notice>
+    </>
+  );
+}
+
+/**
+ * A restart's own rows (restart.ts): the price the pool is set to, what tops it up and stays
+ * in it for good, the shares kept, and the check-back that undoes everything if the pool was
+ * moved first. Every amount but the top-up's worth is decoded from the bytes.
+ */
+function LpRestartRows({ summary: s, restart: r }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }>; restart: NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['restart']> }) {
+  const q = s.quote;
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  return (
+    <>
+      <Row label="Restarts at" value={`${pricePerToken(r.perToken, q)}, Jupiter’s price read just now`} mono={false} line="market" />
+      <Row
+        label="Also goes in, for good"
+        value={`${coinExact(r.topUp.quote, q)} and ${unitsExact(r.topUp.token, s.tokenDecimals)} tokens (${worthText(coinAbout(r.costQuote, q, true))}), to set the pool to that price. They stay in the pool, and you cannot take them back out.`}
+        mono={false}
+      />
+      <Row label="You get" value={`${shares(r.keep)} pool shares, exactly`} mono={false} />
+      <Row
+        label="Check-back"
+        value={`${shares(r.checkLp)} pool shares come straight back out, as at least ${coinExact(r.checkMin.quote, q)} and ${unitsExact(r.checkMin.token, s.tokenDecimals)} tokens. If the pool changed by more than your tolerance before this runs, it fails and nothing goes in.`}
+        mono={false}
+      />
     </>
   );
 }
@@ -605,7 +647,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
       <Row label="Paired with" value={q.symbol} mono={false} />
       {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
-      <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
+      <Row label="Fee tier" value={<FeeTierValue config={s.config} enableCreatorFee={CREATOR_FEE_SWITCH.publicOpen} />} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       {s.transferFee && (
@@ -932,6 +974,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'venue-swap': 'One-time deposit for your new token account (it stays in that account)',
   'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-restart': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
   'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
@@ -996,7 +1039,7 @@ export function FeeRows({ prepared, decimals, coinName }: { prepared: PreparedTx
       {(prepared.simulated.solDeltas ?? []).map((t) => (
         <Row
           key={t.account.toBase58()}
-          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the venue’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
+          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the team’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
           value={signedSol(t.delta)}
           line="fee"
         />
@@ -1016,6 +1059,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'lp-restart': 'Review: restart this pool',
   'range-open': 'Review: open a range position',
   'range-remove': 'Review: take out of your range position',
   'range-close': 'Review: close your range position',
@@ -1332,8 +1376,16 @@ export function TxFlowView({
   resetMeans,
   afterConfirmed,
   coinName,
+  signWhenReady = false,
 }: {
   flow: TxFlow;
+  /**
+   * One press (owner, 2026-11-19: "claiming yield from lps is 3 different clicks just to
+   * harvest"): a review whose test run passed goes to the wallet with no Sign press, and
+   * stays on screen beside the wallet. Only for a claim, where nothing is picked. A review
+   * built again that reads differently still waits for Sign in wallet.
+   */
+  signWhenReady?: boolean;
   /** A coin's own ticker, from its check (a range position's reward coin); names a coin off the site's list. */
   coinName?: (mint: string) => string | null;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
@@ -1380,6 +1432,17 @@ export function TxFlowView({
   const setFocus = (el: HTMLElement | null) => {
     focusRef.current = el;
   };
+  // The panel's `extraReview` is its own and does not come from the prepared
+  // transaction, so the lines compared are the review's alone.
+  const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
+  // One press: each build's first review goes to the wallet by itself, once.
+  const signedBy = useRef<PreparedTx | null>(null);
+  const autoReview = signWhenReady && s.step === 'review' && !s.replaced && !s.expired && !s.checking && !s.renewing ? s.prepared : null;
+  useEffect(() => {
+    if (!autoReview || !signer || signedBy.current === autoReview) return;
+    signedBy.current = autoReview;
+    void flow.confirm(signer, lines);
+  });
   if (s.step === 'idle') return null;
   if (s.step === 'preparing') {
     return (
@@ -1392,9 +1455,6 @@ export function TxFlowView({
     // Too old to sign, and its build may not run twice (the launch): only Start over is left.
     const dead = s.expired && !s.renewable;
     const working = s.checking || s.renewing;
-    // The panel's `extraReview` is its own and does not come from the prepared
-    // transaction, so the lines compared are the review's alone.
-    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} coinName={coinName} />);
     return (
       <div className="space-y-3">
         <TxReview
@@ -1440,14 +1500,20 @@ export function TxFlowView({
   if (s.step === 'submitting') {
     const waiting = (
       <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
-        Waiting for your wallet. Approve the transaction there to send it.
+        {signWhenReady
+          ? 'Waiting for your wallet. Approve it there if it matches what is below.'
+          : 'Waiting for your wallet. Approve the transaction there to send it.'}
       </p>
     );
-    if (!s.moved) return waiting;
+    // One press: the review was not read before the wallet opened, so it stays beside it.
+    if (!s.moved && !signWhenReady) return waiting;
     return (
       <div className="space-y-2">
         {waiting}
-        <MovedLines moved={s.moved} />
+        {s.moved && <MovedLines moved={s.moved} />}
+        {signWhenReady && (
+          <TxReview prepared={s.prepared} decimals={decimals} display={api.meta.displaySafe} extra={extraReview} coinName={coinName} />
+        )}
       </div>
     );
   }

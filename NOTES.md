@@ -15,6 +15,54 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-26: a deposit's maxima do not hold a topped-up cp-swap pool to its price, and a top-up is any holder's to take
+
+**Believed:** to restart a near-empty cp-swap pool at the market price, send its short side up to
+the target ratio and deposit with tight maxima in the same transaction: anyone who moves the pool
+first makes a maximum fail. And a pool with only a few shares besides the locked 100 is close
+enough to empty that the top-up goes to nobody.
+
+**Measured** (PR #1338, "restart a pool everyone has left, at Jupiter's price"; read-only mainnet
+simulations of the site's own builder on the dead BIG BRAIN / BAYLA pool, nothing signed, 2026-11-26):
+
+- A trade or a gift into a vault makes a share cost more, and a maximum refuses it. But someone
+  who first deposits their own shares at the old dust price adds shares, so the top-up is spread
+  over more of them and a share costs less: every maximum still passes and the deposit lands
+  between the old price and the market's. Only a floor catches that, and the pool program's only
+  floor is a withdrawal's minimum. With 1,000 shares added at the dust price first, the restart
+  failed at its check-back with `ExceededSlippage` (6005); the same attack with the check-back's
+  minima set to 1 went through.
+- A top-up into a pool that anyone still holds shares in is theirs to withdraw, and a holder can
+  inflate it first by sending coins into the vaults. The program counts every share not withdrawn
+  in `lp_supply`, ones destroyed with a plain SPL burn included, so a count above 100 cannot tell
+  a held share from a burned one: exactly 100 (`LOCKED_LP`) is the only count that proves nobody
+  holds any. The first version (never pushed) offered a restart for any pool under 100,000 shares;
+  in an independent review's run a 0.05 SOL restart handed another LP about 1 SOL.
+- Putting an attacker's instruction into a transaction the site built made a later instruction die
+  of "exceeded CUs meter", because the builder sets a tight compute-unit limit. That failure says
+  nothing about the guard.
+
+**Do:** after topping a pool up, take a sliver of the new shares straight back out in the same
+transaction (a check-back), its minima set from your own plan, so the deposit is held from below as
+well as above. Restart only a pool whose `lp_supply` is exactly 100. To test a guard by simulating
+an attack on a built transaction, raise the compute-unit limit in the simulated copy (to 1,400,000,
+say) so the guard itself is what passes or fails. Code: `frontend/src/lib/solana/lp/restart.ts`.
+
+## 2026-11-25: a test that lifts a fault after a reload can lose to the page's own check of it
+
+**Believed:** once a reloaded page shows its "may still be landing" card, a test can stop failing
+`getSignatureStatuses` and press Check again: nothing else asks the chain in between.
+
+**Measured** (CI run 45554002434, `frontend/e2e-solana/lp-create.spec.ts` P2, 2026-11-25): in a
+run of 1h11m (a passing one: 48m, P2 1.6m), P2 waited out its 12 minutes on chromium and
+mobile-chrome at the press, after the card had passed its visibility check. The page checks a
+standing note once on each load, when its config has arrived (`usePendingTrades`). That check
+went out after the release, settled the note and took the card away under the press.
+
+**Do:** after a load with a fault in place, wait for the page's own attempt to be refused before
+lifting it: count refusals from before the load and poll past that. Where the page before the
+load was still asking the same thing, a count can be that page's: wait for the card's answer.
+
 ## 2026-11-20: Uniswap's SDK builds a deposit from the amount typed, even when the range cannot take that coin
 
 **Believed:** `Position.fromAmount0` (and `fromAmount1`) from `@uniswap/v3-sdk` 3.31.11 turns
@@ -80,6 +128,49 @@ read a newer crate's edition 2024 manifest (the cpi-caller lock trap of 2026-11-
 **Do:** for each check, make the mutant and read which assertion fails, not only that one fails:
 a refusal by the same code from an earlier line proves nothing about the line removed.
 
+## 2026-11-19: a press that scrolls the page makes a double tap's second tap press what moved under the finger
+
+**Believed:** a scroll that brings the next step onto the screen is harmless to the finger: the
+button that was pressed has already done its job.
+
+**Measured** (Playwright, Chromium and WebKit touch, 430x740 and 390x664, two taps at one point
+300 ms apart on /pools "Open a pool"): the first tap moved the page 179 / 255 px in one frame. The
+second landed on a token button (picked it: a lookup and a 1,951 px move) or on the address box's
+label (focus, so a phone's keyboard). jsdom never moves anything, so no unit test could see it.
+
+**Do:** send every move a page makes on its own through one helper that, when the move shifts
+the target on screen, drops touchend, mousedown and click near the press for 500 ms
+(`frontend/src/lib/bringIntoView.ts`, with a source test that fails on a raw `scrollIntoView`).
+Measured with it at 25 px: the same double tap pressed nothing; a tap on a token 38 px away 150 ms
+after the press, and the same spot 800 ms after, each picked the token.
+
+**And a move is more than `scrollIntoView`** (Fable read at 390, 2026-11-24, same harness, Chromium
+and WebKit). A pick draws a line one row tall above the tokens before its answer scrolls: in WebKit
+a double tap on RIZZ picked the token above it. Close puts focus back on the form's opener, which
+scrolls the page ~900 px: the second tap of a double tap on Close opened the form again. Neither is
+a `scrollIntoView`, so the helper never saw them; each now calls `holdPress()` at the press. Two
+more: a finger down on the fixed bottom bar while a read landed lost its tap (one in ten to twenty),
+so a tap that lands on what its press pressed now goes through (a touch's events all go to what it
+began on, and a fixed bar does not move); and 25 px was narrower than a double tap's spread (a
+second tap 30 px off picked RIZZ), so the hold is now 30 px round.
+
+**Too wide is its own swallow** (Fable re-read at 390, 2026-11-25, same harness). At 45 px round the
+tokens a task press brings under the thumb did not answer for half a second: at 430x740, SOY 39 px
+off after Add liquidity and BAYLA 44 px off after Open a pool; on a 390x760 screen most of the token
+under the finger and half of the next. 30 px round holds the measured double tap and lets the next
+token through. And a look-up is not always a press: the island's sheet and the door's link call the
+same `lookUp()` with none, and a hold armed there sat on the spot of the press that opened the
+sheet, where Back now was, so a prompt Back did nothing once. Hold only where a press asked.
+What is left (narrow re-read, 2026-11-25): the token that slides under the finger still does not
+answer for the half second, its centre 6 to 28 px from the press on tall phones (12 of 17 sizes),
+because that is where a double tap's second tap lands; and a second tap 31 to 45 px off does what
+trunk does.
+
+**But a spot-and-time hold swallows automation.** e2e-solana's `press()` scrolls each target to
+the middle of the screen, then clicks it: every press lands on one spot, within milliseconds. On
+#1301's first CI run three specs failed with a press that did nothing ("Pair with SOL" stayed on
+USDC; Review: remove liquidity never enabled). A mouse counts its own clicks (`detail` is 2 on a
+double click's second), so a mouse is held only at `detail >= 2`; touch keeps the spot and time.
 
 ## 2026-11-18: letting three equal flex steps shrink fixed a phone and cut a name short on a tablet
 
@@ -226,6 +317,35 @@ lockfile's `packages` map, resolving each dependency name as Node does (the pack
 `node_modules`, then each ancestor's), or run `npm explain` in an installed tree. To find the
 copies no audit lists, search the installed tree for a string from the flawed file:
 `grep -rl -F POSIX_REGEX_SOURCE node_modules`.
+
+## 2026-11-16: a partial `vi.mock` of a module breaks code that merely imports a new export from it
+
+**Believed:** `vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }))` matters only to
+code that calls `trackPageView`.
+
+**Measured** (full `npx vitest run`, Windows, 2026-11-16): adding one `trackSiteFeeWaived()` call
+inside `prepareJupiterSwap` turned 16 page tests red (SolanaSwapPage.feeRetry 7, .ownPool 9).
+Vitest throws when code reads an export the mock factory did not define, so the swap path threw,
+and the page reported a failed build. In production nothing throws.
+
+**Do:** before adding an import to a shared module, grep the tests for partial mocks of the module
+you import from. A side-effect-only call (a count, a log) on a money path goes in `try/catch`: it
+must never stop the trade it records.
+
+## 2026-11-16: a harness that answers every chain read with one value hides a new read from its tests
+
+**Believed:** a hook test whose `publicClient.readContract` is `mockResolvedValue([in, out])` keeps
+testing the same swap after the hook adds a read before it.
+
+**Measured** (same run): the limit-order and DCA hooks began reading `getPair` and `kLast` first.
+The array answered `getPair`, the new check called the pool unread, and 24 limit-order tests went
+red. The two DCA files stayed green but no longer tested our pool: ETH-in DCA quietly fell back to
+Uniswap.
+
+**Do:** answer reads by `functionName` (`mockImplementation`), and when a guard is added, look
+for tests that stayed green for the wrong reason, not just the ones that went red. A build guard in
+a Vite plugin is testable without bundling: `resolveConfig({ configFile }, 'build', 'production')`
+runs every plugin's `configResolved`, in about a second.
 
 ## 2026-11-15: a scroll-to-top keyed on the navigation's type fires on a page's own query change
 

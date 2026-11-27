@@ -191,6 +191,55 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     }
   });
 
+  // A double tap on Open a pool: the first tap moves the page, the second lands on whatever is
+  // under the finger now. At 430 wide that was a token, picked by nobody (Fable read, 2026-11-19).
+  it('the second tap of a double tap does not press what the first tap moved under the finger', async () => {
+    mount();
+    let moved = 0;
+    scrolled.mockImplementation(() => { moved = 255; });
+    const box = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 400 - moved, 100, 48));
+    try {
+      const finger = { clientX: 75, clientY: 439 };
+      const open = await task('Open a pool');
+      fireEvent.pointerDown(open, finger);
+      fireEvent.click(open, finger);
+      expect(moved).toBe(255);
+      const bayla = await chip('BAYLA');
+      fireEvent.pointerDown(bayla, finger);
+      fireEvent.click(bayla, { ...finger, detail: 2 });
+      await act(async () => {});
+      // A pick writes the token's address into the box at once.
+      const address = within(await finder()).getByLabelText('Token mint address');
+      expect(address).toHaveValue('');
+      expect(bayla).toHaveAttribute('aria-pressed', 'false');
+      // Tapped where it is drawn, it is picked.
+      fireEvent.pointerDown(bayla, { clientX: 60, clientY: 325 });
+      fireEvent.click(bayla, { clientX: 60, clientY: 325, detail: 1 });
+      await waitFor(() => expect(bayla).toHaveAttribute('aria-pressed', 'true'));
+    } finally {
+      box.mockRestore();
+      scrolled.mockReset();
+    }
+  });
+
+  // A pick draws "Open a pool and Add liquidity act on the token in the box below." above the
+  // tokens before its answer moves the page, one row tall: in WebKit a double tap on RIZZ then
+  // picked the token above it (Fable read, 2026-11-24).
+  it('the second tap of a double tap on a token does not pick the token that slid under the finger', async () => {
+    const r = mount();
+    const [above, tapped] = within(within(await finder()).getByTestId('lp-site-tokens')).getAllByRole('button');
+    const finger = { clientX: 300, clientY: 700 };
+    fireEvent.pointerDown(tapped!, finger);
+    fireEvent.click(tapped!, finger);
+    fireEvent.pointerDown(above!, finger);
+    fireEvent.click(above!, finger);
+    await waitFor(() => expect(r.findPools).toHaveBeenCalled());
+    await act(async () => {});
+    expect(tapped).toHaveAttribute('aria-pressed', 'true');
+    expect(above).toHaveAttribute('aria-pressed', 'false');
+    expect(r.findPools).toHaveBeenCalledTimes(1);
+  });
+
   it('with adding paused, only Remove is offered and the card says so', async () => {
     mount('/pools', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');
@@ -498,9 +547,9 @@ describe('the form starts with what a phone needs', () => {
     expect(before(review, terms)).toBe(true);
     expect(before(terms, notes)).toBe(true);
     // The notes are still on the page, whole, and the form says where.
-    expect(notes).toHaveTextContent('Put in only what you can afford to lose.');
+    expect(notes).toHaveTextContent('Only add what you can afford to lose.');
     // With no wallet the deposits are not called unread: they are read with the wallet, and the page has them.
-    expect(notes).toHaveTextContent('account deposits that never come back (the fee tiers list on this page has their amount)');
+    expect(notes).toHaveTextContent('account deposits that never come back (Rates, on this page, has their amount)');
     expect(notes).not.toHaveTextContent('could not be read');
     // The greyed Review says why, right above it.
     const why = within(panel).getByTestId('lp-review-why');

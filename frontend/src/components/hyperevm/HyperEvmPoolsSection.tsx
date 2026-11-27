@@ -21,14 +21,16 @@ const pairName = (p: V3Pool) => `${p.token0.symbol} / ${p.token1.symbol}`;
  * Our HyperEVM pools: each pool with its price, holdings and how its fee is split, your
  * positions (collect fees, take out), and add. No "open a pool": opening one needs ~4.6M gas,
  * more than a fast block holds, so only the venue opens pools, from an account on big blocks.
+ * `pageHeading`: on /hyperevm-pools its first title is the page's h1; in the sheet it stays an h2.
  */
-export default function HyperEvmPoolsSection() {
+export default function HyperEvmPoolsSection({ pageHeading = false }: { pageHeading?: boolean } = {}) {
   const venue = hyperEvmVenue();
   if (!venue) return null;
-  return <Pools venue={venue} />;
+  return <Pools venue={venue} pageHeading={pageHeading} />;
 }
 
-function Pools({ venue }: { venue: HyperEvmVenue }) {
+function Pools({ venue, pageHeading }: { venue: HyperEvmVenue; pageHeading: boolean }) {
+  const Title = pageHeading ? 'h1' : 'h2';
   const client = useHyperEvmClient();
   const { state, reload } = usePools(venue);
   const send = useHyperEvmSend();
@@ -59,7 +61,7 @@ function Pools({ venue }: { venue: HyperEvmVenue }) {
       <section className="relative isolate overflow-hidden rounded-2xl p-5" style={{ border: '1px solid rgba(255,255,255,0.12)' }} data-ui-card="">
         <CardArt pageId="liquidity" idx={1} />
         <div className="relative z-10 space-y-3">
-          <h2 className="text-white font-semibold text-[15px]">Our pools on HyperEVM</h2>
+          <Title className="text-white font-semibold text-[15px]">Our pools on HyperEVM</Title>
           <p className="text-white/75 text-[12px]">LPs earn each pool's fee on every trade while the price is in their range. The venue keeps a fixed share of it, read from each pool below.</p>
           {state.status === 'loading' && <p role="status" className="text-white/70 text-[12px]">Reading our pools…</p>}
           {state.status === 'unread' && <p role="status" className="text-amber-300/90 text-[12px]">Our pools could not be read just now.</p>}

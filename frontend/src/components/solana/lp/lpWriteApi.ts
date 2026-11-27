@@ -39,6 +39,7 @@ async function build(): Promise<LpWriteApi> {
     readLpGate: (rpc, cfg) => config.readLpGate(rpc, cfg),
     readCreateFacts: config.readCreateFacts,
     prepareLpDeposit: liquidity.prepareLpDeposit,
+    prepareLpRestart: liquidity.prepareLpRestart,
     prepareLpWithdraw: liquidity.prepareLpWithdraw,
     prepareLpCreate: createPool.prepareLpCreate,
     submitPrepared: submit.submitPrepared,

@@ -75,6 +75,8 @@ export const SENDERS: Record<string, How> = {
   'lib/launcher/solana/write/submit.ts': { ends: 'submitPrepared' },
   'components/solana/curve/ports.ts': { ends: 'submitPrepared' },
   'components/solana/curve/useTxFlow.ts': { ends: 'submitPrepared' },
+  // Harvest's pool fees: each share's Claim fees, built and sent as the Pools panel sends it.
+  'components/solana/lp/harvestFees.ts': { ends: 'submitPrepared' },
   // Add with one coin: its swap leg (oneCoinSwap.ts) is signed by the wallet and sent and watched by the swap's own send.
   'components/solana/lp/AddOneCoinPanel.tsx': { passes: 'lib/solana/swap/walletSwapSend.ts' },
   // A Jupiter swap: the wallet signs, the page sends, sends again and watches (the swap, step 1 of a one-coin add, a basket coin).

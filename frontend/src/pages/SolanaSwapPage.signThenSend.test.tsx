@@ -182,7 +182,7 @@ describe('a wallet that can sign alone: it signs, this page sends', () => {
     connection.sendRawTransaction.mockRejectedValue(Object.assign(new Error(`Simulation failed. \nMessage: ${msg}.`), { transactionMessage: msg, transactionLogs: [] }));
     await press();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', expect.objectContaining({
-      description: expect.stringMatching(/wallet’s own safety check stopped it.*Nothing was sent/),
+      description: expect.stringMatching(/wallet’s own safety check ran out of room.*Nothing was sent/),
     })));
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     // Not "may have been sent", not "couldn't confirm", and Buy is not held for this wallet.

@@ -1,7 +1,7 @@
 import { useReadContracts, useAccount } from 'wagmi';
 import { CHAIN_ID } from '../lib/constants';
 
-// Jungle Bay Ape Club NFT contract
+// Jungle Bay (JBAC) NFT contract
 const JBAC_ADDRESS = '0xd37264c71e9af940e49795f0d3a8336afaafdda9' as const;
 // Jungle Bay Gold Cards
 const JBAY_GOLD_ADDRESS = '0x6aa03f42c5366e2664c887eb2e90844ca00b92f3' as const;

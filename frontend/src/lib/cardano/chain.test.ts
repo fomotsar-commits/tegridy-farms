@@ -27,6 +27,17 @@ describe('readPoolCandidates', () => {
     stubPoolRows([broken]);
     expect((await readPoolCandidates('e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861')).status).toBe('unread');
   });
+
+  it('says unread for a page as long as Koios answers: rows parked by the thousand may push the pool past its end', async () => {
+    const lp = 'e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861';
+    const junk = (i: number) => ({ tx_hash: i.toString(16).padStart(64, '0'), tx_index: 0, address: real[0]!.address, value: '1500000', inline_datum: null, asset_list: [{ policy_id: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', asset_name: lp, quantity: '1' }] });
+    stubPoolRows([...real, ...Array.from({ length: 1000 - real.length }, (_, i) => junk(i + 1))]);
+    expect(await readPoolCandidates(lp)).toEqual({ status: 'unread', reason: 'the pool read is longer than one read' });
+    // One row short of a page: read, and the junk dropped.
+    stubPoolRows([...real, ...Array.from({ length: 999 - real.length }, (_, i) => junk(i + 1))]);
+    const r = await readPoolCandidates(lp);
+    expect(r.status === 'ok' && r.data.length).toBe(real.length);
+  });
 });
 
 describe('readUtxo', () => {

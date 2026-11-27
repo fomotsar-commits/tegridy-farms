@@ -160,6 +160,21 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(within(screen.getByTestId('lp-finder')).getByDisplayValue(C)).toBeInTheDocument();
   });
 
+  // View draws the finder's line above the tokens before its answer scrolls: the row slides from
+  // under the finger first, and another row's button is there (Fable narrow re-read at 390,
+  // 2026-11-25). Held at the press, like a picked token.
+  it('the second tap of a double tap on View does not press what slid under the finger', async () => {
+    mount(readers());
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    const pressed = within(rows[1]!).getByRole('button', { name: /^View / });
+    const under = within(rows[0]!).getByRole('button', { name: /^View / });
+    const finger = { clientX: 210, clientY: 530 };
+    fireEvent.pointerDown(pressed, finger);
+    fireEvent.click(pressed, finger);
+    fireEvent.pointerDown(under, finger);
+    expect(fireEvent.click(under, finger)).toBe(false);
+  });
+
   it('a list that could not be read says so, and never says there are no pools', async () => {
     mount(readers({ listPools: vi.fn(async () => ({ kind: 'unread' as const, detail: 'the pool index answered HTTP 502' })) }));
     const list = screen.getByTestId('lp-all-pools');
@@ -214,7 +229,9 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in an island coin never gets this tag).');
     // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent(
+      'Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no ordinary deposit here. When everyone has taken their money out of it and Jupiter prices both its coins, Restart adds to it at Jupiter’s price instead.',
+    );
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 

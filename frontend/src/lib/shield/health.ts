@@ -93,7 +93,7 @@ function consequenceFor(band: ShieldHealthBand, secondsToDeadline: number): stri
     case 'defaulted':
       return 'The deadline has passed. The loan contract no longer accepts repayment, and the lender can claim the collateral NFT at any moment and keep it.';
     case 'urgent':
-      return `Repay within ${formatDuration(secondsToDeadline)}. A repayment that lands after the deadline is refused, and the lender can then claim the collateral NFT and keep it. There is no grace period.`;
+      return `Repay within ${formatDuration(secondsToDeadline)}. A repayment that lands at or after the deadline is refused, and the lender can then claim the collateral NFT and keep it. There is no grace period.`;
     case 'watch':
     case 'safe':
       return `Repayment is due in ${formatDuration(secondsToDeadline)}. Missing it costs the whole collateral NFT, not a percentage of it.`;

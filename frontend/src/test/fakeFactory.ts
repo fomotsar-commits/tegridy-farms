@@ -21,14 +21,14 @@ export function answer(address: string, functionName: string, result: unknown, a
   fake.answers.set(keyOf({ address, functionName, args }), result);
 }
 
-/** Base's factory holding one BRB/WETH pool: 100,000 BRB and 0.05 ETH, the cut off. */
+/** Base's factory holding one BRB/WETH pool: 100,000 BRB and 0.05 ETH, its cut on (kLast set, as every live pool's is). */
 export function oneBrbPool() {
   fake.length = { data: 1n, isError: false };
   answer(BASE.factory, 'allPairs', BRB_PAIR, [0n]);
   answer(BRB_PAIR, 'token0', BRB);
   answer(BRB_PAIR, 'token1', BASE.weth);
   answer(BRB_PAIR, 'getReserves', [100_000n * 10n ** 18n, 5n * 10n ** 16n, 0]);
-  answer(BRB_PAIR, 'kLast', 0n);
+  answer(BRB_PAIR, 'kLast', 5n * 10n ** 39n);
   answer(BRB, 'symbol', 'BRB');
   answer(BRB, 'decimals', 18);
   answer(BASE.weth, 'symbol', 'WETH');

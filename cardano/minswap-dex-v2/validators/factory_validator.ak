@@ -202,7 +202,9 @@ validator(
         0,
         fn(output, paid) {
           let Output { address: out_addr, value: out_value, .. } = output
-          if out_addr == global_setting.pool_creation_fee_receiver {
+          // Only ADA alone counts: ADA bound to tokens is not the venue's to spend.
+          let ada_only = value.without_lovelace(out_value) == value.zero()
+          if out_addr == global_setting.pool_creation_fee_receiver && ada_only {
             paid + value.lovelace_of(out_value)
           } else {
             paid
